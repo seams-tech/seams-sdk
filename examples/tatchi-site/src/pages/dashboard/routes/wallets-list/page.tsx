@@ -1,12 +1,12 @@
 import React from 'react';
 import {
-  SEARCH_USER_WALLETS_FILTER_CONTROLS,
   SEARCH_USER_WALLETS_PLACEHOLDER,
   USER_WALLETS_TABLE_COLUMNS,
   USER_WALLETS_TABLE_NOTE,
 } from '../../components/dashboardContent';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
+import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
 import {
   formatWalletBalanceMinor,
   getDashboardWallet,
@@ -14,7 +14,58 @@ import {
   mergeDashboardWalletsById,
   searchDashboardWallets,
   type DashboardConsoleWallet,
+  type DashboardConsoleWalletChain,
+  type DashboardConsoleWalletListInput,
+  type DashboardConsoleWalletSortBy,
+  type DashboardConsoleWalletSortOrder,
+  type DashboardConsoleWalletType,
 } from '../wallets/consoleWalletApi';
+
+type WalletFilterMenuKey = 'chain' | 'policy' | 'walletType' | 'sort';
+
+type WalletFilterOption = {
+  value: string;
+  label: string;
+};
+
+type WalletSortOption = WalletFilterOption & {
+  sortBy: DashboardConsoleWalletSortBy;
+  sortOrder: DashboardConsoleWalletSortOrder;
+};
+
+const CHAIN_OPTIONS: readonly WalletFilterOption[] = [
+  { value: '', label: 'All chains' },
+  { value: 'Ethereum', label: 'Ethereum' },
+  { value: 'Base', label: 'Base' },
+  { value: 'Tempo', label: 'Tempo' },
+  { value: 'Arc Circle', label: 'Arc Circle' },
+  { value: 'NEAR', label: 'NEAR' },
+];
+
+const WALLET_TYPE_OPTIONS: readonly WalletFilterOption[] = [
+  { value: '', label: 'EOA + Smart' },
+  { value: 'EOA', label: 'EOA only' },
+  { value: 'SMART', label: 'Smart only' },
+];
+
+const SORT_OPTIONS: readonly WalletSortOption[] = [
+  { value: 'created-desc', label: 'Newest first', sortBy: 'createdAt', sortOrder: 'desc' },
+  { value: 'created-asc', label: 'Oldest first', sortBy: 'createdAt', sortOrder: 'asc' },
+  { value: 'balance-desc', label: 'Highest balance', sortBy: 'balance', sortOrder: 'desc' },
+  { value: 'balance-asc', label: 'Lowest balance', sortBy: 'balance', sortOrder: 'asc' },
+  {
+    value: 'last-activity-desc',
+    label: 'Recent activity',
+    sortBy: 'lastActivity',
+    sortOrder: 'desc',
+  },
+  {
+    value: 'last-activity-asc',
+    label: 'Oldest activity',
+    sortBy: 'lastActivity',
+    sortOrder: 'asc',
+  },
+];
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -22,9 +73,68 @@ function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
+function WalletFilterDropdown({
+  buttonClassName,
+  buttonLabel,
+  options,
+  selectedValue,
+  isOpen,
+  onToggle,
+  onSelect,
+  withColumnsIcon = false,
+}: {
+  buttonClassName: string;
+  buttonLabel: string;
+  options: readonly WalletFilterOption[];
+  selectedValue: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  onSelect: (value: string) => void;
+  withColumnsIcon?: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="dashboard-filter-dropdown">
+      <button
+        type="button"
+        className={buttonClassName}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={onToggle}
+      >
+        {withColumnsIcon ? <span className="dashboard-columns-icon" aria-hidden="true" /> : null}
+        <span className="dashboard-select-control__value">{buttonLabel}</span>
+        <span
+          className={`dashboard-chevron${isOpen ? ' dashboard-chevron--open' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+      {isOpen ? (
+        <div className="dashboard-context-menu dashboard-filter-menu" role="menu">
+          {options.map((option) => {
+            const isSelected = option.value === selectedValue;
+            return (
+              <button
+                key={`${buttonLabel}-${option.value || 'all'}`}
+                type="button"
+                className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}`}
+                role="menuitemradio"
+                aria-checked={isSelected}
+                onClick={() => onSelect(option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function UserWalletsListPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
+  const filtersRef = React.useRef<HTMLElement | null>(null);
   const [query, setQuery] = React.useState<string>('');
   const [wallets, setWallets] = React.useState<DashboardConsoleWallet[]>([]);
   const [nextCursor, setNextCursor] = React.useState<string>('');
@@ -36,6 +146,14 @@ export function UserWalletsListPage(): React.JSX.Element {
   const [selectedWallet, setSelectedWallet] = React.useState<DashboardConsoleWallet | null>(null);
   const [selectedLoading, setSelectedLoading] = React.useState<boolean>(false);
   const [selectedError, setSelectedError] = React.useState<string>('');
+  const [activeMenu, setActiveMenu] = React.useState<WalletFilterMenuKey | null>(null);
+  const [chainFilter, setChainFilter] = React.useState<string>('');
+  const [policyFilter, setPolicyFilter] = React.useState<string>('');
+  const [walletTypeFilter, setWalletTypeFilter] = React.useState<string>('');
+  const [sortValue, setSortValue] = React.useState<string>(SORT_OPTIONS[0].value);
+  const [policyOptions, setPolicyOptions] = React.useState<readonly WalletFilterOption[]>([
+    { value: '', label: 'Any policy' },
+  ]);
   const walletScope = React.useMemo(
     () => ({
       projectId: String(selectedContext.project || '').trim() || undefined,
@@ -45,6 +163,108 @@ export function UserWalletsListPage(): React.JSX.Element {
   );
   const trimmedQuery = query.trim();
   const searchMode = trimmedQuery.length >= 2;
+  const activeSort = SORT_OPTIONS.find((option) => option.value === sortValue) || SORT_OPTIONS[0];
+  const walletRequest = React.useMemo<DashboardConsoleWalletListInput>(
+    () => ({
+      projectId: walletScope.projectId,
+      environmentId: walletScope.environmentId,
+      chain: (chainFilter || undefined) as DashboardConsoleWalletChain | undefined,
+      walletType: (walletTypeFilter || undefined) as DashboardConsoleWalletType | undefined,
+      policyId: policyFilter || undefined,
+      sortBy: activeSort.sortBy,
+      sortOrder: activeSort.sortOrder,
+    }),
+    [
+      activeSort.sortBy,
+      activeSort.sortOrder,
+      chainFilter,
+      policyFilter,
+      walletScope,
+      walletTypeFilter,
+    ],
+  );
+
+  React.useEffect(() => {
+    if (!activeMenu) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const next = event.target;
+      if (next instanceof Node && filtersRef.current?.contains(next)) return;
+      setActiveMenu(null);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActiveMenu(null);
+    };
+
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [activeMenu]);
+
+  React.useEffect(() => {
+    if (session.loading || !session.claims) {
+      setPolicyOptions([{ value: '', label: 'Any policy' }]);
+      return;
+    }
+
+    let cancelled = false;
+    listDashboardPolicies()
+      .then((policies) => {
+        if (cancelled) return;
+        const nextOptions: WalletFilterOption[] = [{ value: '', label: 'Any policy' }];
+        const seen = new Set<string>();
+        for (const policy of policies) {
+          const policyId = String(policy.id || '').trim();
+          if (!policyId || seen.has(policyId)) continue;
+          seen.add(policyId);
+          nextOptions.push({
+            value: policyId,
+            label: String(policy.name || '').trim() || policyId,
+          });
+        }
+        setPolicyOptions(nextOptions);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPolicyOptions([{ value: '', label: 'Any policy' }]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.claims, session.loading]);
+
+  React.useEffect(() => {
+    setPolicyOptions((current) => {
+      const dynamic = new Map(current.map((option) => [option.value, option.label]));
+      for (const wallet of wallets) {
+        const policyId = String(wallet.policyId || '').trim();
+        if (!policyId || dynamic.has(policyId)) continue;
+        dynamic.set(policyId, policyId);
+      }
+      if (policyFilter && !dynamic.has(policyFilter)) {
+        dynamic.set(policyFilter, policyFilter);
+      }
+      const next = [{ value: '', label: 'Any policy' }];
+      for (const [value, label] of dynamic.entries()) {
+        if (!value) continue;
+        next.push({ value, label });
+      }
+      const unchanged =
+        next.length === current.length &&
+        next.every(
+          (option, index) =>
+            current[index] != null &&
+            current[index].value === option.value &&
+            current[index].label === option.label,
+        );
+      return unchanged ? current : next;
+    });
+  }, [policyFilter, wallets]);
 
   React.useEffect(() => {
     if (session.loading) {
@@ -66,8 +286,8 @@ export function UserWalletsListPage(): React.JSX.Element {
     setPaginationError('');
     const fetchWallets = () => {
       const request = searchMode
-        ? searchDashboardWallets({ q: trimmedQuery, limit: 25, ...walletScope })
-        : listDashboardWallets({ limit: 25, ...walletScope });
+        ? searchDashboardWallets({ q: trimmedQuery, limit: 25, ...walletRequest })
+        : listDashboardWallets({ limit: 25, ...walletRequest });
       request
         .then((page) => {
           if (cancelled) return;
@@ -91,7 +311,14 @@ export function UserWalletsListPage(): React.JSX.Element {
       cancelled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, [searchMode, session.claims, session.errorMessage, session.loading, trimmedQuery, walletScope]);
+  }, [
+    searchMode,
+    session.claims,
+    session.errorMessage,
+    session.loading,
+    trimmedQuery,
+    walletRequest,
+  ]);
 
   const loadMore = React.useCallback(() => {
     if (!nextCursor || loadingMore) return;
@@ -106,12 +333,12 @@ export function UserWalletsListPage(): React.JSX.Element {
           q: trimmedQuery,
           limit: 25,
           cursor: nextCursor,
-          ...walletScope,
+          ...walletRequest,
         })
       : listDashboardWallets({
           limit: 25,
           cursor: nextCursor,
-          ...walletScope,
+          ...walletRequest,
         });
     request
       .then((page) => {
@@ -131,12 +358,19 @@ export function UserWalletsListPage(): React.JSX.Element {
     session.claims,
     session.errorMessage,
     trimmedQuery,
-    walletScope,
+    walletRequest,
   ]);
 
   React.useEffect(() => {
     setSelectedWalletId('');
-  }, [walletScope.environmentId, walletScope.projectId]);
+  }, [
+    chainFilter,
+    policyFilter,
+    sortValue,
+    walletScope.environmentId,
+    walletScope.projectId,
+    walletTypeFilter,
+  ]);
 
   React.useEffect(() => {
     if (!selectedWalletId) {
@@ -190,9 +424,12 @@ export function UserWalletsListPage(): React.JSX.Element {
     [wallets],
   );
 
+  const selectedPolicyLabel =
+    policyOptions.find((option) => option.value === policyFilter)?.label || 'Any policy';
+
   return (
     <div className="dashboard-view" aria-label="User wallets list page">
-      <section className="dashboard-filters" aria-label="Wallet search controls">
+      <section ref={filtersRef} className="dashboard-filters" aria-label="Wallet search controls">
         <label className="dashboard-search-control">
           <span className="dashboard-search-icon" aria-hidden="true" />
           <input
@@ -204,19 +441,65 @@ export function UserWalletsListPage(): React.JSX.Element {
           />
         </label>
 
-        {SEARCH_USER_WALLETS_FILTER_CONTROLS.map((control) =>
-          control.kind === 'select' ? (
-            <button type="button" className="dashboard-select-control" key={control.value}>
-              <span className="dashboard-select-control__value">{control.value}</span>
-              <span className="dashboard-chevron" aria-hidden="true" />
-            </button>
-          ) : (
-            <button type="button" className="dashboard-columns-control" key={control.value}>
-              <span className="dashboard-columns-icon" aria-hidden="true" />
-              <span>{control.value}</span>
-            </button>
-          ),
-        )}
+        <WalletFilterDropdown
+          buttonClassName="dashboard-select-control"
+          buttonLabel={
+            CHAIN_OPTIONS.find((option) => option.value === chainFilter)?.label || 'All chains'
+          }
+          options={CHAIN_OPTIONS}
+          selectedValue={chainFilter}
+          isOpen={activeMenu === 'chain'}
+          onToggle={() => setActiveMenu((current) => (current === 'chain' ? null : 'chain'))}
+          onSelect={(value) => {
+            setChainFilter(value);
+            setActiveMenu(null);
+          }}
+        />
+
+        <WalletFilterDropdown
+          buttonClassName="dashboard-select-control"
+          buttonLabel={selectedPolicyLabel}
+          options={policyOptions}
+          selectedValue={policyFilter}
+          isOpen={activeMenu === 'policy'}
+          onToggle={() => setActiveMenu((current) => (current === 'policy' ? null : 'policy'))}
+          onSelect={(value) => {
+            setPolicyFilter(value);
+            setActiveMenu(null);
+          }}
+        />
+
+        <WalletFilterDropdown
+          buttonClassName="dashboard-select-control"
+          buttonLabel={
+            WALLET_TYPE_OPTIONS.find((option) => option.value === walletTypeFilter)?.label ||
+            'EOA + Smart'
+          }
+          options={WALLET_TYPE_OPTIONS}
+          selectedValue={walletTypeFilter}
+          isOpen={activeMenu === 'walletType'}
+          onToggle={() =>
+            setActiveMenu((current) => (current === 'walletType' ? null : 'walletType'))
+          }
+          onSelect={(value) => {
+            setWalletTypeFilter(value);
+            setActiveMenu(null);
+          }}
+        />
+
+        <WalletFilterDropdown
+          buttonClassName="dashboard-columns-control dashboard-columns-control--dropdown"
+          buttonLabel={activeSort.label}
+          options={SORT_OPTIONS}
+          selectedValue={activeSort.value}
+          isOpen={activeMenu === 'sort'}
+          withColumnsIcon
+          onToggle={() => setActiveMenu((current) => (current === 'sort' ? null : 'sort'))}
+          onSelect={(value) => {
+            setSortValue(value);
+            setActiveMenu(null);
+          }}
+        />
       </section>
 
       <section className="dashboard-wallet-summary" aria-label="Wallet summary metrics">
@@ -240,11 +523,15 @@ export function UserWalletsListPage(): React.JSX.Element {
           </p>
         ) : errorMessage ? (
           <p className="dashboard-table-limit">
-            {searchMode ? `Search failed: ${errorMessage}` : `Wallet list unavailable: ${errorMessage}`}
+            {searchMode
+              ? `Search failed: ${errorMessage}`
+              : `Wallet list unavailable: ${errorMessage}`}
           </p>
         ) : wallets.length === 0 ? (
           <p className="dashboard-table-limit">
-            {searchMode ? 'No wallets matched this query.' : 'No wallets returned by /console/wallets.'}
+            {searchMode
+              ? 'No wallets matched this query.'
+              : 'No wallets returned by /console/wallets.'}
           </p>
         ) : (
           <>

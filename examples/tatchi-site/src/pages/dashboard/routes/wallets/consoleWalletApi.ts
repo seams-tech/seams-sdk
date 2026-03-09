@@ -1,6 +1,7 @@
 import {
   buildConsoleAcceptHeaders,
   consoleErrorMessage,
+  fetchConsoleEndpoint,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
@@ -8,13 +9,32 @@ import {
 export interface DashboardConsoleWallet {
   id: string;
   address: string;
-  chain: string;
+  chain: DashboardConsoleWalletChain;
+  walletType: DashboardConsoleWalletType;
   userId: string;
   policyId: string | null;
   balanceMinor: number;
   status: string;
+  createdAt: string;
   updatedAt: string;
   lastActivityAt: string | null;
+}
+
+export type DashboardConsoleWalletChain = 'Ethereum' | 'Base' | 'Tempo' | 'Arc Circle' | 'NEAR';
+export type DashboardConsoleWalletType = 'EOA' | 'SMART';
+export type DashboardConsoleWalletSortBy = 'createdAt' | 'balance' | 'lastActivity';
+export type DashboardConsoleWalletSortOrder = 'asc' | 'desc';
+
+export interface DashboardConsoleWalletListInput {
+  limit?: number;
+  cursor?: string;
+  projectId?: string;
+  environmentId?: string;
+  chain?: DashboardConsoleWalletChain;
+  walletType?: DashboardConsoleWalletType;
+  policyId?: string;
+  sortBy?: DashboardConsoleWalletSortBy;
+  sortOrder?: DashboardConsoleWalletSortOrder;
 }
 
 export interface DashboardConsoleWalletPage {
@@ -46,11 +66,13 @@ function decodeWallet(raw: unknown): DashboardConsoleWallet | null {
   return {
     id,
     address,
-    chain: String(row.chain || '').trim(),
+    chain: String(row.chain || '').trim() as DashboardConsoleWalletChain,
+    walletType: String(row.walletType || '').trim() as DashboardConsoleWalletType,
     userId: String(row.userId || '').trim(),
     policyId: row.policyId == null ? null : String(row.policyId || '').trim(),
     balanceMinor: Number(row.balanceMinor || 0),
     status: String(row.status || '').trim(),
+    createdAt: String(row.createdAt || '').trim(),
     updatedAt: String(row.updatedAt || '').trim(),
     lastActivityAt: row.lastActivityAt == null ? null : String(row.lastActivityAt || '').trim(),
   };
@@ -71,12 +93,20 @@ function decodeWalletPage(body: ConsoleWalletPageResponse | null): DashboardCons
 async function fetchWalletPage(pathWithQuery: string): Promise<DashboardConsoleWalletPage> {
   const base = requireConsoleBaseUrl();
 
-  const response = await fetch(`${base}${pathWithQuery}`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}${pathWithQuery}`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: pathWithQuery,
+      operation: 'Console wallet request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleWalletPageResponse | null;
 
   if (!response.ok || body?.ok !== true) {
@@ -92,12 +122,21 @@ export async function getDashboardWallet(walletId: string): Promise<DashboardCon
 
   const base = requireConsoleBaseUrl();
 
-  const response = await fetch(`${base}/console/wallets/${encodeURIComponent(trimmedId)}`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const walletPath = `/console/wallets/${encodeURIComponent(trimmedId)}`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${walletPath}`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: walletPath,
+      operation: 'Console wallet request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleWalletResponse | null;
   if (response.status === 404) return null;
   if (!response.ok || body?.ok !== true) {
@@ -107,18 +146,23 @@ export async function getDashboardWallet(walletId: string): Promise<DashboardCon
 }
 
 export async function listDashboardWallets(
-  input: { limit?: number; cursor?: string; projectId?: string; environmentId?: string } = {},
+  input: DashboardConsoleWalletListInput = {},
 ): Promise<DashboardConsoleWalletPage> {
   const params = new URLSearchParams();
   params.set('limit', String(input.limit || 25));
   if (input.cursor) params.set('cursor', input.cursor);
   if (input.projectId) params.set('projectId', input.projectId);
   if (input.environmentId) params.set('environmentId', input.environmentId);
+  if (input.chain) params.set('chain', input.chain);
+  if (input.walletType) params.set('walletType', input.walletType);
+  if (input.policyId) params.set('policyId', input.policyId);
+  if (input.sortBy) params.set('sortBy', input.sortBy);
+  if (input.sortOrder) params.set('sortOrder', input.sortOrder);
   return fetchWalletPage(`/console/wallets?${params.toString()}`);
 }
 
 export async function searchDashboardWallets(
-  input: { q: string; limit?: number; cursor?: string; projectId?: string; environmentId?: string },
+  input: DashboardConsoleWalletListInput & { q: string },
 ): Promise<DashboardConsoleWalletPage> {
   const q = String(input.q || '').trim();
   if (!q) throw new Error('Search query cannot be empty');
@@ -128,6 +172,11 @@ export async function searchDashboardWallets(
   if (input.cursor) params.set('cursor', input.cursor);
   if (input.projectId) params.set('projectId', input.projectId);
   if (input.environmentId) params.set('environmentId', input.environmentId);
+  if (input.chain) params.set('chain', input.chain);
+  if (input.walletType) params.set('walletType', input.walletType);
+  if (input.policyId) params.set('policyId', input.policyId);
+  if (input.sortBy) params.set('sortBy', input.sortBy);
+  if (input.sortOrder) params.set('sortOrder', input.sortOrder);
   return fetchWalletPage(`/console/wallets/search?${params.toString()}`);
 }
 

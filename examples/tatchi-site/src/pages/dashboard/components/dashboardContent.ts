@@ -11,11 +11,6 @@ export type DashboardKpiMetric = {
   hint: string;
 };
 
-type DashboardSearchFilterControl = {
-  kind: 'select' | 'action';
-  value: string;
-};
-
 type DashboardSearchModel = {
   title: string;
   items: readonly string[];
@@ -75,13 +70,6 @@ export const USER_WALLETS_TABLE_NOTE =
 
 export const SEARCH_USER_WALLETS_PLACEHOLDER =
   'Search by wallet address, wallet ID, user ID, or external reference ID';
-
-export const SEARCH_USER_WALLETS_FILTER_CONTROLS = [
-  { kind: 'select', value: 'All chains' },
-  { kind: 'select', value: 'Any policy' },
-  { kind: 'select', value: 'EOA + Smart' },
-  { kind: 'action', value: 'Sort' },
-] as const satisfies readonly DashboardSearchFilterControl[];
 
 export const SEARCH_USER_WALLETS_MODEL = {
   title: 'Search and filter model',

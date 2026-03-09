@@ -829,6 +829,18 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/policies' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            policies: [],
+          }),
+        });
+        return;
+      }
+
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -870,6 +882,231 @@ test.describe('dashboard console config page api wiring', () => {
         }),
       )
       .toBe(true);
+  });
+
+  test('wallets list filter dropdowns send chain, policy, wallet type, and sort params', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const walletRequestUrls: string[] = [];
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            walletInfrastructure: true,
+            securityPolicy: true,
+            integrationsAutomation: true,
+            environmentSettings: true,
+          },
+          selectedContext: {
+            organization: 'org_dash_console_pages',
+            project: 'proj_active',
+            environment: 'env_active',
+            accountSettings: 'Account Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: [context.activeProject],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [context.activeEnvironment],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            policies: [
+              {
+                id: 'policy_alpha',
+                orgId: 'org_dash_console_pages',
+                name: 'Alpha Policy',
+                description: null,
+                status: 'PUBLISHED',
+                version: 3,
+                rules: {},
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+                updatedAt: iso('2026-01-03T00:00:00.000Z'),
+                publishedAt: iso('2026-01-03T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/wallets' && method === 'GET') {
+        walletRequestUrls.push(url.toString());
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            wallets: [
+              {
+                id: 'wallet_alpha',
+                address: '0xabc123',
+                chain: 'Base',
+                walletType: 'SMART',
+                userId: 'user_alpha',
+                policyId: 'policy_alpha',
+                balanceMinor: 4200,
+                status: 'ACTIVE',
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+                updatedAt: iso('2026-01-05T00:00:00.000Z'),
+                lastActivityAt: iso('2026-01-06T00:00:00.000Z'),
+              },
+            ],
+            nextCursor: null,
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/wallets-list');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/user wallets list/i);
+    await expect(page.locator('section[aria-label="Wallets table"]')).toContainText('wallet_alpha');
+
+    await page.getByRole('button', { name: 'All chains' }).click();
+    await page.getByRole('menuitemradio', { name: 'Base' }).click();
+    await expect
+      .poll(() => {
+        const parsed = new URL(walletRequestUrls[walletRequestUrls.length - 1] || consoleOrigin);
+        return parsed.searchParams.get('chain');
+      })
+      .toBe('Base');
+
+    await page.getByRole('button', { name: 'Any policy' }).click();
+    await page.getByRole('menuitemradio', { name: 'Alpha Policy' }).click();
+    await expect
+      .poll(() => {
+        const parsed = new URL(walletRequestUrls[walletRequestUrls.length - 1] || consoleOrigin);
+        return parsed.searchParams.get('policyId');
+      })
+      .toBe('policy_alpha');
+
+    await page.getByRole('button', { name: 'EOA + Smart' }).click();
+    await page.getByRole('menuitemradio', { name: 'Smart only' }).click();
+    await expect
+      .poll(() => {
+        const parsed = new URL(walletRequestUrls[walletRequestUrls.length - 1] || consoleOrigin);
+        return parsed.searchParams.get('walletType');
+      })
+      .toBe('SMART');
+
+    await page.getByRole('button', { name: 'Newest first' }).click();
+    await page.getByRole('menuitemradio', { name: 'Highest balance' }).click();
+    await expect
+      .poll(() => {
+        const parsed = new URL(walletRequestUrls[walletRequestUrls.length - 1] || consoleOrigin);
+        return {
+          sortBy: parsed.searchParams.get('sortBy'),
+          sortOrder: parsed.searchParams.get('sortOrder'),
+        };
+      })
+      .toEqual({ sortBy: 'balance', sortOrder: 'desc' });
   });
 
   test('onboarding route wires organization and project steps', async ({ page, baseURL }) => {
