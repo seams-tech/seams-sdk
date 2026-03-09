@@ -31,7 +31,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - API keys
 - Wallet Operations
   - User wallets list
-  - Gas sponsorship and smart wallets
+  - Gas sponsorship
   - Policy engine
   - Enterprise isolation
   - Audit logs
@@ -70,7 +70,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Full audit trail for policy create/update/publish/assign events.
 - Default approval for policy publish: `1 admin` approval.
 
-### 4) Gas sponsorship and smart wallets
+### 4) Gas sponsorship
 
 - Toggle gas sponsorship at org, environment, policy, and wallet segment levels.
 - Budget and quota controls by chain and period.
@@ -243,7 +243,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Pricing CTA starts Stripe Checkout and success path lands user back in `/dashboard/billing`.
 - Admin can list/search wallets and filter by chain/policy/status.
 - Policy engine can enforce action+chain constraints for threshold wallets.
-- Gas sponsorship and smart wallet toggles affect runtime behavior and telemetry.
+- Gas sponsorship toggles affect runtime behavior and telemetry.
 - Security settings (origins/cookies/JWT) are environment-specific and validated.
 - Key export, API key, and webhook features include audit-friendly logs.
 - Billing supports card payments through Stripe and stablecoin invoice settlement via `USDC` and `USDT`.

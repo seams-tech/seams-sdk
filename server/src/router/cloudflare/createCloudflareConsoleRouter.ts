@@ -1074,12 +1074,20 @@ function toTeamRbacContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
   roles: string[];
+  actorEmail?: string;
+  actorDisplayName?: string;
   projectId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
     roles: claims.roles,
+    ...(typeof claims.email === 'string' && claims.email.trim()
+      ? { actorEmail: claims.email.trim().toLowerCase() }
+      : {}),
+    ...(typeof claims.name === 'string' && claims.name.trim()
+      ? { actorDisplayName: claims.name.trim() }
+      : {}),
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
   };
 }
@@ -2893,6 +2901,7 @@ async function handleConsoleAudit(ctx: CloudflareConsoleContext): Promise<Respon
         category: ctx.url.searchParams.get('category') || undefined,
         actorUserId: ctx.url.searchParams.get('actorUserId') || undefined,
         outcome: ctx.url.searchParams.get('outcome') || undefined,
+        q: ctx.url.searchParams.get('q') || undefined,
         from: ctx.url.searchParams.get('from') || undefined,
         to: ctx.url.searchParams.get('to') || undefined,
         limit: ctx.url.searchParams.get('limit') || undefined,
@@ -3122,6 +3131,7 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
 
   const assignmentDeleteMatch = ctx.pathname.match(/^\/console\/policies\/assignments\/([^/]+)$/);
   const policyPatchMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)$/);
+  const policyDeleteMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)$/);
   const policyPublishMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)\/publish$/);
   const policySimulateMatch = ctx.pathname.match(/^\/console\/policies\/([^/]+)\/simulate$/);
 
@@ -3191,6 +3201,24 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
         );
       }
       return json({ ok: true, policy }, { status: 200 });
+    }
+
+    if (ctx.method === 'DELETE' && policyDeleteMatch) {
+      const roleRequired = requirePolicyMutationRole(auth.claims);
+      if (roleRequired) return roleRequired;
+      const policyId = decodePathPart(policyDeleteMatch[1]);
+      const result = await policies.deletePolicy(policyCtx, policyId);
+      if (!result.removed || !result.policy) {
+        return json(
+          {
+            ok: false,
+            code: 'policy_not_found',
+            message: `Policy ${policyId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, removed: true, policy: result.policy }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && policyPublishMatch) {

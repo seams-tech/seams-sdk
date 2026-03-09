@@ -19,6 +19,8 @@ pnpm examples:vite
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
+- Browser-managed registration in the example site uses `VITE_TATCHI_ENVIRONMENT_ID` + `VITE_TATCHI_PUBLISHABLE_KEY` from `examples/tatchi-site/.env`.
+- `VITE_TATCHI_BROKER_URL` can be the same origin as `VITE_RELAYER_URL`; the site normalizes it to `/v1/registration/bootstrap-grants`.
 
 ## Repo development
 

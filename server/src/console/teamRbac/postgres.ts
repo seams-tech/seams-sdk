@@ -115,6 +115,27 @@ function hasOwnerClaim(ctx: ConsoleTeamRbacContext): boolean {
   );
 }
 
+function isConsoleLocalEmail(value: string): boolean {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('@console.local');
+}
+
+function resolveActorEmail(ctx: ConsoleTeamRbacContext): string {
+  const claimed = String(ctx.actorEmail || '')
+    .trim()
+    .toLowerCase();
+  if (claimed && claimed.includes('@')) return claimed;
+  return `${String(ctx.actorUserId || '').trim()}@console.local`;
+}
+
+function resolveActorDisplayName(ctx: ConsoleTeamRbacContext): string {
+  const claimed = String(ctx.actorDisplayName || '').trim();
+  if (claimed) return claimed;
+  return String(ctx.actorUserId || '').trim();
+}
+
 function hasOwnerRole(member: ConsoleTeamMember): boolean {
   return member.roles.some((entry) => entry.role === 'owner');
 }
@@ -205,6 +226,8 @@ async function ensureActorMembership(
   const actorUserId = String(input.ctx.actorUserId || '').trim();
   if (!actorUserId) return;
   const actorRoles = deriveActorRoles(input.ctx);
+  const actorEmail = resolveActorEmail(input.ctx);
+  const actorDisplayName = resolveActorDisplayName(input.ctx);
   const ts = nowMs(input.now);
   const existing = await queryOne(
     q,
@@ -227,8 +250,8 @@ async function ensureActorMembership(
         makeId('mbr', input.now),
         input.ctx.orgId,
         actorUserId,
-        `${actorUserId}@console.local`,
-        actorUserId,
+        actorEmail,
+        actorDisplayName,
         JSON.stringify(actorRoles),
         ts,
       ],
@@ -238,19 +261,38 @@ async function ensureActorMembership(
 
   const parsed = parseMemberRow(existing);
   const mergedRoles = normalizeRoleAssignments([...parsed.roles, ...actorRoles]);
+  const nextEmail =
+    actorEmail && (isConsoleLocalEmail(parsed.email) || !String(parsed.email || '').trim())
+      ? actorEmail
+      : parsed.email;
+  const nextDisplayName =
+    actorDisplayName &&
+    (!String(parsed.displayName || '').trim() || String(parsed.displayName || '').trim() === actorUserId)
+      ? actorDisplayName
+      : parsed.displayName || null;
   await q.query(
     `UPDATE console_team_members
         SET status = 'ACTIVE',
             roles = $4::jsonb,
-            updated_at_ms = $5,
+            email = $5,
+            display_name = $6,
+            updated_at_ms = $7,
             last_status_changed_at_ms = CASE
-              WHEN status <> 'ACTIVE' THEN $5
+              WHEN status <> 'ACTIVE' THEN $7
               ELSE last_status_changed_at_ms
             END
       WHERE namespace = $1
         AND org_id = $2
         AND id = $3`,
-    [input.namespace, input.ctx.orgId, parsed.id, JSON.stringify(mergedRoles), ts],
+    [
+      input.namespace,
+      input.ctx.orgId,
+      parsed.id,
+      JSON.stringify(mergedRoles),
+      nextEmail,
+      nextDisplayName,
+      ts,
+    ],
   );
 }
 
@@ -633,16 +675,42 @@ export async function createPostgresConsoleTeamRbacService(
           }
         }
 
+        const nextEmail =
+          String(member.userId || '').trim() === String(ctx.actorUserId || '').trim()
+            ? (() => {
+                const actorEmail = resolveActorEmail(ctx);
+                if (actorEmail && (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())) {
+                  return actorEmail;
+                }
+                return member.email;
+              })()
+            : member.email;
+        const nextDisplayName =
+          String(member.userId || '').trim() === String(ctx.actorUserId || '').trim()
+            ? (() => {
+                const actorDisplayName = resolveActorDisplayName(ctx);
+                if (
+                  actorDisplayName &&
+                  (!String(member.displayName || '').trim() ||
+                    String(member.displayName || '').trim() === String(ctx.actorUserId || '').trim())
+                ) {
+                  return actorDisplayName;
+                }
+                return member.displayName || null;
+              })()
+            : member.displayName || null;
         const row = await queryOne(
           q,
           `UPDATE console_team_members
               SET roles = $4::jsonb,
-                  updated_at_ms = $5
+                  email = $5,
+                  display_name = $6,
+                  updated_at_ms = $7
             WHERE namespace = $1
               AND org_id = $2
               AND id = $3
           RETURNING *`,
-          [namespace, ctx.orgId, memberId, JSON.stringify(roles), ts],
+          [namespace, ctx.orgId, memberId, JSON.stringify(roles), nextEmail, nextDisplayName, ts],
         );
         return row ? parseMemberRow(row) : null;
       });

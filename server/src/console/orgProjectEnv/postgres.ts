@@ -67,8 +67,8 @@ function defaultEnvironmentStatus(
   return liveEnvironmentsEnabled ? 'ACTIVE' : 'DISABLED';
 }
 
-function defaultEnvironmentId(orgId: string, projectId: string, key: ConsoleEnvironment['key']): string {
-  return `${orgId}:${projectId}:${key}`;
+function defaultEnvironmentId(projectId: string, key: ConsoleEnvironment['key']): string {
+  return `${projectId}:${key}`;
 }
 
 function makeResourceId(prefix: string, now: Date): string {
@@ -513,7 +513,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
         }
         const liveEnvironmentsEnabled = request.liveEnvironmentsEnabled === true;
         for (const key of ['dev', 'staging', 'prod'] as const) {
-          const environmentId = defaultEnvironmentId(ctx.orgId, projectId, key);
+          const environmentId = defaultEnvironmentId(projectId, key);
           const environment = await queryOne(
             q,
             `INSERT INTO console_environments

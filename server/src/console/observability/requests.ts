@@ -119,6 +119,9 @@ export function parseListConsoleObservabilityEventsRequest(
   return {
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
+    ...(readOptionalQueryString(obj, 'query')
+      ? { query: readOptionalQueryString(obj, 'query') }
+      : {}),
     ...(parseOptionalLevel(readOptionalQueryString(obj, 'level'))
       ? { level: parseOptionalLevel(readOptionalQueryString(obj, 'level')) }
       : {}),

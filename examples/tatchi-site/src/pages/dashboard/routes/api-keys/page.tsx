@@ -247,9 +247,6 @@ function PublishablePaymentPolicyField(props: {
           </option>
         ))}
       </select>
-      <p className="dashboard-form-hint">
-        Choose what happens after the included registration quota is exhausted.
-      </p>
       <p className="dashboard-pagination-note">{selectedOption.description}</p>
     </label>
   );

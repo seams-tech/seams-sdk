@@ -218,6 +218,8 @@ test.describe('console app-session auth adapter', () => {
         orgId: 'org-dev',
         userId: 'oidc:https://accounts.google.com:user-123',
         roles: ['owner', 'admin'],
+        email: 'alice@example.com',
+        name: 'Alice Example',
         projectId: 'proj-dev',
         environmentId: 'env-dev',
       },

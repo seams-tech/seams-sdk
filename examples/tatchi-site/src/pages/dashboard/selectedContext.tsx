@@ -27,4 +27,3 @@ export function DashboardSelectedContextProvider({
 export function useDashboardSelectedContext(): TopbarContextState {
   return React.useContext(DashboardSelectedContext);
 }
-

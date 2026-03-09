@@ -109,8 +109,8 @@ function defaultEnvironmentStatus(
   return liveEnvironmentsEnabled ? 'ACTIVE' : 'DISABLED';
 }
 
-function defaultEnvironmentId(orgId: string, projectId: string, key: ConsoleEnvironment['key']): string {
-  return `${orgId}:${projectId}:${key}`;
+function defaultEnvironmentId(projectId: string, key: ConsoleEnvironment['key']): string {
+  return `${projectId}:${key}`;
 }
 
 function makeResourceId(prefix: string, now: Date): string {
@@ -272,7 +272,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
       store.projects.set(projectId, project);
       const liveEnvironmentsEnabled = request.liveEnvironmentsEnabled === true;
       for (const key of ['dev', 'staging', 'prod'] as const) {
-        const environmentId = defaultEnvironmentId(ctx.orgId, projectId, key);
+        const environmentId = defaultEnvironmentId(projectId, key);
         if (store.environments.has(environmentId)) {
           throw new ConsoleOrgProjectEnvError(
             'environment_already_exists',

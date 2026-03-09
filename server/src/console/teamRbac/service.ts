@@ -13,6 +13,8 @@ export interface ConsoleTeamRbacContext {
   orgId: string;
   actorUserId: string;
   roles: string[];
+  actorEmail?: string;
+  actorDisplayName?: string;
   projectId?: string;
 }
 
@@ -157,6 +159,27 @@ function hasOwnerClaim(ctx: ConsoleTeamRbacContext): boolean {
   );
 }
 
+function isConsoleLocalEmail(value: string): boolean {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('@console.local');
+}
+
+function resolveActorEmail(ctx: ConsoleTeamRbacContext): string {
+  const claimed = String(ctx.actorEmail || '')
+    .trim()
+    .toLowerCase();
+  if (claimed && claimed.includes('@')) return claimed;
+  return `${String(ctx.actorUserId || '').trim()}@console.local`;
+}
+
+function resolveActorDisplayName(ctx: ConsoleTeamRbacContext): string {
+  const claimed = String(ctx.actorDisplayName || '').trim();
+  if (claimed) return claimed;
+  return String(ctx.actorUserId || '').trim();
+}
+
 function sortMembers(items: ConsoleTeamMember[]): ConsoleTeamMember[] {
   const rank = (status: ConsoleTeamMember['status']): number => {
     if (status === 'ACTIVE') return 0;
@@ -196,6 +219,8 @@ export function createInMemoryConsoleTeamRbacService(
     if (!actorUserId) return;
 
     const actorRoles = deriveActorRoleAssignments(ctx);
+    const actorEmail = resolveActorEmail(ctx);
+    const actorDisplayName = resolveActorDisplayName(ctx);
     const existing = findMemberByUserId(store, actorUserId);
     if (!existing) {
       const ts = toIso(currentNow);
@@ -204,8 +229,8 @@ export function createInMemoryConsoleTeamRbacService(
         id: memberId,
         orgId: ctx.orgId,
         userId: actorUserId,
-        email: `${actorUserId}@console.local`,
-        displayName: actorUserId,
+        email: actorEmail,
+        displayName: actorDisplayName,
         status: 'ACTIVE',
         roles: actorRoles,
         invitedByUserId: actorUserId,
@@ -220,6 +245,16 @@ export function createInMemoryConsoleTeamRbacService(
     if (existing.status === 'REMOVED') {
       existing.status = 'ACTIVE';
       existing.lastStatusChangedAt = toIso(currentNow);
+    }
+    if (actorEmail && (isConsoleLocalEmail(existing.email) || !String(existing.email || '').trim())) {
+      existing.email = actorEmail;
+    }
+    if (
+      actorDisplayName &&
+      (!String(existing.displayName || '').trim() ||
+        String(existing.displayName || '').trim() === actorUserId)
+    ) {
+      existing.displayName = actorDisplayName;
     }
     if (actorRoles.length > 0) {
       existing.roles = normalizeRoleAssignments([...existing.roles, ...actorRoles]);
@@ -414,6 +449,20 @@ export function createInMemoryConsoleTeamRbacService(
         );
       }
 
+      if (String(member.userId || '').trim() === String(ctx.actorUserId || '').trim()) {
+        const actorEmail = resolveActorEmail(ctx);
+        const actorDisplayName = resolveActorDisplayName(ctx);
+        if (actorEmail && (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())) {
+          member.email = actorEmail;
+        }
+        if (
+          actorDisplayName &&
+          (!String(member.displayName || '').trim() ||
+            String(member.displayName || '').trim() === String(ctx.actorUserId || '').trim())
+        ) {
+          member.displayName = actorDisplayName;
+        }
+      }
       member.roles = roles;
       member.updatedAt = toIso(now());
       return cloneMember(member);

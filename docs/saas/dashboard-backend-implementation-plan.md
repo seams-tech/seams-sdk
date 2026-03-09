@@ -272,7 +272,7 @@ Completed:
   - `PUT /console/policies/assignments`
   - `DELETE /console/policies/assignments/:id`
   - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
-  - policy publish controls now support forwarding an optional approval request ID (`approvalId`) for approval-enforced environments.
+  - policy publish controls now integrate with the approval queue and forward the selected approved request id (`approvalId`) to publish when approvals are configured.
 - Dashboard gas sponsorship and smart-wallet page now consumes live config APIs:
   - `GET/POST/PATCH /console/gas-sponsorship`
   - `GET/POST/PATCH /console/smart-wallets`
@@ -295,7 +295,7 @@ Completed:
   - timeline/evidence filters and context-scoped investigation tables are wired in UI.
 - Browser-level dashboard API wiring coverage now validates the new page flows:
   - `/dashboard/gas-smart-wallets`: gas config create + mutation flow against mocked `/console/gas-sponsorship` endpoints.
-  - `/dashboard/policy-engine`: policy publish flow forwards optional `approvalId` to `/console/policies/:id/publish`.
+  - `/dashboard/policy-engine`: approval-backed policy publish flow forwards the selected `approvalId` to `/console/policies/:id/publish`.
   - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
   - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
   - `/dashboard/audit`: audit timeline and evidence filter flows against mocked `/console/audit/*` endpoints.

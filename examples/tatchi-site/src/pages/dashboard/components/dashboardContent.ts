@@ -25,7 +25,7 @@ type CardDashboardRoute = Exclude<
   | '/dashboard/audit'
   | '/dashboard/integrations/self-hosting'
   | '/dashboard/policy-engine'
-  | '/dashboard/gas-smart-wallets'
+  | '/dashboard/gas-sponsorship'
   | '/dashboard/export-keys'
   | '/dashboard/overview'
   | '/dashboard/observability'

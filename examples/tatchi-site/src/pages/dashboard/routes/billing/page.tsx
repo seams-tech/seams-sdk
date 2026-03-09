@@ -101,6 +101,8 @@ export function BillingPage(): React.JSX.Element {
   const [stablecoinPaymentIntent, setStablecoinPaymentIntent] =
     React.useState<DashboardStablecoinPaymentIntent | null>(null);
   const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
+  const [billingWarningMessage, setBillingWarningMessage] = React.useState<string>('');
+  const [billingWarningDismissed, setBillingWarningDismissed] = React.useState<boolean>(false);
 
   const [selectedInvoiceId, setSelectedInvoiceId] = React.useState<string>('');
   const [lineItemsLoading, setLineItemsLoading] = React.useState<boolean>(false);
@@ -259,17 +261,28 @@ export function BillingPage(): React.JSX.Element {
     const checkoutState = String(currentUrl.searchParams.get('checkout') || '')
       .trim()
       .toLowerCase();
-    if (!checkoutState) return;
+    const billingNotice = String(currentUrl.searchParams.get('billing') || '')
+      .trim()
+      .toLowerCase();
+    if (!checkoutState && !billingNotice) return;
 
-    if (checkoutState === 'success') {
-      setCheckoutReturnMessage('Stripe Checkout completed. Billing data has been refreshed.');
-    } else if (checkoutState === 'cancel') {
-      setCheckoutReturnMessage('Stripe Checkout was canceled. No billing changes were applied.');
-    } else {
-      setCheckoutReturnMessage(`Checkout returned with status "${checkoutState}".`);
+    if (checkoutState) {
+      if (checkoutState === 'success') {
+        setCheckoutReturnMessage('Stripe Checkout completed. Billing data has been refreshed.');
+      } else if (checkoutState === 'cancel') {
+        setCheckoutReturnMessage('Stripe Checkout was canceled. No billing changes were applied.');
+      } else {
+        setCheckoutReturnMessage(`Checkout returned with status "${checkoutState}".`);
+      }
+    }
+
+    if (billingNotice === 'production_required') {
+      setBillingWarningMessage('Billing must be configured for production.');
+      setBillingWarningDismissed(false);
     }
 
     currentUrl.searchParams.delete('checkout');
+    currentUrl.searchParams.delete('billing');
     currentUrl.searchParams.delete('session_id');
     const nextRelative =
       `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}` || '/dashboard/billing';
@@ -707,6 +720,22 @@ export function BillingPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Billing page">
+      {billingWarningMessage && !billingWarningDismissed ? (
+        <section className="dashboard-view__section">
+          <div className="dashboard-warning-banner" role="alert">
+            <p>{billingWarningMessage}</p>
+            <button
+              type="button"
+              className="dashboard-warning-banner__dismiss"
+              aria-label="Dismiss billing warning"
+              onClick={() => setBillingWarningDismissed(true)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="dashboard-view__section" aria-label="Billing scope and actions">
         <h2>Billing overview</h2>
         <p>
@@ -720,7 +749,9 @@ export function BillingPage(): React.JSX.Element {
 
       {checkoutReturnMessage ? (
         <section className="dashboard-view__section">
-          <p className="dashboard-info-banner">{checkoutReturnMessage}</p>
+          {checkoutReturnMessage ? (
+            <p className="dashboard-info-banner">{checkoutReturnMessage}</p>
+          ) : null}
         </section>
       ) : null}
 

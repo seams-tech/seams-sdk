@@ -1021,12 +1021,20 @@ function toTeamRbacContext(claims: ConsoleAuthClaims): {
   orgId: string;
   actorUserId: string;
   roles: string[];
+  actorEmail?: string;
+  actorDisplayName?: string;
   projectId?: string;
 } {
   return {
     orgId: claims.orgId,
     actorUserId: claims.userId,
     roles: claims.roles,
+    ...(typeof claims.email === 'string' && claims.email.trim()
+      ? { actorEmail: claims.email.trim().toLowerCase() }
+      : {}),
+    ...(typeof claims.name === 'string' && claims.name.trim()
+      ? { actorDisplayName: claims.name.trim() }
+      : {}),
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
   };
 }
@@ -2561,6 +2569,32 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         return;
       }
       res.status(200).json({ ok: true, policy });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.delete('/console/policies/:id', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const policyId = readPathParam(req, 'id');
+    if (!policyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
+      return;
+    }
+    try {
+      const result = await policies.deletePolicy(toBillingContext(claims), policyId);
+      if (!result.removed || !result.policy) {
+        res.status(404).json({
+          ok: false,
+          code: 'policy_not_found',
+          message: `Policy ${policyId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, removed: true, policy: result.policy });
     } catch (error: unknown) {
       sendPolicyError(res, error);
     }

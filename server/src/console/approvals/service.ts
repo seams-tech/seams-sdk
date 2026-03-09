@@ -55,7 +55,6 @@ const OPERATION_DEFAULTS: Record<
 > = {
   POLICY_PUBLISH: { requiredApprovals: 1, requireMfa: false },
   KEY_EXPORT: { requiredApprovals: 2, requireMfa: true },
-  SECURITY_SETTINGS_CHANGE: { requiredApprovals: 1, requireMfa: true },
 };
 
 function toIso(date: Date): string {
@@ -177,7 +176,9 @@ export function createInMemoryConsoleApprovalService(
         resourceType: normalizeString(request.resourceType),
         resourceId: normalizeString(request.resourceId),
         metadata:
-          request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
+          request.metadata &&
+          typeof request.metadata === 'object' &&
+          !Array.isArray(request.metadata)
             ? { ...request.metadata }
             : {},
         decisions: [],

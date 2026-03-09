@@ -1,4 +1,5 @@
 import { ConsolePolicyError } from './errors';
+import { parseConsolePolicyRulesInput } from './rules';
 import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,
@@ -35,13 +36,10 @@ function readOptionalResourceId(body: Record<string, unknown>, key: string): str
 function readOptionalRules(
   body: Record<string, unknown>,
   key: string,
-): Record<string, unknown> | undefined {
+): CreateConsolePolicyRequest['rules'] | undefined {
   const raw = body[key];
   if (raw === undefined || raw === null) return undefined;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new ConsolePolicyError('invalid_body', 400, `Field ${key} must be a JSON object`);
-  }
-  return raw as Record<string, unknown>;
+  return parseConsolePolicyRulesInput(raw);
 }
 
 function readOptionalInteger(
@@ -95,6 +93,8 @@ export function parseSimulateConsolePolicyRequest(body: unknown): SimulateConsol
   const action = readRequiredString(obj, 'action', createParseError);
   const chain = readOptionalString(obj, 'chain');
   const amountMinor = readOptionalInteger(obj, 'amountMinor');
+  const contractAddress = readOptionalString(obj, 'contractAddress');
+  const functionSelector = readOptionalString(obj, 'functionSelector');
   if (amountMinor !== undefined && amountMinor < 0) {
     throw new ConsolePolicyError('invalid_body', 400, 'Field amountMinor must be >= 0');
   }
@@ -110,6 +110,8 @@ export function parseSimulateConsolePolicyRequest(body: unknown): SimulateConsol
     action,
     ...(chain ? { chain } : {}),
     ...(amountMinor !== undefined ? { amountMinor } : {}),
+    ...(contractAddress ? { contractAddress } : {}),
+    ...(functionSelector ? { functionSelector } : {}),
     ...(metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
       ? { metadata: metadataRaw as Record<string, unknown> }
       : {}),

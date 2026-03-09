@@ -2,14 +2,12 @@ import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,
   consoleErrorMessage,
+  fetchConsoleEndpoint,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
 
-export type DashboardConsoleApprovalOperationType =
-  | 'POLICY_PUBLISH'
-  | 'KEY_EXPORT'
-  | 'SECURITY_SETTINGS_CHANGE';
+export type DashboardConsoleApprovalOperationType = 'POLICY_PUBLISH' | 'KEY_EXPORT';
 
 export type DashboardConsoleApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 
@@ -58,7 +56,6 @@ interface ConsoleApprovalsMutationResponse {
 const OPERATION_TYPE_SET = new Set<DashboardConsoleApprovalOperationType>([
   'POLICY_PUBLISH',
   'KEY_EXPORT',
-  'SECURITY_SETTINGS_CHANGE',
 ]);
 
 const STATUS_SET = new Set<DashboardConsoleApprovalStatus>([
@@ -136,9 +133,7 @@ function decodeApproval(raw: unknown): DashboardConsoleApprovalRequest | null {
     metadata,
     decisions: decisionsRaw
       .map((entry) => decodeDecision(entry))
-      .filter(
-        (entry): entry is DashboardConsoleApprovalDecisionRecord => entry !== null,
-      ),
+      .filter((entry): entry is DashboardConsoleApprovalDecisionRecord => entry !== null),
     createdAt,
     updatedAt,
     resolvedAt: normalizeString(row.resolvedAt) || null,
@@ -157,12 +152,20 @@ export async function listDashboardApprovals(input?: {
   if (input?.operationType) url.searchParams.set('operationType', input.operationType);
   if (input?.projectId) url.searchParams.set('projectId', input.projectId);
   if (input?.environmentId) url.searchParams.set('environmentId', input.environmentId);
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const response = await fetchConsoleEndpoint(
+    url.toString(),
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: `${url.pathname}${url.search}`,
+      operation: 'Approvals request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleApprovalsListResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Approvals request failed'));
@@ -186,13 +189,21 @@ export async function createDashboardApproval(input: {
   metadata?: Record<string, unknown>;
 }): Promise<DashboardConsoleApprovalRequest> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/approvals`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}/console/approvals`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify(input),
+    },
+    {
+      baseUrl: base,
+      path: '/console/approvals',
+      operation: 'Create approval request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleApprovalsMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Create approval request failed'));
@@ -210,16 +221,25 @@ export async function approveDashboardApproval(input: {
   const approvalId = normalizeString(input.approvalId);
   if (!approvalId) throw new Error('Approval request id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/approvals/${encodeURIComponent(approvalId)}/approve`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({
-      reason: input.reason,
-      mfaVerified: input.mfaVerified,
-    }),
-  });
+  const approvePath = `/console/approvals/${encodeURIComponent(approvalId)}/approve`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${approvePath}`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        reason: input.reason,
+        mfaVerified: input.mfaVerified,
+      }),
+    },
+    {
+      baseUrl: base,
+      path: approvePath,
+      operation: 'Approve request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleApprovalsMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Approve request failed'));
@@ -236,15 +256,24 @@ export async function rejectDashboardApproval(input: {
   const approvalId = normalizeString(input.approvalId);
   if (!approvalId) throw new Error('Approval request id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/approvals/${encodeURIComponent(approvalId)}/reject`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({
-      reason: input.reason,
-    }),
-  });
+  const rejectPath = `/console/approvals/${encodeURIComponent(approvalId)}/reject`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${rejectPath}`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        reason: input.reason,
+      }),
+    },
+    {
+      baseUrl: base,
+      path: rejectPath,
+      operation: 'Reject request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsoleApprovalsMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Reject request failed'));

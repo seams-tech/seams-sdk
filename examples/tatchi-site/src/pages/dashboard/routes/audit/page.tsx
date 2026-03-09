@@ -2,17 +2,9 @@ import React from 'react';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
-  createDashboardAuditExport,
   listDashboardAuditEvents,
-  listDashboardAuditEvidence,
-  listDashboardAuditExports,
   type DashboardConsoleAuditCategory,
-  type DashboardConsoleAuditEvidenceDomain,
-  type DashboardConsoleAuditExportDomain,
-  type DashboardConsoleAuditExportFormat,
-  type DashboardConsoleAuditExportRecord,
   type DashboardConsoleAuditEvent,
-  type DashboardConsoleAuditEvidenceRecord,
   type DashboardConsoleAuditOutcome,
 } from './consoleAuditApi';
 
@@ -31,20 +23,6 @@ const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
 ];
 
 const OUTCOME_OPTIONS: readonly DashboardConsoleAuditOutcome[] = ['SUCCESS', 'FAILURE', 'PENDING'];
-const EVIDENCE_DOMAIN_OPTIONS: readonly DashboardConsoleAuditEvidenceDomain[] = [
-  'POLICY',
-  'BILLING',
-  'KEY_EXPORT',
-  'SECURITY',
-];
-const EXPORT_DOMAIN_OPTIONS: readonly DashboardConsoleAuditExportDomain[] = [
-  'ALL',
-  'POLICY',
-  'BILLING',
-  'KEY_EXPORT',
-  'SECURITY',
-];
-const EXPORT_FORMAT_OPTIONS: readonly DashboardConsoleAuditExportFormat[] = ['JSONL', 'CSV'];
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -52,14 +30,37 @@ function formatTimestamp(value: string): string {
   return date.toLocaleString();
 }
 
+function toIsoTimestamp(value: string): string | undefined {
+  const normalized = String(value || '').trim();
+  if (!normalized) return undefined;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toISOString();
+}
+
 function metadataSummary(metadata: Record<string, unknown>): string {
   const keys = Object.keys(metadata || {});
   if (keys.length === 0) return '-';
-  const first = keys
+  const preview = keys
     .slice(0, 3)
     .map((key) => `${key}=${String(metadata[key])}`)
     .join(', ');
-  return keys.length > 3 ? `${first}, +${keys.length - 3} more` : first;
+  return keys.length > 3 ? `${preview}, +${keys.length - 3} more` : preview;
+}
+
+function scopeSummary(row: DashboardConsoleAuditEvent): string {
+  const project = String(row.projectId || '').trim();
+  const environment = String(row.environmentId || '').trim();
+  if (project && environment) return `${project} / ${environment}`;
+  if (project) return project;
+  if (environment) return environment;
+  return 'Organization';
+}
+
+function outcomeClassName(outcome: DashboardConsoleAuditOutcome): string {
+  if (outcome === 'SUCCESS') return 'dashboard-audit-events-table__outcome--success';
+  if (outcome === 'FAILURE') return 'dashboard-audit-events-table__outcome--failure';
+  return 'dashboard-audit-events-table__outcome--pending';
 }
 
 export function AuditLogsPage(): React.JSX.Element {
@@ -71,23 +72,27 @@ export function AuditLogsPage(): React.JSX.Element {
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [events, setEvents] = React.useState<DashboardConsoleAuditEvent[]>([]);
-  const [evidence, setEvidence] = React.useState<DashboardConsoleAuditEvidenceRecord[]>([]);
-  const [exportJobs, setExportJobs] = React.useState<DashboardConsoleAuditExportRecord[]>([]);
+  const [searchInput, setSearchInput] = React.useState<string>('');
+  const [debouncedSearchInput, setDebouncedSearchInput] = React.useState<string>('');
   const [eventCategoryFilter, setEventCategoryFilter] = React.useState<string>('');
   const [eventOutcomeFilter, setEventOutcomeFilter] = React.useState<string>('');
-  const [eventActorFilter, setEventActorFilter] = React.useState<string>('');
-  const [evidenceDomainFilter, setEvidenceDomainFilter] = React.useState<string>('');
-  const [exportDomainInput, setExportDomainInput] = React.useState<DashboardConsoleAuditExportDomain>('ALL');
-  const [exportFormatInput, setExportFormatInput] = React.useState<DashboardConsoleAuditExportFormat>('JSONL');
-  const [exportRequestError, setExportRequestError] = React.useState<string>('');
-  const [creatingExport, setCreatingExport] = React.useState<boolean>(false);
+  const [fromInput, setFromInput] = React.useState<string>('');
+  const [toInput, setToInput] = React.useState<string>('');
+  const [expandedEventId, setExpandedEventId] = React.useState<string>('');
 
-  const loadAudit = React.useCallback(() => {
+  React.useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchInput(String(searchInput || '').trim());
+    }, 250);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchInput]);
+
+  const loadAuditEvents = React.useCallback(() => {
     if (!session.claims) {
       setLoading(false);
       setEvents([]);
-      setEvidence([]);
-      setExportJobs([]);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
@@ -95,41 +100,24 @@ export function AuditLogsPage(): React.JSX.Element {
     let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    setExportRequestError('');
-    Promise.all([
-      listDashboardAuditEvents({
-        ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-        ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
-        ...(eventCategoryFilter
-          ? { category: eventCategoryFilter as DashboardConsoleAuditCategory }
-          : {}),
-        ...(eventOutcomeFilter
-          ? { outcome: eventOutcomeFilter as DashboardConsoleAuditOutcome }
-          : {}),
-        ...(eventActorFilter ? { actorUserId: eventActorFilter } : {}),
-        limit: 100,
-      }),
-      listDashboardAuditEvidence({
-        ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-        ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
-        ...(evidenceDomainFilter
-          ? { domain: evidenceDomainFilter as DashboardConsoleAuditEvidenceDomain }
-          : {}),
-        limit: 100,
-      }),
-      listDashboardAuditExports({ limit: 50 }),
-    ])
-      .then(([nextEvents, nextEvidence, nextExports]) => {
+
+    listDashboardAuditEvents({
+      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+      ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
+      ...(eventCategoryFilter ? { category: eventCategoryFilter as DashboardConsoleAuditCategory } : {}),
+      ...(eventOutcomeFilter ? { outcome: eventOutcomeFilter as DashboardConsoleAuditOutcome } : {}),
+      ...(debouncedSearchInput ? { q: debouncedSearchInput } : {}),
+      ...(toIsoTimestamp(fromInput) ? { from: toIsoTimestamp(fromInput) } : {}),
+      ...(toIsoTimestamp(toInput) ? { to: toIsoTimestamp(toInput) } : {}),
+      limit: 100,
+    })
+      .then((nextEvents) => {
         if (cancelled) return;
         setEvents(nextEvents);
-        setEvidence(nextEvidence);
-        setExportJobs(nextExports);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         setEvents([]);
-        setEvidence([]);
-        setExportJobs([]);
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
@@ -141,14 +129,15 @@ export function AuditLogsPage(): React.JSX.Element {
       cancelled = true;
     };
   }, [
-    evidenceDomainFilter,
-    eventActorFilter,
+    debouncedSearchInput,
     eventCategoryFilter,
     eventOutcomeFilter,
+    fromInput,
     selectedEnvironmentId,
     selectedProjectId,
     session.claims,
     session.errorMessage,
+    toInput,
   ]);
 
   React.useEffect(() => {
@@ -156,258 +145,187 @@ export function AuditLogsPage(): React.JSX.Element {
       setLoading(true);
       return;
     }
-    const cleanup = loadAudit();
+    const cleanup = loadAuditEvents();
     return cleanup;
-  }, [loadAudit, session.loading]);
+  }, [loadAuditEvents, session.loading]);
 
   return (
     <div className="dashboard-view" aria-label="Audit logs page">
-      <section className="dashboard-view__section" aria-label="Audit log filters">
-        <h2>Audit logs</h2>
-        <p>
-          Review who did what across approvals, policy changes, key exports, billing events, and
-          related operations.
-        </p>
+      <section
+        className="dashboard-view__section dashboard-audit-section--plain"
+        aria-label="Audit event filters"
+      >
+        <section className="dashboard-audit-filter-group" aria-label="Event filters">
+          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-audit-controls-grid">
+            <div className="dashboard-form-field dashboard-form-field--full">
+              <input
+                className="dashboard-input dashboard-input--audit"
+                aria-label="Search events"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search user id, action, summary, event id, approval id, API key id, metadata"
+              />
+            </div>
+            <label className="dashboard-form-field">
+              <span>Category</span>
+              <select
+                className="dashboard-select dashboard-select--audit"
+                value={eventCategoryFilter}
+                onChange={(event) => setEventCategoryFilter(event.target.value)}
+              >
+                <option value="">All categories</option>
+                {CATEGORY_OPTIONS.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          <label className="dashboard-form-field">
-            <span>Category</span>
-            <select
-              className="dashboard-select"
-              value={eventCategoryFilter}
-              onChange={(event) => setEventCategoryFilter(event.target.value)}
-            >
-              <option value="">All categories</option>
-              {CATEGORY_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="dashboard-form-field">
+              <span>Outcome</span>
+              <select
+                className="dashboard-select dashboard-select--audit"
+                value={eventOutcomeFilter}
+                onChange={(event) => setEventOutcomeFilter(event.target.value)}
+              >
+                <option value="">All outcomes</option>
+                {OUTCOME_OPTIONS.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label className="dashboard-form-field">
-            <span>Outcome</span>
-            <select
-              className="dashboard-select"
-              value={eventOutcomeFilter}
-              onChange={(event) => setEventOutcomeFilter(event.target.value)}
-            >
-              <option value="">All outcomes</option>
-              {OUTCOME_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="dashboard-form-field">
+              <span>From</span>
+              <input
+                className="dashboard-input dashboard-input--audit"
+                type="datetime-local"
+                value={fromInput}
+                onChange={(event) => setFromInput(event.target.value)}
+              />
+            </label>
 
-          <label className="dashboard-form-field">
-            <span>Actor user ID</span>
-            <input
-              className="dashboard-input"
-              value={eventActorFilter}
-              onChange={(event) => setEventActorFilter(event.target.value)}
-              placeholder="console-admin"
-            />
-          </label>
+            <label className="dashboard-form-field">
+              <span>To</span>
+              <input
+                className="dashboard-input dashboard-input--audit"
+                type="datetime-local"
+                value={toInput}
+                onChange={(event) => setToInput(event.target.value)}
+              />
+            </label>
+          </div>
+        </section>
 
-          <label className="dashboard-form-field">
-            <span>Evidence domain (optional)</span>
-            <select
-              className="dashboard-select"
-              value={evidenceDomainFilter}
-              onChange={(event) => setEvidenceDomainFilter(event.target.value)}
-            >
-              <option value="">All domains</option>
-              {EVIDENCE_DOMAIN_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            onClick={() => loadAudit()}
-            disabled={loading}
-          >
-            {loading ? 'Loading...' : 'Reload audit logs'}
-          </button>
-          <span className="dashboard-pagination-note">
-            Events: {events.length} | Evidence records: {evidence.length} | Exports: {exportJobs.length}
-          </span>
-        </div>
         {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
       </section>
 
-      <section className="dashboard-view__section" aria-label="Audit events table">
-        <h2>Audit events</h2>
-        <section className="dashboard-table-wrapper" aria-label="Audit events">
-          <div className="dashboard-table-header" role="row">
+      <section
+        className="dashboard-view__section dashboard-audit-section--plain"
+        aria-label="Audit events table"
+      >
+        <h2>Events</h2>
+        <section
+          className="dashboard-table-wrapper dashboard-audit-events-table"
+          aria-label="Audit events"
+        >
+          <div className="dashboard-audit-events-table__header" role="row">
             <span>Timestamp</span>
-            <span>Category</span>
-            <span>Action</span>
-            <span>Outcome</span>
+            <span>Event</span>
             <span>Actor</span>
-            <span>Metadata</span>
+            <span>Scope</span>
+            <span>Outcome</span>
+            <span>Details</span>
           </div>
           {events.length === 0 ? (
-            <p className="dashboard-empty-state">
-              {loading ? 'Loading audit events...' : 'No audit events for current filters.'}
+            <p className="dashboard-empty-state dashboard-empty-state--audit">
+              {loading ? 'Loading audit events...' : 'No audit events matched the current scope and filters.'}
             </p>
           ) : (
-            events.map((row) => (
-              <div className="dashboard-table-row" key={row.id} role="row">
-                <span>{formatTimestamp(row.createdAt)}</span>
-                <span>{row.category}</span>
-                <span title={row.summary}>{row.action || '-'}</span>
-                <span>{row.outcome}</span>
-                <span>{row.actorUserId}</span>
-                <span title={JSON.stringify(row.metadata)}>{metadataSummary(row.metadata)}</span>
-              </div>
-            ))
-          )}
-        </section>
-      </section>
-
-      <section className="dashboard-view__section" aria-label="Audit evidence table">
-        <h2>Evidence records</h2>
-        <section className="dashboard-table-wrapper" aria-label="Evidence records">
-          <div className="dashboard-table-header" role="row">
-            <span>Timestamp</span>
-            <span>Domain</span>
-            <span>Title</span>
-            <span>Summary</span>
-            <span>Event IDs</span>
-            <span>References</span>
-          </div>
-          {evidence.length === 0 ? (
-            <p className="dashboard-empty-state">
-              {loading ? 'Loading evidence records...' : 'No evidence records for current filters.'}
-            </p>
-          ) : (
-            evidence.map((row) => (
-              <div className="dashboard-table-row" key={row.id} role="row">
-                <span>{formatTimestamp(row.createdAt)}</span>
-                <span>{row.domain}</span>
-                <span>{row.title || '-'}</span>
-                <span title={row.summary}>{row.summary || '-'}</span>
-                <span>{row.eventIds.join(', ') || '-'}</span>
-                <span>
-                  {row.references.map((entry) => `${entry.kind}:${entry.referenceId}`).join(', ') || '-'}
-                </span>
-              </div>
-            ))
-          )}
-        </section>
-      </section>
-
-      <section className="dashboard-view__section" aria-label="Audit export controls">
-        <h2>Evidence export artifacts</h2>
-        <p>
-          Queue high-level evidence exports for audit investigations. Export materialization and immutable
-          archival are intentionally scaffolded in this phase.
-        </p>
-
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          <label className="dashboard-form-field">
-            <span>Export domain</span>
-            <select
-              className="dashboard-select"
-              value={exportDomainInput}
-              onChange={(event) =>
-                setExportDomainInput(event.target.value as DashboardConsoleAuditExportDomain)
-              }
-            >
-              {EXPORT_DOMAIN_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="dashboard-form-field">
-            <span>Export format</span>
-            <select
-              className="dashboard-select"
-              value={exportFormatInput}
-              onChange={(event) =>
-                setExportFormatInput(event.target.value as DashboardConsoleAuditExportFormat)
-              }
-            >
-              {EXPORT_FORMAT_OPTIONS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {entry}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            disabled={creatingExport}
-            onClick={async () => {
-              setCreatingExport(true);
-              setExportRequestError('');
-              try {
-                const created = await createDashboardAuditExport({
-                  format: exportFormatInput,
-                  ...(exportDomainInput !== 'ALL' ? { domain: exportDomainInput } : {}),
-                  ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-                  ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
-                });
-                setExportJobs((prev) => [created, ...prev.filter((entry) => entry.id !== created.id)]);
-              } catch (error: unknown) {
-                setExportRequestError(error instanceof Error ? error.message : String(error));
-              } finally {
-                setCreatingExport(false);
-              }
-            }}
-          >
-            {creatingExport ? 'Queueing...' : 'Queue evidence export'}
-          </button>
-          {exportRequestError ? <span className="dashboard-pagination-note">{exportRequestError}</span> : null}
-        </div>
-
-        <section className="dashboard-table-wrapper" aria-label="Audit export queue">
-          <div className="dashboard-table-header" role="row">
-            <span>Created</span>
-            <span>Export ID</span>
-            <span>Status</span>
-            <span>Format</span>
-            <span>Scope filters</span>
-            <span>Failure</span>
-          </div>
-          {exportJobs.length === 0 ? (
-            <p className="dashboard-empty-state">
-              {loading ? 'Loading exports...' : 'No exports queued yet.'}
-            </p>
-          ) : (
-            exportJobs.map((row) => (
-              <div className="dashboard-table-row" key={row.id} role="row">
-                <span>{formatTimestamp(row.createdAt)}</span>
-                <span>{row.id}</span>
-                <span>{row.status}</span>
-                <span>{row.format}</span>
-                <span>
-                  {[
-                    row.filters.domain || 'ALL',
-                    row.filters.projectId || '-',
-                    row.filters.environmentId || '-',
-                  ].join(' / ')}
-                </span>
-                <span>{row.failureMessage || '-'}</span>
-              </div>
-            ))
+            events.map((row) => {
+              const isExpanded = expandedEventId === row.id;
+              return (
+                <React.Fragment key={row.id}>
+                  <div className="dashboard-audit-events-table__row" role="row">
+                    <div className="dashboard-audit-events-table__cell">
+                      <span>{formatTimestamp(row.createdAt)}</span>
+                    </div>
+                    <div className="dashboard-audit-events-table__cell dashboard-audit-events-table__cell--event">
+                      <strong className="dashboard-audit-events-table__summary">
+                        {row.summary || row.action || row.id}
+                      </strong>
+                      <span className="dashboard-audit-events-table__subline">
+                        <span className="dashboard-audit-events-table__badge">{row.category}</span>
+                        <span>{row.action || '-'}</span>
+                      </span>
+                      <span
+                        className="dashboard-audit-events-table__subline dashboard-audit-events-table__subline--muted"
+                        title={JSON.stringify(row.metadata)}
+                      >
+                        Metadata: {metadataSummary(row.metadata)}
+                      </span>
+                    </div>
+                    <div className="dashboard-audit-events-table__cell">
+                      <span>{row.actorUserId}</span>
+                      <span className="dashboard-audit-events-table__subline dashboard-audit-events-table__subline--muted">
+                        {row.actorType}
+                      </span>
+                    </div>
+                    <div className="dashboard-audit-events-table__cell">
+                      <span>{scopeSummary(row)}</span>
+                    </div>
+                    <div className="dashboard-audit-events-table__cell">
+                      <span
+                        className={`dashboard-audit-events-table__outcome ${outcomeClassName(row.outcome)}`}
+                      >
+                        {row.outcome}
+                      </span>
+                    </div>
+                    <div className="dashboard-audit-events-table__cell dashboard-audit-events-table__cell--details">
+                      <button
+                        type="button"
+                        className="dashboard-audit-events-table__details-toggle"
+                        onClick={() =>
+                          setExpandedEventId((current) => (current === row.id ? '' : row.id))
+                        }
+                      >
+                        {isExpanded ? 'Hide' : 'View'}
+                      </button>
+                    </div>
+                  </div>
+                  {isExpanded ? (
+                    <div className="dashboard-audit-events-table__details-panel">
+                      <div className="dashboard-audit-events-table__details-grid">
+                        <div className="dashboard-audit-events-table__details-item">
+                          <span className="dashboard-audit-events-table__details-label">Event ID</span>
+                          <span>{row.id}</span>
+                        </div>
+                        <div className="dashboard-audit-events-table__details-item">
+                          <span className="dashboard-audit-events-table__details-label">Action</span>
+                          <span>{row.action || '-'}</span>
+                        </div>
+                        <div className="dashboard-audit-events-table__details-item">
+                          <span className="dashboard-audit-events-table__details-label">Project</span>
+                          <span>{row.projectId || '-'}</span>
+                        </div>
+                        <div className="dashboard-audit-events-table__details-item">
+                          <span className="dashboard-audit-events-table__details-label">
+                            Environment
+                          </span>
+                          <span>{row.environmentId || '-'}</span>
+                        </div>
+                      </div>
+                      <pre className="dashboard-audit-events-table__metadata-json">
+                        {JSON.stringify(row.metadata, null, 2)}
+                      </pre>
+                    </div>
+                  ) : null}
+                </React.Fragment>
+              );
+            })
           )}
         </section>
       </section>

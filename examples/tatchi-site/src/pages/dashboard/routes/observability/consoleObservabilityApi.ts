@@ -47,6 +47,7 @@ export interface DashboardConsoleObservabilityEvent {
 export interface DashboardConsoleObservabilityEventsPage {
   status: DashboardConsoleObservabilityModuleStatus;
   events: DashboardConsoleObservabilityEvent[];
+  totalPages: number;
   nextCursor?: string;
 }
 
@@ -72,6 +73,10 @@ export interface GetDashboardObservabilitySnapshotRequest
   extends DashboardConsoleObservabilityScope {
   eventsCursor?: string;
   eventsLimit?: number;
+  eventsQuery?: string;
+  eventsLevel?: DashboardConsoleObservabilityLevel;
+  eventsService?: string;
+  eventsEventType?: string;
 }
 
 export class DashboardConsoleObservabilityApiError extends Error {
@@ -99,6 +104,7 @@ interface ConsoleObservabilityEventsResponse {
   message?: string;
   status?: unknown;
   events?: unknown;
+  totalPages?: unknown;
   nextCursor?: unknown;
 }
 
@@ -119,6 +125,7 @@ export interface DashboardConsoleObservabilityScope {
 
 export interface ListDashboardConsoleObservabilityEventsRequest
   extends DashboardConsoleObservabilityScope {
+  query?: string;
   level?: DashboardConsoleObservabilityLevel;
   service?: string;
   eventType?: string;
@@ -320,6 +327,7 @@ export async function listDashboardObservabilityEvents(
   const base = requireConsoleBaseUrl();
   const url = new URL('/console/observability/events', base);
   applyScope(url, input);
+  appendOptionalQuery(url, 'query', input?.query);
   appendOptionalQuery(url, 'service', input?.service);
   appendOptionalQuery(url, 'eventType', input?.eventType);
   appendOptionalQuery(url, 'cursor', input?.cursor);
@@ -358,6 +366,7 @@ export async function listDashboardObservabilityEvents(
     events: eventsRaw
       .map((entry) => decodeEvent(entry))
       .filter((entry): entry is DashboardConsoleObservabilityEvent => entry !== null),
+    totalPages: Math.max(1, toNonNegativeInteger(body.totalPages) || 1),
     ...(toTrimmedString(body.nextCursor) ? { nextCursor: toTrimmedString(body.nextCursor) } : {}),
   };
 }
@@ -418,11 +427,18 @@ export async function getDashboardObservabilitySnapshot(
   const eventsLimit = Number.isFinite(Number(input?.eventsLimit)) && Number(input?.eventsLimit) > 0
     ? Math.floor(Number(input?.eventsLimit))
     : 50;
+  const eventsQuery = toTrimmedString(input?.eventsQuery);
+  const eventsService = toTrimmedString(input?.eventsService);
+  const eventsEventType = toTrimmedString(input?.eventsEventType);
 
   const [summary, events, services] = await Promise.all([
     getDashboardObservabilitySummary(scope),
     listDashboardObservabilityEvents({
       ...scope,
+      ...(eventsQuery ? { query: eventsQuery } : {}),
+      ...(input?.eventsLevel ? { level: input.eventsLevel } : {}),
+      ...(eventsService ? { service: eventsService } : {}),
+      ...(eventsEventType ? { eventType: eventsEventType } : {}),
       ...(eventsCursor ? { cursor: eventsCursor } : {}),
       limit: eventsLimit,
     }),

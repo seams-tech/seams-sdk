@@ -82,6 +82,7 @@ export function createInMemoryConsoleObservabilityService(
       return {
         status,
         events: [],
+        totalPages: 1,
       };
     },
 

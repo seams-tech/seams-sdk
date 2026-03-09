@@ -1,5 +1,13 @@
 import React from 'react';
-import { useDashboardConsoleSession } from '../../consoleSession';
+import { createPortal } from 'react-dom';
+import {
+  DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT,
+  consumeOpenSelfMemberSettingsRequest,
+} from '../../accountSettingsIntents';
+import {
+  useDashboardConsoleSession,
+  type DashboardConsoleSessionClaims,
+} from '../../consoleSession';
 import {
   inviteDashboardTeamMember,
   listDashboardTeamMembers,
@@ -88,6 +96,15 @@ const DEFAULT_CATEGORY_ACCESS: TeamCategoryAccessMap = {
 
 function makeDefaultCategoryAccess(): TeamCategoryAccessMap {
   return { ...DEFAULT_CATEGORY_ACCESS };
+}
+
+function makeDefaultPermissionEditorState(): TeamPermissionEditorState {
+  return {
+    isAdmin: false,
+    canManageAdmins: false,
+    canManageMembers: false,
+    categoryAccess: makeDefaultCategoryAccess(),
+  };
 }
 
 function formatTimestamp(value: string): string {
@@ -196,100 +213,242 @@ function canMutateTeamFromRoles(rolesRaw: unknown): boolean {
   });
 }
 
+function isConsoleLocalEmail(value: string): boolean {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .endsWith('@console.local');
+}
+
+function resolveMemberEmail(
+  member: DashboardConsoleTeamMember,
+  sessionClaims?: DashboardConsoleSessionClaims | null,
+): string {
+  const email = String(member.email || '').trim();
+  const sessionUserId = String(sessionClaims?.userId || '').trim();
+  const sessionEmail = String(sessionClaims?.email || '').trim();
+  if (
+    sessionUserId &&
+    sessionEmail &&
+    String(member.userId || '').trim() === sessionUserId &&
+    isConsoleLocalEmail(email)
+  ) {
+    return sessionEmail;
+  }
+  return email;
+}
+
+function resolveMemberDisplayName(
+  member: DashboardConsoleTeamMember,
+  sessionClaims?: DashboardConsoleSessionClaims | null,
+): string {
+  const displayName = String(member.displayName || '').trim();
+  if (displayName) return displayName;
+  const sessionUserId = String(sessionClaims?.userId || '').trim();
+  const sessionName = String(sessionClaims?.name || '').trim();
+  if (sessionUserId && sessionName && String(member.userId || '').trim() === sessionUserId) {
+    return sessionName;
+  }
+  return '';
+}
+
+function matchesMemberQuery(
+  member: DashboardConsoleTeamMember,
+  queryRaw: string,
+  sessionClaims?: DashboardConsoleSessionClaims | null,
+): boolean {
+  const query = String(queryRaw || '')
+    .trim()
+    .toLowerCase();
+  if (!query) return true;
+  const primaryIdentity = formatMemberPrimaryIdentity(member, sessionClaims);
+  return [
+    resolveMemberDisplayName(member, sessionClaims),
+    resolveMemberEmail(member, sessionClaims),
+    member.userId,
+    primaryIdentity,
+    member.status,
+    member.invitedByUserId,
+    formatPermissionSummary(member.roles),
+  ].some((value) =>
+    String(value || '')
+      .toLowerCase()
+      .includes(query),
+  );
+}
+
+function formatMemberPrimaryIdentity(
+  member: DashboardConsoleTeamMember,
+  sessionClaims?: DashboardConsoleSessionClaims | null,
+): string {
+  const userId = String(member.userId || '').trim();
+  const email = resolveMemberEmail(member, sessionClaims);
+  if (!email) return userId || '-';
+  if (!userId) return email;
+  const normalizedUserId = userId.toLowerCase();
+  const normalizedEmail = email.toLowerCase();
+  if (
+    normalizedEmail === normalizedUserId ||
+    normalizedEmail === `${normalizedUserId}@console.local` ||
+    normalizedEmail.endsWith('@console.local')
+  ) {
+    return userId;
+  }
+  return email;
+}
+
+function buildMemberProfile(
+  member: DashboardConsoleTeamMember,
+  sessionClaims?: DashboardConsoleSessionClaims | null,
+): {
+  title: string;
+  subtitle: string;
+  detail: string;
+} {
+  const displayName = resolveMemberDisplayName(member, sessionClaims);
+  const primaryIdentity = formatMemberPrimaryIdentity(member, sessionClaims);
+  const userId = String(member.userId || '').trim();
+  if (!displayName) {
+    return {
+      title: primaryIdentity,
+      subtitle: userId && userId !== primaryIdentity ? userId : '',
+      detail: '',
+    };
+  }
+  if (displayName.toLowerCase() === primaryIdentity.toLowerCase()) {
+    return {
+      title: primaryIdentity,
+      subtitle: userId && userId !== primaryIdentity ? userId : '',
+      detail: '',
+    };
+  }
+  return {
+    title: primaryIdentity,
+    subtitle: userId && userId !== primaryIdentity ? userId : '',
+    detail: displayName,
+  };
+}
+
+function generateInviteUserId(emailRaw: string): string {
+  const email = String(emailRaw || '')
+    .trim()
+    .toLowerCase();
+  const localPart = email.includes('@') ? email.slice(0, email.indexOf('@')) : email;
+  const normalized = localPart.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  if (!normalized) return 'user_member';
+  return normalized.startsWith('user_') ? normalized : `user_${normalized}`;
+}
+
 function TeamPermissionEditor(props: TeamPermissionEditorProps): React.JSX.Element {
   return (
-    <>
-      <div className="dashboard-view-grid dashboard-view-grid--two">
-        <label className="dashboard-form-field">
-          <span>Admin member</span>
-          <input
-            type="checkbox"
-            checked={props.isAdmin}
-            onChange={(event) => props.onIsAdminChange(event.target.checked)}
-            disabled={props.disabled || props.ownerRolePresent}
-          />
-        </label>
-        <label className="dashboard-form-field">
-          <span>Can add/remove admins</span>
-          <input
-            type="checkbox"
-            checked={props.canManageAdmins}
-            onChange={(event) => props.onCanManageAdminsChange(event.target.checked)}
-            disabled={props.disabled || props.ownerRolePresent}
-          />
-        </label>
-        <label className="dashboard-form-field">
-          <span>Can add/remove team members</span>
-          <input
-            type="checkbox"
-            checked={props.canManageMembers}
-            onChange={(event) => props.onCanManageMembersChange(event.target.checked)}
-            disabled={props.disabled || props.ownerRolePresent}
-          />
-        </label>
-      </div>
-
-      <p>Sidebar category access levels</p>
-      <div className="dashboard-view-grid dashboard-view-grid--two">
-        {TEAM_PERMISSION_CATEGORIES.map((category) => (
-          <label className="dashboard-form-field" key={category.category}>
-            <span>{category.label}</span>
-            <select
-              className="dashboard-input"
-              value={props.categoryAccess[category.category]}
-              onChange={(event) =>
-                props.onCategoryAccessChange(
-                  category.category,
-                  event.target.value as TeamPermissionAccessLevel,
-                )
-              }
+    <div className="dashboard-team-members-permission-editor dashboard-form-field--full">
+      <section className="dashboard-team-members-permission-editor__section">
+        <p className="dashboard-team-members-permission-editor__title">Admin controls</p>
+        <div className="dashboard-team-members-permission-flags">
+          <label className="dashboard-team-members-permission-flag">
+            <input
+              type="checkbox"
+              checked={props.isAdmin}
+              onChange={(event) => props.onIsAdminChange(event.target.checked)}
               disabled={props.disabled || props.ownerRolePresent}
-            >
-              <option value="NONE">None</option>
-              <option value="READ">Read</option>
-              <option value="WRITE">Write</option>
-            </select>
+            />
+            <span>Admin member</span>
           </label>
-        ))}
-      </div>
-      {props.ownerRolePresent ? (
-        <p className="dashboard-pagination-note">
-          Owner permission is system-managed and preserved automatically.
+          <label className="dashboard-team-members-permission-flag">
+            <input
+              type="checkbox"
+              checked={props.canManageAdmins}
+              onChange={(event) => props.onCanManageAdminsChange(event.target.checked)}
+              disabled={props.disabled || props.ownerRolePresent}
+            />
+            <span>Can add/remove admins</span>
+          </label>
+          <label className="dashboard-team-members-permission-flag">
+            <input
+              type="checkbox"
+              checked={props.canManageMembers}
+              onChange={(event) => props.onCanManageMembersChange(event.target.checked)}
+              disabled={props.disabled || props.ownerRolePresent}
+            />
+            <span>Can add/remove team members</span>
+          </label>
+        </div>
+      </section>
+
+      <section className="dashboard-team-members-permission-editor__section">
+        <p className="dashboard-team-members-permission-editor__title">
+          Sidebar category access levels
         </p>
-      ) : null}
-    </>
+        <div className="dashboard-team-members-access-list">
+          {TEAM_PERMISSION_CATEGORIES.map((category) => (
+            <div className="dashboard-team-members-access-item" key={category.category}>
+              <span>{category.label}</span>
+              <div
+                className="dashboard-team-members-access-segmented"
+                role="group"
+                aria-label={`${category.label} access level`}
+              >
+                {(['NONE', 'READ', 'WRITE'] as TeamPermissionAccessLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    className={[
+                      'dashboard-team-members-access-segmented__button',
+                      props.categoryAccess[category.category] === level
+                        ? 'dashboard-team-members-access-segmented__button--active'
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    aria-pressed={props.categoryAccess[category.category] === level}
+                    onClick={() => props.onCategoryAccessChange(category.category, level)}
+                    disabled={props.disabled || props.ownerRolePresent}
+                  >
+                    {level === 'NONE' ? 'None' : level === 'READ' ? 'Read' : 'Write'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {props.ownerRolePresent ? (
+          <p className="dashboard-pagination-note">
+            Owner permission is system-managed and preserved automatically.
+          </p>
+        ) : null}
+      </section>
+    </div>
   );
 }
 
 export function TeamMembersPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
+  const viewRef = React.useRef<HTMLDivElement | null>(null);
 
   const [members, setMembers] = React.useState<DashboardConsoleTeamMember[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
+  const [memberQuery, setMemberQuery] = React.useState<string>('');
   const [statusFilter, setStatusFilter] = React.useState<TeamMemberListStatusFilter>('ALL');
-  const [busyUserId, setBusyUserId] = React.useState<string>('');
+  const [busyMemberId, setBusyMemberId] = React.useState<string>('');
+  const [activeModal, setActiveModal] = React.useState<'invite' | 'update' | null>(null);
+  const [openSelfSettingsRequested, setOpenSelfSettingsRequested] = React.useState<boolean>(false);
   const [inviting, setInviting] = React.useState<boolean>(false);
   const [updating, setUpdating] = React.useState<boolean>(false);
+  const [detailMemberId, setDetailMemberId] = React.useState<string>('');
 
-  const [inviteUserId, setInviteUserId] = React.useState<string>('');
   const [inviteEmail, setInviteEmail] = React.useState<string>('');
   const [inviteDisplayName, setInviteDisplayName] = React.useState<string>('');
-  const [invitePermissions, setInvitePermissions] = React.useState<TeamPermissionEditorState>({
-    isAdmin: false,
-    canManageAdmins: false,
-    canManageMembers: false,
-    categoryAccess: makeDefaultCategoryAccess(),
-  });
+  const [invitePermissions, setInvitePermissions] = React.useState<TeamPermissionEditorState>(
+    makeDefaultPermissionEditorState(),
+  );
 
-  const [updateUserId, setUpdateUserId] = React.useState<string>('');
-  const [updatePermissions, setUpdatePermissions] = React.useState<TeamPermissionEditorState>({
-    isAdmin: false,
-    canManageAdmins: false,
-    canManageMembers: false,
-    categoryAccess: makeDefaultCategoryAccess(),
-  });
+  const [editingMemberId, setEditingMemberId] = React.useState<string>('');
+  const [updatePermissions, setUpdatePermissions] = React.useState<TeamPermissionEditorState>(
+    makeDefaultPermissionEditorState(),
+  );
+  const [modalHost, setModalHost] = React.useState<HTMLElement | null>(null);
 
   const canMutateTeam = React.useMemo(
     () => canMutateTeamFromRoles(session.claims?.roles),
@@ -335,10 +494,141 @@ export function TeamMembersPage(): React.JSX.Element {
     return cleanup;
   }, [loadMembers, session.loading]);
 
+  React.useEffect(() => {
+    setModalHost(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
+  }, []);
+
+  const requestOpenSelfSettings = React.useCallback(() => {
+    if (statusFilter !== 'ALL') {
+      setLoading(true);
+      setStatusFilter('ALL');
+    }
+    setMemberQuery('');
+    setOpenSelfSettingsRequested(true);
+  }, [statusFilter]);
+
+  React.useEffect(() => {
+    if (consumeOpenSelfMemberSettingsRequest()) {
+      requestOpenSelfSettings();
+    }
+    const onOpenSelfSettings = () => {
+      requestOpenSelfSettings();
+      consumeOpenSelfMemberSettingsRequest();
+    };
+    window.addEventListener(DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT, onOpenSelfSettings);
+    return () => {
+      window.removeEventListener(DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT, onOpenSelfSettings);
+    };
+  }, [requestOpenSelfSettings]);
+
   const orderedMembers = React.useMemo(
     () => [...members].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [members],
   );
+
+  const visibleMembers = React.useMemo(
+    () =>
+      orderedMembers.filter((member) => matchesMemberQuery(member, memberQuery, session.claims)),
+    [memberQuery, orderedMembers, session.claims],
+  );
+
+  const selectedMember = React.useMemo(
+    () => members.find((entry) => entry.id === editingMemberId) || null,
+    [editingMemberId, members],
+  );
+  const detailMember = React.useMemo(
+    () => members.find((entry) => entry.id === detailMemberId) || null,
+    [detailMemberId, members],
+  );
+
+  const generatedInviteUserId = React.useMemo(
+    () => (inviteEmail.trim() ? generateInviteUserId(inviteEmail) : ''),
+    [inviteEmail],
+  );
+  const detailMemberEmail = detailMember ? resolveMemberEmail(detailMember, session.claims) : '';
+  const detailMemberDisplayName = detailMember
+    ? resolveMemberDisplayName(detailMember, session.claims)
+    : '';
+
+  const resetInviteForm = React.useCallback(() => {
+    setInviteEmail('');
+    setInviteDisplayName('');
+    setInvitePermissions(makeDefaultPermissionEditorState());
+  }, []);
+
+  const resetUpdateForm = React.useCallback(() => {
+    setEditingMemberId('');
+    setUpdatePermissions(makeDefaultPermissionEditorState());
+  }, []);
+
+  const resetDetailMember = React.useCallback(() => {
+    setDetailMemberId('');
+  }, []);
+
+  const onOpenInviteModal = React.useCallback(() => {
+    resetInviteForm();
+    setMutationError('');
+    setActiveModal('invite');
+  }, [resetInviteForm]);
+
+  const onOpenUpdateModal = React.useCallback((member: DashboardConsoleTeamMember) => {
+    setEditingMemberId(member.id);
+    setUpdatePermissions(resolvePermissionEditorState(member.roles));
+    setMutationError('');
+    setActiveModal('update');
+  }, []);
+
+  React.useEffect(() => {
+    if (!openSelfSettingsRequested) return;
+    if (statusFilter !== 'ALL') return;
+    if (session.loading || loading) return;
+    if (!session.claims) {
+      setMutationError(session.errorMessage || 'Console session is unavailable');
+      setOpenSelfSettingsRequested(false);
+      return;
+    }
+
+    const sessionUserId = String(session.claims.userId || '').trim();
+    if (!sessionUserId) {
+      setMutationError('Current session is missing a user ID.');
+      setOpenSelfSettingsRequested(false);
+      return;
+    }
+
+    const currentMember =
+      members.find((entry) => String(entry.userId || '').trim() === sessionUserId) || null;
+    if (!currentMember) {
+      setMutationError('Current user was not found in team members.');
+      setOpenSelfSettingsRequested(false);
+      return;
+    }
+
+    onOpenUpdateModal(currentMember);
+    setOpenSelfSettingsRequested(false);
+  }, [
+    loading,
+    members,
+    onOpenUpdateModal,
+    openSelfSettingsRequested,
+    session.claims,
+    session.errorMessage,
+    session.loading,
+    statusFilter,
+  ]);
+
+  const onOpenDetailModal = React.useCallback((member: DashboardConsoleTeamMember) => {
+    setDetailMemberId(member.id);
+    setMutationError('');
+  }, []);
+
+  const onCloseModal = React.useCallback(() => {
+    if (inviting || updating) return;
+    setActiveModal(null);
+    setMutationError('');
+    resetInviteForm();
+    resetUpdateForm();
+    resetDetailMember();
+  }, [inviting, resetDetailMember, resetInviteForm, resetUpdateForm, updating]);
 
   const onInviteMember = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -352,13 +642,9 @@ export function TeamMembersPage(): React.JSX.Element {
         return;
       }
       const email = String(inviteEmail || '').trim();
-      const userId = String(inviteUserId || '').trim();
+      const userId = generatedInviteUserId;
       if (!email) {
         setMutationError('Email is required.');
-        return;
-      }
-      if (!userId) {
-        setMutationError('User ID is required.');
         return;
       }
       setInviting(true);
@@ -371,23 +657,14 @@ export function TeamMembersPage(): React.JSX.Element {
         if (roles.length === 0) {
           throw new Error('At least one permission is required.');
         }
-        const created = await inviteDashboardTeamMember({
+        await inviteDashboardTeamMember({
           userId,
           ...(inviteDisplayName.trim() ? { displayName: inviteDisplayName.trim() } : {}),
           email,
           roles,
         });
-        setInviteUserId('');
-        setInviteEmail('');
-        setInviteDisplayName('');
-        setInvitePermissions({
-          isAdmin: false,
-          canManageAdmins: false,
-          canManageMembers: false,
-          categoryAccess: makeDefaultCategoryAccess(),
-        });
-        setUpdateUserId(created.userId);
-        setUpdatePermissions(resolvePermissionEditorState(created.roles));
+        resetInviteForm();
+        setActiveModal(null);
         loadMembers();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -397,11 +674,12 @@ export function TeamMembersPage(): React.JSX.Element {
     },
     [
       canMutateTeam,
+      generatedInviteUserId,
       inviteDisplayName,
       inviteEmail,
       invitePermissions,
-      inviteUserId,
       loadMembers,
+      resetInviteForm,
       session.claims,
       session.errorMessage,
     ],
@@ -418,14 +696,8 @@ export function TeamMembersPage(): React.JSX.Element {
         setMutationError('Only owner/admin role can update member permissions.');
         return;
       }
-      const userId = String(updateUserId || '').trim();
-      if (!userId) {
-        setMutationError('User ID is required for permission updates.');
-        return;
-      }
-      const targetMember = members.find((entry) => String(entry.userId).trim() === userId);
-      if (!targetMember) {
-        setMutationError(`Member with user ID ${userId} was not found in the current list.`);
+      if (!selectedMember) {
+        setMutationError('Select a member from the table before updating permissions.');
         return;
       }
       setUpdating(true);
@@ -433,12 +705,14 @@ export function TeamMembersPage(): React.JSX.Element {
       try {
         const roles = buildRoleAssignments({
           permissions: updatePermissions,
-          preserveOwnerRole: targetMember.roles.some((entry) => entry.role === 'owner'),
+          preserveOwnerRole: selectedMember.roles.some((entry) => entry.role === 'owner'),
         });
         if (roles.length === 0) {
           throw new Error('At least one permission is required.');
         }
-        await updateDashboardTeamMemberRoles({ memberId: targetMember.id, roles });
+        await updateDashboardTeamMemberRoles({ memberId: selectedMember.id, roles });
+        setActiveModal(null);
+        resetUpdateForm();
         loadMembers();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -449,18 +723,13 @@ export function TeamMembersPage(): React.JSX.Element {
     [
       canMutateTeam,
       loadMembers,
-      members,
+      resetUpdateForm,
       session.claims,
       session.errorMessage,
+      selectedMember,
       updatePermissions,
-      updateUserId,
     ],
   );
-
-  const onSelectMember = React.useCallback((member: DashboardConsoleTeamMember) => {
-    setUpdateUserId(member.userId);
-    setUpdatePermissions(resolvePermissionEditorState(member.roles));
-  }, []);
 
   const onRemoveMember = React.useCallback(
     async (member: DashboardConsoleTeamMember) => {
@@ -473,214 +742,350 @@ export function TeamMembersPage(): React.JSX.Element {
         return;
       }
       if (!window.confirm(`Remove member ${member.userId}?`)) return;
-      setBusyUserId(member.userId);
+      setBusyMemberId(member.id);
       setMutationError('');
       try {
         await removeDashboardTeamMember({ memberId: member.id });
-        if (updateUserId === member.userId) {
-          setUpdateUserId('');
-          setUpdatePermissions({
-            isAdmin: false,
-            canManageAdmins: false,
-            canManageMembers: false,
-            categoryAccess: makeDefaultCategoryAccess(),
-          });
+        if (editingMemberId === member.id) {
+          setActiveModal(null);
+          resetUpdateForm();
         }
         loadMembers();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
-        setBusyUserId('');
+        setBusyMemberId('');
       }
     },
-    [canMutateTeam, loadMembers, session.claims, session.errorMessage, updateUserId],
+    [
+      canMutateTeam,
+      editingMemberId,
+      loadMembers,
+      resetUpdateForm,
+      session.claims,
+      session.errorMessage,
+    ],
   );
 
-  const selectedMember = React.useMemo(
-    () =>
-      members.find(
-        (entry) => String(entry.userId || '').trim() === String(updateUserId || '').trim(),
-      ) || null,
-    [members, updateUserId],
-  );
+  const inviteModal =
+    activeModal === 'invite' ? (
+      <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
+        <section
+          className="dashboard-modal dashboard-modal--wide"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Add team member modal"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h2>Invite member</h2>
+          <p className="dashboard-pagination-note">
+            Use admin controls plus per-category read/write access levels when adding a member.
+          </p>
+          <form className="dashboard-view-grid" onSubmit={onInviteMember}>
+            <label className="dashboard-form-field">
+              <span>User ID</span>
+              <input
+                className="dashboard-input"
+                value={generatedInviteUserId}
+                readOnly
+                placeholder="Generated from email"
+              />
+            </label>
+            <label className="dashboard-form-field">
+              <span>Email</span>
+              <input
+                className="dashboard-input"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                placeholder="member@example.com"
+                disabled={inviting || !canMutateTeam}
+              />
+            </label>
+            <label className="dashboard-form-field">
+              <span>Display name (optional)</span>
+              <input
+                className="dashboard-input"
+                value={inviteDisplayName}
+                onChange={(event) => setInviteDisplayName(event.target.value)}
+                placeholder="Jane Doe"
+                disabled={inviting || !canMutateTeam}
+              />
+            </label>
+            <TeamPermissionEditor
+              isAdmin={invitePermissions.isAdmin}
+              canManageAdmins={invitePermissions.canManageAdmins}
+              canManageMembers={invitePermissions.canManageMembers}
+              categoryAccess={invitePermissions.categoryAccess}
+              ownerRolePresent={false}
+              disabled={inviting || !canMutateTeam}
+              onIsAdminChange={(next) =>
+                setInvitePermissions((prev) => ({
+                  ...prev,
+                  isAdmin: next,
+                }))
+              }
+              onCanManageAdminsChange={(next) =>
+                setInvitePermissions((prev) => ({
+                  ...prev,
+                  canManageAdmins: next,
+                }))
+              }
+              onCanManageMembersChange={(next) =>
+                setInvitePermissions((prev) => ({
+                  ...prev,
+                  canManageMembers: next,
+                }))
+              }
+              onCategoryAccessChange={(category, level) =>
+                setInvitePermissions((prev) => ({
+                  ...prev,
+                  categoryAccess: {
+                    ...prev.categoryAccess,
+                    [category]: level,
+                  },
+                }))
+              }
+            />
+            {mutationError ? (
+              <p className="dashboard-form-alert" role="alert">
+                {mutationError}
+              </p>
+            ) : null}
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                onClick={onCloseModal}
+                disabled={inviting}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="dashboard-pagination-button"
+                disabled={inviting || !canMutateTeam}
+              >
+                {inviting ? 'Inviting...' : 'Invite member'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    ) : null;
+
+  const updateModal =
+    activeModal === 'update' && selectedMember ? (
+      <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
+        <section
+          className="dashboard-modal dashboard-modal--wide"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Update member permissions modal"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h2>Update member permissions</h2>
+          <p className="dashboard-pagination-note">
+            {formatMemberPrimaryIdentity(selectedMember, session.claims)} · {selectedMember.status}
+          </p>
+          <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onApplyRoles}>
+            <label className="dashboard-form-field dashboard-form-field--full">
+              <span>User ID</span>
+              <input className="dashboard-input" value={selectedMember.userId} disabled />
+            </label>
+            <TeamPermissionEditor
+              isAdmin={updatePermissions.isAdmin}
+              canManageAdmins={updatePermissions.canManageAdmins}
+              canManageMembers={updatePermissions.canManageMembers}
+              categoryAccess={updatePermissions.categoryAccess}
+              ownerRolePresent={selectedMember.roles.some((entry) => entry.role === 'owner')}
+              disabled={updating || !canMutateTeam}
+              onIsAdminChange={(next) =>
+                setUpdatePermissions((prev) => ({
+                  ...prev,
+                  isAdmin: next,
+                }))
+              }
+              onCanManageAdminsChange={(next) =>
+                setUpdatePermissions((prev) => ({
+                  ...prev,
+                  canManageAdmins: next,
+                }))
+              }
+              onCanManageMembersChange={(next) =>
+                setUpdatePermissions((prev) => ({
+                  ...prev,
+                  canManageMembers: next,
+                }))
+              }
+              onCategoryAccessChange={(category, level) =>
+                setUpdatePermissions((prev) => ({
+                  ...prev,
+                  categoryAccess: {
+                    ...prev.categoryAccess,
+                    [category]: level,
+                  },
+                }))
+              }
+            />
+            {mutationError ? (
+              <p className="dashboard-form-alert" role="alert">
+                {mutationError}
+              </p>
+            ) : null}
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                onClick={onCloseModal}
+                disabled={updating}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="dashboard-pagination-button"
+                disabled={updating || !canMutateTeam}
+              >
+                {updating ? 'Applying...' : 'Apply permissions'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    ) : null;
+
+  const detailsModal = detailMember ? (
+    <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
+      <section
+        className="dashboard-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Team member details modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2>Member details</h2>
+        <div className="dashboard-team-member-details">
+          <div className="dashboard-team-member-details__item">
+            <span>Email</span>
+            <strong>{detailMemberEmail || '-'}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>User ID</span>
+            <strong>{detailMember.userId || '-'}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Display name</span>
+            <strong>{detailMemberDisplayName || '-'}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Status</span>
+            <strong>{detailMember.status}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Invited by</span>
+            <strong>{detailMember.invitedByUserId || '-'}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Invited at</span>
+            <strong>{formatTimestamp(detailMember.invitedAt)}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Created at</span>
+            <strong>{formatTimestamp(detailMember.createdAt)}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item">
+            <span>Updated at</span>
+            <strong>{formatTimestamp(detailMember.updatedAt || detailMember.createdAt)}</strong>
+          </div>
+          <div className="dashboard-team-member-details__item dashboard-team-member-details__item--full">
+            <span>Permissions</span>
+            <strong>{formatPermissionSummary(detailMember.roles)}</strong>
+          </div>
+        </div>
+        <div className="dashboard-form-actions">
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            onClick={onCloseModal}
+          >
+            Close
+          </button>
+        </div>
+      </section>
+    </div>
+  ) : null;
 
   return (
-    <div className="dashboard-view" aria-label="Team members and roles page">
-      <section className="dashboard-view__section" aria-label="Invite member section">
-        <h2>Invite member</h2>
-        <p>
-          {canMutateTeam
-            ? 'Owner/admin role enabled for invite, permission update, and remove actions.'
-            : 'Only owner/admin can mutate team membership. You currently have read-only access.'}
-        </p>
-        <p>Use admin controls plus per-category read/write access levels.</p>
-        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onInviteMember}>
-          <label className="dashboard-form-field">
-            <span>User ID</span>
-            <input
-              className="dashboard-input"
-              value={inviteUserId}
-              onChange={(event) => setInviteUserId(event.target.value)}
-              placeholder="user_abc123"
-            />
-          </label>
-          <label className="dashboard-form-field">
-            <span>Email</span>
-            <input
-              className="dashboard-input"
-              value={inviteEmail}
-              onChange={(event) => setInviteEmail(event.target.value)}
-              placeholder="member@example.com"
-            />
-          </label>
-          <label className="dashboard-form-field">
-            <span>Display name (optional)</span>
-            <input
-              className="dashboard-input"
-              value={inviteDisplayName}
-              onChange={(event) => setInviteDisplayName(event.target.value)}
-              placeholder="Jane Doe"
-            />
-          </label>
-          <div />
-          <TeamPermissionEditor
-            isAdmin={invitePermissions.isAdmin}
-            canManageAdmins={invitePermissions.canManageAdmins}
-            canManageMembers={invitePermissions.canManageMembers}
-            categoryAccess={invitePermissions.categoryAccess}
-            ownerRolePresent={false}
-            disabled={inviting || !canMutateTeam}
-            onIsAdminChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                isAdmin: next,
-              }))
-            }
-            onCanManageAdminsChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                canManageAdmins: next,
-              }))
-            }
-            onCanManageMembersChange={(next) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                canManageMembers: next,
-              }))
-            }
-            onCategoryAccessChange={(category, level) =>
-              setInvitePermissions((prev) => ({
-                ...prev,
-                categoryAccess: {
-                  ...prev.categoryAccess,
-                  [category]: level,
-                },
-              }))
-            }
-          />
-          <div className="dashboard-form-actions">
-            <button
-              type="submit"
-              className="dashboard-pagination-button"
-              disabled={inviting || !canMutateTeam}
-            >
-              {inviting ? 'Inviting...' : 'Invite member'}
-            </button>
+    <div ref={viewRef} className="dashboard-view" aria-label="Team members and roles page">
+      <section className="dashboard-view__section" aria-label="Team member controls section">
+        <div className="dashboard-section-toolbar dashboard-team-members-toolbar">
+          <div className="dashboard-section-toolbar__copy">
+            <h2>Team members</h2>
+            <p className="dashboard-pagination-note">
+              {canMutateTeam
+                ? 'Owner/admin role enabled for invite, permission update, and member removal actions.'
+                : 'Only owner/admin can mutate team membership. You currently have read-only access.'}
+            </p>
           </div>
-        </form>
-      </section>
-
-      <section className="dashboard-view__section" aria-label="Update member roles section">
-        <h2>Update member permissions</h2>
-        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onApplyRoles}>
-          <label className="dashboard-form-field">
-            <span>User ID</span>
-            <input
-              className="dashboard-input"
-              value={updateUserId}
-              onChange={(event) => setUpdateUserId(event.target.value)}
-              placeholder="user_abc123"
-            />
-          </label>
-          <div />
-          <TeamPermissionEditor
-            isAdmin={updatePermissions.isAdmin}
-            canManageAdmins={updatePermissions.canManageAdmins}
-            canManageMembers={updatePermissions.canManageMembers}
-            categoryAccess={updatePermissions.categoryAccess}
-            ownerRolePresent={Boolean(
-              selectedMember?.roles.some((entry) => entry.role === 'owner'),
-            )}
-            disabled={updating || !canMutateTeam}
-            onIsAdminChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                isAdmin: next,
-              }))
-            }
-            onCanManageAdminsChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                canManageAdmins: next,
-              }))
-            }
-            onCanManageMembersChange={(next) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                canManageMembers: next,
-              }))
-            }
-            onCategoryAccessChange={(category, level) =>
-              setUpdatePermissions((prev) => ({
-                ...prev,
-                categoryAccess: {
-                  ...prev.categoryAccess,
-                  [category]: level,
-                },
-              }))
-            }
-          />
-          <div className="dashboard-form-actions">
-            <button
-              type="submit"
-              className="dashboard-pagination-button"
-              disabled={updating || !canMutateTeam}
-            >
-              {updating ? 'Applying...' : 'Apply permissions'}
-            </button>
-          </div>
-        </form>
-        {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            onClick={onOpenInviteModal}
+            disabled={!canMutateTeam}
+          >
+            Add Team Member
+          </button>
+        </div>
+        {mutationError && !activeModal ? (
+          <p className="dashboard-form-alert" role="alert">
+            {mutationError}
+          </p>
+        ) : null}
       </section>
 
       <section className="dashboard-view__section" aria-label="Team member filters section">
-        <h2>Member filters</h2>
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          <label className="dashboard-form-field">
-            <span>Status</span>
+        <div className="dashboard-filters dashboard-team-members-filters">
+          <label className="dashboard-search-control dashboard-search-control--compact dashboard-team-members-search-control">
+            <span className="dashboard-search-icon" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search team members"
+              placeholder="Search by name, email, user ID, or permission"
+              value={memberQuery}
+              onChange={(event) => setMemberQuery(event.target.value)}
+            />
+          </label>
+          <label className="dashboard-form-field dashboard-team-members-status-filter">
             <select
               className="dashboard-input"
+              aria-label="Filter team members by status"
               value={statusFilter}
               onChange={(event) =>
                 setStatusFilter(event.target.value as TeamMemberListStatusFilter)
               }
             >
-              <option value="ALL">ALL</option>
-              <option value="INVITED">INVITED</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="SUSPENDED">SUSPENDED</option>
-              <option value="REMOVED">REMOVED</option>
+              <option value="ALL">Status: All</option>
+              <option value="INVITED">Status: Invited</option>
+              <option value="ACTIVE">Status: Active</option>
+              <option value="SUSPENDED">Status: Suspended</option>
+              <option value="REMOVED">Status: Removed</option>
             </select>
           </label>
         </div>
+        <p className="dashboard-pagination-note">
+          Showing {visibleMembers.length} of {orderedMembers.length} loaded member
+          {orderedMembers.length === 1 ? '' : 's'}.
+        </p>
       </section>
 
-      <section className="dashboard-table-wrapper" aria-label="Team members table">
-        <div className="dashboard-table-header" role="row">
+      <section
+        className="dashboard-table-wrapper dashboard-team-members-table"
+        aria-label="Team members table"
+      >
+        <div className="dashboard-table-header dashboard-team-members-table__row" role="row">
           <span>Member</span>
           <span>Status</span>
           <span>Permissions</span>
-          <span>Invited by</span>
           <span>Updated</span>
           <span>Actions</span>
         </div>
@@ -692,49 +1097,83 @@ export function TeamMembersPage(): React.JSX.Element {
           </p>
         ) : errorMessage ? (
           <p className="dashboard-table-limit">Team members unavailable: {errorMessage}</p>
-        ) : orderedMembers.length === 0 ? (
-          <p className="dashboard-table-limit">No members found for selected filter.</p>
+        ) : visibleMembers.length === 0 ? (
+          <p className="dashboard-table-limit">
+            {orderedMembers.length === 0
+              ? 'No members found for the selected filter.'
+              : 'No members matched the current search.'}
+          </p>
         ) : (
           <>
-            {orderedMembers.map((member) => (
-              <div className="dashboard-table-row" key={member.id} role="row">
-                <span title={member.id}>
-                  {member.displayName || member.email}
-                  <br />
-                  <small>{member.email}</small>
-                  <br />
-                  <small>{member.userId}</small>
-                </span>
-                <span>{member.status}</span>
-                <span title={formatPermissionSummary(member.roles)}>
-                  {formatPermissionSummary(member.roles)}
-                </span>
-                <span title={member.invitedByUserId || '-'}>{member.invitedByUserId || '-'}</span>
-                <span>{formatTimestamp(member.updatedAt || member.createdAt)}</span>
-                <span>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => onSelectMember(member)}
+            {visibleMembers.map((member) => {
+              const memberIdentity = formatMemberPrimaryIdentity(member, session.claims);
+              const memberProfile = buildMemberProfile(member, session.claims);
+              const permissionSummary = formatPermissionSummary(member.roles);
+              return (
+                <div
+                  className="dashboard-table-row dashboard-team-members-table__row"
+                  key={member.id}
+                  role="row"
+                >
+                  <span className="dashboard-team-members-table__member" title={memberIdentity}>
+                    <span className="dashboard-team-members-table__member-title">
+                      {memberProfile.title}
+                    </span>
+                    {memberProfile.detail ? (
+                      <span className="dashboard-team-members-table__member-detail">
+                        {memberProfile.detail}
+                      </span>
+                    ) : null}
+                    {memberProfile.subtitle ? (
+                      <span className="dashboard-team-members-table__member-subtitle">
+                        {memberProfile.subtitle}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span>{member.status}</span>
+                  <span
+                    className="dashboard-team-members-table__permissions"
+                    title={permissionSummary}
                   >
-                    Edit permissions
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link dashboard-inline-link--danger"
-                    onClick={() => onRemoveMember(member)}
-                    disabled={
-                      !canMutateTeam || busyUserId === member.userId || member.status === 'REMOVED'
-                    }
-                  >
-                    {busyUserId === member.userId ? 'Removing...' : 'Remove'}
-                  </button>
-                </span>
-              </div>
-            ))}
+                    {permissionSummary}
+                  </span>
+                  <span>{formatTimestamp(member.updatedAt || member.createdAt)}</span>
+                  <span className="dashboard-team-members-table__actions">
+                    <button
+                      type="button"
+                      className="dashboard-inline-link"
+                      onClick={() => onOpenDetailModal(member)}
+                    >
+                      Details
+                    </button>
+                    <button
+                      type="button"
+                      className="dashboard-inline-link"
+                      onClick={() => onOpenUpdateModal(member)}
+                      disabled={!canMutateTeam || member.status === 'REMOVED'}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="dashboard-inline-link dashboard-inline-link--danger"
+                      onClick={() => onRemoveMember(member)}
+                      disabled={
+                        !canMutateTeam || busyMemberId === member.id || member.status === 'REMOVED'
+                      }
+                    >
+                      {busyMemberId === member.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
           </>
         )}
       </section>
+      {modalHost ? createPortal(inviteModal, modalHost) : inviteModal}
+      {modalHost ? createPortal(updateModal, modalHost) : updateModal}
+      {modalHost ? createPortal(detailsModal, modalHost) : detailsModal}
     </div>
   );
 }

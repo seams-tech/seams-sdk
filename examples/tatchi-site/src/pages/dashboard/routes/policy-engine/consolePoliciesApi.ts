@@ -2,6 +2,7 @@ import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,
   consoleErrorMessage,
+  fetchConsoleEndpoint,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
@@ -22,9 +23,24 @@ export interface DashboardConsolePolicy {
 export interface DashboardConsolePolicySimulation {
   policyId: string;
   decision: 'ALLOW' | 'DENY';
-  reasons: string[];
+  denyReasons: Array<{
+    code:
+      | 'ACTION_BLOCKED'
+      | 'CHAIN_NOT_ALLOWED'
+      | 'AMOUNT_LIMIT_EXCEEDED'
+      | 'CONTRACT_NOT_ALLOWED'
+      | 'FUNCTION_NOT_ALLOWED';
+    message: string;
+  }>;
   evaluatedAt: string;
   policyVersion: number;
+  normalizedRequest: {
+    action: string;
+    chain: string | null;
+    amountMinor: number | null;
+    contractAddress: string | null;
+    functionSelector: string | null;
+  };
 }
 
 export interface DashboardConsolePolicyAssignment {
@@ -47,6 +63,7 @@ interface ConsolePolicyResponse {
   ok?: boolean;
   message?: string;
   policy?: unknown;
+  removed?: unknown;
 }
 
 interface ConsolePolicyPublishResponse {
@@ -88,6 +105,31 @@ function decodeStringArray(raw: unknown): string[] {
   return out;
 }
 
+function decodeSimulationDenyReasons(
+  raw: unknown,
+): DashboardConsolePolicySimulation['denyReasons'] {
+  if (!Array.isArray(raw)) return [];
+  const out: DashboardConsolePolicySimulation['denyReasons'] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    const code = String(row.code || '').trim().toUpperCase();
+    const message = String(row.message || '').trim();
+    if (!message) continue;
+    if (
+      code !== 'ACTION_BLOCKED' &&
+      code !== 'CHAIN_NOT_ALLOWED' &&
+      code !== 'AMOUNT_LIMIT_EXCEEDED' &&
+      code !== 'CONTRACT_NOT_ALLOWED' &&
+      code !== 'FUNCTION_NOT_ALLOWED'
+    ) {
+      continue;
+    }
+    out.push({ code, message });
+  }
+  return out;
+}
+
 function decodePolicy(raw: unknown): DashboardConsolePolicy | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -125,9 +167,43 @@ function decodeSimulation(raw: unknown): DashboardConsolePolicySimulation | null
   return {
     policyId,
     decision,
-    reasons: decodeStringArray(row.reasons),
+    denyReasons: decodeSimulationDenyReasons(row.denyReasons),
     evaluatedAt: String(row.evaluatedAt || '').trim(),
     policyVersion: Number(row.policyVersion || 0),
+    normalizedRequest:
+      row.normalizedRequest && typeof row.normalizedRequest === 'object' && !Array.isArray(row.normalizedRequest)
+        ? {
+            action: String((row.normalizedRequest as Record<string, unknown>).action || '')
+              .trim()
+              .toLowerCase(),
+            chain: (() => {
+              const rawChain = (row.normalizedRequest as Record<string, unknown>).chain;
+              const value = rawChain == null ? '' : String(rawChain || '').trim().toLowerCase();
+              return value || null;
+            })(),
+            amountMinor: (() => {
+              const rawAmount = (row.normalizedRequest as Record<string, unknown>).amountMinor;
+              const value = Number(rawAmount);
+              return Number.isFinite(value) ? value : null;
+            })(),
+            contractAddress: (() => {
+              const rawContract = (row.normalizedRequest as Record<string, unknown>).contractAddress;
+              const value = rawContract == null ? '' : String(rawContract || '').trim().toLowerCase();
+              return value || null;
+            })(),
+            functionSelector: (() => {
+              const rawSelector = (row.normalizedRequest as Record<string, unknown>).functionSelector;
+              const value = rawSelector == null ? '' : String(rawSelector || '').trim().toLowerCase();
+              return value || null;
+            })(),
+          }
+        : {
+            action: '',
+            chain: null,
+            amountMinor: null,
+            contractAddress: null,
+            functionSelector: null,
+          },
   };
 }
 
@@ -165,12 +241,20 @@ function decodeAssignment(raw: unknown): DashboardConsolePolicyAssignment | null
 
 export async function listDashboardPolicies(): Promise<DashboardConsolePolicy[]> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/policies`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}/console/policies`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: '/console/policies',
+      operation: 'Policy list request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePoliciesResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Policy list request failed'));
@@ -188,13 +272,21 @@ export async function createDashboardPolicy(input: {
   rules?: Record<string, unknown>;
 }): Promise<DashboardConsolePolicy> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/policies`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}/console/policies`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify(input),
+    },
+    {
+      baseUrl: base,
+      path: '/console/policies',
+      operation: 'Create policy request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePolicyResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Create policy request failed'));
@@ -213,17 +305,26 @@ export async function updateDashboardPolicy(input: {
   const policyId = String(input.policyId || '').trim();
   if (!policyId) throw new Error('Policy id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/policies/${encodeURIComponent(policyId)}`, {
-    method: 'PATCH',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({
-      ...(input.name ? { name: input.name } : {}),
-      ...(input.description !== undefined ? { description: input.description } : {}),
-      ...(input.rules ? { rules: input.rules } : {}),
-    }),
-  });
+  const updatePath = `/console/policies/${encodeURIComponent(policyId)}`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${updatePath}`,
+    {
+      method: 'PATCH',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        ...(input.name ? { name: input.name } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.rules ? { rules: input.rules } : {}),
+      }),
+    },
+    {
+      baseUrl: base,
+      path: updatePath,
+      operation: 'Update policy request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePolicyResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Update policy request failed'));
@@ -231,6 +332,37 @@ export async function updateDashboardPolicy(input: {
   const policy = decodePolicy(body?.policy);
   if (!policy) throw new Error('Update policy response missing policy');
   return policy;
+}
+
+export async function deleteDashboardPolicy(input: {
+  policyId: string;
+}): Promise<{ removed: boolean; policy: DashboardConsolePolicy | null }> {
+  const policyId = String(input.policyId || '').trim();
+  if (!policyId) throw new Error('Policy id is required');
+  const base = requireConsoleBaseUrl();
+  const deletePath = `/console/policies/${encodeURIComponent(policyId)}`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${deletePath}`,
+    {
+      method: 'DELETE',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: deletePath,
+      operation: 'Delete policy request',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as ConsolePolicyResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Delete policy request failed'));
+  }
+  return {
+    removed: body?.removed === true,
+    policy: decodePolicy(body?.policy),
+  };
 }
 
 export async function publishDashboardPolicy(input: {
@@ -242,13 +374,22 @@ export async function publishDashboardPolicy(input: {
   const approvalId = String(input.approvalId || '').trim();
   const requestBody = approvalId ? JSON.stringify({ approvalId }) : null;
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/policies/${encodeURIComponent(policyId)}/publish`, {
-    method: 'POST',
-    headers: requestBody ? buildConsoleJsonHeaders() : buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    ...(requestBody ? { body: requestBody } : {}),
-  });
+  const publishPath = `/console/policies/${encodeURIComponent(policyId)}/publish`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${publishPath}`,
+    {
+      method: 'POST',
+      headers: requestBody ? buildConsoleJsonHeaders() : buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      ...(requestBody ? { body: requestBody } : {}),
+    },
+    {
+      baseUrl: base,
+      path: publishPath,
+      operation: 'Publish policy request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePolicyPublishResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Publish policy request failed'));
@@ -263,13 +404,16 @@ export async function simulateDashboardPolicy(input: {
   action: string;
   chain?: string;
   amountMinor?: number;
+  contractAddress?: string;
+  functionSelector?: string;
   metadata?: Record<string, unknown>;
 }): Promise<DashboardConsolePolicySimulation> {
   const policyId = String(input.policyId || '').trim();
   if (!policyId) throw new Error('Policy id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/policies/${encodeURIComponent(policyId)}/simulate`,
+  const simulatePath = `/console/policies/${encodeURIComponent(policyId)}/simulate`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${simulatePath}`,
     {
       method: 'POST',
       headers: buildConsoleJsonHeaders(),
@@ -279,8 +423,15 @@ export async function simulateDashboardPolicy(input: {
         action: input.action,
         ...(input.chain ? { chain: input.chain } : {}),
         ...(input.amountMinor !== undefined ? { amountMinor: input.amountMinor } : {}),
+        ...(input.contractAddress ? { contractAddress: input.contractAddress } : {}),
+        ...(input.functionSelector ? { functionSelector: input.functionSelector } : {}),
         ...(input.metadata ? { metadata: input.metadata } : {}),
       }),
+    },
+    {
+      baseUrl: base,
+      path: simulatePath,
+      operation: 'Policy simulation request',
     },
   );
   const body = (await parseConsoleJson(response)) as ConsolePolicySimulationResponse | null;
@@ -301,13 +452,19 @@ export async function listDashboardPolicyAssignments(input: {
   if (input.scopeId) params.set('scopeId', input.scopeId);
   const query = params.toString();
   const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/policies/assignments${query ? `?${query}` : ''}`,
+  const assignmentsPath = `/console/policies/assignments${query ? `?${query}` : ''}`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${assignmentsPath}`,
     {
       method: 'GET',
       headers: buildConsoleAcceptHeaders(),
       credentials: 'include',
       cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: assignmentsPath,
+      operation: 'Policy assignment list request',
     },
   );
   const body = (await parseConsoleJson(response)) as ConsolePolicyAssignmentsResponse | null;
@@ -326,13 +483,21 @@ export async function upsertDashboardPolicyAssignment(input: {
   policyId: string;
 }): Promise<DashboardConsolePolicyAssignment> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/policies/assignments`, {
-    method: 'PUT',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}/console/policies/assignments`,
+    {
+      method: 'PUT',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify(input),
+    },
+    {
+      baseUrl: base,
+      path: '/console/policies/assignments',
+      operation: 'Policy assignment upsert request',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePolicyAssignmentResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Policy assignment upsert request failed'));
@@ -348,13 +513,19 @@ export async function deleteDashboardPolicyAssignment(input: {
   const assignmentId = String(input.assignmentId || '').trim();
   if (!assignmentId) throw new Error('Assignment id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/policies/assignments/${encodeURIComponent(assignmentId)}`,
+  const deletePath = `/console/policies/assignments/${encodeURIComponent(assignmentId)}`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${deletePath}`,
     {
       method: 'DELETE',
       headers: buildConsoleAcceptHeaders(),
       credentials: 'include',
       cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: deletePath,
+      operation: 'Policy assignment delete request',
     },
   );
   const body = (await parseConsoleJson(response)) as ConsolePolicyAssignmentResponse | null;

@@ -14,12 +14,20 @@ import {
   normalizePolicyScopeType as normalizeScopeType,
   policyScopeKey as assignmentScopeKey,
 } from './normalization';
+import {
+  createDefaultConsolePolicyRules,
+  evaluateConsolePolicyRules,
+  parseConsolePolicyRulesInput,
+  parseStoredConsolePolicyRules,
+  serializeConsolePolicyRules,
+} from './rules';
 import type { ConsolePoliciesContext, ConsolePolicyService } from './service';
 import type {
   ConsolePolicyAssignment,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
   CreateConsolePolicyRequest,
+  DeleteConsolePolicyResult,
   ListConsolePolicyAssignmentsRequest,
   PublishConsolePolicyResult,
   SimulateConsolePolicyRequest,
@@ -46,13 +54,13 @@ function makeId(prefix: string, now: Date): string {
 
 function parseRules(raw: unknown): Record<string, unknown> {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return { ...(raw as Record<string, unknown>) };
+    return raw as Record<string, unknown>;
   }
   if (typeof raw === 'string') {
     try {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return { ...(parsed as Record<string, unknown>) };
+        return parsed as Record<string, unknown>;
       }
     } catch {
       return {};
@@ -69,7 +77,7 @@ function parsePolicyRow(row: PgRow): ConsolePolicy {
     description: row.description == null ? null : String(row.description || '') || null,
     status: String(row.status || 'DRAFT') as ConsolePolicy['status'],
     version: toNumber(row.version),
-    rules: parseRules(row.rules),
+    rules: parseStoredConsolePolicyRules(parseRules(row.rules)),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
     publishedAt: toIso(row.published_at_ms == null ? null : toNumber(row.published_at_ms)),
@@ -86,39 +94,6 @@ function parsePolicyAssignmentRow(row: PgRow): ConsolePolicyAssignment {
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
   };
-}
-
-function listStringValues(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  return input
-    .map((entry) => String(entry || '').trim())
-    .filter(Boolean);
-}
-
-function evaluatePolicyRules(
-  policy: ConsolePolicy,
-  request: SimulateConsolePolicyRequest,
-): SimulateConsolePolicyResult['decision'] | null {
-  const rules = policy.rules || {};
-  const blockedActions = listStringValues((rules as Record<string, unknown>).blockedActions).map(
-    (entry) => entry.toLowerCase(),
-  );
-  if (blockedActions.includes(String(request.action || '').toLowerCase())) return 'DENY';
-
-  const allowedChains = listStringValues((rules as Record<string, unknown>).allowedChains).map(
-    (entry) => entry.toLowerCase(),
-  );
-  if (allowedChains.length > 0 && request.chain) {
-    if (!allowedChains.includes(String(request.chain || '').toLowerCase())) return 'DENY';
-  }
-
-  const maxAmountMinorRaw = (rules as Record<string, unknown>).maxAmountMinor;
-  if (maxAmountMinorRaw !== undefined && request.amountMinor !== undefined) {
-    const maxAmountMinor = Number(maxAmountMinorRaw);
-    if (Number.isFinite(maxAmountMinor) && request.amountMinor > maxAmountMinor) return 'DENY';
-  }
-
-  return 'ALLOW';
 }
 
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
@@ -277,10 +252,7 @@ export async function createPostgresConsolePolicyService(
     const now = nowFn();
     const createdAtMs = nowMs(now);
     const defaultPolicyId = `${ctx.orgId}:policy:default`;
-    const defaultRules = {
-      blockedActions: [],
-      allowedChains: [],
-    };
+    const defaultRules = createDefaultConsolePolicyRules();
 
     await q.query(
       `INSERT INTO console_policies
@@ -294,7 +266,7 @@ export async function createPostgresConsolePolicyService(
         defaultPolicyId,
         'Default Policy',
         'Default policy profile for this organization',
-        JSON.stringify(defaultRules),
+        JSON.stringify(serializeConsolePolicyRules(defaultRules)),
         createdAtMs,
       ],
     );
@@ -305,7 +277,13 @@ export async function createPostgresConsolePolicyService(
        VALUES
         ($1, $2, $3, 1, 'PUBLISHED', $4::jsonb, $5, $5, 'system-bootstrap')
        ON CONFLICT (namespace, org_id, policy_id, version) DO NOTHING`,
-      [namespace, ctx.orgId, defaultPolicyId, JSON.stringify(defaultRules), createdAtMs],
+      [
+        namespace,
+        ctx.orgId,
+        defaultPolicyId,
+        JSON.stringify(serializeConsolePolicyRules(defaultRules)),
+        createdAtMs,
+      ],
     );
 
     await q.query(
@@ -376,6 +354,7 @@ export async function createPostgresConsolePolicyService(
         const now = nowFn();
         const createdAtMs = nowMs(now);
         const policyId = String(request.id || makeId('policy', now)).trim();
+        const rules = parseConsolePolicyRulesInput(request.rules);
         try {
           const inserted = await queryOne(
             q,
@@ -390,7 +369,7 @@ export async function createPostgresConsolePolicyService(
               policyId,
               request.name,
               request.description || null,
-              JSON.stringify(request.rules || {}),
+              JSON.stringify(serializeConsolePolicyRules(rules)),
               createdAtMs,
             ],
           );
@@ -428,6 +407,7 @@ export async function createPostgresConsolePolicyService(
           );
         }
 
+        const rules = request.rules ? parseConsolePolicyRulesInput(request.rules) : current.rules;
         const row = await queryOne(
           q,
           `UPDATE console_policies
@@ -443,8 +423,8 @@ export async function createPostgresConsolePolicyService(
             ctx.orgId,
             policyId,
             request.name || current.name,
-            request.description || current.description,
-            JSON.stringify(request.rules || current.rules || {}),
+            request.description !== undefined ? request.description || null : current.description,
+            JSON.stringify(serializeConsolePolicyRules(rules)),
             nowMs(nowFn()),
           ],
         );
@@ -495,7 +475,7 @@ export async function createPostgresConsolePolicyService(
             policy.id,
             policy.version,
             policy.status,
-            JSON.stringify(policy.rules || {}),
+            JSON.stringify(serializeConsolePolicyRules(policy.rules)),
             publishedAtMs,
             ctx.actorUserId,
           ],
@@ -503,6 +483,35 @@ export async function createPostgresConsolePolicyService(
         return {
           published: true,
           policy,
+        };
+      });
+    },
+
+    async deletePolicy(
+      ctx: ConsolePoliciesContext,
+      policyId: string,
+    ): Promise<DeleteConsolePolicyResult> {
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        if (policyId === `${ctx.orgId}:policy:default`) {
+          throw new ConsolePolicyError(
+            'default_policy_protected',
+            409,
+            `Policy ${policyId} is the organization default and cannot be deleted`,
+          );
+        }
+        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!current) {
+          return { removed: false, policy: null };
+        }
+        await q.query(
+          `DELETE FROM console_policies
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, policyId],
+        );
+        return {
+          removed: true,
+          policy: current,
         };
       });
     },
@@ -516,19 +525,14 @@ export async function createPostgresConsolePolicyService(
         await ensureDefaultPolicy(q, ctx);
         const policy = await findPolicy(q, { orgId: ctx.orgId, policyId });
         if (!policy) return null;
-        const decision = evaluatePolicyRules(policy, request);
-        const reasons: string[] = [];
-        if (decision === 'DENY') {
-          reasons.push('One or more policy rules denied this request');
-        } else {
-          reasons.push('All evaluated rules passed');
-        }
+        const evaluation = evaluateConsolePolicyRules(policy.rules, request);
         return {
           policyId: policy.id,
-          decision: decision || 'DENY',
-          reasons,
+          decision: evaluation.decision,
+          denyReasons: evaluation.denyReasons,
           evaluatedAt: nowFn().toISOString(),
           policyVersion: policy.version,
+          normalizedRequest: evaluation.normalizedRequest,
         };
       });
     },

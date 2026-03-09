@@ -170,7 +170,7 @@ export async function listDashboardProjects(
 }
 
 export async function listDashboardEnvironments(
-  input: { projectId?: string; status?: 'ACTIVE' | 'ARCHIVED' } = {},
+  input: { projectId?: string; status?: 'ACTIVE' | 'DISABLED' | 'ARCHIVED' } = {},
 ): Promise<DashboardConsoleEnvironment[]> {
   const params = new URLSearchParams();
   if (input.projectId) params.set('projectId', input.projectId);

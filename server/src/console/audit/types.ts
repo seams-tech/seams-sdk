@@ -59,6 +59,7 @@ export interface ListConsoleAuditEventsRequest {
   category?: ConsoleAuditCategory;
   actorUserId?: string;
   outcome?: ConsoleAuditOutcome;
+  q?: string;
   from?: string;
   to?: string;
   limit?: number;

@@ -247,6 +247,7 @@ test.describe('console observability postgres ingestion service', () => {
       'evt_obs_cursor_c',
       'evt_obs_cursor_b',
     ]);
+    expect(firstPage.totalPages).toBe(2);
     expect(String(firstPage.nextCursor || '')).toContain(':');
 
     const secondPage = await queryService.listEvents(
@@ -266,6 +267,7 @@ test.describe('console observability postgres ingestion service', () => {
       'evt_obs_cursor_a',
       'evt_obs_cursor_older',
     ]);
+    expect(secondPage.totalPages).toBe(2);
     expect(secondPage.nextCursor).toBeUndefined();
   });
 

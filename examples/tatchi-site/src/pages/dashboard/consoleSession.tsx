@@ -11,6 +11,8 @@ export interface DashboardConsoleSessionClaims {
   userId: string;
   orgId: string;
   roles: string[];
+  email?: string;
+  name?: string;
   projectId?: string;
   environmentId?: string;
 }
@@ -61,12 +63,16 @@ function parseClaims(raw: unknown): DashboardConsoleSessionClaims | null {
   const roles = Array.isArray(row.roles)
     ? row.roles.map((entry) => String(entry || '').trim()).filter(Boolean)
     : [];
+  const email = String(row.email || '').trim();
+  const name = String(row.name || '').trim();
   const projectId = String(row.projectId || '').trim();
   const environmentId = String(row.environmentId || '').trim();
   return {
     userId,
     orgId,
     roles,
+    ...(email ? { email } : {}),
+    ...(name ? { name } : {}),
     ...(projectId ? { projectId } : {}),
     ...(environmentId ? { environmentId } : {}),
   };

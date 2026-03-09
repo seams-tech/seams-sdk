@@ -1,11 +1,14 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
 import initEthSignerWasm, {
   add_secp256k1_public_keys_33,
+  compute_eip1559_tx_hash,
   derive_threshold_secp256k1_relayer_share,
+  encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
   secp256k1_public_key_33_to_ethereum_address_20,
   sha256_bytes,
+  sign_secp256k1_recoverable,
   validate_secp256k1_public_key_33,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 import type { InitInput } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
@@ -108,10 +111,101 @@ function checkedBytes(label: string, value: Uint8Array, expectedLength: number):
   return value;
 }
 
+export type ServerEip1559UnsignedTx = {
+  chainId: number | bigint;
+  nonce: bigint;
+  maxPriorityFeePerGas: bigint;
+  maxFeePerGas: bigint;
+  gasLimit: bigint;
+  to?: string | null;
+  value: bigint;
+  data?: string;
+  accessList?: Array<{
+    address: string;
+    storageKeys: string[];
+  }>;
+};
+
+type Eip1559TxWasmJson = {
+  chainId: number;
+  nonce: string;
+  maxPriorityFeePerGas: string;
+  maxFeePerGas: string;
+  gasLimit: string;
+  to?: string | null;
+  value: string;
+  data?: string;
+  accessList?: { address: string; storageKeys: string[] }[];
+};
+
+function toDec(value: bigint): string {
+  if (value < 0n) throw new Error('[threshold-ecdsa] negative bigint not supported');
+  return value.toString(10);
+}
+
+function toChainIdNumber(value: number | bigint): number {
+  if (typeof value === 'bigint') {
+    if (value < 0n) throw new Error('[threshold-ecdsa] chainId must be non-negative');
+    const numeric = Number(value);
+    if (!Number.isSafeInteger(numeric)) {
+      throw new Error('[threshold-ecdsa] chainId must be a safe integer');
+    }
+    return numeric;
+  }
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error('[threshold-ecdsa] chainId must be a safe integer');
+  }
+  return value;
+}
+
+function toWasmEip1559Tx(tx: ServerEip1559UnsignedTx): Eip1559TxWasmJson {
+  return {
+    chainId: toChainIdNumber(tx.chainId),
+    nonce: toDec(tx.nonce),
+    maxPriorityFeePerGas: toDec(tx.maxPriorityFeePerGas),
+    maxFeePerGas: toDec(tx.maxFeePerGas),
+    gasLimit: toDec(tx.gasLimit),
+    to: tx.to ?? null,
+    value: toDec(tx.value),
+    data: tx.data ?? '0x',
+    accessList: (tx.accessList ?? []).map((entry) => ({
+      address: entry.address,
+      storageKeys: [...entry.storageKeys],
+    })),
+  };
+}
+
 export function sha256BytesSync(input: Uint8Array): Uint8Array {
   requireEthSignerReady();
   const out = sha256_bytes(input) as Uint8Array;
   return checkedBytes('sha256_bytes output', out, 32);
+}
+
+export async function computeEip1559TxHash(tx: ServerEip1559UnsignedTx): Promise<Uint8Array> {
+  await ensureEthSignerWasm();
+  const out = compute_eip1559_tx_hash(toWasmEip1559Tx(tx)) as Uint8Array;
+  return checkedBytes('compute_eip1559_tx_hash output', out, 32);
+}
+
+export async function signSecp256k1Recoverable(
+  digest32: Uint8Array,
+  privateKey32: Uint8Array,
+): Promise<Uint8Array> {
+  await ensureEthSignerWasm();
+  const out = sign_secp256k1_recoverable(digest32, privateKey32) as Uint8Array;
+  return checkedBytes('sign_secp256k1_recoverable output', out, 65);
+}
+
+export async function encodeEip1559SignedTxFromSignature65(input: {
+  tx: ServerEip1559UnsignedTx;
+  signature65: Uint8Array;
+}): Promise<Uint8Array> {
+  await ensureEthSignerWasm();
+  const out = encode_eip1559_signed_tx_from_signature65(
+    toWasmEip1559Tx(input.tx),
+    input.signature65,
+  ) as Uint8Array;
+  return out.slice();
 }
 
 export async function validateSecp256k1PublicKey33(input: Uint8Array): Promise<Uint8Array> {

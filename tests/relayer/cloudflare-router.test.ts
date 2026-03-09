@@ -1128,6 +1128,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
       },
     });
     expect(exchange.status).toBe(200);
+    const issuedClaims = Array.from(issuedClaimsByToken.values());
+    expect(String(issuedClaims[0]?.email || '')).toBe('alice@example.com');
+    expect(String(issuedClaims[0]?.name || '')).toBe('Alice Example');
     const cookieHeader = String(exchange.headers.get('set-cookie') || '').split(';')[0] || '';
 
     const consoleSession = await callCf(handler, {
@@ -1160,7 +1163,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       signJwt: async (sub, extra) => {
         const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -1172,10 +1175,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         return {
           ok: true as const,
           claims: {
-            sub: claims.sub,
-            kind: 'app_session_v1',
-            appSessionVersion: claims.appSessionVersion,
-            provider: 'oidc',
+            ...claims,
           },
         };
       },

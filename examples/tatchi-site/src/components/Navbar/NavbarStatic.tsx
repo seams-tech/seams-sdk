@@ -130,8 +130,8 @@ const aboutSections: DropdownSection[] = [
     heading: 'About Us',
     items: [
       {
-        title: 'Careers',
-        description: "We're hiring-join our team",
+        title: 'Company',
+        description: "Company details",
         to: '/company/#careers',
       },
       {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { MoonIcon, SunIcon } from '@tatchi-xyz/sdk/react';
 import CopyButton from '@/components/CopyButton';
 import TatchiLogo from '@/components/icons/TatchiLogo';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
@@ -31,7 +32,8 @@ export function DashboardTopbar({
   const [activeTopbarMenu, setActiveTopbarMenu] = React.useState<TopbarMenuKey | null>(null);
   const environmentId = String(selectedContext.environment || '').trim();
   const organizationLabel =
-    dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)?.label ||
+    dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
+      ?.label ||
     selectedContext.organization ||
     'Organization';
 
@@ -68,6 +70,7 @@ export function DashboardTopbar({
       const currentValue = selectedContext[menu];
       const currentLabel =
         options.find((option) => option.value === currentValue)?.label ||
+        options.find((option) => option.disabled !== true)?.label ||
         options[0]?.label ||
         '';
       return (
@@ -95,19 +98,40 @@ export function DashboardTopbar({
             >
               {options.map((option) => {
                 const isSelected = option.value === currentValue;
+                const isDisabled = option.disabled === true;
+                const icon =
+                  option.icon === 'sun' ? (
+                    <SunIcon size={18} strokeWidth={2} aria-hidden />
+                  ) : option.icon === 'moon' ? (
+                    <MoonIcon size={18} strokeWidth={2} aria-hidden />
+                  ) : null;
                 return (
                   <button
                     key={option.value}
                     type="button"
-                    className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}`}
+                    className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
                     role="menuitemradio"
                     aria-checked={isSelected}
                     onClick={() => {
                       onSelectContext(menu, option.value);
-                      setActiveTopbarMenu(null);
+                      if (option.keepMenuOpen !== true) {
+                        setActiveTopbarMenu(null);
+                      }
                     }}
                   >
-                    {option.label}
+                    {icon ? (
+                      <span className="dashboard-context-menu__theme-action">
+                        <span>{option.label}</span>
+                        <span
+                          className="navbar-static__theme-toggle dashboard-context-menu__theme-toggle"
+                          aria-hidden="true"
+                        >
+                          {icon}
+                        </span>
+                      </span>
+                    ) : (
+                      option.label
+                    )}
                   </button>
                 );
               })}

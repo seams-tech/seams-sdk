@@ -1,9 +1,9 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
 import { BillingPage } from './routes/billing/page';
 import { AuditLogsPage } from './routes/audit/page';
-import { SelfHostingPage } from './routes/integrations/self-hosting/page';
 import { ExportKeysSettingsPage } from './routes/export-keys/page';
-import { GasSponsorshipSmartWalletsPage } from './routes/gas-smart-wallets/page';
+import { GasSponsorshipPage } from './routes/gas-sponsorship/page';
+import { SelfHostingPage } from './routes/integrations/self-hosting/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
 import { TeamMembersPage } from './routes/team-members/page';
 import { DashboardOnboardingPage } from './routes/onboarding/page';
@@ -12,6 +12,19 @@ import { ObservabilityPage } from './routes/observability/page';
 import { UserWalletsListPage } from './routes/wallets-list/page';
 import { WebhooksPage } from './routes/webhooks/page';
 import { FRONTEND_CONFIG } from '@/config';
+import {
+  ActivityIcon,
+  FuelIcon,
+  KeyRoundIcon,
+  LayoutDashboardIcon,
+  ReceiptTextIcon,
+  ScaleIcon,
+  ScrollTextIcon,
+  ServerCogIcon,
+  UserCogIcon,
+  WalletCardsIcon,
+  WebhookIcon,
+} from './icons/SidebarIcons';
 import type {
   DashboardRoute,
   ExpandedSidebarGroupsState,
@@ -21,19 +34,19 @@ import type {
 
 const walletsRoutesEnabled = FRONTEND_CONFIG.dashboardFlags.walletsRoutesEnabled;
 
-const gasSmartWalletsItem: SidebarItem = {
-  key: 'gas-smart-wallets',
-  label: 'Gas sponsorship and smart wallets',
-  path: '/dashboard/gas-smart-wallets',
-  iconClass: 'dashboard-nav-icon--gas-smart',
-  component: GasSponsorshipSmartWalletsPage,
+const gasSponsorshipItem: SidebarItem = {
+  key: 'gas-sponsorship',
+  label: 'Gas sponsorship',
+  path: '/dashboard/gas-sponsorship',
+  icon: FuelIcon,
+  component: GasSponsorshipPage,
 };
 
 const walletsListItem: SidebarItem = {
   key: 'wallets-list',
   label: 'User wallets list',
   path: '/dashboard/wallets-list',
-  iconClass: 'dashboard-nav-icon--wallet-list',
+  icon: WalletCardsIcon,
   component: UserWalletsListPage,
 };
 
@@ -42,7 +55,7 @@ const securityControlItems: SidebarItem[] = [
     key: 'policy-engine',
     label: 'Policy engine',
     path: '/dashboard/policy-engine',
-    iconClass: 'dashboard-nav-icon--policy-engine',
+    icon: ScaleIcon,
     component: PolicyEnginePage,
   },
 ];
@@ -51,7 +64,7 @@ const auditLogsItem: SidebarItem = {
   key: 'audit',
   label: 'Audit logs',
   path: '/dashboard/audit',
-  iconClass: 'dashboard-nav-icon--app-settings',
+  icon: ScrollTextIcon,
   component: AuditLogsPage,
 };
 
@@ -59,13 +72,13 @@ const observabilityItem: SidebarItem = {
   key: 'observability',
   label: 'Observability',
   path: '/dashboard/observability',
-  iconClass: 'dashboard-nav-icon--app-settings',
+  icon: ActivityIcon,
   component: ObservabilityPage,
 };
 
 const operationsSecurityItems: SidebarItem[] = [
   ...(walletsRoutesEnabled ? [walletsListItem] : []),
-  gasSmartWalletsItem,
+  gasSponsorshipItem,
   ...securityControlItems,
   auditLogsItem,
 ];
@@ -79,7 +92,7 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'overview',
         label: 'Overview',
         path: '/dashboard/overview',
-        iconClass: 'dashboard-nav-icon--app-settings',
+        icon: LayoutDashboardIcon,
         component: OpsCockpitPage,
       },
       observabilityItem,
@@ -93,14 +106,14 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'team-members',
         label: 'Team members and roles',
         path: '/dashboard/team-members',
-        iconClass: 'dashboard-nav-icon--app-settings',
+        icon: UserCogIcon,
         component: TeamMembersPage,
       },
       {
         key: 'api-keys',
         label: 'API Keys',
         path: '/dashboard/api-keys',
-        iconClass: 'dashboard-nav-icon--api-keys',
+        icon: KeyRoundIcon,
         component: ApiKeyManagementPage,
       },
     ],
@@ -118,14 +131,14 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'self-hosting',
         label: 'Self Hosting',
         path: '/dashboard/integrations/self-hosting',
-        iconClass: 'dashboard-nav-icon--app-settings',
+        icon: ServerCogIcon,
         component: SelfHostingPage,
       },
       {
         key: 'webhooks',
         label: 'Webhooks',
         path: '/dashboard/webhooks',
-        iconClass: 'dashboard-nav-icon--webhooks',
+        icon: WebhookIcon,
         component: WebhooksPage,
       },
     ],
@@ -138,7 +151,7 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'billing',
         label: 'Billing',
         path: '/dashboard/billing',
-        iconClass: 'dashboard-nav-icon--app-settings',
+        icon: ReceiptTextIcon,
         component: BillingPage,
       },
     ],
@@ -149,12 +162,12 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = sidebarGroups.filter(
   (group) => group.items.length > 0,
 );
 
+export const DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION = 'Account Settings';
+export const DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION = '__toggle-theme__';
 export const DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION = 'Sign out';
 export const DASHBOARD_ACCOUNT_SETTINGS_OPTIONS = [
-  'Account & Settings',
-  'Team members',
-  'Roles and permissions',
-  'Audit logs',
+  DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION,
+  DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
 ];
 
@@ -175,14 +188,14 @@ const HIDDEN_DASHBOARD_ROUTES: SidebarItem[] = [
     key: 'onboarding',
     label: 'Onboarding wizard',
     path: '/dashboard/onboarding',
-    iconClass: 'dashboard-nav-icon--app-settings',
+    icon: LayoutDashboardIcon,
     component: DashboardOnboardingPage,
   },
   {
     key: 'export-keys',
     label: 'Export keys settings',
     path: '/dashboard/export-keys',
-    iconClass: 'dashboard-nav-icon--export-keys',
+    icon: KeyRoundIcon,
     component: ExportKeysSettingsPage,
   },
 ];
@@ -226,7 +239,7 @@ export function getViewForRoute(route: DashboardRoute): SidebarItem {
     key: 'overview',
     label: 'Overview',
     path: '/dashboard/overview',
-    iconClass: 'dashboard-nav-icon--app-settings',
+    icon: LayoutDashboardIcon,
     component: OpsCockpitPage,
   };
 }

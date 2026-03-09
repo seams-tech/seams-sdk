@@ -257,6 +257,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       let oidcIssuer: string | undefined;
       let oidcSub: string | undefined;
       let oidcAud: string[] | undefined;
+      let oidcEmail: string | undefined;
+      let oidcName: string | undefined;
+      let oidcGivenName: string | undefined;
+      let oidcFamilyName: string | undefined;
       let passkeyChallengeId: string | undefined;
 
       if (exchangeType === 'oidc_jwt') {
@@ -291,6 +295,20 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         oidcIssuer = verified.iss;
         oidcSub = verified.sub;
         oidcAud = Array.isArray(verified.aud) ? verified.aud : undefined;
+        oidcEmail =
+          typeof verified.email === 'string' && verified.email.trim()
+            ? verified.email.trim().toLowerCase()
+            : undefined;
+        oidcName =
+          typeof verified.name === 'string' && verified.name.trim() ? verified.name.trim() : undefined;
+        oidcGivenName =
+          typeof verified.given_name === 'string' && verified.given_name.trim()
+            ? verified.given_name.trim()
+            : undefined;
+        oidcFamilyName =
+          typeof verified.family_name === 'string' && verified.family_name.trim()
+            ? verified.family_name.trim()
+            : undefined;
       } else {
         const challengeId = String(
           (exchange as any).challengeId ?? (exchange as any).challenge_id ?? '',
@@ -405,6 +423,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         ...(oidcIssuer ? { oidcIssuer } : {}),
         ...(oidcSub ? { oidcSub } : {}),
         ...(oidcAud?.length ? { oidcAud } : {}),
+        ...(oidcEmail ? { email: oidcEmail } : {}),
+        ...(oidcName ? { name: oidcName } : {}),
+        ...(oidcGivenName ? { given_name: oidcGivenName } : {}),
+        ...(oidcFamilyName ? { family_name: oidcFamilyName } : {}),
       });
       const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
       const sessionBody = {

@@ -2,6 +2,7 @@ import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,
   consoleErrorMessage,
+  normalizeConsoleFetchError,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
@@ -189,12 +190,22 @@ export async function listDashboardTeamMembers(input?: {
   if (status && status !== 'ALL') {
     url.searchParams.set('status', status);
   }
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: base,
+      path: '/console/members',
+      operation: 'Console team members request',
+    });
+  }
   const body = (await parseConsoleJson(response)) as ConsoleTeamMembersResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Console team members request failed'));
@@ -212,18 +223,28 @@ export async function inviteDashboardTeamMember(input: {
   roles: DashboardConsoleTeamRoleAssignment[];
 }): Promise<DashboardConsoleTeamMember> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/members/invite`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({
-      userId: input.userId,
-      ...(input.displayName ? { displayName: input.displayName } : {}),
-      email: input.email,
-      roles: encodeRoleAssignments(input.roles),
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/console/members/invite`, {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        userId: input.userId,
+        ...(input.displayName ? { displayName: input.displayName } : {}),
+        email: input.email,
+        roles: encodeRoleAssignments(input.roles),
+      }),
+    });
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: base,
+      path: '/console/members/invite',
+      operation: 'Invite member request',
+    });
+  }
   const body = (await parseConsoleJson(response)) as ConsoleTeamMemberMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Invite member request failed'));
@@ -242,15 +263,25 @@ export async function updateDashboardTeamMemberRoles(input: {
   const memberId = String(input.memberId || '').trim();
   if (!memberId) throw new Error('Member ID is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/members/${encodeURIComponent(memberId)}/roles`, {
-    method: 'PATCH',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({
-      roles: encodeRoleAssignments(input.roles),
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/console/members/${encodeURIComponent(memberId)}/roles`, {
+      method: 'PATCH',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify({
+        roles: encodeRoleAssignments(input.roles),
+      }),
+    });
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: base,
+      path: `/console/members/${encodeURIComponent(memberId)}/roles`,
+      operation: 'Update member roles request',
+    });
+  }
   const body = (await parseConsoleJson(response)) as ConsoleTeamMemberMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Update member roles request failed'));
@@ -268,12 +299,22 @@ export async function removeDashboardTeamMember(input: {
   const memberId = String(input.memberId || '').trim();
   if (!memberId) throw new Error('Member ID is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/members/${encodeURIComponent(memberId)}`, {
-    method: 'DELETE',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${base}/console/members/${encodeURIComponent(memberId)}`, {
+      method: 'DELETE',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    });
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: base,
+      path: `/console/members/${encodeURIComponent(memberId)}`,
+      operation: 'Remove member request',
+    });
+  }
   const body = (await parseConsoleJson(response)) as ConsoleTeamMemberMutationResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Remove member request failed'));

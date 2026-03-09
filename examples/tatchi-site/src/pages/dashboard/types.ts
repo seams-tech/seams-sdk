@@ -11,7 +11,7 @@ export type DashboardRoute =
   | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
   | '/dashboard/policy-engine'
-  | '/dashboard/gas-smart-wallets'
+  | '/dashboard/gas-sponsorship'
   | '/dashboard/overview'
   | '/dashboard/observability'
   | '/dashboard/billing'
@@ -26,15 +26,25 @@ export type TopbarMenuKey = 'organization' | 'project' | 'environment' | 'accoun
 export type TopbarOption = {
   value: string;
   label: string;
+  disabled?: boolean;
+  keepMenuOpen?: boolean;
+  icon?: 'sun' | 'moon';
 };
 
 export type DashboardViewComponent = () => React.JSX.Element;
+
+export type SidebarIconProps = React.SVGProps<SVGSVGElement> & {
+  size?: number | string;
+  strokeWidth?: number;
+};
+
+export type SidebarIconComponent = React.ComponentType<SidebarIconProps>;
 
 export type SidebarItem = {
   key: string;
   label: string;
   path: DashboardRoute;
-  iconClass: string;
+  icon: SidebarIconComponent;
   component: DashboardViewComponent;
 };
 

@@ -38,7 +38,6 @@ const OPERATION_DEFAULTS: Record<
 > = {
   POLICY_PUBLISH: { requiredApprovals: 1, requireMfa: false },
   KEY_EXPORT: { requiredApprovals: 2, requireMfa: true },
-  SECURITY_SETTINGS_CHANGE: { requiredApprovals: 1, requireMfa: true },
 };
 
 function nowMs(now: Date): number {
@@ -114,7 +113,7 @@ function parseDecisions(raw: unknown): ConsoleApprovalDecisionRecord[] {
 
 function parseOperationType(raw: unknown): ConsoleApprovalOperationType {
   const value = normalizeString(raw).toUpperCase() as ConsoleApprovalOperationType;
-  if (value === 'KEY_EXPORT' || value === 'SECURITY_SETTINGS_CHANGE') return value;
+  if (value === 'KEY_EXPORT') return value;
   return 'POLICY_PUBLISH';
 }
 
@@ -191,12 +190,23 @@ export async function ensureConsoleApprovalsPostgresSchema(
         updated_at_ms BIGINT NOT NULL,
         resolved_at_ms BIGINT,
         PRIMARY KEY (namespace, org_id, id),
-        CHECK (operation_type IN ('POLICY_PUBLISH', 'KEY_EXPORT', 'SECURITY_SETTINGS_CHANGE')),
+        CHECK (operation_type IN ('POLICY_PUBLISH', 'KEY_EXPORT')),
         CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELED')),
         CHECK (required_approvals > 0),
         CHECK (jsonb_typeof(metadata) = 'object'),
         CHECK (jsonb_typeof(decisions) = 'array')
       )
+    `);
+
+    await pool.query(`
+      ALTER TABLE console_approvals
+      DROP CONSTRAINT IF EXISTS console_approvals_operation_type_check
+    `);
+
+    await pool.query(`
+      ALTER TABLE console_approvals
+      ADD CONSTRAINT console_approvals_operation_type_check
+      CHECK (operation_type IN ('POLICY_PUBLISH', 'KEY_EXPORT'))
     `);
 
     await pool.query(`
@@ -324,7 +334,9 @@ export async function createPostgresConsoleApprovalService(
         const requireMfa =
           request.requireMfa === undefined ? defaults.requireMfa : request.requireMfa === true;
         const metadata =
-          request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
+          request.metadata &&
+          typeof request.metadata === 'object' &&
+          !Array.isArray(request.metadata)
             ? request.metadata
             : {};
         try {

@@ -453,7 +453,7 @@ test.describe('dashboard console config page api wiring', () => {
             organization: 'org-signout-test',
             project: 'proj-signout-test',
             environment: 'env-signout-test',
-            accountSettings: 'Account & Settings',
+            accountSettings: 'Account Settings',
           },
         }),
       );
@@ -559,6 +559,268 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-dashboard-ui-state-v1')))
       .toBeNull();
+  });
+
+  test('account settings routes to team-members and opens self edit modal', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const members = [
+      {
+        id: 'member_self',
+        orgId: 'org_dash_console_pages',
+        userId: 'user_dash_console_pages',
+        email: 'user-self@example.com',
+        displayName: 'User Self',
+        status: 'ACTIVE',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+        invitedByUserId: 'user_seed',
+        invitedAt: iso('2026-01-01T00:00:00.000Z'),
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: 'member_other',
+        orgId: 'org_dash_console_pages',
+        userId: 'user_other',
+        email: 'other@example.com',
+        displayName: 'Other User',
+        status: 'ACTIVE',
+        roles: [{ role: 'overview_read', scope: 'ORG' }],
+        invitedByUserId: 'user_seed',
+        invitedAt: iso('2026-01-01T00:00:00.000Z'),
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+    ];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/members' && method === 'GET') {
+        const status = String(url.searchParams.get('status') || '')
+          .trim()
+          .toUpperCase();
+        const rows = status
+          ? members.filter((entry) => String(entry.status || '').toUpperCase() === status)
+          : members;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, members: rows }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/overview');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
+
+    await page.getByRole('button', { name: /account.*settings/i }).click();
+    await page.getByRole('menuitemradio', { name: 'Account Settings' }).click();
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/team-members');
+    const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
+    await expect(updateModal).toBeVisible();
+    await expect(updateModal.locator('label:has-text("User ID") input')).toHaveValue(
+      'user_dash_console_pages',
+    );
+  });
+
+  test('account settings menu toggles dark and light theme', async ({ page, baseURL }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem('tatchi-site-theme', 'dark');
+      window.localStorage.setItem('vitepress-theme-appearance', 'dark');
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user-theme-test',
+              orgId: 'org-theme-test',
+              roles: ['admin'],
+              projectId: 'proj-theme-test',
+              environmentId: 'env-theme-test',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org-theme-test',
+              organization: null,
+              activeProjectCount: 0,
+              activeEnvironmentCount: 0,
+              activeApiKeyCount: 0,
+              hasOrganization: false,
+              hasProject: false,
+              hasEnvironment: false,
+              hasApiKey: false,
+              accountReady: true,
+              organizationReady: false,
+              billingReady: false,
+              projectReady: false,
+              onboardingComplete: false,
+              currentStep: 'organization',
+              complete: false,
+              selectedProjectId: null,
+              selectedEnvironmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/onboarding');
+    await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
+      .toBe('dark');
+
+    await page.getByRole('button', { name: /account.*settings/i }).click();
+    await page.getByRole('menuitemradio', { name: /switch to light mode/i }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
+      .toBe('light');
+    await expect(page.locator('[aria-label="Account and Settings options"]')).toBeVisible();
+    await expect(page.getByRole('menuitemradio', { name: /switch to dark mode/i })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
+      .toBe('light');
+
+    await page.getByRole('menuitemradio', { name: /switch to dark mode/i }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
+      .toBe('dark');
+    await expect
+      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
+      .toBe('dark');
   });
 
   test('dashboard strips legacy db_* query params from URL', async ({ page, baseURL }) => {
@@ -717,7 +979,7 @@ test.describe('dashboard console config page api wiring', () => {
             organization: 'org_dash_console_pages',
             project: 'proj_saved',
             environment: 'env_saved',
-            accountSettings: 'Account & Settings',
+            accountSettings: 'Account Settings',
           },
         }),
       );
@@ -882,6 +1144,263 @@ test.describe('dashboard console config page api wiring', () => {
         }),
       )
       .toBe(true);
+  });
+
+  test('environment dropdown keeps Production muted and routes to billing with notice when clicked', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const billingSubscription = {
+      id: 'sub_dash_env_gate',
+      orgId: 'org_dash_console_pages',
+      planId: 'pro_maw_v1',
+      planName: 'Pro (MAW)',
+      status: 'ACTIVE',
+      cancelAtPeriodEnd: false,
+      cancelAt: null,
+      currentPeriodStart: iso('2026-03-01T00:00:00.000Z'),
+      currentPeriodEnd: iso('2026-04-01T00:00:00.000Z'),
+      providerCustomerRef: 'cus_env_gate',
+      providerSubscriptionRef: 'sub_env_gate',
+      createdAt: iso('2026-03-01T00:00:00.000Z'),
+      updatedAt: iso('2026-03-01T00:00:00.000Z'),
+    };
+    const developmentEnvironment = {
+      id: 'proj_active:dev',
+      projectId: 'proj_active',
+      key: 'dev',
+      name: 'Development',
+      status: 'ACTIVE',
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-05T00:00:00.000Z'),
+    };
+    const productionEnvironment = {
+      id: 'proj_active:prod',
+      projectId: 'proj_active',
+      key: 'prod',
+      name: 'Production',
+      status: 'DISABLED',
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-05T00:00:00.000Z'),
+    };
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'proj_active:dev',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: false,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'proj_active:dev',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [productionEnvironment, developmentEnvironment],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/wallets' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            wallets: [],
+            nextCursor: null,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, policies: [] }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/overview') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              planId: billingSubscription.planId,
+              planName: billingSubscription.planName,
+              usageMetricVersion: 'maw_v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+              creditBalanceMinor: 0,
+              upcomingChargeEstimateMinor: 0,
+              openInvoiceCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            usage: {
+              usageMetricVersion: 'maw_v1',
+              monthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/invoices') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, invoices: [] }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/payment-methods') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, paymentMethods: [] }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/subscription') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, subscription: billingSubscription }),
+        });
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/console/billing/stablecoins/assets') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, version: 'v1', assets: [] }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/wallets-list');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/user wallets list/i);
+
+    const topbarContext = page.locator('header[aria-label="Workspace context"]');
+    const environmentCard = topbarContext.locator('button.dashboard-context-card--highlight');
+    await expect(environmentCard).toContainText('Development');
+    await environmentCard.click();
+
+    const environmentMenu = page.locator('[aria-label="Environment options"]');
+    const developmentOption = environmentMenu.getByRole('menuitemradio', { name: 'Development' });
+    const productionOption = environmentMenu.getByRole('menuitemradio', { name: 'Production' });
+    await expect(developmentOption).toBeVisible();
+    await expect(developmentOption).toBeEnabled();
+    await expect(productionOption).toBeVisible();
+    await expect(productionOption).toBeEnabled();
+    await expect(productionOption).toHaveClass(/is-disabled/);
+
+    await productionOption.click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/billing/i);
+    const billingWarningBanner = page.locator('.dashboard-warning-banner');
+    await expect(billingWarningBanner).toContainText('Billing must be configured for production.');
+    await billingWarningBanner.locator('button[aria-label="Dismiss billing warning"]').click();
+    await expect(billingWarningBanner).toHaveCount(0);
   });
 
   test('wallets list filter dropdowns send chain, policy, wallet type, and sort params', async ({
@@ -2063,7 +2582,7 @@ test.describe('dashboard console config page api wiring', () => {
     );
   });
 
-  test('gas-smart-wallets page wires create and validates scope requirements', async ({
+  test('gas sponsorship page wires create and validates scope requirements', async ({
     page,
     baseURL,
   }) => {
@@ -2072,32 +2591,34 @@ test.describe('dashboard console config page api wiring', () => {
     const gasConfigs: any[] = [
       {
         id: 'gs_existing',
+        policyName: 'Existing sponsorship',
         scopeType: 'ENVIRONMENT',
         projectId: 'proj_active',
         environmentId: 'env_active',
         policyId: null,
         walletSegmentId: null,
+        networkClass: 'TESTNET',
+        executor: 'RELAY_EOA',
         enabled: true,
         paymasterMode: 'AUTO',
-        fallbackBehavior: 'ALLOW_UNSPONSORED',
-        chainBudgets: [],
-        updatedAt: iso('2026-01-10T00:00:00.000Z'),
-      },
-    ];
-    const smartWalletConfigs: any[] = [
-      {
-        id: 'sw_existing',
-        scopeType: 'ENVIRONMENT',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        policyId: null,
-        walletSegmentId: null,
-        enabled: true,
-        mode: 'OPTIONAL',
-        accountType: 'SMART_ACCOUNT',
-        paymasterMode: 'AUTO',
-        fallbackBehavior: 'FALLBACK_TO_EOA',
-        bundler: null,
+        fallbackBehavior: 'REJECT',
+        chainBudgets: [
+          {
+            chain: 'Ethereum',
+            period: 'MONTHLY',
+            budgetMinor: 50000,
+            quotaTransactions: 100,
+          },
+        ],
+        allowedCalls: [
+          {
+            chainId: 42431,
+            to: '0xbb85080E6953f25197ec68798360667140EbAf4b',
+            selector: '0x428dc451',
+            maxGasLimit: '300000',
+            maxValueWei: '0',
+          },
+        ],
         updatedAt: iso('2026-01-10T00:00:00.000Z'),
       },
     ];
@@ -2207,15 +2728,19 @@ test.describe('dashboard console config page api wiring', () => {
         const now = iso('2026-02-01T00:00:00.000Z');
         const created = {
           id: String(body.id || `gs_created_${Date.now()}`),
+          policyName: String(body.policyName || 'Gas Sponsorship Policy'),
           scopeType,
           projectId: body.projectId ?? null,
           environmentId: body.environmentId ?? null,
           policyId: body.policyId ?? null,
           walletSegmentId: body.walletSegmentId ?? null,
+          networkClass: String(body.networkClass || 'ANY'),
+          executor: String(body.executor || 'RELAY_EOA'),
           enabled: body.enabled !== false,
           paymasterMode: String(body.paymasterMode || 'AUTO'),
-          fallbackBehavior: String(body.fallbackBehavior || 'ALLOW_UNSPONSORED'),
+          fallbackBehavior: String(body.fallbackBehavior || 'REJECT'),
           chainBudgets: Array.isArray(body.chainBudgets) ? body.chainBudgets : [],
+          allowedCalls: Array.isArray(body.allowedCalls) ? body.allowedCalls : [],
           updatedAt: now,
         };
         gasConfigs.unshift(created);
@@ -2257,22 +2782,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/smart-wallets' && method === 'GET') {
-        const environmentId = String(url.searchParams.get('environmentId') || '').trim();
-        const projectId = String(url.searchParams.get('projectId') || '').trim();
-        const rows = smartWalletConfigs.filter((entry) => {
-          if (environmentId && String(entry.environmentId || '') !== environmentId) return false;
-          if (projectId && String(entry.projectId || '') !== projectId) return false;
-          return true;
-        });
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, configs: rows }),
-        });
-        return;
-      }
-
       await route.fulfill({
         status: 404,
         contentType: 'application/json',
@@ -2284,38 +2793,45 @@ test.describe('dashboard console config page api wiring', () => {
       });
     });
 
-    await page.goto('/dashboard/gas-smart-wallets');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(
-      /gas sponsorship and smart wallets/i,
-    );
-    await expect(page.locator('section[aria-label="Gas sponsorship configs table"]')).toContainText(
-      'gs_existing',
+    await page.goto('/dashboard/gas-sponsorship');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/gas sponsorship/i);
+    await expect(page.locator('section[aria-label="Gas sponsorship configs"]')).toContainText(
+      'Existing sponsorship',
     );
 
-    const gasCreateSection = page.locator('section[aria-label="Create gas sponsorship config"]');
+    const gasCreateSection = page.locator('section[aria-label="Gas sponsorship setup"]');
     await gasCreateSection
       .locator('label:has-text("Config ID (optional)") input')
       .fill('gs_new_e2e');
-    await gasCreateSection
-      .locator('label:has-text("Budget chain (optional)") input')
-      .fill('Ethereum');
+    await gasCreateSection.locator('label:has-text("Policy name") input').fill('New sponsorship');
+    await gasCreateSection.locator('label:has-text("Budget chain") input').fill('Ethereum');
     await gasCreateSection.locator('label:has-text("Budget (minor units)") input').fill('50000');
-    await gasCreateSection.locator('label:has-text("Quota transactions") input').fill('1200');
-    await gasCreateSection.locator('button:has-text("Create gas sponsorship config")').click();
+    await gasCreateSection.locator('label:has-text("Transaction quota") input').fill('1200');
+    await gasCreateSection.locator('label:has-text("Allowed call chain ID") input').fill('42431');
+    await gasCreateSection
+      .locator('label:has-text("Allowed contract") input')
+      .fill('0xbb85080E6953f25197ec68798360667140EbAf4b');
+    await gasCreateSection.locator('label:has-text("Function selector") input').fill('0x428dc451');
+    await gasCreateSection.locator('label:has-text("Max gas limit") input').fill('300000');
+    await gasCreateSection.locator('label:has-text("Max value (wei)") input').fill('0');
+    await gasCreateSection.locator('button:has-text("Create sponsorship policy")').click();
 
     await expect.poll(() => String(lastGasCreateBody?.id || '')).toBe('gs_new_e2e');
-    await expect(page.locator('section[aria-label="Gas sponsorship configs table"]')).toContainText(
-      'gs_new_e2e',
+    await expect(page.locator('section[aria-label="Gas sponsorship configs"]')).toContainText(
+      'New sponsorship',
     );
+    await expect.poll(() => Array.isArray(lastGasCreateBody?.allowedCalls)).toBe(true);
 
-    const gasTable = page.locator('section[aria-label="Gas sponsorship configs table"]');
-    const existingGasRow = gasTable.locator('.dashboard-table-row', { hasText: 'gs_existing' });
-    await existingGasRow.locator('button:has-text("Disable")').click();
+    const existingGasCard = page
+      .locator('section[aria-label="Gas sponsorship configs"] .dashboard-table-wrapper')
+      .filter({ hasText: 'Existing sponsorship' })
+      .first();
+    await existingGasCard.locator('button:has-text("Disable")').click();
     await expect.poll(() => lastGasPatchConfigId).toBe('gs_existing');
-    await expect(existingGasRow).toContainText('false');
+    await expect(existingGasCard).toContainText('disabled');
   });
 
-  test('policy-engine page wires publish flow with optional approval request id', async ({
+  test('policy-engine page schedules live policy changes through approvals', async ({
     page,
     baseURL,
   }) => {
@@ -2337,6 +2853,48 @@ test.describe('dashboard console config page api wiring', () => {
         createdAt: iso('2026-02-01T00:00:00.000Z'),
         updatedAt: iso('2026-02-01T00:00:00.000Z'),
         publishedAt: null,
+      },
+    ];
+    const wallets: any[] = [
+      {
+        id: 'wallet_policy_publish_e2e_1',
+        address: '0x1111111111111111111111111111111111111111',
+        chain: 'Ethereum',
+        userId: 'user_wallet_policy_publish_e2e_1',
+        policyId: 'policy_draft_e2e',
+        balanceMinor: 500000,
+        status: 'ACTIVE',
+        updatedAt: iso('2026-02-20T00:00:00.000Z'),
+        lastActivityAt: iso('2026-02-20T00:00:00.000Z'),
+      },
+    ];
+    const approvals: any[] = [
+      {
+        id: 'apr_policy_publish_e2e',
+        orgId: 'org_dash_console_pages',
+        operationType: 'POLICY_PUBLISH',
+        status: 'APPROVED',
+        reason: 'Ready to publish from e2e test',
+        requestedByUserId: 'user_dash_console_pages',
+        requiredApprovals: 1,
+        requireMfa: false,
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        resourceType: 'policy',
+        resourceId: 'policy_draft_e2e',
+        metadata: {},
+        decisions: [
+          {
+            decision: 'APPROVE',
+            actorUserId: 'approver_e2e',
+            reason: 'Approved for test',
+            mfaVerified: false,
+            decidedAt: iso('2026-02-20T01:00:00.000Z'),
+          },
+        ],
+        createdAt: iso('2026-02-20T00:30:00.000Z'),
+        updatedAt: iso('2026-02-20T01:00:00.000Z'),
+        resolvedAt: iso('2026-02-20T01:00:00.000Z'),
       },
     ];
     const assignments: any[] = [];
@@ -2443,6 +3001,24 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/wallets' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, wallets }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/approvals' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, approvals }),
+        });
+        return;
+      }
+
       const publishMatch = pathname.match(/^\/console\/policies\/([^/]+)\/publish$/);
       if (publishMatch && method === 'POST') {
         const body = parseJsonBody(req.postData());
@@ -2506,24 +3082,24 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/policy-engine');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/policy engine/i);
-    await expect(page.locator('section[aria-label="Policy lifecycle registry"]')).toContainText(
+    await expect(page.locator('section[aria-label="Policy setup"]')).toContainText('Create policy');
+    await expect(page.locator('section[aria-label="Policies table"]')).toContainText(
       'policy_draft_e2e',
     );
+    const policyRow = page.locator('.dashboard-policy-table__row').filter({
+      hasText: 'policy_draft_e2e',
+    });
+    await policyRow.locator('button:has-text("Schedule live change")').click();
 
-    const controls = page.locator('section[aria-label="Policy lifecycle controls"]');
-    await controls
-      .locator('label:has-text("Publish approval request ID (optional)") input')
-      .fill('apr_policy_publish_e2e');
-
-    const registry = page.locator('section[aria-label="Policy lifecycle registry"]');
-    const draftRow = registry.locator('.dashboard-table-row', { hasText: 'policy_draft_e2e' });
-    await draftRow.locator('button:has-text("Publish")').click();
+    const publishModal = page.locator('section[aria-label="Schedule live policy change modal"]');
+    await expect(publishModal).toContainText('apr_policy_publish_e2e');
+    await publishModal.locator('button:has-text("Publish live")').click();
 
     await expect.poll(() => lastPublishPolicyId).toBe('policy_draft_e2e');
     await expect
       .poll(() => String(lastPublishBody?.approvalId || ''))
       .toBe('apr_policy_publish_e2e');
-    await expect(draftRow).toContainText('PUBLISHED');
+    await expect(page.locator('section[aria-label="Policies table"]')).toContainText('PUBLISHED');
   });
 
   test('export-keys page removes admin request and approval controls', async ({
@@ -3051,7 +3627,7 @@ test.describe('dashboard console config page api wiring', () => {
     ).toHaveCount(0);
   });
 
-  test('audit page wires timeline and evidence filters to console APIs', async ({
+  test('audit page renders a single searchable events table without depending on evidence or exports', async ({
     page,
     baseURL,
   }) => {
@@ -3087,34 +3663,10 @@ test.describe('dashboard console config page api wiring', () => {
         createdAt: iso('2026-02-15T00:01:00.000Z'),
       },
     ];
-    const evidenceRecords = [
-      {
-        id: 'evd_policy_1',
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        domain: 'POLICY',
-        title: 'Policy publish evidence',
-        summary: 'Policy publication trace',
-        eventIds: ['aud_policy_1'],
-        references: [{ kind: 'LOG', referenceId: 'policy_1:v1', label: 'Policy log' }],
-        createdAt: iso('2026-02-15T00:02:00.000Z'),
-      },
-      {
-        id: 'evd_billing_1',
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        domain: 'BILLING',
-        title: 'Invoice settlement evidence',
-        summary: 'Payment settlement trace',
-        eventIds: ['aud_approval_1'],
-        references: [{ kind: 'PAYMENT', referenceId: 'pi_1', label: 'Payment intent' }],
-        createdAt: iso('2026-02-15T00:03:00.000Z'),
-      },
-    ];
     let lastEventCategoryQuery = '';
-    let lastEvidenceDomainQuery = '';
+    let lastEventSearchQuery = '';
+    let evidenceRequestCount = 0;
+    let exportRequestCount = 0;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -3171,8 +3723,26 @@ test.describe('dashboard console config page api wiring', () => {
         const category = String(url.searchParams.get('category') || '')
           .trim()
           .toUpperCase();
+        const q = String(url.searchParams.get('q') || '')
+          .trim()
+          .toLowerCase();
         lastEventCategoryQuery = category;
-        const rows = category ? events.filter((entry) => entry.category === category) : [...events];
+        lastEventSearchQuery = q;
+        const rows = events.filter((entry) => {
+          if (category && entry.category !== category) return false;
+          if (!q) return true;
+          return [
+            entry.id,
+            entry.actorUserId,
+            entry.category,
+            entry.action,
+            entry.summary,
+            JSON.stringify(entry.metadata),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        });
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -3182,26 +3752,29 @@ test.describe('dashboard console config page api wiring', () => {
       }
 
       if (pathname === '/console/audit/evidence' && method === 'GET') {
-        const domain = String(url.searchParams.get('domain') || '')
-          .trim()
-          .toUpperCase();
-        lastEvidenceDomainQuery = domain;
-        const rows = domain
-          ? evidenceRecords.filter((entry) => entry.domain === domain)
-          : [...evidenceRecords];
+        evidenceRequestCount += 1;
         await route.fulfill({
-          status: 200,
+          status: 501,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, evidence: rows }),
+          body: JSON.stringify({
+            ok: false,
+            code: 'audit_evidence_not_configured',
+            message: 'Audit evidence is not configured for this test',
+          }),
         });
         return;
       }
 
       if (pathname === '/console/audit/exports' && method === 'GET') {
+        exportRequestCount += 1;
         await route.fulfill({
-          status: 200,
+          status: 501,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, exports: [] }),
+          body: JSON.stringify({
+            ok: false,
+            code: 'audit_exports_not_configured',
+            message: 'Audit exports service is not configured on this server',
+          }),
         });
         return;
       }
@@ -3218,27 +3791,34 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/audit');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/audit\s*&\s*evidence/i);
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/audit logs/i);
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
-      'policy.publish',
+      'Published policy',
     );
-    await expect(page.locator('section[aria-label="Audit evidence table"]')).toContainText(
+    await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
+      'Approval requested',
+    );
+    await expect(page.locator('section[aria-label="Audit events table"]')).not.toContainText(
       'Invoice settlement evidence',
     );
+    expect(evidenceRequestCount).toBe(0);
+    expect(exportRequestCount).toBe(0);
 
-    const filterSection = page.locator('section[aria-label="Audit filters"]');
+    const filterSection = page.locator('section[aria-label="Audit event filters"]');
+    await filterSection.locator('label:has-text("Search events") input').fill('apr_1');
+    await expect.poll(() => lastEventSearchQuery).toBe('apr_1');
+    await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
+      'Approval requested',
+    );
+    await expect(page.locator('section[aria-label="Audit events table"]')).not.toContainText(
+      'Published policy',
+    );
+
     await filterSection.locator('label:has-text("Category") select').selectOption('APPROVAL');
-    await filterSection.locator('button:has-text("Reload audit data")').click();
+    await filterSection.locator('button:has-text("Reload events")').click();
     await expect.poll(() => lastEventCategoryQuery).toBe('APPROVAL');
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
       'approval.request.create',
-    );
-
-    await filterSection.locator('label:has-text("Evidence domain") select').selectOption('BILLING');
-    await filterSection.locator('button:has-text("Reload audit data")').click();
-    await expect.poll(() => lastEvidenceDomainQuery).toBe('BILLING');
-    await expect(page.locator('section[aria-label="Audit evidence table"]')).toContainText(
-      'Invoice settlement evidence',
     );
   });
 
@@ -3759,6 +4339,7 @@ test.describe('dashboard console config page api wiring', () => {
               message: 'Storage wiring pending',
             },
             events: [],
+            totalPages: 1,
           }),
         });
         return;
@@ -3809,63 +4390,42 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
       'No observability events for this scope.',
     );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 1 / 1',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Show',
+    );
+    await expect(
+      page.locator('section[aria-label="Observability events table"]'),
+    ).not.toContainText('Showing up to 50 events per page.');
     await expect(page.locator('button:has-text("Previous page")')).toBeDisabled();
     await expect(page.locator('button:has-text("Next page")')).toBeDisabled();
   });
 
-  test('observability events pagination uses 50-event pages and cursor navigation', async ({
+  test('observability events pagination supports footer page size controls and cursor navigation', async ({
     page,
     baseURL,
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    const firstPageEvents = Array.from({ length: 50 }, (_, index) => ({
-      id: `evt_page1_${index + 1}`,
+    const allEvents = Array.from({ length: 102 }, (_, index) => ({
+      id: `evt_${index + 1}`,
       orgId: 'org_dash_console_pages',
       projectId: 'proj_active',
       environmentId: 'env_active',
-      timestamp: iso(`2026-03-03T10:${String(index % 60).padStart(2, '0')}:00.000Z`),
+      timestamp: iso(
+        `2026-03-03T${String(10 + Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      ),
       service: 'webhooks',
       component: 'delivery',
       level: 'WARN',
       eventType: 'delivery.retry',
-      message: `Page 1 event ${index + 1}`,
-      requestId: `req_page1_${index + 1}`,
-      traceId: `trace_page1_${index + 1}`,
+      message: `Event ${index + 1}`,
+      requestId: `req_${index + 1}`,
+      traceId: `trace_${index + 1}`,
       metadata: { retry: index + 1 },
     }));
-    const secondPageEvents = [
-      {
-        id: 'evt_page2_1',
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        timestamp: iso('2026-03-03T11:00:00.000Z'),
-        service: 'billing',
-        component: 'invoice',
-        level: 'ERROR',
-        eventType: 'invoice.reconcile_failed',
-        message: 'Page 2 event 1',
-        requestId: 'req_page2_1',
-        traceId: 'trace_page2_1',
-        metadata: { invoiceId: 'inv_1' },
-      },
-      {
-        id: 'evt_page2_2',
-        orgId: 'org_dash_console_pages',
-        projectId: 'proj_active',
-        environmentId: 'env_active',
-        timestamp: iso('2026-03-03T11:01:00.000Z'),
-        service: 'billing',
-        component: 'invoice',
-        level: 'ERROR',
-        eventType: 'invoice.reconcile_failed',
-        message: 'Page 2 event 2',
-        requestId: 'req_page2_2',
-        traceId: 'trace_page2_2',
-        metadata: { invoiceId: 'inv_2' },
-      },
-    ];
     const requestedEventLimits: string[] = [];
     const requestedEventCursors: string[] = [];
 
@@ -3973,32 +4533,27 @@ test.describe('dashboard console config page api wiring', () => {
       if (pathname === '/console/observability/events' && method === 'GET') {
         requestedEventLimits.push(String(url.searchParams.get('limit') || '').trim());
         requestedEventCursors.push(String(url.searchParams.get('cursor') || '').trim());
+        const limit = Math.max(1, Number(url.searchParams.get('limit') || '50'));
         const cursor = String(url.searchParams.get('cursor') || '').trim();
-        if (!cursor) {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ok: true,
-              status: { state: 'ok' },
-              events: firstPageEvents,
-              nextCursor: 'cursor_page_2',
-            }),
-          });
-          return;
-        }
-        if (cursor === 'cursor_page_2') {
-          await route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ok: true,
-              status: { state: 'ok' },
-              events: secondPageEvents,
-            }),
-          });
-          return;
-        }
+        const pageIndex = cursor.startsWith('page_') ? Number(cursor.slice(5)) : 0;
+        const normalizedPageIndex = Number.isFinite(pageIndex) && pageIndex > 0 ? pageIndex : 0;
+        const sliceStart = normalizedPageIndex * limit;
+        const events = allEvents.slice(sliceStart, sliceStart + limit);
+        const totalPages = Math.max(1, Math.ceil(allEvents.length / limit));
+        const nextCursor =
+          sliceStart + limit < allEvents.length ? `page_${normalizedPageIndex + 1}` : '';
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'ok' },
+            events,
+            totalPages,
+            ...(nextCursor ? { nextCursor } : {}),
+          }),
+        });
+        return;
       }
 
       if (pathname === '/console/observability/services' && method === 'GET') {
@@ -4029,28 +4584,282 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
     await expect.poll(() => requestedEventLimits[0] || '').toBe('50');
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Page 1 event 50',
+      'Event 50',
     );
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Page 1 | 50 events',
+      'Page 1 / 3',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Show',
     );
     await expect(page.locator('button:has-text("Previous page")')).toBeDisabled();
     await expect(page.locator('button:has-text("Next page")')).toBeEnabled();
 
     await page.locator('button:has-text("Next page")').click();
-    await expect.poll(() => requestedEventCursors.includes('cursor_page_2')).toBe(true);
+    await expect.poll(() => requestedEventCursors.includes('page_1')).toBe(true);
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Page 2 event 2',
+      'Event 100',
     );
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Page 2 | 2 events',
+      'Page 2 / 3',
     );
     await expect(page.locator('button:has-text("Previous page")')).toBeEnabled();
-    await expect(page.locator('button:has-text("Next page")')).toBeDisabled();
+    await expect(page.locator('button:has-text("Next page")')).toBeEnabled();
 
     await page.locator('button:has-text("Previous page")').click();
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Page 1 event 50',
+      'Event 50',
+    );
+
+    await page
+      .locator('section[aria-label="Observability events table"] button:has-text("100")')
+      .click();
+    await expect.poll(() => requestedEventLimits.includes('100')).toBe(true);
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Page 1 / 2',
+    );
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Event 100',
+    );
+  });
+
+  test('observability events search and filters drive API params', async ({ page, baseURL }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const allEvents = [
+      {
+        id: 'evt_obs_webhooks_warn',
+        orgId: 'org_dash_console_filters',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        timestamp: iso('2026-03-03T10:00:00.000Z'),
+        service: 'webhooks',
+        component: 'delivery',
+        level: 'WARN',
+        eventType: 'delivery.retry',
+        message: 'Dead letter retry queued',
+        requestId: 'req_webhook_1',
+        traceId: 'trace_webhook_1',
+        metadata: { queue: 'dlq' },
+      },
+      {
+        id: 'evt_obs_billing_error',
+        orgId: 'org_dash_console_filters',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        timestamp: iso('2026-03-03T10:01:00.000Z'),
+        service: 'billing',
+        component: 'invoice',
+        level: 'ERROR',
+        eventType: 'invoice.reconcile_failed',
+        message: 'Invoice settle timeout',
+        requestId: 'req_billing_1',
+        traceId: 'trace_billing_1',
+        metadata: { invoiceId: 'inv_1' },
+      },
+    ];
+    let lastEventsQuery = '';
+    let lastEventsLevel = '';
+    let lastEventsService = '';
+    let lastEventsEventType = '';
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_filters',
+              orgId: 'org_dash_console_filters',
+              roles: ['admin', 'ops'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_filters',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/summary' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            summary: {
+              generatedAt: iso('2026-03-03T10:00:00.000Z'),
+              status: { state: 'ok' },
+              errorRate: 0,
+              p95LatencyMs: 20,
+              failingServices: 1,
+              deadLetterCount: 1,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/events' && method === 'GET') {
+        lastEventsQuery = String(url.searchParams.get('query') || '').trim();
+        lastEventsLevel = String(url.searchParams.get('level') || '').trim();
+        lastEventsService = String(url.searchParams.get('service') || '').trim();
+        lastEventsEventType = String(url.searchParams.get('eventType') || '').trim();
+        const normalizedQuery = lastEventsQuery.toLowerCase();
+        const filteredEvents = allEvents.filter((entry) => {
+          if (lastEventsLevel && entry.level !== lastEventsLevel) return false;
+          if (lastEventsService && entry.service !== lastEventsService) return false;
+          if (lastEventsEventType && entry.eventType !== lastEventsEventType) return false;
+          if (!normalizedQuery) return true;
+          const haystack = [
+            entry.id,
+            entry.service,
+            entry.component,
+            entry.eventType,
+            entry.message,
+            entry.requestId,
+            entry.traceId,
+            JSON.stringify(entry.metadata),
+          ]
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(normalizedQuery);
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'ok' },
+            events: filteredEvents,
+            totalPages: 1,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/observability/services' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            status: { state: 'ok' },
+            services: [],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/observability');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
+
+    await page.locator('input[aria-label="Search observability events"]').fill('invoice');
+    await expect.poll(() => lastEventsQuery).toBe('invoice');
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Invoice settle timeout',
+    );
+    await expect(
+      page.locator('section[aria-label="Observability events table"]'),
+    ).not.toContainText('Dead letter retry queued');
+
+    await page
+      .locator('select[aria-label="Filter observability events by level"]')
+      .selectOption('ERROR');
+    await expect.poll(() => lastEventsLevel).toBe('ERROR');
+
+    await page
+      .locator('input[aria-label="Filter observability events by service"]')
+      .fill('billing');
+    await expect.poll(() => lastEventsService).toBe('billing');
+
+    await page
+      .locator('input[aria-label="Filter observability events by event type"]')
+      .fill('invoice.reconcile_failed');
+    await expect.poll(() => lastEventsEventType).toBe('invoice.reconcile_failed');
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'Invoice settle timeout',
+    );
+
+    await page.locator('input[aria-label="Search observability events"]').fill('missing-token');
+    await expect.poll(() => lastEventsQuery).toBe('missing-token');
+    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
+      'No observability events match the current filters.',
     );
   });
 
@@ -4665,5 +5474,180 @@ test.describe('dashboard console config page api wiring', () => {
       .locator('article:has(h2:has-text("Pending approvals")) button:has-text("View pending")')
       .click();
     await expect(page.locator('section[aria-label="Pending approvals summary"]')).toBeVisible();
+  });
+
+  test('overview route moves not-configured audit export and enterprise isolation states into queue panels', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin', 'ops'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_dash_console_pages',
+              organization: context.org,
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_active',
+              selectedEnvironmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/ops-cockpit/summary' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            summary: {
+              generatedAt: iso('2026-03-02T12:00:00.000Z'),
+              approvals: {
+                status: { state: 'ok' },
+                pendingCount: 0,
+                pending: [],
+              },
+              billing: {
+                status: { state: 'ok' },
+                failedInvoiceCount: 0,
+                failedInvoices: [],
+              },
+              webhooks: {
+                status: { state: 'ok' },
+                endpointCount: 0,
+                scannedEndpointCount: 0,
+                deadLetterCount: 0,
+                deadLetters: [],
+              },
+              auditExports: {
+                status: { state: 'not_configured', message: 'Audit exports backend disabled' },
+                queuedExportCount: 0,
+                queuedExports: [],
+              },
+              enterpriseIsolation: {
+                status: { state: 'not_configured', message: 'Isolation backend disabled' },
+                activeRequestCount: 0,
+                activeRequests: [],
+              },
+              onboardingTelemetry: {
+                status: { state: 'ok' },
+                windowMinutes: 60,
+                alertCount: 0,
+                alerts: [],
+              },
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/overview');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
+
+    const summary = page.locator('section[aria-label="Ops cockpit summary"]');
+    await expect(summary).not.toContainText('Audit export queue is not configured');
+    await expect(summary).not.toContainText('Enterprise isolation queue is not configured');
+
+    await expect(page.locator('details[aria-label="Audit export queue status"]')).toContainText(
+      'Audit export queue is not configured',
+    );
+    await expect(page.locator('details[aria-label="Audit export queue status"]')).toContainText(
+      'Audit exports backend disabled',
+    );
+    await expect(
+      page.locator('details[aria-label="Enterprise isolation queue status"]'),
+    ).toContainText('Enterprise isolation queue is not configured');
+    await expect(
+      page.locator('details[aria-label="Enterprise isolation queue status"]'),
+    ).toContainText('Isolation backend disabled');
+    await expect(page.locator('details[aria-label="Onboarding telemetry summary"]')).toContainText(
+      'No active onboarding SLO alerts.',
+    );
+    await expect(page.locator('details[aria-label="Audit export queue summary"]')).toHaveCount(0);
+    await expect(
+      page.locator('details[aria-label="Isolation and onboarding telemetry summary"]'),
+    ).toHaveCount(0);
   });
 });

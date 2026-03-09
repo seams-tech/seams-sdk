@@ -91,6 +91,16 @@ function parseOptionalIsoDate(raw: unknown, field: string): string | undefined {
   return new Date(timestamp).toISOString();
 }
 
+function parseOptionalSearchQuery(raw: unknown): string | undefined {
+  if (!raw) return undefined;
+  const value = String(raw).trim();
+  if (!value) return undefined;
+  if (value.length > 256) {
+    throw createError('invalid_query', 400, 'Query parameter q must be 256 characters or less');
+  }
+  return value;
+}
+
 function parseLimit(raw: unknown): number {
   const parsed = raw === undefined ? DEFAULT_LIMIT : Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIMIT;
@@ -99,6 +109,12 @@ function parseLimit(raw: unknown): number {
 
 export function parseListConsoleAuditEventsRequest(query: unknown): ListConsoleAuditEventsRequest {
   const obj = requireQueryObject(query, createError);
+  const projectId = readOptionalQueryString(obj, 'projectId');
+  const environmentId = readOptionalQueryString(obj, 'environmentId');
+  const category = parseOptionalCategory(readOptionalQueryString(obj, 'category'));
+  const actorUserId = readOptionalQueryString(obj, 'actorUserId');
+  const outcome = parseOptionalOutcome(readOptionalQueryString(obj, 'outcome'));
+  const q = parseOptionalSearchQuery(readOptionalQueryString(obj, 'q'));
   const from = parseOptionalIsoDate(readOptionalQueryString(obj, 'from'), 'from');
   const to = parseOptionalIsoDate(readOptionalQueryString(obj, 'to'), 'to');
   if (from && to && from > to) {
@@ -106,19 +122,12 @@ export function parseListConsoleAuditEventsRequest(query: unknown): ListConsoleA
   }
   const requestedLimit = readOptionalPositiveInteger(obj, 'limit', createError);
   return {
-    ...(readOptionalQueryString(obj, 'projectId') ? { projectId: readOptionalQueryString(obj, 'projectId') } : {}),
-    ...(readOptionalQueryString(obj, 'environmentId')
-      ? { environmentId: readOptionalQueryString(obj, 'environmentId') }
-      : {}),
-    ...(parseOptionalCategory(readOptionalQueryString(obj, 'category'))
-      ? { category: parseOptionalCategory(readOptionalQueryString(obj, 'category')) }
-      : {}),
-    ...(readOptionalQueryString(obj, 'actorUserId')
-      ? { actorUserId: readOptionalQueryString(obj, 'actorUserId') }
-      : {}),
-    ...(parseOptionalOutcome(readOptionalQueryString(obj, 'outcome'))
-      ? { outcome: parseOptionalOutcome(readOptionalQueryString(obj, 'outcome')) }
-      : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(environmentId ? { environmentId } : {}),
+    ...(category ? { category } : {}),
+    ...(actorUserId ? { actorUserId } : {}),
+    ...(outcome ? { outcome } : {}),
+    ...(q ? { q } : {}),
     ...(from ? { from } : {}),
     ...(to ? { to } : {}),
     limit: parseLimit(requestedLimit),

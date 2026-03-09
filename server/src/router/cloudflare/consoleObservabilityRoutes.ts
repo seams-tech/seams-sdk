@@ -78,6 +78,7 @@ export async function handleConsoleObservabilityRoutes<
           ok: true,
           status: page.status,
           events: page.events,
+          totalPages: page.totalPages,
           ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
         },
         { status: 200 },

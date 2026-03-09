@@ -18,7 +18,6 @@ import type {
 const APPROVAL_OPERATION_TYPES = new Set<ConsoleApprovalOperationType>([
   'POLICY_PUBLISH',
   'KEY_EXPORT',
-  'SECURITY_SETTINGS_CHANGE',
 ]);
 const APPROVAL_STATUSES = new Set<ConsoleApprovalStatus>([
   'PENDING',
@@ -114,14 +113,18 @@ export function parseCreateConsoleApprovalRequest(body: unknown): CreateConsoleA
     reason: readRequiredString(obj, 'reason', createError),
     ...(requiredApprovals !== undefined ? { requiredApprovals } : {}),
     ...(requireMfa !== undefined ? { requireMfa } : {}),
-    ...(readOptionalString(obj, 'projectId') ? { projectId: readOptionalString(obj, 'projectId') } : {}),
+    ...(readOptionalString(obj, 'projectId')
+      ? { projectId: readOptionalString(obj, 'projectId') }
+      : {}),
     ...(readOptionalString(obj, 'environmentId')
       ? { environmentId: readOptionalString(obj, 'environmentId') }
       : {}),
     ...(readOptionalString(obj, 'resourceType')
       ? { resourceType: readOptionalString(obj, 'resourceType') }
       : {}),
-    ...(readOptionalString(obj, 'resourceId') ? { resourceId: readOptionalString(obj, 'resourceId') } : {}),
+    ...(readOptionalString(obj, 'resourceId')
+      ? { resourceId: readOptionalString(obj, 'resourceId') }
+      : {}),
     ...(metadata ? { metadata } : {}),
   };
 }

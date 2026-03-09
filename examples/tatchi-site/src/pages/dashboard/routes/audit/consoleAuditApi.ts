@@ -19,8 +19,6 @@ export type DashboardConsoleAuditCategory =
   | 'SYSTEM';
 
 export type DashboardConsoleAuditOutcome = 'SUCCESS' | 'FAILURE' | 'PENDING';
-export type DashboardConsoleAuditEvidenceDomain = 'POLICY' | 'BILLING' | 'KEY_EXPORT' | 'SECURITY';
-export type DashboardConsoleAuditEvidenceReferenceKind = 'LOG' | 'EXPORT' | 'PAYMENT' | 'APPROVAL';
 export type DashboardConsoleAuditExportDomain =
   | 'POLICY'
   | 'BILLING'
@@ -42,25 +40,6 @@ export interface DashboardConsoleAuditEvent {
   outcome: DashboardConsoleAuditOutcome;
   summary: string;
   metadata: Record<string, unknown>;
-  createdAt: string;
-}
-
-export interface DashboardConsoleAuditEvidenceReference {
-  kind: DashboardConsoleAuditEvidenceReferenceKind;
-  referenceId: string;
-  label: string;
-}
-
-export interface DashboardConsoleAuditEvidenceRecord {
-  id: string;
-  orgId: string;
-  projectId?: string;
-  environmentId?: string;
-  domain: DashboardConsoleAuditEvidenceDomain;
-  title: string;
-  summary: string;
-  eventIds: string[];
-  references: DashboardConsoleAuditEvidenceReference[];
   createdAt: string;
 }
 
@@ -93,13 +72,6 @@ interface ConsoleAuditEventsResponse {
   events?: unknown;
 }
 
-interface ConsoleAuditEvidenceResponse {
-  ok?: boolean;
-  code?: string;
-  message?: string;
-  evidence?: unknown;
-}
-
 interface ConsoleAuditExportsResponse {
   ok?: boolean;
   code?: string;
@@ -128,18 +100,6 @@ const CATEGORY_SET = new Set<DashboardConsoleAuditCategory>([
   'SYSTEM',
 ]);
 const OUTCOME_SET = new Set<DashboardConsoleAuditOutcome>(['SUCCESS', 'FAILURE', 'PENDING']);
-const EVIDENCE_DOMAIN_SET = new Set<DashboardConsoleAuditEvidenceDomain>([
-  'POLICY',
-  'BILLING',
-  'KEY_EXPORT',
-  'SECURITY',
-]);
-const EVIDENCE_REFERENCE_KIND_SET = new Set<DashboardConsoleAuditEvidenceReferenceKind>([
-  'LOG',
-  'EXPORT',
-  'PAYMENT',
-  'APPROVAL',
-]);
 const EXPORT_DOMAIN_SET = new Set<DashboardConsoleAuditExportDomain>([
   'POLICY',
   'BILLING',
@@ -188,52 +148,6 @@ function decodeAuditEvent(raw: unknown): DashboardConsoleAuditEvent | null {
       row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
         ? { ...(row.metadata as Record<string, unknown>) }
         : {},
-    createdAt: String(row.createdAt || '').trim(),
-  };
-}
-
-function decodeAuditEvidenceReference(raw: unknown): DashboardConsoleAuditEvidenceReference | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const kind = String(row.kind || '')
-    .trim()
-    .toUpperCase() as DashboardConsoleAuditEvidenceReferenceKind;
-  if (!EVIDENCE_REFERENCE_KIND_SET.has(kind)) return null;
-  const referenceId = String(row.referenceId || '').trim();
-  const label = String(row.label || '').trim();
-  if (!referenceId || !label) return null;
-  return { kind, referenceId, label };
-}
-
-function decodeAuditEvidence(raw: unknown): DashboardConsoleAuditEvidenceRecord | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const orgId = String(row.orgId || '').trim();
-  const domain = String(row.domain || '')
-    .trim()
-    .toUpperCase() as DashboardConsoleAuditEvidenceDomain;
-  if (!id || !orgId || !EVIDENCE_DOMAIN_SET.has(domain)) return null;
-  const eventIds = Array.isArray(row.eventIds)
-    ? row.eventIds
-        .map((entry) => String(entry || '').trim())
-        .filter(Boolean)
-    : [];
-  const references = Array.isArray(row.references)
-    ? row.references
-        .map((entry) => decodeAuditEvidenceReference(entry))
-        .filter((entry): entry is DashboardConsoleAuditEvidenceReference => entry !== null)
-    : [];
-  return {
-    id,
-    orgId,
-    ...(row.projectId ? { projectId: String(row.projectId || '').trim() } : {}),
-    ...(row.environmentId ? { environmentId: String(row.environmentId || '').trim() } : {}),
-    domain,
-    title: String(row.title || '').trim(),
-    summary: String(row.summary || '').trim(),
-    eventIds,
-    references,
     createdAt: String(row.createdAt || '').trim(),
   };
 }
@@ -299,6 +213,7 @@ export async function listDashboardAuditEvents(input?: {
   category?: DashboardConsoleAuditCategory;
   actorUserId?: string;
   outcome?: DashboardConsoleAuditOutcome;
+  q?: string;
   from?: string;
   to?: string;
   limit?: number;
@@ -310,6 +225,7 @@ export async function listDashboardAuditEvents(input?: {
   appendOptionalQuery(url, 'category', input?.category);
   appendOptionalQuery(url, 'actorUserId', input?.actorUserId);
   appendOptionalQuery(url, 'outcome', input?.outcome);
+  appendOptionalQuery(url, 'q', input?.q);
   appendOptionalQuery(url, 'from', input?.from);
   appendOptionalQuery(url, 'to', input?.to);
   if (Number.isFinite(Number(input?.limit)) && Number(input?.limit) > 0) {
@@ -330,41 +246,6 @@ export async function listDashboardAuditEvents(input?: {
   return rows
     .map((entry) => decodeAuditEvent(entry))
     .filter((entry): entry is DashboardConsoleAuditEvent => entry !== null);
-}
-
-export async function listDashboardAuditEvidence(input?: {
-  projectId?: string;
-  environmentId?: string;
-  domain?: DashboardConsoleAuditEvidenceDomain;
-  from?: string;
-  to?: string;
-  limit?: number;
-}): Promise<DashboardConsoleAuditEvidenceRecord[]> {
-  const base = requireConsoleBaseUrl();
-  const url = new URL('/console/audit/evidence', base);
-  appendOptionalQuery(url, 'projectId', input?.projectId);
-  appendOptionalQuery(url, 'environmentId', input?.environmentId);
-  appendOptionalQuery(url, 'domain', input?.domain);
-  appendOptionalQuery(url, 'from', input?.from);
-  appendOptionalQuery(url, 'to', input?.to);
-  if (Number.isFinite(Number(input?.limit)) && Number(input?.limit) > 0) {
-    url.searchParams.set('limit', String(Math.floor(Number(input?.limit))));
-  }
-
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleAuditEvidenceResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Audit evidence list request failed'));
-  }
-  const rows = Array.isArray(body?.evidence) ? body.evidence : [];
-  return rows
-    .map((entry) => decodeAuditEvidence(entry))
-    .filter((entry): entry is DashboardConsoleAuditEvidenceRecord => entry !== null);
 }
 
 export async function listDashboardAuditExports(input?: {

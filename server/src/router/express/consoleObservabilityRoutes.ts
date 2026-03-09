@@ -64,6 +64,7 @@ export function registerConsoleObservabilityRoutes<
         ok: true,
         status: page.status,
         events: page.events,
+        totalPages: page.totalPages,
         ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
       });
     } catch (error: unknown) {

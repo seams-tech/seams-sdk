@@ -28,6 +28,23 @@ export function buildConsoleJsonHeaders(): HeadersInit {
   };
 }
 
+export async function fetchConsoleEndpoint(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  meta: { baseUrl: string; path: string; operation: string },
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error: unknown) {
+    throw normalizeConsoleFetchError({
+      error,
+      baseUrl: meta.baseUrl,
+      path: meta.path,
+      operation: meta.operation,
+    });
+  }
+}
+
 export async function parseConsoleJson(response: Response): Promise<any> {
   return response.json().catch(() => null);
 }

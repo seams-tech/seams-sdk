@@ -58,6 +58,7 @@ export interface ConsoleObservabilityEventEnvelope {
 export interface ConsoleObservabilityEventsPage {
   status: ConsoleObservabilityModuleStatus;
   events: ConsoleObservabilityEvent[];
+  totalPages: number;
   nextCursor?: string;
 }
 
@@ -99,6 +100,7 @@ export interface GetConsoleObservabilitySummaryRequest {
 export interface ListConsoleObservabilityEventsRequest {
   from?: string;
   to?: string;
+  query?: string;
   level?: ConsoleObservabilityLevel;
   service?: string;
   eventType?: string;

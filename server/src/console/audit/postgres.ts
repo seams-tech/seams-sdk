@@ -208,6 +208,12 @@ function toTimestampMs(raw: unknown): number | null {
   return timestamp;
 }
 
+function toEscapedLikePattern(raw: unknown): string | null {
+  const value = normalizeString(raw);
+  if (!value) return null;
+  return `%${value.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 function ensureCategory(raw: unknown): ConsoleAuditCategory {
   const value = normalizeString(raw).toUpperCase() as ConsoleAuditCategory;
   if (!AUDIT_CATEGORIES.has(value)) {
@@ -443,6 +449,15 @@ export async function createPostgresConsoleAuditService(
     pushEq('category', request.category);
     pushEq('actor_user_id', request.actorUserId);
     pushEq('outcome', request.outcome);
+
+    const searchPattern = toEscapedLikePattern(request.q);
+    if (searchPattern) {
+      valueIndex += 1;
+      values.push(searchPattern);
+      where.push(
+        `(id ILIKE $${valueIndex} ESCAPE '\\' OR project_id ILIKE $${valueIndex} ESCAPE '\\' OR environment_id ILIKE $${valueIndex} ESCAPE '\\' OR actor_user_id ILIKE $${valueIndex} ESCAPE '\\' OR action ILIKE $${valueIndex} ESCAPE '\\' OR summary ILIKE $${valueIndex} ESCAPE '\\' OR category ILIKE $${valueIndex} ESCAPE '\\' OR outcome ILIKE $${valueIndex} ESCAPE '\\' OR CAST(metadata AS TEXT) ILIKE $${valueIndex} ESCAPE '\\')`,
+      );
+    }
 
     const fromTs = toTimestampMs(request.from);
     if (fromTs !== null) {

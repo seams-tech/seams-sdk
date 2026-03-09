@@ -142,6 +142,23 @@ function resolveConsoleSsoDisplayName(
   return fallback || undefined;
 }
 
+function readConsoleSsoEmailClaim(claims: Record<string, unknown>): string | undefined {
+  const claimed = String(claims.email || claims.email_address || '')
+    .trim()
+    .toLowerCase();
+  if (claimed && claimed.includes('@')) return claimed;
+  return undefined;
+}
+
+function readConsoleSsoDisplayNameClaim(claims: Record<string, unknown>): string | undefined {
+  const displayName = String(claims.name || claims.preferred_username || '').trim();
+  if (displayName) return displayName;
+  const given = String(claims.given_name || '').trim();
+  const family = String(claims.family_name || '').trim();
+  const full = `${given} ${family}`.trim();
+  return full || undefined;
+}
+
 const consoleSsoProvisioningLocks = new Map<string, Promise<ConsoleOrgScopedTeamRole[]>>();
 
 async function runConsoleSsoProvisioningWithLock(
@@ -176,10 +193,14 @@ async function ensureConsoleSsoProvisioning(input: {
 
   const lockKey = `${input.orgId}:${input.userId}`;
   return runConsoleSsoProvisioningWithLock(lockKey, async () => {
+    const actorEmail = resolveConsoleSsoEmail(input.userId, input.claims);
+    const actorDisplayName = resolveConsoleSsoDisplayName(input.userId, input.claims);
     const readCtx = {
       orgId: input.orgId,
       actorUserId: input.userId,
       roles: [],
+      actorEmail,
+      ...(actorDisplayName ? { actorDisplayName } : {}),
       projectId: input.projectId,
       environmentId: input.environmentId,
     };
@@ -219,12 +240,11 @@ async function ensureConsoleSsoProvisioning(input: {
     let firstLoginProvisioned = false;
 
     if (!currentMember && input.bootstrapRoles.length > 0) {
-      const displayName = resolveConsoleSsoDisplayName(input.userId, input.claims);
       try {
         const invited = await teamRbac.inviteMember(provisionCtx, {
           userId: input.userId,
-          email: resolveConsoleSsoEmail(input.userId, input.claims),
-          ...(displayName ? { displayName } : {}),
+          email: actorEmail,
+          ...(actorDisplayName ? { displayName: actorDisplayName } : {}),
           roles: toConsoleRoleAssignments(input.bootstrapRoles),
         });
         roles = extractConsoleOrgScopedRoleClaims(invited.roles);
@@ -362,6 +382,10 @@ export function createAppSessionConsoleAuthAdapter(
           orgId,
           userId,
           roles,
+          ...(readConsoleSsoEmailClaim(claims) ? { email: readConsoleSsoEmailClaim(claims) } : {}),
+          ...(readConsoleSsoDisplayNameClaim(claims)
+            ? { name: readConsoleSsoDisplayNameClaim(claims) }
+            : {}),
           ...(projectId ? { projectId } : {}),
           ...(environmentId ? { environmentId } : {}),
         },

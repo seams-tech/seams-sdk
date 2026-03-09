@@ -1,11 +1,17 @@
 export type {
   ConsolePolicyStatus,
   ConsolePolicyDecision,
+  ConsolePolicyDenyReasonCode,
   ConsolePolicyAssignmentScopeType,
+  ConsolePolicyRulesInput,
+  ConsolePolicyRules,
+  ConsolePolicyDenyReason,
   ConsolePolicy,
   CreateConsolePolicyRequest,
+  DeleteConsolePolicyResult,
   UpdateConsolePolicyRequest,
   SimulateConsolePolicyRequest,
+  SimulateConsolePolicyNormalizedRequest,
   SimulateConsolePolicyResult,
   PublishConsolePolicyResult,
   ConsolePolicyAssignment,
@@ -13,6 +19,18 @@ export type {
   UpsertConsolePolicyAssignmentRequest,
   ConsolePolicyWalletScopeRef,
 } from './types';
+
+export {
+  CONSOLE_POLICY_RULE_SCHEMA_VERSION,
+  createDefaultConsolePolicyRules,
+  cloneConsolePolicyRules,
+  parseConsolePolicyRulesInput,
+  parseStoredConsolePolicyRules,
+  serializeConsolePolicyRules,
+  normalizeConsolePolicyActionIdentifier,
+  normalizeConsolePolicyChainIdentifier,
+  evaluateConsolePolicyRules,
+} from './rules';
 
 export type {
   ConsolePoliciesContext,

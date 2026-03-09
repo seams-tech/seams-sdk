@@ -286,6 +286,12 @@ function toNumber(raw: unknown, fallback = 0): number {
   return value;
 }
 
+function toEscapedLikePattern(raw: unknown): string | null {
+  const value = normalizeString(raw);
+  if (!value) return null;
+  return `%${value.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 function parseEventRow(row: PgRow): ConsoleObservabilityEvent {
   const levelRaw = normalizeString(row.level).toUpperCase() as ConsoleObservabilityLevel;
   const projectId = toNullableString(row.project_id);
@@ -888,6 +894,16 @@ export async function createPostgresConsoleObservabilityService(
     pushEq('event_type', request.eventType);
     pushEq('project_id', request.projectId);
     pushEq('environment_id', request.environmentId);
+    const searchPattern = toEscapedLikePattern(request.query);
+    if (searchPattern) {
+      valueIndex += 1;
+      values.push(searchPattern);
+      where.push(
+        `(event_id ILIKE $${valueIndex} ESCAPE '\\' OR service ILIKE $${valueIndex} ESCAPE '\\' OR component ILIKE $${valueIndex} ESCAPE '\\' OR event_type ILIKE $${valueIndex} ESCAPE '\\' OR message ILIKE $${valueIndex} ESCAPE '\\' OR COALESCE(request_id, '') ILIKE $${valueIndex} ESCAPE '\\' OR COALESCE(trace_id, '') ILIKE $${valueIndex} ESCAPE '\\' OR CAST(metadata AS TEXT) ILIKE $${valueIndex} ESCAPE '\\')`,
+      );
+    }
+    const whereClause = where.join(' AND ');
+    const countValues = [...values];
 
     const cursor = parseEventsCursor(request.cursor);
     let cursorClause = '';
@@ -902,10 +918,21 @@ export async function createPostgresConsoleObservabilityService(
     values.push(limit + 1);
 
     return withTenantTx(orgId, async (q) => {
+      const countOut = await q.query(
+        `SELECT COUNT(*)::bigint AS total_count
+           FROM console_observability_events
+          WHERE ${whereClause}`,
+        countValues,
+      );
+      const totalCount = Math.max(
+        0,
+        Math.floor(toNumber(((countOut.rows?.[0] || {}) as PgRow).total_count, 0)),
+      );
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit));
       const out = await q.query(
         `SELECT *
            FROM console_observability_events
-          WHERE ${where.join(' AND ')}${cursorClause}
+          WHERE ${whereClause}${cursorClause}
           ORDER BY created_at_ms DESC, event_id DESC
           LIMIT $${values.length}`,
         values,
@@ -927,6 +954,7 @@ export async function createPostgresConsoleObservabilityService(
           state: 'ok',
         },
         events,
+        totalPages,
         ...(nextCursor ? { nextCursor } : {}),
       };
     });

@@ -2092,6 +2092,10 @@ export class AuthService {
     iss?: string;
     aud?: string[];
     sub?: string;
+    email?: string;
+    name?: string;
+    given_name?: string;
+    family_name?: string;
     code?: string;
     message?: string;
   }> {
@@ -2336,6 +2340,10 @@ export class AuthService {
       const subjectPrefix =
         toOptionalTrimmedString(issuerConfig.subjectPrefix) || `oidc:${iss}:`;
       const providerSubject = `${subjectPrefix}${sub}`;
+      const email = toOptionalTrimmedString(payload?.email);
+      const name = toOptionalTrimmedString(payload?.name);
+      const givenName = toOptionalTrimmedString(payload?.given_name);
+      const familyName = toOptionalTrimmedString(payload?.family_name);
 
       let userId = providerSubject;
       try {
@@ -2357,6 +2365,10 @@ export class AuthService {
         iss,
         aud,
         sub,
+        ...(email ? { email } : {}),
+        ...(name ? { name } : {}),
+        ...(givenName ? { given_name: givenName } : {}),
+        ...(familyName ? { family_name: familyName } : {}),
       };
     } catch (e: unknown) {
       return {
@@ -2602,6 +2614,9 @@ export class AuthService {
       }
 
       const email = toOptionalTrimmedString(payload?.email);
+      const name = toOptionalTrimmedString(payload?.name);
+      const givenName = toOptionalTrimmedString(payload?.given_name);
+      const familyName = toOptionalTrimmedString(payload?.family_name);
       const emailVerifiedRaw = payload?.email_verified;
       const emailVerified =
         typeof emailVerifiedRaw === 'boolean'
@@ -2630,6 +2645,9 @@ export class AuthService {
         providerSubject,
         sub,
         ...(email ? { email } : {}),
+        ...(name ? { name } : {}),
+        ...(givenName ? { given_name: givenName } : {}),
+        ...(familyName ? { family_name: familyName } : {}),
         ...(typeof emailVerified === 'boolean' ? { emailVerified } : {}),
         ...(hostedDomain ? { hostedDomain } : {}),
       };

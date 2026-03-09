@@ -276,6 +276,7 @@ test.describe('console router (express)', () => {
       expect(events.status).toBe(200);
       expect(getPath(events.json, 'status', 'state')).toBe('not_configured');
       expect(Array.isArray(events.json?.events)).toBe(true);
+      expect(events.json?.totalPages).toBe(1);
 
       const timeseries = await fetchJson(
         `${srv.baseUrl}/console/observability/timeseries?bucketMinutes=5`,
@@ -5007,6 +5008,7 @@ test.describe('console router (cloudflare)', () => {
     expect(events.status).toBe(200);
     expect(getPath(events.json, 'status', 'state')).toBe('not_configured');
     expect(Array.isArray(events.json?.events)).toBe(true);
+    expect(events.json?.totalPages).toBe(1);
 
     const timeseries = await callCf(handler, {
       method: 'GET',

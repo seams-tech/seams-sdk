@@ -1,6 +1,7 @@
 import {
   buildConsoleAcceptHeaders,
   consoleErrorMessage,
+  fetchConsoleEndpoint,
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../consoleHttp';
@@ -310,12 +311,20 @@ function decodeExportGovernance(raw: unknown): DashboardExportGovernance | null 
 
 async function fetchJson(path: string): Promise<any> {
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}${path}`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const response = await fetchConsoleEndpoint(
+    `${base}${path}`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path,
+      operation: 'Console insights request',
+    },
+  );
   const body = await parseConsoleJson(response);
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Console insights request failed'));

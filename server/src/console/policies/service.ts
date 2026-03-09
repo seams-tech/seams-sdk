@@ -3,11 +3,18 @@ import {
   normalizePolicyScopeType as normalizeScopeType,
   policyScopeKey as scopeKey,
 } from './normalization';
+import {
+  cloneConsolePolicyRules,
+  createDefaultConsolePolicyRules,
+  evaluateConsolePolicyRules,
+  parseConsolePolicyRulesInput,
+} from './rules';
 import type {
   ConsolePolicyAssignment,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
   CreateConsolePolicyRequest,
+  DeleteConsolePolicyResult,
   ListConsolePolicyAssignmentsRequest,
   PublishConsolePolicyResult,
   SimulateConsolePolicyRequest,
@@ -34,6 +41,10 @@ export interface ConsolePolicyService {
     ctx: ConsolePoliciesContext,
     policyId: string,
   ): Promise<PublishConsolePolicyResult | null>;
+  deletePolicy(
+    ctx: ConsolePoliciesContext,
+    policyId: string,
+  ): Promise<DeleteConsolePolicyResult>;
   simulatePolicy(
     ctx: ConsolePoliciesContext,
     policyId: string,
@@ -80,7 +91,7 @@ function toIso(now: Date): string {
 function clonePolicy(policy: ConsolePolicy): ConsolePolicy {
   return {
     ...policy,
-    rules: { ...policy.rules },
+    rules: cloneConsolePolicyRules(policy.rules),
   };
 }
 
@@ -88,39 +99,6 @@ function cloneAssignment(assignment: ConsolePolicyAssignment): ConsolePolicyAssi
   return {
     ...assignment,
   };
-}
-
-function listStringValues(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  return input
-    .map((entry) => String(entry || '').trim())
-    .filter(Boolean);
-}
-
-function evaluatePolicyRules(
-  policy: ConsolePolicy,
-  request: SimulateConsolePolicyRequest,
-): SimulateConsolePolicyResult['decision'] | null {
-  const rules = policy.rules || {};
-  const blockedActions = listStringValues((rules as Record<string, unknown>).blockedActions).map(
-    (entry) => entry.toLowerCase(),
-  );
-  if (blockedActions.includes(String(request.action || '').toLowerCase())) return 'DENY';
-
-  const allowedChains = listStringValues((rules as Record<string, unknown>).allowedChains).map(
-    (entry) => entry.toLowerCase(),
-  );
-  if (allowedChains.length > 0 && request.chain) {
-    if (!allowedChains.includes(String(request.chain || '').toLowerCase())) return 'DENY';
-  }
-
-  const maxAmountMinorRaw = (rules as Record<string, unknown>).maxAmountMinor;
-  if (maxAmountMinorRaw !== undefined && request.amountMinor !== undefined) {
-    const maxAmountMinor = Number(maxAmountMinorRaw);
-    if (Number.isFinite(maxAmountMinor) && request.amountMinor > maxAmountMinor) return 'DENY';
-  }
-
-  return 'ALLOW';
 }
 
 export function createInMemoryConsolePolicyService(
@@ -141,10 +119,7 @@ export function createInMemoryConsolePolicyService(
         description: 'Default policy profile for this organization',
         status: 'PUBLISHED',
         version: 1,
-        rules: {
-          blockedActions: [],
-          allowedChains: [],
-        },
+        rules: createDefaultConsolePolicyRules(),
         createdAt,
         updatedAt: createdAt,
         publishedAt: createdAt,
@@ -194,7 +169,7 @@ export function createInMemoryConsolePolicyService(
         description: request.description || null,
         status: 'DRAFT',
         version: 0,
-        rules: { ...(request.rules || {}) },
+        rules: parseConsolePolicyRulesInput(request.rules),
         createdAt: ts,
         updatedAt: ts,
         publishedAt: null,
@@ -215,8 +190,8 @@ export function createInMemoryConsolePolicyService(
         );
       }
       if (request.name) current.name = request.name;
-      if (request.description) current.description = request.description;
-      if (request.rules) current.rules = { ...request.rules };
+      if (request.description !== undefined) current.description = request.description || null;
+      if (request.rules) current.rules = parseConsolePolicyRulesInput(request.rules);
       current.status = 'DRAFT';
       current.updatedAt = toIso(nowFn());
       store.policies.set(current.id, current);
@@ -246,23 +221,43 @@ export function createInMemoryConsolePolicyService(
       };
     },
 
+    async deletePolicy(ctx, policyId): Promise<DeleteConsolePolicyResult> {
+      const store = ensureOrgStore(ctx);
+      const current = store.policies.get(policyId);
+      if (!current) {
+        return { removed: false, policy: null };
+      }
+      if (policyId === `${ctx.orgId}:policy:default`) {
+        throw new ConsolePolicyError(
+          'default_policy_protected',
+          409,
+          `Policy ${policyId} is the organization default and cannot be deleted`,
+        );
+      }
+      for (const assignment of Array.from(store.assignments.values())) {
+        if (assignment.policyId !== policyId) continue;
+        store.assignments.delete(assignment.id);
+        store.assignmentsByScope.delete(scopeKey(assignment.scopeType, assignment.scopeId));
+      }
+      store.policies.delete(policyId);
+      return {
+        removed: true,
+        policy: clonePolicy(current),
+      };
+    },
+
     async simulatePolicy(ctx, policyId, request): Promise<SimulateConsolePolicyResult | null> {
       const store = ensureOrgStore(ctx);
       const policy = store.policies.get(policyId);
       if (!policy) return null;
-      const decision = evaluatePolicyRules(policy, request);
-      const reasons: string[] = [];
-      if (decision === 'DENY') {
-        reasons.push('One or more policy rules denied this request');
-      } else {
-        reasons.push('All evaluated rules passed');
-      }
+      const evaluation = evaluateConsolePolicyRules(policy.rules, request);
       return {
         policyId: policy.id,
-        decision: decision || 'DENY',
-        reasons,
+        decision: evaluation.decision,
+        denyReasons: evaluation.denyReasons,
         evaluatedAt: toIso(nowFn()),
         policyVersion: policy.version,
+        normalizedRequest: evaluation.normalizedRequest,
       };
     },
 

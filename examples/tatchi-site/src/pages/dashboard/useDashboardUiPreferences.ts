@@ -36,12 +36,18 @@ type UseDashboardUiPreferencesInput = {
   defaultContext: TopbarContextState;
 };
 
+function isSelectableTopbarOption(option: TopbarOption): boolean {
+  return option.disabled !== true;
+}
+
 function hasTopbarOption(
   menu: TopbarMenuKey,
   value: string,
   dropdownOptions: TopbarDropdownOptions,
 ): boolean {
-  return dropdownOptions[menu].some((option) => option.value === value);
+  return dropdownOptions[menu].some(
+    (option) => option.value === value && isSelectableTopbarOption(option),
+  );
 }
 
 function resolveContextValue(
@@ -62,7 +68,7 @@ function resolveContextValue(
   ) {
     return defaultValue;
   }
-  return String(options[0]?.value || '').trim();
+  return String(options.find((option) => isSelectableTopbarOption(option))?.value || '').trim();
 }
 
 function sanitizeSelectedContext(
@@ -409,32 +415,34 @@ export function useDashboardUiPreferences(
         ...(environment ? { environment } : {}),
         ...(accountSettings ? { accountSettings } : {}),
       };
+      const sanitized = sanitizeSelectedContext(next, dropdownOptions, defaultContext);
       if (
-        next.organization === current.organization &&
-        next.project === current.project &&
-        next.environment === current.environment &&
-        next.accountSettings === current.accountSettings
+        sanitized.organization === current.organization &&
+        sanitized.project === current.project &&
+        sanitized.environment === current.environment &&
+        sanitized.accountSettings === current.accountSettings
       ) {
         return current;
       }
-      return next;
+      return sanitized;
     });
     setPreferencesHydrated(true);
-  }, [pathname]);
+  }, [defaultContext, dropdownOptions, pathname]);
 
   React.useEffect(() => {
     const fromUrl = readUrlSelectedContext(dropdownOptions, defaultContext);
     if (!fromUrl) return;
+    const sanitized = sanitizeSelectedContext(fromUrl, dropdownOptions, defaultContext);
     setSelectedContext((current) => {
       if (
-        current.organization === fromUrl.organization &&
-        current.project === fromUrl.project &&
-        current.environment === fromUrl.environment &&
-        current.accountSettings === fromUrl.accountSettings
+        current.organization === sanitized.organization &&
+        current.project === sanitized.project &&
+        current.environment === sanitized.environment &&
+        current.accountSettings === sanitized.accountSettings
       ) {
         return current;
       }
-      return fromUrl;
+      return sanitized;
     });
   }, [defaultContext, dropdownOptions, pathname]);
 

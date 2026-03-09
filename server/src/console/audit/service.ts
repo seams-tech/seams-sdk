@@ -59,6 +59,33 @@ function parseTimestamp(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeSearchQuery(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function eventMatchesSearch(event: ConsoleAuditEvent, query: string): boolean {
+  const normalizedQuery = normalizeSearchQuery(query);
+  if (!normalizedQuery) return true;
+  const haystacks = [
+    event.id,
+    event.projectId,
+    event.environmentId,
+    event.actorUserId,
+    event.category,
+    event.action,
+    event.outcome,
+    event.summary,
+    JSON.stringify(event.metadata),
+  ];
+  return haystacks.some((value) =>
+    String(value || '')
+      .toLowerCase()
+      .includes(normalizedQuery),
+  );
+}
+
 function cloneEvent(input: ConsoleAuditEvent): ConsoleAuditEvent {
   return {
     ...input,
@@ -268,6 +295,7 @@ export function createInMemoryConsoleAuditService(
           if (request.category && entry.category !== request.category) return false;
           if (request.actorUserId && entry.actorUserId !== request.actorUserId) return false;
           if (request.outcome && entry.outcome !== request.outcome) return false;
+          if (request.q && !eventMatchesSearch(entry, request.q)) return false;
           const createdAtTs = parseTimestamp(entry.createdAt);
           if (createdAtTs < fromTs || createdAtTs > toTs) return false;
           return true;

@@ -1,7 +1,4 @@
-export type ConsoleApprovalOperationType =
-  | 'POLICY_PUBLISH'
-  | 'KEY_EXPORT'
-  | 'SECURITY_SETTINGS_CHANGE';
+export type ConsoleApprovalOperationType = 'POLICY_PUBLISH' | 'KEY_EXPORT';
 
 export type ConsoleApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
 

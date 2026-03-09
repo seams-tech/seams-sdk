@@ -1,7 +1,10 @@
 import React from 'react';
+import { useTheme } from '@tatchi-xyz/sdk/react';
 import DashboardSidebar from './layout/DashboardSidebar';
 import DashboardTopbar from './layout/DashboardTopbar';
 import {
+  DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION,
+  DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION,
   DASHBOARD_ACCOUNT_SETTINGS_OPTIONS,
   DEFAULT_DASHBOARD_ROUTE,
@@ -9,6 +12,7 @@ import {
   getViewForRoute,
   SIDEBAR_GROUPS,
 } from './dashboardConfig';
+import { requestOpenSelfMemberSettings } from './accountSettingsIntents';
 import type { DashboardRoute, TopbarContextState, TopbarMenuKey, TopbarOption } from './types';
 import {
   DashboardConsoleSessionProvider,
@@ -41,23 +45,43 @@ type DashboardPageProps = {
 const DASHBOARD_ONBOARDING_ROUTE: DashboardRoute = '/dashboard/onboarding';
 const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
 const DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
+const LOCKED_PRODUCTION_OPTION_PREFIX = '__production_locked__:';
+
+function isSelectableOption(option: TopbarOption): boolean {
+  return option.disabled !== true;
+}
 
 function dedupeOptions(options: TopbarOption[]): TopbarOption[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const deduped: TopbarOption[] = [];
   for (const option of options) {
     const value = String(option.value || '').trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    deduped.push({
+    if (!value) continue;
+    const normalized: TopbarOption = {
       value,
       label: String(option.label || value).trim() || value,
-    });
+      ...(option.disabled === true ? { disabled: true } : {}),
+    };
+    const existingIndex = seen.get(value);
+    if (existingIndex === undefined) {
+      seen.set(value, deduped.length);
+      deduped.push(normalized);
+      continue;
+    }
+    const existing = deduped[existingIndex];
+    if (existing.disabled === true && normalized.disabled !== true) {
+      deduped[existingIndex] = normalized;
+      continue;
+    }
+    if ((existing.label === value || !existing.label) && normalized.label !== value) {
+      deduped[existingIndex] = { ...existing, label: normalized.label };
+    }
   }
   return deduped;
 }
 
 function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
+  const { theme, setTheme } = useTheme();
   const { go, linkProps } = useSiteRouter();
   const homeProps = linkProps('/');
   const consoleSession = useDashboardConsoleSession();
@@ -68,7 +92,9 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const persistedProjectId = String(persistedSelectedContext.project || '').trim();
   const persistedEnvironmentId = String(persistedSelectedContext.environment || '').trim();
   const [onboardingLoading, setOnboardingLoading] = React.useState<boolean>(false);
-  const [onboardingState, setOnboardingState] = React.useState<DashboardOnboardingState | null>(null);
+  const [onboardingState, setOnboardingState] = React.useState<DashboardOnboardingState | null>(
+    null,
+  );
   const [onboardingGateEnabled, setOnboardingGateEnabled] = React.useState<boolean>(true);
   const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
   const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
@@ -81,12 +107,16 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       ? onboardingState.complete === true
       : onboardingState.onboardingComplete
     : false;
+  const resolvedTheme: 'light' | 'dark' = theme === 'light' ? 'light' : 'dark';
   const sessionForbidden =
     !consoleSession.loading &&
     !consoleSession.claims &&
     (consoleSession.errorCode === 'forbidden' || consoleSession.errorStatus === 403);
   const onboardingSelectedProjectId = String(onboardingState?.selectedProjectId || '').trim();
-  const onboardingSelectedEnvironmentId = String(onboardingState?.selectedEnvironmentId || '').trim();
+  const onboardingSelectedEnvironmentId = String(
+    onboardingState?.selectedEnvironmentId || '',
+  ).trim();
+  const billingReady = onboardingState?.billingReady === true;
   const isSidebarNavigationLocked =
     onboardingGateEnabled &&
     (onboardingLoading ||
@@ -184,7 +214,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   ]);
 
   const dashboardEntryRoute = React.useMemo<DashboardRoute>(() => {
-    if (onboardingGateEnabled && onboardingState && onboardingComplete) return DEFAULT_DASHBOARD_ROUTE;
+    if (onboardingGateEnabled && onboardingState && onboardingComplete)
+      return DEFAULT_DASHBOARD_ROUTE;
     return DASHBOARD_ONBOARDING_ROUTE;
   }, [onboardingComplete, onboardingGateEnabled, onboardingState]);
 
@@ -232,7 +263,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           (preferredProjectId &&
             nextProjectOptions.find((entry) => entry.value === preferredProjectId)?.value) ||
           (onboardingSelectedProjectId &&
-            nextProjectOptions.find((entry) => entry.value === onboardingSelectedProjectId)?.value) ||
+            nextProjectOptions.find((entry) => entry.value === onboardingSelectedProjectId)
+              ?.value) ||
           nextProjectOptions[0]?.value ||
           onboardingSelectedProjectId ||
           '';
@@ -273,17 +305,61 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     }
     let cancelled = false;
     setEnvironmentOptions([]);
-    listDashboardEnvironments({ projectId, status: 'ACTIVE' })
+    listDashboardEnvironments({ projectId })
       .then((environments) => {
         if (cancelled) return;
         const persisted = readPersistedDashboardSelectedContext();
         const preferredEnvironmentId = String(persisted.environment || '').trim();
-        const nextEnvironmentOptions = dedupeOptions(
-          environments.map((entry) => ({
+        const visibleEnvironmentRows = environments
+          .filter((entry) => {
+            const status = String(entry.status || '')
+              .trim()
+              .toUpperCase();
+            if (status === 'ARCHIVED') return false;
+            if (status === 'ACTIVE') return true;
+            return (
+              String(entry.key || '')
+                .trim()
+                .toLowerCase() === 'prod'
+            );
+          })
+          .sort((left, right) => {
+            const leftDisabled =
+              String(left.status || '')
+                .trim()
+                .toUpperCase() !== 'ACTIVE';
+            const rightDisabled =
+              String(right.status || '')
+                .trim()
+                .toUpperCase() !== 'ACTIVE';
+            if (leftDisabled === rightDisabled) return 0;
+            return leftDisabled ? 1 : -1;
+          });
+        const hasProductionEnvironment = visibleEnvironmentRows.some(
+          (entry) =>
+            String(entry.key || '')
+              .trim()
+              .toLowerCase() === 'prod',
+        );
+        const nextEnvironmentOptions = dedupeOptions([
+          ...visibleEnvironmentRows.map((entry) => ({
             value: entry.id,
             label: entry.name || entry.id,
+            disabled:
+              String(entry.status || '')
+                .trim()
+                .toUpperCase() !== 'ACTIVE',
           })),
-        );
+          ...(!billingReady && !hasProductionEnvironment
+            ? [
+                {
+                  value: `${LOCKED_PRODUCTION_OPTION_PREFIX}${projectId}`,
+                  label: 'Production',
+                  disabled: true,
+                },
+              ]
+            : []),
+        ]);
         if (
           preferredEnvironmentId &&
           !nextEnvironmentOptions.some((entry) => entry.value === preferredEnvironmentId)
@@ -328,6 +404,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     onboardingSelectedEnvironmentId,
     onboardingSelectedProjectId,
     selectedProjectId,
+    billingReady,
   ]);
 
   const dropdownOptions = React.useMemo(
@@ -361,16 +438,29 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
               ...(onboardingSelectedEnvironmentId &&
               selectedProjectId &&
               onboardingSelectedProjectId === selectedProjectId
-                ? [{
-                    value: onboardingSelectedEnvironmentId,
-                    label: onboardingSelectedEnvironmentId,
-                  }]
+                ? [
+                    {
+                      value: onboardingSelectedEnvironmentId,
+                      label: onboardingSelectedEnvironmentId,
+                    },
+                  ]
                 : []),
             ]),
       ),
       accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.map((entry) => ({
         value: entry,
-        label: entry,
+        label:
+          entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION
+            ? resolvedTheme === 'dark'
+              ? 'Switch to light mode'
+              : 'Switch to dark mode'
+            : entry,
+        ...(entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION
+          ? {
+              keepMenuOpen: true,
+              icon: resolvedTheme === 'dark' ? 'sun' : 'moon',
+            }
+          : {}),
       })),
     }),
     [
@@ -382,43 +472,46 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       persistedEnvironmentId,
       persistedProjectId,
       projectOptions,
+      resolvedTheme,
       selectedProjectId,
     ],
   );
 
-  const defaultTopbarContext = React.useMemo<TopbarContextState>(
-    () => {
-      const preferredProjectId = String(selectedProjectId || onboardingSelectedProjectId || '').trim();
-      const projectValue =
-        dropdownOptions.project.find((entry) => entry.value === preferredProjectId)?.value ||
-        dropdownOptions.project[0]?.value ||
-        preferredProjectId;
-      const preferredEnvironmentId = String(
-        projectValue && onboardingSelectedProjectId === projectValue
-          ? onboardingSelectedEnvironmentId || ''
-          : '',
-      ).trim();
-      return {
-        organization:
-          dropdownOptions.organization[0]?.value ||
-          consoleSession.claims?.orgId ||
-          '',
-        project: projectValue,
-        environment:
-          dropdownOptions.environment.find((entry) => entry.value === preferredEnvironmentId)?.value ||
-          dropdownOptions.environment[0]?.value ||
-          preferredEnvironmentId,
-        accountSettings: dropdownOptions.accountSettings[0]?.value || '',
-      };
-    },
-    [
-      consoleSession.claims,
-      dropdownOptions,
-      onboardingSelectedEnvironmentId,
-      onboardingSelectedProjectId,
-      selectedProjectId,
-    ],
-  );
+  const defaultTopbarContext = React.useMemo<TopbarContextState>(() => {
+    const preferredProjectId = String(
+      selectedProjectId || onboardingSelectedProjectId || '',
+    ).trim();
+    const projectValue =
+      dropdownOptions.project.find((entry) => entry.value === preferredProjectId)?.value ||
+      dropdownOptions.project[0]?.value ||
+      preferredProjectId;
+    const preferredEnvironmentId = String(
+      projectValue && onboardingSelectedProjectId === projectValue
+        ? onboardingSelectedEnvironmentId || ''
+        : '',
+    ).trim();
+    const preferredEnvironmentOption = dropdownOptions.environment.find(
+      (entry) => entry.value === preferredEnvironmentId && isSelectableOption(entry),
+    );
+    const firstSelectableEnvironmentOption = dropdownOptions.environment.find((entry) =>
+      isSelectableOption(entry),
+    );
+    return {
+      organization: dropdownOptions.organization[0]?.value || consoleSession.claims?.orgId || '',
+      project: projectValue,
+      environment:
+        preferredEnvironmentOption?.value ||
+        firstSelectableEnvironmentOption?.value ||
+        (dropdownOptions.environment.length === 0 ? preferredEnvironmentId : ''),
+      accountSettings: dropdownOptions.accountSettings[0]?.value || '',
+    };
+  }, [
+    consoleSession.claims,
+    dropdownOptions,
+    onboardingSelectedEnvironmentId,
+    onboardingSelectedProjectId,
+    selectedProjectId,
+  ]);
 
   const {
     isSidebarExpanded,
@@ -440,6 +533,18 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const onSelectContext = React.useCallback(
     (menu: TopbarMenuKey, value: string) => {
+      if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION) {
+        onSelectContextRaw(menu, value);
+        requestOpenSelfMemberSettings();
+        go('/dashboard/team-members');
+        return;
+      }
+      if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION) {
+        if (typeof setTheme === 'function') {
+          setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+        }
+        return;
+      }
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_SIGN_OUT_OPTION) {
         if (logoutPending) return;
         setLogoutPending(true);
@@ -458,12 +563,30 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           });
         return;
       }
+      if (
+        menu === 'environment' &&
+        (String(value || '')
+          .trim()
+          .startsWith(LOCKED_PRODUCTION_OPTION_PREFIX) ||
+          dropdownOptions.environment.find((entry) => entry.value === value)?.disabled === true)
+      ) {
+        go('/dashboard/billing?billing=production_required');
+        return;
+      }
       onSelectContextRaw(menu, value);
       if (menu === 'project') {
         setSelectedProjectId(value);
       }
     },
-    [consoleSession, go, logoutPending, onSelectContextRaw],
+    [
+      consoleSession,
+      dropdownOptions.environment,
+      go,
+      logoutPending,
+      onSelectContextRaw,
+      resolvedTheme,
+      setTheme,
+    ],
   );
 
   React.useEffect(() => {
