@@ -340,7 +340,7 @@ export function OpsCockpitPage(): React.JSX.Element {
       value: summary?.enterpriseIsolation.activeRequestCount || 0,
       description: 'Org isolation currently in REQUESTED or MIGRATING state.',
       actionLabel: 'Open migration plan',
-      action: () => go('/dashboard/enterprise-isolation'),
+      action: () => go('/dashboard/integrations/self-hosting'),
     },
     {
       title: 'Onboarding SLO alerts',

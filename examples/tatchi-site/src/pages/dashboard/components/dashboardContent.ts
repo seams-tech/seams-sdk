@@ -23,7 +23,7 @@ type CardDashboardRoute = Exclude<
   | '/dashboard/billing'
   | '/dashboard/team-members'
   | '/dashboard/audit'
-  | '/dashboard/enterprise-isolation'
+  | '/dashboard/integrations/self-hosting'
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
   | '/dashboard/export-keys'

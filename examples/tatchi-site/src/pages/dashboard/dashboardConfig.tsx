@@ -1,7 +1,7 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
 import { BillingPage } from './routes/billing/page';
 import { AuditLogsPage } from './routes/audit/page';
-import { EnterpriseIsolationPage } from './routes/enterprise-isolation/page';
+import { SelfHostingPage } from './routes/integrations/self-hosting/page';
 import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipSmartWalletsPage } from './routes/gas-smart-wallets/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
@@ -44,13 +44,6 @@ const securityControlItems: SidebarItem[] = [
     path: '/dashboard/policy-engine',
     iconClass: 'dashboard-nav-icon--policy-engine',
     component: PolicyEnginePage,
-  },
-  {
-    key: 'enterprise-isolation',
-    label: 'Self Hosting',
-    path: '/dashboard/enterprise-isolation',
-    iconClass: 'dashboard-nav-icon--app-settings',
-    component: EnterpriseIsolationPage,
   },
 ];
 
@@ -121,6 +114,13 @@ const sidebarGroups: SidebarGroup[] = [
     key: 'integrations',
     label: 'Integrations',
     items: [
+      {
+        key: 'self-hosting',
+        label: 'Self Hosting',
+        path: '/dashboard/integrations/self-hosting',
+        iconClass: 'dashboard-nav-icon--app-settings',
+        component: SelfHostingPage,
+      },
       {
         key: 'webhooks',
         label: 'Webhooks',
