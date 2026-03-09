@@ -316,7 +316,7 @@ export function OpsCockpitPage(): React.JSX.Element {
       title: 'Isolation requests',
       value: summary?.enterpriseIsolation.activeRequestCount || 0,
       description: 'Org isolation currently in REQUESTED or MIGRATING state.',
-      actionLabel: 'Open isolation',
+      actionLabel: 'Open migration plan',
       action: () => go('/dashboard/enterprise-isolation'),
     },
     {

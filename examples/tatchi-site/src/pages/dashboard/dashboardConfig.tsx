@@ -47,7 +47,7 @@ const securityControlItems: SidebarItem[] = [
   },
   {
     key: 'enterprise-isolation',
-    label: 'Enterprise isolation',
+    label: 'Self Hosting',
     path: '/dashboard/enterprise-isolation',
     iconClass: 'dashboard-nav-icon--app-settings',
     component: EnterpriseIsolationPage,
