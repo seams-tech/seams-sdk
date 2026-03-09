@@ -6,16 +6,15 @@ import {
   rejectDashboardApproval,
   type DashboardConsoleApprovalRequest,
 } from '../approvals/consoleApprovalsApi';
-import {
-  getDashboardPolicyCoverage,
-  type DashboardPolicyCoverage,
-} from '../consoleInsightsApi';
+import { getDashboardPolicyCoverage, type DashboardPolicyCoverage } from '../consoleInsightsApi';
 import {
   formatWalletBalanceMinor,
   listDashboardWallets,
   type DashboardConsoleWallet,
 } from '../wallets/consoleWalletApi';
 import { useDashboardConsoleSession } from '../../consoleSession';
+import { useSessionDraft } from '../../drafts/useSessionDraft';
+import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
   createDashboardPolicy,
@@ -47,6 +46,23 @@ interface PolicyContractRuleDraft {
   functions: string[];
 }
 
+interface PolicyEditorFormState {
+  scopeType: PolicyScopeType;
+  walletId: string;
+  policyName: string;
+  blockedActions: string[];
+  contractCallAllowlistEnabled: boolean;
+  contractCallRules: PolicyContractRuleDraft[];
+  allowedChains: string[];
+  maxAmountMinor: string;
+}
+
+interface PolicyDraftScope {
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+}
+
 const POLICY_ACTIONS = [
   'transfer',
   'contract_call',
@@ -57,7 +73,7 @@ const POLICY_ACTIONS = [
   'export_key',
 ] as const;
 
-const POLICY_CHAINS = ['Ethereum', 'Base', 'NEAR', 'Tempo', 'Arc Circle'] as const;
+const POLICY_CHAINS = ['Ethereum', 'NEAR', 'Tempo', 'Arc Circle'] as const;
 
 const EMPTY_ASSIGNMENTS: Record<PolicyScopeType, DashboardConsolePolicyAssignment | null> = {
   ORG: null,
@@ -135,6 +151,77 @@ function createEmptyContractRuleDraft(): PolicyContractRuleDraft {
   };
 }
 
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
+}
+
+function readScopeType(raw: unknown, fallback: PolicyScopeType): PolicyScopeType {
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (value === 'ORG' || value === 'PROJECT' || value === 'ENVIRONMENT' || value === 'WALLET') {
+    return value;
+  }
+  return fallback;
+}
+
+function createInitialPolicyEditorForm(
+  scopeType: PolicyScopeType,
+  walletId: string,
+): PolicyEditorFormState {
+  return {
+    scopeType,
+    walletId: String(walletId || '').trim(),
+    policyName: defaultPolicyName(scopeType),
+    blockedActions: ['delete_key'],
+    contractCallAllowlistEnabled: false,
+    contractCallRules: [],
+    allowedChains: [],
+    maxAmountMinor: '',
+  };
+}
+
+function createPolicyEditorFormFromPolicy(
+  policy: DashboardConsolePolicy,
+  scopeType: PolicyScopeType,
+  walletId: string,
+): PolicyEditorFormState {
+  const nextBlockedActions = readStringRuleList(policy.rules.blockedActions).filter(
+    (entry) => entry.toLowerCase() !== 'contract_call',
+  );
+  const nextContractCallRules = readContractCallRuleDrafts(policy.rules.allowedContractCalls);
+  return {
+    scopeType,
+    walletId: String(walletId || '').trim(),
+    policyName: policy.name || defaultPolicyName(scopeType),
+    blockedActions: nextBlockedActions,
+    contractCallAllowlistEnabled: nextContractCallRules.length > 0,
+    contractCallRules: nextContractCallRules,
+    allowedChains: readStringRuleList(policy.rules.allowedChains),
+    maxAmountMinor: readNumberRule(policy.rules.maxAmountMinor),
+  };
+}
+
+function parsePolicyEditorDraft(
+  raw: unknown,
+  fallback: PolicyEditorFormState,
+): PolicyEditorFormState | null {
+  if (!isRecord(raw)) return null;
+  return {
+    scopeType: readScopeType(raw.scopeType, fallback.scopeType),
+    walletId: normalizeDraftString(String(raw.walletId ?? fallback.walletId)),
+    policyName: normalizeDraftString(String(raw.policyName ?? fallback.policyName)),
+    blockedActions: readStringRuleList(raw.blockedActions),
+    contractCallAllowlistEnabled:
+      raw.contractCallAllowlistEnabled === true || raw.contractCallAllowlistEnabled === false
+        ? raw.contractCallAllowlistEnabled
+        : fallback.contractCallAllowlistEnabled,
+    contractCallRules: readContractCallRuleDrafts(raw.contractCallRules),
+    allowedChains: readStringRuleList(raw.allowedChains),
+    maxAmountMinor: normalizeDraftString(String(raw.maxAmountMinor ?? fallback.maxAmountMinor)),
+  };
+}
+
 function readContractCallRuleDrafts(raw: unknown): PolicyContractRuleDraft[] {
   if (!Array.isArray(raw)) return [];
   const out: PolicyContractRuleDraft[] = [];
@@ -143,9 +230,7 @@ function readContractCallRuleDrafts(raw: unknown): PolicyContractRuleDraft[] {
     const row = entry as Record<string, unknown>;
     const contractAddress = normalizeDraftString(String(row.contractAddress || ''));
     const functions = Array.isArray(row.functions)
-      ? row.functions
-          .map((value) => normalizeDraftString(String(value || '')))
-          .filter(Boolean)
+      ? row.functions.map((value) => normalizeDraftString(String(value || ''))).filter(Boolean)
       : [];
     out.push({
       id: makeDraftId('contract'),
@@ -164,7 +249,9 @@ function rulesSummary(policy: DashboardConsolePolicy): string {
   return [
     chains.length > 0 ? `Chains: ${chains.join(', ')}` : 'Chains: all',
     blockedActions.length > 0 ? `Blocked: ${blockedActions.join(', ')}` : 'Blocked: none',
-    contractCalls.length > 0 ? `Contract calls: ${contractCalls.length} contract${contractCalls.length === 1 ? '' : 's'}` : 'Contract calls: all',
+    contractCalls.length > 0
+      ? `Contract calls: ${contractCalls.length} contract${contractCalls.length === 1 ? '' : 's'}`
+      : 'Contract calls: all',
     maxAmountMinor ? `Max amount: ${maxAmountMinor}` : 'Max amount: none',
   ].join(' | ');
 }
@@ -185,7 +272,9 @@ function simulationSummary(result: DashboardConsolePolicySimulation): string {
   if (result.decision === 'ALLOW') {
     return `Allowed ${result.normalizedRequest.action} on ${chainLabel} with amount ${amountLabel}${contractLabel}.`;
   }
-  const denySummary = result.denyReasons.map((entry) => `${entry.code}: ${entry.message}`).join(' ');
+  const denySummary = result.denyReasons
+    .map((entry) => `${entry.code}: ${entry.message}`)
+    .join(' ');
   return `Denied ${result.normalizedRequest.action} on ${chainLabel} with amount ${amountLabel}${contractLabel}. ${denySummary}`;
 }
 
@@ -194,9 +283,7 @@ function resolveScopeLabel(scopeType: PolicyScopeType, scopeId: string): string 
   return `${scopeType.toLowerCase()} scope ${scopeId}`;
 }
 
-function policyCoverageSummary(
-  entry: DashboardPolicyCoverage['policies'][number] | null,
-): string {
+function policyCoverageSummary(entry: DashboardPolicyCoverage['policies'][number] | null): string {
   if (!entry) return 'Not currently covering wallets in this scope.';
   return `${entry.walletCount} wallet${entry.walletCount === 1 ? '' : 's'}, total balance ${formatWalletBalanceMinor(entry.totalBalanceMinor)}, last activity ${formatTimestamp(entry.lastActivityAt)}`;
 }
@@ -223,7 +310,9 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [assignmentsLoading, setAssignmentsLoading] = React.useState<boolean>(true);
   const [assignmentsErrorMessage, setAssignmentsErrorMessage] = React.useState<string>('');
   const [assignmentsByScope, setAssignmentsByScope] =
-    React.useState<Record<PolicyScopeType, DashboardConsolePolicyAssignment | null>>(EMPTY_ASSIGNMENTS);
+    React.useState<Record<PolicyScopeType, DashboardConsolePolicyAssignment | null>>(
+      EMPTY_ASSIGNMENTS,
+    );
 
   const [coverageLoading, setCoverageLoading] = React.useState<boolean>(true);
   const [coverageErrorMessage, setCoverageErrorMessage] = React.useState<string>('');
@@ -243,12 +332,9 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [policyQuery, setPolicyQuery] = React.useState<string>('');
   const [statusFilter, setStatusFilter] = React.useState<PolicyStatusFilter>('ALL');
   const [impactFilter, setImpactFilter] = React.useState<PolicyImpactFilter>('ALL');
-  const [policyName, setPolicyName] = React.useState<string>(defaultPolicyName('PROJECT'));
-  const [blockedActions, setBlockedActions] = React.useState<string[]>(['export_key']);
-  const [contractCallBlocked, setContractCallBlocked] = React.useState<boolean>(false);
-  const [contractCallRules, setContractCallRules] = React.useState<PolicyContractRuleDraft[]>([]);
-  const [allowedChains, setAllowedChains] = React.useState<string[]>(['Ethereum', 'Base', 'NEAR']);
-  const [maxAmountMinor, setMaxAmountMinor] = React.useState<string>('');
+  const [policyDraftScope, setPolicyDraftScope] = React.useState<PolicyDraftScope | null>(null);
+  const [policyEditorInitialForm, setPolicyEditorInitialForm] =
+    React.useState<PolicyEditorFormState>(() => createInitialPolicyEditorForm('PROJECT', ''));
 
   const [simulationAction, setSimulationAction] = React.useState<string>('transfer');
   const [simulationChain, setSimulationChain] = React.useState<string>('Ethereum');
@@ -297,6 +383,41 @@ export function PolicyEnginePage(): React.JSX.Element {
     for (const policy of policies) out.set(policy.id, policy);
     return out;
   }, [policies]);
+
+  const policyEditorModalOpen = activeModal?.kind === 'create' || activeModal?.kind === 'edit';
+
+  const policyEditorDraftIdentity = React.useMemo<DashboardDraftIdentity | null>(() => {
+    if (!policyEditorModalOpen || !policyDraftScope || !activeModal) return null;
+    return {
+      route: '/dashboard/policy-engine',
+      builderId: 'policy-engine-policy-modal',
+      mode: activeModal.kind === 'edit' ? 'edit' : 'create',
+      orgId: policyDraftScope.orgId,
+      projectId: policyDraftScope.projectId,
+      environmentId: policyDraftScope.environmentId,
+      resourceId:
+        activeModal.kind === 'edit' ? String(activeModal.policyId || selectedPolicyId || '') : '',
+    };
+  }, [activeModal, policyDraftScope, policyEditorModalOpen, selectedPolicyId]);
+
+  const parsePolicyEditorFormDraft = React.useCallback(
+    (raw: unknown): PolicyEditorFormState | null =>
+      parsePolicyEditorDraft(raw, policyEditorInitialForm),
+    [policyEditorInitialForm],
+  );
+
+  const {
+    form: policyEditorForm,
+    setForm: setPolicyEditorForm,
+    restoreState: policyEditorRestoreState,
+    clearDraft: clearPolicyEditorDraft,
+    resetToInitial: resetPolicyEditorDraftToInitial,
+  } = useSessionDraft<PolicyEditorFormState>({
+    identity: policyEditorDraftIdentity,
+    initialForm: policyEditorInitialForm,
+    isOpen: policyEditorModalOpen,
+    parseForm: parsePolicyEditorFormDraft,
+  });
 
   const directAssignment = assignmentsByScope[scopeType];
 
@@ -390,7 +511,8 @@ export function PolicyEnginePage(): React.JSX.Element {
       const targets: Array<{ scopeType: PolicyScopeType; scopeId: string }> = [];
       if (orgScopeId) targets.push({ scopeType: 'ORG', scopeId: orgScopeId });
       if (projectScopeId) targets.push({ scopeType: 'PROJECT', scopeId: projectScopeId });
-      if (environmentScopeId) targets.push({ scopeType: 'ENVIRONMENT', scopeId: environmentScopeId });
+      if (environmentScopeId)
+        targets.push({ scopeType: 'ENVIRONMENT', scopeId: environmentScopeId });
       if (walletId) targets.push({ scopeType: 'WALLET', scopeId: walletId });
 
       await Promise.all(
@@ -407,7 +529,14 @@ export function PolicyEnginePage(): React.JSX.Element {
     } finally {
       setAssignmentsLoading(false);
     }
-  }, [environmentScopeId, orgScopeId, projectScopeId, session.claims, session.errorMessage, walletId]);
+  }, [
+    environmentScopeId,
+    orgScopeId,
+    projectScopeId,
+    session.claims,
+    session.errorMessage,
+    walletId,
+  ]);
 
   const loadCoverage = React.useCallback(async (): Promise<void> => {
     if (!session.claims) {
@@ -481,7 +610,13 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [environmentScopeId, projectScopeId, session.claims, session.errorMessage]);
 
   const refreshWorkspace = React.useCallback(() => {
-    void Promise.all([loadPolicies(), loadAssignments(), loadCoverage(), loadWallets(), loadApprovals()]);
+    void Promise.all([
+      loadPolicies(),
+      loadAssignments(),
+      loadCoverage(),
+      loadWallets(),
+      loadApprovals(),
+    ]);
   }, [loadApprovals, loadAssignments, loadCoverage, loadPolicies, loadWallets]);
 
   React.useEffect(() => {
@@ -519,47 +654,64 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [approvedApprovals, relevantApprovals, selectedApprovalId, selectedPolicyId]);
 
   React.useEffect(() => {
-    if (creatingNewPolicy || !selectedPolicy) {
-      setPolicyName(defaultPolicyName(scopeType));
-      setBlockedActions(['export_key']);
-      setContractCallBlocked(false);
-      setContractCallRules([]);
-      setAllowedChains(['Ethereum', 'Base', 'NEAR']);
-      setMaxAmountMinor('');
-      return;
+    if (!policyEditorModalOpen) return;
+    if (scopeType !== policyEditorForm.scopeType) {
+      setScopeType(policyEditorForm.scopeType);
     }
-    setPolicyName(selectedPolicy.name || defaultPolicyName(scopeType));
-    const nextBlockedActions = readStringRuleList(selectedPolicy.rules.blockedActions);
-    setContractCallBlocked(
-      nextBlockedActions.some((entry) => entry.toLowerCase() === 'contract_call'),
-    );
-    setBlockedActions(
-      nextBlockedActions.filter((entry) => entry.toLowerCase() !== 'contract_call'),
-    );
-    setContractCallRules(readContractCallRuleDrafts(selectedPolicy.rules.allowedContractCalls));
-    setAllowedChains(readStringRuleList(selectedPolicy.rules.allowedChains));
-    setMaxAmountMinor(readNumberRule(selectedPolicy.rules.maxAmountMinor));
-  }, [creatingNewPolicy, scopeType, selectedPolicy]);
+    if (walletId !== policyEditorForm.walletId) {
+      setWalletId(policyEditorForm.walletId);
+    }
+  }, [
+    policyEditorForm.scopeType,
+    policyEditorForm.walletId,
+    policyEditorModalOpen,
+    scopeType,
+    walletId,
+  ]);
 
   const openCreatePolicyModal = React.useCallback(() => {
     setCreatingNewPolicy(true);
     setSelectedPolicyId('');
+    setPolicyDraftScope({
+      orgId: orgScopeId,
+      projectId: projectScopeId,
+      environmentId: environmentScopeId,
+    });
+    setPolicyEditorInitialForm(createInitialPolicyEditorForm(scopeType, walletId));
     setSimulationResult(null);
     setSimulationErrorMessage('');
     setMutationErrorMessage('');
     setMutationNotice('');
     setActiveModal({ kind: 'create' });
-  }, []);
+  }, [environmentScopeId, orgScopeId, projectScopeId, scopeType, walletId]);
 
-  const openPolicyModal = React.useCallback((kind: Exclude<PolicyModalKind, 'create'>, policyId: string) => {
-    setCreatingNewPolicy(false);
-    setSelectedPolicyId(policyId);
-    setSimulationResult(null);
-    setSimulationErrorMessage('');
-    setMutationErrorMessage('');
-    setMutationNotice('');
-    setActiveModal({ kind, policyId });
-  }, []);
+  const openPolicyModal = React.useCallback(
+    (kind: Exclude<PolicyModalKind, 'create'>, policyId: string) => {
+      setCreatingNewPolicy(false);
+      setSelectedPolicyId(policyId);
+      if (kind === 'edit') {
+        setPolicyDraftScope({
+          orgId: orgScopeId,
+          projectId: projectScopeId,
+          environmentId: environmentScopeId,
+        });
+        const selected = policyById.get(policyId) || null;
+        setPolicyEditorInitialForm(
+          selected
+            ? createPolicyEditorFormFromPolicy(selected, scopeType, walletId)
+            : createInitialPolicyEditorForm(scopeType, walletId),
+        );
+      } else {
+        setPolicyDraftScope(null);
+      }
+      setSimulationResult(null);
+      setSimulationErrorMessage('');
+      setMutationErrorMessage('');
+      setMutationNotice('');
+      setActiveModal({ kind, policyId });
+    },
+    [environmentScopeId, orgScopeId, policyById, projectScopeId, scopeType, walletId],
+  );
 
   const closePolicyModal = React.useCallback(() => {
     setActiveModal(null);
@@ -569,6 +721,15 @@ export function PolicyEnginePage(): React.JSX.Element {
       setCreatingNewPolicy(false);
     }
   }, [creatingNewPolicy]);
+
+  const selectedContextScopeKey = `${orgScopeId}:${projectScopeId}:${environmentScopeId}`;
+  const previousSelectedContextScopeKeyRef = React.useRef<string>(selectedContextScopeKey);
+  React.useEffect(() => {
+    if (previousSelectedContextScopeKeyRef.current === selectedContextScopeKey) return;
+    previousSelectedContextScopeKeyRef.current = selectedContextScopeKey;
+    if (!policyEditorModalOpen) return;
+    closePolicyModal();
+  }, [closePolicyModal, policyEditorModalOpen, selectedContextScopeKey]);
 
   const savePolicy = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -582,7 +743,7 @@ export function PolicyEnginePage(): React.JSX.Element {
         return;
       }
 
-      const trimmedName = String(policyName || '').trim();
+      const trimmedName = String(policyEditorForm.policyName || '').trim();
       if (!trimmedName) {
         setMutationErrorMessage('Policy name is required.');
         return;
@@ -593,12 +754,12 @@ export function PolicyEnginePage(): React.JSX.Element {
       setMutationNotice('');
       try {
         const nextRules: Record<string, unknown> = {};
-        if (allowedChains.length > 0) nextRules.allowedChains = allowedChains;
-        const nextBlockedActions = contractCallBlocked
-          ? [...blockedActions, 'contract_call']
-          : [...blockedActions];
+        if (policyEditorForm.allowedChains.length > 0) {
+          nextRules.allowedChains = policyEditorForm.allowedChains;
+        }
+        const nextBlockedActions = [...policyEditorForm.blockedActions];
         if (nextBlockedActions.length > 0) nextRules.blockedActions = nextBlockedActions;
-        const nextContractCallRules = contractCallRules
+        const nextContractCallRules = policyEditorForm.contractCallRules
           .map((entry) => ({
             contractAddress: normalizeDraftString(entry.contractAddress).toLowerCase(),
             functions: entry.functions
@@ -606,9 +767,14 @@ export function PolicyEnginePage(): React.JSX.Element {
               .filter(Boolean),
           }))
           .filter((entry) => entry.contractAddress);
-        if (nextContractCallRules.length > 0) nextRules.allowedContractCalls = nextContractCallRules;
+        if (policyEditorForm.contractCallAllowlistEnabled && nextContractCallRules.length === 0) {
+          throw new Error('Add at least one contract before saving a contract-call allowlist.');
+        }
+        if (policyEditorForm.contractCallAllowlistEnabled) {
+          nextRules.allowedContractCalls = nextContractCallRules;
+        }
         const nextMaxAmountMinor = parseOptionalNonNegativeInt(
-          maxAmountMinor,
+          policyEditorForm.maxAmountMinor,
           'Max amount per transaction',
         );
         if (nextMaxAmountMinor !== undefined) nextRules.maxAmountMinor = nextMaxAmountMinor;
@@ -627,6 +793,7 @@ export function PolicyEnginePage(): React.JSX.Element {
 
         setCreatingNewPolicy(false);
         setSelectedPolicyId(policy.id);
+        clearPolicyEditorDraft();
         setActiveModal(null);
         setMutationNotice(`Saved policy ${policy.id} (${policy.status}, v${policy.version}).`);
         await loadPolicies();
@@ -637,15 +804,11 @@ export function PolicyEnginePage(): React.JSX.Element {
       }
     },
     [
-      allowedChains,
-      blockedActions,
       canMutatePolicies,
-      contractCallBlocked,
-      contractCallRules,
+      clearPolicyEditorDraft,
       creatingNewPolicy,
       loadPolicies,
-      maxAmountMinor,
-      policyName,
+      policyEditorForm,
       selectedPolicyId,
       session.claims,
       session.errorMessage,
@@ -721,7 +884,9 @@ export function PolicyEnginePage(): React.JSX.Element {
         });
         setCreatingNewPolicy(false);
         setSelectedPolicyId(policyId);
-        setMutationNotice(`Assigned ${assignment.policyId} to ${resolveScopeLabel(scopeType, scopeId)}.`);
+        setMutationNotice(
+          `Assigned ${assignment.policyId} to ${resolveScopeLabel(scopeType, scopeId)}.`,
+        );
         await Promise.all([loadAssignments(), loadCoverage()]);
       } catch (error: unknown) {
         setMutationErrorMessage(error instanceof Error ? error.message : String(error));
@@ -898,18 +1063,13 @@ export function PolicyEnginePage(): React.JSX.Element {
     setSimulationErrorMessage('');
     setSimulationResult(null);
     try {
-      const amountMinor = parseOptionalNonNegativeInt(
-        simulationAmountMinor,
-        'Simulation amount',
-      );
+      const amountMinor = parseOptionalNonNegativeInt(simulationAmountMinor, 'Simulation amount');
       const result = await simulateDashboardPolicy({
         policyId: selectedPolicyId,
         action: simulationAction,
         ...(simulationChain ? { chain: simulationChain } : {}),
         ...(amountMinor !== undefined ? { amountMinor } : {}),
-        ...(simulationContractAddress
-          ? { contractAddress: simulationContractAddress.trim() }
-          : {}),
+        ...(simulationContractAddress ? { contractAddress: simulationContractAddress.trim() } : {}),
         ...(simulationFunctionSelector
           ? { functionSelector: simulationFunctionSelector.trim() }
           : {}),
@@ -934,8 +1094,10 @@ export function PolicyEnginePage(): React.JSX.Element {
       const labels: string[] = [];
       if (assignmentsByScope.ORG?.policyId === policy.id) labels.push('org default');
       if (assignmentsByScope.PROJECT?.policyId === policy.id) labels.push('project default');
-      if (assignmentsByScope.ENVIRONMENT?.policyId === policy.id) labels.push('environment override');
-      if (assignmentsByScope.WALLET?.policyId === policy.id) labels.push('selected wallet override');
+      if (assignmentsByScope.ENVIRONMENT?.policyId === policy.id)
+        labels.push('environment override');
+      if (assignmentsByScope.WALLET?.policyId === policy.id)
+        labels.push('selected wallet override');
       const coverageEntry = coverageByPolicyId.get(policy.id);
       const walletCoverage = coverageEntry
         ? `${coverageEntry.walletCount} wallet${coverageEntry.walletCount === 1 ? '' : 's'}`
@@ -945,7 +1107,9 @@ export function PolicyEnginePage(): React.JSX.Element {
     [assignmentsByScope, coverageByPolicyId],
   );
   const filteredPolicies = React.useMemo(() => {
-    const query = String(policyQuery || '').trim().toLowerCase();
+    const query = String(policyQuery || '')
+      .trim()
+      .toLowerCase();
     return visiblePolicies.filter((policy) => {
       if (statusFilter !== 'ALL' && policy.status !== statusFilter) return false;
       const coverageEntry = coverageByPolicyId.get(policy.id) || null;
@@ -953,46 +1117,69 @@ export function PolicyEnginePage(): React.JSX.Element {
       if (impactFilter === 'USED' && !used) return false;
       if (impactFilter === 'UNUSED' && used) return false;
       if (!query) return true;
-      const haystack = [
-        policy.id,
-        policy.name,
-        rulesSummary(policy),
-        policyContextUsage(policy),
-      ]
+      const haystack = [policy.id, policy.name, rulesSummary(policy), policyContextUsage(policy)]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [coverageByPolicyId, impactFilter, policyContextUsage, policyQuery, statusFilter, visiblePolicies]);
-  const activeModalPolicy =
-    activeModal?.policyId ? policyById.get(activeModal.policyId) || null : creatingNewPolicy ? null : selectedPolicy;
+  }, [
+    coverageByPolicyId,
+    impactFilter,
+    policyContextUsage,
+    policyQuery,
+    statusFilter,
+    visiblePolicies,
+  ]);
+  const activeModalPolicy = activeModal?.policyId
+    ? policyById.get(activeModal.policyId) || null
+    : creatingNewPolicy
+      ? null
+      : selectedPolicy;
   const defaultPolicyId = orgScopeId ? `${orgScopeId}:policy:default` : '';
   const policyActionToggleOptions = POLICY_ACTIONS.filter((entry) => entry !== 'contract_call');
   const addContractCallRule = React.useCallback(() => {
-    setContractCallRules((current) => [...current, createEmptyContractRuleDraft()]);
-  }, []);
-  const removeContractCallRule = React.useCallback((ruleId: string) => {
-    setContractCallRules((current) => current.filter((entry) => entry.id !== ruleId));
-  }, []);
-  const updateContractCallRuleAddress = React.useCallback((ruleId: string, value: string) => {
-    setContractCallRules((current) =>
-      current.map((entry) =>
-        entry.id === ruleId ? { ...entry, contractAddress: value } : entry,
-      ),
-    );
-  }, []);
-  const addContractFunction = React.useCallback((ruleId: string) => {
-    setContractCallRules((current) =>
-      current.map((entry) =>
-        entry.id === ruleId ? { ...entry, functions: [...entry.functions, ''] } : entry,
-      ),
-    );
-  }, []);
+    setPolicyEditorForm((current) => ({
+      ...current,
+      contractCallRules: [...current.contractCallRules, createEmptyContractRuleDraft()],
+    }));
+  }, [setPolicyEditorForm]);
+  const removeContractCallRule = React.useCallback(
+    (ruleId: string) => {
+      setPolicyEditorForm((current) => ({
+        ...current,
+        contractCallRules: current.contractCallRules.filter((entry) => entry.id !== ruleId),
+      }));
+    },
+    [setPolicyEditorForm],
+  );
+  const updateContractCallRuleAddress = React.useCallback(
+    (ruleId: string, value: string) => {
+      setPolicyEditorForm((current) => ({
+        ...current,
+        contractCallRules: current.contractCallRules.map((entry) =>
+          entry.id === ruleId ? { ...entry, contractAddress: value } : entry,
+        ),
+      }));
+    },
+    [setPolicyEditorForm],
+  );
+  const addContractFunction = React.useCallback(
+    (ruleId: string) => {
+      setPolicyEditorForm((current) => ({
+        ...current,
+        contractCallRules: current.contractCallRules.map((entry) =>
+          entry.id === ruleId ? { ...entry, functions: [...entry.functions, ''] } : entry,
+        ),
+      }));
+    },
+    [setPolicyEditorForm],
+  );
   const updateContractFunction = React.useCallback(
     (ruleId: string, functionIndex: number, value: string) => {
-      setContractCallRules((current) =>
-        current.map((entry) =>
+      setPolicyEditorForm((current) => ({
+        ...current,
+        contractCallRules: current.contractCallRules.map((entry) =>
           entry.id === ruleId
             ? {
                 ...entry,
@@ -1002,97 +1189,155 @@ export function PolicyEnginePage(): React.JSX.Element {
               }
             : entry,
         ),
-      );
+      }));
     },
-    [],
+    [setPolicyEditorForm],
   );
-  const removeContractFunction = React.useCallback((ruleId: string, functionIndex: number) => {
-    setContractCallRules((current) =>
-      current.map((entry) => {
-        if (entry.id !== ruleId) return entry;
-        const nextFunctions = entry.functions.filter((_, index) => index !== functionIndex);
-        return {
-          ...entry,
-          functions: nextFunctions.length > 0 ? nextFunctions : [''],
-        };
-      }),
-    );
-  }, []);
-  const renderScopeFields = (): React.JSX.Element => (
-    <>
-      <label className="dashboard-form-field">
-        <span>Target scope</span>
-        <select
-          className="dashboard-input"
-          value={scopeType}
-          onChange={(event) =>
-            setScopeType(String(event.target.value || '').toUpperCase() as PolicyScopeType)
+  const removeContractFunction = React.useCallback(
+    (ruleId: string, functionIndex: number) => {
+      setPolicyEditorForm((current) => ({
+        ...current,
+        contractCallRules: current.contractCallRules.map((entry) => {
+          if (entry.id !== ruleId) return entry;
+          const nextFunctions = entry.functions.filter((_, index) => index !== functionIndex);
+          return {
+            ...entry,
+            functions: nextFunctions.length > 0 ? nextFunctions : [''],
+          };
+        }),
+      }));
+    },
+    [setPolicyEditorForm],
+  );
+  const renderScopeSelectorField = (
+    scopeTypeValue: PolicyScopeType = scopeType,
+    onScopeTypeChange: ((nextScopeType: PolicyScopeType) => void) | null = null,
+  ): React.JSX.Element => (
+    <label className="dashboard-form-field dashboard-policy-form-row__field">
+      <span>Target scope</span>
+      <select
+        className="dashboard-input dashboard-policy-scope-select"
+        value={scopeTypeValue}
+        onChange={(event) => {
+          const nextScopeType = String(event.target.value || '').toUpperCase() as PolicyScopeType;
+          if (onScopeTypeChange) {
+            onScopeTypeChange(nextScopeType);
+            return;
           }
-        >
-          <option value="ORG">Organization default</option>
-          <option value="PROJECT">Project default</option>
-          <option value="ENVIRONMENT">Environment override</option>
-          <option value="WALLET">Wallet override</option>
-        </select>
-      </label>
-
-      {scopeType === 'WALLET' ? (
-        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-form-field dashboard-form-field--full">
-          <label className="dashboard-form-field">
-            <span>Wallet override target</span>
-            <input
-              className="dashboard-input"
-              list="policy-engine-wallets"
-              value={walletId}
-              onChange={(event) => setWalletId(event.target.value)}
-              placeholder="wallet_..."
-            />
-            <datalist id="policy-engine-wallets">
-              {wallets.map((wallet) => (
-                <option key={wallet.id} value={wallet.id}>
-                  {wallet.address}
-                </option>
-              ))}
-            </datalist>
-          </label>
-          <div className="dashboard-form-field">
-            <span>Wallet preview</span>
-            {walletsLoading ? (
-              <p className="dashboard-pagination-note">Loading wallets...</p>
-            ) : walletsErrorMessage ? (
-              <p className="dashboard-pagination-note">{walletsErrorMessage}</p>
-            ) : walletId ? (
-              <p className="dashboard-pagination-note">
-                {(() => {
-                  const wallet = wallets.find((entry) => entry.id === walletId) || null;
-                  if (!wallet) return `Wallet ${walletId}`;
-                  return `${wallet.id} (${wallet.chain}, ${wallet.address})`;
-                })()}
-              </p>
-            ) : (
-              <p className="dashboard-pagination-note">Choose a wallet for the override target.</p>
-            )}
-          </div>
-        </div>
-      ) : null}
-    </>
+          setScopeType(nextScopeType);
+        }}
+      >
+        <option value="ORG">Organization default</option>
+        <option value="PROJECT">Project default</option>
+        <option value="ENVIRONMENT">Environment override</option>
+        <option value="WALLET">Wallet override</option>
+      </select>
+    </label>
   );
+
+  const renderWalletOverrideFields = (
+    scopeTypeValue: PolicyScopeType = scopeType,
+    walletIdValue: string = walletId,
+    onWalletIdChange: ((nextWalletId: string) => void) | null = null,
+  ): React.JSX.Element | null =>
+    scopeTypeValue === 'WALLET' ? (
+      <div className="dashboard-view-grid dashboard-view-grid--two dashboard-form-field dashboard-form-field--full">
+        <label className="dashboard-form-field">
+          <span>Wallet override target</span>
+          <input
+            className="dashboard-input"
+            list="policy-engine-wallets"
+            value={walletIdValue}
+            onChange={(event) => {
+              if (onWalletIdChange) {
+                onWalletIdChange(event.target.value);
+                return;
+              }
+              setWalletId(event.target.value);
+            }}
+            placeholder="wallet_..."
+          />
+          <datalist id="policy-engine-wallets">
+            {wallets.map((wallet) => (
+              <option key={wallet.id} value={wallet.id}>
+                {wallet.address}
+              </option>
+            ))}
+          </datalist>
+        </label>
+        <div className="dashboard-form-field">
+          <span>Wallet preview</span>
+          {walletsLoading ? (
+            <p className="dashboard-pagination-note">Loading wallets...</p>
+          ) : walletsErrorMessage ? (
+            <p className="dashboard-pagination-note">{walletsErrorMessage}</p>
+          ) : walletIdValue ? (
+            <p className="dashboard-pagination-note">
+              {(() => {
+                const wallet = wallets.find((entry) => entry.id === walletIdValue) || null;
+                if (!wallet) return `Wallet ${walletIdValue}`;
+                return `${wallet.id} (${wallet.chain}, ${wallet.address})`;
+              })()}
+            </p>
+          ) : (
+            <p className="dashboard-pagination-note">Choose a wallet for the override target.</p>
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  const onPolicyEditorScopeTypeChange = React.useCallback(
+    (nextScopeType: PolicyScopeType) => {
+      setScopeType(nextScopeType);
+      setPolicyEditorForm((current) => {
+        const previousDefaultPolicyName = defaultPolicyName(current.scopeType);
+        const shouldUseDefaultPolicyName =
+          !normalizeDraftString(current.policyName) ||
+          current.policyName === previousDefaultPolicyName;
+        return {
+          ...current,
+          scopeType: nextScopeType,
+          policyName: shouldUseDefaultPolicyName
+            ? defaultPolicyName(nextScopeType)
+            : current.policyName,
+        };
+      });
+    },
+    [setPolicyEditorForm],
+  );
+
+  const onPolicyEditorWalletIdChange = React.useCallback(
+    (nextWalletId: string) => {
+      setWalletId(nextWalletId);
+      setPolicyEditorForm((current) => ({
+        ...current,
+        walletId: nextWalletId,
+      }));
+    },
+    [setPolicyEditorForm],
+  );
+
+  const policyEditorDraftDiffersFromInitial = React.useMemo(
+    () => JSON.stringify(policyEditorForm) !== JSON.stringify(policyEditorInitialForm),
+    [policyEditorForm, policyEditorInitialForm],
+  );
+
+  const discardPolicyEditorDraft = React.useCallback(() => {
+    if (policyEditorDraftDiffersFromInitial && typeof window !== 'undefined') {
+      const confirmed = window.confirm('Discard this unsaved draft?');
+      if (!confirmed) return;
+    }
+    resetPolicyEditorDraftToInitial();
+    closePolicyModal();
+  }, [closePolicyModal, policyEditorDraftDiffersFromInitial, resetPolicyEditorDraftToInitial]);
 
   return (
     <div className="dashboard-view" aria-label="Policy engine page">
-      <section className="dashboard-view__section" aria-label="Policy engine summary">
-        <h2>Policy engine</h2>
-        {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
-        {mutationErrorMessage ? (
-          <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
-        ) : null}
-      </section>
-
       <section className="dashboard-view__section" aria-label="Policy setup">
         <h2>Create policy</h2>
         <p className="dashboard-pagination-note">
-          Create draft signing policies for the current dashboard context, then assign, simulate, and
-          schedule them for live rollout from the policy table.
+          Create draft signing policies for the current dashboard context, then assign, simulate,
+          and schedule them for live rollout from the policy table.
         </p>
         <button
           type="button"
@@ -1104,11 +1349,12 @@ export function PolicyEnginePage(): React.JSX.Element {
         </button>
       </section>
 
-      <section
-        className="dashboard-view__section dashboard-policy-section--plain"
-        aria-label="Policies table"
-      >
+      <section className="dashboard-policy-section--plain" aria-label="Policies table">
         <h2>Policies</h2>
+        {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
+        {mutationErrorMessage ? (
+          <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
+        ) : null}
         <div className="dashboard-filters dashboard-policy-filters" aria-label="Policy filters">
           <label className="dashboard-search-control dashboard-search-control--compact">
             <span className="dashboard-search-icon" aria-hidden="true" />
@@ -1125,9 +1371,7 @@ export function PolicyEnginePage(): React.JSX.Element {
               className="dashboard-input"
               aria-label="Filter policies by status"
               value={statusFilter}
-              onChange={(event) =>
-                setStatusFilter(event.target.value as PolicyStatusFilter)
-              }
+              onChange={(event) => setStatusFilter(event.target.value as PolicyStatusFilter)}
             >
               <option value="ALL">Status: All</option>
               <option value="DRAFT">Status: Draft</option>
@@ -1139,9 +1383,7 @@ export function PolicyEnginePage(): React.JSX.Element {
               className="dashboard-input"
               aria-label="Filter policies by impact"
               value={impactFilter}
-              onChange={(event) =>
-                setImpactFilter(event.target.value as PolicyImpactFilter)
-              }
+              onChange={(event) => setImpactFilter(event.target.value as PolicyImpactFilter)}
             >
               <option value="ALL">Impact: All</option>
               <option value="USED">Impact: Used by wallets</option>
@@ -1149,13 +1391,20 @@ export function PolicyEnginePage(): React.JSX.Element {
             </select>
           </label>
         </div>
-        {!coverageLoading && !coverageErrorMessage && coverage && coverage.totals.unassignedWalletCount > 0 ? (
+        {!coverageLoading &&
+        !coverageErrorMessage &&
+        coverage &&
+        coverage.totals.unassignedWalletCount > 0 ? (
           <p className="dashboard-pagination-note">
             {coverage.totals.unassignedWalletCount} wallet
-            {coverage.totals.unassignedWalletCount === 1 ? '' : 's'} unassigned in the current scope.
+            {coverage.totals.unassignedWalletCount === 1 ? '' : 's'} unassigned in the current
+            scope.
           </p>
         ) : null}
-        <section className="dashboard-table-wrapper dashboard-policy-table" aria-label="Policies rows">
+        <section
+          className="dashboard-table-wrapper dashboard-policy-table"
+          aria-label="Policies rows"
+        >
           <div className="dashboard-table-header dashboard-policy-table__header" role="row">
             <span>Policy</span>
             <span>Status</span>
@@ -1169,7 +1418,9 @@ export function PolicyEnginePage(): React.JSX.Element {
           ) : policiesErrorMessage ? (
             <p className="dashboard-table-limit">Policies unavailable: {policiesErrorMessage}</p>
           ) : filteredPolicies.length === 0 ? (
-            <p className="dashboard-table-limit">No policies matched the current search and filters.</p>
+            <p className="dashboard-table-limit">
+              No policies matched the current search and filters.
+            </p>
           ) : (
             <>
               {filteredPolicies.map((policy) => {
@@ -1239,14 +1490,18 @@ export function PolicyEnginePage(): React.JSX.Element {
                         onClick={() => openPolicyModal('publish', policy.id)}
                         disabled={!canMutatePolicies}
                       >
-                        Schedule live change
+                        Go live
                       </button>
                       <button
                         type="button"
                         className="dashboard-inline-link dashboard-inline-link--danger"
                         onClick={() => openPolicyModal('delete', policy.id)}
                         disabled={!canMutatePolicies || isDefaultPolicy}
-                        title={isDefaultPolicy ? 'The organization default policy cannot be deleted.' : ''}
+                        title={
+                          isDefaultPolicy
+                            ? 'The organization default policy cannot be deleted.'
+                            : ''
+                        }
                       >
                         Delete
                       </button>
@@ -1282,53 +1537,71 @@ export function PolicyEnginePage(): React.JSX.Element {
                     ? 'Edit policy modal'
                     : activeModal.kind === 'assign'
                       ? 'Assign policy modal'
-                    : activeModal.kind === 'delete'
-                      ? 'Delete policy modal'
-                      : activeModal.kind === 'simulate'
-                        ? 'Simulate policy modal'
-                        : 'Schedule live policy change modal'
+                      : activeModal.kind === 'delete'
+                        ? 'Delete policy modal'
+                        : activeModal.kind === 'simulate'
+                          ? 'Simulate policy modal'
+                          : 'Schedule live policy change modal'
             }
             onClick={(event) => event.stopPropagation()}
           >
             {activeModal.kind === 'create' || activeModal.kind === 'edit' ? (
               <>
                 <h2>{activeModal.kind === 'create' ? 'Create policy' : 'Edit policy'}</h2>
-                <p className="dashboard-pagination-note">
-                  The builder currently reflects live backend enforcement for blocked actions,
-                  allowed chains, max amount per transaction, and contract-call allowlists.
+                <p className="dashboard-pagination-note dashboard-policy-modal-intro">
+                  Configure where this policy applies and what signing activity it allows or blocks.
                 </p>
-                <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={savePolicy}>
-                  <div className="dashboard-form-field dashboard-form-field--full">
-                    <span>Scope and inheritance</span>
-                    <p className="dashboard-pagination-note">
-                      Choose where this draft is intended to be used. Assignment still happens
-                      explicitly from the table.
-                    </p>
+                {policyEditorRestoreState === 'restored' ? (
+                  <p className="dashboard-pagination-note">Restored unsaved draft.</p>
+                ) : null}
+                <form
+                  className="dashboard-view-grid dashboard-view-grid--two"
+                  onSubmit={savePolicy}
+                >
+                  <div className="dashboard-policy-form-row dashboard-form-field dashboard-form-field--full">
+                    {renderScopeSelectorField(
+                      policyEditorForm.scopeType,
+                      onPolicyEditorScopeTypeChange,
+                    )}
+                    <label className="dashboard-form-field dashboard-policy-form-row__field">
+                      <span>Policy name</span>
+                      <input
+                        className="dashboard-input"
+                        value={policyEditorForm.policyName}
+                        onChange={(event) =>
+                          setPolicyEditorForm((current) => ({
+                            ...current,
+                            policyName: event.target.value,
+                          }))
+                        }
+                        placeholder={defaultPolicyName(policyEditorForm.scopeType)}
+                        disabled={!canMutatePolicies || mutationBusy === 'save'}
+                      />
+                    </label>
+
+                    <label className="dashboard-form-field dashboard-policy-form-row__field">
+                      <span>Max amount per transaction (minor units)</span>
+                      <input
+                        className="dashboard-input"
+                        value={policyEditorForm.maxAmountMinor}
+                        onChange={(event) =>
+                          setPolicyEditorForm((current) => ({
+                            ...current,
+                            maxAmountMinor: event.target.value,
+                          }))
+                        }
+                        placeholder="100000"
+                        disabled={!canMutatePolicies || mutationBusy === 'save'}
+                      />
+                    </label>
                   </div>
-                  {renderScopeFields()}
-                  <label className="dashboard-form-field">
-                    <span>Policy name</span>
-                    <input
-                      className="dashboard-input"
-                      value={policyName}
-                      onChange={(event) => setPolicyName(event.target.value)}
-                      placeholder={defaultPolicyName(scopeType)}
-                      disabled={!canMutatePolicies || mutationBusy === 'save'}
-                    />
-                  </label>
+                  {renderWalletOverrideFields(
+                    policyEditorForm.scopeType,
+                    policyEditorForm.walletId,
+                    onPolicyEditorWalletIdChange,
+                  )}
 
-                  <label className="dashboard-form-field">
-                    <span>Max amount per transaction (minor units)</span>
-                    <input
-                      className="dashboard-input"
-                      value={maxAmountMinor}
-                      onChange={(event) => setMaxAmountMinor(event.target.value)}
-                      placeholder="100000"
-                      disabled={!canMutatePolicies || mutationBusy === 'save'}
-                    />
-                  </label>
-
-                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                  <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--first dashboard-form-field dashboard-form-field--full">
                     <div className="dashboard-policy-rule-panel__header">
                       <span>Blocked actions</span>
                       <p className="dashboard-pagination-note">
@@ -1337,7 +1610,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                     </div>
                     <div className="dashboard-policy-toggle-grid">
                       {policyActionToggleOptions.map((action) => {
-                        const checked = blockedActions.some(
+                        const checked = policyEditorForm.blockedActions.some(
                           (entry) => entry.toLowerCase() === action.toLowerCase(),
                         );
                         return (
@@ -1352,7 +1625,10 @@ export function PolicyEnginePage(): React.JSX.Element {
                               .filter(Boolean)
                               .join(' ')}
                             onClick={() =>
-                              setBlockedActions((current) => toggleStringValue(current, action))
+                              setPolicyEditorForm((current) => ({
+                                ...current,
+                                blockedActions: toggleStringValue(current.blockedActions, action),
+                              }))
                             }
                             disabled={!canMutatePolicies || mutationBusy === 'save'}
                           >
@@ -1363,7 +1639,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                     </div>
                   </section>
 
-                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                  <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--contract-calls dashboard-form-field dashboard-form-field--full">
                     <div className="dashboard-policy-rule-panel__header">
                       <span>Allowed chains</span>
                       <p className="dashboard-pagination-note">
@@ -1372,7 +1648,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                     </div>
                     <div className="dashboard-policy-toggle-grid">
                       {POLICY_CHAINS.map((chain) => {
-                        const checked = allowedChains.some(
+                        const checked = policyEditorForm.allowedChains.some(
                           (entry) => entry.toLowerCase() === chain.toLowerCase(),
                         );
                         return (
@@ -1387,7 +1663,10 @@ export function PolicyEnginePage(): React.JSX.Element {
                               .filter(Boolean)
                               .join(' ')}
                             onClick={() =>
-                              setAllowedChains((current) => toggleStringValue(current, chain))
+                              setPolicyEditorForm((current) => ({
+                                ...current,
+                                allowedChains: toggleStringValue(current.allowedChains, chain),
+                              }))
                             }
                             disabled={!canMutatePolicies || mutationBusy === 'save'}
                           >
@@ -1402,50 +1681,63 @@ export function PolicyEnginePage(): React.JSX.Element {
                     <div className="dashboard-policy-rule-panel__header">
                       <span>Contract calls</span>
                       <p className="dashboard-pagination-note">
-                        Control whether contract calls are blocked entirely, and optionally whitelist
-                        which contracts and functions are reachable.
+                        Choose whether contract calls stay open, or restrict them to an allowlist of
+                        contracts and functions.
                       </p>
                     </div>
                     <div className="dashboard-policy-contract-call-mode">
                       <button
                         type="button"
-                        aria-pressed={!contractCallBlocked}
+                        aria-pressed={!policyEditorForm.contractCallAllowlistEnabled}
                         className={[
                           'dashboard-policy-segment',
-                          !contractCallBlocked ? 'dashboard-policy-segment--active' : '',
+                          !policyEditorForm.contractCallAllowlistEnabled
+                            ? 'dashboard-policy-segment--active'
+                            : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        onClick={() => setContractCallBlocked(false)}
+                        onClick={() =>
+                          setPolicyEditorForm((current) => ({
+                            ...current,
+                            contractCallAllowlistEnabled: false,
+                          }))
+                        }
                         disabled={!canMutatePolicies || mutationBusy === 'save'}
                       >
-                        Allowed
+                        Allow All
                       </button>
                       <button
                         type="button"
-                        aria-pressed={contractCallBlocked}
+                        aria-pressed={policyEditorForm.contractCallAllowlistEnabled}
                         className={[
                           'dashboard-policy-segment',
-                          contractCallBlocked ? 'dashboard-policy-segment--active' : '',
+                          policyEditorForm.contractCallAllowlistEnabled
+                            ? 'dashboard-policy-segment--active'
+                            : '',
                         ]
                           .filter(Boolean)
                           .join(' ')}
-                        onClick={() => setContractCallBlocked(true)}
+                        onClick={() =>
+                          setPolicyEditorForm((current) => ({
+                            ...current,
+                            contractCallAllowlistEnabled: true,
+                          }))
+                        }
                         disabled={!canMutatePolicies || mutationBusy === 'save'}
                       >
-                        Blocked
+                        Allowlist
                       </button>
                     </div>
 
-                    {!contractCallBlocked ? (
+                    {policyEditorForm.contractCallAllowlistEnabled ? (
                       <div className="dashboard-policy-contract-calls">
-                        {contractCallRules.length === 0 ? (
+                        {policyEditorForm.contractCallRules.length === 0 ? (
                           <p className="dashboard-pagination-note">
-                            No contract allowlist configured. Leaving this empty allows contract calls
-                            on any contract for the selected chains.
+                            Add one or more contracts to define the contract-call allowlist.
                           </p>
                         ) : null}
-                        {contractCallRules.map((rule) => (
+                        {policyEditorForm.contractCallRules.map((rule) => (
                           <div key={rule.id} className="dashboard-policy-contract-card">
                             <div className="dashboard-policy-contract-card__header">
                               <strong>Allowed contract</strong>
@@ -1472,7 +1764,10 @@ export function PolicyEnginePage(): React.JSX.Element {
                             </label>
                             <div className="dashboard-uri-list-editor__rows">
                               {rule.functions.map((functionEntry, index) => (
-                                <div key={`${rule.id}:${index}`} className="dashboard-uri-list-editor__row">
+                                <div
+                                  key={`${rule.id}:${index}`}
+                                  className="dashboard-uri-list-editor__row"
+                                >
                                   <label className="dashboard-form-field dashboard-uri-list-editor__field">
                                     <span>{index === 0 ? 'Allowed functions' : 'Function'}</span>
                                     <input
@@ -1510,7 +1805,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                         ))}
                         <button
                           type="button"
-                          className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                          className="dashboard-pagination-button dashboard-policy-contract-add-button"
                           onClick={addContractCallRule}
                           disabled={!canMutatePolicies || mutationBusy === 'save'}
                         >
@@ -1519,12 +1814,20 @@ export function PolicyEnginePage(): React.JSX.Element {
                       </div>
                     ) : (
                       <p className="dashboard-pagination-note">
-                        All contract calls are blocked by this policy.
+                        Contract calls are allowed on any contract for the selected chains.
                       </p>
                     )}
                   </section>
 
                   <div className="dashboard-form-actions">
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={discardPolicyEditorDraft}
+                      disabled={mutationBusy === 'save'}
+                    >
+                      Discard draft
+                    </button>
                     <button
                       type="button"
                       className="dashboard-pagination-button dashboard-pagination-button--secondary"
@@ -1561,7 +1864,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                       <strong>Name</strong> {activeModalPolicy.name || activeModalPolicy.id}
                     </li>
                     <li>
-                      <strong>Status</strong> {activeModalPolicy.status} v{activeModalPolicy.version}
+                      <strong>Status</strong> {activeModalPolicy.status} v
+                      {activeModalPolicy.version}
                     </li>
                     <li>
                       <strong>Current scope usage</strong> {policyContextUsage(activeModalPolicy)}
@@ -1581,7 +1885,9 @@ export function PolicyEnginePage(): React.JSX.Element {
                         ? 'Loading current impact...'
                         : coverageErrorMessage
                           ? `Unavailable: ${coverageErrorMessage}`
-                          : policyCoverageSummary(coverageByPolicyId.get(activeModalPolicy.id) || null)}
+                          : policyCoverageSummary(
+                              coverageByPolicyId.get(activeModalPolicy.id) || null,
+                            )}
                     </li>
                   </ul>
                   <div className="dashboard-form-actions">
@@ -1604,7 +1910,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                 <>
                   <h2>Simulate policy</h2>
                   <p className="dashboard-pagination-note">
-                    Test {activeModalPolicy.name || activeModalPolicy.id} before assigning or publishing it.
+                    Test {activeModalPolicy.name || activeModalPolicy.id} before assigning or
+                    publishing it.
                   </p>
                   <div className="dashboard-view-grid dashboard-view-grid--two">
                     <label className="dashboard-form-field">
@@ -1651,9 +1958,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                           <input
                             className="dashboard-input"
                             value={simulationContractAddress}
-                            onChange={(event) =>
-                              setSimulationContractAddress(event.target.value)
-                            }
+                            onChange={(event) => setSimulationContractAddress(event.target.value)}
                             placeholder="0x..."
                           />
                         </label>
@@ -1662,9 +1967,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                           <input
                             className="dashboard-input"
                             value={simulationFunctionSelector}
-                            onChange={(event) =>
-                              setSimulationFunctionSelector(event.target.value)
-                            }
+                            onChange={(event) => setSimulationFunctionSelector(event.target.value)}
                             placeholder="transfer(address,uint256) or 0xa9059cbb"
                           />
                         </label>
@@ -1713,7 +2016,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                     organization, project, environment, or wallet scope.
                   </p>
                   <div className="dashboard-view-grid dashboard-view-grid--two">
-                    {renderScopeFields()}
+                    {renderScopeSelectorField()}
+                    {renderWalletOverrideFields()}
                   </div>
                   <div className="dashboard-form-actions">
                     <button
@@ -1744,8 +2048,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                 <>
                   <h2>Delete policy</h2>
                   <p className="dashboard-pagination-note">
-                    Delete <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> and remove it
-                    from the registry. This does not delete wallet activity history.
+                    Delete <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> and
+                    remove it from the registry. This does not delete wallet activity history.
                   </p>
                   {activeModalPolicy.id === defaultPolicyId ? (
                     <p className="dashboard-pagination-note">
@@ -1785,7 +2089,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                 <>
                   <h2>Schedule live policy change</h2>
                   <p className="dashboard-pagination-note">
-                    Queue this policy change for admin approvals before it is published and deployed live.
+                    Queue this policy change for admin approvals before it is published and deployed
+                    live.
                   </p>
                   <p className="dashboard-pagination-note">
                     Policy: <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> ·{' '}
@@ -1798,7 +2103,9 @@ export function PolicyEnginePage(): React.JSX.Element {
                       ? 'Loading current impact...'
                       : coverageErrorMessage
                         ? `Unavailable: ${coverageErrorMessage}`
-                        : policyCoverageSummary(coverageByPolicyId.get(activeModalPolicy.id) || null)}
+                        : policyCoverageSummary(
+                            coverageByPolicyId.get(activeModalPolicy.id) || null,
+                          )}
                   </p>
                   <div className="dashboard-view-grid dashboard-view-grid--two">
                     <label className="dashboard-form-field">
@@ -1853,7 +2160,9 @@ export function PolicyEnginePage(): React.JSX.Element {
                       className="dashboard-pagination-button"
                       onClick={() => void createPublishApproval()}
                       disabled={
-                        !canMutatePolicies || !selectedPolicyId || mutationBusy === 'approval-create'
+                        !canMutatePolicies ||
+                        !selectedPolicyId ||
+                        mutationBusy === 'approval-create'
                       }
                     >
                       {mutationBusy === 'approval-create'
@@ -1930,7 +2239,9 @@ export function PolicyEnginePage(): React.JSX.Element {
                   )}
                 </>
               ) : (
-                <p className="dashboard-pagination-note">Select a policy before scheduling it live.</p>
+                <p className="dashboard-pagination-note">
+                  Select a policy before scheduling it live.
+                </p>
               )
             ) : null}
           </section>

@@ -17,6 +17,10 @@ function parseJsonBody(raw: string | null): Record<string, unknown> {
   return {};
 }
 
+function isPlainObject(raw: unknown): raw is Record<string, unknown> {
+  return Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
+}
+
 interface MockDashboardContext {
   org: Record<string, unknown>;
   activeProject: Record<string, unknown>;
@@ -551,7 +555,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
 
     await page.getByRole('button', { name: /account.*settings/i }).click();
-    await page.getByRole('menuitemradio', { name: /sign out/i }).click();
+    await page.getByRole('menuitem', { name: /sign out/i }).click();
 
     await expect.poll(() => sessionRevokeCalls).toBe(1);
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
@@ -711,7 +715,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
 
     await page.getByRole('button', { name: /account.*settings/i }).click();
-    await page.getByRole('menuitemradio', { name: 'Account Settings' }).click();
+    await page.getByRole('menuitem', { name: 'Account Settings' }).click();
 
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/team-members');
     const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
@@ -802,18 +806,18 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('dark');
 
     await page.getByRole('button', { name: /account.*settings/i }).click();
-    await page.getByRole('menuitemradio', { name: /switch to light mode/i }).click();
+    await page.getByRole('menuitem', { name: /toggle theme/i }).click();
 
     await expect
       .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
       .toBe('light');
     await expect(page.locator('[aria-label="Account and Settings options"]')).toBeVisible();
-    await expect(page.getByRole('menuitemradio', { name: /switch to dark mode/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /toggle theme/i })).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
       .toBe('light');
 
-    await page.getByRole('menuitemradio', { name: /switch to dark mode/i }).click();
+    await page.getByRole('menuitem', { name: /toggle theme/i }).click();
 
     await expect
       .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
@@ -1395,7 +1399,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(productionOption).toHaveClass(/is-disabled/);
 
     await productionOption.click();
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing/account');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/billing/i);
     const billingWarningBanner = page.locator('.dashboard-warning-banner');
     await expect(billingWarningBanner).toContainText('Billing must be configured for production.');
@@ -2800,27 +2804,72 @@ test.describe('dashboard console config page api wiring', () => {
     );
 
     const gasCreateSection = page.locator('section[aria-label="Gas sponsorship setup"]');
-    await gasCreateSection
-      .locator('label:has-text("Config ID (optional)") input')
-      .fill('gs_new_e2e');
-    await gasCreateSection.locator('label:has-text("Policy name") input').fill('New sponsorship');
-    await gasCreateSection.locator('label:has-text("Budget chain") input').fill('Ethereum');
-    await gasCreateSection.locator('label:has-text("Budget (minor units)") input').fill('50000');
-    await gasCreateSection.locator('label:has-text("Transaction quota") input').fill('1200');
-    await gasCreateSection.locator('label:has-text("Allowed call chain ID") input').fill('42431');
-    await gasCreateSection
+    await gasCreateSection.locator('button:has-text("Create policy")').click();
+
+    const gasCreateModal = page.locator(
+      'section[aria-label="Create gas sponsorship policy modal"]',
+    );
+    const gasPolicyNameInput = gasCreateModal.locator('label:has-text("Policy name") input');
+    await gasPolicyNameInput.fill('Draft before close');
+    await gasCreateModal.locator('button:has-text("Cancel")').click();
+
+    await gasCreateSection.locator('button:has-text("Create policy")').click();
+    await expect(gasPolicyNameInput).toHaveValue('Draft before close');
+    await gasPolicyNameInput.fill('Draft before refresh');
+
+    await page.reload();
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/gas sponsorship/i);
+    await gasCreateSection.locator('button:has-text("Create policy")').click();
+    const gasCreateModalAfterRefresh = page.locator(
+      'section[aria-label="Create gas sponsorship policy modal"]',
+    );
+    const gasPolicyNameInputAfterRefresh = gasCreateModalAfterRefresh.locator(
+      'label:has-text("Policy name") input',
+    );
+    await expect(gasPolicyNameInputAfterRefresh).toHaveValue('Draft before refresh');
+
+    await gasPolicyNameInputAfterRefresh.fill('New sponsorship');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Budget chain") input')
+      .fill('Ethereum');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Budget (minor units)") input')
+      .fill('50000');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Transaction quota") input')
+      .fill('1200');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Allowed call chain ID") input')
+      .fill('42431');
+    await gasCreateModalAfterRefresh
       .locator('label:has-text("Allowed contract") input')
       .fill('0xbb85080E6953f25197ec68798360667140EbAf4b');
-    await gasCreateSection.locator('label:has-text("Function selector") input').fill('0x428dc451');
-    await gasCreateSection.locator('label:has-text("Max gas limit") input').fill('300000');
-    await gasCreateSection.locator('label:has-text("Max value (wei)") input').fill('0');
-    await gasCreateSection.locator('button:has-text("Create sponsorship policy")').click();
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Function selector") input')
+      .fill('0x428dc451');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Max gas limit") input')
+      .fill('300000');
+    await gasCreateModalAfterRefresh.locator('label:has-text("Max value (wei)") input').fill('0');
+    await gasCreateModalAfterRefresh
+      .locator('button:has-text("Create sponsorship policy")')
+      .click();
 
-    await expect.poll(() => String(lastGasCreateBody?.id || '')).toBe('gs_new_e2e');
+    await expect.poll(() => String(lastGasCreateBody?.scopeType || '')).toBe('ENVIRONMENT');
+    await expect.poll(() => String(lastGasCreateBody?.environmentId || '')).toBe('env_active');
     await expect(page.locator('section[aria-label="Gas sponsorship configs"]')).toContainText(
       'New sponsorship',
     );
     await expect.poll(() => Array.isArray(lastGasCreateBody?.allowedCalls)).toBe(true);
+
+    await gasCreateSection.locator('button:has-text("Create policy")').click();
+    const gasCreateModalAfterSave = page.locator(
+      'section[aria-label="Create gas sponsorship policy modal"]',
+    );
+    await expect(
+      gasCreateModalAfterSave.locator('label:has-text("Policy name") input'),
+    ).toHaveValue('Project gas sponsorship');
+    await gasCreateModalAfterSave.locator('button:has-text("Cancel")').click();
 
     const existingGasCard = page
       .locator('section[aria-label="Gas sponsorship configs"] .dashboard-table-wrapper')
@@ -2922,6 +2971,7 @@ test.describe('dashboard console config page api wiring', () => {
     };
     let lastPublishBody: Record<string, unknown> | null = null;
     let lastPublishPolicyId = '';
+    let lastPolicyCreateBody: Record<string, unknown> | null = null;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -2988,6 +3038,31 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, policies }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        lastPolicyCreateBody = body;
+        const createdAt = iso('2026-02-22T00:00:00.000Z');
+        const created = {
+          id: `policy_created_${policies.length + 1}`,
+          orgId: 'org_dash_console_pages',
+          name: String(body.name || `Created policy ${policies.length + 1}`),
+          description: String(body.description || ''),
+          status: 'DRAFT',
+          version: 1,
+          rules: isPlainObject(body.rules) ? body.rules : {},
+          createdAt,
+          updatedAt: createdAt,
+          publishedAt: null,
+        };
+        policies.unshift(created);
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, policy: created }),
         });
         return;
       }
@@ -3086,10 +3161,44 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('section[aria-label="Policies table"]')).toContainText(
       'policy_draft_e2e',
     );
+
+    const policySetupSection = page.locator('section[aria-label="Policy setup"]');
+    await policySetupSection.locator('button:has-text("Create policy")').click();
+    const createPolicyModal = page.locator('section[aria-label="Create policy modal"]');
+    const createPolicyNameInput = createPolicyModal.locator('label:has-text("Policy name") input');
+    await createPolicyNameInput.fill('Draft before close');
+    await createPolicyModal.locator('button:has-text("Cancel")').click();
+
+    await policySetupSection.locator('button:has-text("Create policy")').click();
+    await expect(createPolicyNameInput).toHaveValue('Draft before close');
+    await createPolicyNameInput.fill('Draft before refresh');
+    await createPolicyModal.locator('button:has-text("Cancel")').click();
+
+    await page.reload();
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/policy engine/i);
+    await policySetupSection.locator('button:has-text("Create policy")').click();
+    const createPolicyModalAfterRefresh = page.locator('section[aria-label="Create policy modal"]');
+    const createPolicyNameInputAfterRefresh = createPolicyModalAfterRefresh.locator(
+      'label:has-text("Policy name") input',
+    );
+    await expect(createPolicyNameInputAfterRefresh).toHaveValue('Draft before refresh');
+    await createPolicyNameInputAfterRefresh.fill('Created from restored draft');
+    await createPolicyModalAfterRefresh.locator('button:has-text("Create draft")').click();
+    await expect
+      .poll(() => String(lastPolicyCreateBody?.name || ''))
+      .toBe('Created from restored draft');
+
+    await policySetupSection.locator('button:has-text("Create policy")').click();
+    const createPolicyModalAfterSave = page.locator('section[aria-label="Create policy modal"]');
+    await expect(
+      createPolicyModalAfterSave.locator('label:has-text("Policy name") input'),
+    ).toHaveValue('Project signing policy');
+    await createPolicyModalAfterSave.locator('button:has-text("Cancel")').click();
+
     const policyRow = page.locator('.dashboard-policy-table__row').filter({
       hasText: 'policy_draft_e2e',
     });
-    await policyRow.locator('button:has-text("Schedule live change")').click();
+    await policyRow.locator('button:has-text("Go live")').click();
 
     const publishModal = page.locator('section[aria-label="Schedule live policy change modal"]');
     await expect(publishModal).toContainText('apr_policy_publish_e2e');
@@ -3466,7 +3575,7 @@ test.describe('dashboard console config page api wiring', () => {
     const newMemberRow = table.locator('.dashboard-table-row', {
       hasText: 'new-member@example.com',
     });
-    await newMemberRow.locator('button:has-text("Update permissions")').click();
+    await newMemberRow.locator('button:has-text("Edit")').click();
 
     const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
     await updateModal.locator('label:has-text("Can add/remove team members") input').uncheck();
@@ -3498,11 +3607,11 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(newMemberRow).toContainText('Integrations:read');
 
     page.once('dialog', (dialog) => dialog.accept());
-    await newMemberRow.locator('button:has-text("Delete member")').click({ force: true });
+    await newMemberRow.locator('button:has-text("Delete")').click({ force: true });
     await expect.poll(() => lastRemovedMemberId).toContain('member_');
     await expect(newMemberRow).toContainText('REMOVED');
 
-    await filterSection.locator('label:has-text("Status") select').selectOption('REMOVED');
+    await filterSection.locator('select[aria-label="Filter team members by status"]').selectOption('REMOVED');
     await expect.poll(() => lastListStatus).toBe('REMOVED');
     await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
       'new-member@example.com',
@@ -3805,7 +3914,7 @@ test.describe('dashboard console config page api wiring', () => {
     expect(exportRequestCount).toBe(0);
 
     const filterSection = page.locator('section[aria-label="Audit event filters"]');
-    await filterSection.locator('label:has-text("Search events") input').fill('apr_1');
+    await filterSection.locator('input[aria-label="Search events"]').fill('apr_1');
     await expect.poll(() => lastEventSearchQuery).toBe('apr_1');
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
       'Approval requested',
@@ -3815,7 +3924,6 @@ test.describe('dashboard console config page api wiring', () => {
     );
 
     await filterSection.locator('label:has-text("Category") select').selectOption('APPROVAL');
-    await filterSection.locator('button:has-text("Reload events")').click();
     await expect.poll(() => lastEventCategoryQuery).toBe('APPROVAL');
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
       'approval.request.create',
@@ -5450,13 +5558,13 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('Processed from Ops Cockpit');
     await expect(pendingApprovalsSummary).toContainText('Rejected request apr_2.');
 
-    const failedWebhookSummary = page.locator('details[aria-label="Failed webhook summary"]');
+    const failedWebhookSummary = page.locator('section[aria-label="Failed webhook summary"]');
     await failedWebhookSummary.locator('button:has-text("Replay")').click();
     await expect.poll(() => replayRequestCount).toBe(1);
     await expect.poll(() => String(lastReplayBody?.deliveryId || '')).toBe('del_1');
     await expect(failedWebhookSummary).toContainText('Replay queued for delivery del_1.');
 
-    const auditExportSummary = page.locator('details[aria-label="Audit export queue summary"]');
+    const auditExportSummary = page.locator('section[aria-label="Audit export queue summary"]');
     await auditExportSummary.locator('button:has-text("Requeue")').first().click();
     await expect.poll(() => auditExportListRequestCount).toBe(1);
     await expect.poll(() => auditExportCreateRequestCount).toBe(1);
@@ -5630,24 +5738,24 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(summary).not.toContainText('Audit export queue is not configured');
     await expect(summary).not.toContainText('Enterprise isolation queue is not configured');
 
-    await expect(page.locator('details[aria-label="Audit export queue status"]')).toContainText(
+    await expect(page.locator('section[aria-label="Audit export queue status"]')).toContainText(
       'Audit export queue is not configured',
     );
-    await expect(page.locator('details[aria-label="Audit export queue status"]')).toContainText(
+    await expect(page.locator('section[aria-label="Audit export queue status"]')).toContainText(
       'Audit exports backend disabled',
     );
     await expect(
-      page.locator('details[aria-label="Enterprise isolation queue status"]'),
+      page.locator('section[aria-label="Enterprise isolation queue status"]'),
     ).toContainText('Enterprise isolation queue is not configured');
     await expect(
-      page.locator('details[aria-label="Enterprise isolation queue status"]'),
+      page.locator('section[aria-label="Enterprise isolation queue status"]'),
     ).toContainText('Isolation backend disabled');
-    await expect(page.locator('details[aria-label="Onboarding telemetry summary"]')).toContainText(
+    await expect(page.locator('section[aria-label="Onboarding telemetry summary"]')).toContainText(
       'No active onboarding SLO alerts.',
     );
-    await expect(page.locator('details[aria-label="Audit export queue summary"]')).toHaveCount(0);
+    await expect(page.locator('section[aria-label="Audit export queue summary"]')).toHaveCount(0);
     await expect(
-      page.locator('details[aria-label="Isolation and onboarding telemetry summary"]'),
+      page.locator('section[aria-label="Isolation and onboarding telemetry summary"]'),
     ).toHaveCount(0);
   });
 });

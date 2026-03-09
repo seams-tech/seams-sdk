@@ -1,5 +1,7 @@
 import React from 'react';
 import { useDashboardConsoleSession } from '../../consoleSession';
+import { useSessionDraft } from '../../drafts/useSessionDraft';
+import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
   createDashboardGasSponsorship,
@@ -25,9 +27,14 @@ type GasNetworkClass = (typeof GAS_NETWORK_CLASSES)[number];
 
 const GAS_EXECUTORS = ['RELAY_EOA'] as const;
 type GasExecutor = (typeof GAS_EXECUTORS)[number];
+type GasSponsorshipModalKind = 'create' | 'edit' | 'view';
+type GasSponsorshipDraftScope = {
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+};
 
 type GasSponsorshipFormState = {
-  id: string;
   policyName: string;
   scopeType: ScopeType;
   projectId: string;
@@ -91,6 +98,57 @@ function parseOptionalBigIntString(value: string, field: string): string | undef
   }
 }
 
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return Boolean(raw) && typeof raw === 'object' && !Array.isArray(raw);
+}
+
+function readEnumValue<TEnum extends readonly string[]>(
+  raw: unknown,
+  allowedValues: TEnum,
+  fallback: TEnum[number],
+): TEnum[number] {
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (allowedValues.some((entry) => entry === value)) {
+    return value as TEnum[number];
+  }
+  return fallback;
+}
+
+function parseGasSponsorshipFormDraft(
+  raw: unknown,
+  fallback: GasSponsorshipFormState,
+): GasSponsorshipFormState | null {
+  if (!isRecord(raw)) return null;
+  return {
+    policyName: normalizeString(String(raw.policyName ?? fallback.policyName)),
+    scopeType: readEnumValue(raw.scopeType, SCOPE_TYPES, fallback.scopeType),
+    projectId: normalizeString(String(raw.projectId ?? fallback.projectId)),
+    environmentId: normalizeString(String(raw.environmentId ?? fallback.environmentId)),
+    policyId: normalizeString(String(raw.policyId ?? fallback.policyId)),
+    walletSegmentId: normalizeString(String(raw.walletSegmentId ?? fallback.walletSegmentId)),
+    enabled: raw.enabled === true || raw.enabled === false ? raw.enabled : fallback.enabled,
+    networkClass: readEnumValue(raw.networkClass, GAS_NETWORK_CLASSES, fallback.networkClass),
+    executor: readEnumValue(raw.executor, GAS_EXECUTORS, fallback.executor),
+    paymasterMode: readEnumValue(raw.paymasterMode, GAS_PAYMASTER_MODES, fallback.paymasterMode),
+    fallbackBehavior: readEnumValue(
+      raw.fallbackBehavior,
+      GAS_FALLBACK_BEHAVIORS,
+      fallback.fallbackBehavior,
+    ),
+    budgetChain: normalizeString(String(raw.budgetChain ?? fallback.budgetChain)),
+    budgetPeriod: readEnumValue(raw.budgetPeriod, GAS_BUDGET_PERIODS, fallback.budgetPeriod),
+    budgetMinor: normalizeString(String(raw.budgetMinor ?? fallback.budgetMinor)),
+    quotaTransactions: normalizeString(String(raw.quotaTransactions ?? fallback.quotaTransactions)),
+    callChainId: normalizeString(String(raw.callChainId ?? fallback.callChainId)),
+    callTo: normalizeString(String(raw.callTo ?? fallback.callTo)),
+    callSelector: normalizeString(String(raw.callSelector ?? fallback.callSelector)),
+    callMaxGasLimit: normalizeString(String(raw.callMaxGasLimit ?? fallback.callMaxGasLimit)),
+    callMaxValueWei: normalizeString(String(raw.callMaxValueWei ?? fallback.callMaxValueWei)),
+  };
+}
+
 function resolveDefaultScopeType(projectId: string, environmentId: string): ScopeType {
   if (normalizeString(environmentId)) return 'ENVIRONMENT';
   if (normalizeString(projectId)) return 'PROJECT';
@@ -99,7 +157,6 @@ function resolveDefaultScopeType(projectId: string, environmentId: string): Scop
 
 function createInitialFormState(projectId: string, environmentId: string): GasSponsorshipFormState {
   return {
-    id: '',
     policyName: 'Project gas sponsorship',
     scopeType: resolveDefaultScopeType(projectId, environmentId),
     projectId,
@@ -131,7 +188,6 @@ function buildFormStateFromConfig(
   const budget = config.chainBudgets[0] || null;
   const allowedCall = config.allowedCalls[0] || null;
   return {
-    id: config.id,
     policyName: config.policyName,
     scopeType: String(config.scopeType || 'ENVIRONMENT').toUpperCase() as ScopeType,
     projectId: config.projectId || projectId,
@@ -142,7 +198,9 @@ function buildFormStateFromConfig(
     networkClass: String(config.networkClass || 'ANY').toUpperCase() as GasNetworkClass,
     executor: String(config.executor || 'RELAY_EOA').toUpperCase() as GasExecutor,
     paymasterMode: String(config.paymasterMode || 'AUTO').toUpperCase() as GasPaymasterMode,
-    fallbackBehavior: String(config.fallbackBehavior || 'REJECT').toUpperCase() as GasFallbackBehavior,
+    fallbackBehavior: String(
+      config.fallbackBehavior || 'REJECT',
+    ).toUpperCase() as GasFallbackBehavior,
     budgetChain: budget?.chain || '',
     budgetPeriod: String(budget?.period || 'MONTHLY').toUpperCase() as GasBudgetPeriod,
     budgetMinor: budget ? String(budget.budgetMinor) : '',
@@ -158,7 +216,9 @@ function buildFormStateFromConfig(
 function hasConfigMutationRole(rolesRaw: unknown): boolean {
   if (!Array.isArray(rolesRaw)) return false;
   return rolesRaw.some((role) => {
-    const normalized = String(role || '').trim().toLowerCase();
+    const normalized = String(role || '')
+      .trim()
+      .toLowerCase();
     return normalized === 'owner' || normalized === 'admin' || normalized === 'security_admin';
   });
 }
@@ -242,7 +302,6 @@ function buildAllowedCalls(form: GasSponsorshipFormState) {
 
 function buildGasSponsorshipRequest(form: GasSponsorshipFormState): Record<string, unknown> {
   return {
-    ...(normalizeString(form.id) ? { id: normalizeString(form.id) } : {}),
     ...buildScopePayload(form),
     policyName: normalizeString(form.policyName) || 'Gas Sponsorship Policy',
     networkClass: form.networkClass,
@@ -255,13 +314,39 @@ function buildGasSponsorshipRequest(form: GasSponsorshipFormState): Record<strin
   };
 }
 
-function describeScope(config: DashboardGasSponsorshipConfig): string {
-  const scopeType = String(config.scopeType || 'ENVIRONMENT').toUpperCase();
+function describeScopeTarget(
+  scopeTypeRaw: string,
+  ids: {
+    projectId?: string | null;
+    environmentId?: string | null;
+    policyId?: string | null;
+    walletSegmentId?: string | null;
+  },
+): string {
+  const scopeType = String(scopeTypeRaw || 'ENVIRONMENT').toUpperCase();
   if (scopeType === 'ORG') return 'Organization';
-  if (scopeType === 'PROJECT') return `Project ${config.projectId || '-'}`;
-  if (scopeType === 'POLICY') return `Policy ${config.policyId || '-'}`;
-  if (scopeType === 'WALLET_SEGMENT') return `Wallet segment ${config.walletSegmentId || '-'}`;
-  return `Environment ${config.environmentId || '-'}`;
+  if (scopeType === 'PROJECT') return `Project ${ids.projectId || '-'}`;
+  if (scopeType === 'POLICY') return `Policy ${ids.policyId || '-'}`;
+  if (scopeType === 'WALLET_SEGMENT') return `Wallet segment ${ids.walletSegmentId || '-'}`;
+  return `Environment ${ids.environmentId || '-'}`;
+}
+
+function describeScope(config: DashboardGasSponsorshipConfig): string {
+  return describeScopeTarget(config.scopeType, {
+    projectId: config.projectId,
+    environmentId: config.environmentId,
+    policyId: config.policyId,
+    walletSegmentId: config.walletSegmentId,
+  });
+}
+
+function describeFormScope(form: GasSponsorshipFormState): string {
+  return describeScopeTarget(form.scopeType, {
+    projectId: form.projectId,
+    environmentId: form.environmentId,
+    policyId: form.policyId,
+    walletSegmentId: form.walletSegmentId,
+  });
 }
 
 function formatBudgetSummary(config: DashboardGasSponsorshipConfig): string {
@@ -288,23 +373,29 @@ function formatRuleSummary(config: DashboardGasSponsorshipConfig): string {
   ].join(' / ');
 }
 
-function summarizeCoverage(configs: readonly DashboardGasSponsorshipConfig[]) {
-  const enabledCount = configs.filter((config) => config.enabled).length;
-  const allowedCallCount = configs.reduce((count, config) => count + config.allowedCalls.length, 0);
-  const budgetCount = configs.reduce((count, config) => count + config.chainBudgets.length, 0);
-  return {
-    total: configs.length,
-    enabled: enabledCount,
-    allowedCallCount,
-    budgetCount,
-  };
+function formatAllowedCallCoverageEntry(
+  call: DashboardGasSponsorshipConfig['allowedCalls'][number],
+): string {
+  return `${call.chainId} ${call.selector} on ${call.to} (gas ${call.maxGasLimit}, value ${call.maxValueWei})`;
+}
+
+function formatBudgetCoverageEntry(
+  budget: DashboardGasSponsorshipConfig['chainBudgets'][number],
+): string {
+  return `${budget.chain} ${budget.period.toLowerCase()} cap ${formatCurrencyMinor(
+    budget.budgetMinor,
+  )} / ${budget.quotaTransactions} tx`;
 }
 
 export function GasSponsorshipPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
-  const selectedOrgId = normalizeString(selectedContext.organization || session.claims?.orgId || '');
-  const selectedProjectId = normalizeString(selectedContext.project || session.claims?.projectId || '');
+  const selectedOrgId = normalizeString(
+    selectedContext.organization || session.claims?.orgId || '',
+  );
+  const selectedProjectId = normalizeString(
+    selectedContext.project || session.claims?.projectId || '',
+  );
   const selectedEnvironmentId = normalizeString(
     selectedContext.environment || session.claims?.environmentId || '',
   );
@@ -314,26 +405,64 @@ export function GasSponsorshipPage(): React.JSX.Element {
   const [mutationError, setMutationError] = React.useState<string>('');
   const [mutationNotice, setMutationNotice] = React.useState<string>('');
   const [mutating, setMutating] = React.useState<boolean>(false);
+  const [activeModal, setActiveModal] = React.useState<GasSponsorshipModalKind | null>(null);
   const [editingConfigId, setEditingConfigId] = React.useState<string>('');
+  const [selectedConfigId, setSelectedConfigId] = React.useState<string>('');
   const [gasConfigs, setGasConfigs] = React.useState<DashboardGasSponsorshipConfig[]>([]);
-  const [form, setForm] = React.useState<GasSponsorshipFormState>(() =>
+  const [modalScope, setModalScope] = React.useState<GasSponsorshipDraftScope | null>(null);
+  const [modalInitialForm, setModalInitialForm] = React.useState<GasSponsorshipFormState>(() =>
     createInitialFormState(selectedProjectId, selectedEnvironmentId),
   );
 
+  const policyModalOpen = activeModal === 'create' || activeModal === 'edit';
+
+  const draftIdentity = React.useMemo<DashboardDraftIdentity | null>(() => {
+    if (!policyModalOpen || !modalScope) return null;
+    return {
+      route: '/dashboard/gas-sponsorship',
+      builderId: 'gas-sponsorship-policy-modal',
+      mode: activeModal === 'edit' ? 'edit' : 'create',
+      orgId: modalScope.orgId,
+      projectId: modalScope.projectId,
+      environmentId: modalScope.environmentId,
+      resourceId: activeModal === 'edit' ? editingConfigId : '',
+    };
+  }, [activeModal, editingConfigId, modalScope, policyModalOpen]);
+
+  const parseDraftForm = React.useCallback(
+    (raw: unknown): GasSponsorshipFormState | null =>
+      parseGasSponsorshipFormDraft(raw, modalInitialForm),
+    [modalInitialForm],
+  );
+
+  const { form, setForm, restoreState, clearDraft, resetToInitial } =
+    useSessionDraft<GasSponsorshipFormState>({
+      identity: draftIdentity,
+      initialForm: modalInitialForm,
+      isOpen: policyModalOpen,
+      parseForm: parseDraftForm,
+    });
+
+  const currentScopeKey = `${selectedOrgId}:${selectedProjectId}:${selectedEnvironmentId}`;
+  const previousScopeKeyRef = React.useRef<string>(currentScopeKey);
   React.useEffect(() => {
-    if (editingConfigId) return;
-    setForm((current) => ({
-      ...current,
-      scopeType:
-        current.scopeType || resolveDefaultScopeType(selectedProjectId, selectedEnvironmentId),
-      projectId: current.projectId || selectedProjectId,
-      environmentId: current.environmentId || selectedEnvironmentId,
-    }));
-  }, [editingConfigId, selectedEnvironmentId, selectedProjectId]);
+    if (previousScopeKeyRef.current === currentScopeKey) return;
+    previousScopeKeyRef.current = currentScopeKey;
+    if (!policyModalOpen) return;
+    setEditingConfigId('');
+    setSelectedConfigId('');
+    setActiveModal(null);
+    setMutationError('');
+  }, [currentScopeKey, policyModalOpen]);
 
   const canMutateConfig = React.useMemo(
     () => hasConfigMutationRole(session.claims?.roles),
     [session.claims?.roles],
+  );
+
+  const selectedConfig = React.useMemo(
+    () => gasConfigs.find((config) => config.id === selectedConfigId) || null,
+    [gasConfigs, selectedConfigId],
   );
 
   const loadGasConfigs = React.useCallback(() => {
@@ -378,24 +507,55 @@ export function GasSponsorshipPage(): React.JSX.Element {
     return cleanup;
   }, [loadGasConfigs, session.loading]);
 
-  const coverage = React.useMemo(() => summarizeCoverage(gasConfigs), [gasConfigs]);
-
   const onResetForm = React.useCallback(() => {
     setEditingConfigId('');
+    setSelectedConfigId('');
+    setModalScope(null);
+    setActiveModal(null);
+    setMutationError('');
+    setModalInitialForm(createInitialFormState(selectedProjectId, selectedEnvironmentId));
+  }, [selectedEnvironmentId, selectedProjectId]);
+
+  const openCreateModal = React.useCallback(() => {
+    setEditingConfigId('');
+    setSelectedConfigId('');
+    setModalScope({
+      orgId: selectedOrgId,
+      projectId: selectedProjectId,
+      environmentId: selectedEnvironmentId,
+    });
+    setModalInitialForm(createInitialFormState(selectedProjectId, selectedEnvironmentId));
+    setActiveModal('create');
     setMutationError('');
     setMutationNotice('');
-    setForm(createInitialFormState(selectedProjectId, selectedEnvironmentId));
-  }, [selectedEnvironmentId, selectedProjectId]);
+  }, [selectedEnvironmentId, selectedOrgId, selectedProjectId]);
 
   const onEditConfig = React.useCallback(
     (config: DashboardGasSponsorshipConfig) => {
       setEditingConfigId(config.id);
+      setSelectedConfigId(config.id);
+      setModalScope({
+        orgId: selectedOrgId,
+        projectId: selectedProjectId,
+        environmentId: selectedEnvironmentId,
+      });
+      setModalInitialForm(
+        buildFormStateFromConfig(config, selectedProjectId, selectedEnvironmentId),
+      );
+      setActiveModal('edit');
       setMutationError('');
-      setMutationNotice(`Editing ${config.policyName || config.id}.`);
-      setForm(buildFormStateFromConfig(config, selectedProjectId, selectedEnvironmentId));
+      setMutationNotice('');
     },
-    [selectedEnvironmentId, selectedProjectId],
+    [selectedEnvironmentId, selectedOrgId, selectedProjectId],
   );
+
+  const onViewConfig = React.useCallback((config: DashboardGasSponsorshipConfig) => {
+    setEditingConfigId('');
+    setSelectedConfigId(config.id);
+    setModalScope(null);
+    setActiveModal('view');
+    setMutationError('');
+  }, []);
 
   const onSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -421,8 +581,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
           setMutationNotice('Gas sponsorship policy created.');
         }
         await loadGasConfigs();
-        setEditingConfigId('');
-        setForm(createInitialFormState(selectedProjectId, selectedEnvironmentId));
+        clearDraft();
+        onResetForm();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -433,13 +593,27 @@ export function GasSponsorshipPage(): React.JSX.Element {
       canMutateConfig,
       editingConfigId,
       form,
+      clearDraft,
       loadGasConfigs,
-      selectedEnvironmentId,
-      selectedProjectId,
+      onResetForm,
       session.claims,
       session.errorMessage,
     ],
   );
+
+  const formDiffersFromInitial = React.useMemo(
+    () => JSON.stringify(form) !== JSON.stringify(modalInitialForm),
+    [form, modalInitialForm],
+  );
+
+  const onDiscardDraft = React.useCallback(() => {
+    if (formDiffersFromInitial && typeof window !== 'undefined') {
+      const confirmed = window.confirm('Discard this unsaved draft?');
+      if (!confirmed) return;
+    }
+    resetToInitial();
+    onResetForm();
+  }, [formDiffersFromInitial, onResetForm, resetToInitial]);
 
   const onToggleEnabled = React.useCallback(
     async (config: DashboardGasSponsorshipConfig) => {
@@ -475,14 +649,13 @@ export function GasSponsorshipPage(): React.JSX.Element {
     <div className="dashboard-view" aria-label="Gas sponsorship page">
       <section className="dashboard-view__section" aria-label="Gas sponsorship summary">
         <h2>Gas sponsorship</h2>
-        <p>Set where sponsorship applies, which calls can be sponsored, and the guardrails around spend.</p>
+        <p>Choose which calls this scope will sponsor.</p>
         <p>
-          Context: {selectedOrgId || '-'} / {selectedProjectId || '-'} / {selectedEnvironmentId || '-'}.
+          Scope: {selectedOrgId || '-'} / {selectedProjectId || '-'} /{' '}
+          {selectedEnvironmentId || '-'}.
         </p>
         <p className="dashboard-pagination-note">
-          {canMutateConfig
-            ? 'You can create and update sponsorship rules for this scope.'
-            : 'Only owner/admin/security_admin can change sponsorship rules.'}
+          {canMutateConfig ? 'You can edit rules here.' : 'View only for this scope.'}
         </p>
         {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
         {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
@@ -502,374 +675,20 @@ export function GasSponsorshipPage(): React.JSX.Element {
         </section>
       ) : (
         <>
-          <section className="dashboard-view__section" aria-label="Gas sponsorship coverage">
-            <h2>Coverage</h2>
-            <div className="dashboard-view-grid dashboard-view-grid--two">
-              <div className="dashboard-table-wrapper">
-                <div className="dashboard-table-limit">
-                  <strong>{coverage.total}</strong>
-                  <p>Total configs in scope.</p>
-                </div>
-              </div>
-              <div className="dashboard-table-wrapper">
-                <div className="dashboard-table-limit">
-                  <strong>{coverage.enabled}</strong>
-                  <p>Enabled configs.</p>
-                </div>
-              </div>
-              <div className="dashboard-table-wrapper">
-                <div className="dashboard-table-limit">
-                  <strong>{coverage.allowedCallCount}</strong>
-                  <p>Allowed-call rules.</p>
-                </div>
-              </div>
-              <div className="dashboard-table-wrapper">
-                <div className="dashboard-table-limit">
-                  <strong>{coverage.budgetCount}</strong>
-                  <p>Budget guardrails.</p>
-                </div>
-              </div>
-            </div>
-          </section>
-
           <section className="dashboard-view__section" aria-label="Gas sponsorship setup">
-            <h2>{editingConfigId ? 'Edit sponsorship policy' : 'Create sponsorship policy'}</h2>
+            <h2>Create policy</h2>
             <p>
-              Define the scope, sponsor behavior, optional budget rule, and one allowed-call rule for
-              this policy.
+              Start a gas sponsorship policy for this scope, then define the budget and allowed-call
+              rules in the builder.
             </p>
-            <div className="dashboard-table-wrapper">
-              <div className="dashboard-table-limit">
-                <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSubmit}>
-                  <label className="dashboard-form-field">
-                    <span>Config ID (optional)</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.id}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, id: event.target.value }))
-                      }
-                      placeholder="gs_tempo_testnet"
-                      disabled={mutating || Boolean(editingConfigId)}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Policy name</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.policyName}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, policyName: event.target.value }))
-                      }
-                      placeholder="Tempo testnet onboarding"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Scope</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.scopeType}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          scopeType: event.target.value as ScopeType,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {SCOPE_TYPES.map((scopeType) => (
-                        <option key={scopeType} value={scopeType}>
-                          {scopeType}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Project ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.projectId}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, projectId: event.target.value }))
-                      }
-                      placeholder="proj_prod"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Environment ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.environmentId}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, environmentId: event.target.value }))
-                      }
-                      placeholder="env_prod"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Policy ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.policyId}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, policyId: event.target.value }))
-                      }
-                      placeholder="policy_default"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Wallet segment ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.walletSegmentId}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, walletSegmentId: event.target.value }))
-                      }
-                      placeholder="segment_vip"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Network</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.networkClass}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          networkClass: event.target.value as GasNetworkClass,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {GAS_NETWORK_CLASSES.map((networkClass) => (
-                        <option key={networkClass} value={networkClass}>
-                          {networkClass}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Executor</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.executor}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          executor: event.target.value as GasExecutor,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {GAS_EXECUTORS.map((executor) => (
-                        <option key={executor} value={executor}>
-                          {executor}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Paymaster mode</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.paymasterMode}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          paymasterMode: event.target.value as GasPaymasterMode,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {GAS_PAYMASTER_MODES.map((mode) => (
-                        <option key={mode} value={mode}>
-                          {mode}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Fallback behavior</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.fallbackBehavior}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          fallbackBehavior: event.target.value as GasFallbackBehavior,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {GAS_FALLBACK_BEHAVIORS.map((behavior) => (
-                        <option key={behavior} value={behavior}>
-                          {behavior}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Enabled</span>
-                    <input
-                      className="dashboard-input"
-                      type="checkbox"
-                      checked={form.enabled}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, enabled: event.target.checked }))
-                      }
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Budget chain</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.budgetChain}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, budgetChain: event.target.value }))
-                      }
-                      placeholder="Ethereum"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Budget period</span>
-                    <select
-                      className="dashboard-input"
-                      value={form.budgetPeriod}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          budgetPeriod: event.target.value as GasBudgetPeriod,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      {GAS_BUDGET_PERIODS.map((period) => (
-                        <option key={period} value={period}>
-                          {period}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Budget (minor units)</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.budgetMinor}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, budgetMinor: event.target.value }))
-                      }
-                      placeholder="50000"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Transaction quota</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.quotaTransactions}
-                      onChange={(event) =>
-                        setForm((current) => ({
-                          ...current,
-                          quotaTransactions: event.target.value,
-                        }))
-                      }
-                      placeholder="1200"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Allowed call chain ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.callChainId}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, callChainId: event.target.value }))
-                      }
-                      placeholder="42431"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Allowed contract</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.callTo}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, callTo: event.target.value }))
-                      }
-                      placeholder="0xbb85080E6953f25197ec68798360667140EbAf4b"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Function selector</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.callSelector}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, callSelector: event.target.value }))
-                      }
-                      placeholder="0x428dc451"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Max gas limit</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.callMaxGasLimit}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, callMaxGasLimit: event.target.value }))
-                      }
-                      placeholder="300000"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Max value (wei)</span>
-                    <input
-                      className="dashboard-input"
-                      value={form.callMaxValueWei}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, callMaxValueWei: event.target.value }))
-                      }
-                      placeholder="0"
-                      disabled={mutating}
-                    />
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
-                      disabled={!canMutateConfig || mutating}
-                    >
-                      {mutating
-                        ? 'Saving...'
-                        : editingConfigId
-                          ? 'Save sponsorship policy'
-                          : 'Create sponsorship policy'}
-                    </button>
-                    {editingConfigId ? (
-                      <button
-                        type="button"
-                        className="dashboard-inline-link"
-                        onClick={onResetForm}
-                        disabled={mutating}
-                      >
-                        Cancel editing
-                      </button>
-                    ) : null}
-                  </div>
-                </form>
-              </div>
-            </div>
+            <button
+              type="button"
+              className="dashboard-pagination-button"
+              onClick={openCreateModal}
+              disabled={!canMutateConfig || mutating}
+            >
+              Create policy
+            </button>
           </section>
 
           <section className="dashboard-view__section" aria-label="Gas sponsorship configs">
@@ -895,6 +714,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         <button
                           type="button"
                           className="dashboard-inline-link"
+                          onClick={() => onViewConfig(config)}
+                          disabled={mutating}
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          className="dashboard-inline-link"
                           onClick={() => onEditConfig(config)}
                           disabled={mutating}
                         >
@@ -917,6 +744,473 @@ export function GasSponsorshipPage(): React.JSX.Element {
           </section>
         </>
       )}
+      {activeModal ? (
+        <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onResetForm}>
+          <section
+            className="dashboard-modal dashboard-modal--wide"
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              activeModal === 'create'
+                ? 'Create gas sponsorship policy modal'
+                : activeModal === 'edit'
+                  ? 'Edit gas sponsorship policy modal'
+                  : 'View gas sponsorship coverage modal'
+            }
+            onClick={(event) => event.stopPropagation()}
+          >
+            {activeModal === 'view' ? (
+              <>
+                <h2>Coverage</h2>
+                <p className="dashboard-pagination-note">
+                  {selectedConfig?.policyName ||
+                    selectedConfig?.id ||
+                    'Selected sponsorship policy'}
+                </p>
+                {selectedConfig ? (
+                  <>
+                    <div className="dashboard-view-grid dashboard-view-grid--two">
+                      <div className="dashboard-table-wrapper">
+                        <div className="dashboard-table-limit">
+                          <strong>{describeScope(selectedConfig)}</strong>
+                          <p>Scope</p>
+                        </div>
+                      </div>
+                      <div className="dashboard-table-wrapper">
+                        <div className="dashboard-table-limit">
+                          <strong>{selectedConfig.enabled ? 'Enabled' : 'Disabled'}</strong>
+                          <p>Status</p>
+                        </div>
+                      </div>
+                      <div className="dashboard-table-wrapper">
+                        <div className="dashboard-table-limit">
+                          <strong>{selectedConfig.allowedCalls.length}</strong>
+                          <p>Allowed-call rules</p>
+                        </div>
+                      </div>
+                      <div className="dashboard-table-wrapper">
+                        <div className="dashboard-table-limit">
+                          <strong>{selectedConfig.chainBudgets.length}</strong>
+                          <p>Budget guardrails</p>
+                        </div>
+                      </div>
+                    </div>
+                    <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                      <div className="dashboard-policy-rule-panel__header">
+                        <span>Policy behavior</span>
+                        <p className="dashboard-pagination-note">
+                          {formatRuleSummary(selectedConfig)}
+                        </p>
+                      </div>
+                    </section>
+                    <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                      <div className="dashboard-policy-rule-panel__header">
+                        <span>Allowed call coverage</span>
+                        <p className="dashboard-pagination-note">
+                          Which contract functions this policy can sponsor.
+                        </p>
+                      </div>
+                      {selectedConfig.allowedCalls.length > 0 ? (
+                        selectedConfig.allowedCalls.map((call) => (
+                          <p
+                            className="dashboard-pagination-note"
+                            key={`${call.chainId}:${call.to}:${call.selector}`}
+                          >
+                            {formatAllowedCallCoverageEntry(call)}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="dashboard-pagination-note">
+                          No allowed-call rules configured.
+                        </p>
+                      )}
+                    </section>
+                    <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                      <div className="dashboard-policy-rule-panel__header">
+                        <span>Budget coverage</span>
+                        <p className="dashboard-pagination-note">
+                          Spending guardrails attached to this policy.
+                        </p>
+                      </div>
+                      {selectedConfig.chainBudgets.length > 0 ? (
+                        selectedConfig.chainBudgets.map((budget) => (
+                          <p
+                            className="dashboard-pagination-note"
+                            key={`${budget.chain}:${budget.period}`}
+                          >
+                            {formatBudgetCoverageEntry(budget)}
+                          </p>
+                        ))
+                      ) : (
+                        <p className="dashboard-pagination-note">
+                          No budget guardrails configured.
+                        </p>
+                      )}
+                    </section>
+                  </>
+                ) : (
+                  <p className="dashboard-pagination-note">
+                    This sponsorship policy is no longer available.
+                  </p>
+                )}
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={onResetForm}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2>{activeModal === 'create' ? 'Create policy' : 'Edit sponsorship policy'}</h2>
+                <p className="dashboard-pagination-note">
+                  Set scope, sponsor behavior, and the rule that decides which call gets paid for.
+                </p>
+                {restoreState === 'restored' ? (
+                  <p className="dashboard-pagination-note">Restored unsaved draft.</p>
+                ) : null}
+                {mutationError ? (
+                  <p className="dashboard-pagination-note">{mutationError}</p>
+                ) : null}
+                <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSubmit}>
+                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                    <div className="dashboard-policy-rule-panel__header">
+                      <span>Scope</span>
+                      <p className="dashboard-pagination-note">
+                        This policy applies to the current dashboard scope.
+                      </p>
+                    </div>
+                    <div className="dashboard-view-grid dashboard-view-grid--two">
+                      <label className="dashboard-form-field">
+                        <span>Policy name</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.policyName}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, policyName: event.target.value }))
+                          }
+                          placeholder="Tempo testnet onboarding"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <div className="dashboard-form-field">
+                        <span>Applies to</span>
+                        <p className="dashboard-pagination-note">{describeFormScope(form)}</p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                    <div className="dashboard-policy-rule-panel__header">
+                      <span>Sponsor behavior</span>
+                      <p className="dashboard-pagination-note">
+                        Control where sponsorship is active and how execution should behave.
+                      </p>
+                    </div>
+                    <div className="dashboard-view-grid dashboard-view-grid--two">
+                      <label className="dashboard-form-field">
+                        <span>Network</span>
+                        <select
+                          className="dashboard-input"
+                          value={form.networkClass}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              networkClass: event.target.value as GasNetworkClass,
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          {GAS_NETWORK_CLASSES.map((networkClass) => (
+                            <option key={networkClass} value={networkClass}>
+                              {networkClass}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Executor</span>
+                        <select
+                          className="dashboard-input"
+                          value={form.executor}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              executor: event.target.value as GasExecutor,
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          {GAS_EXECUTORS.map((executor) => (
+                            <option key={executor} value={executor}>
+                              {executor}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Paymaster mode</span>
+                        <select
+                          className="dashboard-input"
+                          value={form.paymasterMode}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              paymasterMode: event.target.value as GasPaymasterMode,
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          {GAS_PAYMASTER_MODES.map((mode) => (
+                            <option key={mode} value={mode}>
+                              {mode}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Fallback behavior</span>
+                        <select
+                          className="dashboard-input"
+                          value={form.fallbackBehavior}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              fallbackBehavior: event.target.value as GasFallbackBehavior,
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          {GAS_FALLBACK_BEHAVIORS.map((behavior) => (
+                            <option key={behavior} value={behavior}>
+                              {behavior}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="dashboard-form-field">
+                        <span>Enabled</span>
+                        <div className="dashboard-policy-contract-call-mode">
+                          <button
+                            type="button"
+                            aria-pressed={form.enabled}
+                            className={[
+                              'dashboard-policy-segment',
+                              form.enabled ? 'dashboard-policy-segment--active' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() => setForm((current) => ({ ...current, enabled: true }))}
+                            disabled={mutating}
+                          >
+                            Enabled
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={!form.enabled}
+                            className={[
+                              'dashboard-policy-segment',
+                              !form.enabled ? 'dashboard-policy-segment--active' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() => setForm((current) => ({ ...current, enabled: false }))}
+                            disabled={mutating}
+                          >
+                            Disabled
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                    <div className="dashboard-policy-rule-panel__header">
+                      <span>Budget guardrail</span>
+                      <p className="dashboard-pagination-note">
+                        Optional spend cap for this sponsorship policy.
+                      </p>
+                    </div>
+                    <div className="dashboard-view-grid dashboard-view-grid--two">
+                      <label className="dashboard-form-field">
+                        <span>Budget chain</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.budgetChain}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, budgetChain: event.target.value }))
+                          }
+                          placeholder="Ethereum"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Budget period</span>
+                        <select
+                          className="dashboard-input"
+                          value={form.budgetPeriod}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              budgetPeriod: event.target.value as GasBudgetPeriod,
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          {GAS_BUDGET_PERIODS.map((period) => (
+                            <option key={period} value={period}>
+                              {period}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Budget (minor units)</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.budgetMinor}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, budgetMinor: event.target.value }))
+                          }
+                          placeholder="50000"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Transaction quota</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.quotaTransactions}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              quotaTransactions: event.target.value,
+                            }))
+                          }
+                          placeholder="1200"
+                          disabled={mutating}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                    <div className="dashboard-policy-rule-panel__header">
+                      <span>Allowed call</span>
+                      <p className="dashboard-pagination-note">
+                        Limit sponsorship to one contract function and execution envelope.
+                      </p>
+                    </div>
+                    <div className="dashboard-view-grid dashboard-view-grid--two">
+                      <label className="dashboard-form-field">
+                        <span>Allowed call chain ID</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.callChainId}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, callChainId: event.target.value }))
+                          }
+                          placeholder="42431"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Allowed contract</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.callTo}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, callTo: event.target.value }))
+                          }
+                          placeholder="0xbb85080E6953f25197ec68798360667140EbAf4b"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Function selector</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.callSelector}
+                          onChange={(event) =>
+                            setForm((current) => ({ ...current, callSelector: event.target.value }))
+                          }
+                          placeholder="0x428dc451"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Max gas limit</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.callMaxGasLimit}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              callMaxGasLimit: event.target.value,
+                            }))
+                          }
+                          placeholder="300000"
+                          disabled={mutating}
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Max value (wei)</span>
+                        <input
+                          className="dashboard-input"
+                          value={form.callMaxValueWei}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              callMaxValueWei: event.target.value,
+                            }))
+                          }
+                          placeholder="0"
+                          disabled={mutating}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <div className="dashboard-modal-divider" aria-hidden="true" />
+
+                  <div className="dashboard-form-actions">
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={onDiscardDraft}
+                      disabled={mutating}
+                    >
+                      Discard draft
+                    </button>
+                    <button
+                      type="submit"
+                      className="dashboard-pagination-button"
+                      disabled={!canMutateConfig || mutating}
+                    >
+                      {mutating
+                        ? 'Saving...'
+                        : editingConfigId
+                          ? 'Save sponsorship policy'
+                          : 'Create sponsorship policy'}
+                    </button>
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button"
+                      onClick={onResetForm}
+                      disabled={mutating}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
