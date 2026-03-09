@@ -1226,6 +1226,20 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('in-memory audit service filters events by free-text query', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const rows = await audit.listEvents(
+      {
+        orgId: 'org-audit-search-1',
+        actorUserId: 'user-audit-search-admin',
+        roles: ['admin'],
+      },
+      { q: 'pi_demo_01', limit: 20 },
+    );
+    expect(rows.length).toBe(1);
+    expect(String(getPath(rows[0] as any, 'metadata', 'paymentIntentId'))).toBe('pi_demo_01');
+  });
+
   test('approval creation emits audit timeline events', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const approvals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
@@ -5867,6 +5881,20 @@ test.describe('console router (cloudflare)', () => {
     const evidenceRows = Array.isArray(evidence.json?.evidence) ? evidence.json?.evidence : [];
     expect(evidenceRows.length).toBeGreaterThan(0);
     expect(String(getPath(evidenceRows[0], 'domain'))).toBe('BILLING');
+  });
+
+  test('cloudflare in-memory audit service filters events by free-text query', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const rows = await audit.listEvents(
+      {
+        orgId: 'org-audit-search-cf-1',
+        actorUserId: 'user-audit-search-cf-admin',
+        roles: ['admin'],
+      },
+      { q: 'pi_demo_01', limit: 20 },
+    );
+    expect(rows.length).toBe(1);
+    expect(String(getPath(rows[0] as any, 'metadata', 'paymentIntentId'))).toBe('pi_demo_01');
   });
 
   test('cloudflare approval creation emits audit timeline events', async () => {
@@ -10686,7 +10714,7 @@ test.describe('console router (postgres audit)', () => {
     const ownerServer = await startExpressRouter(ownerRouter);
     try {
       const ownerEvents = await fetchJson(
-        `${ownerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+        `${ownerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only')}&limit=20`,
         { method: 'GET' },
       );
       expect(ownerEvents.status).toBe(200);
@@ -10715,7 +10743,7 @@ test.describe('console router (postgres audit)', () => {
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
       const attackerEvents = await fetchJson(
-        `${attackerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+        `${attackerServer.baseUrl}/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only')}&limit=20`,
         { method: 'GET' },
       );
       expect(attackerEvents.status).toBe(200);
@@ -10782,7 +10810,7 @@ test.describe('console router (postgres audit)', () => {
     });
     const ownerEvents = await callCf(ownerHandler, {
       method: 'GET',
-      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only-cf')}&limit=20`,
     });
     expect(ownerEvents.status).toBe(200);
     const ownerRows = Array.isArray(ownerEvents.json?.events) ? ownerEvents.json?.events : [];
@@ -10806,7 +10834,7 @@ test.describe('console router (postgres audit)', () => {
     });
     const attackerEvents = await callCf(attackerHandler, {
       method: 'GET',
-      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&limit=20`,
+      path: `/console/audit/events?category=POLICY&actorUserId=${encodeURIComponent(ownerActorUserId)}&q=${encodeURIComponent('owner-only-cf')}&limit=20`,
     });
     expect(attackerEvents.status).toBe(200);
     const attackerRows = Array.isArray(attackerEvents.json?.events)

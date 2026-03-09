@@ -6,6 +6,11 @@ import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
+import type { ConsoleApiKeyService } from '../console/apiKeys';
+import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
+import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
+import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 
 // Minimal session adapter interface expected by the routers.
@@ -391,6 +396,14 @@ export interface RelayRouterOptions {
    * When omitted, the endpoint responds with an empty allowlist.
    */
   ror?: RelayRouterRorOptions;
+  sponsoredEvmCall?: {
+    route?: string;
+    apiKeys: ConsoleApiKeyService;
+    billing: ConsoleBillingService;
+    ledger: ConsoleSponsoredCallService;
+    runtimeSnapshots: ConsoleRuntimeSnapshotService;
+    config: SponsoredEvmCallExecutorConfig | null;
+  };
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

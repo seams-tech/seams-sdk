@@ -70,9 +70,9 @@ test.describe('console org/project/environment parser and service semantics', ()
 
     await service.createProject(ctx, { id: 'proj_active', name: 'Project Active' });
     await service.createProject(ctx, { id: 'proj_archived', name: 'Project Archived' });
-    const activeEnvironmentId = `${ctx.orgId}:proj_active:dev`;
-    const archivedEnvironmentUnderActiveProjectId = `${ctx.orgId}:proj_active:staging`;
-    const environmentUnderArchivedProjectId = `${ctx.orgId}:proj_archived:dev`;
+    const activeEnvironmentId = 'proj_active:dev';
+    const archivedEnvironmentUnderActiveProjectId = 'proj_active:staging';
+    const environmentUnderArchivedProjectId = 'proj_archived:dev';
 
     await service.archiveEnvironment(ctx, archivedEnvironmentUnderActiveProjectId);
     await service.archiveProject(ctx, 'proj_archived');

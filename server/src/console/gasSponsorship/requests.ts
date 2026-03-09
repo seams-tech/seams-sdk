@@ -6,9 +6,12 @@ import {
   requireQueryObject,
 } from '../shared/requestParse';
 import type {
+  ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipBudgetPeriod,
+  ConsoleGasSponsorshipExecutor,
   ConsoleGasSponsorshipChainBudget,
   ConsoleGasSponsorshipFallbackBehavior,
+  ConsoleGasSponsorshipNetworkClass,
   ConsoleGasSponsorshipPaymasterMode,
   ConsoleGasSponsorshipScopeType,
   CreateConsoleGasSponsorshipRequest,
@@ -29,6 +32,12 @@ const GAS_FALLBACK_BEHAVIORS = new Set<ConsoleGasSponsorshipFallbackBehavior>([
   'REJECT',
   'ALLOW_UNSPONSORED',
 ]);
+const GAS_NETWORK_CLASSES = new Set<ConsoleGasSponsorshipNetworkClass>([
+  'ANY',
+  'TESTNET',
+  'MAINNET',
+]);
+const GAS_EXECUTORS = new Set<ConsoleGasSponsorshipExecutor>(['RELAY_EOA']);
 
 function createError(code: string, status: number, message: string): ConsoleGasSponsorshipError {
   return new ConsoleGasSponsorshipError(code, status, message);
@@ -101,6 +110,45 @@ function parseOptionalInteger(raw: unknown, field: string): number | undefined {
   return value;
 }
 
+function parseOptionalBigIntString(raw: unknown, field: string): string | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  try {
+    const parsed = BigInt(String(raw).trim());
+    if (parsed < 0n) {
+      throw new Error('negative');
+    }
+    return parsed.toString(10);
+  } catch {
+    throw createError('invalid_body', 400, `Field ${field} must be a non-negative integer string`);
+  }
+}
+
+function parseOptionalNetworkClass(raw: unknown): ConsoleGasSponsorshipNetworkClass | undefined {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
+  const value = String(raw).trim().toUpperCase() as ConsoleGasSponsorshipNetworkClass;
+  if (!GAS_NETWORK_CLASSES.has(value)) {
+    throw createError(
+      'invalid_body',
+      400,
+      `Field networkClass must be one of: ${Array.from(GAS_NETWORK_CLASSES).join(', ')}`,
+    );
+  }
+  return value;
+}
+
+function parseOptionalExecutor(raw: unknown): ConsoleGasSponsorshipExecutor | undefined {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
+  const value = String(raw).trim().toUpperCase() as ConsoleGasSponsorshipExecutor;
+  if (!GAS_EXECUTORS.has(value)) {
+    throw createError(
+      'invalid_body',
+      400,
+      `Field executor must be one of: ${Array.from(GAS_EXECUTORS).join(', ')}`,
+    );
+  }
+  return value;
+}
+
 function parseChainBudgets(raw: unknown): ConsoleGasSponsorshipChainBudget[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!Array.isArray(raw)) {
@@ -143,6 +191,56 @@ function parseChainBudgets(raw: unknown): ConsoleGasSponsorshipChainBudget[] | u
   return out;
 }
 
+function parseAllowedCalls(raw: unknown): ConsoleGasSponsorshipAllowedCall[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw createError('invalid_body', 400, 'Field allowedCalls must be an array');
+  }
+  const out: ConsoleGasSponsorshipAllowedCall[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw createError('invalid_body', 400, 'Field allowedCalls must contain objects');
+    }
+    const row = entry as Record<string, unknown>;
+    const chainId = parseOptionalInteger(row.chainId, 'allowedCalls[].chainId');
+    if (!chainId || chainId <= 0) {
+      throw createError('invalid_body', 400, 'Field allowedCalls[].chainId is required');
+    }
+    const to = String(row.to || '').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(to)) {
+      throw createError('invalid_body', 400, 'Field allowedCalls[].to must be an EVM address');
+    }
+    const selector = String(row.selector || '').trim();
+    if (!/^0x[0-9a-fA-F]{8}$/.test(selector)) {
+      throw createError(
+        'invalid_body',
+        400,
+        'Field allowedCalls[].selector must be a 4-byte selector hex string',
+      );
+    }
+    const maxGasLimit = parseOptionalBigIntString(row.maxGasLimit, 'allowedCalls[].maxGasLimit');
+    if (maxGasLimit === undefined) {
+      throw createError('invalid_body', 400, 'Field allowedCalls[].maxGasLimit is required');
+    }
+    const maxValueWei = parseOptionalBigIntString(row.maxValueWei, 'allowedCalls[].maxValueWei');
+    if (maxValueWei === undefined) {
+      throw createError('invalid_body', 400, 'Field allowedCalls[].maxValueWei is required');
+    }
+    const dedupeKey = `${chainId}:${to.toLowerCase()}:${selector.toLowerCase()}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({
+      chainId,
+      to,
+      selector: selector.toLowerCase(),
+      maxGasLimit,
+      maxValueWei,
+    });
+  }
+  return out;
+}
+
 export function parseListConsoleGasSponsorshipRequest(query: unknown): ListConsoleGasSponsorshipRequest {
   const obj = requireQueryObject(query, createError);
   return {
@@ -156,6 +254,9 @@ export function parseListConsoleGasSponsorshipRequest(query: unknown): ListConso
     ...(readOptionalQueryString(obj, 'policyId') ? { policyId: readOptionalQueryString(obj, 'policyId') } : {}),
     ...(readOptionalQueryString(obj, 'walletSegmentId')
       ? { walletSegmentId: readOptionalQueryString(obj, 'walletSegmentId') }
+      : {}),
+    ...(readOptionalQueryString(obj, 'templateId')
+      ? { templateId: readOptionalQueryString(obj, 'templateId') }
       : {}),
   };
 }
@@ -179,6 +280,18 @@ export function parseCreateConsoleGasSponsorshipRequest(
     ...(readOptionalString(obj, 'walletSegmentId')
       ? { walletSegmentId: readOptionalString(obj, 'walletSegmentId') }
       : {}),
+    ...(readOptionalString(obj, 'policyName')
+      ? { policyName: readOptionalString(obj, 'policyName') }
+      : {}),
+    ...(readOptionalString(obj, 'templateId')
+      ? { templateId: readOptionalString(obj, 'templateId') }
+      : {}),
+    ...(parseOptionalNetworkClass(obj.networkClass)
+      ? { networkClass: parseOptionalNetworkClass(obj.networkClass) }
+      : {}),
+    ...(parseOptionalExecutor(obj.executor)
+      ? { executor: parseOptionalExecutor(obj.executor) }
+      : {}),
     ...(parseOptionalBoolean(obj.enabled, 'enabled') !== undefined
       ? { enabled: parseOptionalBoolean(obj.enabled, 'enabled') }
       : {}),
@@ -187,6 +300,7 @@ export function parseCreateConsoleGasSponsorshipRequest(
       ? { fallbackBehavior: parseFallbackBehavior(obj.fallbackBehavior) }
       : {}),
     ...(parseChainBudgets(obj.chainBudgets) ? { chainBudgets: parseChainBudgets(obj.chainBudgets) } : {}),
+    ...(parseAllowedCalls(obj.allowedCalls) ? { allowedCalls: parseAllowedCalls(obj.allowedCalls) } : {}),
   };
 }
 
@@ -204,6 +318,18 @@ export function parseUpdateConsoleGasSponsorshipRequest(
     ...(readOptionalString(obj, 'walletSegmentId')
       ? { walletSegmentId: readOptionalString(obj, 'walletSegmentId') }
       : {}),
+    ...(readOptionalString(obj, 'policyName')
+      ? { policyName: readOptionalString(obj, 'policyName') }
+      : {}),
+    ...(readOptionalString(obj, 'templateId')
+      ? { templateId: readOptionalString(obj, 'templateId') }
+      : {}),
+    ...(parseOptionalNetworkClass(obj.networkClass)
+      ? { networkClass: parseOptionalNetworkClass(obj.networkClass) }
+      : {}),
+    ...(parseOptionalExecutor(obj.executor)
+      ? { executor: parseOptionalExecutor(obj.executor) }
+      : {}),
     ...(parseOptionalBoolean(obj.enabled, 'enabled') !== undefined
       ? { enabled: parseOptionalBoolean(obj.enabled, 'enabled') }
       : {}),
@@ -212,5 +338,6 @@ export function parseUpdateConsoleGasSponsorshipRequest(
       ? { fallbackBehavior: parseFallbackBehavior(obj.fallbackBehavior) }
       : {}),
     ...(parseChainBudgets(obj.chainBudgets) ? { chainBudgets: parseChainBudgets(obj.chainBudgets) } : {}),
+    ...(parseAllowedCalls(obj.allowedCalls) ? { allowedCalls: parseAllowedCalls(obj.allowedCalls) } : {}),
   };
 }

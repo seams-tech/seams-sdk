@@ -21,6 +21,7 @@ import { registerThresholdEcdsaRoutes } from './routes/thresholdEcdsa';
 import { registerWebAuthnAuthenticatorRoutes } from './routes/webauthnAuthenticators';
 import { registerAuthRoutes } from './routes/auth';
 import { registerNearPublicKeysRoutes } from './routes/nearPublicKeys';
+import { registerSponsoredEvmCallRoutes } from './routes/sponsoredEvmCall';
 import { registerWellKnownRoutes } from './routes/wellKnown';
 import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
@@ -73,6 +74,7 @@ export function createRelayRouter(
 
   registerBootstrapGrantRoutes(router, ctx);
   registerCreateAccountAndRegisterUser(router, ctx);
+  registerSponsoredEvmCallRoutes(router, ctx);
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);
   registerSmartAccountDeployRoute(router, ctx);

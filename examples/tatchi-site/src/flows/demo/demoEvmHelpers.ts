@@ -246,7 +246,7 @@ export async function readEvmNativeBalance(args: {
   blockTag?: 'latest' | 'pending' | 'safe' | 'finalized' | 'earliest';
 }): Promise<bigint> {
   const blockTag = args.blockTag ?? 'latest';
-  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const client = createDemoEvmClient({ rpcUrl: args.rpcUrl });
   const balanceHex = await client.request<string>({
     method: 'eth_getBalance',
     params: [args.address, blockTag],
@@ -259,7 +259,7 @@ export async function readTempoUserFeeToken(args: {
   userAddress: `0x${string}`;
   timeoutMs?: number;
 }): Promise<`0x${string}` | null> {
-  const client = createDemoEvmPublicClient({
+  const client = createDemoEvmClient({
     rpcUrl: args.rpcUrl,
     ...(args.timeoutMs != null ? { requestTimeoutMs: args.timeoutMs } : {}),
   });
@@ -289,7 +289,7 @@ export async function readTempoTokenBalanceRaw(args: {
 }): Promise<bigint> {
   const balanceOfSelector = '0x70a08231';
   const encodedUser = args.userAddress.slice(2).toLowerCase().padStart(64, '0');
-  const client = createDemoEvmPublicClient({ rpcUrl: args.rpcUrl });
+  const client = createDemoEvmClient({ rpcUrl: args.rpcUrl });
   const result = await client.request<string>({
     method: 'eth_call',
     params: [
@@ -308,7 +308,7 @@ export async function readTempoTokenBalanceRaw(args: {
 
 export async function resolveEip1559FeeCaps(rpcUrl: string): Promise<Eip1559FeeCaps> {
   try {
-    const client = createDemoEvmPublicClient({
+    const client = createDemoEvmClient({
       rpcUrl,
       requestTimeoutMs: Math.min(EVM_RPC_REQUEST_TIMEOUT_MS, 6_000),
     });

@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
+import type { FrontendConfig } from '@/config';
 import { TEMPO_ALPHA_USD_FEE_TOKEN } from '../demoEvmHelpers';
 import { useDemoArcSigningActions } from './useDemoArcSigningActions';
 import { useDemoEip1559FeeCaps } from './useDemoEip1559FeeCaps';
@@ -13,12 +14,17 @@ type UseDemoThresholdSignersArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
   tatchi: ReturnType<typeof useTatchi>['tatchi'];
+  frontendConfig?: Pick<
+    FrontendConfig,
+    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+  >;
   tempoGreetingInput: string;
   arcGreetingInput: string;
 };
 
 export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
-  const { isLoggedIn, nearAccountId, tatchi, tempoGreetingInput, arcGreetingInput } = args;
+  const { isLoggedIn, nearAccountId, tatchi, frontendConfig, tempoGreetingInput, arcGreetingInput } =
+    args;
 
   const { tempoEip1559FeeCaps, arcEip1559FeeCaps } = useDemoEip1559FeeCaps();
   const {
@@ -73,6 +79,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     isLoggedIn,
     nearAccountId,
     tatchi,
+    frontendConfig,
     canSignTempo,
     tempoGreetingInput,
     tempoEip1559FeeCaps,

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
+import type { FrontendConfig } from '@/config';
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
 import { NearGreetingSection } from './sections/NearGreetingSection';
 import { SigningSessionSection } from './sections/SigningSessionSection';
@@ -16,6 +17,10 @@ import './DemoPage.css';
 type DemoPageTestOverrides = {
   useTatchiHook?: typeof useTatchi;
   useSetGreetingHook?: typeof useSetGreeting;
+  frontendConfig?: Pick<
+    FrontendConfig,
+    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+  >;
 };
 
 type DemoPageProps = {
@@ -64,6 +69,7 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
     isLoggedIn,
     nearAccountId,
     tatchi,
+    frontendConfig: props.__testOverrides?.frontendConfig,
     tempoGreetingInput,
     arcGreetingInput,
   });

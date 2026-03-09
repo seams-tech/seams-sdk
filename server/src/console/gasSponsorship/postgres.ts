@@ -11,8 +11,11 @@ import {
 } from '../shared/postgresTenantContext';
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
+  ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipChainBudget,
   ConsoleGasSponsorshipConfig,
+  ConsoleGasSponsorshipExecutor,
+  ConsoleGasSponsorshipNetworkClass,
   ConsoleGasSponsorshipTelemetry,
   CreateConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
@@ -111,6 +114,84 @@ function parseChainBudgets(raw: unknown): ConsoleGasSponsorshipChainBudget[] {
   return normalizeBudgets(out);
 }
 
+function normalizeAddress(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(normalized) ? normalized : null;
+}
+
+function normalizeSelector(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]{8}$/.test(normalized) ? normalized.toLowerCase() : null;
+}
+
+function normalizeBigIntString(value: unknown, fallback: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+  try {
+    const parsed = BigInt(normalized);
+    return parsed >= 0n ? parsed.toString(10) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClass {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'TESTNET' || normalized === 'MAINNET') return normalized;
+  return 'ANY';
+}
+
+function normalizeExecutor(value: unknown): ConsoleGasSponsorshipExecutor {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'RELAY_EOA') return normalized;
+  return 'RELAY_EOA';
+}
+
+function normalizeAllowedCalls(
+  input: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): ConsoleGasSponsorshipAllowedCall[] {
+  const source = Array.isArray(input) ? input : [];
+  const deduped = new Map<string, ConsoleGasSponsorshipAllowedCall>();
+  source.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry.chainId) || 0));
+    const to = normalizeAddress(entry.to);
+    const selector = normalizeSelector(entry.selector);
+    if (!chainId || !to || !selector) return;
+    deduped.set(`${chainId}:${to.toLowerCase()}:${selector}`, {
+      chainId,
+      to,
+      selector,
+      maxGasLimit: normalizeBigIntString(entry.maxGasLimit, '0'),
+      maxValueWei: normalizeBigIntString(entry.maxValueWei, '0'),
+    });
+  });
+  return Array.from(deduped.values());
+}
+
+function parseAllowedCalls(raw: unknown): ConsoleGasSponsorshipAllowedCall[] {
+  const out: ConsoleGasSponsorshipAllowedCall[] = [];
+  for (const entry of parseJsonArray(raw)) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const row = entry as Record<string, unknown>;
+    const chainId = Math.max(0, Math.floor(toNumber(row.chainId, 0)));
+    const to = normalizeAddress(row.to);
+    const selector = normalizeSelector(row.selector);
+    if (!chainId || !to || !selector) continue;
+    out.push({
+      chainId,
+      to,
+      selector,
+      maxGasLimit: normalizeBigIntString(row.maxGasLimit, '0'),
+      maxValueWei: normalizeBigIntString(row.maxValueWei, '0'),
+    });
+  }
+  return normalizeAllowedCalls(out);
+}
+
 function parseTelemetry(raw: unknown): ConsoleGasSponsorshipTelemetry {
   const row = parseJsonObject(raw);
   return {
@@ -130,10 +211,15 @@ function parseConfigRow(row: PgRow): ConsoleGasSponsorshipConfig {
     environmentId: toNullableString(row.environment_id),
     policyId: toNullableString(row.policy_id),
     walletSegmentId: toNullableString(row.wallet_segment_id),
+    policyName: String(row.policy_name || 'Gas Sponsorship Policy'),
+    templateId: toNullableString(row.template_id),
+    networkClass: normalizeNetworkClass(row.network_class),
+    executor: normalizeExecutor(row.executor),
     enabled: row.enabled !== false,
     paymasterMode: String(row.paymaster_mode || 'AUTO') as ConsoleGasSponsorshipConfig['paymasterMode'],
     fallbackBehavior: String(row.fallback_behavior || 'ALLOW_UNSPONSORED') as ConsoleGasSponsorshipConfig['fallbackBehavior'],
     chainBudgets: parseChainBudgets(row.chain_budgets),
+    allowedCalls: parseAllowedCalls(row.allowed_calls),
     telemetry: parseTelemetry(row.telemetry),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
@@ -189,20 +275,49 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
         environment_id TEXT,
         policy_id TEXT,
         wallet_segment_id TEXT,
+        policy_name TEXT NOT NULL,
+        template_id TEXT,
+        network_class TEXT NOT NULL,
+        executor TEXT NOT NULL,
         enabled BOOLEAN NOT NULL,
         paymaster_mode TEXT NOT NULL,
         fallback_behavior TEXT NOT NULL,
         chain_budgets JSONB NOT NULL,
+        allowed_calls JSONB NOT NULL,
         telemetry JSONB NOT NULL,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, org_id, id),
         CHECK (scope_type IN ('ORG', 'PROJECT', 'ENVIRONMENT', 'POLICY', 'WALLET_SEGMENT')),
+        CHECK (network_class IN ('ANY', 'TESTNET', 'MAINNET')),
+        CHECK (executor IN ('RELAY_EOA')),
         CHECK (paymaster_mode IN ('DISABLED', 'AUTO', 'FORCED')),
         CHECK (fallback_behavior IN ('REJECT', 'ALLOW_UNSPONSORED')),
         CHECK (jsonb_typeof(chain_budgets) = 'array'),
+        CHECK (jsonb_typeof(allowed_calls) = 'array'),
         CHECK (jsonb_typeof(telemetry) = 'object')
       )
+    `);
+
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS policy_name TEXT NOT NULL DEFAULT 'Gas Sponsorship Policy'
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS template_id TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS network_class TEXT NOT NULL DEFAULT 'ANY'
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS executor TEXT NOT NULL DEFAULT 'RELAY_EOA'
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS allowed_calls JSONB NOT NULL DEFAULT '[]'::jsonb
     `);
 
     await pool.query(`
@@ -290,6 +405,7 @@ export async function createPostgresConsoleGasSponsorshipService(
               AND ($5::text IS NULL OR environment_id = $5::text)
               AND ($6::text IS NULL OR policy_id = $6::text)
               AND ($7::text IS NULL OR wallet_segment_id = $7::text)
+              AND ($8::text IS NULL OR template_id = $8::text)
             ORDER BY updated_at_ms DESC, created_at_ms DESC`,
           [
             namespace,
@@ -299,6 +415,7 @@ export async function createPostgresConsoleGasSponsorshipService(
             request.environmentId || null,
             request.policyId || null,
             request.walletSegmentId || null,
+            request.templateId || null,
           ],
         );
         return out.rows.map((row) => parseConfigRow(row as PgRow));
@@ -309,6 +426,7 @@ export async function createPostgresConsoleGasSponsorshipService(
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const chainBudgets = normalizeBudgets(request.chainBudgets);
+        const allowedCalls = normalizeAllowedCalls(request.allowedCalls);
         const config: ConsoleGasSponsorshipConfig = {
           id: toNullableString(request.id) || makeId('gs', now),
           orgId: ctx.orgId,
@@ -317,10 +435,15 @@ export async function createPostgresConsoleGasSponsorshipService(
           environmentId: toNullableString(request.environmentId),
           policyId: toNullableString(request.policyId),
           walletSegmentId: toNullableString(request.walletSegmentId),
+          policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
+          templateId: toNullableString(request.templateId),
+          networkClass: normalizeNetworkClass(request.networkClass),
+          executor: normalizeExecutor(request.executor),
           enabled: request.enabled ?? true,
           paymasterMode: request.paymasterMode || 'AUTO',
           fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
           chainBudgets,
+          allowedCalls,
           telemetry: {
             sponsoredTransactionCount: 0,
             failedTransactionCount: 0,
@@ -336,9 +459,9 @@ export async function createPostgresConsoleGasSponsorshipService(
           const row = await queryOne(
             q,
             `INSERT INTO console_gas_sponsorship_configs
-              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, enabled, paymaster_mode, fallback_behavior, chain_budgets, telemetry, created_at_ms, updated_at_ms)
+              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, policy_name, template_id, network_class, executor, enabled, paymaster_mode, fallback_behavior, chain_budgets, allowed_calls, telemetry, created_at_ms, updated_at_ms)
              VALUES
-              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb, $14, $14)
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18::jsonb, $19, $19)
              RETURNING *`,
             [
               namespace,
@@ -349,10 +472,15 @@ export async function createPostgresConsoleGasSponsorshipService(
               config.environmentId,
               config.policyId,
               config.walletSegmentId,
+              config.policyName,
+              config.templateId,
+              config.networkClass,
+              config.executor,
               config.enabled,
               config.paymasterMode,
               config.fallbackBehavior,
               JSON.stringify(config.chainBudgets),
+              JSON.stringify(config.allowedCalls),
               JSON.stringify(config.telemetry),
               createdAtMs,
             ],
@@ -393,6 +521,18 @@ export async function createPostgresConsoleGasSponsorshipService(
             request.walletSegmentId === undefined
               ? current.walletSegmentId
               : toNullableString(request.walletSegmentId),
+          policyName:
+            request.policyName === undefined
+              ? current.policyName
+              : String(request.policyName || '').trim() || current.policyName,
+          templateId:
+            request.templateId === undefined ? current.templateId : toNullableString(request.templateId),
+          networkClass:
+            request.networkClass === undefined
+              ? current.networkClass
+              : normalizeNetworkClass(request.networkClass),
+          executor:
+            request.executor === undefined ? current.executor : normalizeExecutor(request.executor),
           enabled: request.enabled === undefined ? current.enabled : request.enabled,
           paymasterMode: request.paymasterMode || current.paymasterMode,
           fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
@@ -400,6 +540,10 @@ export async function createPostgresConsoleGasSponsorshipService(
             request.chainBudgets === undefined
               ? current.chainBudgets
               : normalizeBudgets(request.chainBudgets),
+          allowedCalls:
+            request.allowedCalls === undefined
+              ? current.allowedCalls
+              : normalizeAllowedCalls(request.allowedCalls),
           updatedAt: nowFn().toISOString(),
         };
         validateScope(next);
@@ -413,11 +557,16 @@ export async function createPostgresConsoleGasSponsorshipService(
                   environment_id = $6,
                   policy_id = $7,
                   wallet_segment_id = $8,
-                  enabled = $9,
-                  paymaster_mode = $10,
-                  fallback_behavior = $11,
-                  chain_budgets = $12::jsonb,
-                  updated_at_ms = $13
+                  policy_name = $9,
+                  template_id = $10,
+                  network_class = $11,
+                  executor = $12,
+                  enabled = $13,
+                  paymaster_mode = $14,
+                  fallback_behavior = $15,
+                  chain_budgets = $16::jsonb,
+                  allowed_calls = $17::jsonb,
+                  updated_at_ms = $18
             WHERE namespace = $1
               AND org_id = $2
               AND id = $3
@@ -431,10 +580,15 @@ export async function createPostgresConsoleGasSponsorshipService(
             next.environmentId,
             next.policyId,
             next.walletSegmentId,
+            next.policyName,
+            next.templateId,
+            next.networkClass,
+            next.executor,
             next.enabled,
             next.paymasterMode,
             next.fallbackBehavior,
             JSON.stringify(next.chainBudgets),
+            JSON.stringify(next.allowedCalls),
             updatedAtMs,
           ],
         );

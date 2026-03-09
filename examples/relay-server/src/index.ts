@@ -1,14 +1,20 @@
 import express, { Express } from 'express';
+import { Pool } from 'pg';
 import {
   AuthService,
   createInMemoryConsoleSponsoredCallService,
   createPostgresConsoleSponsoredCallService,
+  createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createEcdsaAuthSessionStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
+  DEFAULT_TEMPO_DRIP_GAS_LIMIT,
+  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+  ensureTempoOnboardingSponsorshipForExistingEnvironments,
   resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
+  resolveSponsoredEvmCallConfigFromEnv,
   requireEnvVar,
   createThresholdSigningService,
   type ConsoleSponsoredCallService,
@@ -23,9 +29,13 @@ import {
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleApprovalService,
+  createInMemoryConsolePolicyService,
   createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleTeamRbacService,
+  createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
+  createPostgresConsoleApprovalService,
   createPostgresConsoleApiKeyService,
   createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
@@ -34,8 +44,10 @@ import {
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
   createPostgresConsoleOrgProjectEnvService,
+  createPostgresConsolePolicyService,
   createPostgresConsoleRuntimeSnapshotService,
   createPostgresConsoleTeamRbacService,
+  createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
@@ -49,30 +61,24 @@ import {
   type ConsoleAuditService,
   type ConsoleBootstrapTokenService,
   type ConsoleGasSponsorshipService,
+  type ConsoleApprovalService,
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
   type ConsoleOrgProjectEnvService,
+  type ConsolePolicyService,
   type ConsoleRuntimeSnapshotService,
   type ConsoleTeamRbacService,
+  type ConsoleWallet,
+  type ConsoleWalletService,
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
 } from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
-import {
-  createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
-  DEFAULT_TEMPO_DRIP_GAS_LIMIT,
-  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
-  ensureTempoOnboardingSponsorshipForExistingEnvironments,
-} from './tempoOnboardingPolicy.js';
 import { createJwtSession } from './jwtSession.js';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 import { createStripeBillingProviderAdapter } from './stripeBillingProvider.js';
-import {
-  registerTempoSponsoredCallRoute,
-  resolveTempoSponsoredCallConfigFromEnv,
-} from './tempoSponsoredCalls.js';
 
 dotenv.config();
 
@@ -300,6 +306,397 @@ async function seedDemoConsoleOrgAndMembers(input: {
   );
 }
 
+function makeDemoWalletAddress(seed: string): `0x${string}` {
+  const normalized = String(seed || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  let hex = '';
+  for (const char of normalized) {
+    hex += char.charCodeAt(0).toString(16).padStart(2, '0');
+  }
+  return `0x${(hex + '0'.repeat(40)).slice(0, 40)}` as `0x${string}`;
+}
+
+function makeDemoConsoleWallet(input: {
+  id: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  chain: ConsoleWallet['chain'];
+  walletType?: ConsoleWallet['walletType'];
+  status?: ConsoleWallet['status'];
+  policyId?: string | null;
+  balanceMinor?: number;
+  lastActivityAt?: string | null;
+}): ConsoleWallet {
+  const nowIso = new Date().toISOString();
+  return {
+    id: input.id,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    userId: `user_${input.id}`,
+    externalRefId: `ext_${input.id}`,
+    address: makeDemoWalletAddress(input.id),
+    chain: input.chain,
+    walletType: input.walletType || 'EOA',
+    status: input.status || 'ACTIVE',
+    policyId: input.policyId === undefined ? null : input.policyId,
+    balanceMinor: input.balanceMinor === undefined ? 0 : input.balanceMinor,
+    lastActivityAt: input.lastActivityAt === undefined ? nowIso : input.lastActivityAt,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+}
+
+function buildDemoConsoleWalletSeeds(input: {
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+}): ConsoleWallet[] {
+  const stagingEnvironmentId = `${input.projectId}-staging`;
+  const developmentEnvironmentId = `${input.projectId}-dev`;
+  return [
+    makeDemoConsoleWallet({
+      id: 'wallet_console_core_prod_eth_1',
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      chain: 'Ethereum',
+      balanceMinor: 425_000,
+    }),
+    makeDemoConsoleWallet({
+      id: 'wallet_console_core_prod_base_1',
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      chain: 'Base',
+      balanceMinor: 310_000,
+    }),
+    makeDemoConsoleWallet({
+      id: 'wallet_console_core_prod_near_1',
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      chain: 'NEAR',
+      walletType: 'SMART',
+      balanceMinor: 155_000,
+    }),
+    makeDemoConsoleWallet({
+      id: 'wallet_console_core_staging_tempo_1',
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: stagingEnvironmentId,
+      chain: 'Tempo',
+      balanceMinor: 92_500,
+    }),
+    makeDemoConsoleWallet({
+      id: 'wallet_console_core_dev_arc_1',
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: developmentEnvironmentId,
+      chain: 'Arc Circle',
+      status: 'ARCHIVED',
+      balanceMinor: 0,
+      lastActivityAt: null,
+    }),
+  ];
+}
+
+async function seedDemoConsoleWalletsInPostgres(input: {
+  postgresUrl: string;
+  namespace: string;
+  wallets: ConsoleWallet[];
+  logger: Pick<Console, 'log'>;
+}): Promise<void> {
+  const pool = new Pool({ connectionString: input.postgresUrl });
+  try {
+    for (const wallet of input.wallets) {
+      await pool.query(
+        `
+          INSERT INTO console_wallet_index (
+            namespace,
+            id,
+            org_id,
+            project_id,
+            environment_id,
+            user_id,
+            external_ref_id,
+            address,
+            chain,
+            wallet_type,
+            status,
+            policy_id,
+            balance_minor,
+            last_activity_at_ms,
+            created_at_ms,
+            updated_at_ms
+          )
+          VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+          )
+          ON CONFLICT (namespace, id) DO NOTHING
+        `,
+        [
+          input.namespace,
+          wallet.id,
+          wallet.orgId,
+          wallet.projectId,
+          wallet.environmentId,
+          wallet.userId,
+          wallet.externalRefId,
+          wallet.address,
+          wallet.chain,
+          wallet.walletType,
+          wallet.status,
+          wallet.policyId,
+          wallet.balanceMinor,
+          wallet.lastActivityAt ? Date.parse(wallet.lastActivityAt) : null,
+          Date.parse(wallet.createdAt),
+          Date.parse(wallet.updatedAt),
+        ],
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+
+  input.logger.log(
+    `[console-demo-seed] wallets=${input.wallets.length} namespace=${input.namespace} storage=postgres`,
+  );
+}
+
+async function ensureDemoPolicyExists(input: {
+  policies: ConsolePolicyService;
+  orgId: string;
+  actorUserId: string;
+  id: string;
+  name: string;
+  description?: string;
+  rules?: Record<string, unknown>;
+  publish?: boolean;
+}): Promise<void> {
+  const ctx = {
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    roles: ['owner', 'admin'],
+  };
+  try {
+    await input.policies.createPolicy(ctx, {
+      id: input.id,
+      name: input.name,
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.rules ? { rules: input.rules } : {}),
+    });
+    if (input.publish) {
+      await input.policies.publishPolicy(ctx, input.id);
+    }
+  } catch (error: unknown) {
+    if (!hasConsoleErrorCode(error, 'policy_already_exists')) throw error;
+  }
+}
+
+async function ensureDemoAssignmentExists(input: {
+  policies: ConsolePolicyService;
+  orgId: string;
+  actorUserId: string;
+  scopeType: 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
+  scopeId: string;
+  policyId: string;
+}): Promise<void> {
+  const ctx = {
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    roles: ['owner', 'admin'],
+  };
+  const existing = await input.policies.listAssignments(ctx, {
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
+  });
+  if (existing.length > 0) return;
+  await input.policies.upsertAssignment(ctx, {
+    scopeType: input.scopeType,
+    scopeId: input.scopeId,
+    policyId: input.policyId,
+  });
+}
+
+async function ensureDemoApprovalRequest(input: {
+  approvals: ConsoleApprovalService;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  id: string;
+  reason: string;
+  resourceType: string;
+  resourceId: string;
+  approved?: boolean;
+}): Promise<void> {
+  const requesterCtx = {
+    orgId: input.orgId,
+    actorUserId: 'console-admin',
+    roles: ['owner', 'admin'],
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+  };
+  const approverCtx = {
+    orgId: input.orgId,
+    actorUserId: 'console-owner',
+    roles: ['owner', 'admin'],
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+  };
+
+  let approval = await input.approvals.getApprovalRequest(requesterCtx, input.id);
+  if (!approval) {
+    approval = await input.approvals.createApprovalRequest(requesterCtx, {
+      id: input.id,
+      operationType: 'POLICY_PUBLISH',
+      reason: input.reason,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+      resourceType: input.resourceType,
+      resourceId: input.resourceId,
+      metadata: {
+        seededBy: 'console-demo-seed',
+      },
+    });
+  }
+
+  if (input.approved && approval.status === 'PENDING') {
+    try {
+      await input.approvals.approveApprovalRequest(approverCtx, input.id, {
+        reason: 'Approved by console demo seed',
+        mfaVerified: false,
+      });
+    } catch (error: unknown) {
+      if (!hasConsoleErrorCode(error, 'already_decided')) throw error;
+    }
+  }
+}
+
+async function seedDemoConsolePoliciesAndApprovals(input: {
+  policies: ConsolePolicyService;
+  approvals: ConsoleApprovalService;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  walletIds: string[];
+  logger: Pick<Console, 'log'>;
+}): Promise<void> {
+  const walletOverrideId = input.walletIds[0];
+  await ensureDemoPolicyExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    id: 'policy_console_project_default',
+    name: 'Project signing policy',
+    description: 'Default project guardrails for managed signing wallets.',
+    rules: {
+      allowedChains: ['Ethereum', 'Base', 'NEAR'],
+      blockedActions: ['export_key'],
+      maxAmountMinor: 250_000,
+    },
+    publish: true,
+  });
+  await ensureDemoPolicyExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    id: 'policy_console_environment_prod',
+    name: 'Production environment policy',
+    description: 'Tighter production limits for the active environment.',
+    rules: {
+      allowedChains: ['Base', 'NEAR'],
+      blockedActions: ['export_key'],
+      maxAmountMinor: 125_000,
+    },
+    publish: true,
+  });
+  await ensureDemoPolicyExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    id: 'policy_console_wallet_override',
+    name: 'Wallet override policy',
+    description: 'Single-wallet override for sensitive NEAR activity.',
+    rules: {
+      allowedChains: ['NEAR'],
+      blockedActions: ['export_key', 'transfer'],
+      maxAmountMinor: 50_000,
+    },
+    publish: true,
+  });
+  await ensureDemoPolicyExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    id: 'policy_console_publish_candidate',
+    name: 'Draft publish candidate',
+    description: 'Draft policy intended for approval-backed publish testing.',
+    rules: {
+      allowedChains: ['Ethereum', 'Base'],
+      blockedActions: ['export_key'],
+      maxAmountMinor: 80_000,
+    },
+    publish: false,
+  });
+
+  await ensureDemoAssignmentExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    scopeType: 'PROJECT',
+    scopeId: input.projectId,
+    policyId: 'policy_console_project_default',
+  });
+  await ensureDemoAssignmentExists({
+    policies: input.policies,
+    orgId: input.orgId,
+    actorUserId: 'console-seed-owner',
+    scopeType: 'ENVIRONMENT',
+    scopeId: input.environmentId,
+    policyId: 'policy_console_environment_prod',
+  });
+  if (walletOverrideId) {
+    await ensureDemoAssignmentExists({
+      policies: input.policies,
+      orgId: input.orgId,
+      actorUserId: 'console-seed-owner',
+      scopeType: 'WALLET',
+      scopeId: walletOverrideId,
+      policyId: 'policy_console_wallet_override',
+    });
+  }
+
+  await ensureDemoApprovalRequest({
+    approvals: input.approvals,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    id: 'apr_policy_publish_pending_demo',
+    reason: 'Review the draft publish candidate for production rollout.',
+    resourceType: 'policy',
+    resourceId: 'policy_console_publish_candidate',
+  });
+  await ensureDemoApprovalRequest({
+    approvals: input.approvals,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    id: 'apr_policy_publish_approved_demo',
+    reason: 'Approved seed request for policy publish testing.',
+    resourceType: 'policy',
+    resourceId: 'policy_console_publish_candidate',
+    approved: true,
+  });
+
+  input.logger.log(
+    `[console-demo-seed] policies=4 approvals=2 project=${input.projectId} environment=${input.environmentId}`,
+  );
+}
+
 async function main() {
   const env = process.env;
   const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
@@ -347,8 +744,7 @@ async function main() {
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
-  const allowedOrigins = sanitizeOrigins([config.expectedOrigin, config.expectedWalletOrigin]);
-  const tempoSponsoredCallConfig = resolveTempoSponsoredCallConfigFromEnv(env);
+  const sponsoredEvmCallConfig = resolveSponsoredEvmCallConfigFromEnv(env);
   const tempoOnboardingFaucetContractRaw = String(env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '').trim();
   const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
     .trim()
@@ -559,10 +955,18 @@ async function main() {
   let consoleApiKeys: ConsoleApiKeyService;
   let consoleBootstrapTokens: ConsoleBootstrapTokenService;
   let consoleGasSponsorship: ConsoleGasSponsorshipService;
+  let consoleApprovals: ConsoleApprovalService;
+  let consolePolicies: ConsolePolicyService;
   let consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService;
   let consoleTeamRbac: ConsoleTeamRbacService;
+  let consoleWallets: ConsoleWalletService;
   let consoleSponsoredCalls: ConsoleSponsoredCallService;
   const consoleCoreNamespace = consoleBillingNamespace;
+  const demoWalletSeeds = buildDemoConsoleWalletSeeds({
+    orgId: consoleDemoOrgId,
+    projectId: consoleDemoProjectId,
+    environmentId: consoleDemoEnvironmentId,
+  });
   if (consoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
       throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
@@ -611,6 +1015,18 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
+    consoleApprovals = await createPostgresConsoleApprovalService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consolePolicies = await createPostgresConsolePolicyService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
     consoleRuntimeSnapshots = await createPostgresConsoleRuntimeSnapshotService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
@@ -618,6 +1034,12 @@ async function main() {
       ensureSchema: true,
     });
     consoleTeamRbac = await createPostgresConsoleTeamRbacService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleWallets = await createPostgresConsoleWalletService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
@@ -637,8 +1059,13 @@ async function main() {
     consoleApiKeys = createInMemoryConsoleApiKeyService();
     consoleBootstrapTokens = createInMemoryConsoleBootstrapTokenService();
     consoleGasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    consoleApprovals = createInMemoryConsoleApprovalService();
+    consolePolicies = createInMemoryConsolePolicyService();
     consoleRuntimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+    consoleWallets = createInMemoryConsoleWalletService({
+      seedWallets: demoWalletSeeds,
+    });
     consoleSponsoredCalls = createInMemoryConsoleSponsoredCallService();
   }
 
@@ -652,7 +1079,7 @@ async function main() {
     base: consoleOrgProjectEnvBase,
     gasSponsorship: consoleGasSponsorship,
     runtimeSnapshots: consoleRuntimeSnapshots,
-    contractAddress: normalizedOnboardingContractAddress,
+    faucetContractAddress: normalizedOnboardingContractAddress,
     maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
   });
 
@@ -743,6 +1170,23 @@ async function main() {
       environmentId: consoleDemoEnvironmentId,
       logger: console,
     });
+    if (consolePostgresUrl) {
+      await seedDemoConsoleWalletsInPostgres({
+        postgresUrl: consolePostgresUrl,
+        namespace: consoleCoreNamespace,
+        wallets: demoWalletSeeds,
+        logger: console,
+      });
+    }
+    await seedDemoConsolePoliciesAndApprovals({
+      policies: consolePolicies,
+      approvals: consoleApprovals,
+      orgId: consoleDemoOrgId,
+      projectId: consoleDemoProjectId,
+      environmentId: consoleDemoEnvironmentId,
+      walletIds: demoWalletSeeds.map((wallet) => wallet.id),
+      logger: console,
+    });
   }
   await ensureTempoOnboardingSponsorshipForExistingEnvironments({
     orgProjectEnv: consoleOrgProjectEnv,
@@ -755,7 +1199,7 @@ async function main() {
       projectId: consoleDemoProjectId,
       environmentId: consoleDemoEnvironmentId,
     },
-    contractAddress: normalizedOnboardingContractAddress,
+    faucetContractAddress: normalizedOnboardingContractAddress,
     maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
     projectId: consoleDemoProjectId,
   });
@@ -767,17 +1211,6 @@ async function main() {
   });
 
   app.use(express.json({ limit: '1mb' }));
-
-  registerTempoSponsoredCallRoute({
-    app,
-    apiKeys: consoleApiKeys,
-    billing: consoleBilling,
-    ledger: consoleSponsoredCalls,
-    runtimeSnapshots: consoleRuntimeSnapshots,
-    corsOrigins: allowedOrigins,
-    config: tempoSponsoredCallConfig,
-    logger: console,
-  });
 
   // Mount router built from AuthService
   app.use(
@@ -805,6 +1238,13 @@ async function main() {
       ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
       bootstrapGrantBroker: relayBootstrapGrantBroker,
       bootstrapTokenStore: consoleBootstrapTokens,
+      sponsoredEvmCall: {
+        apiKeys: consoleApiKeys,
+        billing: consoleBilling,
+        ledger: consoleSponsoredCalls,
+        runtimeSnapshots: consoleRuntimeSnapshots,
+        config: sponsoredEvmCallConfig,
+      },
       prfSessionSeal,
       logger: console,
     }),
@@ -823,10 +1263,13 @@ async function main() {
       webhooks: consoleWebhooks,
       apiKeys: consoleApiKeys,
       gasSponsorship: consoleGasSponsorship,
+      approvals: consoleApprovals,
+      policies: consolePolicies,
       runtimeSnapshots: consoleRuntimeSnapshots,
       onboarding: consoleOnboarding,
       orgProjectEnv: consoleOrgProjectEnv,
       teamRbac: consoleTeamRbac,
+      wallets: consoleWallets,
       audit: consoleAudit,
       observability: consoleObservability,
       observabilityIngestion: consoleObservabilityIngestion,
@@ -839,13 +1282,13 @@ async function main() {
     console.log(`Server listening on http://${listenHost}:${config.port}`);
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
     console.log(
-      `Tempo sponsorship route: ${
-        tempoSponsoredCallConfig?.enabled ? 'enabled' : 'disabled'
+      `Sponsored EVM route: ${
+        sponsoredEvmCallConfig?.enabled ? 'enabled' : 'disabled'
       }`,
     );
-    if (tempoSponsoredCallConfig?.enabled) {
+    if (sponsoredEvmCallConfig?.enabled) {
       console.log(
-        `Tempo sponsorship executor: chainId=${tempoSponsoredCallConfig.chainId} sponsor=${tempoSponsoredCallConfig.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
+        `Sponsored EVM executor: chainId=${sponsoredEvmCallConfig.chainId} sponsor=${sponsoredEvmCallConfig.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
       );
     }
     if (rorRpId) {

@@ -2,28 +2,46 @@ import { useCallback, useState } from 'react';
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 import { toast } from 'sonner';
 
-import { FRONTEND_CONFIG } from '@/config';
+import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
 import {
   TEMPO_ALPHA_USD_FEE_TOKEN,
+  TEMPO_DRIP_GAS_LIMIT,
+  TEMPO_GREETING_CONTRACT,
   buildEvmExplorerTxUrl,
-  buildTempoDripRequest,
   buildTempoEip1559GreetingRequest,
   compactHex,
+  encodeTempoDripInput,
   formatWeiToEth,
   isEvmAddress,
   isUserCancellationError,
   parseInsufficientFundsError,
-  readEvmNativeBalance,
   resolveClickTimeEip1559FeeCaps,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress } from './demoThresholdTypes';
 
+type TempoSponsoredCallResponse = {
+  ok: boolean;
+  txHash?: string;
+  policyId?: string;
+  message?: string;
+  code?: string;
+};
+
+function buildTempoSponsoredCallUrl(relayerUrl: string): string {
+  const trimmed = String(relayerUrl || '').trim();
+  return `${trimmed.replace(/\/$/, '')}/sponsorships/evm/call`;
+}
+
 type UseDemoTempoSigningActionsArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
   tatchi: ReturnType<typeof useTatchi>['tatchi'];
+  frontendConfig?: Pick<
+    FrontendConfig,
+    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+  >;
   canSignTempo: boolean;
   tempoGreetingInput: string;
   tempoEip1559FeeCaps: Eip1559FeeCaps;
@@ -43,6 +61,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     isLoggedIn,
     nearAccountId,
     tatchi,
+    frontendConfig = FRONTEND_CONFIG,
     canSignTempo,
     tempoGreetingInput,
     tempoEip1559FeeCaps,
@@ -66,56 +85,73 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     toast.loading('Requesting Tempo token drip…', { id: toastId, description: null });
     let executedTxHash: `0x${string}` | undefined;
     let dripTokensForAttempt: EvmAddress[] = [];
-    let senderNativeBalanceRaw: bigint | null = null;
     try {
+      const managedRegistration = frontendConfig.managedRegistration;
+      const relayerUrl = String(frontendConfig.relayerUrl || '').trim();
+      if (!managedRegistration?.environmentId || !managedRegistration.publishableKey) {
+        throw new Error('Managed registration is not configured for Tempo sponsorship.');
+      }
+      if (!relayerUrl) {
+        throw new Error('Relay URL is not configured for Tempo sponsorship.');
+      }
       const configuredTokenRaw = String(tempoUserFeeToken || '').trim();
       const dripToken = isEvmAddress(configuredTokenRaw)
         ? configuredTokenRaw
         : TEMPO_ALPHA_USD_FEE_TOKEN;
       dripTokensForAttempt = [dripToken];
-      const thresholdSenderPromise = resolveThresholdSenderForEvmFamily().catch(() => null);
-      const senderNativeBalancePromise = thresholdSenderPromise.then(async (thresholdSender) => {
-        if (!thresholdSender) return null;
-        return await readEvmNativeBalance({
-          rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-          address: thresholdSender,
-          blockTag: 'latest',
-        }).catch(() => null);
-      });
-      const feeCaps = await resolveClickTimeEip1559FeeCaps({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
-        fallbackFeeCaps: tempoEip1559FeeCaps,
-      });
-      const request = buildTempoDripRequest({
-        feeCaps,
-        tokenAddresses: dripTokensForAttempt,
-      });
-      const firstCall = request.tx.calls[0];
-      const execution = await tatchi.tempo.executeEvmFamilyTransaction({
-        nearAccountId,
-        request,
-        payloadExpectation: {
-          to: firstCall?.to,
-          input: firstCall?.input || '0x',
+      const thresholdSender = await resolveThresholdSenderForEvmFamily();
+      if (!isEvmAddress(thresholdSender)) {
+        throw new Error('Unable to resolve the Tempo threshold sender address.');
+      }
+      const response = await fetch(buildTempoSponsoredCallUrl(relayerUrl), {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${managedRegistration.publishableKey}`,
+          'content-type': 'application/json',
+          'x-tatchi-environment-id': managedRegistration.environmentId,
         },
-        postFinalizationCheck: async () => {
-          const thresholdSender = await thresholdSenderPromise;
-          if (thresholdSender) {
-            await refreshTempoUserFeeTokenBalance({
-              silent: true,
-              userAddress: thresholdSender,
-              feeToken: dripToken,
-            });
-          }
-        },
+        body: JSON.stringify({
+          environmentId: managedRegistration.environmentId,
+          nearAccountId,
+          walletAddress: thresholdSender,
+          chainId: 42_431,
+          call: {
+            to: TEMPO_GREETING_CONTRACT,
+            data: encodeTempoDripInput(dripTokensForAttempt),
+            gasLimit: TEMPO_DRIP_GAS_LIMIT.toString(10),
+            value: '0',
+          },
+        }),
       });
-      executedTxHash = execution.txHash;
-      senderNativeBalanceRaw = await senderNativeBalancePromise;
+      let payload: TempoSponsoredCallResponse | null = null;
+      try {
+        payload = (await response.json()) as TempoSponsoredCallResponse;
+      } catch {
+        payload = null;
+      }
+      if (!response.ok || !payload?.ok) {
+        const reason =
+          String(payload?.message || '').trim() ||
+          `Relay returned ${response.status} ${response.statusText || 'request failed'}`;
+        const failure = new Error(reason) as Error & { code?: string };
+        failure.code = String(payload?.code || '').trim() || undefined;
+        throw failure;
+      }
+      const txHash = String(payload.txHash || '').trim();
+      if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+        throw new Error('Relay did not return a valid Tempo transaction hash.');
+      }
+      executedTxHash = txHash as `0x${string}`;
+      await refreshTempoUserFeeTokenBalance({
+        silent: true,
+        userAddress: thresholdSender,
+        feeToken: dripToken,
+      });
       const txUrl = buildEvmExplorerTxUrl({
-        explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
-        txHash: execution.txHash,
+        explorerBaseUrl: frontendConfig.tempoExplorerUrl,
+        txHash: executedTxHash,
       });
-      const txLabel = compactHex(execution.txHash);
+      const txLabel = compactHex(executedTxHash);
 
       toast.success('Tempo drip finalized', {
         id: toastId,
@@ -143,51 +179,30 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
           ? String((resolvedError as { code?: unknown }).code || '')
           : '';
-      if (errorCode === 'post_finalization_state_mismatch') {
-        toast.error(`Tempo drip finalized, but post-finalization refresh failed: ${message}`, {
-          id: toastId,
-          description: null,
-        });
-        console.error('[DemoPage][TempoDripPostFinalizationSyncError]', {
-          atIso: new Date().toISOString(),
-          error: resolvedError,
-          message,
-          senderNativeBalanceRaw,
-          dripTokensForAttempt,
-          txHash: executedTxHash,
-        });
-        return;
-      }
-      if (isUserCancellationError(resolvedError)) {
-        toast.error('Tempo drip cancelled by user.', { id: toastId, description: null });
-        return;
-      }
-      const insufficient = parseInsufficientFundsError(message);
-      if (insufficient) {
-        toast.error(
-          `Tempo sender has insufficient native gas balance (have ${formatWeiToEth(insufficient.haveWei)}, need ${formatWeiToEth(insufficient.wantWei)} native tokens).`,
-          { id: toastId, description: null },
-        );
-      } else {
-        toast.error(`Tempo drip failed: ${message}`, { id: toastId, description: null });
-      }
+      const unavailable =
+        errorCode === 'sponsored_evm_call_disabled' ||
+        errorCode === 'runtime_snapshot_not_found' ||
+        errorCode === 'publishable_key_auth_unavailable';
+      toast.error(
+        unavailable ? `Tempo sponsorship unavailable: ${message}` : `Tempo drip failed: ${message}`,
+        { id: toastId, description: null },
+      );
       console.error('[DemoPage][TempoDripError]', {
         atIso: new Date().toISOString(),
         error: resolvedError,
         message,
-        senderNativeBalanceRaw,
         dripTokensForAttempt,
+        txHash: executedTxHash,
       });
     } finally {
       setTempoDripLoading(false);
     }
   }, [
+    frontendConfig,
     isLoggedIn,
     nearAccountId,
     refreshTempoUserFeeTokenBalance,
     resolveThresholdSenderForEvmFamily,
-    tatchi,
-    tempoEip1559FeeCaps,
     tempoUserFeeToken,
   ]);
 
@@ -202,7 +217,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     try {
       const requestedGreeting = tempoGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
-        rpcUrl: FRONTEND_CONFIG.tempoRpcUrl,
+        rpcUrl: frontendConfig.tempoRpcUrl,
         fallbackFeeCaps: tempoEip1559FeeCaps,
       });
       const request = buildTempoEip1559GreetingRequest(requestedGreeting, feeCaps);
@@ -222,7 +237,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         },
       });
       const txUrl = buildEvmExplorerTxUrl({
-        explorerBaseUrl: FRONTEND_CONFIG.tempoExplorerUrl,
+        explorerBaseUrl: frontendConfig.tempoExplorerUrl,
         txHash: execution.txHash,
       });
       const txLabel = compactHex(execution.txHash);
@@ -286,6 +301,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
   }, [
     canSignTempo,
     fetchTempoGreeting,
+    frontendConfig,
     nearAccountId,
     refreshThresholdEvmFundingAddress,
     tatchi,

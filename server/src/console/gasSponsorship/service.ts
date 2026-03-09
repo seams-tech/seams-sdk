@@ -1,7 +1,10 @@
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
+  ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipChainBudget,
   ConsoleGasSponsorshipConfig,
+  ConsoleGasSponsorshipExecutor,
+  ConsoleGasSponsorshipNetworkClass,
   ConsoleGasSponsorshipScopeType,
   CreateConsoleGasSponsorshipRequest,
   ListConsoleGasSponsorshipRequest,
@@ -58,10 +61,58 @@ function cloneBudgets(input: ConsoleGasSponsorshipChainBudget[]): ConsoleGasSpon
   }));
 }
 
+function normalizeAddress(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]{40}$/.test(normalized) ? normalized : null;
+}
+
+function normalizeSelector(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  return /^0x[0-9a-fA-F]{8}$/.test(normalized) ? normalized.toLowerCase() : null;
+}
+
+function normalizeBigIntString(value: unknown, fallback: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+  try {
+    const parsed = BigInt(normalized);
+    return parsed >= 0n ? parsed.toString(10) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function cloneAllowedCalls(input: ConsoleGasSponsorshipAllowedCall[]): ConsoleGasSponsorshipAllowedCall[] {
+  return input.map((entry) => ({
+    chainId: entry.chainId,
+    to: entry.to,
+    selector: entry.selector,
+    maxGasLimit: entry.maxGasLimit,
+    maxValueWei: entry.maxValueWei,
+  }));
+}
+
+function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClass {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'TESTNET' || normalized === 'MAINNET') return normalized;
+  return 'ANY';
+}
+
+function normalizeExecutor(value: unknown): ConsoleGasSponsorshipExecutor {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'RELAY_EOA') return normalized;
+  return 'RELAY_EOA';
+}
+
 function cloneConfig(config: ConsoleGasSponsorshipConfig): ConsoleGasSponsorshipConfig {
   return {
     ...config,
     chainBudgets: cloneBudgets(config.chainBudgets),
+    allowedCalls: cloneAllowedCalls(config.allowedCalls),
     telemetry: { ...config.telemetry },
   };
 }
@@ -112,6 +163,29 @@ function normalizeBudgets(
   return Array.from(deduped.values());
 }
 
+function normalizeAllowedCalls(
+  input: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): ConsoleGasSponsorshipAllowedCall[] {
+  const raw = Array.isArray(input) ? input : [];
+  const deduped = new Map<string, ConsoleGasSponsorshipAllowedCall>();
+  raw.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry.chainId) || 0));
+    const to = normalizeAddress(entry.to);
+    const selector = normalizeSelector(entry.selector);
+    if (!chainId || !to || !selector) return;
+    const maxGasLimit = normalizeBigIntString(entry.maxGasLimit, '0');
+    const maxValueWei = normalizeBigIntString(entry.maxValueWei, '0');
+    deduped.set(`${chainId}:${to.toLowerCase()}:${selector}`, {
+      chainId,
+      to,
+      selector,
+      maxGasLimit,
+      maxValueWei,
+    });
+  });
+  return Array.from(deduped.values());
+}
+
 export function createInMemoryConsoleGasSponsorshipService(
   opts: InMemoryConsoleGasSponsorshipServiceOptions = {},
 ): ConsoleGasSponsorshipService {
@@ -138,6 +212,7 @@ export function createInMemoryConsoleGasSponsorshipService(
           if (request.environmentId && row.environmentId !== request.environmentId) return false;
           if (request.policyId && row.policyId !== request.policyId) return false;
           if (request.walletSegmentId && row.walletSegmentId !== request.walletSegmentId) return false;
+          if (request.templateId && row.templateId !== request.templateId) return false;
           return true;
         })
         .map(cloneConfig);
@@ -161,10 +236,15 @@ export function createInMemoryConsoleGasSponsorshipService(
         environmentId,
         policyId,
         walletSegmentId,
+        policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
+        templateId: normalizeString(request.templateId),
+        networkClass: normalizeNetworkClass(request.networkClass),
+        executor: normalizeExecutor(request.executor),
         enabled: request.enabled ?? true,
         paymasterMode: request.paymasterMode || 'AUTO',
         fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
         chainBudgets: normalizeBudgets(request.chainBudgets),
+        allowedCalls: normalizeAllowedCalls(request.allowedCalls),
         telemetry: {
           sponsoredTransactionCount: 0,
           failedTransactionCount: 0,
@@ -205,6 +285,18 @@ export function createInMemoryConsoleGasSponsorshipService(
           request.walletSegmentId === undefined
             ? current.walletSegmentId
             : normalizeString(request.walletSegmentId),
+        policyName:
+          request.policyName === undefined
+            ? current.policyName
+            : String(request.policyName || '').trim() || current.policyName,
+        templateId:
+          request.templateId === undefined ? current.templateId : normalizeString(request.templateId),
+        networkClass:
+          request.networkClass === undefined
+            ? current.networkClass
+            : normalizeNetworkClass(request.networkClass),
+        executor:
+          request.executor === undefined ? current.executor : normalizeExecutor(request.executor),
         enabled: request.enabled === undefined ? current.enabled : request.enabled,
         paymasterMode: request.paymasterMode || current.paymasterMode,
         fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
@@ -212,6 +304,10 @@ export function createInMemoryConsoleGasSponsorshipService(
           request.chainBudgets === undefined
             ? cloneBudgets(current.chainBudgets)
             : normalizeBudgets(request.chainBudgets),
+        allowedCalls:
+          request.allowedCalls === undefined
+            ? cloneAllowedCalls(current.allowedCalls)
+            : normalizeAllowedCalls(request.allowedCalls),
         updatedAt: toIso(now()),
       };
 

@@ -30,6 +30,40 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 
 This route is consumed internally by the SDK’s registration flows.
 
+### `POST /sponsorships/evm/call`
+
+Executes a generic sponsored single-call EVM transaction for the demo onboarding flow.
+
+The route itself is generic, but the active runtime snapshot seeds a default `Tempo Testnet Onboarding` policy that only allows the Tempo faucet call `drip(address[])` on chain `42431`.
+
+- Request body:
+  ```json
+  {
+    "environmentId": "<environment-id>",
+    "nearAccountId": "<near-account-id>",
+    "walletAddress": "0x...",
+    "chainId": 42431,
+    "call": {
+      "to": "0x...",
+      "data": "0x...",
+      "gasLimit": "300000",
+      "value": "0"
+    }
+  }
+  ```
+- Required headers:
+  - `Authorization: Bearer <publishable_key>`
+  - `X-Tatchi-Environment-Id: <environment-id>`
+- Behavior:
+  - authenticates the publishable key against origin + environment
+  - loads the latest runtime snapshot for the environment
+  - matches the requested call against the resolved sponsored-call policy
+  - broadcasts a relay-owned EIP-1559 transaction when policy allows the call
+  - records exact finalized gas spend in the console sponsored-call ledger
+  - records a billing usage event for the associated org
+
+Enable with `SPONSORED_EVM_CALL_ENABLED=1` and configure the sponsor account env vars in `.env.example`.
+
 ### Passkey Verification (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
 
 Verifies a standard WebAuthn assertion (contract-free; relay-stored authenticators + counter persistence).

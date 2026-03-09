@@ -45,6 +45,9 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         evmDispatches: 0,
         tempoReceiptPolls: 0,
         evmReceiptPolls: 0,
+        tempoSponsoredCallRequests: 0,
+        tempoFeeTokenBalanceReads: 0,
+        lastTempoSponsoredCallRequest: null as Record<string, unknown> | null,
       };
       (window as any).__docsRegisterFlowCounters = counters;
 
@@ -54,9 +57,11 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
       };
       const thresholdEvmAddress = '0x1111111111111111111111111111111111111111';
       const tempoFeeToken = '0x20c0000000000000000000000000000000000001';
+      let tempoFeeTokenBalanceHex = '0x0';
       const txHashes = {
         tempo: `0x${'11'.repeat(32)}`,
         evm: `0x${'22'.repeat(32)}`,
+        sponsorship: `0x${'33'.repeat(32)}`,
       };
       const txHashesSeen = new Set<string>();
 
@@ -74,6 +79,50 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         const method = String(init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === 'https://relay.example/sponsorships/evm/call') {
+          counters.tempoSponsoredCallRequests += 1;
+          let headers: Record<string, string> = {};
+          const rawHeaders = init?.headers;
+          if (rawHeaders instanceof Headers) {
+            headers = Object.fromEntries(rawHeaders.entries());
+          } else if (Array.isArray(rawHeaders)) {
+            headers = Object.fromEntries(
+              rawHeaders.map(([key, value]) => [String(key).toLowerCase(), String(value)]),
+            );
+          } else if (rawHeaders && typeof rawHeaders === 'object') {
+            headers = Object.fromEntries(
+              Object.entries(rawHeaders).map(([key, value]) => [
+                String(key).toLowerCase(),
+                String(value),
+              ]),
+            );
+          }
+          let requestBody: Record<string, unknown> = {};
+          try {
+            requestBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          } catch {}
+          counters.lastTempoSponsoredCallRequest = {
+            authorization: headers.authorization || '',
+            environmentHeader: headers['x-tatchi-environment-id'] || '',
+            environmentId: String(requestBody.environmentId || ''),
+            nearAccountId: String(requestBody.nearAccountId || ''),
+            walletAddress: String(requestBody.walletAddress || ''),
+            chainId: Number(requestBody.chainId || 0),
+            call:
+              requestBody.call && typeof requestBody.call === 'object'
+                ? { ...(requestBody.call as Record<string, unknown>) }
+                : null,
+          };
+          tempoFeeTokenBalanceHex = '0xde0b6b3a7640000';
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              policyId: 'policy_tempo_onboarding',
+              txHash: txHashes.sponsorship,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
         const isTempoRpc = url.includes('rpc.moderato.tempo.xyz');
         const isArcRpc = url.includes('rpc.testnet.arc.network');
         if (method !== 'POST' || (!isTempoRpc && !isArcRpc)) {
@@ -107,11 +156,12 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
             );
           }
           if (callData.startsWith('0x70a08231')) {
+            counters.tempoFeeTokenBalanceReads += 1;
             return new Response(
               JSON.stringify({
                 jsonrpc: '2.0',
                 id,
-                result: '0xde0b6b3a7640000',
+                result: tempoFeeTokenBalanceHex,
               }),
               { status: 200, headers: { 'content-type': 'application/json' } },
             );
@@ -285,6 +335,19 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               };
             },
             auth: {
+              getWalletSession: async () => ({
+                login: {
+                  thresholdEcdsaEthereumAddress: thresholdEvmAddress,
+                  publicKey: `ed25519:${'1'.repeat(64)}`,
+                },
+                signingSession: {
+                  sessionId: 'session-1',
+                  status: 'active',
+                  remainingUses: 3,
+                  expiresAtMs: Date.now() + 60_000,
+                  createdAtMs: Date.now(),
+                },
+              }),
               getSession: async () => ({
                 login: {
                   thresholdEcdsaEthereumAddress: thresholdEvmAddress,
@@ -317,6 +380,23 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                   remainingUses: 3,
                 },
               }),
+              executeEvmFamilyTransaction: async (args: any) => {
+                const chainId = Number(args?.request?.tx?.chainId ?? 0);
+                if (chainId === 42431) {
+                  counters.tempoSigns += 1;
+                  counters.tempoDispatches += 1;
+                  counters.tempoReceiptPolls += 2;
+                  greetings.tempo = 'Tempo greeting updated';
+                  await args?.postFinalizationCheck?.();
+                  return { txHash: txHashes.tempo };
+                }
+                counters.evmSigns += 1;
+                counters.evmDispatches += 1;
+                counters.evmReceiptPolls += 2;
+                greetings.evm = 'Arc greeting updated';
+                await args?.postFinalizationCheck?.();
+                return { txHash: txHashes.evm };
+              },
               signTempo: async (args: any) => {
                 if (args?.request?.kind === 'eip1559') {
                   const chainId = Number(args?.request?.tx?.chainId ?? 0);
@@ -407,6 +487,17 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
               __testOverrides: {
                 useTatchiHook,
                 useSetGreetingHook,
+                frontendConfig: {
+                  relayerUrl: 'https://relay.example',
+                  tempoExplorerUrl: 'https://explore.tempo.xyz',
+                  tempoRpcUrl: 'https://rpc.moderato.tempo.xyz',
+                  managedRegistration: {
+                    mode: 'managed',
+                    environmentId: 'env_test_docs',
+                    publishableKey: 'tpk_docs_register_flow',
+                    brokerUrl: 'https://relay.example/v1/registration/bootstrap-grants',
+                  },
+                },
               },
             }),
           ),
@@ -495,5 +586,64 @@ test.describe('docs frontend register + threshold signing integration', () => {
 
     await expect(scope.getByText('Tempo greeting updated')).toBeVisible();
     await expect(scope.getByText('Arc greeting updated')).toBeVisible();
+  });
+
+  test('register/login reaches the sponsored Tempo drip route for a zero-gas signer', async ({
+    page,
+  }) => {
+    await mountRegisterToSigningHarness(page);
+
+    const scope = page.locator('#docs-register-to-signing-root');
+
+    await scope.getByRole('button', { name: 'Register' }).evaluate((el: HTMLElement) => el.click());
+    await page.waitForFunction(() => {
+      const counters = (window as any).__docsRegisterFlowCounters;
+      return counters && counters.registerCalls === 1;
+    });
+
+    await scope.getByRole('button', { name: 'Login' }).evaluate((el: HTMLElement) => el.click());
+
+    const dripButton = scope.getByRole('button', { name: 'Drip Fee Tokens' });
+    await expect(dripButton).toBeVisible();
+
+    await dripButton.evaluate((el: HTMLElement) => el.click());
+
+    await page.waitForFunction(() => {
+      const counters = (window as any).__docsRegisterFlowCounters;
+      return (
+        counters &&
+        counters.loginCalls === 1 &&
+        counters.bootstrapCalls.length === 1 &&
+        counters.tempoSponsoredCallRequests === 1 &&
+        counters.tempoFeeTokenBalanceReads >= 1
+      );
+    });
+
+    const finalCounters = await page.evaluate(() => (window as any).__docsRegisterFlowCounters);
+    expect(finalCounters.registerCalls).toBe(1);
+    expect(finalCounters.loginCalls).toBe(1);
+    expect(finalCounters.bootstrapCalls).toEqual(['alice.testnet:tempo']);
+    expect(finalCounters.tempoSponsoredCallRequests).toBe(1);
+    expect(finalCounters.tempoFeeTokenBalanceReads).toBeGreaterThanOrEqual(1);
+    expect(finalCounters.tempoSigns).toBe(0);
+    expect(finalCounters.tempoDispatches).toBe(0);
+    expect(finalCounters.lastTempoSponsoredCallRequest).toMatchObject({
+      authorization: 'Bearer tpk_docs_register_flow',
+      environmentHeader: 'env_test_docs',
+      environmentId: 'env_test_docs',
+      nearAccountId: 'alice.testnet',
+      walletAddress: '0x1111111111111111111111111111111111111111',
+      chainId: 42431,
+      call: {
+        gasLimit: '300000',
+        value: '0',
+      },
+    });
+    expect(
+      String(finalCounters.lastTempoSponsoredCallRequest.call.to || '').toLowerCase(),
+    ).toBe('0xbb85080e6953f25197ec68798360667140ebaf4b');
+    expect(String(finalCounters.lastTempoSponsoredCallRequest.call.data || '')).toMatch(
+      /^0x428dc451/i,
+    );
   });
 });
