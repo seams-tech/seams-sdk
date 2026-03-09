@@ -1,6 +1,8 @@
 import express, { Express } from 'express';
 import {
   AuthService,
+  createInMemoryConsoleSponsoredCallService,
+  createPostgresConsoleSponsoredCallService,
   createEcdsaAuthSessionStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
@@ -9,6 +11,7 @@ import {
   resolvePrfSessionSealRateLimitFromEnv,
   requireEnvVar,
   createThresholdSigningService,
+  type ConsoleSponsoredCallService,
 } from '@tatchi-xyz/sdk/server';
 import {
   createConsoleRouter,
@@ -16,20 +19,22 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleBootstrapTokenService,
+  createInMemoryConsoleGasSponsorshipService,
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
-  createInMemoryConsoleSettingsService,
+  createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
   createPostgresConsoleApiKeyService,
   createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
   createPostgresConsoleBootstrapTokenService,
+  createPostgresConsoleGasSponsorshipService,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
   createPostgresConsoleOrgProjectEnvService,
-  createPostgresConsoleSettingsService,
+  createPostgresConsoleRuntimeSnapshotService,
   createPostgresConsoleTeamRbacService,
   createPostgresConsoleWebhookService,
   createRelayApiKeyAuthAdapter,
@@ -43,10 +48,11 @@ import {
   type ConsoleBillingService,
   type ConsoleAuditService,
   type ConsoleBootstrapTokenService,
+  type ConsoleGasSponsorshipService,
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
   type ConsoleOrgProjectEnvService,
-  type ConsoleSettingsService,
+  type ConsoleRuntimeSnapshotService,
   type ConsoleTeamRbacService,
   type ConsoleWebhookService,
   type BillingProviderAdapters,
@@ -54,9 +60,19 @@ import {
 } from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
+import {
+  createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
+  DEFAULT_TEMPO_DRIP_GAS_LIMIT,
+  DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+  ensureTempoOnboardingSponsorshipForExistingEnvironments,
+} from './tempoOnboardingPolicy.js';
 import { createJwtSession } from './jwtSession.js';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 import { createStripeBillingProviderAdapter } from './stripeBillingProvider.js';
+import {
+  registerTempoSponsoredCallRoute,
+  resolveTempoSponsoredCallConfigFromEnv,
+} from './tempoSponsoredCalls.js';
 
 dotenv.config();
 
@@ -148,12 +164,10 @@ function hasConsoleErrorCode(error: unknown, code: string): boolean {
 
 async function seedDemoConsoleOrgAndMembers(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService;
-  settings: ConsoleSettingsService;
   teamRbac: ConsoleTeamRbacService;
   orgId: string;
   projectId: string;
   environmentId: string;
-  allowedOrigins: string[];
   logger: Pick<Console, 'log' | 'warn'>;
 }): Promise<void> {
   const seedCtx = {
@@ -197,18 +211,6 @@ async function seedDemoConsoleOrgAndMembers(input: {
       }
     }
 
-    try {
-      await input.settings.updateAppSettings(seedCtx, {
-        environmentId: environment.id,
-        allowedOrigins: input.allowedOrigins,
-      });
-    } catch (error: unknown) {
-      input.logger.warn(
-        `[console-demo-seed] failed to seed app settings for ${environment.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
   }
 
   const seedMembers: InviteConsoleTeamMemberRequest[] = [
@@ -345,6 +347,9 @@ async function main() {
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
+  const allowedOrigins = sanitizeOrigins([config.expectedOrigin, config.expectedWalletOrigin]);
+  const tempoSponsoredCallConfig = resolveTempoSponsoredCallConfigFromEnv(env);
+  const tempoOnboardingFaucetContractRaw = String(env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '').trim();
   const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
     .trim()
     .toLowerCase();
@@ -549,11 +554,14 @@ async function main() {
   let consoleObservability: ConsoleObservabilityService;
   let consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null;
   let consoleAudit: ConsoleAuditService;
+  let consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService;
   let consoleOrgProjectEnv: ConsoleOrgProjectEnvService;
   let consoleApiKeys: ConsoleApiKeyService;
   let consoleBootstrapTokens: ConsoleBootstrapTokenService;
-  let consoleSettings: ConsoleSettingsService;
+  let consoleGasSponsorship: ConsoleGasSponsorshipService;
+  let consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService;
   let consoleTeamRbac: ConsoleTeamRbacService;
+  let consoleSponsoredCalls: ConsoleSponsoredCallService;
   const consoleCoreNamespace = consoleBillingNamespace;
   if (consoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
@@ -579,7 +587,7 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
-    consoleOrgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+    consoleOrgProjectEnvBase = await createPostgresConsoleOrgProjectEnvService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
@@ -597,7 +605,13 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
-    consoleSettings = await createPostgresConsoleSettingsService({
+    consoleGasSponsorship = await createPostgresConsoleGasSponsorshipService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+    consoleRuntimeSnapshots = await createPostgresConsoleRuntimeSnapshotService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
@@ -609,16 +623,38 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
+    consoleSponsoredCalls = await createPostgresConsoleSponsoredCallService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
   } else {
     consoleAudit = createInMemoryConsoleAuditService({
       seedDemoData: consoleDemoSeedEnabled,
     });
-    consoleOrgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    consoleOrgProjectEnvBase = createInMemoryConsoleOrgProjectEnvService();
     consoleApiKeys = createInMemoryConsoleApiKeyService();
     consoleBootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    consoleSettings = createInMemoryConsoleSettingsService();
+    consoleGasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    consoleRuntimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+    consoleSponsoredCalls = createInMemoryConsoleSponsoredCallService();
   }
+
+  const normalizedOnboardingContractAddress = (() => {
+    const value = tempoOnboardingFaucetContractRaw;
+    return /^0x[0-9a-fA-F]{40}$/.test(value)
+      ? (value as `0x${string}`)
+      : DEFAULT_TEMPO_ONBOARDING_CONTRACT;
+  })();
+  consoleOrgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({
+    base: consoleOrgProjectEnvBase,
+    gasSponsorship: consoleGasSponsorship,
+    runtimeSnapshots: consoleRuntimeSnapshots,
+    contractAddress: normalizedOnboardingContractAddress,
+    maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
+  });
 
   if (consoleWebhooksBackend === 'postgres') {
     if (!consolePostgresUrl) {
@@ -701,15 +737,28 @@ async function main() {
   if (consoleDemoSeedEnabled) {
     await seedDemoConsoleOrgAndMembers({
       orgProjectEnv: consoleOrgProjectEnv,
-      settings: consoleSettings,
       teamRbac: consoleTeamRbac,
       orgId: consoleDemoOrgId,
       projectId: consoleDemoProjectId,
       environmentId: consoleDemoEnvironmentId,
-      allowedOrigins: sanitizeOrigins([config.expectedOrigin, config.expectedWalletOrigin]),
       logger: console,
     });
   }
+  await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+    orgProjectEnv: consoleOrgProjectEnv,
+    gasSponsorship: consoleGasSponsorship,
+    runtimeSnapshots: consoleRuntimeSnapshots,
+    ctx: {
+      orgId: consoleDemoOrgId,
+      actorUserId: 'tempo-onboarding-seed',
+      roles: ['owner', 'admin'],
+      projectId: consoleDemoProjectId,
+      environmentId: consoleDemoEnvironmentId,
+    },
+    contractAddress: normalizedOnboardingContractAddress,
+    maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
+    projectId: consoleDemoProjectId,
+  });
 
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
@@ -718,6 +767,17 @@ async function main() {
   });
 
   app.use(express.json({ limit: '1mb' }));
+
+  registerTempoSponsoredCallRoute({
+    app,
+    apiKeys: consoleApiKeys,
+    billing: consoleBilling,
+    ledger: consoleSponsoredCalls,
+    runtimeSnapshots: consoleRuntimeSnapshots,
+    corsOrigins: allowedOrigins,
+    config: tempoSponsoredCallConfig,
+    logger: console,
+  });
 
   // Mount router built from AuthService
   app.use(
@@ -762,9 +822,10 @@ async function main() {
       billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
       webhooks: consoleWebhooks,
       apiKeys: consoleApiKeys,
+      gasSponsorship: consoleGasSponsorship,
+      runtimeSnapshots: consoleRuntimeSnapshots,
       onboarding: consoleOnboarding,
       orgProjectEnv: consoleOrgProjectEnv,
-      settings: consoleSettings,
       teamRbac: consoleTeamRbac,
       audit: consoleAudit,
       observability: consoleObservability,
@@ -777,6 +838,16 @@ async function main() {
     const listenHost = config.host || 'localhost';
     console.log(`Server listening on http://${listenHost}:${config.port}`);
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
+    console.log(
+      `Tempo sponsorship route: ${
+        tempoSponsoredCallConfig?.enabled ? 'enabled' : 'disabled'
+      }`,
+    );
+    if (tempoSponsoredCallConfig?.enabled) {
+      console.log(
+        `Tempo sponsorship executor: chainId=${tempoSponsoredCallConfig.chainId} sponsor=${tempoSponsoredCallConfig.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
+      );
+    }
     if (rorRpId) {
       console.log(`ROR RP ID: ${rorRpId}`);
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);

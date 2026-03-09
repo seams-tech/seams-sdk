@@ -3,7 +3,6 @@ import {
   createPostgresConsoleGasSponsorshipService,
   createPostgresConsoleKeyExportService,
   createPostgresConsoleRuntimeSnapshotService,
-  createPostgresConsoleSettingsService,
   createPostgresConsoleSmartWalletService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
 } from '@server/router/express-adaptor';
@@ -50,11 +49,14 @@ test.describe('console config modules postgres services', () => {
     for (const scopedOrgId of [orgId, ownerOrgId, attackerOrgId]) {
       await withConsoleTenantContextTx(pool, { namespace, orgId: scopedOrgId }, async (q) => {
         await q.query('DELETE FROM console_key_exports WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_environment_settings WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_runtime_snapshot_outbox WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_runtime_snapshot_outbox WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_runtime_snapshots WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_smart_wallet_configs WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_gas_sponsorship_configs WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_gas_sponsorship_configs WHERE namespace = $1', [
+          namespace,
+        ]);
       });
     }
   });
@@ -172,58 +174,6 @@ test.describe('console config modules postgres services', () => {
     expect(updated?.bundler).toBeNull();
   });
 
-  test('settings postgres service persists app + security settings', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const service = await createPostgresConsoleSettingsService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-
-    const initialApp = await service.getAppSettings(adminCtx, { environmentId: 'prod' });
-    expect(initialApp.environmentId).toBe('prod');
-    expect(initialApp.cookie.httpOnly).toBe(true);
-
-    const updatedApp = await service.updateAppSettings(adminCtx, {
-      environmentId: 'prod',
-      allowedOrigins: ['https://dashboard.example.com', 'https://api.example.com'],
-      cookie: {
-        sameSite: 'STRICT',
-      },
-      jwt: {
-        issuer: 'https://issuer.example.com',
-        audience: ['dashboard', 'api'],
-      },
-      ssoMetadataUrl: 'https://sso.example.com/metadata.xml',
-    });
-    expect(updatedApp.allowedOrigins).toEqual([
-      'https://dashboard.example.com',
-      'https://api.example.com',
-    ]);
-    expect(updatedApp.cookie.sameSite).toBe('STRICT');
-    expect(updatedApp.jwt.issuer).toBe('https://issuer.example.com');
-
-    const updatedSecurity = await service.updateSecuritySettings(adminCtx, {
-      environmentId: 'prod',
-      ipAllowlist: ['203.0.113.1/32'],
-      enforceIpAllowlist: true,
-      requireMfaForRiskyChanges: true,
-      riskyChangeApproval: {
-        approvalsRequired: 2,
-        requireAdmin: true,
-        requireMfa: true,
-      },
-    });
-    expect(updatedSecurity.enforceIpAllowlist).toBe(true);
-    expect(updatedSecurity.ipAllowlist).toEqual(['203.0.113.1/32']);
-    expect(updatedSecurity.riskyChangeApproval.approvalsRequired).toBe(2);
-
-    const readSecurity = await service.getSecuritySettings(adminCtx, { environmentId: 'prod' });
-    expect(readSecurity.enforceIpAllowlist).toBe(true);
-    expect(readSecurity.ipAllowlist).toEqual(['203.0.113.1/32']);
-  });
-
   test('key exports postgres service enforces approval flow constraints', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const service = await createPostgresConsoleKeyExportService({
@@ -296,9 +246,6 @@ test.describe('console config modules postgres services', () => {
         policy: {
           defaultPolicyId: 'policy-1',
         },
-        settings: {
-          enforceMfa: true,
-        },
         gasSponsorship: {
           enabled: true,
         },
@@ -316,9 +263,6 @@ test.describe('console config modules postgres services', () => {
       payload: {
         policy: {
           defaultPolicyId: 'policy-2',
-        },
-        settings: {
-          enforceMfa: false,
         },
         gasSponsorship: {
           enabled: false,
@@ -364,7 +308,6 @@ test.describe('console config modules postgres services', () => {
       environmentId,
       payload: {
         policy: { defaultPolicyId: 'owner-policy' },
-        settings: { enforceMfa: true },
         gasSponsorship: { enabled: true },
         smartWallets: { mode: 'REQUIRED' },
       },
@@ -373,7 +316,6 @@ test.describe('console config modules postgres services', () => {
       environmentId,
       payload: {
         policy: { defaultPolicyId: 'attacker-policy' },
-        settings: { enforceMfa: false },
         gasSponsorship: { enabled: false },
         smartWallets: { mode: 'OPTIONAL' },
       },
@@ -475,7 +417,6 @@ test.describe('console config modules postgres services', () => {
       environmentId,
       payload: {
         policy: { defaultPolicyId: 'p1' },
-        settings: { enforceMfa: true },
         gasSponsorship: { enabled: true },
         smartWallets: { mode: 'OPTIONAL' },
       },
@@ -485,7 +426,6 @@ test.describe('console config modules postgres services', () => {
       environmentId,
       payload: {
         policy: { defaultPolicyId: 'p2' },
-        settings: { enforceMfa: true },
         gasSponsorship: { enabled: true },
         smartWallets: { mode: 'OPTIONAL' },
       },
@@ -495,7 +435,6 @@ test.describe('console config modules postgres services', () => {
       environmentId,
       payload: {
         policy: { defaultPolicyId: 'p3' },
-        settings: { enforceMfa: false },
         gasSponsorship: { enabled: false },
         smartWallets: { mode: 'REQUIRED' },
       },
@@ -691,14 +630,8 @@ test.describe('console config modules postgres services', () => {
     expect(rowsWithoutTenantContext.rows.length).toBe(0);
   });
 
-  test('settings/key-export tables enforce DB-level tenant RLS policies', async () => {
+  test('key-export tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
-    const settingsService = await createPostgresConsoleSettingsService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
     const keyExportService = await createPostgresConsoleKeyExportService({
       postgresUrl,
       namespace,
@@ -708,23 +641,14 @@ test.describe('console config modules postgres services', () => {
 
     const ownerCtx = {
       orgId: ownerOrgId,
-      actorUserId: 'owner-settings-keyexport-rls',
+      actorUserId: 'owner-keyexport-rls',
       roles: ['admin'],
     };
     const attackerCtx = {
       orgId: attackerOrgId,
-      actorUserId: 'attacker-settings-keyexport-rls',
+      actorUserId: 'attacker-keyexport-rls',
       roles: ['admin'],
     };
-
-    await settingsService.updateAppSettings(ownerCtx, {
-      environmentId: 'prod-rls',
-      allowedOrigins: ['https://owner.example.com'],
-    });
-    await settingsService.updateAppSettings(attackerCtx, {
-      environmentId: 'prod-rls',
-      allowedOrigins: ['https://attacker.example.com'],
-    });
 
     await keyExportService.createKeyExport(ownerCtx, {
       id: 'ke-postgres-rls-owner',
@@ -740,24 +664,6 @@ test.describe('console config modules postgres services', () => {
     });
 
     const pool = await getPostgresPool(postgresUrl);
-
-    const ownerSettingsRows = await withConsoleTenantContextTx(
-      pool,
-      { namespace, orgId: ownerOrgId },
-      async (q) =>
-        q.query(
-          `SELECT org_id, environment_id
-             FROM console_environment_settings
-            WHERE namespace = $1`,
-          [namespace],
-        ),
-    );
-    expect(ownerSettingsRows.rows.length).toBeGreaterThan(0);
-    expect(
-      ownerSettingsRows.rows.every(
-        (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
-      ),
-    ).toBe(true);
 
     const ownerKeyExportRows = await withConsoleTenantContextTx(
       pool,
@@ -777,12 +683,6 @@ test.describe('console config modules postgres services', () => {
       ),
     ).toBe(true);
 
-    const noTenantSettings = await pool.query(
-      `SELECT org_id, environment_id FROM console_environment_settings WHERE namespace = $1`,
-      [namespace],
-    );
-    expect(noTenantSettings.rows.length).toBe(0);
-
     const noTenantKeyExports = await pool.query(
       `SELECT org_id, id FROM console_key_exports WHERE namespace = $1`,
       [namespace],
@@ -800,12 +700,6 @@ test.describe('console config modules postgres services', () => {
       ensureSchema: true,
     });
     const smartWalletService = await createPostgresConsoleSmartWalletService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    const settingsService = await createPostgresConsoleSettingsService({
       postgresUrl,
       namespace,
       logger: console as any,
@@ -858,18 +752,6 @@ test.describe('console config modules postgres services', () => {
     });
     expect(createdSmartWallet.id).toBe('sw-postgres-isolation-1');
 
-    const ownerUpdatedApp = await settingsService.updateAppSettings(ownerCtx, {
-      environmentId: ownerEnvironmentId,
-      allowedOrigins: ['https://owner.example.com'],
-    });
-    expect(ownerUpdatedApp.allowedOrigins).toEqual(['https://owner.example.com']);
-
-    const ownerUpdatedSecurity = await settingsService.updateSecuritySettings(ownerCtx, {
-      environmentId: ownerEnvironmentId,
-      requireMfaForRiskyChanges: false,
-    });
-    expect(ownerUpdatedSecurity.requireMfaForRiskyChanges).toBe(false);
-
     const ownerKeyExport = await keyExportService.createKeyExport(ownerCtx, {
       id: 'ke-postgres-isolation-1',
       environmentId: ownerEnvironmentId,
@@ -882,7 +764,6 @@ test.describe('console config modules postgres services', () => {
       environmentId: ownerEnvironmentId,
       payload: {
         policy: { defaultPolicyId: 'owner-policy' },
-        settings: { enforceMfa: true },
         gasSponsorship: { enabled: true },
         smartWallets: { mode: 'REQUIRED' },
       },
@@ -912,28 +793,6 @@ test.describe('console config modules postgres services', () => {
       },
     );
     expect(attackerSmartWalletPatch).toBeNull();
-
-    const attackerAppBefore = await settingsService.getAppSettings(attackerCtx, {
-      environmentId: ownerEnvironmentId,
-    });
-    expect(attackerAppBefore.allowedOrigins).toEqual([]);
-    expect(attackerAppBefore.jwt.issuer).toContain(attackerCtx.orgId);
-
-    const attackerSecurityBefore = await settingsService.getSecuritySettings(attackerCtx, {
-      environmentId: ownerEnvironmentId,
-    });
-    expect(attackerSecurityBefore.requireMfaForRiskyChanges).toBe(true);
-
-    const attackerUpdatedApp = await settingsService.updateAppSettings(attackerCtx, {
-      environmentId: ownerEnvironmentId,
-      allowedOrigins: ['https://attacker.example.com'],
-    });
-    expect(attackerUpdatedApp.allowedOrigins).toEqual(['https://attacker.example.com']);
-
-    const ownerAppAfterAttackerUpdate = await settingsService.getAppSettings(ownerCtx, {
-      environmentId: ownerEnvironmentId,
-    });
-    expect(ownerAppAfterAttackerUpdate.allowedOrigins).toEqual(['https://owner.example.com']);
 
     const attackerKeyExportList = await keyExportService.listKeyExports(attackerCtx, {
       environmentId: ownerEnvironmentId,

@@ -128,13 +128,12 @@ Completed:
   - `POST /console/approvals/:id/approve`
   - `POST /console/approvals/:id/reject`
   - mutation RBAC is enforced (`owner`, `admin`, or `security_admin` for create/approve/reject).
-  - operation defaults are implemented (`POLICY_PUBLISH`, `KEY_EXPORT`, `SECURITY_SETTINGS_CHANGE`) with per-operation approval/MFA defaults.
+  - operation defaults are implemented (`POLICY_PUBLISH`, `KEY_EXPORT`) with per-operation approval/MFA defaults.
   - Postgres-backed approval persistence is implemented (`console_approvals` with tenant RLS).
   - relayer route coverage is implemented for Express and Cloudflare adapters (`*_not_configured`, mutation-forbidden checks, MFA-required checks, and state-transition behavior), including Postgres org-isolation route tests.
   - approval queue create/approve/reject mutations emit lifecycle webhook events (`policy.approval.created`, `policy.approval.approved`, `policy.approval.rejected`) when a webhook service is configured.
   - approval enforcement is integrated for sensitive operation routes when approvals service is configured:
     - `POST /console/policies/:id/publish` requires approved `POLICY_PUBLISH` queue entry (`approvalId`).
-    - `PATCH /console/settings/security` requires approved `SECURITY_SETTINGS_CHANGE` queue entry (`approvalId`).
     - `POST /console/key-exports/:id/approve` requires approved `KEY_EXPORT` queue entry (`approvalId`).
 - Audit/evidence backend slice is implemented (in-memory + Postgres services + router contracts):
   - `GET /console/audit/events`
@@ -146,7 +145,6 @@ Completed:
   - audit event emission is now wired for key governance mutations:
     - approval request create/approve/reject,
     - policy publish,
-    - security settings updates,
     - key export approval.
   - relayer route coverage now includes service-not-wired behavior, filtered list success paths, and approval-create -> audit-event projection for Express + Cloudflare adapters.
 - Dashboard Team members and roles page now consumes live Team/RBAC APIs:
@@ -230,7 +228,7 @@ Completed:
   - `GET /console/projects?status=ACTIVE`
   - `GET /console/environments?projectId=...&status=ACTIVE`
   - project selection now drives environment option loading and keeps selected context aligned to the org->project->environment hierarchy.
-- Dashboard app settings page now consumes live context APIs for org/project/environment management:
+- Dashboard org/project/environment management pages now consume live context APIs:
   - `POST/PATCH /console/projects`
   - `POST /console/projects/:id/archive`
   - `POST/PATCH /console/environments`
@@ -243,13 +241,6 @@ Completed:
   - project environment counts are sourced from `/console/projects` aggregate fields (`environmentCount`), avoiding extra all-environments scans for count-only rendering.
   - app-settings hierarchy decision logic (project/environment scope resolution + active-project-only environment creation guard) is covered by dedicated unit tests.
   - browser-level app-settings flow coverage validates archived toggles and active-project-only environment creation selection/guard behavior.
-  - page now also consumes environment-scoped settings APIs:
-    - `GET /console/settings/app`
-    - `PATCH /console/settings/app`
-    - `GET /console/settings/security`
-    - `PATCH /console/settings/security`
-  - app/security settings forms are wired for allowed origins/domains, cookie/JWT controls, and risky-change security policy updates.
-  - security settings update controls now support forwarding an optional approval request ID (`approvalId`) for approval-enforced environments.
   - settings mutation controls are gated in UI to `owner`/`admin`/`security_admin` roles to match backend RBAC.
 - Dedicated console insight APIs are implemented for policy/gas/export workflows:
   - `GET /console/policy/coverage`
@@ -262,7 +253,7 @@ Completed:
   - mutation RBAC denies (`forbidden`) by role,
   - validation and domain error paths (`invalid_query`, `invalid_body`, `invalid_scope`, `mfa_required`),
   - cross-org isolation behavior for list/read/mutate/approve paths
-  for both Express and Cloudflare adapters.
+    for both Express and Cloudflare adapters.
 - Runtime snapshot contract backend slice is now scaffolded and versioned:
   - `GET /console/runtime-snapshots`
   - `GET /console/runtime-snapshots/latest`
@@ -308,8 +299,7 @@ Completed:
   - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
   - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
   - `/dashboard/audit`: audit timeline and evidence filter flows against mocked `/console/audit/*` endpoints.
-  - `/dashboard/app-settings`: app/security settings read + patch flows against mocked `/console/settings/*` endpoints.
-  - e2e wiring assertions validate `approvalId` forwarding on key-export approve and security-settings patch requests.
+  - e2e wiring assertions validate `approvalId` forwarding on key-export approve requests.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
 - CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
 - Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
@@ -360,7 +350,6 @@ Recently completed hardening:
 4. Approval defaults:
    - policy publish: `1 admin`
    - key export: `2 admin + MFA + reason`
-   - risky security settings: `1 admin + MFA`
 5. Role scope model: hybrid
    - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
    - project-scoped roles: `developer`, `support`, `ops`
@@ -465,27 +454,6 @@ Key outputs:
   - smart-wallet configuration tables
 - Jobs:
   - spend rollup and threshold alerting
-
-### `/dashboard/app-settings`
-
-- APIs:
-  - `GET /console/org` (implemented)
-  - `GET /console/projects` (`status=ACTIVE|ARCHIVED` query supported)
-  - `POST/PATCH /console/projects`
-  - `POST /console/projects/:id/archive`
-  - `GET/POST/PATCH /console/environments`
-  - `POST /console/environments/:id/archive`
-  - `GET/PATCH /console/settings/app` (scaffolded; in-memory + postgres service + router wiring)
-  - `GET/PATCH /console/settings/security` (scaffolded; in-memory + postgres service + router wiring)
-  - `GET /console/runtime-snapshots/latest` (scaffolded; in-memory + postgres service + router wiring)
-  - `POST /console/runtime-snapshots/publish` (scaffolded; in-memory + postgres service + router wiring)
-  - `POST /console/runtime-snapshots/publish-current` (scaffolded; server-resolved payload + in-memory/postgres persistence)
-- Data:
-  - `project_settings`
-  - `environment_settings`
-- Jobs:
-  - settings snapshot publish to runtime consumers
-  - runtime snapshot publisher writes full versioned per-environment snapshot documents
 
 ### `/dashboard/export-keys`
 
@@ -641,13 +609,12 @@ Exit criteria:
 - Admin can list/search wallets under a project without cross-tenant leakage.
 - p95 list/search latency target is measured and tracked.
 
-### Milestone 2: Policy Engine + App Settings Core (2-3 weeks)
+### Milestone 2: Policy Engine (2-3 weeks)
 
 Frontend:
 
 - Policy authoring UI (draft/publish flow).
 - Policy assignment UI (org/project/segment/wallet scope).
-- App settings forms with validation and risky-change warnings.
 
 Backend:
 
@@ -655,21 +622,17 @@ Backend:
   - `GET/POST/PATCH /console/policies`
   - `POST /console/policies/:id/publish`
   - `POST /console/policies/:id/simulate`
-  - `GET/PATCH /console/settings/app`
 - Add policy precedence resolution and simulation evaluator.
 - Enforce default approvals:
   - policy publish: `1 admin`
-  - risky security settings changes: `1 admin + MFA`
 
 Data:
 
 - Land policy tables (`policies`, `policy_versions`, `policy_assignments`, `policy_decision_logs`).
-- Add settings tables for origins/cookies/JWT and environment scoping.
 
 Exit criteria:
 
 - Policies can be drafted, simulated, published, and audited.
-- App settings are environment-specific and validated.
 
 ### Milestone 3: API Keys + Webhooks + Billing Payments (2-3 weeks)
 
@@ -829,7 +792,6 @@ Runtime consumers read full versioned environment snapshots:
   - `checksum`
 - Payload includes resolved runtime config:
   - effective policy assignment + limits
-  - app security settings
   - gas sponsorship + smart-wallet controls
 
 ### Payment lifecycle contract

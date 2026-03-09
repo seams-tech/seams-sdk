@@ -7,7 +7,6 @@ import type { ConsoleWalletService } from '../console/wallets';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import type { ConsoleGasSponsorshipService } from '../console/gasSponsorship';
 import type { ConsoleSmartWalletService } from '../console/smartWallets';
-import type { ConsoleSettingsService } from '../console/settings';
 import type { ConsoleKeyExportService } from '../console/keyExports';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleTeamRbacService } from '../console/teamRbac';
@@ -77,15 +76,13 @@ export interface ConsoleRouterOptions {
   gasSponsorship?: ConsoleGasSponsorshipService | null;
   // Optional smart wallet adapter for account-abstraction config endpoints.
   smartWallets?: ConsoleSmartWalletService | null;
-  // Optional app/security settings adapter for environment-scoped settings endpoints.
-  settings?: ConsoleSettingsService | null;
   // Optional key export adapter for export request and approval endpoints.
   keyExports?: ConsoleKeyExportService | null;
   // Optional runtime snapshot adapter for versioned per-environment config snapshots.
   runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
   // Optional team/membership adapter for org member and role-scope management endpoints.
   teamRbac?: ConsoleTeamRbacService | null;
-  // Optional unified approval queue adapter for policy/export/settings approvals.
+  // Optional unified approval queue adapter for policy/export approvals.
   approvals?: ConsoleApprovalService | null;
   // Optional audit/evidence adapter for investigation timeline and export metadata endpoints.
   audit?: ConsoleAuditService | null;

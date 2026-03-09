@@ -132,8 +132,8 @@ export function PricingPage(): React.JSX.Element {
                 <p>Passkey-first auth and optional MFA enforcement.</p>
               </article>
               <article className="pricing-include-card">
-                <strong>App settings</strong>
-                <p>Origins, cookie/JWT modes, and environment controls.</p>
+                <strong>Browser origin controls</strong>
+                <p>Manage publishable_key origins for browser registration flows.</p>
               </article>
               <article className="pricing-include-card">
                 <strong>API keys</strong>
@@ -173,9 +173,9 @@ export function PricingPage(): React.JSX.Element {
                   <td>Advanced orchestration</td>
                 </tr>
                 <tr>
-                  <td>App settings and security controls</td>
-                  <td>Core controls</td>
-                  <td>SSO and advanced governance</td>
+                  <td>Browser origin controls</td>
+                  <td>Per-key origin allowlists</td>
+                  <td>Advanced governance</td>
                 </tr>
                 <tr>
                   <td>Support</td>

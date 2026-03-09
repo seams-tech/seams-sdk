@@ -47,7 +47,6 @@ function cloneObject(input: Record<string, unknown>): Record<string, unknown> {
 function clonePayload(input: ConsoleRuntimeSnapshotPayload): ConsoleRuntimeSnapshotPayload {
   return {
     policy: cloneObject(input.policy),
-    settings: cloneObject(input.settings),
     gasSponsorship: cloneObject(input.gasSponsorship),
     smartWallets: cloneObject(input.smartWallets),
     ...(input.metadata ? { metadata: cloneObject(input.metadata) } : {}),

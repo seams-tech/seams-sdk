@@ -14,7 +14,6 @@ import {
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsolePolicyService,
   createInMemoryConsoleRuntimeSnapshotService,
-  createInMemoryConsoleSettingsService,
   createInMemoryConsoleSmartWalletService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
@@ -243,7 +242,9 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/observability/summary`, { method: 'GET' });
+      const res = await fetchJson(`${srv.baseUrl}/console/observability/summary`, {
+        method: 'GET',
+      });
       expect(res.status).toBe(501);
       expect(res.json?.code).toBe('observability_not_configured');
     } finally {
@@ -390,10 +391,17 @@ test.describe('console router (express)', () => {
       expect(res.json?.code).toBe('internal');
 
       await expect
-        .poll(() => ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed').length)
+        .poll(
+          () =>
+            ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed')
+              .length,
+        )
         .toBe(1);
       await expect
-        .poll(() => ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length)
+        .poll(
+          () =>
+            ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length,
+        )
         .toBeGreaterThanOrEqual(1);
 
       const approvalFailure = ingested.find(
@@ -406,7 +414,9 @@ test.describe('console router (express)', () => {
       expect(String(getPath(approvalFailure?.event || null, 'metadata', 'approvalId') || '')).toBe(
         'apr_obs_failure',
       );
-      expect(String((approvalFailure?.event?.requestId as string) || '')).toBe('req_obs_policy_publish');
+      expect(String((approvalFailure?.event?.requestId as string) || '')).toBe(
+        'req_obs_policy_publish',
+      );
 
       const routerTiming = ingested.find(
         (entry) =>
@@ -466,7 +476,11 @@ test.describe('console router (express)', () => {
       expect(res.json?.code).toBe('internal');
 
       await expect
-        .poll(() => ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed').length)
+        .poll(
+          () =>
+            ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
+              .length,
+        )
         .toBe(1);
 
       const billingFailure = ingested.find(
@@ -745,7 +759,7 @@ test.describe('console router (express)', () => {
       expect(project.status).toBe(201);
       expect(String(getPath(project.json, 'result', 'project', 'id'))).toBe('proj_onboarding');
       expect(String(getPath(project.json, 'result', 'environment', 'id'))).toBe(
-        'org-onboarding-1:proj_onboarding:dev',
+        'proj_onboarding:dev',
       );
       expect(getPath(project.json, 'result', 'created', 'project')).toBe(true);
       expect(getPath(project.json, 'result', 'created', 'environment')).toBe(false);
@@ -1563,7 +1577,6 @@ test.describe('console router (express)', () => {
   test('sensitive operation routes require approved queue entries when approvals service is configured', async () => {
     const approvals = createInMemoryConsoleApprovalService();
     const policies = createInMemoryConsolePolicyService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const orgId = 'org-sensitive-approval-1';
     const actorUserId = 'user-sensitive-approval-admin-1';
@@ -1578,7 +1591,6 @@ test.describe('console router (express)', () => {
       auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
       approvals,
       policies,
-      settings,
       keyExports,
     });
     const server = await startExpressRouter(router);
@@ -1629,47 +1641,6 @@ test.describe('console router (express)', () => {
       );
       expect(publishWithApproval.status).toBe(200);
       expect(getPath(publishWithApproval.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
-
-      const securityWithoutApproval = await fetchJson(
-        `${server.baseUrl}/console/settings/security`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            environmentId: 'env_sensitive_1',
-            enforceIpAllowlist: true,
-          }),
-        },
-      );
-      expect(securityWithoutApproval.status).toBe(400);
-      expect(securityWithoutApproval.json?.code).toBe('approval_required');
-
-      const securityApproval = await approvals.createApprovalRequest(approvalCtx, {
-        id: 'apr_security_sensitive_1',
-        operationType: 'SECURITY_SETTINGS_CHANGE',
-        reason: 'Security settings approval',
-        environmentId: 'env_sensitive_1',
-        resourceType: 'security_settings',
-        resourceId: 'env_sensitive_1',
-      });
-      await approvals.approveApprovalRequest(approvalCtx, securityApproval.id, {
-        reason: 'Security settings approved',
-        mfaVerified: true,
-      });
-
-      const securityWithApproval = await fetchJson(`${server.baseUrl}/console/settings/security`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          environmentId: 'env_sensitive_1',
-          enforceIpAllowlist: true,
-          approvalId: securityApproval.id,
-        }),
-      });
-      expect(securityWithApproval.status).toBe(200);
-      expect(getPath(securityWithApproval.json, 'securitySettings', 'environmentId')).toBe(
-        'env_sensitive_1',
-      );
 
       const exportId = 'ke_sensitive_1';
       const createExport = await fetchJson(`${server.baseUrl}/console/key-exports`, {
@@ -1788,7 +1759,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: 'apr_events_2',
-          operationType: 'SECURITY_SETTINGS_CHANGE',
+          operationType: 'KEY_EXPORT',
           reason: 'Approval event create/reject',
         }),
       });
@@ -2132,13 +2103,6 @@ test.describe('console router (express)', () => {
       expect(smartWallets.status).toBe(501);
       expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
 
-      const settings = await fetchJson(
-        `${srv.baseUrl}/console/settings/app?environmentId=${encodeURIComponent('env-test')}`,
-        { method: 'GET' },
-      );
-      expect(settings.status).toBe(501);
-      expect(settings.json?.code).toBe('settings_not_configured');
-
       const keyExports = await fetchJson(`${srv.baseUrl}/console/key-exports`, { method: 'GET' });
       expect(keyExports.status).toBe(501);
       expect(keyExports.json?.code).toBe('key_exports_not_configured');
@@ -2157,14 +2121,12 @@ test.describe('console router (express)', () => {
   test('new console endpoints support scaffold CRUD flows', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-express-1', 'user-scaffold-express-1'),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -2233,29 +2195,6 @@ test.describe('console router (express)', () => {
         : [];
       expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
 
-      const updatedAppSettings = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          environmentId: 'prod',
-          allowedOrigins: ['https://dashboard.example.com'],
-        }),
-      });
-      expect(updatedAppSettings.status).toBe(200);
-      expect(getPath(updatedAppSettings.json, 'appSettings', 'environmentId')).toBe('prod');
-      expect(getPath(updatedAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBe(
-        'https://dashboard.example.com',
-      );
-
-      const fetchedSecuritySettings = await fetchJson(
-        `${srv.baseUrl}/console/settings/security?environmentId=${encodeURIComponent('prod')}`,
-        { method: 'GET' },
-      );
-      expect(fetchedSecuritySettings.status).toBe(200);
-      expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe(
-        'prod',
-      );
-
       const createdKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2298,26 +2237,12 @@ test.describe('console router (express)', () => {
       expect(String(getPath(publishedSnapshot.json, 'snapshot', 'checksum') || '')).toContain(
         'fnv1a32:',
       );
-      expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
-        'resolved',
-      );
       expect(
         getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status'),
       ).toBe('resolved');
       expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
         'resolved',
       );
-      expect(
-        getPath(
-          publishedSnapshot.json,
-          'snapshot',
-          'payload',
-          'settings',
-          'appSettings',
-          'allowedOrigins',
-          0,
-        ),
-      ).toBe('https://dashboard.example.com');
 
       const latestSnapshot = await fetchJson(
         `${srv.baseUrl}/console/runtime-snapshots/latest?environmentId=${encodeURIComponent('prod')}`,
@@ -2367,9 +2292,6 @@ test.describe('console router (express)', () => {
       expect(getPath(first.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v1');
       expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
       expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
-      expect(getPath(first.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
-        'not_configured',
-      );
       expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
         'not_configured',
       );
@@ -2417,7 +2339,6 @@ test.describe('console router (express)', () => {
   test('new console endpoint mutations enforce role gates', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
@@ -2428,7 +2349,6 @@ test.describe('console router (express)', () => {
       ),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -2443,17 +2363,6 @@ test.describe('console router (express)', () => {
       });
       expect(gasCreate.status).toBe(403);
       expect(gasCreate.json?.code).toBe('forbidden');
-
-      const appPatch = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          environmentId: 'prod',
-          allowedOrigins: ['https://dashboard.example.com'],
-        }),
-      });
-      expect(appPatch.status).toBe(403);
-      expect(appPatch.json?.code).toBe('forbidden');
 
       const approve = await fetchJson(
         `${srv.baseUrl}/console/key-exports/ke-express-rbac-1/approve`,
@@ -2476,7 +2385,6 @@ test.describe('console router (express)', () => {
           environmentId: 'prod',
           payload: {
             policy: {},
-            settings: {},
             gasSponsorship: {},
             smartWallets: {},
           },
@@ -2505,7 +2413,6 @@ test.describe('console router (express)', () => {
   test('new console endpoint validation errors return typed error codes', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
@@ -2516,7 +2423,6 @@ test.describe('console router (express)', () => {
       ),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -2531,16 +2437,6 @@ test.describe('console router (express)', () => {
       });
       expect(invalidGasScope.status).toBe(400);
       expect(invalidGasScope.json?.code).toBe('invalid_scope');
-
-      const invalidAppPatch = await fetchJson(`${srv.baseUrl}/console/settings/app`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          allowedOrigins: ['https://dashboard.example.com'],
-        }),
-      });
-      expect(invalidAppPatch.status).toBe(400);
-      expect(invalidAppPatch.json?.code).toBe('invalid_body');
 
       const invalidStatusQuery = await fetchJson(
         `${srv.baseUrl}/console/key-exports?status=NOT_A_STATUS`,
@@ -2620,7 +2516,6 @@ test.describe('console router (express)', () => {
   test('new console endpoints enforce org isolation', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const ownerOrgId = 'org-scaffold-express-isolation-owner';
@@ -2631,7 +2526,6 @@ test.describe('console router (express)', () => {
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-express-isolation-user'),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -2660,29 +2554,6 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(createSmartWallet.status).toBe(201);
-
-      const patchAppSettings = await fetchJson(`${ownerServer.baseUrl}/console/settings/app`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          environmentId: ownerEnvironmentId,
-          allowedOrigins: ['https://owner.example.com'],
-        }),
-      });
-      expect(patchAppSettings.status).toBe(200);
-
-      const patchSecuritySettings = await fetchJson(
-        `${ownerServer.baseUrl}/console/settings/security`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            environmentId: ownerEnvironmentId,
-            requireMfaForRiskyChanges: false,
-          }),
-        },
-      );
-      expect(patchSecuritySettings.status).toBe(200);
 
       const createKeyExport = await fetchJson(`${ownerServer.baseUrl}/console/key-exports`, {
         method: 'POST',
@@ -2719,7 +2590,6 @@ test.describe('console router (express)', () => {
       ),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -2764,22 +2634,6 @@ test.describe('console router (express)', () => {
       );
       expect(patchSmartWallet.status).toBe(404);
       expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
-
-      const getAppSettings = await fetchJson(
-        `${attackerServer.baseUrl}/console/settings/app?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(getAppSettings.status).toBe(200);
-      expect(getPath(getAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBeUndefined();
-
-      const getSecuritySettings = await fetchJson(
-        `${attackerServer.baseUrl}/console/settings/security?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-        { method: 'GET' },
-      );
-      expect(getSecuritySettings.status).toBe(200);
-      expect(
-        getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges'),
-      ).toBe(true);
 
       const keyExportsList = await fetchJson(
         `${attackerServer.baseUrl}/console/key-exports?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
@@ -3320,7 +3174,7 @@ test.describe('console router (express)', () => {
   test('API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const environmentId = 'org-1:default-project:prod';
+    const environmentId = 'default-project:prod';
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-1',
       projectId: 'default-project',
@@ -3446,7 +3300,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'invalid-expiry-key',
-          environmentId: 'org-api-key-expiry-validation:default-project:prod',
+          environmentId: 'default-project:prod',
           kind: 'secret_key',
           scopes: ['accounts.create'],
           expiresAt: '2000-01-01T00:00:00.000Z',
@@ -5121,11 +4975,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare GET /console/observability/* returns scaffolded responses when service is configured', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(
-        ['support'],
-        'org-observability-cf',
-        'user-observability-cf',
-      ),
+      auth: makeConsoleAuthAdapter(['support'], 'org-observability-cf', 'user-observability-cf'),
       observability: createInMemoryConsoleObservabilityService(),
     });
 
@@ -5246,10 +5096,17 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('internal');
 
     await expect
-      .poll(() => ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed').length)
+      .poll(
+        () =>
+          ingested.filter((entry) => entry.event.eventType === 'approval.policy_publish.failed')
+            .length,
+      )
       .toBe(1);
     await expect
-      .poll(() => ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length)
+      .poll(
+        () =>
+          ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length,
+      )
       .toBeGreaterThanOrEqual(1);
 
     const approvalFailure = ingested.find(
@@ -5319,7 +5176,11 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('internal');
 
     await expect
-      .poll(() => ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed').length)
+      .poll(
+        () =>
+          ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
+            .length,
+      )
       .toBe(1);
 
     const billingFailure = ingested.find(
@@ -5573,7 +5434,7 @@ test.describe('console router (cloudflare)', () => {
     expect(project.status).toBe(201);
     expect(String(getPath(project.json, 'result', 'project', 'id'))).toBe('proj_onboarding_cf');
     expect(String(getPath(project.json, 'result', 'environment', 'id'))).toBe(
-      'org-onboarding-cf-1:proj_onboarding_cf:dev',
+      'proj_onboarding_cf:dev',
     );
     expect(getPath(project.json, 'result', 'created', 'project')).toBe(true);
     expect(getPath(project.json, 'result', 'created', 'environment')).toBe(false);
@@ -6319,7 +6180,6 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare sensitive operation routes require approved queue entries when approvals service is configured', async () => {
     const approvals = createInMemoryConsoleApprovalService();
     const policies = createInMemoryConsolePolicyService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const orgId = 'org-sensitive-approval-cf-1';
     const actorUserId = 'user-sensitive-approval-cf-admin-1';
@@ -6334,7 +6194,6 @@ test.describe('console router (cloudflare)', () => {
       auth: makeConsoleAuthAdapter(claimsRoles, orgId, actorUserId),
       approvals,
       policies,
-      settings,
       keyExports,
     });
 
@@ -6378,44 +6237,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(publishWithApproval.status).toBe(200);
     expect(getPath(publishWithApproval.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
-
-    const securityWithoutApproval = await callCf(handler, {
-      method: 'PATCH',
-      path: '/console/settings/security',
-      body: {
-        environmentId: 'env_sensitive_cf_1',
-        enforceIpAllowlist: true,
-      },
-    });
-    expect(securityWithoutApproval.status).toBe(400);
-    expect(securityWithoutApproval.json?.code).toBe('approval_required');
-
-    const securityApproval = await approvals.createApprovalRequest(approvalCtx, {
-      id: 'apr_security_sensitive_cf_1',
-      operationType: 'SECURITY_SETTINGS_CHANGE',
-      reason: 'Security settings approval CF',
-      environmentId: 'env_sensitive_cf_1',
-      resourceType: 'security_settings',
-      resourceId: 'env_sensitive_cf_1',
-    });
-    await approvals.approveApprovalRequest(approvalCtx, securityApproval.id, {
-      reason: 'Security settings approved CF',
-      mfaVerified: true,
-    });
-
-    const securityWithApproval = await callCf(handler, {
-      method: 'PATCH',
-      path: '/console/settings/security',
-      body: {
-        environmentId: 'env_sensitive_cf_1',
-        enforceIpAllowlist: true,
-        approvalId: securityApproval.id,
-      },
-    });
-    expect(securityWithApproval.status).toBe(200);
-    expect(getPath(securityWithApproval.json, 'securitySettings', 'environmentId')).toBe(
-      'env_sensitive_cf_1',
-    );
 
     const exportId = 'ke_sensitive_cf_1';
     const createExport = await callCf(handler, {
@@ -6528,7 +6349,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/approvals',
       body: {
         id: 'apr_events_cf_2',
-        operationType: 'SECURITY_SETTINGS_CHANGE',
+        operationType: 'KEY_EXPORT',
         reason: 'Approval event create/reject cf',
       },
     });
@@ -6840,13 +6661,6 @@ test.describe('console router (cloudflare)', () => {
     expect(smartWallets.status).toBe(501);
     expect(smartWallets.json?.code).toBe('smart_wallets_not_configured');
 
-    const settings = await callCf(handler, {
-      method: 'GET',
-      path: '/console/settings/app?environmentId=env-test',
-    });
-    expect(settings.status).toBe(501);
-    expect(settings.json?.code).toBe('settings_not_configured');
-
     const keyExports = await callCf(handler, {
       method: 'GET',
       path: '/console/key-exports',
@@ -6865,14 +6679,12 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare new console endpoints support scaffold CRUD flows', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -6942,27 +6754,6 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(listedSmartWalletRows.length).toBeGreaterThanOrEqual(1);
 
-    const updatedAppSettings = await callCf(handler, {
-      method: 'PATCH',
-      path: '/console/settings/app',
-      body: {
-        environmentId: 'prod',
-        allowedOrigins: ['https://dashboard.example.com'],
-      },
-    });
-    expect(updatedAppSettings.status).toBe(200);
-    expect(getPath(updatedAppSettings.json, 'appSettings', 'environmentId')).toBe('prod');
-    expect(getPath(updatedAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBe(
-      'https://dashboard.example.com',
-    );
-
-    const fetchedSecuritySettings = await callCf(handler, {
-      method: 'GET',
-      path: '/console/settings/security?environmentId=prod',
-    });
-    expect(fetchedSecuritySettings.status).toBe(200);
-    expect(getPath(fetchedSecuritySettings.json, 'securitySettings', 'environmentId')).toBe('prod');
-
     const createdKeyExport = await callCf(handler, {
       method: 'POST',
       path: '/console/key-exports',
@@ -6999,26 +6790,12 @@ test.describe('console router (cloudflare)', () => {
     expect(String(getPath(publishedSnapshot.json, 'snapshot', 'checksum') || '')).toContain(
       'fnv1a32:',
     );
-    expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'settings', 'status')).toBe(
-      'resolved',
-    );
     expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
       'resolved',
     );
     expect(getPath(publishedSnapshot.json, 'snapshot', 'payload', 'smartWallets', 'status')).toBe(
       'resolved',
     );
-    expect(
-      getPath(
-        publishedSnapshot.json,
-        'snapshot',
-        'payload',
-        'settings',
-        'appSettings',
-        'allowedOrigins',
-        0,
-      ),
-    ).toBe('https://dashboard.example.com');
 
     const latestSnapshot = await callCf(handler, {
       method: 'GET',
@@ -7064,7 +6841,6 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(first.json, 'snapshot', 'snapshotId')).toBe('runtime-contract-v1');
     expect(Number(getPath(first.json, 'snapshot', 'version') || 0)).toBe(1);
     expect(getPath(first.json, 'snapshot', 'payload', 'policy', 'status')).toBe('not_configured');
-    expect(getPath(first.json, 'snapshot', 'payload', 'settings', 'status')).toBe('not_configured');
     expect(getPath(first.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
       'not_configured',
     );
@@ -7109,7 +6885,6 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare new console endpoint mutations enforce role gates', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
@@ -7120,7 +6895,6 @@ test.describe('console router (cloudflare)', () => {
       ),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -7134,17 +6908,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(gasCreate.status).toBe(403);
     expect(gasCreate.json?.code).toBe('forbidden');
-
-    const appPatch = await callCf(handler, {
-      method: 'PATCH',
-      path: '/console/settings/app',
-      body: {
-        environmentId: 'prod',
-        allowedOrigins: ['https://dashboard.example.com'],
-      },
-    });
-    expect(appPatch.status).toBe(403);
-    expect(appPatch.json?.code).toBe('forbidden');
 
     const approve = await callCf(handler, {
       method: 'POST',
@@ -7164,7 +6927,6 @@ test.describe('console router (cloudflare)', () => {
         environmentId: 'prod',
         payload: {
           policy: {},
-          settings: {},
           gasSponsorship: {},
           smartWallets: {},
         },
@@ -7187,7 +6949,6 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare new console endpoint validation errors return typed error codes', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
@@ -7198,7 +6959,6 @@ test.describe('console router (cloudflare)', () => {
       ),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -7212,16 +6972,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(invalidGasScope.status).toBe(400);
     expect(invalidGasScope.json?.code).toBe('invalid_scope');
-
-    const invalidAppPatch = await callCf(handler, {
-      method: 'PATCH',
-      path: '/console/settings/app',
-      body: {
-        allowedOrigins: ['https://dashboard.example.com'],
-      },
-    });
-    expect(invalidAppPatch.status).toBe(400);
-    expect(invalidAppPatch.json?.code).toBe('invalid_body');
 
     const invalidStatusQuery = await callCf(handler, {
       method: 'GET',
@@ -7287,7 +7037,6 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare new console endpoints enforce org isolation', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
-    const settings = createInMemoryConsoleSettingsService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const ownerOrgId = 'org-scaffold-cf-isolation-owner';
@@ -7298,7 +7047,6 @@ test.describe('console router (cloudflare)', () => {
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-cf-isolation-user'),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -7326,26 +7074,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(createSmartWallet.status).toBe(201);
 
-    const patchAppSettings = await callCf(ownerHandler, {
-      method: 'PATCH',
-      path: '/console/settings/app',
-      body: {
-        environmentId: ownerEnvironmentId,
-        allowedOrigins: ['https://owner-cf.example.com'],
-      },
-    });
-    expect(patchAppSettings.status).toBe(200);
-
-    const patchSecuritySettings = await callCf(ownerHandler, {
-      method: 'PATCH',
-      path: '/console/settings/security',
-      body: {
-        environmentId: ownerEnvironmentId,
-        requireMfaForRiskyChanges: false,
-      },
-    });
-    expect(patchSecuritySettings.status).toBe(200);
-
     const createKeyExport = await callCf(ownerHandler, {
       method: 'POST',
       path: '/console/key-exports',
@@ -7371,7 +7099,6 @@ test.describe('console router (cloudflare)', () => {
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
     });
@@ -7408,22 +7135,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(patchSmartWallet.status).toBe(404);
     expect(patchSmartWallet.json?.code).toBe('smart_wallet_config_not_found');
-
-    const getAppSettings = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/settings/app?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(getAppSettings.status).toBe(200);
-    expect(getPath(getAppSettings.json, 'appSettings', 'allowedOrigins', 0)).toBeUndefined();
-
-    const getSecuritySettings = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/settings/security?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
-    });
-    expect(getSecuritySettings.status).toBe(200);
-    expect(getPath(getSecuritySettings.json, 'securitySettings', 'requireMfaForRiskyChanges')).toBe(
-      true,
-    );
 
     const keyExportsList = await callCf(attackerHandler, {
       method: 'GET',
@@ -7911,7 +7622,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const environmentId = 'org-1:default-project:prod';
+    const environmentId = 'default-project:prod';
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-1',
       projectId: 'default-project',
@@ -8030,7 +7741,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/api-keys',
       body: {
         name: 'invalid-expiry-key-cf',
-        environmentId: 'org-api-key-expiry-validation-cf:default-project:prod',
+        environmentId: 'default-project:prod',
         kind: 'secret_key',
         scopes: ['accounts.create'],
         expiresAt: '2000-01-01T00:00:00.000Z',
@@ -10603,7 +10314,7 @@ test.describe('console router (postgres api keys)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'owner-postgres-api-key',
-          environmentId: `${ownerOrgId}:default-project:prod`,
+          environmentId: 'default-project:prod',
           kind: 'secret_key',
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.20/32'],
@@ -10674,7 +10385,7 @@ test.describe('console router (postgres api keys)', () => {
       path: '/console/api-keys',
       body: {
         name: 'owner-postgres-api-key-cf',
-        environmentId: `${ownerOrgId}:default-project:prod`,
+        environmentId: 'default-project:prod',
         kind: 'secret_key',
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.25/32'],
@@ -10738,7 +10449,7 @@ test.describe('console router (postgres api keys)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'prefix-check-key',
-          environmentId: `${orgId}:default-project:prod`,
+          environmentId: 'default-project:prod',
           kind: 'secret_key',
           scopes: ['accounts.create'],
         }),
@@ -10771,7 +10482,7 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export`;
     const attackerOrgId = `${authOrgId}:attacker-export`;
-    const ownerEnvironmentId = `${ownerOrgId}:default-project:prod`;
+    const ownerEnvironmentId = 'default-project:prod';
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
@@ -10842,7 +10553,7 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export-cf`;
     const attackerOrgId = `${authOrgId}:attacker-export-cf`;
-    const ownerEnvironmentId = `${ownerOrgId}:default-project:prod`;
+    const ownerEnvironmentId = 'default-project:prod';
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),

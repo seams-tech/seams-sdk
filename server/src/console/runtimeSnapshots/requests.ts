@@ -20,7 +20,10 @@ function createError(code: string, status: number, message: string): ConsoleRunt
   return new ConsoleRuntimeSnapshotError(code, status, message);
 }
 
-function parseRequiredEnvironmentId(source: Record<string, unknown>, sourceKind: 'query' | 'body'): string {
+function parseRequiredEnvironmentId(
+  source: Record<string, unknown>,
+  sourceKind: 'query' | 'body',
+): string {
   const value =
     sourceKind === 'query'
       ? readOptionalQueryString(source, 'environmentId')
@@ -58,17 +61,22 @@ function requireObjectField(
 function parsePayload(raw: unknown): ConsoleRuntimeSnapshotPayload {
   const value = requireObjectField(raw, 'payload', 'invalid_body');
   const policy = requireObjectField(value.policy, 'payload.policy', 'invalid_body');
-  const settings = requireObjectField(value.settings, 'payload.settings', 'invalid_body');
   const gasSponsorship = requireObjectField(
     value.gasSponsorship,
     'payload.gasSponsorship',
     'invalid_body',
   );
-  const smartWallets = requireObjectField(value.smartWallets, 'payload.smartWallets', 'invalid_body');
-  const metadata = value.metadata === undefined ? undefined : requireObjectField(value.metadata, 'payload.metadata', 'invalid_body');
+  const smartWallets = requireObjectField(
+    value.smartWallets,
+    'payload.smartWallets',
+    'invalid_body',
+  );
+  const metadata =
+    value.metadata === undefined
+      ? undefined
+      : requireObjectField(value.metadata, 'payload.metadata', 'invalid_body');
   return {
     policy,
-    settings,
     gasSponsorship,
     smartWallets,
     ...(metadata ? { metadata } : {}),

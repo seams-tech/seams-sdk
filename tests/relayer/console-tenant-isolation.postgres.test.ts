@@ -105,7 +105,9 @@ test.describe('console postgres tenant-isolation harness', () => {
     const pool = await getPostgresPool(postgresUrl);
     for (const scopedOrgId of [ownerOrgId, attackerOrgId]) {
       await withConsoleTenantContextTx(pool, { namespace, orgId: scopedOrgId }, async (q) => {
-        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_payment_state_transitions WHERE namespace = $1', [
           namespace,
         ]);
@@ -113,7 +115,9 @@ test.describe('console postgres tenant-isolation harness', () => {
           namespace,
         ]);
         await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
@@ -293,7 +297,10 @@ test.describe('console postgres tenant-isolation harness', () => {
     });
     expect(attackerPatchProject).toBeNull();
 
-    const attackerArchiveProject = await orgProjectEnv!.archiveProject(attackerCtx, ownerProject.id);
+    const attackerArchiveProject = await orgProjectEnv!.archiveProject(
+      attackerCtx,
+      ownerProject.id,
+    );
     expect(attackerArchiveProject).toBeNull();
 
     const attackerPatchEnvironment = await orgProjectEnv!.updateEnvironment(
@@ -309,9 +316,13 @@ test.describe('console postgres tenant-isolation harness', () => {
     );
     expect(attackerArchiveEnvironment).toBeNull();
 
-    const ownerProjectAfterAttacker = await orgProjectEnv!.updateProject(ownerCtx, ownerProject.id, {
-      name: 'owner patch',
-    });
+    const ownerProjectAfterAttacker = await orgProjectEnv!.updateProject(
+      ownerCtx,
+      ownerProject.id,
+      {
+        name: 'owner patch',
+      },
+    );
     expect(ownerProjectAfterAttacker?.name).toBe('owner patch');
     expect(ownerProjectAfterAttacker?.status).toBe('ACTIVE');
 
@@ -332,9 +343,9 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerEnvironmentsAfterArchive = await orgProjectEnv!.listEnvironments(ownerCtx, {
       projectId: ownerProject.id,
     });
-    expect(ownerEnvironmentsAfterArchive.some((entry) => entry.id === ownerManagedEnvironmentId)).toBe(
-      true,
-    );
+    expect(
+      ownerEnvironmentsAfterArchive.some((entry) => entry.id === ownerManagedEnvironmentId),
+    ).toBe(true);
     expect(
       ownerEnvironmentsAfterArchive.some(
         (entry) => entry.id === ownerManagedEnvironmentId && entry.status === 'ARCHIVED',
@@ -387,7 +398,14 @@ test.describe('console postgres tenant-isolation harness', () => {
        VALUES
         ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6)
        ON CONFLICT (namespace, id) DO NOTHING`,
-      [namespace, sharedProjectId, ownerOrgId, 'Owner Project FK Check', 'owner-project-fk-check', createdAtMs],
+      [
+        namespace,
+        sharedProjectId,
+        ownerOrgId,
+        'Owner Project FK Check',
+        'owner-project-fk-check',
+        createdAtMs,
+      ],
     );
 
     let caught: any;
@@ -692,19 +710,19 @@ test.describe('console postgres tenant-isolation harness', () => {
 
     await audit!.appendEvent(ownerCtx, {
       id: 'aud_owner_rls_event',
-      category: 'SETTINGS',
-      action: 'settings.security.update',
+      category: 'API_KEY',
+      action: 'api_key.update',
       outcome: 'SUCCESS',
-      summary: 'Owner security settings update',
+      summary: 'Owner publishable key update',
       projectId: ownerProjectId,
       environmentId: ownerEnvironmentId,
     });
     await audit!.appendEvent(attackerCtx, {
       id: 'aud_attacker_rls_event',
-      category: 'SETTINGS',
-      action: 'settings.security.update',
+      category: 'API_KEY',
+      action: 'api_key.update',
       outcome: 'SUCCESS',
-      summary: 'Attacker security settings update',
+      summary: 'Attacker publishable key update',
       projectId: attackerProjectId,
       environmentId: attackerEnvironmentId,
     });
@@ -1071,7 +1089,10 @@ test.describe('console postgres tenant-isolation harness', () => {
     const ownerGetAttackerInvoice = await billing!.getInvoice(ownerCtx, attackerInvoiceId);
     expect(ownerGetAttackerInvoice).toBeNull();
 
-    const ownerAttackerInvoiceItems = await billing!.listInvoiceLineItems(ownerCtx, attackerInvoiceId);
+    const ownerAttackerInvoiceItems = await billing!.listInvoiceLineItems(
+      ownerCtx,
+      attackerInvoiceId,
+    );
     expect(ownerAttackerInvoiceItems.length).toBe(0);
 
     await expectConsoleError(async () => {
@@ -1189,7 +1210,8 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(
       ownerUsageRows.rows.some(
         (row) =>
-          String((row as Record<string, unknown>).source_event_id || '') === ownerUsageSourceEventId,
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          ownerUsageSourceEventId,
       ),
     ).toBe(true);
     expect(
@@ -1245,7 +1267,8 @@ test.describe('console postgres tenant-isolation harness', () => {
     ).toBe(true);
     expect(
       ownerInvoiceRows.rows.some(
-        (row) => String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
+        (row) =>
+          String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
       ),
     ).toBe(false);
     expect(
@@ -1350,7 +1373,8 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(
       attackerUsageRows.rows.some(
         (row) =>
-          String((row as Record<string, unknown>).source_event_id || '') === ownerUsageSourceEventId,
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          ownerUsageSourceEventId,
       ),
     ).toBe(false);
     expect(
@@ -1394,7 +1418,8 @@ test.describe('console postgres tenant-isolation harness', () => {
     );
     expect(
       attackerInvoiceRows.rows.some(
-        (row) => String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
+        (row) =>
+          String((row as Record<string, unknown>).id || '') === attackerGeneration.invoice.id,
       ),
     ).toBe(true);
     expect(
@@ -1552,7 +1577,9 @@ test.describe('console postgres tenant-isolation harness', () => {
           [namespace],
         ),
     );
-    expect(ownerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id)).toBe(true);
+    expect(ownerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id)).toBe(
+      true,
+    );
     expect(
       ownerRows.rows.every(
         (row) => String((row as Record<string, unknown>).org_id || '') === ownerOrgId,
@@ -1581,9 +1608,9 @@ test.describe('console postgres tenant-isolation harness', () => {
         (row) => String((row as Record<string, unknown>).org_id || '') === attackerOrgId,
       ),
     ).toBe(true);
-    expect(
-      attackerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id),
-    ).toBe(false);
+    expect(attackerRows.rows.some((row) => String((row as any).id || '') === ownerIntent.id)).toBe(
+      false,
+    );
 
     const noTenantRows = await pool.query(
       `SELECT org_id, id
@@ -1872,7 +1899,9 @@ test.describe('console postgres tenant-isolation harness', () => {
         ),
     );
     expect(
-      ownerRows.rows.some((row) => String((row as Record<string, unknown>).event_id || '') === ownerEventId),
+      ownerRows.rows.some(
+        (row) => String((row as Record<string, unknown>).event_id || '') === ownerEventId,
+      ),
     ).toBe(true);
     expect(
       ownerRows.rows.every(

@@ -66,7 +66,6 @@ function cloneObject(input: Record<string, unknown>): Record<string, unknown> {
 function clonePayload(input: ConsoleRuntimeSnapshotPayload): ConsoleRuntimeSnapshotPayload {
   return {
     policy: cloneObject(input.policy),
-    settings: cloneObject(input.settings),
     gasSponsorship: cloneObject(input.gasSponsorship),
     smartWallets: cloneObject(input.smartWallets),
     ...(input.metadata ? { metadata: cloneObject(input.metadata) } : {}),
@@ -78,7 +77,6 @@ function parsePayload(raw: unknown): ConsoleRuntimeSnapshotPayload {
   const metadataRaw = row.metadata;
   return {
     policy: parseJsonObject(row.policy),
-    settings: parseJsonObject(row.settings),
     gasSponsorship: parseJsonObject(row.gasSponsorship),
     smartWallets: parseJsonObject(row.smartWallets),
     ...(metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
@@ -240,7 +238,9 @@ export async function ensureConsoleRuntimeSnapshotsPostgresSchema(
     });
   } finally {
     try {
-      await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_RUNTIME_SNAPSHOTS_MIGRATION_LOCK_ID]);
+      await pool.query('SELECT pg_advisory_unlock($1)', [
+        CONSOLE_RUNTIME_SNAPSHOTS_MIGRATION_LOCK_ID,
+      ]);
     } catch {
       // no-op
     }
@@ -383,30 +383,33 @@ export async function createPostgresConsoleRuntimeSnapshotService(
       const effectiveAt = toIso(effectiveAtMs) || now.toISOString();
       const createdAtMs = nowMs(now);
 
-      const inserted = await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (q) => {
-        const nextVersionRow = await queryOne(
-          q,
-          `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
+      const inserted = await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (q) => {
+          const nextVersionRow = await queryOne(
+            q,
+            `SELECT COALESCE(MAX(version), 0) + 1 AS next_version
              FROM console_runtime_snapshots
             WHERE namespace = $1
               AND org_id = $2
               AND project_id = $3
               AND environment_id = $4`,
-          [namespace, ctx.orgId, projectId, request.environmentId],
-        );
-        const version = Math.max(1, Math.floor(toNumber(nextVersionRow?.next_version, 1)));
-        const checksum = computeConsoleRuntimeSnapshotChecksum({
-          orgId: ctx.orgId,
-          projectId: toNullableProjectId(projectId),
-          environmentId: request.environmentId,
-          snapshotId,
-          version,
-          effectiveAt,
-          payload,
-        });
-        const insertedRow = await queryOne(
-          q,
-          `INSERT INTO console_runtime_snapshots
+            [namespace, ctx.orgId, projectId, request.environmentId],
+          );
+          const version = Math.max(1, Math.floor(toNumber(nextVersionRow?.next_version, 1)));
+          const checksum = computeConsoleRuntimeSnapshotChecksum({
+            orgId: ctx.orgId,
+            projectId: toNullableProjectId(projectId),
+            environmentId: request.environmentId,
+            snapshotId,
+            version,
+            effectiveAt,
+            payload,
+          });
+          const insertedRow = await queryOne(
+            q,
+            `INSERT INTO console_runtime_snapshots
             (
               namespace,
               org_id,
@@ -422,41 +425,41 @@ export async function createPostgresConsoleRuntimeSnapshotService(
             )
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
            RETURNING *`,
-          [
-            namespace,
-            ctx.orgId,
-            projectId,
-            request.environmentId,
-            snapshotId,
-            version,
-            effectiveAtMs,
-            checksum,
-            JSON.stringify(payload),
-            createdAtMs,
-            ctx.actorUserId,
-          ],
-        );
-        if (!insertedRow) {
-          throw new Error('Failed to insert runtime snapshot');
-        }
-        const snapshot = parseSnapshotRow(insertedRow);
-        const outboxEventId = makeOutboxEventId(now);
-        const outboxPayload = {
-          eventType: 'runtime_snapshot.published.v1',
-          snapshot: {
-            orgId: snapshot.orgId,
-            projectId: snapshot.projectId,
-            environmentId: snapshot.environmentId,
-            snapshotId: snapshot.snapshotId,
-            version: snapshot.version,
-            effectiveAt: snapshot.effectiveAt,
-            checksum: snapshot.checksum,
-            createdAt: snapshot.createdAt,
-            createdBy: snapshot.createdBy,
-          },
-        };
-        await q.query(
-          `INSERT INTO console_runtime_snapshot_outbox
+            [
+              namespace,
+              ctx.orgId,
+              projectId,
+              request.environmentId,
+              snapshotId,
+              version,
+              effectiveAtMs,
+              checksum,
+              JSON.stringify(payload),
+              createdAtMs,
+              ctx.actorUserId,
+            ],
+          );
+          if (!insertedRow) {
+            throw new Error('Failed to insert runtime snapshot');
+          }
+          const snapshot = parseSnapshotRow(insertedRow);
+          const outboxEventId = makeOutboxEventId(now);
+          const outboxPayload = {
+            eventType: 'runtime_snapshot.published.v1',
+            snapshot: {
+              orgId: snapshot.orgId,
+              projectId: snapshot.projectId,
+              environmentId: snapshot.environmentId,
+              snapshotId: snapshot.snapshotId,
+              version: snapshot.version,
+              effectiveAt: snapshot.effectiveAt,
+              checksum: snapshot.checksum,
+              createdAt: snapshot.createdAt,
+              createdBy: snapshot.createdBy,
+            },
+          };
+          await q.query(
+            `INSERT INTO console_runtime_snapshot_outbox
             (
               namespace,
               org_id,
@@ -471,20 +474,21 @@ export async function createPostgresConsoleRuntimeSnapshotService(
               dispatched_at_ms
             )
            VALUES ($1, $2, $3, $4, $5, 'RUNTIME_SNAPSHOT_PUBLISHED_V1', $6, $7, $8::jsonb, $9, NULL)`,
-          [
-            namespace,
-            ctx.orgId,
-            projectId,
-            request.environmentId,
-            outboxEventId,
-            snapshot.snapshotId,
-            snapshot.version,
-            JSON.stringify(outboxPayload),
-            createdAtMs,
-          ],
-        );
-        return snapshot;
-      });
+            [
+              namespace,
+              ctx.orgId,
+              projectId,
+              request.environmentId,
+              outboxEventId,
+              snapshot.snapshotId,
+              snapshot.version,
+              JSON.stringify(outboxPayload),
+              createdAtMs,
+            ],
+          );
+          return snapshot;
+        },
+      );
 
       return {
         ...inserted,

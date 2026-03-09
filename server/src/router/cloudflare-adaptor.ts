@@ -339,24 +339,6 @@ export type {
   PostgresConsoleSmartWalletServiceOptions,
 } from '../console/smartWallets';
 export type {
-  ConsoleCookieSameSite,
-  ConsoleCookieSettings,
-  ConsoleJwtSettings,
-  ConsoleAppSettings,
-  ConsoleSecurityApprovalPolicy,
-  ConsoleSecuritySettings,
-  GetConsoleSettingsRequest,
-  UpdateConsoleAppSettingsRequest,
-  UpdateConsoleSecuritySettingsRequest,
-} from '../console/settings';
-export type {
-  ConsoleSettingsContext,
-  ConsoleSettingsService,
-  InMemoryConsoleSettingsServiceOptions,
-  PostgresConsoleSettingsSchemaOptions,
-  PostgresConsoleSettingsServiceOptions,
-} from '../console/settings';
-export type {
   ConsoleKeyExportMode,
   ConsoleKeyExportStatus,
   ConsoleKeyExportConstraints,
@@ -544,16 +526,6 @@ export {
   isConsoleSmartWalletError,
   ConsoleSmartWalletError,
 } from '../console/smartWallets';
-export {
-  createInMemoryConsoleSettingsService,
-  ensureConsoleSettingsPostgresSchema,
-  createPostgresConsoleSettingsService,
-  parseGetConsoleSettingsRequest,
-  parseUpdateConsoleAppSettingsRequest,
-  parseUpdateConsoleSecuritySettingsRequest,
-  isConsoleSettingsError,
-  ConsoleSettingsError,
-} from '../console/settings';
 export {
   createInMemoryConsoleKeyExportService,
   ensureConsoleKeyExportsPostgresSchema,

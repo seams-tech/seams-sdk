@@ -1,7 +1,9 @@
-import type { ConsoleGasSponsorshipService } from '../console/gasSponsorship';
+import {
+  type ConsoleGasSponsorshipService,
+  resolveSponsoredCallPoliciesFromConfigs,
+} from '../console/gasSponsorship';
 import type { ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
-import type { ConsoleSettingsService } from '../console/settings';
 import type { ConsoleSmartWalletService } from '../console/smartWallets';
 
 export interface ResolveConsoleRuntimeSnapshotPayloadInput {
@@ -11,7 +13,6 @@ export interface ResolveConsoleRuntimeSnapshotPayloadInput {
   environmentId: string;
   projectId?: string;
   policies?: ConsolePolicyService | null;
-  settings?: ConsoleSettingsService | null;
   gasSponsorship?: ConsoleGasSponsorshipService | null;
   smartWallets?: ConsoleSmartWalletService | null;
   now?: () => Date;
@@ -65,33 +66,13 @@ export async function resolveConsoleRuntimeSnapshotPayload(
     };
   })();
 
-  const settingsPromise = (async () => {
-    if (!input.settings) {
-      return {
-        status: 'not_configured',
-      };
-    }
-    const [appSettings, securitySettings] = await Promise.all([
-      input.settings.getAppSettings(ctx, {
-        environmentId: input.environmentId,
-      }),
-      input.settings.getSecuritySettings(ctx, {
-        environmentId: input.environmentId,
-      }),
-    ]);
-    return {
-      status: 'resolved',
-      appSettings,
-      securitySettings,
-    };
-  })();
-
   const gasPromise = (async () => {
     if (!input.gasSponsorship) {
       return {
         status: 'not_configured',
         configCount: 0,
         configs: [] as unknown[],
+        sponsoredCallPolicies: [] as unknown[],
       };
     }
     const configs = await input.gasSponsorship.listConfigs(ctx, {
@@ -102,6 +83,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
       status: 'resolved',
       configCount: configs.length,
       configs,
+      sponsoredCallPolicies: resolveSponsoredCallPoliciesFromConfigs(configs),
     };
   })();
 
@@ -124,16 +106,14 @@ export async function resolveConsoleRuntimeSnapshotPayload(
     };
   })();
 
-  const [policy, settings, gasSponsorship, smartWallets] = await Promise.all([
+  const [policy, gasSponsorship, smartWallets] = await Promise.all([
     policyPromise,
-    settingsPromise,
     gasPromise,
     smartWalletPromise,
   ]);
 
   return {
     policy,
-    settings,
     gasSponsorship,
     smartWallets,
     metadata: {

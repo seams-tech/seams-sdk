@@ -9,7 +9,7 @@
 
 ## Summary
 
-- Core functionality: 178 files
+- Core functionality: 177 files
 - Guardrail (non-tautological): 14 files
 - Shallow sanity check: 0 files
 - Mixed (core + shallow): 0 files
@@ -20,7 +20,6 @@
 | File | What it actually tests | Verdict | Notes |
 |---|---|---|---|
 | `tests/e2e/cancel_overlay_contracts.test.ts` | Wallet iframe overlay contracts on cancel; Overlay shows then hides on cancel across core routes | Core functionality | Exercises real business/signing/runtime behavior with meaningful assertions. |
-| `tests/e2e/dashboard.appSettings.contextHierarchy.test.ts` | dashboard app-settings context hierarchy; shows auto-provisioned environments without mutation controls | Core functionality | Exercises real business/signing/runtime behavior with meaningful assertions. |
 | `tests/e2e/dashboard.billing.subscriptionManagement.apiWiring.test.ts` | dashboard billing subscription management api wiring; wires subscription lifecycle and Stripe checkout/portal actions | Core functionality | Exercises real business/signing/runtime behavior with meaningful assertions. |
 | `tests/e2e/dashboard.consoleConfigPages.apiWiring.test.ts` | dashboard console config page api wiring; dashboard root routes to onboarding when console session is unavailable | Core functionality | Exercises real business/signing/runtime behavior with meaningful assertions. |
 | `tests/e2e/docs.thresholdRegisterAndSigning.integration.test.ts` | docs frontend register + threshold signing integration; register/login provisions threshold signers during login, then signs Tempo and EVM | Core functionality | Exercises real business/signing/runtime behavior with meaningful assertions. |

@@ -28,7 +28,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
   - Observability
 - Administration
   - Team members and roles
-  - App settings (origins, cookies, JWT)
+  - API keys
 - Wallet Operations
   - User wallets list
   - Gas sponsorship and smart wallets
@@ -77,15 +77,10 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Smart wallet/AA controls (when enabled): account type, paymaster mode, fallback behavior.
 - Telemetry: sponsored tx count, spend, failures, and budget threshold alerts.
 
-### 5) App settings (origins/domains, cookies, JWT)
+### 5) Allowed origins
 
-- Environment-scoped app settings panel:
-  - Allowed origins/domains with strict validation.
-  - Cookie mode (including `HttpOnly`, `Secure`, `SameSite`).
-  - JWT settings: issuer, audience, key IDs, token TTL/refresh TTL.
-- Change guardrails for risky settings (warnings, confirmation, and approval workflow).
-- Optional IP allowlist and SSO metadata fields.
-- Default approval for risky security settings changes: `1 admin + MFA`.
+- `publishable_key` editor:
+  - Allowed browser origins with strict validation.
 
 ### 6) Export keys settings
 
@@ -220,7 +215,6 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET /console/wallets`, `GET /console/wallets/:id`
 - `GET /console/wallets/search`
 - `GET/POST/PATCH /console/policies`, `POST /console/policies/:id/simulate`, `POST /console/policies/:id/publish`
-- `GET/PATCH /console/settings/app`, `GET/PATCH /console/settings/security`
 - `GET /console/runtime-snapshots`, `GET /console/runtime-snapshots/latest`, `POST /console/runtime-snapshots/publish`, `POST /console/runtime-snapshots/publish-current`
 - `GET/POST/PATCH /console/gas-sponsorship`, `GET/POST/PATCH /console/smart-wallets`
 - `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
@@ -240,7 +234,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 
 ## Delivery plan
 
-- Phase 1 (MVP): wallets list/search, baseline policy controls, app settings core, API keys, webhooks basics, billing overview + invoices read APIs.
+- Phase 1 (MVP): wallets list/search, baseline policy controls, API keys, webhooks basics, billing overview + invoices read APIs.
 - Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows, pricing -> Stripe Checkout -> dashboard return flow.
 - Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability) and stablecoin payment flows (`USDC`, `USDT`).
 
@@ -263,7 +257,6 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Billing usage is computed from `Monthly Active Wallets (MAW)` as the canonical wallet activity metric.
 - Policy publish requires `1 admin` approval by default.
 - Key export requires `2 admin` approvals + `MFA` + reason by default.
-- Risky security settings changes require `1 admin + MFA` by default.
 - Runtime consumers receive full versioned per-environment snapshots of effective config.
 - Sidebar navigation places `Observability` under `Overview`.
 - Onboarding requires an explicit organization name step before project creation.

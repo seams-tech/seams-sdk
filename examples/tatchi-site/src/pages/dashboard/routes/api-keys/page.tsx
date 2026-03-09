@@ -441,7 +441,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             )
           ) {
             setMutationError(
-              `Allowed origins are missing the wallet origin ${walletOriginHint}. Managed registration runs from that origin, so add it in Credential policy before creating a publishable_key.`,
+              `Allowed origins are missing the wallet origin ${walletOriginHint}. Managed registration runs from that origin, so add it to this publishable_key.`,
             );
             return;
           }
@@ -542,6 +542,17 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             setEditingError('Add at least one allowed origin.');
             return;
           }
+          if (
+            walletOriginHint &&
+            !allowedOrigins.some(
+              (origin) => normalizeOrigin(origin) === normalizeOrigin(walletOriginHint),
+            )
+          ) {
+            setEditingError(
+              `Allowed origins are missing the wallet origin ${walletOriginHint}. Managed registration runs from that origin, so add it to this publishable_key.`,
+            );
+            return;
+          }
           await updateDashboardApiKey({
             apiKeyId: editingApiKey.id,
             name,
@@ -589,6 +600,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
       loadApiKeys,
       session.claims,
       session.errorMessage,
+      walletOriginHint,
     ],
   );
 

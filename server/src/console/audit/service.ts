@@ -118,7 +118,11 @@ function ensureReasonableSummary(field: string, value: string): string {
     throw new ConsoleAuditError('invalid_body', 400, `Field ${field} is required`);
   }
   if (out.length > 1024) {
-    throw new ConsoleAuditError('invalid_body', 400, `Field ${field} must be 1024 characters or less`);
+    throw new ConsoleAuditError(
+      'invalid_body',
+      400,
+      `Field ${field} must be 1024 characters or less`,
+    );
   }
   return out;
 }
@@ -145,8 +149,7 @@ export function createInMemoryConsoleAuditService(
 
     const seedNow = now().getTime();
     const projectId = normalizeOptionalString(ctx.projectId) || 'proj_console_core';
-    const environmentId =
-      normalizeOptionalString(ctx.environmentId) || `${projectId}-prod`;
+    const environmentId = normalizeOptionalString(ctx.environmentId) || `${projectId}-prod`;
 
     const seededEvents: ConsoleAuditEvent[] = [
       {
@@ -170,11 +173,11 @@ export function createInMemoryConsoleAuditService(
         environmentId,
         actorUserId: 'console-admin',
         actorType: 'USER',
-        category: 'SETTINGS',
-        action: 'settings.security.update',
-        outcome: 'PENDING',
-        summary: 'Security settings update submitted and awaiting approval',
-        metadata: { approvalId: 'apr_2026_001' },
+        category: 'API_KEY',
+        action: 'api_key.update',
+        outcome: 'SUCCESS',
+        summary: 'Updated publishable_key allowed origins for the production environment',
+        metadata: { environmentId, apiKeyId: 'ak_publishable_prod' },
         createdAt: new Date(seedNow - 9 * 60_000).toISOString(),
       },
       {
@@ -298,7 +301,9 @@ export function createInMemoryConsoleAuditService(
       const event: ConsoleAuditEvent = {
         id: normalizeOptionalString(request.id) || makeId('aud', nowValue),
         orgId: ctx.orgId,
-        ...(normalizeOptionalString(request.projectId) ? { projectId: normalizeOptionalString(request.projectId) } : {}),
+        ...(normalizeOptionalString(request.projectId)
+          ? { projectId: normalizeOptionalString(request.projectId) }
+          : {}),
         ...(normalizeOptionalString(request.environmentId)
           ? { environmentId: normalizeOptionalString(request.environmentId) }
           : {}),
@@ -309,13 +314,19 @@ export function createInMemoryConsoleAuditService(
         outcome: request.outcome,
         summary: ensureReasonableSummary('summary', request.summary),
         metadata:
-          request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
+          request.metadata &&
+          typeof request.metadata === 'object' &&
+          !Array.isArray(request.metadata)
             ? { ...request.metadata }
             : {},
         createdAt: toIso(nowValue),
       };
       if (store.events.has(event.id)) {
-        throw new ConsoleAuditError('event_already_exists', 409, `Audit event ${event.id} already exists`);
+        throw new ConsoleAuditError(
+          'event_already_exists',
+          409,
+          `Audit event ${event.id} already exists`,
+        );
       }
       store.events.set(event.id, event);
       return cloneEvent(event);
@@ -327,7 +338,9 @@ export function createInMemoryConsoleAuditService(
       const evidence: ConsoleAuditEvidenceRecord = {
         id: normalizeOptionalString(request.id) || makeId('evd', nowValue),
         orgId: ctx.orgId,
-        ...(normalizeOptionalString(request.projectId) ? { projectId: normalizeOptionalString(request.projectId) } : {}),
+        ...(normalizeOptionalString(request.projectId)
+          ? { projectId: normalizeOptionalString(request.projectId) }
+          : {}),
         ...(normalizeOptionalString(request.environmentId)
           ? { environmentId: normalizeOptionalString(request.environmentId) }
           : {}),

@@ -1,5 +1,4 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
-import { AppSettingsPage } from './routes/app-settings/page';
 import { BillingPage } from './routes/billing/page';
 import { AuditLogsPage } from './routes/audit/page';
 import { EnterpriseIsolationPage } from './routes/enterprise-isolation/page';
@@ -110,13 +109,6 @@ const sidebarGroups: SidebarGroup[] = [
         path: '/dashboard/api-keys',
         iconClass: 'dashboard-nav-icon--api-keys',
         component: ApiKeyManagementPage,
-      },
-      {
-        key: 'credential-policy',
-        label: 'Credential Policy',
-        path: '/dashboard/credential-policy',
-        iconClass: 'dashboard-nav-icon--app-settings',
-        component: AppSettingsPage,
       },
     ],
   },

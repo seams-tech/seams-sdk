@@ -253,7 +253,9 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.route(`${consoleOrigin}/auth/google/options`, async (route) => {
-      optionsRequestUsedLegacyAuthHeaders = hasLegacyDashboardAuthHeaders(route.request().headers());
+      optionsRequestUsedLegacyAuthHeaders = hasLegacyDashboardAuthHeaders(
+        route.request().headers(),
+      );
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -1095,7 +1097,9 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('Acme Wallets');
 
     const projectForm = page
-      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .locator(
+        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
+      )
       .last();
     await expect(projectForm.locator('label:has-text("Project name") input')).toBeVisible();
     await projectForm.locator('label:has-text("Project name") input').fill('Consumer App');
@@ -1116,14 +1120,13 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() =>
         String(
-          ((lastProjectBody?.environment as Record<string, unknown> | undefined)?.id as string) || '',
+          ((lastProjectBody?.environment as Record<string, unknown> | undefined)?.id as string) ||
+            '',
         ),
       )
       .toBe('proj_consumer:dev');
     const completionSection = page.locator('section[aria-label="Onboarding completed"]').first();
-    await expect(completionSection).toContainText(
-      'Onboarding complete',
-    );
+    await expect(completionSection).toContainText('Onboarding complete');
     await completionSection.locator('button:has-text("Go to wallets")').click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/wallets-list');
     await expect.poll(() => new URL(page.url()).search).toBe('');
@@ -1282,7 +1285,9 @@ test.describe('dashboard console config page api wiring', () => {
     );
     await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Org');
     await onboardingForm.locator('button:has-text("Add optional organization details")').click();
-    await onboardingForm.locator('label:has-text("Organization slug (optional)") input').fill('acme-org');
+    await onboardingForm
+      .locator('label:has-text("Organization slug (optional)") input')
+      .fill('acme-org');
     await onboardingForm
       .locator('label:has-text("I confirm this organization name is correct.") input')
       .check();
@@ -1467,7 +1472,9 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/onboarding');
     const onboardingForm = page
-      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .locator(
+        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
+      )
       .last();
     await expect(onboardingForm.locator('label:has-text("Project name") input')).toBeVisible();
     await onboardingForm.locator('label:has-text("Project name") input').fill('Retry Project');
@@ -1683,7 +1690,9 @@ test.describe('dashboard console config page api wiring', () => {
     await organizationForm.locator('button:has-text("Continue to project setup")').click();
 
     const onboardingForm = page
-      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))')
+      .locator(
+        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
+      )
       .last();
     await expect(onboardingForm.locator('button:has-text("Finish onboarding")')).toBeDisabled();
 
@@ -1805,9 +1814,11 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/onboarding');
     await expect(
-      page.locator(
-        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project")) label:has-text("Project name") input',
-      ).last(),
+      page
+        .locator(
+          'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project")) label:has-text("Project name") input',
+        )
+        .last(),
     ).toBeVisible();
     await expect(page.locator('label:has-text("Provider reference")')).toHaveCount(0);
     await expect(page.locator('section[aria-label="Onboarding form"]')).toContainText(
@@ -2596,13 +2607,17 @@ test.describe('dashboard console config page api wiring', () => {
       'existing-admin@example.com',
     );
 
-    const inviteSection = page.locator('section[aria-label="Invite member section"]');
-    await inviteSection.locator('label:has-text("User ID") input').fill('user_new_member');
-    await inviteSection.locator('label:has-text("Email") input').fill('new-member@example.com');
-    await inviteSection.locator('label:has-text("Admin member") input').check();
-    await inviteSection.locator('label:has-text("Can add/remove team members") input').check();
-    await inviteSection.locator('label:has-text("Integrations") select').selectOption('WRITE');
-    await inviteSection.locator('button:has-text("Invite member")').click();
+    await page.locator('button:has-text("Add Team Member")').click();
+
+    const inviteModal = page.locator('section[aria-label="Add team member modal"]');
+    await inviteModal.locator('label:has-text("Email") input').fill('new-member@example.com');
+    await inviteModal.locator('label:has-text("Admin member") input').check();
+    await inviteModal.locator('label:has-text("Can add/remove team members") input').check();
+    await inviteModal
+      .locator('.dashboard-team-members-access-item', { hasText: 'Integrations' })
+      .locator('button:has-text("Write")')
+      .click();
+    await inviteModal.locator('button:has-text("Invite member")').click();
 
     await expect.poll(() => String(lastInviteBody?.email || '')).toBe('new-member@example.com');
     await expect.poll(() => String(lastInviteBody?.userId || '')).toBe('user_new_member');
@@ -2629,15 +2644,24 @@ test.describe('dashboard console config page api wiring', () => {
     );
 
     const table = page.locator('section[aria-label="Team members table"]');
+    const filterSection = page.locator('section[aria-label="Team member filters section"]');
+    await filterSection.locator('input[aria-label="Search team members"]').fill('new-member');
+    await expect(table).toContainText('new-member@example.com');
+    await expect(table).not.toContainText('existing-admin@example.com');
+    await filterSection.locator('input[aria-label="Search team members"]').fill('');
+
     const newMemberRow = table.locator('.dashboard-table-row', {
       hasText: 'new-member@example.com',
     });
-    await newMemberRow.locator('button:has-text("Edit permissions")').click();
+    await newMemberRow.locator('button:has-text("Update permissions")').click();
 
-    const updateSection = page.locator('section[aria-label="Update member roles section"]');
-    await updateSection.locator('label:has-text("Can add/remove team members") input').uncheck();
-    await updateSection.locator('label:has-text("Integrations") select').selectOption('READ');
-    await updateSection.locator('button:has-text("Apply permissions")').click();
+    const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
+    await updateModal.locator('label:has-text("Can add/remove team members") input').uncheck();
+    await updateModal
+      .locator('.dashboard-team-members-access-item', { hasText: 'Integrations' })
+      .locator('button:has-text("Read")')
+      .click();
+    await updateModal.locator('button:has-text("Apply permissions")').click();
 
     await expect.poll(() => lastRolesPatchMemberId).toContain('member_');
     await expect
@@ -2661,11 +2685,10 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(newMemberRow).toContainText('Integrations:read');
 
     page.once('dialog', (dialog) => dialog.accept());
-    await newMemberRow.locator('button:has-text("Remove")').click({ force: true });
+    await newMemberRow.locator('button:has-text("Delete member")').click({ force: true });
     await expect.poll(() => lastRemovedMemberId).toContain('member_');
     await expect(newMemberRow).toContainText('REMOVED');
 
-    const filterSection = page.locator('section[aria-label="Team member filters section"]');
     await filterSection.locator('label:has-text("Status") select').selectOption('REMOVED');
     await expect.poll(() => lastListStatus).toBe('REMOVED');
     await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
@@ -2789,381 +2812,6 @@ test.describe('dashboard console config page api wiring', () => {
         'aside[aria-label="Primary dashboard navigation"] a[href="/dashboard/approvals"]',
       ),
     ).toHaveCount(0);
-  });
-
-  test('credential-policy page wires app and security settings patch flows', async ({
-    page,
-    baseURL,
-  }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const context = buildMockDashboardContext();
-    let appSettings: {
-      environmentId: string;
-      allowedOrigins: string[];
-      cookie: {
-        httpOnly: boolean;
-        secure: boolean;
-        sameSite: string;
-        domain: string | null;
-        path: string;
-        maxAgeSeconds: number;
-      };
-      jwt: {
-        issuer: string;
-        audience: string[];
-        keyIds: string[];
-        accessTokenTtlSeconds: number;
-        refreshTokenTtlSeconds: number;
-      };
-      ssoMetadataUrl: string | null;
-      updatedAt: string;
-    } = {
-      environmentId: 'env_active',
-      allowedOrigins: ['https://existing.example.com'],
-      cookie: {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'LAX',
-        domain: null,
-        path: '/',
-        maxAgeSeconds: 86400,
-      },
-      jwt: {
-        issuer: 'https://issuer.example.com',
-        audience: ['dashboard'],
-        keyIds: ['kid-1'],
-        accessTokenTtlSeconds: 900,
-        refreshTokenTtlSeconds: 2592000,
-      },
-      ssoMetadataUrl: null,
-      updatedAt: iso('2026-01-05T00:00:00.000Z'),
-    };
-    let securitySettings = {
-      environmentId: 'env_active',
-      ipAllowlist: ['203.0.113.1/32'],
-      enforceIpAllowlist: false,
-      requireMfaForRiskyChanges: true,
-      riskyChangeApproval: {
-        approvalsRequired: 1,
-        requireAdmin: true,
-        requireMfa: true,
-      },
-      updatedAt: iso('2026-01-05T00:00:00.000Z'),
-    };
-    let projects = [{ ...context.activeProject }];
-    let lastAppPatchBody: Record<string, unknown> | null = null;
-    let lastSecurityPatchBody: Record<string, unknown> | null = null;
-    let lastProjectCreateBody: Record<string, unknown> | null = null;
-    let lastProjectPatchBody: Record<string, unknown> | null = null;
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const url = new URL(req.url());
-      const { pathname } = url;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user_dash_console_pages',
-              orgId: 'org_dash_console_pages',
-              roles: ['admin'],
-              projectId: 'proj_active',
-              environmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/org') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, org: context.org }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects' && method === 'GET') {
-        const status = String(url.searchParams.get('status') || '').toUpperCase();
-        const filteredProjects = status
-          ? projects.filter((project) => String(project.status || '').toUpperCase() === status)
-          : projects;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects: filteredProjects }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects' && method === 'POST') {
-        const body = parseJsonBody(req.postData());
-        lastProjectCreateBody = body;
-        const id =
-          String(body.id || '').trim() ||
-          `proj_created_${String(Math.max(projects.length + 1, 1)).padStart(2, '0')}`;
-        const name = String(body.name || '').trim() || id;
-        const now = iso('2026-02-04T00:00:00.000Z');
-        const created = {
-          id,
-          name,
-          slug: name.toLowerCase().replace(/\s+/g, '-'),
-          status: 'ACTIVE',
-          environmentCount: 0,
-          createdAt: now,
-          updatedAt: now,
-        };
-        projects = [created, ...projects];
-        await route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, project: created }),
-        });
-        return;
-      }
-
-      if (/^\/console\/projects\/[^/]+$/.test(pathname) && method === 'PATCH') {
-        const projectId = decodeURIComponent(pathname.split('/').pop() || '');
-        const body = parseJsonBody(req.postData());
-        lastProjectPatchBody = body;
-        projects = projects.map((project) => {
-          if (project.id !== projectId) return project;
-          return {
-            ...project,
-            name: String(body.name || '').trim() || project.name,
-            updatedAt: iso('2026-02-05T00:00:00.000Z'),
-          };
-        });
-        const updatedProject = projects.find((project) => project.id === projectId) || null;
-        await route.fulfill({
-          status: updatedProject ? 200 : 404,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            updatedProject
-              ? { ok: true, project: updatedProject }
-              : { ok: false, code: 'not_found', message: 'project not found' },
-          ),
-        });
-        return;
-      }
-
-      if (/^\/console\/projects\/[^/]+\/archive$/.test(pathname) && method === 'POST') {
-        const projectId = decodeURIComponent(pathname.split('/')[3] || '');
-        projects = projects.map((project) => {
-          if (project.id !== projectId) return project;
-          return {
-            ...project,
-            status: 'ARCHIVED',
-            updatedAt: iso('2026-02-06T00:00:00.000Z'),
-          };
-        });
-        const archivedProject = projects.find((project) => project.id === projectId) || null;
-        await route.fulfill({
-          status: archivedProject ? 200 : 404,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            archivedProject
-              ? { ok: true, project: archivedProject }
-              : { ok: false, code: 'not_found', message: 'project not found' },
-          ),
-        });
-        return;
-      }
-
-      if (pathname === '/console/environments') {
-        const status = String(url.searchParams.get('status') || '').toUpperCase();
-        const projectId = String(url.searchParams.get('projectId') || '').trim();
-        let environments = [context.activeEnvironment, context.archivedEnvironment];
-        if (projectId) {
-          environments = environments.filter((entry: any) => String(entry.projectId) === projectId);
-        }
-        if (status === 'ACTIVE') {
-          environments = environments.filter((entry: any) => String(entry.status) === 'ACTIVE');
-        } else if (status === 'ARCHIVED') {
-          environments = environments.filter((entry: any) => String(entry.status) === 'ARCHIVED');
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, environments }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/settings/app' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, appSettings }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/settings/security' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, securitySettings }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/settings/app' && method === 'PATCH') {
-        const body = parseJsonBody(req.postData());
-        lastAppPatchBody = body;
-        appSettings = {
-          ...appSettings,
-          environmentId: String(body.environmentId || appSettings.environmentId),
-          allowedOrigins: Array.isArray(body.allowedOrigins)
-            ? (body.allowedOrigins as string[])
-            : appSettings.allowedOrigins,
-          cookie:
-            body.cookie && typeof body.cookie === 'object'
-              ? { ...appSettings.cookie, ...(body.cookie as Record<string, unknown>) }
-              : appSettings.cookie,
-          jwt:
-            body.jwt && typeof body.jwt === 'object'
-              ? { ...appSettings.jwt, ...(body.jwt as Record<string, unknown>) }
-              : appSettings.jwt,
-          ssoMetadataUrl:
-            body.ssoMetadataUrl === undefined
-              ? appSettings.ssoMetadataUrl
-              : (body.ssoMetadataUrl as string | null),
-          updatedAt: iso('2026-02-03T00:00:00.000Z'),
-        };
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, appSettings }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/settings/security' && method === 'PATCH') {
-        const body = parseJsonBody(req.postData());
-        lastSecurityPatchBody = body;
-        securitySettings = {
-          ...securitySettings,
-          environmentId: String(body.environmentId || securitySettings.environmentId),
-          ipAllowlist: Array.isArray(body.ipAllowlist)
-            ? (body.ipAllowlist as string[])
-            : securitySettings.ipAllowlist,
-          enforceIpAllowlist:
-            body.enforceIpAllowlist === undefined
-              ? securitySettings.enforceIpAllowlist
-              : Boolean(body.enforceIpAllowlist),
-          requireMfaForRiskyChanges:
-            body.requireMfaForRiskyChanges === undefined
-              ? securitySettings.requireMfaForRiskyChanges
-              : Boolean(body.requireMfaForRiskyChanges),
-          riskyChangeApproval:
-            body.riskyChangeApproval && typeof body.riskyChangeApproval === 'object'
-              ? {
-                  ...securitySettings.riskyChangeApproval,
-                  ...(body.riskyChangeApproval as Record<string, unknown>),
-                }
-              : securitySettings.riskyChangeApproval,
-          updatedAt: iso('2026-02-03T00:00:00.000Z'),
-        };
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, securitySettings }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_found',
-          message: `Unhandled mock path ${pathname}`,
-        }),
-      });
-    });
-
-    await page.goto('/dashboard/credential-policy');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/credential policy/i);
-    await expect(
-      page.locator('section[aria-label="App and security settings controls"]'),
-    ).toHaveCount(0);
-    await expect(page.locator('section[aria-label="Environment inventory"]')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Create environment")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Rename environment")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Archive environment")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Refresh app/security settings")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Refresh runtime snapshots")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("Publish current runtime snapshot")')).toHaveCount(0);
-
-    await page.getByRole('button', { name: 'Create project' }).click();
-    const createProjectModal = page.locator('section[aria-label="Create project modal"]');
-    await expect(createProjectModal).toBeVisible();
-    await createProjectModal.locator('label:has-text("Project ID (optional)") input').fill('proj_new_ui');
-    await createProjectModal.locator('label:has-text("Project name") input').fill('Project New UI');
-    await createProjectModal.locator('button:has-text("Create project")').click();
-    await expect.poll(() => String(lastProjectCreateBody?.id || '')).toBe('proj_new_ui');
-    await expect(page.locator('section[aria-label="Project management"]')).toContainText('proj_new_ui');
-
-    const newProjectRow = page
-      .locator('section[aria-label="Project management"] .dashboard-table-row--projects')
-      .filter({ hasText: 'proj_new_ui' });
-    await newProjectRow.getByRole('button', { name: 'Edit' }).click();
-    const editProjectModal = page.locator('section[aria-label="Edit project modal"]');
-    await expect(editProjectModal).toBeVisible();
-    await editProjectModal.locator('label:has-text("Project name") input').fill('Project New UI Renamed');
-    await editProjectModal.locator('button:has-text("Save changes")').click();
-    await expect.poll(() => String(lastProjectPatchBody?.name || '')).toBe('Project New UI Renamed');
-    await expect(page.locator('section[aria-label="Project management"]')).toContainText(
-      'Project New UI Renamed',
-    );
-
-    const appSection = page.locator('section[aria-label="Update app settings"]');
-    await appSection.getByLabel('Allowed origins URI 1').fill('https://dashboard.example.com');
-    await appSection.getByRole('button', { name: /\+ add uri/i }).click();
-    await appSection.getByLabel('Allowed origins URI 2').fill('https://api.example.com');
-    await appSection.locator('label:has-text("Cookie max age (seconds)") input').fill('7200');
-    await appSection.locator('button:has-text("Update app settings")').click();
-    await expect.poll(() => String(lastAppPatchBody?.environmentId || '')).toBe('env_active');
-    await expect
-      .poll(() => JSON.stringify(lastAppPatchBody?.allowedOrigins || []))
-      .toBe(JSON.stringify(['https://dashboard.example.com', 'https://api.example.com']));
-    await expect(page.locator('section[aria-label="Current settings snapshot"]')).toContainText(
-      '2',
-    );
-
-    const securitySection = page.locator('section[aria-label="Update security settings"]');
-    await securitySection
-      .locator('label:has-text("Risky change approvals required") input')
-      .fill('2');
-    await securitySection
-      .locator('label:has-text("Security approval request ID (optional)") input')
-      .fill('apr_security_e2e_1');
-    await securitySection
-      .locator('label:has-text("Require MFA for risky changes") input[type="checkbox"]')
-      .setChecked(false);
-    await securitySection.locator('button:has-text("Update security settings")').click();
-    await expect
-      .poll(() =>
-        Number(
-          ((lastSecurityPatchBody?.riskyChangeApproval as Record<string, unknown> | undefined)
-            ?.approvalsRequired as number) || 0,
-        ),
-      )
-      .toBe(2);
-    await expect
-      .poll(() => String(lastSecurityPatchBody?.approvalId || ''))
-      .toBe('apr_security_e2e_1');
-    await expect(page.locator('section[aria-label="Current settings snapshot"]')).toContainText(
-      'false',
-    );
   });
 
   test('audit page wires timeline and evidence filters to console APIs', async ({
@@ -3363,7 +3011,7 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    const managedAllowedOrigins = [
+    const seededAllowedOrigins = [
       'https://app.example.com',
       'https://localhost:8443',
       'https://wallet.example.localhost',
@@ -3397,7 +3045,7 @@ test.describe('dashboard console config page api wiring', () => {
         orgId: 'org_dash_console_pages',
         name: 'revoked-browser',
         environmentId: 'env_active',
-        allowedOrigins: managedAllowedOrigins,
+        allowedOrigins: seededAllowedOrigins,
         rateLimitBucket: 'default_web_v1',
         quotaBucket: 'free_registrations_v1',
         riskPolicy: {},
@@ -3495,18 +3143,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/settings/app' && method === 'GET') {
-        await route.fulfill({
-          status: 404,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: false,
-            code: 'not_found',
-          }),
-        });
-        return;
-      }
-
       if (pathname === '/console/api-keys' && method === 'GET') {
         await route.fulfill({
           status: 200,
@@ -3529,7 +3165,7 @@ test.describe('dashboard console config page api wiring', () => {
           environmentId: String(lastCreateBody.environmentId || '').trim() || 'env_active',
           allowedOrigins: Array.isArray(lastCreateBody.allowedOrigins)
             ? lastCreateBody.allowedOrigins
-            : managedAllowedOrigins,
+            : seededAllowedOrigins,
           rateLimitBucket: String(lastCreateBody.rateLimitBucket || '').trim() || 'default',
           quotaBucket: String(lastCreateBody.quotaBucket || '').trim() || 'default',
           riskPolicy:
@@ -3661,25 +3297,39 @@ test.describe('dashboard console config page api wiring', () => {
     const createCredentialModal = page.locator('section[aria-label="Create credential modal"]');
     await expect(createCredentialModal).toBeVisible();
     await createCredentialModal.getByRole('button', { name: /browser publishable_key/i }).click();
+    const walletOriginHint =
+      String(
+        (await createCredentialModal
+          .locator('p')
+          .filter({ hasText: 'In this local dev setup, include' })
+          .locator('code')
+          .textContent()) || '',
+      ).trim() || 'https://localhost:8443';
+    const createAllowedOrigins = Array.from(
+      new Set(['https://app.example.com', walletOriginHint, 'https://admin.example.com']),
+    );
+    const updatedAllowedOrigins = Array.from(
+      new Set(['https://admin.example.com', walletOriginHint, 'https://localhost:9443']),
+    );
     await createCredentialModal.locator('input[placeholder="frontend-app"]').fill('frontend-app');
-    await createCredentialModal.getByLabel('Allowed origins URI 1').fill(managedAllowedOrigins[0]);
-    await createCredentialModal.getByLabel('Allowed origins URI 2').fill(managedAllowedOrigins[1]);
-    await createCredentialModal.getByRole('button', { name: /\+ add uri/i }).click();
-    await createCredentialModal.getByLabel('Allowed origins URI 3').fill(managedAllowedOrigins[2]);
     await createCredentialModal
-      .getByLabel('Overage behavior')
-      .selectOption('quota_then_x402');
+      .getByLabel('Allowed origins URI 1')
+      .fill(createAllowedOrigins[0] || '');
+    await createCredentialModal
+      .getByLabel('Allowed origins URI 2')
+      .fill(createAllowedOrigins[1] || '');
+    await createCredentialModal.getByRole('button', { name: /\+ add uri/i }).click();
+    await createCredentialModal
+      .getByLabel('Allowed origins URI 3')
+      .fill(createAllowedOrigins[2] || '');
+    await createCredentialModal.getByLabel('Overage behavior').selectOption('quota_then_x402');
     await createCredentialModal.getByRole('button', { name: /create publishable_key/i }).click();
 
-    await expect
-      .poll(() => String(lastCreateBody?.kind || ''))
-      .toBe('publishable_key');
+    await expect.poll(() => String(lastCreateBody?.kind || '')).toBe('publishable_key');
     await expect
       .poll(() => JSON.stringify(lastCreateBody?.allowedOrigins || []))
-      .toBe(JSON.stringify(managedAllowedOrigins));
-    await expect
-      .poll(() => String(lastCreateBody?.rateLimitBucket || ''))
-      .toBe('default_web_v1');
+      .toBe(JSON.stringify(createAllowedOrigins));
+    await expect.poll(() => String(lastCreateBody?.rateLimitBucket || '')).toBe('default_web_v1');
     await expect
       .poll(() => String(lastCreateBody?.quotaBucket || ''))
       .toBe('free_registrations_v1');
@@ -3690,12 +3340,12 @@ test.describe('dashboard console config page api wiring', () => {
       .poll(() => JSON.stringify(lastCreateBody?.paymentPolicy || {}))
       .toBe(JSON.stringify({ mode: 'quota_then_x402', productId: 'wallet_registration_v1' }));
 
-    await expect(page.locator('section[aria-label="Credential integration snippet"]')).toContainText(
-      'Managed browser bootstrap snippet',
-    );
-    await expect(page.locator('section[aria-label="Credential integration snippet"]')).toContainText(
-      "publishableKey: 'tpk_v1_publishable_created'",
-    );
+    await expect(
+      page.locator('section[aria-label="Credential integration snippet"]'),
+    ).toContainText('Managed browser bootstrap snippet');
+    await expect(
+      page.locator('section[aria-label="Credential integration snippet"]'),
+    ).toContainText("publishableKey: 'tpk_v1_publishable_created'");
     await expect(page.locator('section[aria-label="Credentials table"]')).toContainText(
       'frontend-app',
     );
@@ -3712,30 +3362,26 @@ test.describe('dashboard console config page api wiring', () => {
     const editCredentialModal = page.locator('section[aria-label="Edit credential modal"]');
     await expect(editCredentialModal).toBeVisible();
     await editCredentialModal.getByLabel('Name').fill('frontend-app-updated');
-    await editCredentialModal.getByLabel('Allowed origins URI 1').fill('https://admin.example.com');
-    await editCredentialModal.getByLabel('Allowed origins URI 2').fill('https://localhost:8443');
-    await editCredentialModal.getByLabel('Allowed origins URI 3').fill('https://localhost:9443');
+    await editCredentialModal
+      .getByLabel('Allowed origins URI 1')
+      .fill(updatedAllowedOrigins[0] || '');
+    await editCredentialModal
+      .getByLabel('Allowed origins URI 2')
+      .fill(updatedAllowedOrigins[1] || '');
+    await editCredentialModal
+      .getByLabel('Allowed origins URI 3')
+      .fill(updatedAllowedOrigins[2] || '');
     await editCredentialModal.getByLabel('Overage behavior').selectOption('always_x402');
     await editCredentialModal.evaluate((node) => {
       node.scrollTop = node.scrollHeight;
     });
-    await editCredentialModal.locator('form').evaluate((form) => {
-      if (form instanceof HTMLFormElement) form.requestSubmit();
-    });
+    await editCredentialModal.getByRole('button', { name: 'Save changes' }).click();
 
     await expect.poll(() => String(lastUpdateBody?.name || '')).toBe('frontend-app-updated');
     await expect
       .poll(() => JSON.stringify(lastUpdateBody?.allowedOrigins || []))
-      .toBe(
-        JSON.stringify([
-          'https://admin.example.com',
-          'https://localhost:8443',
-          'https://localhost:9443',
-        ]),
-      );
-    await expect
-      .poll(() => String(lastUpdateBody?.rateLimitBucket || ''))
-      .toBe('default_web_v1');
+      .toBe(JSON.stringify(updatedAllowedOrigins));
+    await expect.poll(() => String(lastUpdateBody?.rateLimitBucket || '')).toBe('default_web_v1');
     await expect
       .poll(() => String(lastUpdateBody?.quotaBucket || ''))
       .toBe('free_registrations_v1');
@@ -3876,19 +3522,6 @@ test.describe('dashboard console config page api wiring', () => {
               message: 'Storage wiring pending',
             },
             events: [],
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/observability/timeseries' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            status: { state: 'not_configured', code: 'timeseries_not_ready' },
-            buckets: [],
           }),
         });
         return;
@@ -4131,19 +3764,6 @@ test.describe('dashboard console config page api wiring', () => {
         }
       }
 
-      if (pathname === '/console/observability/timeseries' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            status: { state: 'ok' },
-            buckets: [],
-          }),
-        });
-        return;
-      }
-
       if (pathname === '/console/observability/services' && method === 'GET') {
         await route.fulfill({
           status: 200,
@@ -4325,13 +3945,13 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/observability');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
-    await expect(page.locator('section[aria-label="Observability overview"]')).toContainText(
+    await expect(page.locator('p[role="alert"]')).toContainText(
       'Observability is not available for this role.',
     );
 
     responseMode = 'not_configured';
-    await page.locator('button:has-text("Reload observability")').click();
-    await expect(page.locator('section[aria-label="Observability overview"]')).toContainText(
+    await page.reload();
+    await expect(page.locator('p[role="alert"]')).toContainText(
       'Observability service is not configured on this server.',
     );
   });

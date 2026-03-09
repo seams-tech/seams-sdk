@@ -290,12 +290,16 @@ export type {
   ConsoleGasSponsorshipBudgetPeriod,
   ConsoleGasSponsorshipPaymasterMode,
   ConsoleGasSponsorshipFallbackBehavior,
+  ConsoleGasSponsorshipNetworkClass,
+  ConsoleGasSponsorshipExecutor,
   ConsoleGasSponsorshipChainBudget,
+  ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipTelemetry,
   ConsoleGasSponsorshipConfig,
   ListConsoleGasSponsorshipRequest,
   CreateConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
+  ResolvedSponsoredCallPolicy,
 } from '../console/gasSponsorship';
 export type {
   ConsoleGasSponsorshipContext,
@@ -324,24 +328,6 @@ export type {
   PostgresConsoleSmartWalletSchemaOptions,
   PostgresConsoleSmartWalletServiceOptions,
 } from '../console/smartWallets';
-export type {
-  ConsoleCookieSameSite,
-  ConsoleCookieSettings,
-  ConsoleJwtSettings,
-  ConsoleAppSettings,
-  ConsoleSecurityApprovalPolicy,
-  ConsoleSecuritySettings,
-  GetConsoleSettingsRequest,
-  UpdateConsoleAppSettingsRequest,
-  UpdateConsoleSecuritySettingsRequest,
-} from '../console/settings';
-export type {
-  ConsoleSettingsContext,
-  ConsoleSettingsService,
-  InMemoryConsoleSettingsServiceOptions,
-  PostgresConsoleSettingsSchemaOptions,
-  PostgresConsoleSettingsServiceOptions,
-} from '../console/settings';
 export type {
   ConsoleKeyExportMode,
   ConsoleKeyExportStatus,
@@ -514,6 +500,11 @@ export {
   createInMemoryConsoleGasSponsorshipService,
   ensureConsoleGasSponsorshipPostgresSchema,
   createPostgresConsoleGasSponsorshipService,
+  TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
+  TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
+  TEMPO_TESTNET_CHAIN_ID,
+  TEMPO_DRIP_SELECTOR,
+  DEFAULT_TEMPO_DRIP_GAS_LIMIT,
   parseListConsoleGasSponsorshipRequest,
   parseCreateConsoleGasSponsorshipRequest,
   parseUpdateConsoleGasSponsorshipRequest,
@@ -530,16 +521,6 @@ export {
   isConsoleSmartWalletError,
   ConsoleSmartWalletError,
 } from '../console/smartWallets';
-export {
-  createInMemoryConsoleSettingsService,
-  ensureConsoleSettingsPostgresSchema,
-  createPostgresConsoleSettingsService,
-  parseGetConsoleSettingsRequest,
-  parseUpdateConsoleAppSettingsRequest,
-  parseUpdateConsoleSecuritySettingsRequest,
-  isConsoleSettingsError,
-  ConsoleSettingsError,
-} from '../console/settings';
 export {
   createInMemoryConsoleKeyExportService,
   ensureConsoleKeyExportsPostgresSchema,

@@ -79,13 +79,6 @@ import {
   type ConsoleSmartWalletService,
 } from '../../console/smartWallets';
 import {
-  isConsoleSettingsError,
-  parseGetConsoleSettingsRequest,
-  parseUpdateConsoleAppSettingsRequest,
-  parseUpdateConsoleSecuritySettingsRequest,
-  type ConsoleSettingsService,
-} from '../../console/settings';
-import {
   isConsoleKeyExportError,
   parseApproveConsoleKeyExportRequest,
   parseCreateConsoleKeyExportRequest,
@@ -184,7 +177,6 @@ export interface CloudflareConsoleContext {
   webhooks: ConsoleWebhookService | null;
   gasSponsorship: ConsoleGasSponsorshipService | null;
   smartWallets: ConsoleSmartWalletService | null;
-  settings: ConsoleSettingsService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   teamRbac: ConsoleTeamRbacService | null;
@@ -565,29 +557,6 @@ function sendSmartWalletError(error: unknown): Response {
   );
 }
 
-function sendSettingsError(error: unknown): Response {
-  if (isConsoleSettingsError(error)) {
-    return json(
-      {
-        ok: false,
-        code: error.code,
-        message: error.message,
-        ...(error.details ? { details: error.details } : {}),
-      },
-      { status: error.status },
-    );
-  }
-
-  return json(
-    {
-      ok: false,
-      code: 'internal',
-      message: error instanceof Error ? error.message : String(error),
-    },
-    { status: 500 },
-  );
-}
-
 function sendKeyExportError(error: unknown): Response {
   if (isConsoleKeyExportError(error)) {
     return json(
@@ -911,19 +880,9 @@ function requireSmartWalletService(
   );
 }
 
-function requireSettingsService(ctx: CloudflareConsoleContext): ConsoleSettingsService | Response {
-  if (ctx.settings) return ctx.settings;
-  return json(
-    {
-      ok: false,
-      code: 'settings_not_configured',
-      message: 'Settings service is not configured on this server',
-    },
-    { status: 501 },
-  );
-}
-
-function requireKeyExportService(ctx: CloudflareConsoleContext): ConsoleKeyExportService | Response {
+function requireKeyExportService(
+  ctx: CloudflareConsoleContext,
+): ConsoleKeyExportService | Response {
   if (ctx.keyExports) return ctx.keyExports;
   return json(
     {
@@ -1013,7 +972,9 @@ function requireEnterpriseIsolationService(
   );
 }
 
-function requireOnboardingService(ctx: CloudflareConsoleContext): ConsoleOnboardingService | Response {
+function requireOnboardingService(
+  ctx: CloudflareConsoleContext,
+): ConsoleOnboardingService | Response {
   if (ctx.onboarding) return ctx.onboarding;
   return json(
     {
@@ -1491,7 +1452,9 @@ async function requireActiveApiKeyEnvironmentForCreate(
   const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
   if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
   try {
-    const environments = await orgProjectEnvOrResponse.listEnvironments(toOrgProjectEnvContext(claims));
+    const environments = await orgProjectEnvOrResponse.listEnvironments(
+      toOrgProjectEnvContext(claims),
+    );
     const environment = environments.find((entry) => entry.id === environmentId);
     if (!environment) {
       return json(
@@ -1758,7 +1721,10 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
       const request = parseGetConsoleOnboardingTelemetryRequest({
         windowMinutes: ctx.url.searchParams.get('windowMinutes') || undefined,
       });
-      const telemetry = await onboarding.getOnboardingTelemetry(toOnboardingContext(auth.claims), request);
+      const telemetry = await onboarding.getOnboardingTelemetry(
+        toOnboardingContext(auth.claims),
+        request,
+      );
       return json({ ok: true, telemetry }, { status: 200 });
     }
 
@@ -1766,7 +1732,10 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleOnboardingOrganizationRequest(await readJson(ctx.request));
-      const result = await onboarding.createOnboardingOrganization(toOnboardingContext(auth.claims), request);
+      const result = await onboarding.createOnboardingOrganization(
+        toOnboardingContext(auth.claims),
+        request,
+      );
       if (result.created.owner) {
         await emitConsoleAuditEvent(ctx, auth.claims, {
           category: 'TEAM',
@@ -1800,7 +1769,10 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleOnboardingProjectRequest(await readJson(ctx.request));
-      const result = await onboarding.createOnboardingProject(toOnboardingContext(auth.claims), request);
+      const result = await onboarding.createOnboardingProject(
+        toOnboardingContext(auth.claims),
+        request,
+      );
       if (result.created.project) {
         await emitConsoleAuditEvent(ctx, auth.claims, {
           category: 'ORG_PROJECT_ENV',
@@ -1918,7 +1890,11 @@ function isConsoleOrgProjectEnvPath(pathname: string): boolean {
 }
 
 function isConsoleTeamRbacPath(pathname: string): boolean {
-  return pathname === '/console/members' || pathname === '/console/members/invite' || pathname.startsWith('/console/members/');
+  return (
+    pathname === '/console/members' ||
+    pathname === '/console/members/invite' ||
+    pathname.startsWith('/console/members/')
+  );
 }
 
 function isConsoleApprovalPath(pathname: string): boolean {
@@ -1966,15 +1942,13 @@ function isConsoleWebhookPath(pathname: string): boolean {
 }
 
 function isConsoleGasSponsorshipPath(pathname: string): boolean {
-  return pathname === '/console/gas-sponsorship' || pathname.startsWith('/console/gas-sponsorship/');
+  return (
+    pathname === '/console/gas-sponsorship' || pathname.startsWith('/console/gas-sponsorship/')
+  );
 }
 
 function isConsoleSmartWalletPath(pathname: string): boolean {
   return pathname === '/console/smart-wallets' || pathname.startsWith('/console/smart-wallets/');
-}
-
-function isConsoleSettingsPath(pathname: string): boolean {
-  return pathname === '/console/settings/app' || pathname === '/console/settings/security';
 }
 
 function isConsoleKeyExportPath(pathname: string): boolean {
@@ -1982,10 +1956,14 @@ function isConsoleKeyExportPath(pathname: string): boolean {
 }
 
 function isConsoleRuntimeSnapshotPath(pathname: string): boolean {
-  return pathname === '/console/runtime-snapshots' || pathname.startsWith('/console/runtime-snapshots/');
+  return (
+    pathname === '/console/runtime-snapshots' || pathname.startsWith('/console/runtime-snapshots/')
+  );
 }
 
-async function handleConsoleGasSponsorship(ctx: CloudflareConsoleContext): Promise<Response | null> {
+async function handleConsoleGasSponsorship(
+  ctx: CloudflareConsoleContext,
+): Promise<Response | null> {
   if (!isConsoleGasSponsorshipPath(ctx.pathname)) return null;
 
   const auth = await requireConsoleAuth(ctx);
@@ -2022,7 +2000,11 @@ async function handleConsoleGasSponsorship(ctx: CloudflareConsoleContext): Promi
       if (roleRequired) return roleRequired;
       const configId = decodePathPart(configMatch[1]);
       const request = parseUpdateConsoleGasSponsorshipRequest(await readJson(ctx.request));
-      const config = await gasSponsorship.updateConfig(toBillingContext(auth.claims), configId, request);
+      const config = await gasSponsorship.updateConfig(
+        toBillingContext(auth.claims),
+        configId,
+        request,
+      );
       if (!config) {
         return json(
           {
@@ -2079,7 +2061,11 @@ async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise
       if (roleRequired) return roleRequired;
       const configId = decodePathPart(configMatch[1]);
       const request = parseUpdateConsoleSmartWalletRequest(await readJson(ctx.request));
-      const config = await smartWallets.updateConfig(toBillingContext(auth.claims), configId, request);
+      const config = await smartWallets.updateConfig(
+        toBillingContext(auth.claims),
+        configId,
+        request,
+      );
       if (!config) {
         return json(
           {
@@ -2094,85 +2080,6 @@ async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise
     }
   } catch (error: unknown) {
     return sendSmartWalletError(error);
-  }
-
-  return new Response('Not Found', { status: 404 });
-}
-
-async function handleConsoleSettings(ctx: CloudflareConsoleContext): Promise<Response | null> {
-  if (!isConsoleSettingsPath(ctx.pathname)) return null;
-
-  const auth = await requireConsoleAuth(ctx);
-  if (!auth.ok) return auth.response;
-
-  const settingsOrResponse = requireSettingsService(ctx);
-  if (settingsOrResponse instanceof Response) return settingsOrResponse;
-  const settings = settingsOrResponse;
-
-  try {
-    if (ctx.method === 'GET' && ctx.pathname === '/console/settings/app') {
-      const request = parseGetConsoleSettingsRequest({
-        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
-      });
-      const appSettings = await settings.getAppSettings(toBillingContext(auth.claims), request);
-      return json({ ok: true, appSettings }, { status: 200 });
-    }
-
-    if (ctx.method === 'PATCH' && ctx.pathname === '/console/settings/app') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const request = parseUpdateConsoleAppSettingsRequest(await readJson(ctx.request));
-      const appSettings = await settings.updateAppSettings(toBillingContext(auth.claims), request);
-      return json({ ok: true, appSettings }, { status: 200 });
-    }
-
-    if (ctx.method === 'GET' && ctx.pathname === '/console/settings/security') {
-      const request = parseGetConsoleSettingsRequest({
-        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
-      });
-      const securitySettings = await settings.getSecuritySettings(toBillingContext(auth.claims), request);
-      return json({ ok: true, securitySettings }, { status: 200 });
-    }
-
-    if (ctx.method === 'PATCH' && ctx.pathname === '/console/settings/security') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const rawBody = await readJson(ctx.request);
-      const environmentId =
-        String((rawBody as Record<string, unknown> | null)?.environmentId || '').trim() ||
-        auth.claims.environmentId ||
-        undefined;
-      const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
-        operationType: 'SECURITY_SETTINGS_CHANGE',
-        approvalIdRaw: readApprovalIdFromBody(rawBody),
-        environmentId,
-        resourceType: 'security_settings',
-        resourceId: environmentId,
-      });
-      if (approvalRequired) return approvalRequired;
-      const request = parseUpdateConsoleSecuritySettingsRequest(rawBody);
-      const securitySettings = await settings.updateSecuritySettings(
-        toBillingContext(auth.claims),
-        request,
-      );
-      await emitConsoleAuditEvent(ctx, auth.claims, {
-        category: 'SETTINGS',
-        action: 'settings.security.update',
-        summary: `Updated security settings for environment ${securitySettings.environmentId}`,
-        environmentId: securitySettings.environmentId,
-        metadata: {
-          environmentId: securitySettings.environmentId,
-          enforceIpAllowlist: securitySettings.enforceIpAllowlist,
-          requireMfaForRiskyChanges: securitySettings.requireMfaForRiskyChanges,
-          riskyChangeApprovalApprovalsRequired: securitySettings.riskyChangeApproval.approvalsRequired,
-          riskyChangeApprovalRequireAdmin: securitySettings.riskyChangeApproval.requireAdmin,
-          riskyChangeApprovalRequireMfa: securitySettings.riskyChangeApproval.requireMfa,
-        },
-      });
-      return json({ ok: true, securitySettings }, { status: 200 });
-    }
-  } catch (error: unknown) {
-    return sendSettingsError(error);
   }
 
   return new Response('Not Found', { status: 404 });
@@ -2218,7 +2125,11 @@ async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<R
       });
       if (approvalRequired) return approvalRequired;
       const request = parseApproveConsoleKeyExportRequest(rawBody);
-      const keyExport = await keyExports.approveKeyExport(toBillingContext(auth.claims), exportId, request);
+      const keyExport = await keyExports.approveKeyExport(
+        toBillingContext(auth.claims),
+        exportId,
+        request,
+      );
       if (!keyExport) {
         return json(
           {
@@ -2269,7 +2180,10 @@ async function handleConsoleRuntimeSnapshots(
         projectId: ctx.url.searchParams.get('projectId') || undefined,
         limit: ctx.url.searchParams.get('limit') || undefined,
       });
-      const snapshots = await runtimeSnapshots.listSnapshots(toBillingContext(auth.claims), request);
+      const snapshots = await runtimeSnapshots.listSnapshots(
+        toBillingContext(auth.claims),
+        request,
+      );
       return json({ ok: true, snapshots }, { status: 200 });
     }
 
@@ -2278,7 +2192,10 @@ async function handleConsoleRuntimeSnapshots(
         environmentId: ctx.url.searchParams.get('environmentId') || undefined,
         projectId: ctx.url.searchParams.get('projectId') || undefined,
       });
-      const snapshot = await runtimeSnapshots.getLatestSnapshot(toBillingContext(auth.claims), request);
+      const snapshot = await runtimeSnapshots.getLatestSnapshot(
+        toBillingContext(auth.claims),
+        request,
+      );
       return json({ ok: true, snapshot }, { status: 200 });
     }
 
@@ -2286,7 +2203,10 @@ async function handleConsoleRuntimeSnapshots(
       const roleRequired = requireConsoleConfigMutationRole(auth.claims);
       if (roleRequired) return roleRequired;
       const request = parsePublishConsoleRuntimeSnapshotRequest(await readJson(ctx.request));
-      const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(auth.claims), request);
+      const snapshot = await runtimeSnapshots.publishSnapshot(
+        toBillingContext(auth.claims),
+        request,
+      );
       return json({ ok: true, snapshot }, { status: 201 });
     }
 
@@ -2301,7 +2221,6 @@ async function handleConsoleRuntimeSnapshots(
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
-        settings: ctx.settings,
         gasSponsorship: ctx.gasSponsorship,
         smartWallets: ctx.smartWallets,
       });
@@ -3073,7 +2992,10 @@ async function handleConsoleEnterpriseIsolation(
         projectId: ctx.url.searchParams.get('projectId') || undefined,
         environmentId: ctx.url.searchParams.get('environmentId') || undefined,
       });
-      const isolation = await enterpriseIsolation.getIsolationState(toAuditContext(auth.claims), request);
+      const isolation = await enterpriseIsolation.getIsolationState(
+        toAuditContext(auth.claims),
+        request,
+      );
       return json({ ok: true, isolation }, { status: 200 });
     }
 
@@ -3081,7 +3003,10 @@ async function handleConsoleEnterpriseIsolation(
       const forbidden = requireEnterpriseIsolationMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseTriggerConsoleEnterpriseIsolationRequest(await readJson(ctx.request));
-      const isolation = await enterpriseIsolation.triggerIsolation(toAuditContext(auth.claims), request);
+      const isolation = await enterpriseIsolation.triggerIsolation(
+        toAuditContext(auth.claims),
+        request,
+      );
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'SYSTEM',
         action: 'enterprise_isolation.trigger',
@@ -3631,13 +3556,11 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   const stablecoinIntentReconcileMatch = ctx.pathname.match(
     /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/reconcile$/,
   );
-  let billingFailureEvent:
-    | {
-        operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
-        invoiceId?: string;
-        providerRef?: string;
-      }
-    | null = null;
+  let billingFailureEvent: {
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    invoiceId?: string;
+    providerRef?: string;
+  } | null = null;
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') {
@@ -4006,7 +3929,9 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       await emitBillingFailureObservabilityEvent(ctx, auth.claims, {
         operation: billingFailureEvent.operation,
         ...(billingFailureEvent.invoiceId ? { invoiceId: billingFailureEvent.invoiceId } : {}),
-        ...(billingFailureEvent.providerRef ? { providerRef: billingFailureEvent.providerRef } : {}),
+        ...(billingFailureEvent.providerRef
+          ? { providerRef: billingFailureEvent.providerRef }
+          : {}),
         error,
       });
     }
@@ -4059,7 +3984,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleInsights,
     handleConsoleGasSponsorship,
     handleConsoleSmartWallets,
-    handleConsoleSettings,
     handleConsoleKeyExports,
     handleConsoleRuntimeSnapshots,
     handleConsoleApiKeys,

@@ -158,7 +158,8 @@ function resolveActionableMutationError(error: unknown): string {
     }
   }
 
-  const message = error instanceof Error ? String(error.message || '').trim() : String(error || '').trim();
+  const message =
+    error instanceof Error ? String(error.message || '').trim() : String(error || '').trim();
   if (!message) return 'Request failed. Update the inputs and retry.';
   if (/already exists|already used|conflict/i.test(message)) {
     return 'Name already used. Choose a different value and retry.';
@@ -195,7 +196,9 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const [state, setState] = React.useState<DashboardOnboardingState | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
-  const [lastFailedAction, setLastFailedAction] = React.useState<OnboardingMutationAction | null>(null);
+  const [lastFailedAction, setLastFailedAction] = React.useState<OnboardingMutationAction | null>(
+    null,
+  );
   const [submitting, setSubmitting] = React.useState<boolean>(false);
   const [organizationResult, setOrganizationResult] =
     React.useState<DashboardCreateOnboardingOrganizationResult | null>(null);
@@ -462,7 +465,9 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const organizationProfileReady =
     state?.organizationReady === true && hasConfiguredOrganizationName(state);
   const projectProfileReady = state?.projectReady === true;
-  const completionProjectId = String(state?.selectedProjectId || projectResult?.project.id || '').trim();
+  const completionProjectId = String(
+    state?.selectedProjectId || projectResult?.project.id || '',
+  ).trim();
   const completionEnvironmentId = String(
     state?.selectedEnvironmentId || projectResult?.environment.id || '',
   ).trim();
@@ -499,11 +504,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     {
       key: 'project',
       label: 'Project',
-      status: projectProfileReady
-        ? 'done'
-        : currentStep === 'project'
-          ? 'current'
-          : 'locked',
+      status: projectProfileReady ? 'done' : currentStep === 'project' ? 'current' : 'locked',
     },
     {
       key: 'complete',
@@ -512,7 +513,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     },
   ];
 
-  const organizationSubmitDisabled = submitting || Boolean(orgNameValidationMessage) || !orgNameConfirmed;
+  const organizationSubmitDisabled =
+    submitting || Boolean(orgNameValidationMessage) || !orgNameConfirmed;
   const projectSubmitDisabled =
     submitting ||
     Boolean(projectNameValidationMessage) ||
@@ -552,7 +554,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
               ))}
             </ol>
             <p className="dashboard-pagination-note">
-              Billing is optional during onboarding. Add billing later to unlock staging and production environments.
+              Billing is optional during onboarding. Add billing later to unlock staging and
+              production environments.
             </p>
           </>
         ) : null}
@@ -596,7 +599,10 @@ export function DashboardOnboardingPage(): React.JSX.Element {
             <>
               <h2>Name your organization</h2>
               <p>Confirm the organization name your team will use in the dashboard.</p>
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSubmitOrganization}>
+              <form
+                className="dashboard-view-grid dashboard-view-grid--two"
+                onSubmit={onSubmitOrganization}
+              >
                 <label className="dashboard-form-field">
                   <span>Organization name</span>
                   <input
@@ -612,8 +618,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                   <p
                     className={`dashboard-form-hint${orgNameValidationMessage ? ' dashboard-form-hint--error' : ''}`}
                   >
-                    {orgNameValidationMessage ||
-                      'Use the name customers and teammates recognize.'}
+                    {orgNameValidationMessage || 'Use the name customers and teammates recognize.'}
                   </p>
                 </label>
 
@@ -621,9 +626,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                   <button
                     type="button"
                     className="dashboard-inline-link"
-                    onClick={() =>
-                      setShowOrganizationOptionalFields((current) => !current)
-                    }
+                    onClick={() => setShowOrganizationOptionalFields((current) => !current)}
                   >
                     {showOrganizationOptionalFields
                       ? 'Hide optional organization details'
@@ -638,7 +641,9 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                         onChange={(event) => setOrgSlugInput(event.target.value)}
                         placeholder="acme-wallets"
                       />
-                      <p className="dashboard-form-hint">Optional URL-safe slug for organization settings.</p>
+                      <p className="dashboard-form-hint">
+                        Optional URL-safe slug for organization settings.
+                      </p>
                     </label>
                   ) : (
                     <p className="dashboard-form-hint">Optional fields are hidden until needed.</p>
@@ -676,9 +681,13 @@ export function DashboardOnboardingPage(): React.JSX.Element {
             <>
               <h2>Create your first project</h2>
               <p>
-                Add your first project. A default <strong>Development</strong> environment will be created automatically.
+                Add your first project. A default <strong>Development</strong> environment will be
+                created automatically.
               </p>
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSubmitProjectStep}>
+              <form
+                className="dashboard-view-grid dashboard-view-grid--two"
+                onSubmit={onSubmitProjectStep}
+              >
                 <label className="dashboard-form-field">
                   <span>Project name</span>
                   <input
@@ -692,7 +701,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                     className={`dashboard-form-hint${projectNameValidationMessage ? ' dashboard-form-hint--error' : ''}`}
                   >
                     {projectNameValidationMessage ||
-                      'Required. You can rename this later in credential policy.'}
+                      'Required. You can rename this later from the project dashboard.'}
                   </p>
                 </label>
 
@@ -757,7 +766,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                 </div>
               </form>
               <p className="dashboard-pagination-note">
-                Billing is optional for onboarding. Add billing later to create staging/production environments.
+                Billing is optional for onboarding. Add billing later to create staging/production
+                environments.
               </p>
               {projectResult ? (
                 <p className="dashboard-pagination-note">
