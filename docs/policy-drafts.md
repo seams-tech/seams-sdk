@@ -419,4 +419,4 @@ This work is complete when:
   - ops cockpit and overview queue selectors updated to section-based panels
 - [x] Re-run full `tests/e2e/dashboard.consoleConfigPages.apiWiring.test.ts`:
   - result: `30 passed`
-- [ ] Optional hardening: add unit tests focused on `useSessionDraft` hook lifecycle behavior (open/close and identity switch transitions).
+- [x] Optional hardening: add unit tests focused on `useSessionDraft` hook lifecycle behavior (open/close and identity switch transitions).

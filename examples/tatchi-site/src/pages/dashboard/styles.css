@@ -1700,6 +1700,15 @@
   color: var(--dashboard-ink);
 }
 
+html[data-w3a-theme='dark'] .dashboard-input--audit,
+html[data-w3a-theme='dark'] .dashboard-input--audit:hover,
+html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
+.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit,
+.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit:hover,
+.w3a-theme-provider[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible {
+  box-shadow: none;
+}
+
 .dashboard-textarea {
   min-height: 112px;
   padding: 10px 12px;
