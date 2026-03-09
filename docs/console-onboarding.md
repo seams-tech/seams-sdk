@@ -243,7 +243,7 @@ Exit criteria:
 
 ### Phase 11: Ops Cockpit Integration
 
-- [x] Add an Ops Cockpit dashboard route (`/dashboard/ops-cockpit`) that surfaces onboarding SLO alerts from `GET /console/onboarding/telemetry`.
+- [x] Add an Ops Cockpit dashboard route (`/dashboard/overview`) that surfaces onboarding SLO alerts from `GET /console/onboarding/telemetry`.
 - [x] Aggregate operator queues in one place for daily workflow:
   - [x] pending approvals,
   - [x] failed or overdue billing invoices,

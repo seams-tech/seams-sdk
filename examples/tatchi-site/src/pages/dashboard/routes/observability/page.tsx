@@ -201,7 +201,10 @@ export function ObservabilityPage(): React.JSX.Element {
         </section>
       ) : null}
 
-      <section className="dashboard-view__section" aria-label="Observability events table">
+      <section
+        className="dashboard-view__section dashboard-observability-section--plain"
+        aria-label="Observability events table"
+      >
         <h2>Recent events</h2>
         <p className="dashboard-pagination-note">
           Showing up to {OBSERVABILITY_EVENTS_PAGE_SIZE} events per page.
@@ -261,7 +264,10 @@ export function ObservabilityPage(): React.JSX.Element {
         </div>
       </section>
 
-      <section className="dashboard-view__section" aria-label="Observability service health table">
+      <section
+        className="dashboard-view__section dashboard-observability-section--plain"
+        aria-label="Observability service health table"
+      >
         <h2>Service health</h2>
         <section className="dashboard-table-wrapper" aria-label="Observability service health">
           <div className="dashboard-table-header" role="row">

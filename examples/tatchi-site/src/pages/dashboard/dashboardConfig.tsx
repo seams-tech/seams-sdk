@@ -83,9 +83,9 @@ const sidebarGroups: SidebarGroup[] = [
     label: 'Overview',
     items: [
       {
-        key: 'ops-cockpit',
+        key: 'overview',
         label: 'Overview',
-        path: '/dashboard/ops-cockpit',
+        path: '/dashboard/overview',
         iconClass: 'dashboard-nav-icon--app-settings',
         component: OpsCockpitPage,
       },
@@ -191,7 +191,7 @@ function resolveDefaultDashboardRoute(groups: SidebarGroup[]): DashboardRoute {
   for (const group of groups) {
     if (group.items[0]) return group.items[0].path;
   }
-  return '/dashboard/ops-cockpit';
+  return '/dashboard/overview';
 }
 
 export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = resolveDefaultDashboardRoute(SIDEBAR_GROUPS);
@@ -223,9 +223,9 @@ export function getViewForRoute(route: DashboardRoute): SidebarItem {
     }
   }
   return {
-    key: 'ops-cockpit',
+    key: 'overview',
     label: 'Overview',
-    path: '/dashboard/ops-cockpit',
+    path: '/dashboard/overview',
     iconClass: 'dashboard-nav-icon--app-settings',
     component: OpsCockpitPage,
   };

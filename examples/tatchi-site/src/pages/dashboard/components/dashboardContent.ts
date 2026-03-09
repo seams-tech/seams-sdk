@@ -27,7 +27,7 @@ type CardDashboardRoute = Exclude<
   | '/dashboard/policy-engine'
   | '/dashboard/gas-smart-wallets'
   | '/dashboard/export-keys'
-  | '/dashboard/ops-cockpit'
+  | '/dashboard/overview'
   | '/dashboard/observability'
 >;
 

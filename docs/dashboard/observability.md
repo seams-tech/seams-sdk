@@ -5,7 +5,7 @@
 Observability is **partially** built.
 
 Implemented today:
-- Ops Cockpit summary endpoint and page (`/console/ops-cockpit/summary`, `/dashboard/ops-cockpit`) for queue-style operational issues (approvals, failed billing, webhook dead letters, queued audit exports, isolation requests, onboarding SLO alerts).
+- Ops Cockpit summary endpoint and page (`/console/ops-cockpit/summary`, `/dashboard/overview`) for queue-style operational issues (approvals, failed billing, webhook dead letters, queued audit exports, isolation requests, onboarding SLO alerts).
 - Audit logs page (`/dashboard/audit`) for immutable admin/event trail.
 - Webhook dead-letter replay from Ops Cockpit.
 - Observability route and page scaffold (`/dashboard/observability`) with summary/events/services wiring and degraded/not-configured/forbidden states.

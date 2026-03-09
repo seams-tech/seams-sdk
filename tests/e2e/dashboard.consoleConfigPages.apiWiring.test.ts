@@ -4599,7 +4599,7 @@ test.describe('dashboard console config page api wiring', () => {
       });
     });
 
-    await page.goto('/dashboard/ops-cockpit');
+    await page.goto('/dashboard/overview');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
     await expect.poll(() => lastSummaryWindowMinutes).toBe('60');
 

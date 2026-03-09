@@ -1469,6 +1469,12 @@
   margin-top: 12px;
 }
 
+.dashboard-observability-section--plain {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .dashboard-ops-cockpit-grid {
   display: flex;
   flex-wrap: wrap;
