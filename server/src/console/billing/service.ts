@@ -4,9 +4,14 @@ import { getChainFinalityPolicy } from './stablecoinAssets';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
+  BillingInvoiceActivity,
+  BillingInvoiceActivityEntry,
   BillingInvoice,
   BillingInvoiceLineItem,
   BillingInvoiceLineItemType,
+  BillingInvoiceListRequest,
+  BillingInvoiceListResult,
+  BillingInvoiceListSummary,
   BillingMonthlyActiveWallets,
   BillingOverview,
   BillingSubscription,
@@ -55,7 +60,15 @@ export interface ConsoleBillingService {
     request: BillingUsageEventRequest,
   ): Promise<BillingUsageEventResult>;
   listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]>;
+  listInvoicesPage(
+    ctx: ConsoleBillingContext,
+    request?: BillingInvoiceListRequest,
+  ): Promise<BillingInvoiceListResult>;
   getInvoice(ctx: ConsoleBillingContext, invoiceId: string): Promise<BillingInvoice | null>;
+  getInvoiceActivity(
+    ctx: ConsoleBillingContext,
+    invoiceId: string,
+  ): Promise<BillingInvoiceActivity | null>;
   listInvoiceLineItems(
     ctx: ConsoleBillingContext,
     invoiceId: string,
@@ -146,6 +159,7 @@ interface OrgBillingStore {
       changedAt: string;
       actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
       actorUserId: string | null;
+      sourceEventId: string | null;
       reason: string | null;
     }>
   >;
@@ -183,6 +197,8 @@ const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
 const DEFAULT_MONTHLY_PLAN_AMOUNT_MINOR = 4900;
 const PLAN_BASE_FEE_MINOR = 1900;
 const PLAN_MAW_UNIT_PRICE_MINOR = 300;
+const DEFAULT_INVOICE_LIST_LIMIT = 25;
+const MAX_INVOICE_LIST_LIMIT = 100;
 
 function formatCurrentMonthUtc(now: Date): string {
   const year = now.getUTCFullYear();
@@ -337,6 +353,104 @@ function buildInvoiceLineItems(input: {
       createdAt: input.createdAt,
     }),
   ];
+}
+
+function normalizeInvoiceListLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_INVOICE_LIST_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
+}
+
+function isInvoiceOverdueAt(invoice: BillingInvoice, now: Date): boolean {
+  if (invoice.status !== 'OPEN' || !invoice.dueAt) return false;
+  const dueAtMs = Date.parse(invoice.dueAt);
+  if (!Number.isFinite(dueAtMs)) return false;
+  return dueAtMs < now.getTime();
+}
+
+function parseInvoiceCursor(
+  cursor: string | undefined,
+): { createdAtMs: number; id: string } | null {
+  const raw = String(cursor || '').trim();
+  if (!raw) return null;
+  const separatorIndex = raw.indexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor format');
+  }
+  const createdAtMsRaw = raw.slice(0, separatorIndex);
+  if (!/^\d+$/.test(createdAtMsRaw)) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor sort key');
+  }
+  let id = '';
+  try {
+    id = decodeURIComponent(raw.slice(separatorIndex + 1));
+  } catch {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor value');
+  }
+  if (!id) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor value');
+  }
+  const createdAtMs = Number.parseInt(createdAtMsRaw, 10);
+  if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor sort key');
+  }
+  return { createdAtMs, id };
+}
+
+function encodeInvoiceCursor(invoice: BillingInvoice): string {
+  const createdAtMs = Date.parse(invoice.createdAt);
+  const safeCreatedAtMs = Number.isFinite(createdAtMs) && createdAtMs >= 0 ? createdAtMs : 0;
+  return `${safeCreatedAtMs}:${encodeURIComponent(invoice.id)}`;
+}
+
+function filterInvoicesForList(
+  invoices: BillingInvoice[],
+  request: BillingInvoiceListRequest | undefined,
+  now: Date,
+): BillingInvoice[] {
+  const status = request?.status;
+  const periodMonthUtc = String(request?.periodMonthUtc || '').trim();
+  return invoices.filter((invoice) => {
+    if (status && invoice.status !== status) return false;
+    if (request?.overdueOnly && !isInvoiceOverdueAt(invoice, now)) return false;
+    if (periodMonthUtc && invoice.periodMonthUtc !== periodMonthUtc) return false;
+    return true;
+  });
+}
+
+function buildInvoiceListSummary(invoices: BillingInvoice[], now: Date): BillingInvoiceListSummary {
+  const openCount = invoices.filter((invoice) => invoice.status === 'OPEN').length;
+  const overdueCount = invoices.filter((invoice) => isInvoiceOverdueAt(invoice, now)).length;
+  const paidCount = invoices.filter((invoice) => invoice.status === 'PAID').length;
+  const totalOutstandingAmountMinor = invoices.reduce((total, invoice) => {
+    return total + Math.max(0, outstandingAmountMinor(invoice));
+  }, 0);
+  return {
+    totalCount: invoices.length,
+    openCount,
+    overdueCount,
+    paidCount,
+    outstandingAmountMinor: totalOutstandingAmountMinor,
+    latestPeriodMonthUtc: invoices[0]?.periodMonthUtc || null,
+  };
+}
+
+function buildPaymentTransitionSummary(
+  rail: InvoicePaymentRail,
+  toState: PaymentState,
+  paymentId: string,
+  reason: string | null,
+): string {
+  const railLabel = rail === 'CARD' ? 'Card payment' : 'Stablecoin payment';
+  const stateLabel = String(toState || '')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, ' ');
+  const reasonText = reason
+    ? ` Reason: ${String(reason).trim().toLowerCase().replace(/_/g, ' ')}.`
+    : '';
+  return `${railLabel} ${paymentId} moved to ${stateLabel}.${reasonText}`;
 }
 
 function sumLineItemAmounts(lineItems: BillingInvoiceLineItem[]): number {
@@ -562,11 +676,15 @@ export function createInMemoryConsoleBillingService(
       changedAt: string;
       actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
       actorUserId: string | null;
+      sourceEventId?: string | null;
       reason: string | null;
     },
   ): void {
     const existing = store.paymentStateTransitions.get(paymentId) || [];
-    existing.push(input);
+    existing.push({
+      ...input,
+      sourceEventId: input.sourceEventId || null,
+    });
     store.paymentStateTransitions.set(paymentId, existing);
   }
 
@@ -753,12 +871,121 @@ export function createInMemoryConsoleBillingService(
       );
     },
 
+    async listInvoicesPage(
+      ctx: ConsoleBillingContext,
+      request: BillingInvoiceListRequest = {},
+    ): Promise<BillingInvoiceListResult> {
+      const now = nowFn();
+      const allInvoices = await this.listInvoices(ctx);
+      const filteredInvoices = filterInvoicesForList(allInvoices, request, now);
+      const limit = normalizeInvoiceListLimit(request.limit);
+      const cursor = parseInvoiceCursor(request.cursor);
+      const cursorAware = cursor
+        ? filteredInvoices.filter((invoice) => {
+            const createdAtMs = Date.parse(invoice.createdAt);
+            const safeCreatedAtMs = Number.isFinite(createdAtMs) ? createdAtMs : 0;
+            if (safeCreatedAtMs < cursor.createdAtMs) return true;
+            if (safeCreatedAtMs > cursor.createdAtMs) return false;
+            return invoice.id < cursor.id;
+          })
+        : filteredInvoices;
+      const invoices = cursorAware.slice(0, limit);
+      const nextCursor =
+        cursorAware.length > limit && invoices.length > 0
+          ? encodeInvoiceCursor(invoices[invoices.length - 1])
+          : null;
+      return {
+        invoices,
+        nextCursor,
+        totalCount: filteredInvoices.length,
+        summary: buildInvoiceListSummary(filteredInvoices, now),
+      };
+    },
+
     async getInvoice(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoice | null> {
       const store = ensureOrgStore(ctx.orgId);
       return store.invoices.get(invoiceId) || null;
+    },
+
+    async getInvoiceActivity(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoiceActivity | null> {
+      const store = ensureOrgStore(ctx.orgId);
+      const invoice = store.invoices.get(invoiceId) || null;
+      if (!invoice) return null;
+
+      const entries: BillingInvoiceActivityEntry[] = [
+        {
+          id: `${invoice.id}:issued`,
+          type: 'INVOICE',
+          invoiceId: invoice.id,
+          paymentId: null,
+          rail: invoice.railLock,
+          fromState: null,
+          toState: 'OPEN',
+          occurredAt: invoice.createdAt,
+          actorType: 'SYSTEM',
+          actorUserId: null,
+          reason: 'invoice_created',
+          sourceEventId: null,
+          summary: `Invoice ${invoice.id} issued for billing period ${invoice.periodMonthUtc}.`,
+        },
+      ];
+
+      const paymentIntents: Array<{
+        id: string;
+        rail: InvoicePaymentRail;
+      }> = [
+        ...Array.from(store.stripePaymentIntents.values())
+          .filter((intent) => intent.invoiceId === invoice.id)
+          .map((intent) => ({ id: intent.id, rail: intent.rail })),
+        ...Array.from(store.stablecoinPaymentIntents.values())
+          .filter((intent) => intent.invoiceId === invoice.id)
+          .map((intent) => ({ id: intent.id, rail: intent.rail })),
+      ];
+
+      for (const payment of paymentIntents) {
+        const transitions = store.paymentStateTransitions.get(payment.id) || [];
+        transitions.forEach((transition, index) => {
+          entries.push({
+            id: `${payment.id}:${index}:${transition.toState}`,
+            type: 'PAYMENT',
+            invoiceId: invoice.id,
+            paymentId: payment.id,
+            rail: payment.rail,
+            fromState: transition.fromState,
+            toState: transition.toState,
+            occurredAt: transition.changedAt,
+            actorType: transition.actorType,
+            actorUserId: transition.actorUserId,
+            reason: transition.reason,
+            sourceEventId: transition.sourceEventId,
+            summary: buildPaymentTransitionSummary(
+              payment.rail,
+              transition.toState,
+              payment.id,
+              transition.reason,
+            ),
+          });
+        });
+      }
+
+      const sortedEntries = [...entries].sort((left, right) => {
+        const tsDiff = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
+        if (tsDiff !== 0) return tsDiff;
+        return right.id.localeCompare(left.id);
+      });
+      const latestPaymentEntry = sortedEntries.find((entry) => entry.type === 'PAYMENT') || null;
+      return {
+        invoice,
+        latestPaymentState: latestPaymentEntry?.toState || null,
+        latestPaymentRail: latestPaymentEntry?.rail || null,
+        entries: sortedEntries,
+      };
     },
 
     async listInvoiceLineItems(
@@ -1124,6 +1351,7 @@ export function createInMemoryConsoleBillingService(
           changedAt: coerceIsoDate(nowFn()),
           actorType: 'PROVIDER',
           actorUserId: null,
+          sourceEventId: request.sourceEventId || null,
           reason: 'provider_pending_implied',
         });
         effectiveFromState = 'PENDING';
@@ -1149,6 +1377,7 @@ export function createInMemoryConsoleBillingService(
         changedAt: coerceIsoDate(nowFn()),
         actorType: 'PROVIDER',
         actorUserId: null,
+        sourceEventId: request.sourceEventId || null,
         reason: decision.reason,
       });
 
@@ -1170,7 +1399,9 @@ export function createInMemoryConsoleBillingService(
       request: StripeWebhookEventRequest,
     ): Promise<StripeWebhookEventResult> {
       const now = nowFn();
-      const eventType = String(request.eventType || '').trim().toLowerCase();
+      const eventType = String(request.eventType || '')
+        .trim()
+        .toLowerCase();
       const paymentIntentProjection = !eventType || eventType.startsWith('payment_intent.');
 
       let matchedOrgId: string | null = null;
@@ -1296,7 +1527,8 @@ export function createInMemoryConsoleBillingService(
             matchedStore.subscription.providerCustomerRef = request.providerCustomerRef || null;
           }
           if (request.providerSubscriptionRef !== undefined) {
-            matchedStore.subscription.providerSubscriptionRef = request.providerSubscriptionRef || null;
+            matchedStore.subscription.providerSubscriptionRef =
+              request.providerSubscriptionRef || null;
           }
           if (request.planId) matchedStore.subscription.planId = request.planId;
           if (request.planName) matchedStore.subscription.planName = request.planName;
@@ -1669,6 +1901,7 @@ export function createInMemoryConsoleBillingService(
         changedAt: coerceIsoDate(now),
         actorType: 'SYSTEM',
         actorUserId: null,
+        sourceEventId: request.sourceEventId || null,
         reason: decision.reason,
       });
 

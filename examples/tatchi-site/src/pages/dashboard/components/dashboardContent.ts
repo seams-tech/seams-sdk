@@ -20,7 +20,8 @@ type CardDashboardRoute = Exclude<
   DashboardRoute,
   | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
-  | '/dashboard/billing'
+  | '/dashboard/billing/account'
+  | '/dashboard/invoices'
   | '/dashboard/team-members'
   | '/dashboard/audit'
   | '/dashboard/integrations/self-hosting'

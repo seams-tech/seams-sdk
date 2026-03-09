@@ -39,7 +39,12 @@ export type {
   BillingUsageEventResult,
   BillingMonthlyActiveWallets,
   BillingInvoice,
+  BillingInvoiceActivity,
+  BillingInvoiceActivityEntry,
   BillingInvoiceLineItem,
+  BillingInvoiceListRequest,
+  BillingInvoiceListResult,
+  BillingInvoiceListSummary,
   GenerateMonthlyInvoiceRequest,
   GenerateMonthlyInvoiceResult,
   BillingPaymentMethod,
@@ -108,6 +113,7 @@ export {
 } from './readiness';
 
 export {
+  parseBillingInvoiceListRequest,
   parseAddCardPaymentMethodRequest,
   parseStripeSetupIntentRequest,
   parseStripeCheckoutSessionRequest,
@@ -121,3 +127,5 @@ export {
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
 } from './requests';
+
+export { buildConsoleBillingInvoicePdf, buildConsoleBillingInvoicePdfFilename } from './pdf';

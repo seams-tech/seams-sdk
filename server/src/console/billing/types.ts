@@ -83,6 +83,30 @@ export interface BillingInvoice {
   dueAt: string | null;
 }
 
+export interface BillingInvoiceListRequest {
+  status?: InvoiceStatus;
+  overdueOnly?: boolean;
+  periodMonthUtc?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface BillingInvoiceListSummary {
+  totalCount: number;
+  openCount: number;
+  overdueCount: number;
+  paidCount: number;
+  outstandingAmountMinor: number;
+  latestPeriodMonthUtc: string | null;
+}
+
+export interface BillingInvoiceListResult {
+  invoices: BillingInvoice[];
+  nextCursor: string | null;
+  totalCount: number;
+  summary: BillingInvoiceListSummary;
+}
+
 export interface BillingInvoiceLineItem {
   id: string;
   orgId: string;
@@ -123,6 +147,32 @@ export interface BillingPaymentMethod {
   expYear: number;
   isDefault: boolean;
   createdAt: string;
+}
+
+export type BillingInvoiceActivityEntryType = 'INVOICE' | 'PAYMENT';
+export type BillingInvoiceActivityActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
+
+export interface BillingInvoiceActivityEntry {
+  id: string;
+  type: BillingInvoiceActivityEntryType;
+  invoiceId: string;
+  paymentId: string | null;
+  rail: InvoicePaymentRail | null;
+  fromState: string | null;
+  toState: string;
+  occurredAt: string;
+  actorType: BillingInvoiceActivityActorType;
+  actorUserId: string | null;
+  reason: string | null;
+  sourceEventId: string | null;
+  summary: string;
+}
+
+export interface BillingInvoiceActivity {
+  invoice: BillingInvoice;
+  latestPaymentState: string | null;
+  latestPaymentRail: InvoicePaymentRail | null;
+  entries: BillingInvoiceActivityEntry[];
 }
 
 export interface AddCardPaymentMethodRequest {

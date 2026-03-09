@@ -2,6 +2,8 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import express from 'express';
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
+  buildConsoleBillingInvoicePdf,
+  buildConsoleBillingInvoicePdfFilename,
   CHAIN_FINALITY_POLICY_VERSION,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
@@ -9,6 +11,7 @@ import {
   isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
   listStablecoinAssetSupport,
+  parseBillingInvoiceListRequest,
   parseAddCardPaymentMethodRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
@@ -3582,8 +3585,15 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
-      const invoices = await billing.listInvoices(toBillingContext(claims));
-      res.status(200).json({ ok: true, invoices });
+      const request = parseBillingInvoiceListRequest((req as any).query);
+      const page = await billing.listInvoicesPage(toBillingContext(claims), request);
+      res.status(200).json({
+        ok: true,
+        invoices: page.invoices,
+        nextCursor: page.nextCursor,
+        totalCount: page.totalCount,
+        summary: page.summary,
+      });
     } catch (error: unknown) {
       sendBillingError(res, error);
     }
@@ -3610,6 +3620,82 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         return;
       }
       res.status(200).json({ ok: true, invoice });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.get('/console/billing/invoices/:id/pdf', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    const invoiceId = readPathParam(req, 'id');
+    if (!invoiceId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing invoice id' });
+      return;
+    }
+    try {
+      const invoice = await billing.getInvoice(toBillingContext(claims), invoiceId);
+      if (!invoice) {
+        res.status(404).json({
+          ok: false,
+          code: 'invoice_not_found',
+          message: `Invoice ${invoiceId} was not found`,
+        });
+        return;
+      }
+      const lineItems = await billing.listInvoiceLineItems(toBillingContext(claims), invoiceId);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'BILLING',
+        action: 'billing.invoice.pdf_export',
+        summary: `Exported billing invoice PDF for ${invoice.id}`,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceStatus: invoice.status,
+          periodMonthUtc: invoice.periodMonthUtc,
+          exportPolicy: 'ALL_INVOICE_STATES',
+        },
+      });
+      const pdf = buildConsoleBillingInvoicePdf({
+        orgId: claims.orgId,
+        invoice,
+        lineItems,
+      });
+      res
+        .status(200)
+        .set('Content-Type', 'application/pdf')
+        .set(
+          'Content-Disposition',
+          `attachment; filename="${buildConsoleBillingInvoicePdfFilename(invoice)}"`,
+        )
+        .send(Buffer.from(pdf));
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.get('/console/billing/invoices/:id/activity', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    const invoiceId = readPathParam(req, 'id');
+    if (!invoiceId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing invoice id' });
+      return;
+    }
+    try {
+      const activity = await billing.getInvoiceActivity(toBillingContext(claims), invoiceId);
+      if (!activity) {
+        res.status(404).json({
+          ok: false,
+          code: 'invoice_not_found',
+          message: `Invoice ${invoiceId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, activity });
     } catch (error: unknown) {
       sendBillingError(res, error);
     }

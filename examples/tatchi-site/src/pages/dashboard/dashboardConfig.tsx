@@ -148,9 +148,16 @@ const sidebarGroups: SidebarGroup[] = [
     label: 'Billing',
     items: [
       {
-        key: 'billing',
-        label: 'Billing',
-        path: '/dashboard/billing',
+        key: 'billing-account',
+        label: 'Billing account',
+        path: '/dashboard/billing/account',
+        icon: ReceiptTextIcon,
+        component: BillingPage,
+      },
+      {
+        key: 'invoices',
+        label: 'Invoices',
+        path: '/dashboard/invoices',
         icon: ReceiptTextIcon,
         component: BillingPage,
       },
@@ -210,6 +217,24 @@ function resolveDefaultDashboardRoute(groups: SidebarGroup[]): DashboardRoute {
 export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = resolveDefaultDashboardRoute(SIDEBAR_GROUPS);
 
 export function getRouteFromPathname(pathname: string): DashboardRoute | null {
+  if (
+    pathname === '/dashboard/billing' ||
+    pathname === '/dashboard/billing/' ||
+    pathname === '/dashboard/billing/account' ||
+    pathname === '/dashboard/billing/account/'
+  ) {
+    return '/dashboard/billing/account';
+  }
+  if (
+    pathname === '/dashboard/invoices' ||
+    pathname === '/dashboard/invoices/' ||
+    pathname.startsWith('/dashboard/invoices/') ||
+    pathname === '/dashboard/billing/invoices' ||
+    pathname === '/dashboard/billing/invoices/' ||
+    pathname.startsWith('/dashboard/billing/invoices/')
+  ) {
+    return '/dashboard/invoices';
+  }
   for (const group of SIDEBAR_GROUPS) {
     for (const item of group.items) {
       if (item.path === pathname) return item.path;

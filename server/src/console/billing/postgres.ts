@@ -15,9 +15,14 @@ import { getChainFinalityPolicy } from './stablecoinAssets';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
+  BillingInvoiceActivity,
+  BillingInvoiceActivityEntry,
   BillingInvoice,
   BillingInvoiceLineItem,
   BillingInvoiceLineItemType,
+  BillingInvoiceListRequest,
+  BillingInvoiceListResult,
+  BillingInvoiceListSummary,
   BillingMonthlyActiveWallets,
   BillingOverview,
   BillingSubscription,
@@ -56,6 +61,8 @@ const CONSOLE_BILLING_MIGRATION_LOCK_ID = 9452360123582;
 const DEFAULT_MONTHLY_PLAN_AMOUNT_MINOR = 4900;
 const PLAN_BASE_FEE_MINOR = 1900;
 const PLAN_MAW_UNIT_PRICE_MINOR = 300;
+const DEFAULT_INVOICE_LIST_LIMIT = 25;
+const MAX_INVOICE_LIST_LIMIT = 100;
 const TERMINAL_PAYMENT_STATES = new Set<PaymentState>([
   'SETTLED',
   'PARTIALLY_SETTLED',
@@ -155,6 +162,94 @@ function parseInvoiceRow(row: PgRow): BillingInvoice {
   };
 }
 
+function normalizeInvoiceListLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_INVOICE_LIST_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
+}
+
+function parseInvoiceCursor(
+  cursor: string | undefined,
+): { createdAtMs: number; id: string } | null {
+  const raw = String(cursor || '').trim();
+  if (!raw) return null;
+  const separatorIndex = raw.indexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === raw.length - 1) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor format');
+  }
+  const createdAtMsRaw = raw.slice(0, separatorIndex);
+  if (!/^\d+$/.test(createdAtMsRaw)) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor sort key');
+  }
+  let id = '';
+  try {
+    id = decodeURIComponent(raw.slice(separatorIndex + 1));
+  } catch {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor value');
+  }
+  if (!id) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor value');
+  }
+  const createdAtMs = Number.parseInt(createdAtMsRaw, 10);
+  if (!Number.isSafeInteger(createdAtMs) || createdAtMs < 0) {
+    throw new ConsoleBillingError('invalid_query', 400, 'Invalid invoice cursor sort key');
+  }
+  return { createdAtMs, id };
+}
+
+function encodeInvoiceCursor(invoice: BillingInvoice): string {
+  const createdAtMs = Date.parse(invoice.createdAt);
+  const safeCreatedAtMs = Number.isFinite(createdAtMs) && createdAtMs >= 0 ? createdAtMs : 0;
+  return `${safeCreatedAtMs}:${encodeURIComponent(invoice.id)}`;
+}
+
+function isInvoiceOverdueAt(invoice: BillingInvoice, referenceNowMs: number): boolean {
+  if (invoice.status !== 'OPEN' || !invoice.dueAt) return false;
+  const dueAtMs = Date.parse(invoice.dueAt);
+  if (!Number.isFinite(dueAtMs)) return false;
+  return dueAtMs < referenceNowMs;
+}
+
+function buildInvoiceListSummary(
+  invoices: BillingInvoice[],
+  referenceNowMs: number,
+): BillingInvoiceListSummary {
+  const openCount = invoices.filter((invoice) => invoice.status === 'OPEN').length;
+  const overdueCount = invoices.filter((invoice) =>
+    isInvoiceOverdueAt(invoice, referenceNowMs),
+  ).length;
+  const paidCount = invoices.filter((invoice) => invoice.status === 'PAID').length;
+  const outstandingAmountMinor = invoices.reduce((total, invoice) => {
+    return total + Math.max(0, invoice.amountDueMinor - invoice.amountPaidMinor);
+  }, 0);
+  return {
+    totalCount: invoices.length,
+    openCount,
+    overdueCount,
+    paidCount,
+    outstandingAmountMinor,
+    latestPeriodMonthUtc: invoices[0]?.periodMonthUtc || null,
+  };
+}
+
+function buildPaymentTransitionSummary(
+  rail: InvoicePaymentRail,
+  toState: PaymentState,
+  paymentId: string,
+  reason: string | null,
+): string {
+  const railLabel = rail === 'CARD' ? 'Card payment' : 'Stablecoin payment';
+  const stateLabel = String(toState || '')
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, ' ');
+  const reasonText = reason
+    ? ` Reason: ${String(reason).trim().toLowerCase().replace(/_/g, ' ')}.`
+    : '';
+  return `${railLabel} ${paymentId} moved to ${stateLabel}.${reasonText}`;
+}
+
 function parseInvoiceLineItemRow(row: PgRow): BillingInvoiceLineItem {
   return {
     id: String(row.id || ''),
@@ -199,9 +294,7 @@ function parseSubscriptionRow(row: PgRow): BillingSubscription {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
     provider: 'stripe',
-    providerCustomerRef: row.provider_customer_ref
-      ? String(row.provider_customer_ref || '')
-      : null,
+    providerCustomerRef: row.provider_customer_ref ? String(row.provider_customer_ref || '') : null,
     providerSubscriptionRef: row.provider_subscription_ref
       ? String(row.provider_subscription_ref || '')
       : null,
@@ -809,6 +902,36 @@ async function listInvoiceLineItemsByInvoice(
     [namespace, orgId, invoiceId],
   );
   return out.rows.map((row) => parseInvoiceLineItemRow(row as PgRow));
+}
+
+function buildInvoiceListWhereClause(input: {
+  namespace: string;
+  orgId: string;
+  request?: BillingInvoiceListRequest;
+  referenceNowMs?: number;
+  values?: unknown[];
+}): { clause: string; values: unknown[] } {
+  const values = input.values ? [...input.values] : [input.namespace, input.orgId];
+  const clauses = ['namespace = $1', 'org_id = $2'];
+  const request = input.request;
+  if (request?.status) {
+    values.push(request.status);
+    clauses.push(`status = $${values.length}`);
+  }
+  if (request?.periodMonthUtc) {
+    values.push(request.periodMonthUtc);
+    clauses.push(`period_month_utc = $${values.length}`);
+  }
+  if (request?.overdueOnly) {
+    clauses.push(`status = 'OPEN'`);
+    clauses.push(`due_at_ms IS NOT NULL`);
+    values.push(input.referenceNowMs ?? Date.now());
+    clauses.push(`due_at_ms < $${values.length}`);
+  }
+  return {
+    clause: clauses.join(' AND '),
+    values,
+  };
 }
 
 export interface PostgresConsoleBillingSchemaOptions {
@@ -1549,7 +1672,9 @@ export async function createPostgresConsoleBillingService(
       monthUtcInput?: string,
     ): Promise<BillingMonthlyActiveWallets> {
       return withOrgTx(ctx, async (q, now) => {
-        const resolvedMonthUtc = monthUtcInput ? parseMonthUtcOrThrow(monthUtcInput) : monthUtc(now);
+        const resolvedMonthUtc = monthUtcInput
+          ? parseMonthUtcOrThrow(monthUtcInput)
+          : monthUtc(now);
         const monthlyActiveWallets = await countMonthlyActiveWallets(
           q,
           namespace,
@@ -1666,6 +1791,75 @@ export async function createPostgresConsoleBillingService(
       });
     },
 
+    async listInvoicesPage(
+      ctx: ConsoleBillingContext,
+      request: BillingInvoiceListRequest = {},
+    ): Promise<BillingInvoiceListResult> {
+      return withOrgTx(ctx, async (q, now) => {
+        const limit = normalizeInvoiceListLimit(request.limit);
+        const cursor = parseInvoiceCursor(request.cursor);
+        const baseWhere = buildInvoiceListWhereClause({
+          namespace,
+          orgId: ctx.orgId,
+          request,
+          referenceNowMs: nowMs(now),
+        });
+
+        const pageValues = [...baseWhere.values];
+        let cursorClause = '';
+        if (cursor) {
+          pageValues.push(cursor.createdAtMs, cursor.id);
+          cursorClause = ` AND (created_at_ms < $${pageValues.length - 1} OR (created_at_ms = $${pageValues.length - 1} AND id < $${pageValues.length}))`;
+        }
+        pageValues.push(limit + 1);
+        const pageRows = await q.query(
+          `SELECT *
+             FROM console_invoices
+            WHERE ${baseWhere.clause}${cursorClause}
+            ORDER BY created_at_ms DESC, id DESC
+            LIMIT $${pageValues.length}`,
+          pageValues,
+        );
+
+        const summaryRow = await queryOne(
+          q,
+          `SELECT
+              COUNT(*)::BIGINT AS total_count,
+              COUNT(*) FILTER (WHERE status = 'OPEN')::BIGINT AS open_count,
+              COUNT(*) FILTER (WHERE status = 'OPEN' AND due_at_ms IS NOT NULL AND due_at_ms < $${baseWhere.values.length + 1})::BIGINT AS overdue_count,
+              COUNT(*) FILTER (WHERE status = 'PAID')::BIGINT AS paid_count,
+              COALESCE(SUM(GREATEST(amount_due_minor - amount_paid_minor, 0)), 0)::BIGINT AS outstanding_amount_minor,
+              (ARRAY_AGG(period_month_utc ORDER BY created_at_ms DESC, id DESC))[1] AS latest_period_month_utc
+             FROM console_invoices
+            WHERE ${baseWhere.clause}`,
+          [...baseWhere.values, nowMs(now)],
+        );
+        const hasMore = pageRows.rows.length > limit;
+        const invoices = (hasMore ? pageRows.rows.slice(0, limit) : pageRows.rows).map((row) =>
+          parseInvoiceRow(row as PgRow),
+        );
+        return {
+          invoices,
+          nextCursor:
+            hasMore && invoices.length > 0
+              ? encodeInvoiceCursor(invoices[invoices.length - 1])
+              : null,
+          totalCount: Number(summaryRow?.total_count || 0),
+          summary: {
+            totalCount: Number(summaryRow?.total_count || 0),
+            openCount: Number(summaryRow?.open_count || 0),
+            overdueCount: Number(summaryRow?.overdue_count || 0),
+            paidCount: Number(summaryRow?.paid_count || 0),
+            outstandingAmountMinor: Number(summaryRow?.outstanding_amount_minor || 0),
+            latestPeriodMonthUtc:
+              summaryRow?.latest_period_month_utc == null
+                ? null
+                : String(summaryRow.latest_period_month_utc || '').trim() || null,
+          },
+        };
+      });
+    },
+
     async getInvoice(
       ctx: ConsoleBillingContext,
       invoiceId: string,
@@ -1679,6 +1873,125 @@ export async function createPostgresConsoleBillingService(
           [namespace, ctx.orgId, invoiceId],
         );
         return row ? parseInvoiceRow(row) : null;
+      });
+    },
+
+    async getInvoiceActivity(
+      ctx: ConsoleBillingContext,
+      invoiceId: string,
+    ): Promise<BillingInvoiceActivity | null> {
+      return withOrgTx(ctx, async (q) => {
+        const invoiceRow = await queryOne(
+          q,
+          `SELECT *
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, ctx.orgId, invoiceId],
+        );
+        if (!invoiceRow) return null;
+        const invoice = parseInvoiceRow(invoiceRow);
+        const transitionRows = await q.query(
+          `SELECT
+              CAST(transitions.id AS TEXT) AS transition_id,
+              transitions.payment_id,
+              transitions.from_state,
+              transitions.to_state,
+              transitions.changed_at_ms,
+              transitions.actor_type,
+              transitions.actor_user_id,
+              transitions.source_event_id,
+              transitions.reason,
+              'CARD' AS rail
+             FROM console_payment_state_transitions transitions
+             JOIN console_stripe_payment_intents intents
+               ON intents.namespace = transitions.namespace
+              AND intents.org_id = transitions.org_id
+              AND intents.id = transitions.payment_id
+            WHERE transitions.namespace = $1
+              AND transitions.org_id = $2
+              AND intents.invoice_id = $3
+            UNION ALL
+           SELECT
+              CAST(transitions.id AS TEXT) AS transition_id,
+              transitions.payment_id,
+              transitions.from_state,
+              transitions.to_state,
+              transitions.changed_at_ms,
+              transitions.actor_type,
+              transitions.actor_user_id,
+              transitions.source_event_id,
+              transitions.reason,
+              'STABLECOIN' AS rail
+             FROM console_payment_state_transitions transitions
+             JOIN console_stablecoin_payment_intents intents
+               ON intents.namespace = transitions.namespace
+              AND intents.org_id = transitions.org_id
+              AND intents.id = transitions.payment_id
+            WHERE transitions.namespace = $1
+              AND transitions.org_id = $2
+              AND intents.invoice_id = $3
+            ORDER BY changed_at_ms DESC, transition_id DESC`,
+          [namespace, ctx.orgId, invoiceId],
+        );
+
+        const entries: BillingInvoiceActivityEntry[] = [
+          {
+            id: `${invoice.id}:issued`,
+            type: 'INVOICE',
+            invoiceId: invoice.id,
+            paymentId: null,
+            rail: invoice.railLock,
+            fromState: null,
+            toState: 'OPEN',
+            occurredAt: invoice.createdAt,
+            actorType: 'SYSTEM',
+            actorUserId: null,
+            reason: 'invoice_created',
+            sourceEventId: null,
+            summary: `Invoice ${invoice.id} issued for billing period ${invoice.periodMonthUtc}.`,
+          },
+          ...transitionRows.rows.map((rawRow) => {
+            const row = rawRow as PgRow;
+            const rail = String(row.rail || '').trim() === 'STABLECOIN' ? 'STABLECOIN' : 'CARD';
+            const paymentId = String(row.payment_id || '').trim();
+            const toState = String(row.to_state || 'CREATED').trim() as PaymentState;
+            const reason = row.reason == null ? null : String(row.reason || '').trim() || null;
+            return {
+              id: String(row.transition_id || ''),
+              type: 'PAYMENT',
+              invoiceId: invoice.id,
+              paymentId: paymentId || null,
+              rail,
+              fromState:
+                row.from_state == null ? null : String(row.from_state || '').trim() || null,
+              toState,
+              occurredAt: toIso(toNumber(row.changed_at_ms)) || invoice.createdAt,
+              actorType: String(
+                row.actor_type || 'SYSTEM',
+              ).trim() as BillingInvoiceActivityEntry['actorType'],
+              actorUserId:
+                row.actor_user_id == null ? null : String(row.actor_user_id || '').trim() || null,
+              reason,
+              sourceEventId:
+                row.source_event_id == null
+                  ? null
+                  : String(row.source_event_id || '').trim() || null,
+              summary: buildPaymentTransitionSummary(rail, toState, paymentId, reason),
+            } satisfies BillingInvoiceActivityEntry;
+          }),
+        ].sort((left, right) => {
+          const tsDiff = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
+          if (tsDiff !== 0) return tsDiff;
+          return right.id.localeCompare(left.id);
+        });
+
+        const latestPaymentEntry = entries.find((entry) => entry.type === 'PAYMENT') || null;
+        return {
+          invoice,
+          latestPaymentState: latestPaymentEntry?.toState || null,
+          latestPaymentRail: latestPaymentEntry?.rail || null,
+          entries,
+        };
       });
     },
 
@@ -2364,7 +2677,9 @@ export async function createPostgresConsoleBillingService(
           'settledAmountMinor must be >= 0',
         );
       }
-      const eventType = String(request.eventType || '').trim().toLowerCase();
+      const eventType = String(request.eventType || '')
+        .trim()
+        .toLowerCase();
       const paymentIntentProjection = !eventType || eventType.startsWith('payment_intent.');
 
       let currentOrgId: string | null = null;
@@ -2426,246 +2741,240 @@ export async function createPostgresConsoleBillingService(
         };
       }
 
-      return withConsoleTenantContextTx(
-        pool,
-        { namespace, orgId: currentOrgId },
-        async (q) => {
-          const inserted = await queryOne(
-            q,
-            `INSERT INTO console_stripe_webhook_events
+      return withConsoleTenantContextTx(pool, { namespace, orgId: currentOrgId }, async (q) => {
+        const inserted = await queryOne(
+          q,
+          `INSERT INTO console_stripe_webhook_events
               (namespace, event_id, provider_ref, payment_intent_id, org_id, processed_at_ms)
              VALUES
               ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (namespace, event_id) DO NOTHING
              RETURNING event_id`,
-            [
-              namespace,
-              request.eventId,
-              eventProviderRef,
-              matchedPaymentIntentId,
-              currentOrgId,
-              nowMs(now),
-            ],
-          );
-          if (!inserted) {
-            const existingEvent = await queryOne(
-              q,
-              `SELECT payment_intent_id
+          [
+            namespace,
+            request.eventId,
+            eventProviderRef,
+            matchedPaymentIntentId,
+            currentOrgId,
+            nowMs(now),
+          ],
+        );
+        if (!inserted) {
+          const existingEvent = await queryOne(
+            q,
+            `SELECT payment_intent_id
                  FROM console_stripe_webhook_events
                 WHERE namespace = $1 AND org_id = $2 AND event_id = $3`,
-              [namespace, currentOrgId, request.eventId],
-            );
-            const existingPaymentIntentId =
-              String(existingEvent?.payment_intent_id || '').trim() || matchedPaymentIntentId || '';
-            const existingIntentRow = existingPaymentIntentId
-              ? await queryOne(
-                  q,
-                  `SELECT *
+            [namespace, currentOrgId, request.eventId],
+          );
+          const existingPaymentIntentId =
+            String(existingEvent?.payment_intent_id || '').trim() || matchedPaymentIntentId || '';
+          const existingIntentRow = existingPaymentIntentId
+            ? await queryOne(
+                q,
+                `SELECT *
                      FROM console_stripe_payment_intents
                     WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                  [namespace, currentOrgId, existingPaymentIntentId],
-                )
-              : null;
-            const existingSubscriptionRow = await queryOne(
-              q,
-              `SELECT *
+                [namespace, currentOrgId, existingPaymentIntentId],
+              )
+            : null;
+          const existingSubscriptionRow = await queryOne(
+            q,
+            `SELECT *
                  FROM console_subscriptions
                 WHERE namespace = $1 AND org_id = $2`,
-              [namespace, currentOrgId],
-            );
-            const existingInvoiceRow = request.invoiceId
-              ? await queryOne(
-                  q,
-                  `SELECT *
+            [namespace, currentOrgId],
+          );
+          const existingInvoiceRow = request.invoiceId
+            ? await queryOne(
+                q,
+                `SELECT *
                      FROM console_invoices
                     WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                  [namespace, currentOrgId, request.invoiceId],
-                )
-              : null;
-            return {
-              accepted: false,
-              paymentIntent: existingIntentRow ? parseStripePaymentIntentRow(existingIntentRow) : null,
-              subscription: existingSubscriptionRow
-                ? parseSubscriptionRow(existingSubscriptionRow)
-                : null,
-              invoice: existingInvoiceRow ? parseInvoiceRow(existingInvoiceRow) : null,
-              orgId: currentOrgId,
-            };
-          }
+                [namespace, currentOrgId, request.invoiceId],
+              )
+            : null;
+          return {
+            accepted: false,
+            paymentIntent: existingIntentRow
+              ? parseStripePaymentIntentRow(existingIntentRow)
+              : null,
+            subscription: existingSubscriptionRow
+              ? parseSubscriptionRow(existingSubscriptionRow)
+              : null,
+            invoice: existingInvoiceRow ? parseInvoiceRow(existingInvoiceRow) : null,
+            orgId: currentOrgId,
+          };
+        }
 
-          let reconciled: StripePaymentIntent | null = null;
-          let projectedSubscription: BillingSubscription | null = null;
-          let projectedInvoice: BillingInvoice | null = null;
+        let reconciled: StripePaymentIntent | null = null;
+        let projectedSubscription: BillingSubscription | null = null;
+        let projectedInvoice: BillingInvoice | null = null;
 
-          if (paymentIntentProjection && matchedPaymentIntentId) {
-            const currentLocked = await queryOne(
-              q,
-              `SELECT *
+        if (paymentIntentProjection && matchedPaymentIntentId) {
+          const currentLocked = await queryOne(
+            q,
+            `SELECT *
                  FROM console_stripe_payment_intents
                 WHERE namespace = $1 AND org_id = $2 AND id = $3
                 FOR UPDATE`,
-              [namespace, currentOrgId, matchedPaymentIntentId],
-            );
-            if (currentLocked) {
-              const current = parseStripePaymentIntentRow(currentLocked);
-              reconciled = current;
-              if (!isTerminalPaymentState(current.state) && request.providerStatus) {
-                const settledAmountMinor = request.settledAmountMinor ?? current.amountMinor;
-                const decision = decideStripeReconcileTransition({
-                  currentState: current.state,
-                  providerStatus: request.providerStatus,
-                  expectedAmountMinor: current.amountMinor,
-                  settledAmountMinor,
-                });
+            [namespace, currentOrgId, matchedPaymentIntentId],
+          );
+          if (currentLocked) {
+            const current = parseStripePaymentIntentRow(currentLocked);
+            reconciled = current;
+            if (!isTerminalPaymentState(current.state) && request.providerStatus) {
+              const settledAmountMinor = request.settledAmountMinor ?? current.amountMinor;
+              const decision = decideStripeReconcileTransition({
+                currentState: current.state,
+                providerStatus: request.providerStatus,
+                expectedAmountMinor: current.amountMinor,
+                settledAmountMinor,
+              });
 
-                if (decision.targetState) {
-                  let effectiveFromState = current.state;
-                  if (
-                    effectiveFromState === 'CREATED' &&
-                    SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
-                  ) {
-                    const toPending = canTransitionPaymentState({
-                      from: effectiveFromState,
-                      to: 'PENDING',
-                    });
-                    if (!toPending.ok) {
-                      throw new ConsoleBillingError(
-                        'invalid_payment_state',
-                        409,
-                        toPending.message,
-                        {
-                          fromState: effectiveFromState,
-                          toState: 'PENDING',
-                        },
-                      );
-                    }
-                    await q.query(
-                      `UPDATE console_stripe_payment_intents
-                          SET state = 'PENDING'
-                        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                      [namespace, currentOrgId, current.id],
-                    );
-                    await appendPaymentStateTransition(q, {
-                      namespace,
-                      orgId: currentOrgId,
-                      paymentId: current.id,
+              if (decision.targetState) {
+                let effectiveFromState = current.state;
+                if (
+                  effectiveFromState === 'CREATED' &&
+                  SETTLEMENT_OUTCOME_STATES.has(decision.targetState)
+                ) {
+                  const toPending = canTransitionPaymentState({
+                    from: effectiveFromState,
+                    to: 'PENDING',
+                  });
+                  if (!toPending.ok) {
+                    throw new ConsoleBillingError('invalid_payment_state', 409, toPending.message, {
                       fromState: effectiveFromState,
                       toState: 'PENDING',
-                      changedAtMs: nowMs(now),
-                      actorType: 'PROVIDER',
-                      sourceEventId: request.eventId,
-                      reason: 'provider_pending_implied',
-                    });
-                    effectiveFromState = 'PENDING';
-                  }
-
-                  const transition = canTransitionPaymentState({
-                    from: effectiveFromState,
-                    to: decision.targetState,
-                  });
-                  if (!transition.ok) {
-                    throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
-                      fromState: effectiveFromState,
-                      toState: decision.targetState,
                     });
                   }
-
-                  const updated = await queryOne(
-                    q,
+                  await q.query(
                     `UPDATE console_stripe_payment_intents
-                        SET state = $4
-                      WHERE namespace = $1 AND org_id = $2 AND id = $3
-                      RETURNING *`,
-                    [namespace, currentOrgId, current.id, decision.targetState],
+                          SET state = 'PENDING'
+                        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                    [namespace, currentOrgId, current.id],
                   );
-                  if (!updated) {
-                    throw new ConsoleBillingError(
-                      'payment_intent_not_found',
-                      404,
-                      `Stripe payment intent ${current.id} was not found`,
-                    );
-                  }
-                  reconciled = parseStripePaymentIntentRow(updated);
-
                   await appendPaymentStateTransition(q, {
                     namespace,
                     orgId: currentOrgId,
                     paymentId: current.id,
                     fromState: effectiveFromState,
-                    toState: decision.targetState,
+                    toState: 'PENDING',
                     changedAtMs: nowMs(now),
                     actorType: 'PROVIDER',
                     sourceEventId: request.eventId,
-                    reason: decision.reason,
+                    reason: 'provider_pending_implied',
                   });
+                  effectiveFromState = 'PENDING';
+                }
 
-                  if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
-                    await q.query(
-                      `UPDATE console_invoices
+                const transition = canTransitionPaymentState({
+                  from: effectiveFromState,
+                  to: decision.targetState,
+                });
+                if (!transition.ok) {
+                  throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
+                    fromState: effectiveFromState,
+                    toState: decision.targetState,
+                  });
+                }
+
+                const updated = await queryOne(
+                  q,
+                  `UPDATE console_stripe_payment_intents
+                        SET state = $4
+                      WHERE namespace = $1 AND org_id = $2 AND id = $3
+                      RETURNING *`,
+                  [namespace, currentOrgId, current.id, decision.targetState],
+                );
+                if (!updated) {
+                  throw new ConsoleBillingError(
+                    'payment_intent_not_found',
+                    404,
+                    `Stripe payment intent ${current.id} was not found`,
+                  );
+                }
+                reconciled = parseStripePaymentIntentRow(updated);
+
+                await appendPaymentStateTransition(q, {
+                  namespace,
+                  orgId: currentOrgId,
+                  paymentId: current.id,
+                  fromState: effectiveFromState,
+                  toState: decision.targetState,
+                  changedAtMs: nowMs(now),
+                  actorType: 'PROVIDER',
+                  sourceEventId: request.eventId,
+                  reason: decision.reason,
+                });
+
+                if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
+                  await q.query(
+                    `UPDATE console_invoices
                           SET amount_paid_minor = amount_paid_minor + $4,
                               status = CASE
                                 WHEN amount_paid_minor + $4 >= amount_due_minor THEN 'PAID'
                                 ELSE status
                               END
                         WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                      [namespace, currentOrgId, current.invoiceId, settledAmountMinor],
-                    );
-                  }
+                    [namespace, currentOrgId, current.invoiceId, settledAmountMinor],
+                  );
                 }
               }
             }
-          } else {
-            if (
-              eventType === 'checkout.session.completed' ||
-              eventType.startsWith('customer.subscription.')
-            ) {
-              const subRow = await queryOne(
-                q,
-                `SELECT *
+          }
+        } else {
+          if (
+            eventType === 'checkout.session.completed' ||
+            eventType.startsWith('customer.subscription.')
+          ) {
+            const subRow = await queryOne(
+              q,
+              `SELECT *
                    FROM console_subscriptions
                   WHERE namespace = $1 AND org_id = $2
                   FOR UPDATE`,
-                [namespace, currentOrgId],
-              );
-              if (subRow) {
-                const existing = parseSubscriptionRow(subRow);
-                const nextStatus =
-                  request.subscriptionStatus ||
-                  (eventType === 'checkout.session.completed' ? 'ACTIVE' : existing.status);
-                const nextCancelAtPeriodEnd =
-                  request.cancelAtPeriodEnd !== undefined
-                    ? request.cancelAtPeriodEnd
-                    : existing.cancelAtPeriodEnd;
-                const nextCurrentPeriodStartMs = request.currentPeriodStart
-                  ? Date.parse(request.currentPeriodStart)
-                  : Date.parse(existing.currentPeriodStart);
-                const nextCurrentPeriodEndMs = request.currentPeriodEnd
-                  ? Date.parse(request.currentPeriodEnd)
-                  : Date.parse(existing.currentPeriodEnd);
-                const nextCancelAtMs =
-                  request.cancelAt !== undefined
-                    ? request.cancelAt === null
-                      ? null
-                      : Date.parse(request.cancelAt)
-                    : nextCancelAtPeriodEnd
-                      ? existing.cancelAt
-                        ? Date.parse(existing.cancelAt)
-                        : nextCurrentPeriodEndMs
-                      : null;
-                const nextCanceledAtMs =
-                  request.canceledAt !== undefined
-                    ? request.canceledAt === null
-                      ? null
-                      : Date.parse(request.canceledAt)
-                    : nextStatus === 'CANCELED'
-                      ? existing.canceledAt
-                        ? Date.parse(existing.canceledAt)
-                        : nowMs(now)
-                      : null;
+              [namespace, currentOrgId],
+            );
+            if (subRow) {
+              const existing = parseSubscriptionRow(subRow);
+              const nextStatus =
+                request.subscriptionStatus ||
+                (eventType === 'checkout.session.completed' ? 'ACTIVE' : existing.status);
+              const nextCancelAtPeriodEnd =
+                request.cancelAtPeriodEnd !== undefined
+                  ? request.cancelAtPeriodEnd
+                  : existing.cancelAtPeriodEnd;
+              const nextCurrentPeriodStartMs = request.currentPeriodStart
+                ? Date.parse(request.currentPeriodStart)
+                : Date.parse(existing.currentPeriodStart);
+              const nextCurrentPeriodEndMs = request.currentPeriodEnd
+                ? Date.parse(request.currentPeriodEnd)
+                : Date.parse(existing.currentPeriodEnd);
+              const nextCancelAtMs =
+                request.cancelAt !== undefined
+                  ? request.cancelAt === null
+                    ? null
+                    : Date.parse(request.cancelAt)
+                  : nextCancelAtPeriodEnd
+                    ? existing.cancelAt
+                      ? Date.parse(existing.cancelAt)
+                      : nextCurrentPeriodEndMs
+                    : null;
+              const nextCanceledAtMs =
+                request.canceledAt !== undefined
+                  ? request.canceledAt === null
+                    ? null
+                    : Date.parse(request.canceledAt)
+                  : nextStatus === 'CANCELED'
+                    ? existing.canceledAt
+                      ? Date.parse(existing.canceledAt)
+                      : nowMs(now)
+                    : null;
 
-                const updatedSub = await queryOne(
-                  q,
-                  `UPDATE console_subscriptions
+              const updatedSub = await queryOne(
+                q,
+                `UPDATE console_subscriptions
                       SET provider_customer_ref = COALESCE($4, provider_customer_ref),
                           provider_subscription_ref = COALESCE($5, provider_subscription_ref),
                           plan_id = COALESCE($6, plan_id),
@@ -2679,101 +2988,100 @@ export async function createPostgresConsoleBillingService(
                           updated_at_ms = $14
                     WHERE namespace = $1 AND org_id = $2 AND id = $3
                     RETURNING *`,
-                  [
-                    namespace,
-                    currentOrgId,
-                    existing.id,
-                    request.providerCustomerRef || null,
-                    request.providerSubscriptionRef || null,
-                    request.planId || null,
-                    request.planName || null,
-                    nextStatus,
-                    nextCancelAtPeriodEnd,
-                    nextCurrentPeriodStartMs,
-                    nextCurrentPeriodEndMs,
-                    nextCancelAtMs,
-                    nextCanceledAtMs,
-                    nowMs(now),
-                  ],
-                );
-                projectedSubscription = updatedSub ? parseSubscriptionRow(updatedSub) : null;
-              }
+                [
+                  namespace,
+                  currentOrgId,
+                  existing.id,
+                  request.providerCustomerRef || null,
+                  request.providerSubscriptionRef || null,
+                  request.planId || null,
+                  request.planName || null,
+                  nextStatus,
+                  nextCancelAtPeriodEnd,
+                  nextCurrentPeriodStartMs,
+                  nextCurrentPeriodEndMs,
+                  nextCancelAtMs,
+                  nextCanceledAtMs,
+                  nowMs(now),
+                ],
+              );
+              projectedSubscription = updatedSub ? parseSubscriptionRow(updatedSub) : null;
             }
+          }
 
-            if (eventType.startsWith('invoice.') && request.invoiceId) {
-              const invoiceRow = await queryOne(
-                q,
-                `SELECT *
+          if (eventType.startsWith('invoice.') && request.invoiceId) {
+            const invoiceRow = await queryOne(
+              q,
+              `SELECT *
                    FROM console_invoices
                   WHERE namespace = $1 AND org_id = $2 AND id = $3
                   FOR UPDATE`,
-                [namespace, currentOrgId, request.invoiceId],
-              );
-              if (invoiceRow) {
-                const currentInvoice = parseInvoiceRow(invoiceRow);
-                const nextAmountDueMinor =
-                  request.invoiceAmountDueMinor ?? currentInvoice.amountDueMinor;
-                const nextAmountPaidMinor =
-                  request.invoiceAmountPaidMinor ?? currentInvoice.amountPaidMinor;
-                const nextStatus =
-                  request.invoiceStatus ||
-                  (nextAmountPaidMinor >= nextAmountDueMinor
-                    ? 'PAID'
-                    : currentInvoice.status === 'PAID'
-                      ? 'OPEN'
-                      : currentInvoice.status);
-                const updatedInvoice = await queryOne(
-                  q,
-                  `UPDATE console_invoices
+              [namespace, currentOrgId, request.invoiceId],
+            );
+            if (invoiceRow) {
+              const currentInvoice = parseInvoiceRow(invoiceRow);
+              const nextAmountDueMinor =
+                request.invoiceAmountDueMinor ?? currentInvoice.amountDueMinor;
+              const nextAmountPaidMinor =
+                request.invoiceAmountPaidMinor ?? currentInvoice.amountPaidMinor;
+              const nextStatus =
+                request.invoiceStatus ||
+                (nextAmountPaidMinor >= nextAmountDueMinor
+                  ? 'PAID'
+                  : currentInvoice.status === 'PAID'
+                    ? 'OPEN'
+                    : currentInvoice.status);
+              const updatedInvoice = await queryOne(
+                q,
+                `UPDATE console_invoices
                       SET amount_due_minor = $4,
                           amount_paid_minor = $5,
                           status = $6
                     WHERE namespace = $1 AND org_id = $2 AND id = $3
                     RETURNING *`,
-                  [
-                    namespace,
-                    currentOrgId,
-                    currentInvoice.id,
-                    nextAmountDueMinor,
-                    nextAmountPaidMinor,
-                    nextStatus,
-                  ],
-                );
-                projectedInvoice = updatedInvoice ? parseInvoiceRow(updatedInvoice) : null;
-              }
+                [
+                  namespace,
+                  currentOrgId,
+                  currentInvoice.id,
+                  nextAmountDueMinor,
+                  nextAmountPaidMinor,
+                  nextStatus,
+                ],
+              );
+              projectedInvoice = updatedInvoice ? parseInvoiceRow(updatedInvoice) : null;
             }
           }
+        }
 
-          if (!projectedSubscription) {
-            const subRow = await queryOne(
-              q,
-              `SELECT *
+        if (!projectedSubscription) {
+          const subRow = await queryOne(
+            q,
+            `SELECT *
                  FROM console_subscriptions
                 WHERE namespace = $1 AND org_id = $2`,
-              [namespace, currentOrgId],
-            );
-            projectedSubscription = subRow ? parseSubscriptionRow(subRow) : null;
-          }
-          if (!projectedInvoice && request.invoiceId) {
-            const invoiceRow = await queryOne(
-              q,
-              `SELECT *
+            [namespace, currentOrgId],
+          );
+          projectedSubscription = subRow ? parseSubscriptionRow(subRow) : null;
+        }
+        if (!projectedInvoice && request.invoiceId) {
+          const invoiceRow = await queryOne(
+            q,
+            `SELECT *
                  FROM console_invoices
                 WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-              [namespace, currentOrgId, request.invoiceId],
-            );
-            projectedInvoice = invoiceRow ? parseInvoiceRow(invoiceRow) : null;
-          }
+            [namespace, currentOrgId, request.invoiceId],
+          );
+          projectedInvoice = invoiceRow ? parseInvoiceRow(invoiceRow) : null;
+        }
 
-          return {
-            accepted: true,
-            paymentIntent: reconciled,
-            subscription: projectedSubscription,
-            invoice: projectedInvoice,
-            orgId: currentOrgId,
-          };
-        },
-      );
+        return {
+          accepted: true,
+          paymentIntent: reconciled,
+          subscription: projectedSubscription,
+          invoice: projectedInvoice,
+          orgId: currentOrgId,
+        };
+      });
     },
 
     async createStablecoinQuote(
@@ -2797,7 +3105,11 @@ export async function createPostgresConsoleBillingService(
         }
         const invoice = parseInvoiceRow(invoiceRow);
         if (invoice.status !== 'OPEN') {
-          throw new ConsoleBillingError('invoice_not_open', 409, `Invoice ${invoice.id} is not open`);
+          throw new ConsoleBillingError(
+            'invoice_not_open',
+            409,
+            `Invoice ${invoice.id} is not open`,
+          );
         }
         const amountMinor = Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
         if (amountMinor <= 0) {

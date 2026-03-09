@@ -4252,6 +4252,158 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
+      expect(invoices.status).toBe(200);
+      const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
+      const periodMonthUtc = String(getPath(invoices.json, 'invoices', 0, 'periodMonthUtc') || '');
+      expect(invoiceId).toBeTruthy();
+      expect(periodMonthUtc).toMatch(/^\d{4}-\d{2}$/);
+
+      const pdf = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(invoiceId)}/pdf`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(pdf.status).toBe(200);
+      expect(String(pdf.headers.get('content-type') || '')).toContain('application/pdf');
+      expect(String(pdf.headers.get('content-disposition') || '')).toContain(
+        `invoice_${periodMonthUtc}_${invoiceId}.pdf`,
+      );
+      expect(pdf.text.startsWith('%PDF-1.4')).toBe(true);
+      expect(pdf.text).toContain('Billing invoice');
+      expect(pdf.text).toContain(`Organization: org-1`);
+      expect(pdf.text).toContain(`Invoice ID: ${invoiceId}`);
+
+      const auditEvents = await audit.listEvents({
+        orgId: 'org-1',
+        actorUserId: 'user-1',
+        roles: ['admin'],
+      });
+      expect(auditEvents.length).toBe(1);
+      expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
+      expect(auditEvents[0]?.category).toBe('BILLING');
+      expect(getPath(auditEvents[0], 'metadata', 'invoiceId')).toBe(invoiceId);
+      expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe('ALL_INVOICE_STATES');
+
+      const missing = await fetchJson(`${srv.baseUrl}/console/billing/invoices/inv_missing/pdf`, {
+        method: 'GET',
+      });
+      expect(missing.status).toBe(404);
+      expect(missing.json?.code).toBe('invoice_not_found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/billing/invoices supports server-side filters, pagination, and activity', async () => {
+    let current = new Date('2026-01-20T00:00:00.000Z');
+    const billing = createInMemoryConsoleBillingService({
+      now: () => current,
+    });
+    const billingCtx = {
+      orgId: 'org-1',
+      actorUserId: 'admin-activity-user',
+      roles: ['admin'],
+    };
+    await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-01' });
+    current = new Date('2026-02-20T00:00:00.000Z');
+    await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-02' });
+    current = new Date('2026-03-20T00:00:00.000Z');
+    const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
+    const paymentIntent = await billing.createStripePaymentIntent(billingCtx, {
+      invoiceId: march.invoice.id,
+    });
+    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
+      providerStatus: 'PENDING',
+    });
+    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
+      providerStatus: 'SUCCEEDED',
+      settledAmountMinor: paymentIntent.amountMinor,
+      sourceEventId: 'evt_billing_activity_settled',
+    });
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const firstPage = await fetchJson(`${srv.baseUrl}/console/billing/invoices?limit=1`, {
+        method: 'GET',
+      });
+      expect(firstPage.status).toBe(200);
+      expect(Array.isArray(firstPage.json?.invoices)).toBe(true);
+      expect((firstPage.json?.invoices as unknown[]).length).toBe(1);
+      expect(Number(firstPage.json?.totalCount || 0)).toBe(3);
+      expect(String(firstPage.json?.nextCursor || '')).toBeTruthy();
+
+      const secondPage = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices?limit=1&cursor=${encodeURIComponent(String(firstPage.json?.nextCursor || ''))}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(secondPage.status).toBe(200);
+      expect((secondPage.json?.invoices as unknown[]).length).toBe(1);
+      expect(getPath(firstPage.json, 'invoices', 0, 'id')).not.toBe(
+        getPath(secondPage.json, 'invoices', 0, 'id'),
+      );
+
+      const overdue = await fetchJson(`${srv.baseUrl}/console/billing/invoices?status=OVERDUE`, {
+        method: 'GET',
+      });
+      expect(overdue.status).toBe(200);
+      expect(Number(overdue.json?.totalCount || 0)).toBe(2);
+      expect(Number(getPath(overdue.json, 'summary', 'overdueCount') || 0)).toBe(2);
+
+      const february = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices?periodMonthUtc=2026-02`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(february.status).toBe(200);
+      expect(Number(february.json?.totalCount || 0)).toBe(1);
+      expect(getPath(february.json, 'invoices', 0, 'periodMonthUtc')).toBe('2026-02');
+
+      const activity = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(march.invoice.id)}/activity`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(activity.status).toBe(200);
+      expect(getPath(activity.json, 'activity', 'latestPaymentState')).toBe('SETTLED');
+      expect(getPath(activity.json, 'activity', 'latestPaymentRail')).toBe('CARD');
+      const entries = Array.isArray(getPath(activity.json, 'activity', 'entries'))
+        ? (getPath(activity.json, 'activity', 'entries') as Array<Record<string, unknown>>)
+        : [];
+      expect(entries.length).toBeGreaterThanOrEqual(3);
+      expect(
+        entries.some(
+          (entry) =>
+            String(entry.paymentId || '') === paymentIntent.id &&
+            String(entry.toState || '') === 'SETTLED',
+        ),
+      ).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('stripe payment intents reject concurrent active attempts', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
@@ -8593,6 +8745,136 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(invoiceAfter.json, 'invoice', 'status')).toBe('PAID');
   });
 
+  test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      audit,
+    });
+
+    const invoices = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices',
+    });
+    expect(invoices.status).toBe(200);
+    const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
+    const periodMonthUtc = String(getPath(invoices.json, 'invoices', 0, 'periodMonthUtc') || '');
+    expect(invoiceId).toBeTruthy();
+    expect(periodMonthUtc).toMatch(/^\d{4}-\d{2}$/);
+
+    const pdf = await callCf(handler, {
+      method: 'GET',
+      path: `/console/billing/invoices/${encodeURIComponent(invoiceId)}/pdf`,
+    });
+    expect(pdf.status).toBe(200);
+    expect(String(pdf.headers.get('content-type') || '')).toContain('application/pdf');
+    expect(String(pdf.headers.get('content-disposition') || '')).toContain(
+      `invoice_${periodMonthUtc}_${invoiceId}.pdf`,
+    );
+    expect(pdf.text.startsWith('%PDF-1.4')).toBe(true);
+    expect(pdf.text).toContain('Billing invoice');
+    expect(pdf.text).toContain(`Organization: org-1`);
+    expect(pdf.text).toContain(`Invoice ID: ${invoiceId}`);
+
+    const auditEvents = await audit.listEvents({
+      orgId: 'org-1',
+      actorUserId: 'user-1',
+      roles: ['admin'],
+    });
+    expect(auditEvents.length).toBe(1);
+    expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
+    expect(getPath(auditEvents[0], 'metadata', 'invoiceId')).toBe(invoiceId);
+    expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe('ALL_INVOICE_STATES');
+
+    const missing = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices/inv_missing/pdf',
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.json?.code).toBe('invoice_not_found');
+  });
+
+  test('cloudflare billing invoices support server-side filters, pagination, and activity', async () => {
+    let current = new Date('2026-01-20T00:00:00.000Z');
+    const billing = createInMemoryConsoleBillingService({
+      now: () => current,
+    });
+    const billingCtx = {
+      orgId: 'org-1',
+      actorUserId: 'admin-activity-user-cf',
+      roles: ['admin'],
+    };
+    await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-01' });
+    current = new Date('2026-02-20T00:00:00.000Z');
+    await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-02' });
+    current = new Date('2026-03-20T00:00:00.000Z');
+    const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
+    const paymentIntent = await billing.createStripePaymentIntent(billingCtx, {
+      invoiceId: march.invoice.id,
+    });
+    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
+      providerStatus: 'PENDING',
+    });
+    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
+      providerStatus: 'SUCCEEDED',
+      settledAmountMinor: paymentIntent.amountMinor,
+      sourceEventId: 'evt_billing_activity_settled_cf',
+    });
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+    });
+
+    const firstPage = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices?limit=1',
+    });
+    expect(firstPage.status).toBe(200);
+    expect(Array.isArray(firstPage.json?.invoices)).toBe(true);
+    expect((firstPage.json?.invoices as unknown[]).length).toBe(1);
+    expect(Number(firstPage.json?.totalCount || 0)).toBe(3);
+    expect(String(firstPage.json?.nextCursor || '')).toBeTruthy();
+
+    const secondPage = await callCf(handler, {
+      method: 'GET',
+      path: `/console/billing/invoices?limit=1&cursor=${encodeURIComponent(String(firstPage.json?.nextCursor || ''))}`,
+    });
+    expect(secondPage.status).toBe(200);
+    expect((secondPage.json?.invoices as unknown[]).length).toBe(1);
+    expect(getPath(firstPage.json, 'invoices', 0, 'id')).not.toBe(
+      getPath(secondPage.json, 'invoices', 0, 'id'),
+    );
+
+    const overdue = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices?status=OVERDUE',
+    });
+    expect(overdue.status).toBe(200);
+    expect(Number(overdue.json?.totalCount || 0)).toBe(2);
+    expect(Number(getPath(overdue.json, 'summary', 'overdueCount') || 0)).toBe(2);
+
+    const activity = await callCf(handler, {
+      method: 'GET',
+      path: `/console/billing/invoices/${encodeURIComponent(march.invoice.id)}/activity`,
+    });
+    expect(activity.status).toBe(200);
+    expect(getPath(activity.json, 'activity', 'latestPaymentState')).toBe('SETTLED');
+    expect(getPath(activity.json, 'activity', 'latestPaymentRail')).toBe('CARD');
+    const entries = Array.isArray(getPath(activity.json, 'activity', 'entries'))
+      ? (getPath(activity.json, 'activity', 'entries') as Array<Record<string, unknown>>)
+      : [];
+    expect(
+      entries.some(
+        (entry) =>
+          String(entry.paymentId || '') === paymentIntent.id &&
+          String(entry.toState || '') === 'SETTLED',
+      ),
+    ).toBe(true);
+  });
+
   test('billing usage endpoints compute MAW with exclusions and idempotency', async () => {
     const billing = createInMemoryConsoleBillingService();
     const handler = createCloudflareConsoleRouter({
@@ -11197,6 +11479,13 @@ test.describe('console router (postgres billing)', () => {
       expect(getLineItems.status).toBe(404);
       expect(getLineItems.json?.code).toBe('invoice_not_found');
 
+      const getPdf = await fetchJson(
+        `${attackerServer.baseUrl}/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/pdf`,
+        { method: 'GET' },
+      );
+      expect(getPdf.status).toBe(404);
+      expect(getPdf.json?.code).toBe('invoice_not_found');
+
       const stripeIntent = await fetchJson(
         `${attackerServer.baseUrl}/console/billing/stripe/payment-intent`,
         {
@@ -11271,6 +11560,13 @@ test.describe('console router (postgres billing)', () => {
     });
     expect(getLineItems.status).toBe(404);
     expect(getLineItems.json?.code).toBe('invoice_not_found');
+
+    const getPdf = await callCf(attackerHandler, {
+      method: 'GET',
+      path: `/console/billing/invoices/${encodeURIComponent(ownerInvoiceId)}/pdf`,
+    });
+    expect(getPdf.status).toBe(404);
+    expect(getPdf.json?.code).toBe('invoice_not_found');
 
     const stripeIntent = await callCf(attackerHandler, {
       method: 'POST',

@@ -342,8 +342,8 @@ export function OpsCockpitPage(): React.JSX.Element {
       title: 'Failed or overdue invoices',
       value: summary?.billing.failedInvoiceCount || 0,
       description: 'Uncollectible invoices and overdue open balances.',
-      actionLabel: 'Open billing',
-      action: () => go('/dashboard/billing'),
+      actionLabel: 'Open invoices',
+      action: () => go('/dashboard/invoices'),
     },
     {
       title: 'Failed webhooks',

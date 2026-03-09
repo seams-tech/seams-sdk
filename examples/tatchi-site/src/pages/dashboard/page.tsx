@@ -570,7 +570,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           .startsWith(LOCKED_PRODUCTION_OPTION_PREFIX) ||
           dropdownOptions.environment.find((entry) => entry.value === value)?.disabled === true)
       ) {
-        go('/dashboard/billing?billing=production_required');
+        go('/dashboard/billing/account?billing=production_required');
         return;
       }
       onSelectContextRaw(menu, value);

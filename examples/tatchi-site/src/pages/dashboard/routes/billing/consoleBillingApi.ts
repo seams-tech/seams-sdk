@@ -34,6 +34,30 @@ export interface DashboardBillingInvoice {
   createdAt: string;
 }
 
+export interface DashboardBillingInvoiceListRequest {
+  status?: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE' | 'OVERDUE';
+  overdue?: boolean;
+  periodMonthUtc?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface DashboardBillingInvoiceListSummary {
+  totalCount: number;
+  openCount: number;
+  overdueCount: number;
+  paidCount: number;
+  outstandingAmountMinor: number;
+  latestPeriodMonthUtc: string | null;
+}
+
+export interface DashboardBillingInvoicePage {
+  invoices: DashboardBillingInvoice[];
+  nextCursor: string | null;
+  totalCount: number;
+  summary: DashboardBillingInvoiceListSummary;
+}
+
 export interface DashboardBillingInvoiceLineItem {
   id: string;
   invoiceId: string;
@@ -55,6 +79,29 @@ export interface DashboardBillingPaymentMethod {
   expYear: number;
   isDefault: boolean;
   createdAt: string;
+}
+
+export interface DashboardBillingInvoiceActivityEntry {
+  id: string;
+  type: 'INVOICE' | 'PAYMENT';
+  invoiceId: string;
+  paymentId: string | null;
+  rail: 'CARD' | 'STABLECOIN' | null;
+  fromState: string | null;
+  toState: string;
+  occurredAt: string;
+  actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
+  actorUserId: string | null;
+  reason: string | null;
+  sourceEventId: string | null;
+  summary: string;
+}
+
+export interface DashboardBillingInvoiceActivity {
+  invoice: DashboardBillingInvoice;
+  latestPaymentState: string | null;
+  latestPaymentRail: 'CARD' | 'STABLECOIN' | null;
+  entries: DashboardBillingInvoiceActivityEntry[];
 }
 
 export interface DashboardAddCardPaymentMethodRequest {
@@ -208,12 +255,27 @@ interface ConsoleInvoicesResponse {
   ok?: boolean;
   message?: string;
   invoices?: unknown;
+  nextCursor?: unknown;
+  totalCount?: unknown;
+  summary?: unknown;
+}
+
+interface ConsoleInvoiceResponse {
+  ok?: boolean;
+  message?: string;
+  invoice?: unknown;
 }
 
 interface ConsoleInvoiceLineItemsResponse {
   ok?: boolean;
   message?: string;
   lineItems?: unknown;
+}
+
+interface ConsoleInvoiceActivityResponse {
+  ok?: boolean;
+  message?: string;
+  activity?: unknown;
 }
 
 interface ConsolePaymentMethodsResponse {
@@ -290,12 +352,7 @@ export class DashboardBillingApiError extends Error {
   readonly code: string;
   readonly details: unknown;
 
-  constructor(input: {
-    status: number;
-    code?: unknown;
-    message: string;
-    details?: unknown;
-  }) {
+  constructor(input: { status: number; code?: unknown; message: string; details?: unknown }) {
     super(input.message);
     this.name = 'DashboardBillingApiError';
     this.status = input.status;
@@ -357,16 +414,46 @@ function decodeInvoice(raw: unknown): DashboardBillingInvoice | null {
   const row = raw as Record<string, unknown>;
   const id = String(row.id || '').trim();
   if (!id) return null;
-  const railLockRaw = String(row.railLock || '').trim().toUpperCase();
+  const railLockRaw = String(row.railLock || '')
+    .trim()
+    .toUpperCase();
   return {
     id,
     status: String(row.status || '').trim() || 'OPEN',
     amountDueMinor: Number(row.amountDueMinor || 0),
     amountPaidMinor: Number(row.amountPaidMinor || 0),
-    railLock: railLockRaw === 'CARD' || railLockRaw === 'STABLECOIN' ? (railLockRaw as 'CARD' | 'STABLECOIN') : null,
+    railLock:
+      railLockRaw === 'CARD' || railLockRaw === 'STABLECOIN'
+        ? (railLockRaw as 'CARD' | 'STABLECOIN')
+        : null,
     periodMonthUtc: String(row.periodMonthUtc || '').trim(),
     dueAt: row.dueAt == null ? null : String(row.dueAt || '').trim() || null,
     createdAt: String(row.createdAt || '').trim(),
+  };
+}
+
+function decodeInvoiceListSummary(raw: unknown): DashboardBillingInvoiceListSummary {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      totalCount: 0,
+      openCount: 0,
+      overdueCount: 0,
+      paidCount: 0,
+      outstandingAmountMinor: 0,
+      latestPeriodMonthUtc: null,
+    };
+  }
+  const row = raw as Record<string, unknown>;
+  return {
+    totalCount: Number(row.totalCount || 0),
+    openCount: Number(row.openCount || 0),
+    overdueCount: Number(row.overdueCount || 0),
+    paidCount: Number(row.paidCount || 0),
+    outstandingAmountMinor: Number(row.outstandingAmountMinor || 0),
+    latestPeriodMonthUtc:
+      row.latestPeriodMonthUtc == null
+        ? null
+        : String(row.latestPeriodMonthUtc || '').trim() || null,
   };
 }
 
@@ -427,7 +514,9 @@ function decodeBillingSubscription(raw: unknown): DashboardBillingSubscription |
   ) {
     return null;
   }
-  const statusRaw = String(row.status || 'ACTIVE').trim().toUpperCase();
+  const statusRaw = String(row.status || 'ACTIVE')
+    .trim()
+    .toUpperCase();
   const status = statusRaw === 'PAST_DUE' || statusRaw === 'CANCELED' ? statusRaw : 'ACTIVE';
   return {
     id,
@@ -484,7 +573,9 @@ function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSessi
   };
 }
 
-function decodeStripeCustomerPortalSession(raw: unknown): DashboardStripeCustomerPortalSession | null {
+function decodeStripeCustomerPortalSession(
+  raw: unknown,
+): DashboardStripeCustomerPortalSession | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
   const id = String(row.id || '').trim();
@@ -514,7 +605,8 @@ function decodeStripePaymentIntent(raw: unknown): DashboardStripePaymentIntent |
     invoiceId,
     amountMinor: Number(row.amountMinor || 0),
     currency: String(row.currency || '').trim() || 'USD',
-    paymentMethodId: row.paymentMethodId == null ? null : String(row.paymentMethodId || '').trim() || null,
+    paymentMethodId:
+      row.paymentMethodId == null ? null : String(row.paymentMethodId || '').trim() || null,
     state: String(row.state || '').trim() || 'CREATED',
     clientSecret,
     createdAt: String(row.createdAt || '').trim(),
@@ -556,7 +648,9 @@ function decodeStablecoinQuote(raw: unknown): DashboardStablecoinPaymentQuote | 
   const orgId = String(row.orgId || '').trim();
   const invoiceId = String(row.invoiceId || '').trim();
   if (!id || !orgId || !invoiceId) return null;
-  const stateRaw = String(row.state || '').trim().toUpperCase();
+  const stateRaw = String(row.state || '')
+    .trim()
+    .toUpperCase();
   return {
     id,
     orgId,
@@ -594,14 +688,73 @@ function decodeStablecoinPaymentIntent(raw: unknown): DashboardStablecoinPayment
     reorgRiskWindowHours: Number(row.reorgRiskWindowHours || 0),
     settledAt: row.settledAt == null ? null : String(row.settledAt || '').trim() || null,
     reorgRiskWindowEndsAt:
-      row.reorgRiskWindowEndsAt == null ? null : String(row.reorgRiskWindowEndsAt || '').trim() || null,
+      row.reorgRiskWindowEndsAt == null
+        ? null
+        : String(row.reorgRiskWindowEndsAt || '').trim() || null,
     withinReorgRiskWindow: row.withinReorgRiskWindow === true,
     createdAt: String(row.createdAt || '').trim(),
     expiresAt: String(row.expiresAt || '').trim(),
   };
 }
 
-async function fetchJson(path: string): Promise<any> {
+function decodeInvoiceActivityEntry(raw: unknown): DashboardBillingInvoiceActivityEntry | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const invoiceId = String(row.invoiceId || '').trim();
+  const toState = String(row.toState || '').trim();
+  if (!id || !invoiceId || !toState) return null;
+  const type = String(row.type || '')
+    .trim()
+    .toUpperCase();
+  const actorType = String(row.actorType || '')
+    .trim()
+    .toUpperCase();
+  const railRaw = String(row.rail || '')
+    .trim()
+    .toUpperCase();
+  return {
+    id,
+    type: type === 'PAYMENT' ? 'PAYMENT' : 'INVOICE',
+    invoiceId,
+    paymentId: row.paymentId == null ? null : String(row.paymentId || '').trim() || null,
+    rail: railRaw === 'CARD' || railRaw === 'STABLECOIN' ? railRaw : null,
+    fromState: row.fromState == null ? null : String(row.fromState || '').trim() || null,
+    toState,
+    occurredAt: String(row.occurredAt || '').trim(),
+    actorType: actorType === 'USER' || actorType === 'PROVIDER' ? actorType : 'SYSTEM',
+    actorUserId: row.actorUserId == null ? null : String(row.actorUserId || '').trim() || null,
+    reason: row.reason == null ? null : String(row.reason || '').trim() || null,
+    sourceEventId:
+      row.sourceEventId == null ? null : String(row.sourceEventId || '').trim() || null,
+    summary: String(row.summary || '').trim() || toState,
+  };
+}
+
+function decodeInvoiceActivity(raw: unknown): DashboardBillingInvoiceActivity | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const invoice = decodeInvoice(row.invoice);
+  if (!invoice) return null;
+  const entriesRaw = Array.isArray(row.entries) ? row.entries : [];
+  const latestPaymentRailRaw = String(row.latestPaymentRail || '')
+    .trim()
+    .toUpperCase();
+  return {
+    invoice,
+    latestPaymentState:
+      row.latestPaymentState == null ? null : String(row.latestPaymentState || '').trim() || null,
+    latestPaymentRail:
+      latestPaymentRailRaw === 'CARD' || latestPaymentRailRaw === 'STABLECOIN'
+        ? latestPaymentRailRaw
+        : null,
+    entries: entriesRaw
+      .map((entry) => decodeInvoiceActivityEntry(entry))
+      .filter((entry): entry is DashboardBillingInvoiceActivityEntry => entry !== null),
+  };
+}
+
+async function fetchJson(path: string): Promise<Record<string, unknown>> {
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}${path}`, {
     method: 'GET',
@@ -609,7 +762,7 @@ async function fetchJson(path: string): Promise<any> {
     credentials: 'include',
     cache: 'no-store',
   });
-  const body = await parseConsoleJson(response);
+  const body = (await parseConsoleJson(response)) as Record<string, unknown> | null;
   if (!response.ok || body?.ok !== true) {
     throw buildBillingApiError(
       response,
@@ -617,7 +770,24 @@ async function fetchJson(path: string): Promise<any> {
       'Console billing request failed',
     );
   }
-  return body;
+  return body || {};
+}
+
+function parseContentDispositionFilename(raw: string | null): string {
+  const header = String(raw || '').trim();
+  if (!header) return '';
+  const utf8Match = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]).trim();
+    } catch {
+      return utf8Match[1].trim();
+    }
+  }
+  const quotedMatch = header.match(/filename="([^"]+)"/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+  const bareMatch = header.match(/filename=([^;]+)/i);
+  return String(bareMatch?.[1] || '').trim();
 }
 
 export async function getDashboardBillingOverview(): Promise<DashboardBillingOverview> {
@@ -641,12 +811,43 @@ export async function getDashboardBillingMonthlyActiveWallets(
   return usage;
 }
 
-export async function listDashboardBillingInvoices(): Promise<DashboardBillingInvoice[]> {
-  const body = (await fetchJson('/console/billing/invoices')) as ConsoleInvoicesResponse;
+export async function listDashboardBillingInvoices(
+  input: DashboardBillingInvoiceListRequest = {},
+): Promise<DashboardBillingInvoicePage> {
+  const params = new URLSearchParams();
+  if (input.status) params.set('status', input.status);
+  if (input.overdue === true) params.set('overdue', 'true');
+  if (input.periodMonthUtc) params.set('periodMonthUtc', input.periodMonthUtc);
+  if (input.limit && Number.isFinite(input.limit) && input.limit > 0) {
+    params.set('limit', String(Math.floor(input.limit)));
+  }
+  if (input.cursor) params.set('cursor', input.cursor);
+  const suffix = params.toString();
+  const body = (await fetchJson(
+    `/console/billing/invoices${suffix ? `?${suffix}` : ''}`,
+  )) as ConsoleInvoicesResponse;
   const rows = Array.isArray(body.invoices) ? body.invoices : [];
-  return rows
-    .map((entry) => decodeInvoice(entry))
-    .filter((entry): entry is DashboardBillingInvoice => entry !== null);
+  return {
+    invoices: rows
+      .map((entry) => decodeInvoice(entry))
+      .filter((entry): entry is DashboardBillingInvoice => entry !== null),
+    nextCursor: body.nextCursor == null ? null : String(body.nextCursor || '').trim() || null,
+    totalCount: Number(body.totalCount || 0),
+    summary: decodeInvoiceListSummary(body.summary),
+  };
+}
+
+export async function getDashboardBillingInvoice(
+  invoiceId: string,
+): Promise<DashboardBillingInvoice> {
+  const normalizedInvoiceId = String(invoiceId || '').trim();
+  if (!normalizedInvoiceId) throw new Error('Invoice id is required');
+  const body = (await fetchJson(
+    `/console/billing/invoices/${encodeURIComponent(normalizedInvoiceId)}`,
+  )) as ConsoleInvoiceResponse;
+  const invoice = decodeInvoice(body.invoice);
+  if (!invoice) throw new Error('Billing invoice response was invalid');
+  return invoice;
 }
 
 export async function listDashboardBillingInvoiceLineItems(
@@ -663,8 +864,66 @@ export async function listDashboardBillingInvoiceLineItems(
     .filter((entry): entry is DashboardBillingInvoiceLineItem => entry !== null);
 }
 
-export async function listDashboardBillingPaymentMethods(): Promise<DashboardBillingPaymentMethod[]> {
-  const body = (await fetchJson('/console/billing/payment-methods')) as ConsolePaymentMethodsResponse;
+export async function getDashboardBillingInvoiceActivity(
+  invoiceId: string,
+): Promise<DashboardBillingInvoiceActivity> {
+  const normalizedInvoiceId = String(invoiceId || '').trim();
+  if (!normalizedInvoiceId) throw new Error('Invoice id is required');
+  const body = (await fetchJson(
+    `/console/billing/invoices/${encodeURIComponent(normalizedInvoiceId)}/activity`,
+  )) as ConsoleInvoiceActivityResponse;
+  const activity = decodeInvoiceActivity(body.activity);
+  if (!activity) throw new Error('Billing invoice activity response was invalid');
+  return activity;
+}
+
+export async function downloadDashboardBillingInvoicePdf(invoiceId: string): Promise<void> {
+  const normalizedInvoiceId = String(invoiceId || '').trim();
+  if (!normalizedInvoiceId) throw new Error('Invoice id is required');
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(
+    `${base}/console/billing/invoices/${encodeURIComponent(normalizedInvoiceId)}/pdf`,
+    {
+      method: 'GET',
+      headers: {
+        Accept: 'application/pdf, application/json',
+      },
+      credentials: 'include',
+      cache: 'no-store',
+    },
+  );
+  if (!response.ok) {
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    const body = contentType.includes('application/json')
+      ? ((await parseConsoleJson(response)) as ConsoleBillingErrorBody | null)
+      : null;
+    throw buildBillingApiError(response, body, 'Invoice PDF download failed');
+  }
+  const blob = await response.blob();
+  const fallbackFilename = `invoice_${normalizedInvoiceId}.pdf`;
+  const filename =
+    parseContentDispositionFilename(response.headers.get('content-disposition')) ||
+    fallbackFilename;
+  const objectUrl = window.URL.createObjectURL(blob);
+  try {
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    window.URL.revokeObjectURL(objectUrl);
+  }
+}
+
+export async function listDashboardBillingPaymentMethods(): Promise<
+  DashboardBillingPaymentMethod[]
+> {
+  const body = (await fetchJson(
+    '/console/billing/payment-methods',
+  )) as ConsolePaymentMethodsResponse;
   const rows = Array.isArray(body.paymentMethods) ? body.paymentMethods : [];
   return rows
     .map((entry) => decodePaymentMethod(entry))
@@ -738,12 +997,15 @@ export async function removeDashboardCardPaymentMethod(paymentMethodId: string):
   const normalizedId = String(paymentMethodId || '').trim();
   if (!normalizedId) throw new Error('Payment method id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/payment-methods/${encodeURIComponent(normalizedId)}`, {
-    method: 'DELETE',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
+  const response = await fetch(
+    `${base}/console/billing/payment-methods/${encodeURIComponent(normalizedId)}`,
+    {
+      method: 'DELETE',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+  );
   const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw buildBillingApiError(response, body, 'Remove card payment method request failed');
@@ -780,7 +1042,9 @@ export async function getDashboardStablecoinAssetSupport(): Promise<{
   version: string;
   assets: DashboardStablecoinAssetSupport[];
 }> {
-  const body = (await fetchJson('/console/billing/stablecoins/assets')) as ConsoleStablecoinAssetsResponse;
+  const body = (await fetchJson(
+    '/console/billing/stablecoins/assets',
+  )) as ConsoleStablecoinAssetsResponse;
   const rows = Array.isArray(body.assets) ? body.assets : [];
   return {
     version: String(body.version || '').trim() || 'v1',
@@ -841,7 +1105,9 @@ export async function createDashboardStripeCustomerPortalSession(
     cache: 'no-store',
     body: JSON.stringify(input),
   });
-  const body = (await parseConsoleJson(response)) as ConsoleStripeCustomerPortalSessionResponse | null;
+  const body = (await parseConsoleJson(
+    response,
+  )) as ConsoleStripeCustomerPortalSessionResponse | null;
   if (!response.ok || body?.ok !== true) {
     throw buildBillingApiError(response, body, 'Stripe customer portal session request failed');
   }

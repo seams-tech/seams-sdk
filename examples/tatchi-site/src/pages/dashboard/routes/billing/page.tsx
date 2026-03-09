@@ -1,6 +1,10 @@
 import React from 'react';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
+import { BillingAccountView } from './BillingAccountView';
+import { BillingInvoiceDetailView } from './BillingInvoiceDetailView';
+import { BillingInvoicesView } from './BillingInvoicesView';
 import {
   addDashboardCardPaymentMethod,
   cancelDashboardBillingSubscription,
@@ -11,58 +15,75 @@ import {
   createDashboardStablecoinQuote,
   createDashboardStripePaymentIntent,
   createDashboardStripeSetupIntent,
+  downloadDashboardBillingInvoicePdf,
   formatUsdMinor,
+  getDashboardBillingInvoiceActivity,
+  getDashboardBillingInvoice,
   getDashboardBillingMonthlyActiveWallets,
   getDashboardBillingOverview,
   getDashboardBillingSubscription,
   getDashboardStablecoinPaymentIntent,
   getDashboardStablecoinAssetSupport,
+  isDashboardBillingApiErrorCode,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
   listDashboardBillingPaymentMethods,
   removeDashboardCardPaymentMethod,
   resumeDashboardBillingSubscription,
   setDashboardDefaultCardPaymentMethod,
+  type DashboardBillingInvoiceActivity,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceLineItem,
+  type DashboardBillingInvoiceListSummary,
   type DashboardBillingOverview,
   type DashboardBillingPaymentMethod,
   type DashboardBillingSubscription,
   type DashboardBillingUsage,
+  type DashboardStablecoinAssetSupport,
   type DashboardStablecoinPaymentIntent,
   type DashboardStablecoinPaymentQuote,
-  type DashboardStablecoinAssetSupport,
   type DashboardStripePaymentIntent,
   type DashboardStripeSetupIntent,
 } from './consoleBillingApi';
-
-function formatTimestamp(value: string | null): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
-}
-
-function parsePositiveInteger(value: string): number | null {
-  const raw = String(value || '').trim();
-  if (!/^\d+$/.test(raw)) return null;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed;
-}
+import {
+  buildInvoicePdfFilename,
+  parseBillingSubview,
+  parsePositiveInteger,
+  type BillingMetric,
+} from './billingShared';
 
 export function BillingPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
+  const { go } = useSiteRouter();
+  const pathname =
+    typeof window === 'undefined' ? '/dashboard/billing/account' : window.location.pathname;
+  const subview = React.useMemo(() => parseBillingSubview(pathname), [pathname]);
+  const activeInvoiceId = subview.kind === 'invoice' ? subview.invoiceId : '';
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [overview, setOverview] = React.useState<DashboardBillingOverview | null>(null);
   const [usage, setUsage] = React.useState<DashboardBillingUsage | null>(null);
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
+  const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
+  const [invoiceListError, setInvoiceListError] = React.useState<string>('');
+  const [loadingMoreInvoices, setLoadingMoreInvoices] = React.useState<boolean>(false);
+  const [invoiceNextCursor, setInvoiceNextCursor] = React.useState<string | null>(null);
+  const [invoiceTotalCount, setInvoiceTotalCount] = React.useState<number>(0);
+  const [invoiceSummary, setInvoiceSummary] = React.useState<DashboardBillingInvoiceListSummary>({
+    totalCount: 0,
+    openCount: 0,
+    overdueCount: 0,
+    paidCount: 0,
+    outstandingAmountMinor: 0,
+    latestPeriodMonthUtc: null,
+  });
   const [paymentMethods, setPaymentMethods] = React.useState<DashboardBillingPaymentMethod[]>([]);
   const [subscription, setSubscription] = React.useState<DashboardBillingSubscription | null>(null);
-  const [stablecoinAssets, setStablecoinAssets] = React.useState<DashboardStablecoinAssetSupport[]>([]);
+  const [stablecoinAssets, setStablecoinAssets] = React.useState<DashboardStablecoinAssetSupport[]>(
+    [],
+  );
   const [subscriptionActionError, setSubscriptionActionError] = React.useState<string>('');
   const [startingCheckout, setStartingCheckout] = React.useState<boolean>(false);
   const [openingCustomerPortal, setOpeningCustomerPortal] = React.useState<boolean>(false);
@@ -70,30 +91,33 @@ export function BillingPage(): React.JSX.Element {
   const [resumingSubscription, setResumingSubscription] = React.useState<boolean>(false);
   const [paymentMutationError, setPaymentMutationError] = React.useState<string>('');
   const [addingPaymentMethod, setAddingPaymentMethod] = React.useState<boolean>(false);
+  const [creatingPaymentMethodSetupIntent, setCreatingPaymentMethodSetupIntent] =
+    React.useState<boolean>(false);
   const [busyPaymentMethodId, setBusyPaymentMethodId] = React.useState<string>('');
   const [providerRefInput, setProviderRefInput] = React.useState<string>('');
   const [brandInput, setBrandInput] = React.useState<string>('');
   const [last4Input, setLast4Input] = React.useState<string>('');
   const [expMonthInput, setExpMonthInput] = React.useState<string>('');
   const [expYearInput, setExpYearInput] = React.useState<string>('');
+  const [paymentMethodSetupIntent, setPaymentMethodSetupIntent] =
+    React.useState<DashboardStripeSetupIntent | null>(null);
   const [paymentExecutionError, setPaymentExecutionError] = React.useState<string>('');
   const [creatingStripeSetupIntent, setCreatingStripeSetupIntent] = React.useState<boolean>(false);
-  const [creatingStripePaymentIntent, setCreatingStripePaymentIntent] = React.useState<boolean>(false);
+  const [creatingStripePaymentIntent, setCreatingStripePaymentIntent] =
+    React.useState<boolean>(false);
   const [creatingStablecoinQuote, setCreatingStablecoinQuote] = React.useState<boolean>(false);
   const [creatingStablecoinPaymentIntent, setCreatingStablecoinPaymentIntent] =
     React.useState<boolean>(false);
-  const [refreshingStablecoinIntent, setRefreshingStablecoinIntent] = React.useState<boolean>(false);
+  const [refreshingStablecoinIntent, setRefreshingStablecoinIntent] =
+    React.useState<boolean>(false);
   const [cancelingStablecoinIntent, setCancelingStablecoinIntent] = React.useState<boolean>(false);
-  const [stripeInvoiceIdInput, setStripeInvoiceIdInput] = React.useState<string>('');
   const [stripePaymentMethodIdInput, setStripePaymentMethodIdInput] = React.useState<string>('');
-  const [stablecoinInvoiceIdInput, setStablecoinInvoiceIdInput] = React.useState<string>('');
   const [stablecoinAssetInput, setStablecoinAssetInput] = React.useState<string>('');
   const [stablecoinChainInput, setStablecoinChainInput] = React.useState<string>('');
   const [stablecoinQuoteIdInput, setStablecoinQuoteIdInput] = React.useState<string>('');
   const [stablecoinIntentIdInput, setStablecoinIntentIdInput] = React.useState<string>('');
-  const [stripeSetupIntent, setStripeSetupIntent] = React.useState<DashboardStripeSetupIntent | null>(
-    null,
-  );
+  const [stripeSetupIntent, setStripeSetupIntent] =
+    React.useState<DashboardStripeSetupIntent | null>(null);
   const [stripePaymentIntent, setStripePaymentIntent] =
     React.useState<DashboardStripePaymentIntent | null>(null);
   const [stablecoinQuote, setStablecoinQuote] =
@@ -103,110 +127,111 @@ export function BillingPage(): React.JSX.Element {
   const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
   const [billingWarningMessage, setBillingWarningMessage] = React.useState<string>('');
   const [billingWarningDismissed, setBillingWarningDismissed] = React.useState<boolean>(false);
-
-  const [selectedInvoiceId, setSelectedInvoiceId] = React.useState<string>('');
+  const [invoiceDetailLoading, setInvoiceDetailLoading] = React.useState<boolean>(false);
+  const [invoiceDetailError, setInvoiceDetailError] = React.useState<string>('');
+  const [invoiceDetail, setInvoiceDetail] = React.useState<DashboardBillingInvoice | null>(null);
+  const [invoiceActivityLoading, setInvoiceActivityLoading] = React.useState<boolean>(false);
+  const [invoiceActivityError, setInvoiceActivityError] = React.useState<string>('');
+  const [invoiceActivity, setInvoiceActivity] =
+    React.useState<DashboardBillingInvoiceActivity | null>(null);
   const [lineItemsLoading, setLineItemsLoading] = React.useState<boolean>(false);
   const [lineItemsError, setLineItemsError] = React.useState<string>('');
   const [lineItems, setLineItems] = React.useState<DashboardBillingInvoiceLineItem[]>([]);
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = React.useState<string>('all');
+  const [invoicePeriodFilter, setInvoicePeriodFilter] = React.useState<string>('');
+  const [downloadingInvoicePdfId, setDownloadingInvoicePdfId] = React.useState<string>('');
+  const [invoiceDownloadError, setInvoiceDownloadError] = React.useState<string>('');
+  const [invoiceRefreshNonce, setInvoiceRefreshNonce] = React.useState<number>(0);
 
-  const loadBillingData = React.useCallback(() => {
+  const refreshBillingShellData = React.useCallback(async () => {
     if (!session.claims) {
       setLoading(false);
       setOverview(null);
       setUsage(null);
       setInvoices([]);
+      setInvoiceNextCursor(null);
+      setInvoiceTotalCount(0);
+      setInvoiceSummary({
+        totalCount: 0,
+        openCount: 0,
+        overdueCount: 0,
+        paidCount: 0,
+        outstandingAmountMinor: 0,
+        latestPeriodMonthUtc: null,
+      });
       setPaymentMethods([]);
       setSubscription(null);
       setStablecoinAssets([]);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
-    let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    Promise.all([
-      getDashboardBillingOverview(),
-      getDashboardBillingMonthlyActiveWallets(),
-      listDashboardBillingInvoices(),
-      listDashboardBillingPaymentMethods(),
-      getDashboardBillingSubscription(),
-      getDashboardStablecoinAssetSupport(),
-    ])
-      .then(
-        ([
-          nextOverview,
-          nextUsage,
-          nextInvoices,
-          nextPaymentMethods,
-          nextSubscription,
-          nextStablecoinAssets,
-        ]) => {
-        if (cancelled) return;
-        const sortedInvoices = [...nextInvoices].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        setOverview(nextOverview);
-        setUsage(nextUsage);
-        setInvoices(sortedInvoices);
-        setPaymentMethods(nextPaymentMethods);
-        setSubscription(nextSubscription);
-        setStablecoinAssets(nextStablecoinAssets.assets);
-      },
-      )
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setOverview(null);
-        setUsage(null);
-        setInvoices([]);
-        setPaymentMethods([]);
-        setSubscription(null);
-        setStablecoinAssets([]);
-        setErrorMessage(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
+    try {
+      const [nextOverview, nextUsage, nextPaymentMethods, nextSubscription, nextStablecoinAssets] =
+        await Promise.all([
+          getDashboardBillingOverview(),
+          getDashboardBillingMonthlyActiveWallets(),
+          listDashboardBillingPaymentMethods(),
+          getDashboardBillingSubscription(),
+          getDashboardStablecoinAssetSupport(),
+        ]);
+      setOverview(nextOverview);
+      setUsage(nextUsage);
+      setPaymentMethods(nextPaymentMethods);
+      setSubscription(nextSubscription);
+      setStablecoinAssets(nextStablecoinAssets.assets);
+    } catch (error: unknown) {
+      setOverview(null);
+      setUsage(null);
+      setInvoices([]);
+      setInvoiceNextCursor(null);
+      setInvoiceTotalCount(0);
+      setInvoiceSummary({
+        totalCount: 0,
+        openCount: 0,
+        overdueCount: 0,
+        paidCount: 0,
+        outstandingAmountMinor: 0,
+        latestPeriodMonthUtc: null,
       });
-    return () => {
-      cancelled = true;
-    };
+      setPaymentMethods([]);
+      setSubscription(null);
+      setStablecoinAssets([]);
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
   }, [session.claims, session.errorMessage]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const legacyInvoiceDetailMatch = pathname.match(/^\/dashboard\/billing\/invoices\/([^/]+)$/);
+    const currentUrl = new URL(window.location.href);
+    let nextPath = '';
+    if (pathname === '/dashboard/billing' || pathname === '/dashboard/billing/') {
+      nextPath = '/dashboard/billing/account';
+    } else if (
+      pathname === '/dashboard/billing/invoices' ||
+      pathname === '/dashboard/billing/invoices/'
+    ) {
+      nextPath = '/dashboard/invoices';
+    } else if (legacyInvoiceDetailMatch?.[1]) {
+      nextPath = `/dashboard/invoices/${legacyInvoiceDetailMatch[1]}`;
+    }
+    if (!nextPath) return;
+    const nextRelative = `${nextPath}${currentUrl.search}${currentUrl.hash}`;
+    window.history.replaceState({}, document.title, nextRelative);
+    window.dispatchEvent(new Event('site:navigate'));
+  }, [pathname]);
 
   React.useEffect(() => {
     if (session.loading) {
       setLoading(true);
       return;
     }
-    const cleanup = loadBillingData();
-    return cleanup;
-  }, [loadBillingData, session.loading]);
-
-  React.useEffect(() => {
-    if (invoices.length === 0) {
-      setSelectedInvoiceId('');
-      setLineItems([]);
-      setLineItemsError('');
-      setLineItemsLoading(false);
-      return;
-    }
-    if (selectedInvoiceId && invoices.some((entry) => entry.id === selectedInvoiceId)) return;
-    setSelectedInvoiceId(invoices[0]?.id || '');
-  }, [invoices, selectedInvoiceId]);
-
-  React.useEffect(() => {
-    if (invoices.length === 0) {
-      setStripeInvoiceIdInput('');
-      setStablecoinInvoiceIdInput('');
-      return;
-    }
-    if (!stripeInvoiceIdInput || !invoices.some((entry) => entry.id === stripeInvoiceIdInput)) {
-      setStripeInvoiceIdInput(invoices[0]?.id || '');
-    }
-    if (
-      !stablecoinInvoiceIdInput ||
-      !invoices.some((entry) => entry.id === stablecoinInvoiceIdInput)
-    ) {
-      setStablecoinInvoiceIdInput(invoices[0]?.id || '');
-    }
-  }, [invoices, stablecoinInvoiceIdInput, stripeInvoiceIdInput]);
+    void refreshBillingShellData();
+  }, [refreshBillingShellData, session.loading]);
 
   React.useEffect(() => {
     if (stablecoinAssets.length === 0) {
@@ -227,33 +252,15 @@ export function BillingPage(): React.JSX.Element {
   }, [stablecoinAssetInput, stablecoinAssets, stablecoinChainInput]);
 
   React.useEffect(() => {
-    if (!selectedInvoiceId || !session.claims) {
-      setLineItems([]);
-      setLineItemsError('');
-      setLineItemsLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLineItemsLoading(true);
-    setLineItemsError('');
-    listDashboardBillingInvoiceLineItems(selectedInvoiceId)
-      .then((rows) => {
-        if (cancelled) return;
-        setLineItems(rows);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setLineItems([]);
-        setLineItemsError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLineItemsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedInvoiceId, session.claims]);
+    setStripePaymentMethodIdInput('');
+    setStablecoinQuoteIdInput('');
+    setStablecoinIntentIdInput('');
+    setStripeSetupIntent(null);
+    setStripePaymentIntent(null);
+    setStablecoinQuote(null);
+    setStablecoinPaymentIntent(null);
+    setPaymentExecutionError('');
+  }, [activeInvoiceId]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -285,15 +292,240 @@ export function BillingPage(): React.JSX.Element {
     currentUrl.searchParams.delete('billing');
     currentUrl.searchParams.delete('session_id');
     const nextRelative =
-      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}` || '/dashboard/billing';
+      `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}` ||
+      '/dashboard/billing/account';
     window.history.replaceState({}, document.title, nextRelative);
 
     if (checkoutState === 'success' && session.claims) {
-      void loadBillingData();
+      void refreshBillingShellData();
+      setInvoiceRefreshNonce((value) => value + 1);
     }
-  }, [loadBillingData, session.claims]);
+  }, [pathname, refreshBillingShellData, session.claims]);
 
-  const summaryMetrics = React.useMemo(
+  const invoiceListRequest = React.useMemo(() => {
+    const request: Parameters<typeof listDashboardBillingInvoices>[0] = {
+      limit: 25,
+    };
+    if (invoiceStatusFilter === 'open') {
+      request.status = 'OPEN';
+    } else if (invoiceStatusFilter === 'overdue') {
+      request.status = 'OVERDUE';
+      request.overdue = true;
+    } else if (invoiceStatusFilter === 'paid') {
+      request.status = 'PAID';
+    } else if (invoiceStatusFilter === 'void') {
+      request.status = 'VOID';
+    } else if (invoiceStatusFilter === 'uncollectible') {
+      request.status = 'UNCOLLECTIBLE';
+    }
+    const normalizedPeriodMonthUtc = String(invoicePeriodFilter || '').trim();
+    if (/^\d{4}-\d{2}$/.test(normalizedPeriodMonthUtc)) {
+      request.periodMonthUtc = normalizedPeriodMonthUtc;
+    }
+    return request;
+  }, [invoicePeriodFilter, invoiceStatusFilter]);
+
+  const loadInvoiceListPage = React.useCallback(
+    async (input: { append?: boolean; cursor?: string | null } = {}) => {
+      if (!session.claims) {
+        setInvoices([]);
+        setInvoiceNextCursor(null);
+        setInvoiceTotalCount(0);
+        setInvoiceSummary({
+          totalCount: 0,
+          openCount: 0,
+          overdueCount: 0,
+          paidCount: 0,
+          outstandingAmountMinor: 0,
+          latestPeriodMonthUtc: null,
+        });
+        setInvoiceListError(session.errorMessage || 'Console session is unavailable');
+        return;
+      }
+      const request = {
+        ...invoiceListRequest,
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+      };
+      if (input.append) {
+        setLoadingMoreInvoices(true);
+      } else {
+        setInvoiceListLoading(true);
+        setInvoiceListError('');
+      }
+      try {
+        const page = await listDashboardBillingInvoices(request);
+        setInvoices((current) => (input.append ? [...current, ...page.invoices] : page.invoices));
+        setInvoiceNextCursor(page.nextCursor);
+        setInvoiceTotalCount(page.totalCount);
+        setInvoiceSummary(page.summary);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        setInvoiceListError(message);
+        if (!input.append) {
+          setInvoices([]);
+          setInvoiceNextCursor(null);
+          setInvoiceTotalCount(0);
+          setInvoiceSummary({
+            totalCount: 0,
+            openCount: 0,
+            overdueCount: 0,
+            paidCount: 0,
+            outstandingAmountMinor: 0,
+            latestPeriodMonthUtc: null,
+          });
+        }
+      } finally {
+        if (input.append) {
+          setLoadingMoreInvoices(false);
+        } else {
+          setInvoiceListLoading(false);
+        }
+      }
+    },
+    [invoiceListRequest, session.claims, session.errorMessage],
+  );
+
+  React.useEffect(() => {
+    if (subview.kind !== 'invoices') {
+      setInvoiceListLoading(false);
+      setLoadingMoreInvoices(false);
+      setInvoiceListError('');
+      return;
+    }
+    void loadInvoiceListPage();
+  }, [invoiceRefreshNonce, loadInvoiceListPage, subview.kind]);
+
+  React.useEffect(() => {
+    if (subview.kind !== 'invoice' || !session.claims) {
+      setInvoiceDetail(null);
+      setInvoiceDetailError('');
+      setInvoiceDetailLoading(false);
+      setInvoiceActivity(null);
+      setInvoiceActivityError('');
+      setInvoiceActivityLoading(false);
+      setLineItems([]);
+      setLineItemsError('');
+      setLineItemsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const invoiceId = subview.invoiceId;
+
+    setInvoiceDetailLoading(true);
+    setInvoiceDetailError('');
+    setInvoiceActivityLoading(true);
+    setInvoiceActivityError('');
+    setLineItemsLoading(true);
+    setLineItemsError('');
+
+    getDashboardBillingInvoice(invoiceId)
+      .then((nextInvoice) => {
+        if (cancelled) return;
+        setInvoiceDetail(nextInvoice);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setInvoiceDetail(null);
+        setLineItems([]);
+        setLineItemsError('');
+        if (isDashboardBillingApiErrorCode(error, 'invoice_not_found')) {
+          setInvoiceDetailError(`Invoice ${invoiceId} was not found.`);
+        } else {
+          setInvoiceDetailError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setInvoiceDetailLoading(false);
+      });
+
+    getDashboardBillingInvoiceActivity(invoiceId)
+      .then((activity) => {
+        if (cancelled) return;
+        setInvoiceActivity(activity);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setInvoiceActivity(null);
+        if (isDashboardBillingApiErrorCode(error, 'invoice_not_found')) {
+          setInvoiceActivityError(`Invoice ${invoiceId} was not found.`);
+        } else {
+          setInvoiceActivityError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setInvoiceActivityLoading(false);
+      });
+
+    listDashboardBillingInvoiceLineItems(invoiceId)
+      .then((rows) => {
+        if (cancelled) return;
+        setLineItems(rows);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setLineItems([]);
+        if (isDashboardBillingApiErrorCode(error, 'invoice_not_found')) {
+          setLineItemsError(`Invoice ${invoiceId} was not found.`);
+        } else {
+          setLineItemsError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLineItemsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeInvoiceId, invoiceRefreshNonce, session.claims, subview.kind]);
+
+  const isBillingCardAdmin = React.useMemo(
+    () =>
+      Array.isArray(session.claims?.roles) &&
+      session.claims.roles.some((role) => String(role || '').toLowerCase() === 'admin'),
+    [session.claims?.roles],
+  );
+
+  const canCancelSubscription =
+    subscription != null && subscription.status !== 'CANCELED' && !subscription.cancelAtPeriodEnd;
+  const canResumeSubscription =
+    subscription != null && subscription.status !== 'CANCELED' && subscription.cancelAtPeriodEnd;
+
+  const invoiceSummaryMetrics = React.useMemo<BillingMetric[]>(() => {
+    const outstandingMinor = invoices.reduce((total, invoice) => {
+      return (
+        total +
+        Math.max(0, Number(invoice.amountDueMinor || 0) - Number(invoice.amountPaidMinor || 0))
+      );
+    }, 0);
+    return [
+      {
+        label: 'Matched invoices',
+        value: String(invoiceTotalCount),
+        hint: `${invoiceSummary.overdueCount} overdue`,
+      },
+      {
+        label: 'Loaded now',
+        value: String(invoices.length),
+        hint: invoiceNextCursor ? 'More invoices available' : 'All matching invoices loaded',
+      },
+      {
+        label: 'Outstanding',
+        value: formatUsdMinor(invoiceSummary.outstandingAmountMinor || outstandingMinor),
+        hint: `${invoiceSummary.paidCount} paid invoice${invoiceSummary.paidCount === 1 ? '' : 's'}`,
+      },
+      {
+        label: 'Latest period',
+        value: invoiceSummary.latestPeriodMonthUtc || '-',
+        hint: overview?.planName || 'No plan data',
+      },
+    ];
+  }, [invoiceNextCursor, invoiceSummary, invoiceTotalCount, invoices, overview?.planName]);
+
+  const summaryMetrics = React.useMemo<BillingMetric[]>(
     () => [
       {
         label: 'Plan',
@@ -324,27 +556,15 @@ export function BillingPage(): React.JSX.Element {
     return match?.chains || [];
   }, [stablecoinAssetInput, stablecoinAssets]);
 
-  const stripeInvoice = React.useMemo(
-    () => invoices.find((entry) => entry.id === stripeInvoiceIdInput) || null,
-    [invoices, stripeInvoiceIdInput],
-  );
-
-  const stablecoinInvoice = React.useMemo(
-    () => invoices.find((entry) => entry.id === stablecoinInvoiceIdInput) || null,
-    [invoices, stablecoinInvoiceIdInput],
-  );
-
-  const isBillingCardAdmin = React.useMemo(
-    () =>
-      Array.isArray(session.claims?.roles) &&
-      session.claims.roles.some((role) => String(role || '').toLowerCase() === 'admin'),
-    [session.claims?.roles],
-  );
-
-  const canCancelSubscription =
-    subscription != null && subscription.status !== 'CANCELED' && !subscription.cancelAtPeriodEnd;
-  const canResumeSubscription =
-    subscription != null && subscription.status !== 'CANCELED' && subscription.cancelAtPeriodEnd;
+  const invoiceDetailRecord = React.useMemo(() => {
+    if (!activeInvoiceId) return null;
+    return (
+      invoiceDetail ||
+      invoiceActivity?.invoice ||
+      invoices.find((entry) => entry.id === activeInvoiceId) ||
+      null
+    );
+  }, [activeInvoiceId, invoiceActivity?.invoice, invoiceDetail, invoices]);
 
   const onAddCardPaymentMethod = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -383,7 +603,7 @@ export function BillingPage(): React.JSX.Element {
         setLast4Input('');
         setExpMonthInput('');
         setExpYearInput('');
-        loadBillingData();
+        await refreshBillingShellData();
       } catch (error: unknown) {
         setPaymentMutationError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -396,12 +616,32 @@ export function BillingPage(): React.JSX.Element {
       expYearInput,
       isBillingCardAdmin,
       last4Input,
-      loadBillingData,
       providerRefInput,
+      refreshBillingShellData,
       session.claims,
       session.errorMessage,
     ],
   );
+
+  const onCreatePaymentMethodSetupIntent = React.useCallback(async () => {
+    if (!session.claims) {
+      setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    setCreatingPaymentMethodSetupIntent(true);
+    setPaymentMutationError('');
+    setPaymentMethodSetupIntent(null);
+    try {
+      const setupIntent = await createDashboardStripeSetupIntent({
+        returnUrl: window.location.href,
+      });
+      setPaymentMethodSetupIntent(setupIntent);
+    } catch (error: unknown) {
+      setPaymentMutationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreatingPaymentMethodSetupIntent(false);
+    }
+  }, [session.claims, session.errorMessage]);
 
   const onSetDefaultPaymentMethod = React.useCallback(
     async (paymentMethodId: string) => {
@@ -417,14 +657,14 @@ export function BillingPage(): React.JSX.Element {
       setPaymentMutationError('');
       try {
         await setDashboardDefaultCardPaymentMethod(paymentMethodId);
-        loadBillingData();
+        await refreshBillingShellData();
       } catch (error: unknown) {
         setPaymentMutationError(error instanceof Error ? error.message : String(error));
       } finally {
         setBusyPaymentMethodId('');
       }
     },
-    [isBillingCardAdmin, loadBillingData, session.claims, session.errorMessage],
+    [isBillingCardAdmin, refreshBillingShellData, session.claims, session.errorMessage],
   );
 
   const onRemovePaymentMethod = React.useCallback(
@@ -442,14 +682,14 @@ export function BillingPage(): React.JSX.Element {
       setPaymentMutationError('');
       try {
         await removeDashboardCardPaymentMethod(paymentMethodId);
-        loadBillingData();
+        await refreshBillingShellData();
       } catch (error: unknown) {
         setPaymentMutationError(error instanceof Error ? error.message : String(error));
       } finally {
         setBusyPaymentMethodId('');
       }
     },
-    [isBillingCardAdmin, loadBillingData, session.claims, session.errorMessage],
+    [isBillingCardAdmin, refreshBillingShellData, session.claims, session.errorMessage],
   );
 
   const onStartStripeCheckout = React.useCallback(async () => {
@@ -462,7 +702,7 @@ export function BillingPage(): React.JSX.Element {
     try {
       const origin = window.location.origin;
       const checkoutSession = await createDashboardStripeCheckoutSession({
-        successUrl: `${origin}/dashboard/billing?checkout=success`,
+        successUrl: `${origin}/dashboard/billing/account?checkout=success`,
         cancelUrl: `${origin}/pricing?checkout=cancel`,
         planId: subscription?.planId || overview?.planId || 'pro_maw_v1',
       });
@@ -493,6 +733,25 @@ export function BillingPage(): React.JSX.Element {
     }
   }, [session.claims, session.errorMessage]);
 
+  const onOpenPaymentMethodPortal = React.useCallback(async () => {
+    if (!session.claims) {
+      setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    setOpeningCustomerPortal(true);
+    setPaymentMutationError('');
+    try {
+      const portalSession = await createDashboardStripeCustomerPortalSession({
+        returnUrl: window.location.href,
+      });
+      window.location.assign(portalSession.url);
+    } catch (error: unknown) {
+      setPaymentMutationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpeningCustomerPortal(false);
+    }
+  }, [session.claims, session.errorMessage]);
+
   const onCancelSubscription = React.useCallback(async () => {
     if (!session.claims) {
       setSubscriptionActionError(session.errorMessage || 'Console session is unavailable');
@@ -510,13 +769,13 @@ export function BillingPage(): React.JSX.Element {
     try {
       const updated = await cancelDashboardBillingSubscription();
       setSubscription(updated);
-      loadBillingData();
+      await refreshBillingShellData();
     } catch (error: unknown) {
       setSubscriptionActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setCancelingSubscription(false);
     }
-  }, [canCancelSubscription, loadBillingData, session.claims, session.errorMessage]);
+  }, [canCancelSubscription, refreshBillingShellData, session.claims, session.errorMessage]);
 
   const onResumeSubscription = React.useCallback(async () => {
     if (!session.claims) {
@@ -534,13 +793,13 @@ export function BillingPage(): React.JSX.Element {
     try {
       const updated = await resumeDashboardBillingSubscription();
       setSubscription(updated);
-      loadBillingData();
+      await refreshBillingShellData();
     } catch (error: unknown) {
       setSubscriptionActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setResumingSubscription(false);
     }
-  }, [canResumeSubscription, loadBillingData, session.claims, session.errorMessage]);
+  }, [canResumeSubscription, refreshBillingShellData, session.claims, session.errorMessage]);
 
   const onCreateStripeSetupIntent = React.useCallback(async () => {
     if (!session.claims) {
@@ -568,8 +827,7 @@ export function BillingPage(): React.JSX.Element {
         setPaymentExecutionError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      const invoiceId = String(stripeInvoiceIdInput || '').trim();
-      if (!invoiceId) {
+      if (!activeInvoiceId) {
         setPaymentExecutionError('Invoice id is required to create a Stripe payment intent.');
         return;
       }
@@ -578,12 +836,12 @@ export function BillingPage(): React.JSX.Element {
       setPaymentExecutionError('');
       try {
         const paymentIntent = await createDashboardStripePaymentIntent({
-          invoiceId,
+          invoiceId: activeInvoiceId,
           paymentMethodId: paymentMethodId || undefined,
         });
         setStripePaymentIntent(paymentIntent);
-        setStripeInvoiceIdInput(paymentIntent.invoiceId);
-        await loadBillingData();
+        await refreshBillingShellData();
+        setInvoiceRefreshNonce((value) => value + 1);
       } catch (error: unknown) {
         setPaymentExecutionError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -591,10 +849,10 @@ export function BillingPage(): React.JSX.Element {
       }
     },
     [
-      loadBillingData,
+      activeInvoiceId,
+      refreshBillingShellData,
       session.claims,
       session.errorMessage,
-      stripeInvoiceIdInput,
       stripePaymentMethodIdInput,
     ],
   );
@@ -606,20 +864,21 @@ export function BillingPage(): React.JSX.Element {
         setPaymentExecutionError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      const invoiceId = String(stablecoinInvoiceIdInput || '').trim();
+      if (!activeInvoiceId) {
+        setPaymentExecutionError('Invoice id is required to create a stablecoin quote.');
+        return;
+      }
       const asset = String(stablecoinAssetInput || '').trim();
       const chain = String(stablecoinChainInput || '').trim();
-      if (!invoiceId || !asset || !chain) {
-        setPaymentExecutionError(
-          'Invoice, asset, and chain are required to create a stablecoin quote.',
-        );
+      if (!asset || !chain) {
+        setPaymentExecutionError('Asset and chain are required to create a stablecoin quote.');
         return;
       }
       setCreatingStablecoinQuote(true);
       setPaymentExecutionError('');
       try {
         const quote = await createDashboardStablecoinQuote({
-          invoiceId,
+          invoiceId: activeInvoiceId,
           asset,
           chain,
         });
@@ -631,7 +890,13 @@ export function BillingPage(): React.JSX.Element {
         setCreatingStablecoinQuote(false);
       }
     },
-    [session.claims, session.errorMessage, stablecoinAssetInput, stablecoinChainInput, stablecoinInvoiceIdInput],
+    [
+      activeInvoiceId,
+      session.claims,
+      session.errorMessage,
+      stablecoinAssetInput,
+      stablecoinChainInput,
+    ],
   );
 
   const onCreateStablecoinPaymentIntent = React.useCallback(
@@ -641,32 +906,39 @@ export function BillingPage(): React.JSX.Element {
         setPaymentExecutionError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      const invoiceId = String(stablecoinInvoiceIdInput || '').trim();
+      if (!activeInvoiceId) {
+        setPaymentExecutionError('Invoice id is required to create a stablecoin payment intent.');
+        return;
+      }
       const quoteId = String(stablecoinQuoteIdInput || '').trim();
-      if (!invoiceId || !quoteId) {
-        setPaymentExecutionError(
-          'Invoice id and quote id are required to create a stablecoin payment intent.',
-        );
+      if (!quoteId) {
+        setPaymentExecutionError('Quote id is required to create a stablecoin payment intent.');
         return;
       }
       setCreatingStablecoinPaymentIntent(true);
       setPaymentExecutionError('');
       try {
         const paymentIntent = await createDashboardStablecoinPaymentIntent({
-          invoiceId,
+          invoiceId: activeInvoiceId,
           quoteId,
         });
         setStablecoinPaymentIntent(paymentIntent);
         setStablecoinIntentIdInput(paymentIntent.id);
-        setStablecoinInvoiceIdInput(paymentIntent.invoiceId);
-        await loadBillingData();
+        await refreshBillingShellData();
+        setInvoiceRefreshNonce((value) => value + 1);
       } catch (error: unknown) {
         setPaymentExecutionError(error instanceof Error ? error.message : String(error));
       } finally {
         setCreatingStablecoinPaymentIntent(false);
       }
     },
-    [loadBillingData, session.claims, session.errorMessage, stablecoinInvoiceIdInput, stablecoinQuoteIdInput],
+    [
+      activeInvoiceId,
+      refreshBillingShellData,
+      session.claims,
+      session.errorMessage,
+      stablecoinQuoteIdInput,
+    ],
   );
 
   const onRefreshStablecoinIntent = React.useCallback(async () => {
@@ -685,13 +957,14 @@ export function BillingPage(): React.JSX.Element {
       const paymentIntent = await getDashboardStablecoinPaymentIntent(paymentIntentId);
       setStablecoinPaymentIntent(paymentIntent);
       setStablecoinIntentIdInput(paymentIntent.id);
-      await loadBillingData();
+      await refreshBillingShellData();
+      setInvoiceRefreshNonce((value) => value + 1);
     } catch (error: unknown) {
       setPaymentExecutionError(error instanceof Error ? error.message : String(error));
     } finally {
       setRefreshingStablecoinIntent(false);
     }
-  }, [loadBillingData, session.claims, session.errorMessage, stablecoinIntentIdInput]);
+  }, [refreshBillingShellData, session.claims, session.errorMessage, stablecoinIntentIdInput]);
 
   const onCancelStablecoinIntent = React.useCallback(async () => {
     if (!session.claims) {
@@ -710,13 +983,39 @@ export function BillingPage(): React.JSX.Element {
       const paymentIntent = await cancelDashboardStablecoinPaymentIntent(paymentIntentId);
       setStablecoinPaymentIntent(paymentIntent);
       setStablecoinIntentIdInput(paymentIntent.id);
-      await loadBillingData();
+      await refreshBillingShellData();
+      setInvoiceRefreshNonce((value) => value + 1);
     } catch (error: unknown) {
       setPaymentExecutionError(error instanceof Error ? error.message : String(error));
     } finally {
       setCancelingStablecoinIntent(false);
     }
-  }, [loadBillingData, session.claims, session.errorMessage, stablecoinIntentIdInput]);
+  }, [refreshBillingShellData, session.claims, session.errorMessage, stablecoinIntentIdInput]);
+
+  const onDownloadInvoicePdf = React.useCallback(
+    async (invoiceId: string) => {
+      const normalizedInvoiceId = String(invoiceId || '').trim();
+      if (!normalizedInvoiceId) return;
+      setDownloadingInvoicePdfId(normalizedInvoiceId);
+      setInvoiceDownloadError('');
+      try {
+        await downloadDashboardBillingInvoicePdf(normalizedInvoiceId);
+      } catch (error: unknown) {
+        const invoice = invoices.find((entry) => entry.id === normalizedInvoiceId) || null;
+        const fallbackFilename = buildInvoicePdfFilename(invoice, normalizedInvoiceId);
+        const message = error instanceof Error ? error.message : String(error);
+        setInvoiceDownloadError(`Failed to download ${fallbackFilename}: ${message}`);
+      } finally {
+        setDownloadingInvoicePdfId('');
+      }
+    },
+    [invoices],
+  );
+
+  const onLoadMoreInvoices = React.useCallback(async () => {
+    if (!invoiceNextCursor || loadingMoreInvoices) return;
+    await loadInvoiceListPage({ append: true, cursor: invoiceNextCursor });
+  }, [invoiceNextCursor, loadInvoiceListPage, loadingMoreInvoices]);
 
   return (
     <div className="dashboard-view" aria-label="Billing page">
@@ -736,22 +1035,9 @@ export function BillingPage(): React.JSX.Element {
         </section>
       ) : null}
 
-      <section className="dashboard-view__section" aria-label="Billing scope and actions">
-        <h2>Billing overview</h2>
-        <p>
-          Billing is org-scoped. Current topbar context: org {selectedContext.organization || '-'},
-          project {selectedContext.project || '-'}, environment {selectedContext.environment || '-'}.
-        </p>
-        <button type="button" className="dashboard-pagination-button" onClick={() => loadBillingData()}>
-          Refresh billing data
-        </button>
-      </section>
-
       {checkoutReturnMessage ? (
         <section className="dashboard-view__section">
-          {checkoutReturnMessage ? (
-            <p className="dashboard-info-banner">{checkoutReturnMessage}</p>
-          ) : null}
+          <p className="dashboard-info-banner">{checkoutReturnMessage}</p>
         </section>
       ) : null}
 
@@ -767,536 +1053,124 @@ export function BillingPage(): React.JSX.Element {
         <section className="dashboard-view__section">
           <p>Billing data unavailable: {errorMessage}</p>
         </section>
+      ) : subview.kind === 'account' ? (
+        <BillingAccountView
+          selectedContext={selectedContext}
+          summaryMetrics={summaryMetrics}
+          subscription={subscription}
+          subscriptionActionError={subscriptionActionError}
+          startingCheckout={startingCheckout}
+          openingCustomerPortal={openingCustomerPortal}
+          cancelingSubscription={cancelingSubscription}
+          resumingSubscription={resumingSubscription}
+          canCancelSubscription={canCancelSubscription}
+          canResumeSubscription={canResumeSubscription}
+          onStartStripeCheckout={() => {
+            void onStartStripeCheckout();
+          }}
+          onOpenCustomerPortal={() => {
+            void onOpenCustomerPortal();
+          }}
+          onOpenPaymentMethodPortal={() => {
+            void onOpenPaymentMethodPortal();
+          }}
+          onCancelSubscription={() => {
+            void onCancelSubscription();
+          }}
+          onResumeSubscription={() => {
+            void onResumeSubscription();
+          }}
+          providerRefInput={providerRefInput}
+          setProviderRefInput={setProviderRefInput}
+          brandInput={brandInput}
+          setBrandInput={setBrandInput}
+          last4Input={last4Input}
+          setLast4Input={setLast4Input}
+          expMonthInput={expMonthInput}
+          setExpMonthInput={setExpMonthInput}
+          expYearInput={expYearInput}
+          setExpYearInput={setExpYearInput}
+          isBillingCardAdmin={isBillingCardAdmin}
+          addingPaymentMethod={addingPaymentMethod}
+          creatingPaymentMethodSetupIntent={creatingPaymentMethodSetupIntent}
+          paymentMutationError={paymentMutationError}
+          paymentMethodSetupIntent={paymentMethodSetupIntent}
+          paymentMethods={paymentMethods}
+          busyPaymentMethodId={busyPaymentMethodId}
+          onAddCardPaymentMethod={onAddCardPaymentMethod}
+          onCreatePaymentMethodSetupIntent={() => {
+            void onCreatePaymentMethodSetupIntent();
+          }}
+          onSetDefaultPaymentMethod={onSetDefaultPaymentMethod}
+          onRemovePaymentMethod={onRemovePaymentMethod}
+        />
+      ) : subview.kind === 'invoices' ? (
+        <BillingInvoicesView
+          invoiceMetrics={invoiceSummaryMetrics}
+          invoiceListLoading={invoiceListLoading}
+          invoiceListError={invoiceListError}
+          invoiceStatusFilter={invoiceStatusFilter}
+          setInvoiceStatusFilter={setInvoiceStatusFilter}
+          invoicePeriodFilter={invoicePeriodFilter}
+          setInvoicePeriodFilter={setInvoicePeriodFilter}
+          invoices={invoices}
+          totalInvoices={invoiceTotalCount}
+          hasMoreInvoices={invoiceNextCursor !== null}
+          loadingMoreInvoices={loadingMoreInvoices}
+          downloadingInvoicePdfId={downloadingInvoicePdfId}
+          invoiceDownloadError={invoiceDownloadError}
+          onOpenInvoice={(invoiceId) => go(`/dashboard/invoices/${encodeURIComponent(invoiceId)}`)}
+          onLoadMoreInvoices={() => {
+            void onLoadMoreInvoices();
+          }}
+          onDownloadInvoicePdf={onDownloadInvoicePdf}
+        />
       ) : (
-        <>
-          <section className="dashboard-kpi-grid dashboard-kpi-grid--content" aria-label="Billing summary metrics">
-            {summaryMetrics.map((metric) => (
-              <article className="dashboard-kpi-card" key={metric.label}>
-                <p className="dashboard-kpi-card__label">{metric.label}</p>
-                <p className="dashboard-kpi-card__value">{metric.value}</p>
-                <p className="dashboard-kpi-card__hint">{metric.hint}</p>
-              </article>
-            ))}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Subscription management table">
-            <div className="dashboard-table-limit">
-              <h3>Subscription management</h3>
-              <p>
-                Start or update plan checkout in Stripe, and use the customer portal for
-                subscription/payment management after checkout.
-              </p>
-              {subscriptionActionError ? (
-                <p className="dashboard-pagination-note">{subscriptionActionError}</p>
-              ) : null}
-            </div>
-            <div className="dashboard-view-grid dashboard-view-grid--two">
-              <div className="dashboard-view-card dashboard-view-grid">
-                <h2>Current subscription</h2>
-                {!subscription ? (
-                  <p className="dashboard-pagination-note">No subscription returned for this org.</p>
-                ) : (
-                  <>
-                    <p className="dashboard-pagination-note">
-                      Plan: {subscription.planName} ({subscription.planId})
-                    </p>
-                    <p className="dashboard-pagination-note">Status: {subscription.status}</p>
-                    <p className="dashboard-pagination-note">
-                      Cancel at period end: {subscription.cancelAtPeriodEnd ? 'Yes' : 'No'}
-                    </p>
-                    <p className="dashboard-pagination-note">
-                      Current period: {formatTimestamp(subscription.currentPeriodStart)} to{' '}
-                      {formatTimestamp(subscription.currentPeriodEnd)}
-                    </p>
-                    <p className="dashboard-pagination-note">
-                      Cancel at: {formatTimestamp(subscription.cancelAt)}
-                    </p>
-                    <p className="dashboard-pagination-note">
-                      Canceled at: {formatTimestamp(subscription.canceledAt)}
-                    </p>
-                    <p className="dashboard-pagination-note">
-                      Provider refs: customer {subscription.providerCustomerRef || '-'}, subscription{' '}
-                      {subscription.providerSubscriptionRef || '-'}
-                    </p>
-                  </>
-                )}
-              </div>
-              <div className="dashboard-view-card dashboard-view-grid">
-                <h2>Subscription actions</h2>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onStartStripeCheckout}
-                    disabled={startingCheckout}
-                  >
-                    {startingCheckout ? 'Starting checkout...' : 'Start Stripe Checkout'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onOpenCustomerPortal}
-                    disabled={openingCustomerPortal}
-                  >
-                    {openingCustomerPortal ? 'Opening portal...' : 'Open Stripe Customer Portal'}
-                  </button>
-                </div>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onCancelSubscription}
-                    disabled={!canCancelSubscription || cancelingSubscription}
-                  >
-                    {cancelingSubscription ? 'Scheduling cancel...' : 'Cancel at period end'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onResumeSubscription}
-                    disabled={!canResumeSubscription || resumingSubscription}
-                  >
-                    {resumingSubscription ? 'Resuming...' : 'Resume subscription'}
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={() => loadBillingData()}
-                  >
-                    Refresh subscription
-                  </button>
-                </div>
-                <p className="dashboard-pagination-note">
-                  Checkout success returns to <code>/dashboard/billing?checkout=success</code>.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Invoices table">
-            <div className="dashboard-table-header" role="row">
-              <span>Invoice ID</span>
-              <span>Status</span>
-              <span>Period</span>
-              <span>Due</span>
-              <span>Rail lock</span>
-              <span>Amount due</span>
-              <span>Amount paid</span>
-              <span>Created</span>
-            </div>
-            {invoices.length === 0 ? (
-              <p className="dashboard-table-limit">No invoices yet.</p>
-            ) : (
-              <>
-                {invoices.map((invoice) => (
-                  <div className="dashboard-table-row" key={invoice.id} role="row">
-                    <span title={invoice.id}>
-                      <button
-                        type="button"
-                        className="dashboard-inline-link"
-                        onClick={() => setSelectedInvoiceId(invoice.id)}
-                      >
-                        {invoice.id}
-                      </button>
-                    </span>
-                    <span>{invoice.status}</span>
-                    <span>{invoice.periodMonthUtc || '-'}</span>
-                    <span>{formatTimestamp(invoice.dueAt)}</span>
-                    <span>{invoice.railLock || '-'}</span>
-                    <span>{formatUsdMinor(invoice.amountDueMinor)}</span>
-                    <span>{formatUsdMinor(invoice.amountPaidMinor)}</span>
-                    <span>{formatTimestamp(invoice.createdAt)}</span>
-                  </div>
-                ))}
-                <p className="dashboard-table-limit">
-                  Showing {invoices.length} invoice{invoices.length === 1 ? '' : 's'}.
-                </p>
-              </>
-            )}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Selected invoice line items">
-            <div className="dashboard-table-header" role="row">
-              <span>Line item ID</span>
-              <span>Type</span>
-              <span>Description</span>
-              <span>Period</span>
-              <span>Quantity</span>
-              <span>Unit amount</span>
-              <span>Amount</span>
-              <span>Invoice</span>
-            </div>
-            {!selectedInvoiceId ? (
-              <p className="dashboard-table-limit">Select an invoice to view line items.</p>
-            ) : lineItemsLoading ? (
-              <p className="dashboard-table-limit">Loading line items for {selectedInvoiceId}...</p>
-            ) : lineItemsError ? (
-              <p className="dashboard-table-limit">Line items unavailable: {lineItemsError}</p>
-            ) : lineItems.length === 0 ? (
-              <p className="dashboard-table-limit">No line items for this invoice.</p>
-            ) : (
-              <>
-                {lineItems.map((lineItem) => (
-                  <div className="dashboard-table-row" key={lineItem.id} role="row">
-                    <span title={lineItem.id}>{lineItem.id}</span>
-                    <span>{lineItem.itemType || '-'}</span>
-                    <span title={lineItem.description}>{lineItem.description || '-'}</span>
-                    <span>{lineItem.periodMonthUtc || '-'}</span>
-                    <span>{String(lineItem.quantity)}</span>
-                    <span>{formatUsdMinor(lineItem.unitAmountMinor)}</span>
-                    <span>{formatUsdMinor(lineItem.amountMinor)}</span>
-                    <span title={lineItem.invoiceId}>{lineItem.invoiceId}</span>
-                  </div>
-                ))}
-                <p className="dashboard-table-limit">
-                  Showing {lineItems.length} line item{lineItems.length === 1 ? '' : 's'} for {selectedInvoiceId}.
-                </p>
-              </>
-            )}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Payment methods table">
-            <div className="dashboard-table-limit">
-              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onAddCardPaymentMethod}>
-                <label className="dashboard-form-field">
-                  <span>Provider reference</span>
-                  <input
-                    className="dashboard-input"
-                    value={providerRefInput}
-                    onChange={(event) => setProviderRefInput(event.target.value)}
-                    placeholder="pm_123..."
-                    disabled={!isBillingCardAdmin}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Brand</span>
-                  <input
-                    className="dashboard-input"
-                    value={brandInput}
-                    onChange={(event) => setBrandInput(event.target.value)}
-                    placeholder="visa"
-                    disabled={!isBillingCardAdmin}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Last4</span>
-                  <input
-                    className="dashboard-input"
-                    value={last4Input}
-                    onChange={(event) => setLast4Input(event.target.value)}
-                    placeholder="4242"
-                    disabled={!isBillingCardAdmin}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Expiry month</span>
-                  <input
-                    className="dashboard-input"
-                    value={expMonthInput}
-                    onChange={(event) => setExpMonthInput(event.target.value)}
-                    placeholder="12"
-                    disabled={!isBillingCardAdmin}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Expiry year</span>
-                  <input
-                    className="dashboard-input"
-                    value={expYearInput}
-                    onChange={(event) => setExpYearInput(event.target.value)}
-                    placeholder="2030"
-                    disabled={!isBillingCardAdmin}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={!isBillingCardAdmin || addingPaymentMethod}
-                  >
-                    {addingPaymentMethod ? 'Adding card...' : 'Add card'}
-                  </button>
-                  <span className="dashboard-pagination-note">
-                    {isBillingCardAdmin
-                      ? 'Admin role enabled for add/remove/set-default card actions.'
-                      : 'Only admin role can add/remove/set-default cards.'}
-                  </span>
-                </div>
-              </form>
-              {paymentMutationError ? (
-                <p className="dashboard-pagination-note">{paymentMutationError}</p>
-              ) : null}
-            </div>
-            <div className="dashboard-table-header" role="row">
-              <span>Method ID</span>
-              <span>Provider</span>
-              <span>Type</span>
-              <span>Brand</span>
-              <span>Last4</span>
-              <span>Expiry</span>
-              <span>Default</span>
-              <span>Actions</span>
-            </div>
-            {paymentMethods.length === 0 ? (
-              <p className="dashboard-table-limit">No card payment methods on file.</p>
-            ) : (
-              <>
-                {paymentMethods.map((method) => (
-                  <div className="dashboard-table-row" key={method.id} role="row">
-                    <span title={method.id}>{method.id}</span>
-                    <span>{method.provider || '-'}</span>
-                    <span>{method.type || '-'}</span>
-                    <span>{method.brand || '-'}</span>
-                    <span>{method.last4 || '-'}</span>
-                    <span>
-                      {method.expMonth > 0 && method.expYear > 0
-                        ? `${String(method.expMonth).padStart(2, '0')}/${String(method.expYear)}`
-                        : '-'}
-                    </span>
-                    <span>{method.isDefault ? 'Yes' : 'No'}</span>
-                    <span>
-                      <button
-                        type="button"
-                        className="dashboard-inline-link"
-                        onClick={() => onSetDefaultPaymentMethod(method.id)}
-                        disabled={
-                          !isBillingCardAdmin || busyPaymentMethodId === method.id || method.isDefault
-                        }
-                      >
-                        Set default
-                      </button>{' '}
-                      <button
-                        type="button"
-                        className="dashboard-inline-link dashboard-inline-link--danger"
-                        onClick={() => onRemovePaymentMethod(method.id)}
-                        disabled={!isBillingCardAdmin || busyPaymentMethodId === method.id}
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  </div>
-                ))}
-                <p className="dashboard-table-limit">
-                  Showing {paymentMethods.length} payment method{paymentMethods.length === 1 ? '' : 's'}.
-                </p>
-              </>
-            )}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Stablecoin settlement policy table">
-            <div className="dashboard-table-limit">
-              <h3>Payment execution</h3>
-              <p>
-                Each invoice must be paid on a single rail. Create either a Stripe card payment
-                intent or a stablecoin payment intent for full outstanding balance.
-              </p>
-              {paymentExecutionError ? (
-                <p className="dashboard-pagination-note">{paymentExecutionError}</p>
-              ) : null}
-            </div>
-            <div className="dashboard-view-grid dashboard-view-grid--two">
-              <form className="dashboard-view-card dashboard-view-grid" onSubmit={onCreateStripePaymentIntent}>
-                <h2>Stripe card payment</h2>
-                <label className="dashboard-form-field">
-                  <span>Invoice</span>
-                  <select
-                    className="dashboard-input"
-                    value={stripeInvoiceIdInput}
-                    onChange={(event) => setStripeInvoiceIdInput(event.target.value)}
-                  >
-                    {invoices.map((invoice) => (
-                      <option key={invoice.id} value={invoice.id}>
-                        {invoice.id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="dashboard-form-field">
-                  <span>Payment method ID (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    value={stripePaymentMethodIdInput}
-                    onChange={(event) => setStripePaymentMethodIdInput(event.target.value)}
-                    placeholder="pm_..."
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button"
-                    onClick={onCreateStripeSetupIntent}
-                    disabled={creatingStripeSetupIntent}
-                  >
-                    {creatingStripeSetupIntent ? 'Creating setup intent...' : 'Create setup intent'}
-                  </button>
-                </div>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={creatingStripePaymentIntent}
-                  >
-                    {creatingStripePaymentIntent
-                      ? 'Creating payment intent...'
-                      : 'Create Stripe payment intent'}
-                  </button>
-                </div>
-                <p className="dashboard-pagination-note">
-                  Invoice rail lock: {stripeInvoice?.railLock || '-'}; outstanding:{' '}
-                  {formatUsdMinor(
-                    Math.max(
-                      0,
-                      Number(stripeInvoice?.amountDueMinor || 0) -
-                        Number(stripeInvoice?.amountPaidMinor || 0),
-                    ),
-                  )}
-                  .
-                </p>
-                <p className="dashboard-pagination-note">
-                  Setup intent:{' '}
-                  {stripeSetupIntent ? `${stripeSetupIntent.id} (expires ${formatTimestamp(stripeSetupIntent.expiresAt)})` : '-'}
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest card payment intent:{' '}
-                  {stripePaymentIntent
-                    ? `${stripePaymentIntent.id} state=${stripePaymentIntent.state} amount=${formatUsdMinor(stripePaymentIntent.amountMinor)}`
-                    : '-'}
-                </p>
-              </form>
-              <div className="dashboard-view-card dashboard-view-grid">
-                <form className="dashboard-view-grid" onSubmit={onCreateStablecoinQuote}>
-                  <h2>Stablecoin payment</h2>
-                  <label className="dashboard-form-field">
-                    <span>Invoice</span>
-                    <select
-                      className="dashboard-input"
-                      value={stablecoinInvoiceIdInput}
-                      onChange={(event) => setStablecoinInvoiceIdInput(event.target.value)}
-                    >
-                      {invoices.map((invoice) => (
-                        <option key={invoice.id} value={invoice.id}>
-                          {invoice.id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Asset</span>
-                    <select
-                      className="dashboard-input"
-                      value={stablecoinAssetInput}
-                      onChange={(event) => setStablecoinAssetInput(event.target.value)}
-                    >
-                      {stablecoinAssets.map((assetSupport) => (
-                        <option key={assetSupport.asset} value={assetSupport.asset}>
-                          {assetSupport.asset}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Chain</span>
-                    <select
-                      className="dashboard-input"
-                      value={stablecoinChainInput}
-                      onChange={(event) => setStablecoinChainInput(event.target.value)}
-                    >
-                      {stablecoinChainOptions.map((policy) => (
-                        <option key={policy.chain} value={policy.chain}>
-                          {policy.chain}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
-                      disabled={creatingStablecoinQuote}
-                    >
-                      {creatingStablecoinQuote ? 'Creating quote...' : 'Create stablecoin quote'}
-                    </button>
-                  </div>
-                </form>
-                <form className="dashboard-view-grid" onSubmit={onCreateStablecoinPaymentIntent}>
-                  <label className="dashboard-form-field">
-                    <span>Quote ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={stablecoinQuoteIdInput}
-                      onChange={(event) => setStablecoinQuoteIdInput(event.target.value)}
-                      placeholder="scq_..."
-                    />
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
-                      disabled={creatingStablecoinPaymentIntent}
-                    >
-                      {creatingStablecoinPaymentIntent
-                        ? 'Creating payment intent...'
-                        : 'Create stablecoin payment intent'}
-                    </button>
-                  </div>
-                </form>
-                <div className="dashboard-view-grid">
-                  <label className="dashboard-form-field">
-                    <span>Stablecoin payment intent ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={stablecoinIntentIdInput}
-                      onChange={(event) => setStablecoinIntentIdInput(event.target.value)}
-                      placeholder="scpi_..."
-                    />
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={onRefreshStablecoinIntent}
-                      disabled={refreshingStablecoinIntent}
-                    >
-                      {refreshingStablecoinIntent ? 'Refreshing...' : 'Refresh stablecoin status'}
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={onCancelStablecoinIntent}
-                      disabled={cancelingStablecoinIntent}
-                    >
-                      {cancelingStablecoinIntent ? 'Canceling...' : 'Cancel stablecoin intent'}
-                    </button>
-                  </div>
-                </div>
-                <p className="dashboard-pagination-note">
-                  Invoice rail lock: {stablecoinInvoice?.railLock || '-'}; outstanding:{' '}
-                  {formatUsdMinor(
-                    Math.max(
-                      0,
-                      Number(stablecoinInvoice?.amountDueMinor || 0) -
-                        Number(stablecoinInvoice?.amountPaidMinor || 0),
-                    ),
-                  )}
-                  .
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest stablecoin quote:{' '}
-                  {stablecoinQuote
-                    ? `${stablecoinQuote.id} ${stablecoinQuote.asset}/${stablecoinQuote.chain} amount=${formatUsdMinor(stablecoinQuote.amountMinor)} state=${stablecoinQuote.state}`
-                    : '-'}
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest stablecoin payment intent:{' '}
-                  {stablecoinPaymentIntent
-                    ? `${stablecoinPaymentIntent.id} state=${stablecoinPaymentIntent.state} amount=${formatUsdMinor(stablecoinPaymentIntent.expectedAmountMinor)} destination=${stablecoinPaymentIntent.destinationAddress || '-'}`
-                    : '-'}
-                </p>
-              </div>
-            </div>
-          </section>
-
-        </>
+        <BillingInvoiceDetailView
+          invoiceId={activeInvoiceId}
+          invoice={invoiceDetailRecord}
+          invoiceDetailLoading={invoiceDetailLoading}
+          invoiceDetailError={invoiceDetailError}
+          invoiceActivityLoading={invoiceActivityLoading}
+          invoiceActivityError={invoiceActivityError}
+          invoiceActivity={invoiceActivity}
+          lineItemsLoading={lineItemsLoading}
+          lineItemsError={lineItemsError}
+          lineItems={lineItems}
+          downloadingInvoicePdfId={downloadingInvoicePdfId}
+          invoiceDownloadError={invoiceDownloadError}
+          onBackToInvoices={() => go('/dashboard/invoices')}
+          onDownloadInvoicePdf={onDownloadInvoicePdf}
+          stripePaymentMethodIdInput={stripePaymentMethodIdInput}
+          setStripePaymentMethodIdInput={setStripePaymentMethodIdInput}
+          creatingStripeSetupIntent={creatingStripeSetupIntent}
+          creatingStripePaymentIntent={creatingStripePaymentIntent}
+          onCreateStripeSetupIntent={onCreateStripeSetupIntent}
+          onCreateStripePaymentIntent={onCreateStripePaymentIntent}
+          stripeSetupIntent={stripeSetupIntent}
+          stripePaymentIntent={stripePaymentIntent}
+          stablecoinAssets={stablecoinAssets}
+          stablecoinAssetInput={stablecoinAssetInput}
+          setStablecoinAssetInput={setStablecoinAssetInput}
+          stablecoinChainInput={stablecoinChainInput}
+          setStablecoinChainInput={setStablecoinChainInput}
+          stablecoinChainOptions={stablecoinChainOptions}
+          creatingStablecoinQuote={creatingStablecoinQuote}
+          onCreateStablecoinQuote={onCreateStablecoinQuote}
+          stablecoinQuote={stablecoinQuote}
+          stablecoinQuoteIdInput={stablecoinQuoteIdInput}
+          setStablecoinQuoteIdInput={setStablecoinQuoteIdInput}
+          creatingStablecoinPaymentIntent={creatingStablecoinPaymentIntent}
+          onCreateStablecoinPaymentIntent={onCreateStablecoinPaymentIntent}
+          stablecoinPaymentIntent={stablecoinPaymentIntent}
+          stablecoinIntentIdInput={stablecoinIntentIdInput}
+          setStablecoinIntentIdInput={setStablecoinIntentIdInput}
+          refreshingStablecoinIntent={refreshingStablecoinIntent}
+          cancelingStablecoinIntent={cancelingStablecoinIntent}
+          onRefreshStablecoinIntent={onRefreshStablecoinIntent}
+          onCancelStablecoinIntent={onCancelStablecoinIntent}
+          paymentExecutionError={paymentExecutionError}
+        />
       )}
     </div>
   );

@@ -1,5 +1,7 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import {
+  buildConsoleBillingInvoicePdf,
+  buildConsoleBillingInvoicePdfFilename,
   CHAIN_FINALITY_POLICY_VERSION,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
@@ -7,6 +9,7 @@ import {
   isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
   listStablecoinAssetSupport,
+  parseBillingInvoiceListRequest,
   parseAddCardPaymentMethodRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
@@ -3565,6 +3568,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   if (!auth.ok) return auth.response;
 
   const invoiceMatch = ctx.pathname.match(/^\/console\/billing\/invoices\/([^/]+)$/);
+  const invoicePdfMatch = ctx.pathname.match(/^\/console\/billing\/invoices\/([^/]+)\/pdf$/);
+  const invoiceActivityMatch = ctx.pathname.match(
+    /^\/console\/billing\/invoices\/([^/]+)\/activity$/,
+  );
   const invoiceLineItemsMatch = ctx.pathname.match(
     /^\/console\/billing\/invoices\/([^/]+)\/line-items$/,
   );
@@ -3651,8 +3658,20 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/invoices') {
-      const invoices = await billing.listInvoices(billingCtx);
-      return json({ ok: true, invoices }, { status: 200 });
+      const request = parseBillingInvoiceListRequest(
+        Object.fromEntries(ctx.url.searchParams.entries()),
+      );
+      const page = await billing.listInvoicesPage(billingCtx, request);
+      return json(
+        {
+          ok: true,
+          invoices: page.invoices,
+          nextCursor: page.nextCursor,
+          totalCount: page.totalCount,
+          summary: page.summary,
+        },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'GET' && invoiceMatch) {
@@ -3669,6 +3688,64 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         );
       }
       return json({ ok: true, invoice }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && invoicePdfMatch) {
+      const invoiceId = decodePathPart(invoicePdfMatch[1]);
+      const invoice = await billing.getInvoice(billingCtx, invoiceId);
+      if (!invoice) {
+        return json(
+          {
+            ok: false,
+            code: 'invoice_not_found',
+            message: `Invoice ${invoiceId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      const lineItems = await billing.listInvoiceLineItems(billingCtx, invoiceId);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'BILLING',
+        action: 'billing.invoice.pdf_export',
+        summary: `Exported billing invoice PDF for ${invoice.id}`,
+        metadata: {
+          invoiceId: invoice.id,
+          invoiceStatus: invoice.status,
+          periodMonthUtc: invoice.periodMonthUtc,
+          exportPolicy: 'ALL_INVOICE_STATES',
+        },
+      });
+      const headers = new Headers({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${buildConsoleBillingInvoicePdfFilename(invoice)}"`,
+      });
+      return new Response(
+        buildConsoleBillingInvoicePdf({
+          orgId: auth.claims.orgId,
+          invoice,
+          lineItems,
+        }),
+        {
+          status: 200,
+          headers,
+        },
+      );
+    }
+
+    if (ctx.method === 'GET' && invoiceActivityMatch) {
+      const invoiceId = decodePathPart(invoiceActivityMatch[1]);
+      const activity = await billing.getInvoiceActivity(billingCtx, invoiceId);
+      if (!activity) {
+        return json(
+          {
+            ok: false,
+            code: 'invoice_not_found',
+            message: `Invoice ${invoiceId} was not found`,
+          },
+          { status: 404 },
+        );
+      }
+      return json({ ok: true, activity }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && invoiceLineItemsMatch) {

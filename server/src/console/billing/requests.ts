@@ -1,13 +1,18 @@
 import { ConsoleBillingError } from './errors';
 import { isStablecoinAssetSymbol, isStablecoinSettlementChain } from './stablecoinAssets';
 import {
+  readOptionalQueryBooleanField as readOptionalQueryBoolean,
+  readOptionalQueryPositiveIntegerField as readOptionalQueryPositiveInteger,
+  readOptionalQueryStringField as readOptionalQueryString,
   readOptionalStringField as readOptionalString,
   readRequiredIntegerField as readRequiredInteger,
   readRequiredStringField as readRequiredString,
   requireBodyObject as requireObject,
+  requireQueryObject as requireQuery,
 } from '../shared/requestParse';
 import type {
   AddCardPaymentMethodRequest,
+  BillingInvoiceListRequest,
   BillingUsageEventRequest,
   GenerateMonthlyInvoiceRequest,
   StablecoinPaymentIntentReconcileRequest,
@@ -23,6 +28,73 @@ import type {
 
 function createParseError(code: string, status: number, message: string): ConsoleBillingError {
   return new ConsoleBillingError(code, status, message);
+}
+
+const BILLING_INVOICE_STATUSES = new Set(['OPEN', 'PAID', 'VOID', 'UNCOLLECTIBLE']);
+const DEFAULT_INVOICE_LIST_LIMIT = 25;
+const MAX_INVOICE_LIST_LIMIT = 100;
+
+function normalizeInvoiceListLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_INVOICE_LIST_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
+}
+
+function parseOptionalMonthUtc(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (!/^\d{4}-\d{2}$/.test(value)) {
+    throw new ConsoleBillingError(
+      'invalid_query',
+      400,
+      'Query parameter periodMonthUtc must be in YYYY-MM format',
+    );
+  }
+  const month = Number(value.slice(5, 7));
+  if (!Number.isInteger(month) || month < 1 || month > 12) {
+    throw new ConsoleBillingError(
+      'invalid_query',
+      400,
+      'Query parameter periodMonthUtc month must be between 01 and 12',
+    );
+  }
+  return value;
+}
+
+export function parseBillingInvoiceListRequest(query: unknown): BillingInvoiceListRequest {
+  const obj = requireQuery(query, createParseError);
+  const rawStatus = readOptionalQueryString(obj, 'status');
+  const rawCursor = readOptionalQueryString(obj, 'cursor');
+  const rawPeriodMonthUtc = readOptionalQueryString(obj, 'periodMonthUtc');
+  const rawLimit = readOptionalQueryPositiveInteger(obj, 'limit', createParseError);
+  const overdueParam = readOptionalQueryBoolean(obj, 'overdue', createParseError);
+
+  let status: BillingInvoiceListRequest['status'];
+  let overdueOnly = overdueParam === true;
+  if (rawStatus) {
+    const normalizedStatus = rawStatus.toUpperCase();
+    if (normalizedStatus === 'OVERDUE') {
+      status = 'OPEN';
+      overdueOnly = true;
+    } else if (BILLING_INVOICE_STATUSES.has(normalizedStatus)) {
+      status = normalizedStatus as BillingInvoiceListRequest['status'];
+    } else {
+      throw new ConsoleBillingError(
+        'invalid_query',
+        400,
+        `Query parameter status must be one of: ${Array.from(BILLING_INVOICE_STATUSES).join(', ')}, OVERDUE`,
+      );
+    }
+  }
+
+  const periodMonthUtc = parseOptionalMonthUtc(rawPeriodMonthUtc);
+  return {
+    ...(status ? { status } : {}),
+    ...(overdueOnly ? { overdueOnly: true } : {}),
+    ...(periodMonthUtc ? { periodMonthUtc } : {}),
+    ...(rawCursor ? { cursor: rawCursor } : {}),
+    limit: normalizeInvoiceListLimit(rawLimit),
+  };
 }
 
 export function parseAddCardPaymentMethodRequest(body: unknown): AddCardPaymentMethodRequest {
@@ -77,10 +149,7 @@ function validateHttpUrlOrThrow(value: string, field: string): void {
   }
 }
 
-function parseOptionalIsoDate(
-  value: string | undefined,
-  field: string,
-): string | undefined {
+function parseOptionalIsoDate(value: string | undefined, field: string): string | undefined {
   if (value === undefined) return undefined;
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) {
@@ -220,7 +289,8 @@ export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEven
   }
 
   const normalizedEventType = eventType || '';
-  const isPaymentIntentProjection = !normalizedEventType || normalizedEventType.startsWith('payment_intent.');
+  const isPaymentIntentProjection =
+    !normalizedEventType || normalizedEventType.startsWith('payment_intent.');
   const isSupportedProjectionType =
     isPaymentIntentProjection ||
     normalizedEventType === 'checkout.session.completed' ||
@@ -400,11 +470,7 @@ export function parseStablecoinPaymentIntentReconcileRequest(
 ): StablecoinPaymentIntentReconcileRequest {
   const obj = requireObject(body, createParseError);
   const observedAmountMinor = readRequiredInteger(obj, 'observedAmountMinor', createParseError);
-  const observedConfirmations = readRequiredInteger(
-    obj,
-    'observedConfirmations',
-    createParseError,
-  );
+  const observedConfirmations = readRequiredInteger(obj, 'observedConfirmations', createParseError);
   const confirmationTimedOutRaw = obj.confirmationTimedOut;
   const sourceEventId = readOptionalString(obj, 'sourceEventId');
 
