@@ -1,5 +1,17 @@
 import React from 'react';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableBadge,
+  DashboardTableCell,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   clearDashboardUiState,
@@ -28,6 +40,8 @@ function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error || 'Unknown error');
 }
+
+const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(1.75, 0.85, 1.15, 1.15, 0.95);
 
 export function AccountSettingsPage(): React.JSX.Element {
   const { go } = useSiteRouter();
@@ -321,19 +335,19 @@ export function AccountSettingsPage(): React.JSX.Element {
         </p>
       ) : null}
 
-      <section className="dashboard-account-panel">
-        <div className="dashboard-section-toolbar">
+      <section className="dashboard-account-panel dashboard-account-panel--profile">
+        <div className="dashboard-section-toolbar dashboard-account-section-header">
           <div className="dashboard-section-toolbar__copy">
             <h2>Profile</h2>
-            <p className="dashboard-pagination-note">
-              Update your display name, primary email, and backup recovery addresses.
-            </p>
-            {profile?.canEditPrimaryEmail === false ? (
-              <p className="dashboard-pagination-note">
-                Primary email is managed by your identity provider and is read-only here.
-              </p>
-            ) : null}
           </div>
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            onClick={() => void onSaveProfile()}
+            disabled={savingProfile}
+          >
+            {savingProfile ? 'Saving...' : 'Save'}
+          </button>
         </div>
         <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
           <label className="dashboard-form-field">
@@ -346,7 +360,11 @@ export function AccountSettingsPage(): React.JSX.Element {
             />
           </label>
           <label className="dashboard-form-field">
-            <span>Primary email</span>
+            <span>
+              {profile?.canEditPrimaryEmail === false
+                ? 'Primary email (read-only)'
+                : 'Primary email'}
+            </span>
             <input
               className="dashboard-input"
               value={primaryEmailDraft}
@@ -355,29 +373,16 @@ export function AccountSettingsPage(): React.JSX.Element {
               placeholder="name@example.com"
             />
           </label>
-          <div className="dashboard-form-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={() => void onSaveProfile()}
-              disabled={savingProfile}
-            >
-              {savingProfile ? 'Saving...' : 'Save profile'}
-            </button>
-          </div>
         </div>
-        <div className="dashboard-account-subsection">
-          <div className="dashboard-section-toolbar">
+        <div className="dashboard-account-subsection dashboard-account-subsection--compact">
+          <div className="dashboard-section-toolbar dashboard-account-subsection-header">
             <div className="dashboard-section-toolbar__copy">
-              <h3>Backup emails</h3>
-              <p className="dashboard-pagination-note">
-                Keep recovery addresses separate from your primary inbox.
-              </p>
+              <h3>Backup Emails</h3>
             </div>
           </div>
-          <div className="dashboard-account-backup-list">
-            {profile?.backupEmails.length ? (
-              profile.backupEmails.map((backupEmail) => (
+          {profile?.backupEmails.length ? (
+            <div className="dashboard-account-backup-list">
+              {profile.backupEmails.map((backupEmail) => (
                 <article className="dashboard-account-backup-item" key={backupEmail.email}>
                   <div>
                     <strong>{backupEmail.email}</strong>
@@ -394,14 +399,12 @@ export function AccountSettingsPage(): React.JSX.Element {
                     {removingBackupEmail === backupEmail.email ? 'Removing...' : 'Remove'}
                   </button>
                 </article>
-              ))
-            ) : (
-              <p className="dashboard-pagination-note">No backup emails configured yet.</p>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : null}
           <div className="dashboard-account-inline-form">
             <label className="dashboard-form-field">
-              <span>Add backup email</span>
+              <span className="dashboard-visually-hidden">Backup email</span>
               <input
                 className="dashboard-input"
                 value={newBackupEmail}
@@ -415,18 +418,19 @@ export function AccountSettingsPage(): React.JSX.Element {
               onClick={() => void onAddBackupEmail()}
               disabled={addingBackupEmail}
             >
-              {addingBackupEmail ? 'Adding...' : 'Add backup email'}
+              {addingBackupEmail ? 'Adding...' : 'Add'}
             </button>
           </div>
         </div>
       </section>
 
       <section className="dashboard-account-panel dashboard-account-panel--organizations">
-        <div className="dashboard-section-toolbar">
+        <div className="dashboard-section-toolbar dashboard-account-section-header">
           <div className="dashboard-section-toolbar__copy">
-            <h2>My organizations</h2>
+            <h2>My Organisations</h2>
             <p className="dashboard-pagination-note">
-              Create new organizations, rename the ones you manage, or transfer ownership.
+              Create new organizations, rename the ones you manage, delete empty orgs, or transfer
+              ownership.
             </p>
           </div>
         </div>
@@ -461,145 +465,161 @@ export function AccountSettingsPage(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="dashboard-account-org-list">
+        <DashboardTable
+          ariaLabel="Organizations"
+          columns={ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS}
+          className="dashboard-account-org-table"
+        >
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>Organization</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Rename</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Transfer</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+          </DashboardTableHeader>
           {organizations.length ? (
             organizations.map((organization) => {
               const transferOptions = organization.adminCandidates.filter(
                 (candidate) => candidate.userId !== session.claims?.userId && !candidate.isOwner,
               );
               return (
-                <article className="dashboard-account-org-card" key={organization.id}>
-                  <div className="dashboard-account-org-card__header">
-                    <div>
-                      <h3>{organization.name}</h3>
-                      <p className="dashboard-pagination-note">
-                        {organization.slug || organization.id}
-                      </p>
-                    </div>
-                    <div className="dashboard-account-pill-row">
-                      {organization.isCurrentOrg ? (
-                        <span className="dashboard-account-pill">Current</span>
-                      ) : null}
-                      <span className="dashboard-account-pill">
-                        {organization.onboardingComplete ? 'Ready' : 'Needs onboarding'}
+                <DashboardTableRow key={organization.id}>
+                  <DashboardTableCell className="dashboard-account-org-table__organization">
+                    <strong className="dashboard-data-table__summary">{organization.name}</strong>
+                    <span className="dashboard-pagination-note">
+                      {organization.slug || organization.id}
+                    </span>
+                    <div className="dashboard-account-org-meta">
+                      <span>Created {formatTimestamp(organization.createdAt)}</span>
+                      <span>Updated {formatTimestamp(organization.updatedAt)}</span>
+                      <span>
+                        Scope {organization.selectedProjectId || 'No project'} /{' '}
+                        {organization.selectedEnvironmentId || 'No environment'}
                       </span>
                     </div>
-                  </div>
-                  <div className="dashboard-account-org-meta">
-                    <span>Created {formatTimestamp(organization.createdAt)}</span>
-                    <span>Updated {formatTimestamp(organization.updatedAt)}</span>
-                    <span>
-                      Scope {organization.selectedProjectId || 'No project'} /{' '}
-                      {organization.selectedEnvironmentId || 'No environment'}
-                    </span>
-                  </div>
-                  <div className="dashboard-account-inline-form">
-                    <label className="dashboard-form-field">
-                      <span>Rename organization</span>
-                      <input
-                        className="dashboard-input"
-                        value={renameDrafts[organization.id] || ''}
-                        onChange={(event) =>
-                          setRenameDrafts((current) => ({
-                            ...current,
-                            [organization.id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={() => void onRenameOrganization(organization)}
-                      disabled={
-                        renamingOrganizationId === organization.id || !organization.actorIsAdmin
-                      }
-                    >
-                      {renamingOrganizationId === organization.id ? 'Saving...' : 'Rename'}
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void onOpenOrganization(organization)}
-                      disabled={switchingOrganizationId === organization.id}
-                    >
-                      {switchingOrganizationId === organization.id
-                        ? 'Opening...'
-                        : 'Open organization'}
-                    </button>
-                  </div>
-                  {organization.actorIsOwner ? (
-                    <div className="dashboard-account-inline-form">
-                      <div className="dashboard-form-field">
-                        <span>Delete organization</span>
-                        <p className="dashboard-pagination-note">
-                          Deletion is only allowed when this organization has no other members and
-                          no wallets.
-                          {organization.isCurrentOrg
-                            ? ' Switch to a different organization first.'
-                            : ''}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="dashboard-pagination-button dashboard-pagination-button--danger"
-                        onClick={() => void onDeleteOrganization(organization)}
-                        disabled={
-                          deletingOrganizationId === organization.id || organization.isCurrentOrg
-                        }
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <div className="dashboard-account-org-table__badges">
+                      {organization.isCurrentOrg ? (
+                        <DashboardTableBadge>Current</DashboardTableBadge>
+                      ) : null}
+                      <DashboardTableBadge
+                        tone={organization.onboardingComplete ? 'success' : 'warning'}
                       >
-                        {deletingOrganizationId === organization.id
-                          ? 'Deleting...'
-                          : 'Delete organization'}
-                      </button>
+                        {organization.onboardingComplete ? 'Ready' : 'Needs onboarding'}
+                      </DashboardTableBadge>
                     </div>
-                  ) : null}
-                  {organization.actorIsOwner && transferOptions.length ? (
-                    <div className="dashboard-account-inline-form">
-                      <label className="dashboard-form-field">
-                        <span>Transfer ownership</span>
-                        <select
-                          className="dashboard-input"
-                          value={transferTargets[organization.id] || ''}
-                          onChange={(event) =>
-                            setTransferTargets((current) => ({
-                              ...current,
-                              [organization.id]: event.target.value,
-                            }))
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    {organization.actorIsAdmin ? (
+                      <div className="dashboard-account-table-form">
+                        <label className="dashboard-form-field">
+                          <span className="dashboard-visually-hidden">
+                            Rename {organization.name}
+                          </span>
+                          <input
+                            className="dashboard-input dashboard-account-table-input"
+                            value={renameDrafts[organization.id] || ''}
+                            onChange={(event) =>
+                              setRenameDrafts((current) => ({
+                                ...current,
+                                [organization.id]: event.target.value,
+                              }))
+                            }
+                          />
+                        </label>
+                        <DashboardTableActionButton
+                          onClick={() => void onRenameOrganization(organization)}
+                          disabled={renamingOrganizationId === organization.id}
+                        >
+                          {renamingOrganizationId === organization.id ? 'Saving...' : 'Rename'}
+                        </DashboardTableActionButton>
+                      </div>
+                    ) : (
+                      <span className="dashboard-pagination-note">Admin only</span>
+                    )}
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    {organization.actorIsOwner && transferOptions.length ? (
+                      <div className="dashboard-account-table-form">
+                        <label className="dashboard-form-field">
+                          <span className="dashboard-visually-hidden">
+                            Transfer ownership for {organization.name}
+                          </span>
+                          <select
+                            className="dashboard-input dashboard-account-table-input"
+                            value={transferTargets[organization.id] || ''}
+                            onChange={(event) =>
+                              setTransferTargets((current) => ({
+                                ...current,
+                                [organization.id]: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">Select an admin</option>
+                            {transferOptions.map((candidate) => (
+                              <option key={candidate.memberId} value={candidate.memberId}>
+                                {candidate.displayName || candidate.email || candidate.userId}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <DashboardTableActionButton
+                          onClick={() => void onTransferOwner(organization)}
+                          disabled={
+                            transferringOrganizationId === organization.id ||
+                            !String(transferTargets[organization.id] || '').trim()
                           }
                         >
-                          <option value="">Select an admin</option>
-                          {transferOptions.map((candidate) => (
-                            <option key={candidate.memberId} value={candidate.memberId}>
-                              {candidate.displayName || candidate.email || candidate.userId}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                        onClick={() => void onTransferOwner(organization)}
-                        disabled={
-                          transferringOrganizationId === organization.id ||
-                          !String(transferTargets[organization.id] || '').trim()
-                        }
+                          {transferringOrganizationId === organization.id
+                            ? 'Transferring...'
+                            : 'Transfer'}
+                        </DashboardTableActionButton>
+                      </div>
+                    ) : (
+                      <span className="dashboard-pagination-note">
+                        {organization.actorIsOwner ? 'No eligible admins' : 'Owner only'}
+                      </span>
+                    )}
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableActionGroup className="dashboard-account-org-table__actions">
+                      <DashboardTableActionButton
+                        onClick={() => void onOpenOrganization(organization)}
+                        disabled={switchingOrganizationId === organization.id}
                       >
-                        {transferringOrganizationId === organization.id
-                          ? 'Transferring...'
-                          : 'Transfer owner'}
-                      </button>
-                    </div>
-                  ) : null}
-                </article>
+                        {switchingOrganizationId === organization.id ? 'Opening...' : 'Open'}
+                      </DashboardTableActionButton>
+                      {organization.actorIsOwner ? (
+                        <DashboardTableActionButton
+                          tone="danger"
+                          onClick={() => void onDeleteOrganization(organization)}
+                          disabled={
+                            deletingOrganizationId === organization.id || organization.isCurrentOrg
+                          }
+                          title={
+                            organization.isCurrentOrg
+                              ? 'Switch to a different organization before deleting it.'
+                              : undefined
+                          }
+                        >
+                          {deletingOrganizationId === organization.id ? 'Deleting...' : 'Delete'}
+                        </DashboardTableActionButton>
+                      ) : null}
+                    </DashboardTableActionGroup>
+                    {organization.actorIsOwner && organization.isCurrentOrg ? (
+                      <span className="dashboard-pagination-note">
+                        Switch away before deleting.
+                      </span>
+                    ) : null}
+                  </DashboardTableCell>
+                </DashboardTableRow>
               );
             })
           ) : (
-            <p className="dashboard-pagination-note">
-              No organizations created by this account yet.
-            </p>
+            <DashboardTableState>No organizations created by this account yet.</DashboardTableState>
           )}
-        </div>
+        </DashboardTable>
       </section>
     </div>
   );

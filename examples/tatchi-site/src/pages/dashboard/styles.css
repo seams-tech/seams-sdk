@@ -3830,32 +3830,52 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 
 .dashboard-account-panel {
   display: grid;
-  gap: 18px;
-  padding: 20px;
+  gap: 16px;
+  padding: 14px 20px 18px;
   border: 1px solid var(--dashboard-border);
   border-radius: 18px;
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--dashboard-surface-2) 90%, transparent),
+      color-mix(in srgb, var(--dashboard-surface-2) 72%, white 28%),
       transparent 32%
     ),
-    var(--dashboard-surface);
+    color-mix(in srgb, var(--dashboard-surface) 84%, white);
   box-shadow: 0 20px 36px color-mix(in srgb, #0d1b34 8%, transparent);
+}
+
+.dashboard-account-panel--profile {
+  gap: 14px;
+}
+
+.dashboard-account-section-header .dashboard-section-toolbar__copy {
+  gap: 4px;
+}
+
+.dashboard-account-section-header .dashboard-section-toolbar__copy h2 {
+  margin: 0;
+  font-size: clamp(1.9rem, 2.8vw, 2.45rem);
+  line-height: 1.06;
+  letter-spacing: -0.035em;
 }
 
 .dashboard-account-panel--organizations {
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--dashboard-surface-2) 62%, transparent),
+      color-mix(in srgb, var(--dashboard-surface-2) 48%, white 52%),
       transparent 26%
     ),
-    color-mix(in srgb, var(--dashboard-surface) 90%, white);
+    color-mix(in srgb, var(--dashboard-surface) 76%, white 24%);
 }
 
 .dashboard-account-grid {
   gap: 14px 16px;
+}
+
+.dashboard-account-panel--profile .dashboard-account-grid {
+  gap: 12px 16px;
+  align-items: end;
 }
 
 .dashboard-account-subsection {
@@ -3865,14 +3885,32 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   border-top: 1px solid color-mix(in srgb, var(--dashboard-border) 82%, transparent);
 }
 
-.dashboard-account-backup-list,
-.dashboard-account-org-list {
+.dashboard-account-subsection--compact {
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.dashboard-account-subsection-header {
+  margin-bottom: -2px;
+}
+
+.dashboard-account-subsection-header .dashboard-section-toolbar__copy {
+  gap: 2px;
+}
+
+.dashboard-account-subsection-header .dashboard-section-toolbar__copy h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.dashboard-account-backup-list {
   display: grid;
   gap: 12px;
 }
 
-.dashboard-account-backup-item,
-.dashboard-account-org-card {
+.dashboard-account-backup-item {
   display: grid;
   gap: 12px;
   padding: 16px;
@@ -3887,63 +3925,12 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   align-items: end;
 }
 
-.dashboard-account-summary-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+.dashboard-account-panel--profile .dashboard-account-backup-list {
+  gap: 10px;
 }
 
-.dashboard-account-summary-card {
-  display: grid;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--dashboard-border) 92%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--dashboard-surface-2) 78%, transparent);
-}
-
-.dashboard-account-summary-card span {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--dashboard-ink-soft);
-}
-
-.dashboard-account-summary-card strong {
-  font-size: 1.1rem;
-  color: var(--dashboard-ink);
-}
-
-.dashboard-account-org-card__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.dashboard-account-org-card__header h3 {
-  margin: 0;
-}
-
-.dashboard-account-pill-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.dashboard-account-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--dashboard-border) 88%, transparent);
-  background: color-mix(in srgb, #b98940 10%, var(--dashboard-surface));
-  color: var(--dashboard-ink);
-  font-size: 0.76rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.dashboard-account-panel--profile .dashboard-account-backup-item {
+  padding: 12px 14px;
 }
 
 .dashboard-account-org-meta {
@@ -3952,6 +3939,41 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   gap: 8px 14px;
   color: var(--dashboard-ink-soft);
   font-size: 0.85rem;
+}
+
+.dashboard-account-org-table {
+  margin-top: 4px;
+}
+
+.dashboard-account-org-table__organization {
+  gap: 6px;
+}
+
+.dashboard-account-org-table__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-account-table-form {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-account-table-form .dashboard-form-field {
+  gap: 0;
+}
+
+.dashboard-account-table-form .dashboard-input {
+  min-height: 40px;
+}
+
+.dashboard-account-table-input {
+  width: min(100%, 220px);
+}
+
+.dashboard-account-org-table__actions {
+  min-width: 0;
 }
 
 .dashboard-account-alert--success {
@@ -3968,14 +3990,9 @@ html[data-w3a-theme='dark'] .dashboard-account-alert--success,
   .dashboard-account-inline-form {
     grid-template-columns: minmax(0, 1fr) auto;
   }
-}
 
-@media (max-width: 799px) {
-  .dashboard-account-org-card__header {
-    flex-direction: column;
-  }
-
-  .dashboard-account-pill-row {
-    justify-content: flex-start;
+  .dashboard-account-table-form {
+    grid-template-columns: minmax(0, 220px) auto;
+    align-items: end;
   }
 }
