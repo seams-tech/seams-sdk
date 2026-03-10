@@ -144,12 +144,6 @@ export const ReceiptTextIcon: React.FC<SidebarIconProps> = (props) => (
   </SidebarIconBase>
 );
 
-export const ChevronUpIcon: React.FC<SidebarIconProps> = (props) => (
-  <SidebarIconBase iconName="chevron-up" {...props}>
-    <path d="m18 15-6-6-6 6" />
-  </SidebarIconBase>
-);
-
 export const ChevronDownIcon: React.FC<SidebarIconProps> = (props) => (
   <SidebarIconBase iconName="chevron-down" {...props}>
     <path d="m6 9 6 6 6-6" />

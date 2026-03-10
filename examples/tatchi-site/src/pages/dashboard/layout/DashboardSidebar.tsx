@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDownIcon, ChevronUpIcon } from '../icons/SidebarIcons';
+import { ChevronDownIcon } from '../icons/SidebarIcons';
 import type {
   DashboardRoute,
   ExpandedSidebarGroupsState,
@@ -34,7 +34,8 @@ export function DashboardSidebar({
   return (
     <aside className="dashboard-sidebar" aria-label="Primary dashboard navigation">
       {groups.map((group) => {
-        const CaretIcon = expandedGroups[group.key] ? ChevronUpIcon : ChevronDownIcon;
+        const isGroupExpanded = expandedGroups[group.key] || !isSidebarExpanded;
+        const groupPanelId = `dashboard-sidebar-group-panel-${group.key}`;
         return (
           <section className="dashboard-sidebar-group" key={group.key}>
             <button
@@ -42,44 +43,55 @@ export function DashboardSidebar({
               className="dashboard-group-toggle"
               onClick={() => onToggleGroup(group.key)}
               aria-expanded={expandedGroups[group.key]}
+              aria-controls={groupPanelId}
             >
               <span className="dashboard-sidebar-group__title">{group.label}</span>
-              <CaretIcon className="dashboard-nav-caret" size={16} strokeWidth={2.2} />
+              <ChevronDownIcon
+                className={`dashboard-nav-caret${expandedGroups[group.key] ? ' is-expanded' : ''}`}
+                size={16}
+                strokeWidth={2.2}
+              />
             </button>
 
-            {expandedGroups[group.key] || !isSidebarExpanded ? (
-              <ul className="dashboard-nav-list">
-                {group.items.map((item) => {
-                  const ItemIcon = item.icon;
-                  const navProps = linkProps(item.path);
-                  const isActive = item.path === activeRoute;
-                  const isDisabled = disableNavigationItems;
-                  return (
-                    <li key={item.key}>
-                      <a
-                        className={`dashboard-nav-item${isActive ? ' dashboard-nav-item--active' : ''}${isDisabled ? ' dashboard-nav-item--disabled' : ''}`}
-                        href={navProps.href}
-                        onClick={
-                          isDisabled
-                            ? (event) => {
-                                event.preventDefault();
-                              }
-                            : navProps.onClick
-                        }
-                        aria-current={isActive ? 'page' : undefined}
-                        aria-disabled={isDisabled || undefined}
-                        tabIndex={isDisabled ? -1 : undefined}
-                      >
-                        <span className="dashboard-nav-icon" aria-hidden="true">
-                          <ItemIcon size={20} />
-                        </span>
-                        <span className="dashboard-nav-label">{item.label}</span>
-                      </a>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : null}
+            <div
+              id={groupPanelId}
+              className={`dashboard-sidebar-group__panel${isGroupExpanded ? ' is-expanded' : ''}`}
+              aria-hidden={!isGroupExpanded}
+            >
+              <div className="dashboard-sidebar-group__panel-inner">
+                <ul className="dashboard-nav-list">
+                  {group.items.map((item) => {
+                    const ItemIcon = item.icon;
+                    const navProps = linkProps(item.path);
+                    const isActive = item.path === activeRoute;
+                    const isDisabled = disableNavigationItems;
+                    return (
+                      <li key={item.key}>
+                        <a
+                          className={`dashboard-nav-item${isActive ? ' dashboard-nav-item--active' : ''}${isDisabled ? ' dashboard-nav-item--disabled' : ''}`}
+                          href={navProps.href}
+                          onClick={
+                            isDisabled
+                              ? (event) => {
+                                  event.preventDefault();
+                                }
+                              : navProps.onClick
+                          }
+                          aria-current={isActive ? 'page' : undefined}
+                          aria-disabled={isDisabled || undefined}
+                          tabIndex={isDisabled || !isGroupExpanded ? -1 : undefined}
+                        >
+                          <span className="dashboard-nav-icon" aria-hidden="true">
+                            <ItemIcon size={20} />
+                          </span>
+                          <span className="dashboard-nav-label">{item.label}</span>
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </div>
           </section>
         );
       })}
