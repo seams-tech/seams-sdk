@@ -58,11 +58,15 @@ async function cleanupBillingNamespaceForOrgs(input: {
       await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
         namespace,
       ]);
+      await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
+        namespace,
+      ]);
       await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
     });
   }
+  await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [namespace]);
 }
 
 async function settleCreditPurchase(
@@ -368,6 +372,37 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(String((ledger.rows[0] as any).entry_type || '')).toBe('CREDIT_PURCHASE');
     expect(Number((ledger.rows[0] as any).amount_minor || 0)).toBe(20000);
 
+    const postings = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT account_id, direction, amount_minor
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1
+          AND org_id = $2
+          AND related_purchase_id = $3
+        ORDER BY direction ASC, account_id ASC`,
+      values: [namespace, ctx.orgId, first.purchase!.id],
+    });
+    expect(
+      postings.rows.map((row) => ({
+        account_id: String((row as any).account_id || ''),
+        direction: String((row as any).direction || ''),
+        amount_minor: Number((row as any).amount_minor || 0),
+      })),
+    ).toEqual([
+      {
+        account_id: 'acct:org_prepaid_liability:org-postgres-purchase-webhook',
+        direction: 'CREDIT',
+        amount_minor: 20000,
+      },
+      {
+        account_id: 'acct:processor_clearing:stripe',
+        direction: 'DEBIT',
+        amount_minor: 20000,
+      },
+    ]);
+
     const webhookEvents = await queryInOrg({
       postgresUrl,
       namespace,
@@ -449,6 +484,40 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(usage.monthUtc).toBe(first.monthUtc);
     expect(usage.usageMetricVersion).toBe('maw_v1');
     expect(usage.monthlyActiveWallets).toBe(2);
+
+    const postings = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT account_id, direction, amount_minor, source_event_id
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1
+          AND org_id = $2
+          AND source_event_id = $3
+        ORDER BY direction ASC, account_id ASC`,
+      values: [namespace, ctx.orgId, 'maw_pg_evt_1'],
+    });
+    expect(
+      postings.rows.map((row) => ({
+        account_id: String((row as any).account_id || ''),
+        direction: String((row as any).direction || ''),
+        amount_minor: Number((row as any).amount_minor || 0),
+        source_event_id: String((row as any).source_event_id || ''),
+      })),
+    ).toEqual([
+      {
+        account_id: 'acct:revenue_usage',
+        direction: 'CREDIT',
+        amount_minor: 300,
+        source_event_id: 'maw_pg_evt_1',
+      },
+      {
+        account_id: 'acct:org_prepaid_liability:org-postgres-maw',
+        direction: 'DEBIT',
+        amount_minor: 300,
+        source_event_id: 'maw_pg_evt_1',
+      },
+    ]);
 
     const rollup = await queryInOrg({
       postgresUrl,
@@ -647,6 +716,97 @@ test.describe('console billing postgres service prepaid model', () => {
       await cleanupBillingNamespaceForOrgs({
         postgresUrl,
         namespace: historyNamespace,
+        orgIds: [ctx.orgId],
+      });
+    }
+  });
+
+  test('postgres service rebuilds invoice projections from ledger and purchase state', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const projectionNamespace = randomNamespace('test:console-billing:projection-rebuild');
+    let current = new Date('2026-03-20T00:00:00.000Z');
+    const projectionService = await createPostgresConsoleBillingService({
+      postgresUrl,
+      namespace: projectionNamespace,
+      logger: console as any,
+      ensureSchema: true,
+      now: () => current,
+    });
+    const ctx = {
+      orgId: 'org-postgres-projection-rebuild',
+      actorUserId: 'ops-projection-rebuild-postgres',
+      roles: ['ops'],
+    } satisfies BillingCtx;
+
+    try {
+      await projectionService.recordUsageEvent(ctx, {
+        walletId: 'wallet_projection_1',
+        action: 'transfer',
+        succeeded: true,
+        sourceEventId: 'projection_usage_1',
+        occurredAt: '2026-03-09T00:00:00.000Z',
+      });
+      const statement = await projectionService.generateMonthlyInvoice(ctx, {
+        periodMonthUtc: '2026-03',
+      });
+      const receipt = await settleCreditPurchase(projectionService, ctx, 'usd_200');
+
+      await queryInOrg({
+        postgresUrl,
+        namespace: projectionNamespace,
+        orgId: ctx.orgId,
+        text: `DELETE FROM console_invoice_line_items
+               WHERE namespace = $1 AND org_id = $2`,
+        values: [projectionNamespace, ctx.orgId],
+      });
+      await queryInOrg({
+        postgresUrl,
+        namespace: projectionNamespace,
+        orgId: ctx.orgId,
+        text: `DELETE FROM console_invoices
+               WHERE namespace = $1 AND org_id = $2`,
+        values: [projectionNamespace, ctx.orgId],
+      });
+
+      const rebuilt = await projectionService.listInvoicesPage(ctx, {});
+      expect(rebuilt.totalCount).toBe(2);
+      expect(rebuilt.invoices.some((invoice) => invoice.id === statement.invoice.id)).toBe(true);
+      expect(rebuilt.invoices.some((invoice) => invoice.id === receipt.invoice.id)).toBe(true);
+
+      const rebuiltStatement = await projectionService.getInvoice(ctx, statement.invoice.id);
+      expect(rebuiltStatement?.amountDueMinor).toBe(300);
+      expect(rebuiltStatement?.documentType).toBe('USAGE_STATEMENT');
+
+      const rebuiltReceipt = await projectionService.getInvoice(ctx, receipt.invoice.id);
+      expect(rebuiltReceipt?.amountDueMinor).toBe(20000);
+      expect(rebuiltReceipt?.documentType).toBe('PURCHASE_RECEIPT');
+
+      const rebuiltStatementItems = await projectionService.listInvoiceLineItems(
+        ctx,
+        statement.invoice.id,
+      );
+      expect(rebuiltStatementItems.length).toBe(1);
+      expect(rebuiltStatementItems[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+      expect(rebuiltStatementItems[0]?.amountMinor).toBe(300);
+
+      const rebuiltReceiptItems = await projectionService.listInvoiceLineItems(
+        ctx,
+        receipt.invoice.id,
+      );
+      expect(rebuiltReceiptItems.length).toBe(1);
+      expect(rebuiltReceiptItems[0]?.itemType).toBe('CREDIT_TOP_UP');
+      expect(rebuiltReceiptItems[0]?.amountMinor).toBe(20000);
+
+      const rebuiltActivity = await projectionService.getInvoiceActivity(ctx, statement.invoice.id);
+      expect(
+        rebuiltActivity?.entries.some(
+          (entry) => entry.type === 'LEDGER' && entry.toState === 'USAGE_DEBIT',
+        ),
+      ).toBe(true);
+    } finally {
+      await cleanupBillingNamespaceForOrgs({
+        postgresUrl,
+        namespace: projectionNamespace,
         orgIds: [ctx.orgId],
       });
     }

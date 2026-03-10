@@ -41,6 +41,115 @@ export interface BillingConsoleShellProps {
   defaultPath: '/dashboard/billing/account' | '/dashboard/invoices';
 }
 
+const DATE_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const PERIOD_MONTH_PATTERN = /^(\d{4})-(\d{2})$/;
+const ONE_DAY_MS = 86_400_000;
+
+function parseDateInputMs(value: string, endOfDay: boolean): number | null {
+  const match = DATE_INPUT_PATTERN.exec(String(value || '').trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  const timestamp = Date.UTC(year, month - 1, day);
+  const parsed = new Date(timestamp);
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return endOfDay ? timestamp + ONE_DAY_MS - 1 : timestamp;
+}
+
+function parseInvoicePeriodRange(
+  periodMonthUtc: string,
+): { startMs: number; endMs: number } | null {
+  const match = PERIOD_MONTH_PATTERN.exec(String(periodMonthUtc || '').trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+  const startMs = Date.UTC(year, month - 1, 1);
+  const endMs = Date.UTC(year, month, 1) - 1;
+  return { startMs, endMs };
+}
+
+function isInvoiceOverdueAt(
+  invoice: DashboardBillingInvoice,
+  referenceNowMs: number,
+): boolean {
+  if (invoice.status !== 'OPEN' || !invoice.dueAt) return false;
+  const dueAtMs = Date.parse(invoice.dueAt);
+  if (!Number.isFinite(dueAtMs)) return false;
+  return dueAtMs < referenceNowMs;
+}
+
+function buildInvoiceListSummary(
+  invoices: readonly DashboardBillingInvoice[],
+  referenceNowMs: number,
+): DashboardBillingInvoiceListSummary {
+  const openCount = invoices.filter((invoice) => invoice.status === 'OPEN').length;
+  const overdueCount = invoices.filter((invoice) =>
+    isInvoiceOverdueAt(invoice, referenceNowMs),
+  ).length;
+  const paidCount = invoices.filter((invoice) => invoice.status === 'PAID').length;
+  const outstandingAmountMinor = invoices.reduce((total, invoice) => {
+    return total + Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
+  }, 0);
+  const receiptCount = invoices.filter(
+    (invoice) => invoice.documentType === 'PURCHASE_RECEIPT',
+  ).length;
+  const statementCount = invoices.filter(
+    (invoice) => invoice.documentType === 'USAGE_STATEMENT',
+  ).length;
+  return {
+    totalCount: invoices.length,
+    openCount,
+    overdueCount,
+    paidCount,
+    outstandingAmountMinor,
+    latestPeriodMonthUtc: invoices[0]?.periodMonthUtc || null,
+    receiptCount,
+    statementCount,
+  };
+}
+
+function filterInvoices(input: {
+  invoices: readonly DashboardBillingInvoice[];
+  statusFilter: string;
+  documentTypeFilter: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  referenceNowMs: number;
+}): DashboardBillingInvoice[] {
+  const periodStartMs = parseDateInputMs(input.periodStartDate, false);
+  const periodEndMs = parseDateInputMs(input.periodEndDate, true);
+  return input.invoices.filter((invoice) => {
+    if (input.documentTypeFilter !== 'all' && invoice.documentType !== input.documentTypeFilter) {
+      return false;
+    }
+    if (input.statusFilter === 'overdue') {
+      if (!isInvoiceOverdueAt(invoice, input.referenceNowMs)) return false;
+    } else if (
+      input.statusFilter !== 'all' &&
+      invoice.status !== input.statusFilter.toUpperCase()
+    ) {
+      return false;
+    }
+    if (periodStartMs === null && periodEndMs === null) return true;
+    const periodRange = parseInvoicePeriodRange(invoice.periodMonthUtc);
+    if (!periodRange) return false;
+    if (periodStartMs !== null && periodRange.endMs < periodStartMs) return false;
+    if (periodEndMs !== null && periodRange.startMs > periodEndMs) return false;
+    return true;
+  });
+}
+
 export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.Element {
   const { defaultPath } = props;
   const session = useDashboardConsoleSession();
@@ -59,17 +168,6 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
   const [invoiceListError, setInvoiceListError] = React.useState<string>('');
-  const [invoiceTotalCount, setInvoiceTotalCount] = React.useState<number>(0);
-  const [invoiceSummary, setInvoiceSummary] = React.useState<DashboardBillingInvoiceListSummary>({
-    totalCount: 0,
-    openCount: 0,
-    overdueCount: 0,
-    paidCount: 0,
-    outstandingAmountMinor: 0,
-    latestPeriodMonthUtc: null,
-    receiptCount: 0,
-    statementCount: 0,
-  });
 
   const [startingCheckoutPackId, setStartingCheckoutPackId] = React.useState<string>('');
   const [checkoutActionError, setCheckoutActionError] = React.useState<string>('');
@@ -103,7 +201,10 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [lineItems, setLineItems] = React.useState<DashboardBillingInvoiceLineItem[]>([]);
   const [invoiceStatusFilter, setInvoiceStatusFilter] = React.useState<string>('all');
   const [invoiceDocumentTypeFilter, setInvoiceDocumentTypeFilter] = React.useState<string>('all');
-  const [invoicePeriodFilter, setInvoicePeriodFilter] = React.useState<string>('');
+  const [invoicePeriodStartDateFilter, setInvoicePeriodStartDateFilter] =
+    React.useState<string>('');
+  const [invoicePeriodEndDateFilter, setInvoicePeriodEndDateFilter] =
+    React.useState<string>('');
   const [downloadingInvoicePdfId, setDownloadingInvoicePdfId] = React.useState<string>('');
   const [invoiceDownloadError, setInvoiceDownloadError] = React.useState<string>('');
 
@@ -142,58 +243,25 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     setInvoiceListLoading(true);
     setInvoiceListError('');
     try {
-      const statusFilter = invoiceStatusFilter.toLowerCase();
-      const invoiceStatus =
-        statusFilter === 'open' ||
-        statusFilter === 'paid' ||
-        statusFilter === 'void' ||
-        statusFilter === 'uncollectible'
-          ? (statusFilter.toUpperCase() as 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE')
-          : undefined;
       let cursor: string | null = null;
-      let totalCount = 0;
-      let summary: DashboardBillingInvoiceListSummary | null = null;
       const allInvoices: DashboardBillingInvoice[] = [];
       for (;;) {
         const response = await listDashboardBillingInvoices({
-          ...(invoiceStatus ? { status: invoiceStatus } : {}),
-          ...(statusFilter === 'overdue' ? { overdue: true } : {}),
-          ...(invoicePeriodFilter ? { periodMonthUtc: invoicePeriodFilter } : {}),
-          ...(invoiceDocumentTypeFilter !== 'all'
-            ? { documentType: invoiceDocumentTypeFilter as 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT' }
-            : {}),
           ...(cursor ? { cursor } : {}),
           limit: 100,
         });
         allInvoices.push(...response.invoices);
-        totalCount = response.totalCount;
-        summary = response.summary;
         cursor = response.nextCursor;
         if (!cursor) break;
       }
       setInvoices(allInvoices);
-      setInvoiceTotalCount(totalCount);
-      if (summary) {
-        setInvoiceSummary(summary);
-      }
     } catch (error: unknown) {
       setInvoices([]);
-      setInvoiceTotalCount(0);
-      setInvoiceSummary({
-        totalCount: 0,
-        openCount: 0,
-        overdueCount: 0,
-        paidCount: 0,
-        outstandingAmountMinor: 0,
-        latestPeriodMonthUtc: null,
-        receiptCount: 0,
-        statementCount: 0,
-      });
       setInvoiceListError(error instanceof Error ? error.message : String(error));
     } finally {
       setInvoiceListLoading(false);
     }
-  }, [invoiceDocumentTypeFilter, invoicePeriodFilter, invoiceStatusFilter, session.claims]);
+  }, [session.claims]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -221,20 +289,19 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setLoading(true);
       return;
     }
+    if (subview.kind !== 'account') {
+      setLoading(false);
+      setErrorMessage('');
+      setBillingWarningMessage('');
+      return;
+    }
     void refreshBillingShellData();
-  }, [refreshBillingShellData, session.loading]);
+  }, [refreshBillingShellData, session.loading, subview.kind]);
 
   React.useEffect(() => {
     if (!session.claims || subview.kind === 'invoice') return;
     void loadInvoiceListPage();
-  }, [
-    invoiceDocumentTypeFilter,
-    invoicePeriodFilter,
-    invoiceStatusFilter,
-    loadInvoiceListPage,
-    session.claims,
-    subview.kind,
-  ]);
+  }, [loadInvoiceListPage, session.claims, subview.kind]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -333,30 +400,51 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     [session.claims?.roles],
   );
 
+  const filteredInvoices = React.useMemo<DashboardBillingInvoice[]>(() => {
+    return filterInvoices({
+      invoices,
+      statusFilter: invoiceStatusFilter,
+      documentTypeFilter: invoiceDocumentTypeFilter,
+      periodStartDate: invoicePeriodStartDateFilter,
+      periodEndDate: invoicePeriodEndDateFilter,
+      referenceNowMs: Date.now(),
+    });
+  }, [
+    invoiceDocumentTypeFilter,
+    invoicePeriodEndDateFilter,
+    invoicePeriodStartDateFilter,
+    invoiceStatusFilter,
+    invoices,
+  ]);
+
+  const filteredInvoiceSummary = React.useMemo<DashboardBillingInvoiceListSummary>(() => {
+    return buildInvoiceListSummary(filteredInvoices, Date.now());
+  }, [filteredInvoices]);
+
   const invoiceSummaryMetrics = React.useMemo<BillingMetric[]>(() => {
     return [
       {
         label: 'Matched documents',
-        value: String(invoiceTotalCount),
-        hint: `${invoiceSummary.statementCount} statements`,
+        value: String(filteredInvoiceSummary.totalCount),
+        hint: `${filteredInvoiceSummary.statementCount} statements`,
       },
       {
         label: 'Purchase receipts',
-        value: String(invoiceSummary.receiptCount),
-        hint: `${invoiceSummary.paidCount} paid documents`,
+        value: String(filteredInvoiceSummary.receiptCount),
+        hint: `${filteredInvoiceSummary.paidCount} paid documents`,
       },
       {
         label: 'Outstanding',
-        value: formatUsdMinor(invoiceSummary.outstandingAmountMinor),
-        hint: `${invoiceSummary.openCount} open`,
+        value: formatUsdMinor(filteredInvoiceSummary.outstandingAmountMinor),
+        hint: `${filteredInvoiceSummary.openCount} open`,
       },
       {
         label: 'Latest period',
-        value: invoiceSummary.latestPeriodMonthUtc || '-',
+        value: filteredInvoiceSummary.latestPeriodMonthUtc || '-',
         hint: 'Loaded invoice history',
       },
     ];
-  }, [invoiceSummary, invoiceTotalCount]);
+  }, [filteredInvoiceSummary]);
 
   const summaryMetrics = React.useMemo<BillingMetric[]>(
     () => [
@@ -660,10 +748,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           setInvoiceStatusFilter={setInvoiceStatusFilter}
           invoiceDocumentTypeFilter={invoiceDocumentTypeFilter}
           setInvoiceDocumentTypeFilter={setInvoiceDocumentTypeFilter}
-          invoicePeriodFilter={invoicePeriodFilter}
-          setInvoicePeriodFilter={setInvoicePeriodFilter}
-          invoices={invoices}
-          totalInvoices={invoiceTotalCount}
+          invoicePeriodStartDateFilter={invoicePeriodStartDateFilter}
+          setInvoicePeriodStartDateFilter={setInvoicePeriodStartDateFilter}
+          invoicePeriodEndDateFilter={invoicePeriodEndDateFilter}
+          setInvoicePeriodEndDateFilter={setInvoicePeriodEndDateFilter}
+          invoices={filteredInvoices}
+          hasAnyInvoices={invoices.length > 0}
           downloadingInvoicePdfId={downloadingInvoicePdfId}
           invoiceDownloadError={invoiceDownloadError}
           onOpenInvoice={(invoiceId) => go(`/dashboard/invoices/${encodeURIComponent(invoiceId)}`)}

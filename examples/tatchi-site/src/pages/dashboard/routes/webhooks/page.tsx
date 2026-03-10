@@ -92,6 +92,7 @@ export function WebhooksPage(): React.JSX.Element {
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
+  const [isCreateModalOpen, setIsCreateModalOpen] = React.useState<boolean>(false);
   const [urlInput, setUrlInput] = React.useState<string>('');
   const [eventCategories, setEventCategories] = React.useState<ConsoleWebhookEventCategory[]>(
     DEFAULT_WEBHOOK_EVENT_CATEGORIES,
@@ -206,6 +207,17 @@ export function WebhooksPage(): React.JSX.Element {
     loadDeliveries({ endpointId: selectedEndpointId });
   }, [loadDeliveries, selectedEndpointId]);
 
+  const onOpenCreateModal = React.useCallback(() => {
+    setIsCreateModalOpen(true);
+    setMutationError('');
+  }, []);
+
+  const onCloseCreateModal = React.useCallback(() => {
+    if (creating) return;
+    setIsCreateModalOpen(false);
+    setMutationError('');
+  }, [creating]);
+
   const onCreateEndpoint = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -232,6 +244,7 @@ export function WebhooksPage(): React.JSX.Element {
         });
         setUrlInput('');
         setEventCategories([...DEFAULT_WEBHOOK_EVENT_CATEGORIES]);
+        setIsCreateModalOpen(false);
         loadEndpoints();
         setSelectedEndpointId(endpoint.id);
       } catch (error: unknown) {
@@ -312,39 +325,34 @@ export function WebhooksPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Webhooks page">
-      <section className="dashboard-view__section" aria-label="Webhook endpoint controls">
-        <h2>Create webhook endpoint</h2>
-        <form
-          className="dashboard-view-grid dashboard-webhook-form"
-          onSubmit={onCreateEndpoint}
-        >
-          <label className="dashboard-form-field dashboard-webhook-form__field">
-            <span>Endpoint URL</span>
-            <input
-              className="dashboard-input"
-              value={urlInput}
-              onChange={(event) => setUrlInput(event.target.value)}
-              placeholder="https://example.com/webhooks/tatchi"
-            />
-          </label>
-          <ScopePicker
-            label="Event categories"
-            options={WEBHOOK_EVENT_CATEGORY_OPTIONS}
-            values={eventCategories}
-            onChange={(next) => setEventCategories(next as ConsoleWebhookEventCategory[])}
-            disabled={creating}
-            addLabel=""
-            emptyLabel="No event categories selected."
-            placeholderLabel="Select an event category"
-          />
-          <div className="dashboard-form-actions dashboard-webhook-form__actions">
-            <button type="submit" className="dashboard-pagination-button" disabled={creating}>
-              {creating ? 'Creating...' : 'Create endpoint'}
-            </button>
+      <section
+        className="dashboard-view__section dashboard-view__section--toolbar"
+        aria-label="Webhook endpoint controls"
+      >
+        <div className="dashboard-section-toolbar dashboard-section-toolbar--stacked-start">
+          <div className="dashboard-section-toolbar__copy">
+            <h2>Webhook endpoints</h2>
+            <p className="dashboard-form-hint">
+              Register delivery URLs and subscribe them to the event categories your integration
+              needs.
+            </p>
           </div>
-        </form>
-        {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            onClick={onOpenCreateModal}
+            disabled={creating || session.loading || !session.claims}
+          >
+            Create Webhook
+          </button>
+        </div>
       </section>
+
+      {mutationError && !isCreateModalOpen ? (
+        <p className="dashboard-form-alert" role="alert">
+          {mutationError}
+        </p>
+      ) : null}
 
       <DashboardTable
         ariaLabel="Webhook endpoints table"
@@ -423,6 +431,64 @@ export function WebhooksPage(): React.JSX.Element {
           </>
         )}
       </DashboardTable>
+
+      {isCreateModalOpen ? (
+        <div
+          className="dashboard-inline-modal-backdrop"
+          role="presentation"
+          onClick={onCloseCreateModal}
+        >
+          <section
+            className="dashboard-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create webhook modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>Create Webhook</h2>
+            <form className="dashboard-view-grid dashboard-webhook-form" onSubmit={onCreateEndpoint}>
+              <label className="dashboard-form-field dashboard-webhook-form__field">
+                <span>Endpoint URL</span>
+                <input
+                  className="dashboard-input"
+                  value={urlInput}
+                  onChange={(event) => setUrlInput(event.target.value)}
+                  placeholder="https://example.com/webhooks/tatchi"
+                  disabled={creating}
+                />
+              </label>
+              <ScopePicker
+                label="Event categories"
+                options={WEBHOOK_EVENT_CATEGORY_OPTIONS}
+                values={eventCategories}
+                onChange={(next) => setEventCategories(next as ConsoleWebhookEventCategory[])}
+                disabled={creating}
+                addLabel=""
+                emptyLabel="No event categories selected."
+                placeholderLabel="Select an event category"
+              />
+              {mutationError ? (
+                <p className="dashboard-form-alert" role="alert">
+                  {mutationError}
+                </p>
+              ) : null}
+              <div className="dashboard-form-actions dashboard-webhook-form__actions">
+                <button
+                  type="button"
+                  className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                  onClick={onCloseCreateModal}
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="dashboard-pagination-button" disabled={creating}>
+                  {creating ? 'Creating...' : 'Create endpoint'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       <DashboardTable
         ariaLabel="Webhook deliveries table"

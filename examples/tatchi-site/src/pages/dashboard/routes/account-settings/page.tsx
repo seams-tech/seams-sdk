@@ -1,4 +1,6 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
+import { toast } from 'sonner';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   DashboardTable,
@@ -46,6 +48,7 @@ const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(1.75, 0.85, 1.
 export function AccountSettingsPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
+  const viewRef = React.useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [noticeMessage, setNoticeMessage] = React.useState<string>('');
@@ -69,6 +72,8 @@ export function AccountSettingsPage(): React.JSX.Element {
   const [transferringOrganizationId, setTransferringOrganizationId] = React.useState<string>('');
   const [switchingOrganizationId, setSwitchingOrganizationId] = React.useState<string>('');
   const [deletingOrganizationId, setDeletingOrganizationId] = React.useState<string>('');
+  const [renameModalOrganizationId, setRenameModalOrganizationId] = React.useState<string>('');
+  const [modalHost, setModalHost] = React.useState<HTMLElement | null>(null);
 
   React.useEffect(() => {
     if (session.loading) {
@@ -139,6 +144,16 @@ export function AccountSettingsPage(): React.JSX.Element {
     });
   }, [organizations, session.claims?.userId]);
 
+  React.useEffect(() => {
+    setModalHost(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
+  }, []);
+
+  const renameOrganization = React.useMemo(
+    () =>
+      organizations.find((organization) => organization.id === renameModalOrganizationId) || null,
+    [organizations, renameModalOrganizationId],
+  );
+
   const onSaveProfile = React.useCallback(async () => {
     setSavingProfile(true);
     setActionErrorMessage('');
@@ -149,7 +164,7 @@ export function AccountSettingsPage(): React.JSX.Element {
         ...(profile?.canEditPrimaryEmail !== false ? { primaryEmail: primaryEmailDraft } : {}),
       });
       setProfile(nextProfile);
-      setNoticeMessage('Profile updated.');
+      toast.success('Profile updated.');
     } catch (error: unknown) {
       setActionErrorMessage(toErrorMessage(error));
     } finally {
@@ -223,6 +238,7 @@ export function AccountSettingsPage(): React.JSX.Element {
           name: nextName,
         });
         await reloadAccountSettings();
+        setRenameModalOrganizationId('');
         setNoticeMessage(`Updated ${organization.name}.`);
       } catch (error: unknown) {
         setActionErrorMessage(toErrorMessage(error));
@@ -232,6 +248,20 @@ export function AccountSettingsPage(): React.JSX.Element {
     },
     [reloadAccountSettings, renameDrafts],
   );
+
+  const onOpenRenameModal = React.useCallback((organization: DashboardAccountOrganization) => {
+    setActionErrorMessage('');
+    setRenameDrafts((current) => ({
+      ...current,
+      [organization.id]: organization.name,
+    }));
+    setRenameModalOrganizationId(organization.id);
+  }, []);
+
+  const onCloseRenameModal = React.useCallback(() => {
+    setActionErrorMessage('');
+    setRenameModalOrganizationId('');
+  }, []);
 
   const onTransferOwner = React.useCallback(
     async (organization: DashboardAccountOrganization) => {
@@ -322,8 +352,79 @@ export function AccountSettingsPage(): React.JSX.Element {
     );
   }
 
+  const renameModal =
+    renameOrganization !== null ? (
+      <div
+        className="dashboard-inline-modal-backdrop"
+        role="presentation"
+        onClick={onCloseRenameModal}
+      >
+        <section
+          className="dashboard-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Rename organization modal"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h2>Rename organization</h2>
+          <p className="dashboard-pagination-note">
+            {renameOrganization.slug || renameOrganization.id}
+          </p>
+          <form
+            className="dashboard-view-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onRenameOrganization(renameOrganization);
+            }}
+          >
+            <label className="dashboard-form-field">
+              <span>Organization name</span>
+              <input
+                className="dashboard-input"
+                value={renameDrafts[renameOrganization.id] || ''}
+                onChange={(event) =>
+                  setRenameDrafts((current) => ({
+                    ...current,
+                    [renameOrganization.id]: event.target.value,
+                  }))
+                }
+                disabled={renamingOrganizationId === renameOrganization.id}
+                placeholder="Organization name"
+                autoFocus
+              />
+            </label>
+            {actionErrorMessage ? (
+              <p className="dashboard-form-alert" role="alert">
+                {actionErrorMessage}
+              </p>
+            ) : null}
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                onClick={onCloseRenameModal}
+                disabled={renamingOrganizationId === renameOrganization.id}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="dashboard-pagination-button"
+                disabled={
+                  renamingOrganizationId === renameOrganization.id ||
+                  !String(renameDrafts[renameOrganization.id] || '').trim()
+                }
+              >
+                {renamingOrganizationId === renameOrganization.id ? 'Saving...' : 'Rename'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
+    ) : null;
+
   return (
-    <div className="dashboard-account-settings" aria-label="Account settings page">
+    <div ref={viewRef} className="dashboard-account-settings" aria-label="Account settings page">
       {noticeMessage ? (
         <p className="dashboard-form-alert dashboard-account-alert--success" role="status">
           {noticeMessage}
@@ -349,77 +450,79 @@ export function AccountSettingsPage(): React.JSX.Element {
             {savingProfile ? 'Saving...' : 'Save'}
           </button>
         </div>
-        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
-          <label className="dashboard-form-field">
-            <span>Display name</span>
-            <input
-              className="dashboard-input"
-              value={displayNameDraft}
-              onChange={(event) => setDisplayNameDraft(event.target.value)}
-              placeholder="Display name"
-            />
-          </label>
-          <label className="dashboard-form-field">
-            <span>
-              {profile?.canEditPrimaryEmail === false
-                ? 'Primary email (read-only)'
-                : 'Primary email'}
-            </span>
-            <input
-              className="dashboard-input"
-              value={primaryEmailDraft}
-              onChange={(event) => setPrimaryEmailDraft(event.target.value)}
-              disabled={profile?.canEditPrimaryEmail === false}
-              placeholder="name@example.com"
-            />
-          </label>
-        </div>
-        <div className="dashboard-account-subsection dashboard-account-subsection--compact">
-          <div className="dashboard-section-toolbar dashboard-account-subsection-header">
-            <div className="dashboard-section-toolbar__copy">
-              <h3>Backup Emails</h3>
-            </div>
-          </div>
-          {profile?.backupEmails.length ? (
-            <div className="dashboard-account-backup-list">
-              {profile.backupEmails.map((backupEmail) => (
-                <article className="dashboard-account-backup-item" key={backupEmail.email}>
-                  <div>
-                    <strong>{backupEmail.email}</strong>
-                    <p className="dashboard-pagination-note">
-                      {backupEmail.status} • added {formatTimestamp(backupEmail.createdAt)}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                    onClick={() => void onRemoveBackupEmail(backupEmail.email)}
-                    disabled={removingBackupEmail === backupEmail.email}
-                  >
-                    {removingBackupEmail === backupEmail.email ? 'Removing...' : 'Remove'}
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          <div className="dashboard-account-inline-form">
+        <div className="dashboard-account-profile-card">
+          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
             <label className="dashboard-form-field">
-              <span className="dashboard-visually-hidden">Backup email</span>
+              <span>Display name</span>
               <input
                 className="dashboard-input"
-                value={newBackupEmail}
-                onChange={(event) => setNewBackupEmail(event.target.value)}
-                placeholder="recovery@example.com"
+                value={displayNameDraft}
+                onChange={(event) => setDisplayNameDraft(event.target.value)}
+                placeholder="Display name"
               />
             </label>
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={() => void onAddBackupEmail()}
-              disabled={addingBackupEmail}
-            >
-              {addingBackupEmail ? 'Adding...' : 'Add'}
-            </button>
+            <label className="dashboard-form-field">
+              <span>
+                {profile?.canEditPrimaryEmail === false
+                  ? 'Primary email (read-only)'
+                  : 'Primary email'}
+              </span>
+              <input
+                className="dashboard-input"
+                value={primaryEmailDraft}
+                onChange={(event) => setPrimaryEmailDraft(event.target.value)}
+                disabled={profile?.canEditPrimaryEmail === false}
+                placeholder="name@example.com"
+              />
+            </label>
+          </div>
+          <div className="dashboard-account-subsection dashboard-account-subsection--compact">
+            <div className="dashboard-section-toolbar dashboard-account-subsection-header">
+              <div className="dashboard-section-toolbar__copy">
+                <h3>Backup Emails</h3>
+              </div>
+            </div>
+            {profile?.backupEmails.length ? (
+              <div className="dashboard-account-backup-list">
+                {profile.backupEmails.map((backupEmail) => (
+                  <article className="dashboard-account-backup-item" key={backupEmail.email}>
+                    <div className="dashboard-account-backup-item__content">
+                      <strong>{backupEmail.email}</strong>
+                      <p className="dashboard-pagination-note">
+                        {backupEmail.status} • added {formatTimestamp(backupEmail.createdAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary dashboard-account-backup-item__action"
+                      onClick={() => void onRemoveBackupEmail(backupEmail.email)}
+                      disabled={removingBackupEmail === backupEmail.email}
+                    >
+                      {removingBackupEmail === backupEmail.email ? 'Removing...' : 'Remove'}
+                    </button>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            <div className="dashboard-account-inline-form">
+              <label className="dashboard-form-field">
+                <span className="dashboard-visually-hidden">Backup email</span>
+                <input
+                  className="dashboard-input"
+                  value={newBackupEmail}
+                  onChange={(event) => setNewBackupEmail(event.target.value)}
+                  placeholder="recovery@example.com"
+                />
+              </label>
+              <button
+                type="button"
+                className="dashboard-pagination-button"
+                onClick={() => void onAddBackupEmail()}
+                disabled={addingBackupEmail}
+              >
+                {addingBackupEmail ? 'Adding...' : 'Add'}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -434,34 +537,36 @@ export function AccountSettingsPage(): React.JSX.Element {
             </p>
           </div>
         </div>
-        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
-          <label className="dashboard-form-field">
-            <span>Organization name</span>
-            <input
-              className="dashboard-input"
-              value={createNameDraft}
-              onChange={(event) => setCreateNameDraft(event.target.value)}
-              placeholder="Northwind Labs"
-            />
-          </label>
-          <label className="dashboard-form-field">
-            <span>Slug</span>
-            <input
-              className="dashboard-input"
-              value={createSlugDraft}
-              onChange={(event) => setCreateSlugDraft(event.target.value)}
-              placeholder="northwind-labs"
-            />
-          </label>
-          <div className="dashboard-form-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={() => void onCreateOrganization()}
-              disabled={creatingOrganization}
-            >
-              {creatingOrganization ? 'Creating...' : 'Create organization'}
-            </button>
+        <div className="dashboard-account-org-create">
+          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
+            <label className="dashboard-form-field">
+              <span>Organization name</span>
+              <input
+                className="dashboard-input"
+                value={createNameDraft}
+                onChange={(event) => setCreateNameDraft(event.target.value)}
+                placeholder="Northwind Labs"
+              />
+            </label>
+            <label className="dashboard-form-field">
+              <span>Slug</span>
+              <input
+                className="dashboard-input"
+                value={createSlugDraft}
+                onChange={(event) => setCreateSlugDraft(event.target.value)}
+                placeholder="northwind-labs"
+              />
+            </label>
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button"
+                onClick={() => void onCreateOrganization()}
+                disabled={creatingOrganization}
+              >
+                {creatingOrganization ? 'Creating...' : 'Create organization'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -512,29 +617,12 @@ export function AccountSettingsPage(): React.JSX.Element {
                   </DashboardTableCell>
                   <DashboardTableCell>
                     {organization.actorIsAdmin ? (
-                      <div className="dashboard-account-table-form">
-                        <label className="dashboard-form-field">
-                          <span className="dashboard-visually-hidden">
-                            Rename {organization.name}
-                          </span>
-                          <input
-                            className="dashboard-input dashboard-account-table-input"
-                            value={renameDrafts[organization.id] || ''}
-                            onChange={(event) =>
-                              setRenameDrafts((current) => ({
-                                ...current,
-                                [organization.id]: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <DashboardTableActionButton
-                          onClick={() => void onRenameOrganization(organization)}
-                          disabled={renamingOrganizationId === organization.id}
-                        >
-                          {renamingOrganizationId === organization.id ? 'Saving...' : 'Rename'}
-                        </DashboardTableActionButton>
-                      </div>
+                      <DashboardTableActionButton
+                        onClick={() => onOpenRenameModal(organization)}
+                        disabled={renamingOrganizationId === organization.id}
+                      >
+                        {renamingOrganizationId === organization.id ? 'Saving...' : 'Rename'}
+                      </DashboardTableActionButton>
                     ) : (
                       <span className="dashboard-pagination-note">Admin only</span>
                     )}
@@ -621,6 +709,7 @@ export function AccountSettingsPage(): React.JSX.Element {
           )}
         </DashboardTable>
       </section>
+      {renameModal ? (modalHost ? createPortal(renameModal, modalHost) : renameModal) : null}
     </div>
   );
 }

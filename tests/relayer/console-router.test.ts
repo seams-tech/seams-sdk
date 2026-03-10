@@ -2463,7 +2463,9 @@ test.describe('console router (express)', () => {
       });
       expect(snapshot.status).toBe(201);
       expect(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'status')).toBe('resolved');
-      const snapshotPolicies = Array.isArray(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'))
+      const snapshotPolicies = Array.isArray(
+        getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'),
+      )
         ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies') as any[])
         : [];
       const livePolicy = snapshotPolicies.find((entry) => String(entry?.id || '') === policyId);
@@ -6719,7 +6721,9 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(snapshot.status).toBe(201);
     expect(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'status')).toBe('resolved');
-    const snapshotPolicies = Array.isArray(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'))
+    const snapshotPolicies = Array.isArray(
+      getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'),
+    )
       ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies') as any[])
       : [];
     const livePolicy = snapshotPolicies.find((entry) => String(entry?.id || '') === policyId);
@@ -7460,7 +7464,9 @@ test.describe('console router (cloudflare)', () => {
       path: `/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
     });
     expect(liveWalletCoverage.status).toBe(200);
-    const liveWalletPolicyRows = Array.isArray(getPath(liveWalletCoverage.json, 'coverage', 'policies'))
+    const liveWalletPolicyRows = Array.isArray(
+      getPath(liveWalletCoverage.json, 'coverage', 'policies'),
+    )
       ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
@@ -10808,12 +10814,18 @@ test.describe('console router (postgres billing)', () => {
         await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
           namespace,
         ]);
+        await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
           namespace,
         ]);
         await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
       });
+      await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [
+        namespace,
+      ]);
     }
   });
 

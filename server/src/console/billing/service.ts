@@ -102,12 +102,11 @@ interface OrgBillingStore {
   lowBalanceThresholdMinor: number;
   purchases: Map<string, BillingCreditPurchase>;
   ledgerEntries: BillingLedgerEntry[];
-  invoices: Map<string, BillingInvoice>;
-  invoiceLineItems: Map<string, BillingInvoiceLineItem[]>;
   paymentMethods: Map<string, BillingPaymentMethod>;
   stripeWebhookEventIds: Set<string>;
   usageEventSourceIds: Set<string>;
   monthlyActiveWalletsByMonth: Map<string, Set<string>>;
+  statementProjectionCreatedAtByMonth: Map<string, string>;
 }
 
 export interface InMemoryConsoleBillingServiceOptions {
@@ -205,21 +204,6 @@ function getCreditPackOrThrow(creditPackId: BillingCreditPackId): BillingCreditP
   return pack;
 }
 
-function makeUsageStatement(orgId: string, monthUtc: string, now: Date): BillingInvoice {
-  return {
-    id: `inv_${monthUtc.replace('-', '')}_001`,
-    orgId,
-    documentType: 'USAGE_STATEMENT',
-    status: 'OPEN',
-    currency: 'USD',
-    amountDueMinor: 0,
-    amountPaidMinor: 0,
-    periodMonthUtc: monthUtc,
-    createdAt: coerceIsoDate(now),
-    dueAt: coerceIsoDate(new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)),
-  };
-}
-
 function makeInvoiceLineItem(input: {
   orgId: string;
   invoiceId: string;
@@ -251,6 +235,7 @@ function buildInvoiceLineItems(input: {
   monthlyActiveWallets: number;
   createdAt: string;
 }): BillingInvoiceLineItem[] {
+  if (input.monthlyActiveWallets <= 0) return [];
   return [
     makeInvoiceLineItem({
       orgId: input.orgId,
@@ -356,28 +341,8 @@ function buildInvoiceListSummary(invoices: BillingInvoice[], now: Date): Billing
   };
 }
 
-function sumLineItemAmounts(lineItems: BillingInvoiceLineItem[]): number {
-  return lineItems.reduce((total, item) => total + item.amountMinor, 0);
-}
-
 function sortLineItems(items: BillingInvoiceLineItem[]): BillingInvoiceLineItem[] {
   return [...items].sort((a, b) => a.itemType.localeCompare(b.itemType));
-}
-
-function lineItemsEquivalent(a: BillingInvoiceLineItem[], b: BillingInvoiceLineItem[]): boolean {
-  const left = sortLineItems(a);
-  const right = sortLineItems(b);
-  if (left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    const la = left[i];
-    const rb = right[i];
-    if (la.itemType !== rb.itemType) return false;
-    if (la.quantity !== rb.quantity) return false;
-    if (la.unitAmountMinor !== rb.unitAmountMinor) return false;
-    if (la.amountMinor !== rb.amountMinor) return false;
-    if (la.periodMonthUtc !== rb.periodMonthUtc) return false;
-  }
-  return true;
 }
 
 function outstandingAmountMinor(invoice: BillingInvoice): number {
@@ -409,23 +374,162 @@ export function createInMemoryConsoleBillingService(
   const providers = resolveBillingProviderAdapters(options.providers);
   const orgStores = new Map<string, OrgBillingStore>();
 
-  function ensureCurrentPeriodInvoice(store: OrgBillingStore, orgId: string, now: Date): void {
-    const periodMonthUtc = formatCurrentMonthUtc(now);
-    const exists = Array.from(store.invoices.values()).some(
-      (invoice) =>
-        invoice.documentType === 'USAGE_STATEMENT' && invoice.periodMonthUtc === periodMonthUtc,
+  function makeUsageStatementId(monthUtc: string): string {
+    return `inv_${monthUtc.replace('-', '')}_001`;
+  }
+
+  function ensureStatementProjectionSeed(
+    store: OrgBillingStore,
+    monthUtc: string,
+    createdAt: Date,
+  ): string {
+    const existing = store.statementProjectionCreatedAtByMonth.get(monthUtc);
+    if (existing) return existing;
+    const createdAtIso = coerceIsoDate(createdAt);
+    store.statementProjectionCreatedAtByMonth.set(monthUtc, createdAtIso);
+    return createdAtIso;
+  }
+
+  function ensureCurrentPeriodStatementSeed(store: OrgBillingStore, now: Date): void {
+    ensureStatementProjectionSeed(store, formatCurrentMonthUtc(now), now);
+  }
+
+  function getUsageDebitEntriesForMonth(
+    store: OrgBillingStore,
+    monthUtc: string,
+  ): BillingLedgerEntry[] {
+    return store.ledgerEntries.filter(
+      (entry) => entry.type === 'USAGE_DEBIT' && entry.monthUtc === monthUtc,
     );
-    if (exists) return;
-    const invoice = makeUsageStatement(orgId, periodMonthUtc, now);
-    invoice.status = 'PAID';
-    invoice.dueAt = null;
-    store.invoices.set(invoice.id, invoice);
+  }
+
+  function getProjectedUsageStatement(
+    store: OrgBillingStore,
+    orgId: string,
+    monthUtc: string,
+  ): BillingInvoice | null {
+    const debitEntries = getUsageDebitEntriesForMonth(store, monthUtc);
+    const createdAt =
+      store.statementProjectionCreatedAtByMonth.get(monthUtc) ||
+      debitEntries
+        .map((entry) => entry.createdAt)
+        .sort((left, right) => Date.parse(left) - Date.parse(right))[0] ||
+      null;
+    if (!createdAt) return null;
+    const amountDueMinor = debitEntries.reduce(
+      (total, entry) => total + Math.abs(entry.amountMinor),
+      0,
+    );
+    return {
+      id: makeUsageStatementId(monthUtc),
+      orgId,
+      documentType: 'USAGE_STATEMENT',
+      status: 'PAID',
+      currency: 'USD',
+      amountDueMinor,
+      amountPaidMinor: amountDueMinor,
+      periodMonthUtc: monthUtc,
+      createdAt,
+      dueAt: null,
+    };
+  }
+
+  function getProjectedPurchaseReceipt(purchase: BillingCreditPurchase): BillingInvoice | null {
+    if (purchase.status !== 'SETTLED') return null;
+    const createdAt = purchase.settledAt || purchase.createdAt;
+    const periodMonthUtc = createdAt.slice(0, 7);
+    return {
+      id: `receipt_${purchase.id}`,
+      orgId: purchase.orgId,
+      documentType: 'PURCHASE_RECEIPT',
+      status: 'PAID',
+      currency: 'USD',
+      amountDueMinor: purchase.amountMinor,
+      amountPaidMinor: purchase.amountMinor,
+      periodMonthUtc,
+      createdAt,
+      dueAt: null,
+    };
+  }
+
+  function listProjectedInvoices(
+    store: OrgBillingStore,
+    orgId: string,
+    now: Date,
+  ): BillingInvoice[] {
+    ensureCurrentPeriodStatementSeed(store, now);
+    const invoices = new Map<string, BillingInvoice>();
+
+    for (const monthUtc of Array.from(store.statementProjectionCreatedAtByMonth.keys())) {
+      const invoice = getProjectedUsageStatement(store, orgId, monthUtc);
+      if (invoice) {
+        invoices.set(invoice.id, invoice);
+      }
+    }
+
+    for (const purchase of Array.from(store.purchases.values())) {
+      const receipt = getProjectedPurchaseReceipt(purchase);
+      if (receipt) {
+        invoices.set(receipt.id, receipt);
+      }
+    }
+
+    return Array.from(invoices.values()).sort((left, right) => {
+      const tsDiff = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      if (tsDiff !== 0) return tsDiff;
+      return right.id.localeCompare(left.id);
+    });
+  }
+
+  function getProjectedInvoiceLineItems(
+    store: OrgBillingStore,
+    invoice: BillingInvoice,
+  ): BillingInvoiceLineItem[] {
+    if (invoice.documentType === 'PURCHASE_RECEIPT') {
+      const purchaseId = invoice.id.startsWith('receipt_')
+        ? invoice.id.slice('receipt_'.length)
+        : '';
+      const purchase = store.purchases.get(purchaseId) || null;
+      if (!purchase || purchase.status !== 'SETTLED') return [];
+      return [
+        makeInvoiceLineItem({
+          orgId: invoice.orgId,
+          invoiceId: invoice.id,
+          periodMonthUtc: invoice.periodMonthUtc,
+          itemType: 'CREDIT_TOP_UP',
+          description: `Prepaid credit top-up (${purchase.creditPackId})`,
+          quantity: 1,
+          unitAmountMinor: purchase.amountMinor,
+          createdAt: invoice.createdAt,
+        }),
+      ];
+    }
+
+    const monthlyActiveWallets = getUsageDebitEntriesForMonth(store, invoice.periodMonthUtc).length;
+    return buildInvoiceLineItems({
+      orgId: invoice.orgId,
+      invoiceId: invoice.id,
+      periodMonthUtc: invoice.periodMonthUtc,
+      monthlyActiveWallets,
+      createdAt: invoice.createdAt,
+    });
+  }
+
+  function getProjectedInvoice(
+    store: OrgBillingStore,
+    orgId: string,
+    invoiceId: string,
+    now: Date,
+  ): BillingInvoice | null {
+    return (
+      listProjectedInvoices(store, orgId, now).find((invoice) => invoice.id === invoiceId) || null
+    );
   }
 
   function ensureOrgStore(orgId: string): OrgBillingStore {
     const existing = orgStores.get(orgId);
     if (existing) {
-      ensureCurrentPeriodInvoice(existing, orgId, nowFn());
+      ensureCurrentPeriodStatementSeed(existing, nowFn());
       return existing;
     }
 
@@ -435,14 +539,13 @@ export function createInMemoryConsoleBillingService(
       lowBalanceThresholdMinor: DEFAULT_LOW_BALANCE_THRESHOLD_MINOR,
       purchases: new Map(),
       ledgerEntries: [],
-      invoices: new Map(),
-      invoiceLineItems: new Map(),
       paymentMethods: new Map(),
       stripeWebhookEventIds: new Set(),
       usageEventSourceIds: new Set(),
       monthlyActiveWalletsByMonth: new Map(),
+      statementProjectionCreatedAtByMonth: new Map(),
     };
-    ensureCurrentPeriodInvoice(store, orgId, nowFn());
+    ensureCurrentPeriodStatementSeed(store, nowFn());
     orgStores.set(orgId, store);
     return store;
   }
@@ -482,90 +585,6 @@ export function createInMemoryConsoleBillingService(
       .reduce((total, entry) => total + entry.amountMinor, 0);
   }
 
-  function ensureUsageStatement(
-    store: OrgBillingStore,
-    orgId: string,
-    monthUtc: string,
-    now: Date,
-  ): BillingInvoice {
-    const existing =
-      Array.from(store.invoices.values()).find(
-        (invoice) =>
-          invoice.documentType === 'USAGE_STATEMENT' && invoice.periodMonthUtc === monthUtc,
-      ) || null;
-    if (existing) return existing;
-    const created = makeUsageStatement(orgId, monthUtc, now);
-    created.status = 'PAID';
-    created.dueAt = null;
-    store.invoices.set(created.id, created);
-    return created;
-  }
-
-  function syncUsageStatement(
-    store: OrgBillingStore,
-    orgId: string,
-    monthUtc: string,
-    now: Date,
-  ): BillingInvoice {
-    const monthlyActiveWallets = getMonthlyActiveWalletCount(store, monthUtc);
-    const invoice = ensureUsageStatement(store, orgId, monthUtc, now);
-    const nextLineItems = buildInvoiceLineItems({
-      orgId,
-      invoiceId: invoice.id,
-      periodMonthUtc: monthUtc,
-      monthlyActiveWallets,
-      createdAt: coerceIsoDate(now),
-    });
-    const amountMinor = sumLineItemAmounts(nextLineItems);
-    invoice.amountDueMinor = amountMinor;
-    invoice.amountPaidMinor = amountMinor;
-    invoice.status = 'PAID';
-    invoice.dueAt = null;
-    store.invoices.set(invoice.id, invoice);
-    store.invoiceLineItems.set(invoice.id, nextLineItems);
-    return invoice;
-  }
-
-  function makePurchaseReceipt(
-    store: OrgBillingStore,
-    input: {
-      orgId: string;
-      purchaseId: string;
-      amountMinor: number;
-      creditPackId: BillingCreditPackId;
-      now: Date;
-    },
-  ): BillingInvoice {
-    const createdAt = coerceIsoDate(input.now);
-    const periodMonthUtc = formatCurrentMonthUtc(input.now);
-    const invoice: BillingInvoice = {
-      id: `receipt_${input.purchaseId}`,
-      orgId: input.orgId,
-      documentType: 'PURCHASE_RECEIPT',
-      status: 'PAID',
-      currency: 'USD',
-      amountDueMinor: input.amountMinor,
-      amountPaidMinor: input.amountMinor,
-      periodMonthUtc,
-      createdAt,
-      dueAt: null,
-    };
-    store.invoices.set(invoice.id, invoice);
-    store.invoiceLineItems.set(invoice.id, [
-      makeInvoiceLineItem({
-        orgId: input.orgId,
-        invoiceId: invoice.id,
-        periodMonthUtc,
-        itemType: 'CREDIT_TOP_UP',
-        description: `Prepaid credit top-up (${input.creditPackId})`,
-        quantity: 1,
-        unitAmountMinor: input.amountMinor,
-        createdAt,
-      }),
-    ]);
-    return invoice;
-  }
-
   function settleCreditPurchase(
     store: OrgBillingStore,
     input: {
@@ -584,13 +603,6 @@ export function createInMemoryConsoleBillingService(
     }
     if (purchase.status === 'SETTLED') return purchase;
     const monthUtc = formatCurrentMonthUtc(input.now);
-    const receipt = makePurchaseReceipt(store, {
-      orgId: input.orgId,
-      purchaseId: purchase.id,
-      amountMinor: purchase.amountMinor,
-      creditPackId: purchase.creditPackId,
-      now: input.now,
-    });
     appendLedgerEntry(store, {
       now: input.now,
       orgId: input.orgId,
@@ -598,13 +610,13 @@ export function createInMemoryConsoleBillingService(
       amountMinor: purchase.amountMinor,
       description: `Credit pack ${purchase.creditPackId} settled`,
       monthUtc,
-      relatedInvoiceId: receipt.id,
+      relatedInvoiceId: `receipt_${purchase.id}`,
       relatedPurchaseId: purchase.id,
       sourceEventId: purchase.providerCheckoutSessionRef,
       currency: 'USD',
     });
     purchase.status = 'SETTLED';
-    purchase.relatedInvoiceId = receipt.id;
+    purchase.relatedInvoiceId = `receipt_${purchase.id}`;
     purchase.providerCustomerRef =
       purchase.providerCustomerRef || makeStripeCustomerRef(input.orgId);
     purchase.settledAt = coerceIsoDate(input.now);
@@ -684,6 +696,7 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const currentMonthUtc = formatCurrentMonthUtc(now);
       store.monthlyActiveWallets = getMonthlyActiveWalletCount(store, currentMonthUtc);
+      const projectedInvoices = listProjectedInvoices(store, ctx.orgId, now);
 
       return {
         usageMetricVersion: 'maw_v1',
@@ -693,7 +706,7 @@ export function createInMemoryConsoleBillingService(
         lowBalanceThresholdMinor: store.lowBalanceThresholdMinor,
         recentUsageDebitMinor: getCurrentMonthUsageDebitMinor(store, currentMonthUtc),
         recentCreditPurchasedMinor: getCurrentMonthPurchasedMinor(store, currentMonthUtc),
-        documentCount: store.invoices.size,
+        documentCount: projectedInvoices.length,
       };
     },
 
@@ -725,6 +738,7 @@ export function createInMemoryConsoleBillingService(
         const monthUtc = request.occurredAt
           ? monthUtcFromEpochMs(Date.parse(request.occurredAt))
           : formatCurrentMonthUtc(nowFn());
+        const statement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
         return {
           accepted: false,
           counted: false,
@@ -732,11 +746,7 @@ export function createInMemoryConsoleBillingService(
           monthlyActiveWallets: getMonthlyActiveWalletCount(store, monthUtc),
           debitAppliedMinor: 0,
           creditBalanceMinor: store.creditBalanceMinor,
-          statementId:
-            Array.from(store.invoices.values()).find(
-              (entry) =>
-                entry.documentType === 'USAGE_STATEMENT' && entry.periodMonthUtc === monthUtc,
-            )?.id || null,
+          statementId: statement?.id || null,
         };
       }
 
@@ -761,6 +771,7 @@ export function createInMemoryConsoleBillingService(
         if (!alreadyCounted) {
           debitAppliedMinor = MAW_USAGE_DEBIT_MINOR;
           store.creditBalanceMinor -= debitAppliedMinor;
+          ensureStatementProjectionSeed(store, monthUtc, new Date(occurredAtMs));
           appendLedgerEntry(store, {
             now: new Date(occurredAtMs),
             orgId: ctx.orgId,
@@ -769,7 +780,7 @@ export function createInMemoryConsoleBillingService(
             currency: 'USD',
             description: `MAW usage debit for wallet ${request.walletId}`,
             monthUtc,
-            relatedInvoiceId: null,
+            relatedInvoiceId: makeUsageStatementId(monthUtc),
             relatedPurchaseId: null,
             sourceEventId: request.sourceEventId || null,
           });
@@ -777,16 +788,7 @@ export function createInMemoryConsoleBillingService(
       }
 
       const monthlyActiveWallets = getMonthlyActiveWalletCount(store, monthUtc);
-      const statement = syncUsageStatement(store, ctx.orgId, monthUtc, new Date(occurredAtMs));
-      for (const entry of store.ledgerEntries) {
-        if (
-          entry.type === 'USAGE_DEBIT' &&
-          entry.monthUtc === monthUtc &&
-          entry.relatedInvoiceId == null
-        ) {
-          entry.relatedInvoiceId = statement.id;
-        }
-      }
+      const statement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
       if (monthUtc === formatCurrentMonthUtc(nowFn())) {
         store.monthlyActiveWallets = monthlyActiveWallets;
       }
@@ -797,15 +799,13 @@ export function createInMemoryConsoleBillingService(
         monthlyActiveWallets,
         debitAppliedMinor,
         creditBalanceMinor: store.creditBalanceMinor,
-        statementId: statement.id,
+        statementId: statement?.id || null,
       };
     },
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
       const store = ensureOrgStore(ctx.orgId);
-      return Array.from(store.invoices.values()).sort((a, b) =>
-        b.createdAt.localeCompare(a.createdAt),
-      );
+      return listProjectedInvoices(store, ctx.orgId, nowFn());
     },
 
     async listInvoicesPage(
@@ -844,7 +844,7 @@ export function createInMemoryConsoleBillingService(
       invoiceId: string,
     ): Promise<BillingInvoice | null> {
       const store = ensureOrgStore(ctx.orgId);
-      return store.invoices.get(invoiceId) || null;
+      return getProjectedInvoice(store, ctx.orgId, invoiceId, nowFn());
     },
 
     async getInvoiceActivity(
@@ -852,7 +852,7 @@ export function createInMemoryConsoleBillingService(
       invoiceId: string,
     ): Promise<BillingInvoiceActivity | null> {
       const store = ensureOrgStore(ctx.orgId);
-      const invoice = store.invoices.get(invoiceId) || null;
+      const invoice = getProjectedInvoice(store, ctx.orgId, invoiceId, nowFn());
       if (!invoice) return null;
 
       const entries: BillingInvoiceActivityEntry[] = [
@@ -907,10 +907,9 @@ export function createInMemoryConsoleBillingService(
       invoiceId: string,
     ): Promise<BillingInvoiceLineItem[]> {
       const store = ensureOrgStore(ctx.orgId);
-      const invoice = store.invoices.get(invoiceId);
+      const invoice = getProjectedInvoice(store, ctx.orgId, invoiceId, nowFn());
       if (!invoice) return [];
-      const lineItems = store.invoiceLineItems.get(invoiceId) || [];
-      return sortLineItems(lineItems);
+      return sortLineItems(getProjectedInvoiceLineItems(store, invoice));
     },
 
     async generateMonthlyInvoice(
@@ -920,49 +919,20 @@ export function createInMemoryConsoleBillingService(
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
       const periodMonthUtc = parseMonthUtcOrThrow(request.periodMonthUtc);
-      const monthlyActiveWallets = getMonthlyActiveWalletCount(store, periodMonthUtc);
-
-      let invoice =
-        Array.from(store.invoices.values()).find(
-          (item) =>
-            item.documentType === 'USAGE_STATEMENT' && item.periodMonthUtc === periodMonthUtc,
-        ) || null;
-      const created = !invoice;
+      ensureStatementProjectionSeed(store, periodMonthUtc, now);
+      const invoice = getProjectedUsageStatement(store, ctx.orgId, periodMonthUtc);
       if (!invoice) {
-        invoice = makeUsageStatement(ctx.orgId, periodMonthUtc, now);
-      }
-      if (invoice.status === 'VOID' || invoice.status === 'UNCOLLECTIBLE') {
         throw new ConsoleBillingError(
-          'invoice_not_billable',
-          409,
-          `Invoice ${invoice.id} is ${invoice.status} and cannot be regenerated`,
+          'invoice_generate_failed',
+          500,
+          `Failed to build statement projection for ${periodMonthUtc}`,
         );
       }
-
-      const nextLineItems = buildInvoiceLineItems({
-        orgId: ctx.orgId,
-        invoiceId: invoice.id,
-        periodMonthUtc,
-        monthlyActiveWallets,
-        createdAt: coerceIsoDate(now),
-      });
-      const previousLineItems = store.invoiceLineItems.get(invoice.id) || [];
-      const nextAmountDueMinor = sumLineItemAmounts(nextLineItems);
-
-      const unchanged =
-        !created &&
-        invoice.amountDueMinor === nextAmountDueMinor &&
-        lineItemsEquivalent(previousLineItems, nextLineItems);
-
-      invoice.amountDueMinor = nextAmountDueMinor;
-      invoice.amountPaidMinor = nextAmountDueMinor;
-      invoice.status = 'PAID';
-      invoice.dueAt = null;
-      store.invoices.set(invoice.id, invoice);
-      store.invoiceLineItems.set(invoice.id, nextLineItems);
+      const nextLineItems = getProjectedInvoiceLineItems(store, invoice);
+      const monthlyActiveWallets = getUsageDebitEntriesForMonth(store, periodMonthUtc).length;
 
       return {
-        generated: !unchanged,
+        generated: false,
         invoice,
         lineItems: sortLineItems(nextLineItems),
         monthlyActiveWallets,
@@ -1195,7 +1165,7 @@ export function createInMemoryConsoleBillingService(
         null;
 
       const projectedInvoice = matchedPurchase?.relatedInvoiceId
-        ? store.invoices.get(matchedPurchase.relatedInvoiceId) || null
+        ? getProjectedInvoice(store, orgId, matchedPurchase.relatedInvoiceId, now)
         : null;
 
       if (store.stripeWebhookEventIds.has(request.eventId)) {
@@ -1216,7 +1186,7 @@ export function createInMemoryConsoleBillingService(
           now,
         });
         invoice = purchase.relatedInvoiceId
-          ? store.invoices.get(purchase.relatedInvoiceId) || null
+          ? getProjectedInvoice(store, orgId, purchase.relatedInvoiceId, now)
           : null;
       }
 

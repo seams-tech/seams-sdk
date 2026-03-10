@@ -47,6 +47,8 @@ import type { ConsoleBillingContext, ConsoleBillingService } from './service';
 type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
+type BillingJournalActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
+type BillingLedgerPostingDirection = 'DEBIT' | 'CREDIT';
 
 const CONSOLE_BILLING_MIGRATION_LOCK_ID = 9452360123582;
 const MAW_USAGE_DEBIT_MINOR = 300;
@@ -85,6 +87,254 @@ const BILLING_CREDIT_PACKS: BillingCreditPack[] = [
     amountMinor: 100000,
   },
 ];
+
+const PLATFORM_LEDGER_ACCOUNTS = [
+  {
+    id: 'acct:processor_clearing:stripe',
+    scopeType: 'PLATFORM',
+    scopeOrgId: null,
+    accountCode: 'processor_clearing:stripe',
+  },
+  {
+    id: 'acct:revenue_usage',
+    scopeType: 'PLATFORM',
+    scopeOrgId: null,
+    accountCode: 'revenue_usage',
+  },
+  {
+    id: 'acct:expense_support_credit',
+    scopeType: 'PLATFORM',
+    scopeOrgId: null,
+    accountCode: 'expense_support_credit',
+  },
+  {
+    id: 'acct:suspense_admin_debit',
+    scopeType: 'PLATFORM',
+    scopeOrgId: null,
+    accountCode: 'suspense_admin_debit',
+  },
+  {
+    id: 'acct:suspense_reconciliation',
+    scopeType: 'PLATFORM',
+    scopeOrgId: null,
+    accountCode: 'suspense_reconciliation',
+  },
+] as const;
+
+interface BillingLedgerPostingInput {
+  id: string;
+  accountId: string;
+  orgId: string;
+  direction: BillingLedgerPostingDirection;
+  amountMinor: number;
+  relatedInvoiceId: string | null;
+  relatedPurchaseId: string | null;
+  sourceEventId: string | null;
+}
+
+interface BillingLedgerEntryWriteInput {
+  namespace: string;
+  orgId: string;
+  id: string;
+  type: BillingLedgerEntry['type'];
+  amountMinor: number;
+  description: string;
+  monthUtc: string | null;
+  relatedInvoiceId: string | null;
+  relatedPurchaseId: string | null;
+  sourceEventId: string | null;
+  createdAtMs: number;
+  actorType?: BillingJournalActorType;
+  actorUserId?: string | null;
+  reasonCode?: string | null;
+  note?: string | null;
+  idempotencyKey?: string | null;
+}
+
+function getOrgPrepaidLiabilityAccountId(orgId: string): string {
+  return `acct:org_prepaid_liability:${orgId}`;
+}
+
+function getOrgPrepaidLiabilityAccountCode(orgId: string): string {
+  return `org_prepaid_liability:${orgId}`;
+}
+
+function makeLedgerPostingId(entryId: string, suffix: string): string {
+  return `blp:${entryId}:${suffix}`;
+}
+
+function buildLedgerPostingsForEntry(input: {
+  entryId: string;
+  orgId: string;
+  type: BillingLedgerEntry['type'];
+  amountMinor: number;
+  relatedInvoiceId: string | null;
+  relatedPurchaseId: string | null;
+  sourceEventId: string | null;
+}): BillingLedgerPostingInput[] {
+  const absoluteAmountMinor = Math.abs(input.amountMinor);
+  if (absoluteAmountMinor <= 0) return [];
+  const prepaidLiabilityAccountId = getOrgPrepaidLiabilityAccountId(input.orgId);
+
+  switch (input.type) {
+    case 'CREDIT_PURCHASE':
+      if (input.amountMinor <= 0) {
+        throw new ConsoleBillingError(
+          'billing_ledger_write_failed',
+          500,
+          'Credit purchase journal entries must be positive',
+        );
+      }
+      return [
+        {
+          id: makeLedgerPostingId(input.entryId, 'debit_processor_clearing'),
+          accountId: 'acct:processor_clearing:stripe',
+          orgId: input.orgId,
+          direction: 'DEBIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+        {
+          id: makeLedgerPostingId(input.entryId, 'credit_org_prepaid_liability'),
+          accountId: prepaidLiabilityAccountId,
+          orgId: input.orgId,
+          direction: 'CREDIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+      ];
+    case 'USAGE_DEBIT':
+      return [
+        {
+          id: makeLedgerPostingId(input.entryId, 'debit_org_prepaid_liability'),
+          accountId: prepaidLiabilityAccountId,
+          orgId: input.orgId,
+          direction: 'DEBIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+        {
+          id: makeLedgerPostingId(input.entryId, 'credit_revenue_usage'),
+          accountId: 'acct:revenue_usage',
+          orgId: input.orgId,
+          direction: 'CREDIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+      ];
+    case 'MANUAL_ADJUSTMENT':
+      if (input.amountMinor >= 0) {
+        return [
+          {
+            id: makeLedgerPostingId(input.entryId, 'debit_expense_support_credit'),
+            accountId: 'acct:expense_support_credit',
+            orgId: input.orgId,
+            direction: 'DEBIT',
+            amountMinor: absoluteAmountMinor,
+            relatedInvoiceId: input.relatedInvoiceId,
+            relatedPurchaseId: input.relatedPurchaseId,
+            sourceEventId: input.sourceEventId,
+          },
+          {
+            id: makeLedgerPostingId(input.entryId, 'credit_org_prepaid_liability'),
+            accountId: prepaidLiabilityAccountId,
+            orgId: input.orgId,
+            direction: 'CREDIT',
+            amountMinor: absoluteAmountMinor,
+            relatedInvoiceId: input.relatedInvoiceId,
+            relatedPurchaseId: input.relatedPurchaseId,
+            sourceEventId: input.sourceEventId,
+          },
+        ];
+      }
+      return [
+        {
+          id: makeLedgerPostingId(input.entryId, 'debit_org_prepaid_liability'),
+          accountId: prepaidLiabilityAccountId,
+          orgId: input.orgId,
+          direction: 'DEBIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+        {
+          id: makeLedgerPostingId(input.entryId, 'credit_suspense_admin_debit'),
+          accountId: 'acct:suspense_admin_debit',
+          orgId: input.orgId,
+          direction: 'CREDIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+      ];
+    case 'REFUND':
+    case 'REVERSAL':
+      if (input.amountMinor >= 0) {
+        return [
+          {
+            id: makeLedgerPostingId(input.entryId, 'debit_suspense_reconciliation'),
+            accountId: 'acct:suspense_reconciliation',
+            orgId: input.orgId,
+            direction: 'DEBIT',
+            amountMinor: absoluteAmountMinor,
+            relatedInvoiceId: input.relatedInvoiceId,
+            relatedPurchaseId: input.relatedPurchaseId,
+            sourceEventId: input.sourceEventId,
+          },
+          {
+            id: makeLedgerPostingId(input.entryId, 'credit_org_prepaid_liability'),
+            accountId: prepaidLiabilityAccountId,
+            orgId: input.orgId,
+            direction: 'CREDIT',
+            amountMinor: absoluteAmountMinor,
+            relatedInvoiceId: input.relatedInvoiceId,
+            relatedPurchaseId: input.relatedPurchaseId,
+            sourceEventId: input.sourceEventId,
+          },
+        ];
+      }
+      return [
+        {
+          id: makeLedgerPostingId(input.entryId, 'debit_org_prepaid_liability'),
+          accountId: prepaidLiabilityAccountId,
+          orgId: input.orgId,
+          direction: 'DEBIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+        {
+          id: makeLedgerPostingId(input.entryId, 'credit_suspense_reconciliation'),
+          accountId: 'acct:suspense_reconciliation',
+          orgId: input.orgId,
+          direction: 'CREDIT',
+          amountMinor: absoluteAmountMinor,
+          relatedInvoiceId: input.relatedInvoiceId,
+          relatedPurchaseId: input.relatedPurchaseId,
+          sourceEventId: input.sourceEventId,
+        },
+      ];
+    default: {
+      const exhaustive: never = input.type;
+      throw new ConsoleBillingError(
+        'billing_ledger_write_failed',
+        500,
+        `Unsupported billing ledger entry type: ${exhaustive as string}`,
+      );
+    }
+  }
+}
 
 function nowMs(now: Date): number {
   return now.getTime();
@@ -342,8 +592,185 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
+async function ensurePlatformLedgerAccounts(
+  q: Queryable,
+  namespace: string,
+  createdAtMs: number,
+): Promise<void> {
+  for (const account of PLATFORM_LEDGER_ACCOUNTS) {
+    await q.query(
+      `INSERT INTO console_billing_ledger_accounts
+        (namespace, id, scope_type, scope_org_id, account_code, currency, status, created_at_ms)
+       VALUES
+        ($1, $2, $3, $4, $5, 'USD', 'ACTIVE', $6)
+       ON CONFLICT (namespace, id) DO NOTHING`,
+      [
+        namespace,
+        account.id,
+        account.scopeType,
+        account.scopeOrgId,
+        account.accountCode,
+        createdAtMs,
+      ],
+    );
+  }
+}
+
+async function ensureOrgPrepaidLiabilityLedgerAccount(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    createdAtMs: number;
+  },
+): Promise<void> {
+  await q.query(
+    `INSERT INTO console_billing_ledger_accounts
+      (namespace, id, scope_type, scope_org_id, account_code, currency, status, created_at_ms)
+     VALUES
+      ($1, $2, 'ORG', $3, $4, 'USD', 'ACTIVE', $5)
+     ON CONFLICT (namespace, id) DO NOTHING`,
+    [
+      input.namespace,
+      getOrgPrepaidLiabilityAccountId(input.orgId),
+      input.orgId,
+      getOrgPrepaidLiabilityAccountCode(input.orgId),
+      input.createdAtMs,
+    ],
+  );
+}
+
+async function ensureCanonicalLedgerAccounts(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    createdAtMs: number;
+  },
+): Promise<void> {
+  await ensurePlatformLedgerAccounts(q, input.namespace, input.createdAtMs);
+  await ensureOrgPrepaidLiabilityLedgerAccount(q, input);
+}
+
+async function insertLedgerPostings(
+  q: Queryable,
+  input: {
+    namespace: string;
+    entryId: string;
+    createdAtMs: number;
+    postings: BillingLedgerPostingInput[];
+  },
+): Promise<void> {
+  if (input.postings.length === 0) return;
+  const debitTotal = input.postings
+    .filter((posting) => posting.direction === 'DEBIT')
+    .reduce((total, posting) => total + posting.amountMinor, 0);
+  const creditTotal = input.postings
+    .filter((posting) => posting.direction === 'CREDIT')
+    .reduce((total, posting) => total + posting.amountMinor, 0);
+  if (debitTotal <= 0 || creditTotal <= 0 || debitTotal !== creditTotal) {
+    throw new ConsoleBillingError(
+      'billing_ledger_write_failed',
+      500,
+      `Ledger postings must be balanced for entry ${input.entryId}`,
+    );
+  }
+  for (const posting of input.postings) {
+    await q.query(
+      `INSERT INTO console_billing_ledger_postings
+        (namespace, id, entry_id, account_id, org_id, direction, amount_minor, currency, related_invoice_id, related_purchase_id, source_event_id, created_at_ms)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, 'USD', $8, $9, $10, $11)
+       ON CONFLICT (namespace, id) DO NOTHING`,
+      [
+        input.namespace,
+        posting.id,
+        input.entryId,
+        posting.accountId,
+        posting.orgId,
+        posting.direction,
+        posting.amountMinor,
+        posting.relatedInvoiceId,
+        posting.relatedPurchaseId,
+        posting.sourceEventId,
+        input.createdAtMs,
+      ],
+    );
+  }
+}
+
+async function getProjectedOrgBalanceMinor(
+  q: Queryable,
+  namespace: string,
+  orgId: string,
+): Promise<number> {
+  const row = await queryOne(
+    q,
+    `SELECT COALESCE(
+        SUM(
+          CASE direction
+            WHEN 'CREDIT' THEN amount_minor
+            ELSE -amount_minor
+          END
+        ),
+        0
+      )::BIGINT AS balance_minor
+       FROM console_billing_ledger_postings
+      WHERE namespace = $1
+        AND org_id = $2
+        AND account_id = $3`,
+    [namespace, orgId, getOrgPrepaidLiabilityAccountId(orgId)],
+  );
+  return toNumber(row?.balance_minor);
+}
+
+async function syncProjectedOrgBalance(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    updatedAtMs: number;
+  },
+): Promise<number> {
+  const balanceMinor = await getProjectedOrgBalanceMinor(q, input.namespace, input.orgId);
+  await q.query(
+    `UPDATE console_billing_accounts
+        SET credit_balance_minor = $3,
+            updated_at_ms = $4
+      WHERE namespace = $1 AND org_id = $2`,
+    [input.namespace, input.orgId, balanceMinor, input.updatedAtMs],
+  );
+  return balanceMinor;
+}
+
+async function syncBillingAccountSnapshot(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    creditBalanceMinor: number;
+    monthlyActiveWallets: number;
+    updatedAtMs: number;
+  },
+): Promise<void> {
+  await q.query(
+    `UPDATE console_billing_accounts
+        SET credit_balance_minor = $3,
+            monthly_active_wallets = $4,
+            updated_at_ms = $5
+      WHERE namespace = $1 AND org_id = $2`,
+    [
+      input.namespace,
+      input.orgId,
+      input.creditBalanceMinor,
+      input.monthlyActiveWallets,
+      input.updatedAtMs,
+    ],
+  );
+}
+
 async function ensureOrgBootstrap(input: {
-  pool: PgPool;
+  pool: Queryable;
   namespace: string;
   orgId: string;
   now: Date;
@@ -360,6 +787,12 @@ async function ensureOrgBootstrap(input: {
      ON CONFLICT (namespace, org_id) DO NOTHING`,
     [namespace, orgId, createdAtMs, DEFAULT_LOW_BALANCE_THRESHOLD_MINOR],
   );
+
+  await ensureCanonicalLedgerAccounts(pool, {
+    namespace,
+    orgId,
+    createdAtMs,
+  });
 
   const periodInvoice = await queryOne(
     pool,
@@ -475,10 +908,6 @@ function buildInvoiceLineItems(input: {
   ];
 }
 
-function sumLineItemAmounts(lineItems: BillingInvoiceLineItem[]): number {
-  return lineItems.reduce((total, item) => total + item.amountMinor, 0);
-}
-
 function sortLineItems(items: BillingInvoiceLineItem[]): BillingInvoiceLineItem[] {
   return [...items].sort((a, b) => a.itemType.localeCompare(b.itemType));
 }
@@ -529,26 +958,46 @@ function getCreditPackOrThrow(creditPackId: BillingCreditPackId): BillingCreditP
 
 async function appendLedgerEntry(
   q: Queryable,
-  input: {
-    namespace: string;
-    orgId: string;
-    id: string;
-    type: BillingLedgerEntry['type'];
-    amountMinor: number;
-    description: string;
-    monthUtc: string | null;
-    relatedInvoiceId: string | null;
-    relatedPurchaseId: string | null;
-    sourceEventId: string | null;
-    createdAtMs: number;
-  },
+  input: BillingLedgerEntryWriteInput,
 ): Promise<BillingLedgerEntry> {
+  await ensureCanonicalLedgerAccounts(q, {
+    namespace: input.namespace,
+    orgId: input.orgId,
+    createdAtMs: input.createdAtMs,
+  });
+  const postings = buildLedgerPostingsForEntry({
+    entryId: input.id,
+    orgId: input.orgId,
+    type: input.type,
+    amountMinor: input.amountMinor,
+    relatedInvoiceId: input.relatedInvoiceId,
+    relatedPurchaseId: input.relatedPurchaseId,
+    sourceEventId: input.sourceEventId,
+  });
   const row = await queryOne(
     q,
     `INSERT INTO console_billing_ledger_entries
-      (namespace, id, org_id, entry_type, amount_minor, currency, description, month_utc, related_invoice_id, related_purchase_id, source_event_id, created_at_ms)
+      (
+        namespace,
+        id,
+        org_id,
+        entry_type,
+        amount_minor,
+        currency,
+        description,
+        month_utc,
+        related_invoice_id,
+        related_purchase_id,
+        source_event_id,
+        actor_type,
+        actor_user_id,
+        reason_code,
+        note,
+        idempotency_key,
+        created_at_ms
+      )
      VALUES
-      ($1, $2, $3, $4, $5, 'USD', $6, $7, $8, $9, $10, $11)
+      ($1, $2, $3, $4, $5, 'USD', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      RETURNING *`,
     [
       input.namespace,
@@ -561,6 +1010,11 @@ async function appendLedgerEntry(
       input.relatedInvoiceId,
       input.relatedPurchaseId,
       input.sourceEventId,
+      input.actorType || 'SYSTEM',
+      input.actorUserId || null,
+      input.reasonCode || null,
+      input.note || null,
+      input.idempotencyKey || null,
       input.createdAtMs,
     ],
   );
@@ -571,6 +1025,12 @@ async function appendLedgerEntry(
       'Failed to write ledger entry',
     );
   }
+  await insertLedgerPostings(q, {
+    namespace: input.namespace,
+    entryId: input.id,
+    createdAtMs: input.createdAtMs,
+    postings,
+  });
   return parseLedgerEntryRow(row);
 }
 
@@ -612,7 +1072,33 @@ async function getCurrentMonthPurchasedMinor(
   return toNumber(row?.total_minor);
 }
 
-async function ensureUsageStatement(
+async function getUsageStatementProjectionTotals(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    periodMonthUtc: string;
+  },
+): Promise<{ monthlyActiveWallets: number; amountDueMinor: number }> {
+  const row = await queryOne(
+    q,
+    `SELECT
+        COUNT(*)::BIGINT AS monthly_active_wallets,
+        COALESCE(SUM(ABS(amount_minor)), 0)::BIGINT AS amount_due_minor
+       FROM console_billing_ledger_entries
+      WHERE namespace = $1
+        AND org_id = $2
+        AND entry_type = 'USAGE_DEBIT'
+        AND month_utc = $3`,
+    [input.namespace, input.orgId, input.periodMonthUtc],
+  );
+  return {
+    monthlyActiveWallets: toNumber(row?.monthly_active_wallets),
+    amountDueMinor: toNumber(row?.amount_due_minor),
+  };
+}
+
+async function ensureUsageStatementProjection(
   q: Queryable,
   input: {
     namespace: string;
@@ -621,20 +1107,19 @@ async function ensureUsageStatement(
     createdAtMs: number;
   },
 ): Promise<BillingInvoice> {
+  const invoiceId = makeBootstrapUsageStatementId(input.orgId, input.periodMonthUtc);
   const existing = await queryOne(
     q,
     `SELECT *
        FROM console_invoices
       WHERE namespace = $1
         AND org_id = $2
-        AND document_type = 'USAGE_STATEMENT'
-        AND period_month_utc = $3
+        AND id = $3
       FOR UPDATE`,
-    [input.namespace, input.orgId, input.periodMonthUtc],
+    [input.namespace, input.orgId, invoiceId],
   );
   if (existing) return parseInvoiceRow(existing);
 
-  const invoiceId = makeBootstrapUsageStatementId(input.orgId, input.periodMonthUtc);
   const inserted = await queryOne(
     q,
     `INSERT INTO console_invoices
@@ -656,22 +1141,22 @@ async function ensureUsageStatement(
   return parseInvoiceRow(inserted);
 }
 
-async function syncUsageStatement(
+async function syncUsageStatementProjection(
   q: Queryable,
   input: {
     namespace: string;
     orgId: string;
     periodMonthUtc: string;
-    monthlyActiveWallets: number;
     createdAtMs: number;
   },
 ): Promise<{ invoice: BillingInvoice; lineItems: BillingInvoiceLineItem[] }> {
-  const invoice = await ensureUsageStatement(q, input);
+  const invoice = await ensureUsageStatementProjection(q, input);
+  const usageTotals = await getUsageStatementProjectionTotals(q, input);
   const nextLineItems = buildInvoiceLineItems({
     orgId: input.orgId,
     invoiceId: invoice.id,
     periodMonthUtc: input.periodMonthUtc,
-    monthlyActiveWallets: input.monthlyActiveWallets,
+    monthlyActiveWallets: usageTotals.monthlyActiveWallets,
     createdAtMs: input.createdAtMs,
   });
   await q.query(
@@ -700,7 +1185,6 @@ async function syncUsageStatement(
       ],
     );
   }
-  const amountMinor = sumLineItemAmounts(nextLineItems);
   const updated = await queryOne(
     q,
     `UPDATE console_invoices
@@ -710,7 +1194,7 @@ async function syncUsageStatement(
             due_at_ms = NULL
       WHERE namespace = $1 AND org_id = $2 AND id = $3
       RETURNING *`,
-    [input.namespace, input.orgId, invoice.id, amountMinor],
+    [input.namespace, input.orgId, invoice.id, usageTotals.amountDueMinor],
   );
   if (!updated) {
     throw new ConsoleBillingError(
@@ -725,7 +1209,7 @@ async function syncUsageStatement(
   };
 }
 
-async function makePurchaseReceipt(
+async function syncPurchaseReceiptProjection(
   q: Queryable,
   input: {
     namespace: string;
@@ -734,7 +1218,6 @@ async function makePurchaseReceipt(
     amountMinor: number;
     creditPackId: BillingCreditPackId;
     createdAtMs: number;
-    providerCheckoutSessionRef: string;
   },
 ): Promise<BillingInvoice> {
   const invoiceId = `receipt_${input.purchaseId}`;
@@ -782,6 +1265,77 @@ async function makePurchaseReceipt(
   return parseInvoiceRow(invoiceRow);
 }
 
+async function syncBillingDocumentProjections(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    createdAtMs: number;
+  },
+): Promise<void> {
+  const purchases = await q.query(
+    `SELECT *
+       FROM console_billing_credit_purchases
+      WHERE namespace = $1
+        AND org_id = $2
+        AND status = 'SETTLED'
+      ORDER BY settled_at_ms ASC NULLS LAST, created_at_ms ASC, id ASC`,
+    [input.namespace, input.orgId],
+  );
+  for (const rawRow of purchases.rows) {
+    const purchase = parseCreditPurchaseRow(rawRow as PgRow);
+    await syncPurchaseReceiptProjection(q, {
+      namespace: input.namespace,
+      orgId: input.orgId,
+      purchaseId: purchase.id,
+      amountMinor: purchase.amountMinor,
+      creditPackId: purchase.creditPackId,
+      createdAtMs:
+        purchase.settledAt == null
+          ? Date.parse(purchase.createdAt)
+          : Date.parse(purchase.settledAt),
+    });
+  }
+
+  const statementMonths = new Map<string, number>();
+  const ledgerMonths = await q.query(
+    `SELECT month_utc, MIN(created_at_ms)::BIGINT AS first_created_at_ms
+       FROM console_billing_ledger_entries
+      WHERE namespace = $1
+        AND org_id = $2
+        AND entry_type = 'USAGE_DEBIT'
+        AND month_utc IS NOT NULL
+      GROUP BY month_utc`,
+    [input.namespace, input.orgId],
+  );
+  for (const row of ledgerMonths.rows) {
+    const key = String((row as PgRow).month_utc || '').trim();
+    if (!key) continue;
+    statementMonths.set(key, toNumber((row as PgRow).first_created_at_ms));
+  }
+  const existingStatements = await q.query(
+    `SELECT period_month_utc, created_at_ms
+       FROM console_invoices
+      WHERE namespace = $1
+        AND org_id = $2
+        AND document_type = 'USAGE_STATEMENT'`,
+    [input.namespace, input.orgId],
+  );
+  for (const row of existingStatements.rows) {
+    const key = String((row as PgRow).period_month_utc || '').trim();
+    if (!key || statementMonths.has(key)) continue;
+    statementMonths.set(key, toNumber((row as PgRow).created_at_ms));
+  }
+  for (const [periodMonthUtc, createdAtMs] of Array.from(statementMonths.entries()).sort()) {
+    await syncUsageStatementProjection(q, {
+      namespace: input.namespace,
+      orgId: input.orgId,
+      periodMonthUtc,
+      createdAtMs: createdAtMs > 0 ? createdAtMs : input.createdAtMs,
+    });
+  }
+}
+
 async function settleCreditPurchase(
   q: Queryable,
   input: {
@@ -807,39 +1361,35 @@ async function settleCreditPurchase(
     );
   }
   const current = parseCreditPurchaseRow(purchaseRow);
-  if (current.status === 'SETTLED' && current.relatedInvoiceId) {
-    const existingInvoice = await queryOne(
-      q,
-      `SELECT *
-         FROM console_invoices
-        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-      [input.namespace, input.orgId, current.relatedInvoiceId],
-    );
+  const receiptInvoiceId = `receipt_${current.id}`;
+  if (current.status === 'SETTLED') {
+    const invoice = await syncPurchaseReceiptProjection(q, {
+      namespace: input.namespace,
+      orgId: input.orgId,
+      purchaseId: current.id,
+      amountMinor: current.amountMinor,
+      creditPackId: current.creditPackId,
+      createdAtMs: current.settledAt == null ? input.settledAtMs : Date.parse(current.settledAt),
+    });
+    const updatedRow =
+      current.relatedInvoiceId === invoice.id
+        ? purchaseRow
+        : await queryOne(
+            q,
+            `UPDATE console_billing_credit_purchases
+                SET related_invoice_id = $4,
+                    settled_at_ms = COALESCE(settled_at_ms, $5),
+                    updated_at_ms = $5
+              WHERE namespace = $1 AND org_id = $2 AND id = $3
+              RETURNING *`,
+            [input.namespace, input.orgId, current.id, invoice.id, input.settledAtMs],
+          );
     return {
-      purchase: current,
-      invoice: existingInvoice
-        ? parseInvoiceRow(existingInvoice)
-        : await makePurchaseReceipt(q, {
-            namespace: input.namespace,
-            orgId: input.orgId,
-            purchaseId: current.id,
-            amountMinor: current.amountMinor,
-            creditPackId: current.creditPackId,
-            createdAtMs: input.settledAtMs,
-            providerCheckoutSessionRef: current.providerCheckoutSessionRef,
-          }),
+      purchase: updatedRow ? parseCreditPurchaseRow(updatedRow) : current,
+      invoice,
     };
   }
 
-  const invoice = await makePurchaseReceipt(q, {
-    namespace: input.namespace,
-    orgId: input.orgId,
-    purchaseId: current.id,
-    amountMinor: current.amountMinor,
-    creditPackId: current.creditPackId,
-    createdAtMs: input.settledAtMs,
-    providerCheckoutSessionRef: current.providerCheckoutSessionRef,
-  });
   await appendLedgerEntry(q, {
     namespace: input.namespace,
     orgId: input.orgId,
@@ -848,9 +1398,21 @@ async function settleCreditPurchase(
     amountMinor: current.amountMinor,
     description: `Credit pack ${current.creditPackId} settled`,
     monthUtc: monthUtc(new Date(input.settledAtMs)),
-    relatedInvoiceId: invoice.id,
+    relatedInvoiceId: receiptInvoiceId,
     relatedPurchaseId: current.id,
     sourceEventId: current.providerCheckoutSessionRef,
+    actorType: 'PROVIDER',
+    reasonCode: 'stripe_checkout_settled',
+    note: `Stripe checkout session ${current.providerCheckoutSessionRef} settled`,
+    idempotencyKey: `credit_purchase_settlement:${current.id}`,
+    createdAtMs: input.settledAtMs,
+  });
+  const invoice = await syncPurchaseReceiptProjection(q, {
+    namespace: input.namespace,
+    orgId: input.orgId,
+    purchaseId: current.id,
+    amountMinor: current.amountMinor,
+    creditPackId: current.creditPackId,
     createdAtMs: input.settledAtMs,
   });
   const updatedRow = await queryOne(
@@ -872,13 +1434,11 @@ async function settleCreditPurchase(
       input.settledAtMs,
     ],
   );
-  await q.query(
-    `UPDATE console_billing_accounts
-        SET credit_balance_minor = credit_balance_minor + $3,
-            updated_at_ms = $4
-      WHERE namespace = $1 AND org_id = $2`,
-    [input.namespace, input.orgId, current.amountMinor, input.settledAtMs],
-  );
+  await syncProjectedOrgBalance(q, {
+    namespace: input.namespace,
+    orgId: input.orgId,
+    updatedAtMs: input.settledAtMs,
+  });
   if (!updatedRow) {
     throw new ConsoleBillingError(
       'purchase_settlement_failed',
@@ -924,6 +1484,101 @@ function buildInvoiceListWhereClause(input: {
     clause: clauses.join(' AND '),
     values,
   };
+}
+
+async function backfillLedgerAccountsAndPostings(q: Queryable): Promise<void> {
+  await q.query(
+    `INSERT INTO console_billing_ledger_accounts
+      (namespace, id, scope_type, scope_org_id, account_code, currency, status, created_at_ms)
+     SELECT DISTINCT namespace, platform_accounts.id, platform_accounts.scope_type, platform_accounts.scope_org_id, platform_accounts.account_code, 'USD', 'ACTIVE', 0
+       FROM (
+         SELECT namespace FROM console_billing_accounts
+         UNION
+         SELECT namespace FROM console_billing_ledger_entries
+       ) namespaces
+       CROSS JOIN (
+         VALUES
+           ('acct:processor_clearing:stripe', 'PLATFORM', NULL, 'processor_clearing:stripe'),
+           ('acct:revenue_usage', 'PLATFORM', NULL, 'revenue_usage'),
+           ('acct:expense_support_credit', 'PLATFORM', NULL, 'expense_support_credit'),
+           ('acct:suspense_admin_debit', 'PLATFORM', NULL, 'suspense_admin_debit'),
+           ('acct:suspense_reconciliation', 'PLATFORM', NULL, 'suspense_reconciliation')
+       ) AS platform_accounts(id, scope_type, scope_org_id, account_code)
+     ON CONFLICT (namespace, id) DO NOTHING`,
+  );
+  await q.query(
+    `INSERT INTO console_billing_ledger_accounts
+      (namespace, id, scope_type, scope_org_id, account_code, currency, status, created_at_ms)
+     SELECT DISTINCT namespace,
+       'acct:org_prepaid_liability:' || org_id,
+       'ORG',
+       org_id,
+       'org_prepaid_liability:' || org_id,
+       'USD',
+       'ACTIVE',
+       created_at_ms
+      FROM (
+        SELECT namespace, org_id, created_at_ms FROM console_billing_accounts
+        UNION
+        SELECT namespace, org_id, created_at_ms FROM console_billing_ledger_entries
+      ) org_accounts
+     ON CONFLICT (namespace, id) DO NOTHING`,
+  );
+
+  const rows = await q.query(
+    `SELECT entry.*
+       FROM console_billing_ledger_entries entry
+      WHERE NOT EXISTS (
+        SELECT 1
+          FROM console_billing_ledger_postings posting
+         WHERE posting.namespace = entry.namespace
+           AND posting.entry_id = entry.id
+      )
+      ORDER BY entry.created_at_ms ASC, entry.id ASC`,
+  );
+
+  for (const rawRow of rows.rows) {
+    const row = rawRow as PgRow;
+    const entry = parseLedgerEntryRow(row);
+    await ensureCanonicalLedgerAccounts(q, {
+      namespace: String(row.namespace || ''),
+      orgId: entry.orgId,
+      createdAtMs: toNumber(row.created_at_ms),
+    });
+    await insertLedgerPostings(q, {
+      namespace: String(row.namespace || ''),
+      entryId: entry.id,
+      createdAtMs: toNumber(row.created_at_ms),
+      postings: buildLedgerPostingsForEntry({
+        entryId: entry.id,
+        orgId: entry.orgId,
+        type: entry.type,
+        amountMinor: entry.amountMinor,
+        relatedInvoiceId: entry.relatedInvoiceId,
+        relatedPurchaseId: entry.relatedPurchaseId,
+        sourceEventId: entry.sourceEventId,
+      }),
+    });
+  }
+
+  await q.query(
+    `UPDATE console_billing_accounts account
+        SET credit_balance_minor = COALESCE(
+              (
+                SELECT SUM(
+                  CASE posting.direction
+                    WHEN 'CREDIT' THEN posting.amount_minor
+                    ELSE -posting.amount_minor
+                  END
+                )::BIGINT
+                  FROM console_billing_ledger_postings posting
+                 WHERE posting.namespace = account.namespace
+                   AND posting.org_id = account.org_id
+                   AND posting.account_id = 'acct:org_prepaid_liability:' || account.org_id
+              ),
+              0
+            )`,
+  );
 }
 
 export interface PostgresConsoleBillingSchemaOptions {
@@ -1133,6 +1788,28 @@ export async function ensureConsoleBillingPostgresSchema(
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_billing_ledger_accounts (
+        namespace TEXT NOT NULL,
+        id TEXT NOT NULL,
+        scope_type TEXT NOT NULL,
+        scope_org_id TEXT,
+        account_code TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, id),
+        UNIQUE (namespace, account_code),
+        CHECK (scope_type IN ('ORG', 'PLATFORM')),
+        CHECK (currency IN ('USD')),
+        CHECK (status IN ('ACTIVE'))
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_billing_ledger_accounts_scope_idx
+      ON console_billing_ledger_accounts (namespace, scope_type, scope_org_id)
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS console_billing_ledger_entries (
         namespace TEXT NOT NULL,
         id TEXT NOT NULL,
@@ -1153,6 +1830,31 @@ export async function ensureConsoleBillingPostgresSchema(
       )
     `);
     await pool.query(`
+      ALTER TABLE console_billing_ledger_entries
+      ADD COLUMN IF NOT EXISTS actor_type TEXT NOT NULL DEFAULT 'SYSTEM'
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_ledger_entries
+      ADD COLUMN IF NOT EXISTS actor_user_id TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_ledger_entries
+      ADD COLUMN IF NOT EXISTS reason_code TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_ledger_entries
+      ADD COLUMN IF NOT EXISTS note TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_ledger_entries
+      ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_idempotency_key_idx
+      ON console_billing_ledger_entries (namespace, idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+    `);
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_created_idx
       ON console_billing_ledger_entries (namespace, org_id, created_at_ms DESC)
     `);
@@ -1160,6 +1862,39 @@ export async function ensureConsoleBillingPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_billing_ledger_entries_org_month_idx
       ON console_billing_ledger_entries (namespace, org_id, month_utc, created_at_ms DESC)
       WHERE month_utc IS NOT NULL
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_billing_ledger_postings (
+        namespace TEXT NOT NULL,
+        id TEXT NOT NULL,
+        entry_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        amount_minor BIGINT NOT NULL,
+        currency TEXT NOT NULL,
+        related_invoice_id TEXT,
+        related_purchase_id TEXT,
+        source_event_id TEXT,
+        created_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, id),
+        CHECK (direction IN ('DEBIT', 'CREDIT')),
+        CHECK (currency IN ('USD')),
+        CHECK (amount_minor > 0)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_billing_ledger_postings_entry_idx
+      ON console_billing_ledger_postings (namespace, entry_id)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_billing_ledger_postings_org_account_idx
+      ON console_billing_ledger_postings (namespace, org_id, account_id, created_at_ms DESC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_billing_ledger_postings_org_invoice_idx
+      ON console_billing_ledger_postings (namespace, org_id, related_invoice_id, created_at_ms DESC)
+      WHERE related_invoice_id IS NOT NULL
     `);
 
     await pool.query(`
@@ -1231,6 +1966,8 @@ export async function ensureConsoleBillingPostgresSchema(
       DROP FUNCTION IF EXISTS console_reject_payment_state_transition_mutation()
     `);
 
+    await backfillLedgerAccountsAndPostings(pool);
+
     await ensureConsoleTenantRlsPolicies({
       q: pool,
       table: 'console_billing_accounts',
@@ -1265,6 +2002,11 @@ export async function ensureConsoleBillingPostgresSchema(
       q: pool,
       table: 'console_billing_ledger_entries',
       policyName: 'console_billing_ledger_entries_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_billing_ledger_postings',
+      policyName: 'console_billing_ledger_postings_tenant_rls',
     });
     await ensureConsoleTenantRlsPolicies({
       q: pool,
@@ -1347,7 +2089,6 @@ export async function createPostgresConsoleBillingService(
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       return withOrgTx(ctx, async (q, now) => {
         const currentMonthUtc = monthUtc(now);
-
         const account = await queryOne(
           q,
           `SELECT *
@@ -1378,6 +2119,12 @@ export async function createPostgresConsoleBillingService(
           ctx.orgId,
           currentMonthUtc,
         );
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
+        const creditBalanceMinor = await getProjectedOrgBalanceMinor(q, namespace, ctx.orgId);
         await upsertMonthlyActiveWalletRollup(q, {
           namespace,
           orgId: ctx.orgId,
@@ -1385,13 +2132,13 @@ export async function createPostgresConsoleBillingService(
           monthlyActiveWallets,
           updatedAtMs: nowMs(now),
         });
-        await q.query(
-          `UPDATE console_billing_accounts
-              SET monthly_active_wallets = $3,
-                  updated_at_ms = $4
-            WHERE namespace = $1 AND org_id = $2`,
-          [namespace, ctx.orgId, monthlyActiveWallets, nowMs(now)],
-        );
+        await syncBillingAccountSnapshot(q, {
+          namespace,
+          orgId: ctx.orgId,
+          creditBalanceMinor,
+          monthlyActiveWallets,
+          updatedAtMs: nowMs(now),
+        });
 
         const recentUsageDebitMinor = await getCurrentMonthUsageDebitMinor(
           q,
@@ -1410,7 +2157,7 @@ export async function createPostgresConsoleBillingService(
           usageMetricVersion: 'maw_v1',
           currentMonthUtc,
           monthlyActiveWallets,
-          creditBalanceMinor: toNumber(account.credit_balance_minor),
+          creditBalanceMinor,
           lowBalanceThresholdMinor: toNumber(account.low_balance_threshold_minor),
           recentUsageDebitMinor,
           recentCreditPurchasedMinor,
@@ -1564,37 +2311,32 @@ export async function createPostgresConsoleBillingService(
               amountMinor: -MAW_USAGE_DEBIT_MINOR,
               description: `MAW usage debit for ${request.walletId} (${eventMonthUtc})`,
               monthUtc: eventMonthUtc,
-              relatedInvoiceId: null,
+              relatedInvoiceId: makeBootstrapUsageStatementId(ctx.orgId, eventMonthUtc),
               relatedPurchaseId: null,
               sourceEventId: request.sourceEventId || eventId,
+              actorType: 'USER',
+              actorUserId: ctx.actorUserId,
+              reasonCode: 'usage_debit',
+              note: `Usage debit recorded for wallet ${request.walletId}`,
+              idempotencyKey: `usage_debit:${request.sourceEventId || eventId}`,
               createdAtMs: nowMs(now),
             });
-            await q.query(
-              `UPDATE console_billing_accounts
-                  SET credit_balance_minor = credit_balance_minor - $3,
-                      updated_at_ms = $4
-                WHERE namespace = $1 AND org_id = $2`,
-              [namespace, ctx.orgId, MAW_USAGE_DEBIT_MINOR, nowMs(now)],
-            );
           }
         }
 
-        const statement = await syncUsageStatement(q, {
+        const statement = await syncUsageStatementProjection(q, {
           namespace,
           orgId: ctx.orgId,
           periodMonthUtc: eventMonthUtc,
-          monthlyActiveWallets,
           createdAtMs: nowMs(now),
         });
         statementId = statement.invoice.id;
 
-        const account = await queryOne(
-          q,
-          `SELECT credit_balance_minor
-             FROM console_billing_accounts
-            WHERE namespace = $1 AND org_id = $2`,
-          [namespace, ctx.orgId],
-        );
+        const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+          namespace,
+          orgId: ctx.orgId,
+          updatedAtMs: nowMs(now),
+        });
 
         return {
           accepted: Boolean(inserted),
@@ -1602,14 +2344,19 @@ export async function createPostgresConsoleBillingService(
           monthUtc: eventMonthUtc,
           monthlyActiveWallets,
           debitAppliedMinor,
-          creditBalanceMinor: toNumber(account?.credit_balance_minor),
+          creditBalanceMinor,
           statementId,
         };
       });
     },
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
-      return withOrgTx(ctx, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
         const out = await q.query(
           `SELECT *
              FROM console_invoices
@@ -1626,6 +2373,11 @@ export async function createPostgresConsoleBillingService(
       request: BillingInvoiceListRequest = {},
     ): Promise<BillingInvoiceListResult> {
       return withOrgTx(ctx, async (q, now) => {
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
         const limit = normalizeInvoiceListLimit(request.limit);
         const cursor = parseInvoiceCursor(request.cursor);
         const baseWhere = buildInvoiceListWhereClause({
@@ -1698,7 +2450,12 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoice | null> {
-      return withOrgTx(ctx, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
         const row = await queryOne(
           q,
           `SELECT *
@@ -1714,7 +2471,12 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoiceActivity | null> {
-      return withOrgTx(ctx, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
         const invoiceRow = await queryOne(
           q,
           `SELECT *
@@ -1754,6 +2516,9 @@ export async function createPostgresConsoleBillingService(
           } satisfies BillingInvoiceActivityEntry,
           ...ledgerRows.rows.map((rawRow) => {
             const row = parseLedgerEntryRow(rawRow as PgRow);
+            const actorType = String((rawRow as PgRow).actor_type || 'SYSTEM')
+              .trim()
+              .toUpperCase();
             return {
               id: row.id,
               type: 'LEDGER',
@@ -1761,9 +2526,15 @@ export async function createPostgresConsoleBillingService(
               fromState: null,
               toState: row.type,
               occurredAt: row.createdAt,
-              actorType: 'SYSTEM',
-              actorUserId: null,
-              reason: row.type.toLowerCase(),
+              actorType: actorType === 'USER' || actorType === 'PROVIDER' ? actorType : 'SYSTEM',
+              actorUserId:
+                (rawRow as PgRow).actor_user_id == null
+                  ? null
+                  : String((rawRow as PgRow).actor_user_id || '').trim() || null,
+              reason:
+                (rawRow as PgRow).reason_code == null
+                  ? row.type.toLowerCase()
+                  : String((rawRow as PgRow).reason_code || '').trim() || row.type.toLowerCase(),
               sourceEventId: row.sourceEventId,
               summary: row.description,
             } satisfies BillingInvoiceActivityEntry;
@@ -1785,7 +2556,12 @@ export async function createPostgresConsoleBillingService(
       ctx: ConsoleBillingContext,
       invoiceId: string,
     ): Promise<BillingInvoiceLineItem[]> {
-      return withOrgTx(ctx, async (q) => {
+      return withOrgTx(ctx, async (q, now) => {
+        await syncBillingDocumentProjections(q, {
+          namespace,
+          orgId: ctx.orgId,
+          createdAtMs: nowMs(now),
+        });
         const invoice = await queryOne(
           q,
           `SELECT id
@@ -1832,11 +2608,10 @@ export async function createPostgresConsoleBillingService(
         const previousLineItems = previousInvoice
           ? await listInvoiceLineItemsByInvoice(q, namespace, ctx.orgId, previousInvoice.id)
           : [];
-        const synced = await syncUsageStatement(q, {
+        const synced = await syncUsageStatementProjection(q, {
           namespace,
           orgId: ctx.orgId,
           periodMonthUtc,
-          monthlyActiveWallets,
           createdAtMs: nowMs(now),
         });
         const generated =

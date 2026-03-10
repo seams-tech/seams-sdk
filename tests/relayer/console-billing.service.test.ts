@@ -489,6 +489,64 @@ test.describe('console billing service prepaid model', () => {
     ).toBe(true);
   });
 
+  test('in-memory service derives invoice projections from purchases and ledger entries', async () => {
+    let current = new Date('2026-03-20T00:00:00.000Z');
+    const service = createInMemoryConsoleBillingService({
+      now: () => current,
+    });
+    const ctx = {
+      orgId: 'org-invoice-projection-memory',
+      actorUserId: 'ops-invoice-projection',
+      roles: ['ops'],
+    };
+
+    const usage = await service.recordUsageEvent(ctx, {
+      walletId: 'wallet_projection_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'projection_mem_usage_1',
+      occurredAt: '2026-03-09T00:00:00.000Z',
+    });
+    expect(usage.statementId).toBeTruthy();
+
+    const receipt = await settleCreditPurchase(service, ctx, 'usd_200');
+
+    const invoices = await service.listInvoices(ctx);
+    expect(invoices.some((invoice) => invoice.id === usage.statementId)).toBe(true);
+    expect(invoices.some((invoice) => invoice.id === receipt.invoice.id)).toBe(true);
+
+    const statement = await service.getInvoice(ctx, String(usage.statementId || ''));
+    expect(statement?.documentType).toBe('USAGE_STATEMENT');
+    expect(statement?.amountDueMinor).toBe(300);
+
+    const statementItems = await service.listInvoiceLineItems(ctx, String(usage.statementId || ''));
+    expect(statementItems.length).toBe(1);
+    expect(statementItems[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+    expect(statementItems[0]?.amountMinor).toBe(300);
+
+    const receiptItems = await service.listInvoiceLineItems(ctx, receipt.invoice.id);
+    expect(receiptItems.length).toBe(1);
+    expect(receiptItems[0]?.itemType).toBe('CREDIT_TOP_UP');
+    expect(receiptItems[0]?.amountMinor).toBe(20000);
+
+    const statementActivity = await service.getInvoiceActivity(
+      ctx,
+      String(usage.statementId || ''),
+    );
+    expect(
+      statementActivity?.entries.some(
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'USAGE_DEBIT',
+      ),
+    ).toBe(true);
+
+    const receiptActivity = await service.getInvoiceActivity(ctx, receipt.invoice.id);
+    expect(
+      receiptActivity?.entries.some(
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'CREDIT_PURCHASE',
+      ),
+    ).toBe(true);
+  });
+
   test('postgres service enforces admin-only card mutations', async () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     test.skip(!postgresUrl, 'POSTGRES_URL not set');
@@ -535,12 +593,18 @@ test.describe('console billing service prepaid model', () => {
         await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
           namespace,
         ]);
+        await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
           namespace,
         ]);
         await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
       });
+      await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [
+        namespace,
+      ]);
     }
   });
 });

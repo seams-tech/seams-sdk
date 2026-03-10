@@ -16,6 +16,7 @@ import { WebhooksPage } from './routes/webhooks/page';
 import { FRONTEND_CONFIG } from '@/config';
 import {
   ActivityIcon,
+  CogIcon,
   CreditCardIcon,
   FileTextIcon,
   FuelIcon,
@@ -109,7 +110,7 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'account-settings',
         label: 'Account settings',
         path: '/dashboard/account-settings',
-        icon: UserCogIcon,
+        icon: CogIcon,
         component: AccountSettingsPage,
       },
       {

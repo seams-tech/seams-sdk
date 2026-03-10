@@ -315,26 +315,40 @@ function buildMemberProfile(
   detail: string;
 } {
   const displayName = resolveMemberDisplayName(member, sessionClaims);
-  const primaryIdentity = formatMemberPrimaryIdentity(member, sessionClaims);
+  const email = resolveMemberEmail(member, sessionClaims);
   const userId = String(member.userId || '').trim();
+  const normalizedDisplayName = displayName.toLowerCase();
+  const normalizedEmail = email.toLowerCase();
+  const normalizedUserId = userId.toLowerCase();
+  const title = displayName || email || userId || '-';
+
   if (!displayName) {
+    const nextLine =
+      email && email !== title ? email : userId && normalizedUserId !== title.toLowerCase() ? userId : '';
     return {
-      title: primaryIdentity,
-      subtitle: userId && userId !== primaryIdentity ? userId : '',
-      detail: '',
+      title,
+      detail: nextLine,
+      subtitle: '',
     };
   }
-  if (displayName.toLowerCase() === primaryIdentity.toLowerCase()) {
-    return {
-      title: primaryIdentity,
-      subtitle: userId && userId !== primaryIdentity ? userId : '',
-      detail: '',
-    };
-  }
+
+  const detail =
+    email && normalizedEmail !== normalizedDisplayName
+      ? email
+      : userId && normalizedUserId !== normalizedDisplayName
+        ? userId
+        : '';
+  const subtitle =
+    userId &&
+    normalizedUserId !== normalizedDisplayName &&
+    normalizedUserId !== normalizedEmail &&
+    userId !== detail
+      ? userId
+      : '';
   return {
-    title: primaryIdentity,
-    subtitle: userId && userId !== primaryIdentity ? userId : '',
-    detail: displayName,
+    title,
+    detail,
+    subtitle,
   };
 }
 

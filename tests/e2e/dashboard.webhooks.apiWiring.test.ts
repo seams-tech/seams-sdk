@@ -201,13 +201,17 @@ test.describe('dashboard webhooks console api wiring', () => {
 
     await page.goto('/dashboard/webhooks');
     await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Create webhook endpoint' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Create Webhook' })).toBeVisible();
 
+    await page.getByRole('button', { name: 'Create Webhook' }).click();
+    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeVisible();
     await page
       .getByPlaceholder('https://example.com/webhooks/tatchi')
       .fill('https://example.com/webhooks/dashboard-test');
     await page.getByLabel('Event categories dropdown').selectOption('wallet');
-    await page.getByRole('button', { name: 'Create endpoint' }).click();
+    await page.getByRole('dialog', { name: 'Create webhook modal' }).getByRole('button', {
+      name: 'Create endpoint',
+    }).click();
 
     await expect.poll(() => createBodies.length).toBe(1);
     expect(createBodies[0]?.url).toBe('https://example.com/webhooks/dashboard-test');

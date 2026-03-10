@@ -473,7 +473,7 @@ export function DashboardTablePagination(props: {
         <div className="dashboard-data-table__pagination-nav">
           <button
             type="button"
-            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            className="dashboard-pagination-button"
             disabled={controlsDisabled || page <= 1}
             onClick={() => onPageChange(page - 1)}
           >

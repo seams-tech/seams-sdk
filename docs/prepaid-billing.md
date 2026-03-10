@@ -40,15 +40,21 @@ Implemented now:
 - Direct invoice-settlement tables and routes have been removed from the active backend surface
 - Billing activity is document-and-ledger based, not payment-intent based
 - Postgres billing test coverage has been rewritten to prepaid-only semantics
+- The Postgres billing path now has canonical `ledger_accounts`, `ledger_entries`, and `ledger_postings`
+- Active credit-purchase settlement and usage debit writes now create balanced journal postings
+- Org balance sync in the Postgres billing path is now derived from ledger postings
+- The Postgres billing path now rebuilds receipt and usage-statement projections from purchase and journal state
+- Invoice/account reads in the Postgres billing path now refresh document projections before serving
+- The in-memory billing service now derives invoices, line items, and activity from purchase and ledger state instead of mutable invoice/document maps
 
 Still to finish:
 
-- Move from the current prepaid implementation to a canonical ledger-first write path with accounts, entries, and postings
-- Rebuild balances and documents as explicit projections from the journal
+- Finish routing any future financial writes, including operator adjustments, through the canonical journal
+- Prove projection rebuilding end-to-end against a real Postgres instance
 - Enforce zero-balance and low-balance policy in the real production execution path
 - Add internal operator adjustments as append-only journal entries
 - Decide the final Stripe account-management path and delete the unused one
-- Validate the final ledger-first model against a real Postgres instance
+- Validate the final ledger-first model against a real Postgres instance with `POSTGRES_URL` set
 
 ## Product Shape
 
@@ -390,9 +396,11 @@ Console UI:
 
 Backend logic:
 
-- [ ] Add a journal writer that creates entries plus balanced postings.
-- [ ] Add invariant checks that reject unbalanced entries.
-- [ ] Route all new billing writes through the journal writer.
+- [x] Add a journal writer that creates entries plus balanced postings.
+- [x] Add invariant checks that reject unbalanced entries.
+- [x] Route purchase settlement through the journal writer.
+- [x] Route usage debits through the journal writer.
+- [ ] Route operator credits and debits through the journal writer.
 - [ ] Define canonical entry types:
   - `CREDIT_PURCHASE_SETTLED`
   - `USAGE_DEBIT_RECORDED`
@@ -401,27 +409,28 @@ Backend logic:
 
 DB schema:
 
-- [ ] Add `console_billing_ledger_accounts`.
-- [ ] Add `console_billing_ledger_entries`.
-- [ ] Add `console_billing_ledger_postings`.
-- [ ] Add uniqueness constraints for idempotency keys.
-- [ ] Add balanced-entry and positive-posting invariants where practical.
+- [x] Add `console_billing_ledger_accounts`.
+- [x] Add `console_billing_ledger_entries`.
+- [x] Add `console_billing_ledger_postings`.
+- [x] Add uniqueness constraints for idempotency keys.
+- [x] Add balanced-entry and positive-posting invariants where practical.
 
 Migrations:
 
-- [ ] Seed platform accounts.
-- [ ] Seed per-org prepaid liability accounts.
+- [x] Seed platform accounts.
+- [x] Seed per-org prepaid liability accounts.
 - [ ] Backfill opening journal entries if needed.
+- [x] Backfill postings for legacy single-entry rows during schema bootstrap.
 - [ ] Delete superseded single-entry helper paths after cutover.
 
 ### Phase 3: Rebuild projections from the journal
 
 Backend logic:
 
-- [ ] Build org balance projections from journal postings.
-- [ ] Build receipt projections from settlement entries.
-- [ ] Build usage statement projections from usage entries.
-- [ ] Build account activity projections from journal + document links.
+- [x] Build org balance projections from journal postings.
+- [x] Build receipt projections from settlement entries.
+- [x] Build usage statement projections from usage entries.
+- [x] Build account activity projections from journal + document links.
 
 DB schema:
 
@@ -436,9 +445,9 @@ Migrations:
 
 Console UI:
 
-- [ ] Keep `/dashboard/billing/account` projection-only.
-- [ ] Keep `/dashboard/invoices` and detail pages projection-only.
-- [ ] Surface ledger-linked activity cleanly.
+- [x] Keep the Postgres-backed `/dashboard/billing/account` reads projection-only.
+- [x] Keep the Postgres-backed `/dashboard/invoices` and detail pages projection-only.
+- [x] Surface ledger-linked activity cleanly.
 
 ### Phase 4: Enforce balance policy in the real execution path
 

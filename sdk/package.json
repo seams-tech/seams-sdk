@@ -141,7 +141,6 @@
     "build:prod": "./scripts/build/build-prod.sh",
     "build:rolldown": "rolldown -c rolldown.config.ts",
     "dev": "rolldown -c rolldown.config.ts -w",
-    "build:check:server-runtime": "node ./scripts/build/check-server-runtime-available.mjs",
     "test": "pnpm -C ../tests test",
     "test:lite": "pnpm -C ../tests test:lite",
     "test:inline": "pnpm -C ../tests test:inline",

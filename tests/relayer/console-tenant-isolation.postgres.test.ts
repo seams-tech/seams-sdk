@@ -117,6 +117,9 @@ test.describe('console postgres tenant-isolation harness', () => {
         await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
           namespace,
         ]);
+        await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
           namespace,
         ]);
@@ -138,6 +141,9 @@ test.describe('console postgres tenant-isolation harness', () => {
         await q.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
       });
     }
+    await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [
+      namespace,
+    ]);
   });
 
   test('org/project/environment service enforces org-scoped reads', async () => {
@@ -1401,6 +1407,44 @@ test.describe('console postgres tenant-isolation harness', () => {
       ),
     ).toBe(false);
 
+    const ownerPostingRows = await queryRows(
+      ownerOrgId,
+      `SELECT org_id, source_event_id, related_purchase_id, account_id
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1`,
+    );
+    expect(
+      ownerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+            ownerUsageSourceEventId &&
+          String((row as Record<string, unknown>).account_id || '') === 'acct:revenue_usage',
+      ),
+    ).toBe(true);
+    expect(
+      ownerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).related_purchase_id || '') ===
+            ownerReceipt.purchase.id &&
+          String((row as Record<string, unknown>).account_id || '') ===
+            `acct:org_prepaid_liability:${ownerOrgId}`,
+      ),
+    ).toBe(true);
+    expect(
+      ownerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          attackerUsageSourceEventId,
+      ),
+    ).toBe(false);
+    expect(
+      ownerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).related_purchase_id || '') ===
+          attackerReceipt.purchase.id,
+      ),
+    ).toBe(false);
+
     const ownerWebhookRows = await queryRows(
       ownerOrgId,
       `SELECT org_id, event_id
@@ -1474,6 +1518,41 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(
       attackerPurchaseRows.rows.some(
         (row) => String((row as Record<string, unknown>).id || '') === ownerReceipt.purchase.id,
+      ),
+    ).toBe(false);
+
+    const attackerPostingRows = await queryRows(
+      attackerOrgId,
+      `SELECT org_id, source_event_id, related_purchase_id
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1`,
+    );
+    expect(
+      attackerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          attackerUsageSourceEventId,
+      ),
+    ).toBe(true);
+    expect(
+      attackerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).related_purchase_id || '') ===
+          attackerReceipt.purchase.id,
+      ),
+    ).toBe(true);
+    expect(
+      attackerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).source_event_id || '') ===
+          ownerUsageSourceEventId,
+      ),
+    ).toBe(false);
+    expect(
+      attackerPostingRows.rows.some(
+        (row) =>
+          String((row as Record<string, unknown>).related_purchase_id || '') ===
+          ownerReceipt.purchase.id,
       ),
     ).toBe(false);
 
@@ -1558,6 +1637,14 @@ test.describe('console postgres tenant-isolation harness', () => {
       [namespace],
     );
     expect(noTenantLedgerRows.rows.length).toBe(0);
+
+    const noTenantPostingRows = await pool.query(
+      `SELECT org_id, source_event_id, related_purchase_id
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1`,
+      [namespace],
+    );
+    expect(noTenantPostingRows.rows.length).toBe(0);
 
     const noTenantWebhookRows = await pool.query(
       `SELECT org_id, event_id

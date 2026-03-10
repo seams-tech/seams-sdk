@@ -29,10 +29,12 @@ export interface BillingInvoicesViewProps {
   setInvoiceStatusFilter: React.Dispatch<React.SetStateAction<string>>;
   invoiceDocumentTypeFilter: string;
   setInvoiceDocumentTypeFilter: React.Dispatch<React.SetStateAction<string>>;
-  invoicePeriodFilter: string;
-  setInvoicePeriodFilter: React.Dispatch<React.SetStateAction<string>>;
+  invoicePeriodStartDateFilter: string;
+  setInvoicePeriodStartDateFilter: React.Dispatch<React.SetStateAction<string>>;
+  invoicePeriodEndDateFilter: string;
+  setInvoicePeriodEndDateFilter: React.Dispatch<React.SetStateAction<string>>;
   invoices: DashboardBillingInvoice[];
-  totalInvoices: number;
+  hasAnyInvoices: boolean;
   downloadingInvoicePdfId: string;
   invoiceDownloadError: string;
   onOpenInvoice: (invoiceId: string) => void;
@@ -60,10 +62,12 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
     setInvoiceStatusFilter,
     invoiceDocumentTypeFilter,
     setInvoiceDocumentTypeFilter,
-    invoicePeriodFilter,
-    setInvoicePeriodFilter,
+    invoicePeriodStartDateFilter,
+    setInvoicePeriodStartDateFilter,
+    invoicePeriodEndDateFilter,
+    setInvoicePeriodEndDateFilter,
     invoices,
-    totalInvoices,
+    hasAnyInvoices,
     downloadingInvoicePdfId,
     invoiceDownloadError,
     onOpenInvoice,
@@ -94,54 +98,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
 
       <BillingMetricsGrid metrics={invoiceMetrics} ariaLabel="Invoice summary metrics" />
 
-      <section
-        className="dashboard-view__section dashboard-billing-filters"
-        aria-label="Invoice filters"
-      >
-        <div className="dashboard-billing-filters__copy">
-          <h2>Filters</h2>
-          <p>Filter history by document type, status, or billing period month.</p>
-        </div>
-        <div className="dashboard-billing-filters__controls">
-          <label className="dashboard-form-field">
-            <span>Document type</span>
-            <select
-              className="dashboard-input"
-              value={invoiceDocumentTypeFilter}
-              onChange={(event) => setInvoiceDocumentTypeFilter(event.target.value)}
-            >
-              <option value="all">All documents</option>
-              <option value="PURCHASE_RECEIPT">Purchase receipts</option>
-              <option value="USAGE_STATEMENT">Usage statements</option>
-            </select>
-          </label>
-          <label className="dashboard-form-field">
-            <span>Status</span>
-            <select
-              className="dashboard-input"
-              value={invoiceStatusFilter}
-              onChange={(event) => setInvoiceStatusFilter(event.target.value)}
-            >
-              <option value="all">All statuses</option>
-              <option value="open">Open</option>
-              <option value="overdue">Overdue</option>
-              <option value="paid">Paid</option>
-              <option value="void">Void</option>
-              <option value="uncollectible">Uncollectible</option>
-            </select>
-          </label>
-          <label className="dashboard-form-field">
-            <span>Billing period</span>
-            <input
-              className="dashboard-input"
-              type="month"
-              value={invoicePeriodFilter}
-              onChange={(event) => setInvoicePeriodFilter(event.target.value)}
-            />
-          </label>
-        </div>
-      </section>
-
       <DashboardTable
         ariaLabel="Invoices table"
         columns={BILLING_INVOICES_TABLE_COLUMNS}
@@ -149,9 +105,60 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
       >
         <DashboardTableIntro className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Receipts and statements</h3>
-          <p className="dashboard-billing-table__description">
-            Open any document to review line items, ledger activity, and export actions.
-          </p>
+          <div className="dashboard-billing-filters" role="group" aria-label="Invoice filters">
+            <label className="dashboard-form-field">
+              <span>Document type</span>
+              <select
+                className="dashboard-input"
+                value={invoiceDocumentTypeFilter}
+                onChange={(event) => setInvoiceDocumentTypeFilter(event.target.value)}
+              >
+                <option value="all">All documents</option>
+                <option value="PURCHASE_RECEIPT">Purchase receipts</option>
+                <option value="USAGE_STATEMENT">Usage statements</option>
+              </select>
+            </label>
+            <label className="dashboard-form-field">
+              <span>Status</span>
+              <select
+                className="dashboard-input"
+                value={invoiceStatusFilter}
+                onChange={(event) => setInvoiceStatusFilter(event.target.value)}
+              >
+                <option value="all">All statuses</option>
+                <option value="open">Open</option>
+                <option value="overdue">Overdue</option>
+                <option value="paid">Paid</option>
+                <option value="void">Void</option>
+                <option value="uncollectible">Uncollectible</option>
+              </select>
+            </label>
+            <div className="dashboard-form-field dashboard-form-field--full">
+              <span>Billing period</span>
+              <div className="dashboard-billing-filters__period-inputs">
+                <label className="dashboard-form-field">
+                  <span>Start date</span>
+                  <input
+                    className="dashboard-input"
+                    type="date"
+                    value={invoicePeriodStartDateFilter}
+                    max={invoicePeriodEndDateFilter || undefined}
+                    onChange={(event) => setInvoicePeriodStartDateFilter(event.target.value)}
+                  />
+                </label>
+                <label className="dashboard-form-field">
+                  <span>End date</span>
+                  <input
+                    className="dashboard-input"
+                    type="date"
+                    value={invoicePeriodEndDateFilter}
+                    min={invoicePeriodStartDateFilter || undefined}
+                    onChange={(event) => setInvoicePeriodEndDateFilter(event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
           {invoiceDownloadError ? (
             <p className="dashboard-pagination-note">{invoiceDownloadError}</p>
           ) : invoiceListError ? (
@@ -172,9 +179,7 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           <DashboardTableState>Loading invoices...</DashboardTableState>
         ) : invoices.length === 0 ? (
           <DashboardTableState>
-            {totalInvoices === 0
-              ? 'No billing documents yet.'
-              : 'No documents match the current filters.'}
+            {hasAnyInvoices ? 'No documents match the current filters.' : 'No billing documents yet.'}
           </DashboardTableState>
         ) : (
           <>

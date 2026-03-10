@@ -67,6 +67,25 @@ export const UserCogIcon: React.FC<SidebarIconProps> = (props) => (
   </SidebarIconBase>
 );
 
+export const CogIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="cog" {...props}>
+    <path d="M11 10.27 7 3.34" />
+    <path d="m11 13.73-4 6.93" />
+    <path d="M12 22v-2" />
+    <path d="M12 2v2" />
+    <path d="M14 12h8" />
+    <path d="m17 20.66-1-1.73" />
+    <path d="m17 3.34-1 1.73" />
+    <path d="M2 12h2" />
+    <path d="m20.66 17-1.73-1" />
+    <path d="m20.66 7-1.73 1" />
+    <path d="m3.34 17 1.73-1" />
+    <path d="m3.34 7 1.73 1" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="12" cy="12" r="8" />
+  </SidebarIconBase>
+);
+
 export const KeyRoundIcon: React.FC<SidebarIconProps> = (props) => (
   <SidebarIconBase iconName="key-round" {...props}>
     <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
