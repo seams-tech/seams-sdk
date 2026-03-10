@@ -2,9 +2,21 @@ import React from 'react';
 
 const requirements = [
   'Reserve a customer-owned wallet origin such as `wallet.dev1.com` before the first production launch.',
-  'Point that origin at the hosted deployment with a CNAME, custom hostname, or reverse proxy.',
+  'Keep DNS control for that hostname so the team can add vendor-provided CNAME and TXT records.',
   'Keep WebAuthn `rpId`, headers, and wallet paths stable across hosted and self-hosted environments.',
 ] as const;
+
+const rollout = [
+  'Add the hosted CNAME and verification TXT records while traffic is still served by hosted infrastructure.',
+  'Keep the same wallet contract, asset paths, and WebAuthn boundary while validating the deployment.',
+  'When the team is ready to self-host, update the CNAME target or equivalent edge routing without changing the visible hostname.',
+] as const;
+
+const dnsExample = [
+  'wallet.dev1.com CNAME customer-wallet-edge.tatchi.xyz',
+  '_tatchi-verify.wallet.dev1.com TXT <vendor-generated-verification-token>',
+  '_acme-challenge.wallet.dev1.com TXT <vendor-generated-acme-token>  # optional when requested for TLS',
+].join('\n');
 
 export function SelfHostingPage(): React.JSX.Element {
   return (
@@ -27,20 +39,29 @@ export function SelfHostingPage(): React.JSX.Element {
         </ul>
       </section>
 
+      <section className="dashboard-view__section" aria-label="Hosted rollout DNS records">
+        <h2>Hosted rollout DNS records</h2>
+        <p>
+          The default setup is <code>CNAME + TXT</code>. The customer keeps DNS in their own
+          provider, copies the records below, and the hosted edge is activated after they resolve.
+        </p>
+        <pre className="dashboard-code-block">
+          <code>{dnsExample}</code>
+        </pre>
+        <p>
+          Do not redirect the browser to a vendor hostname. The wallet must stay visible at
+          {' '}
+          <code>https://wallet.dev1.com</code> so passkeys and wallet-origin state remain stable.
+        </p>
+      </section>
+
       <section className="dashboard-view__section" aria-label="Hosted to self-hosted rollout">
         <h2>Recommended rollout</h2>
-        <p>
-          1. Launch on the customer-owned hostname while traffic is still served by hosted
-          infrastructure.
-        </p>
-        <p>
-          2. Keep the same wallet contract, asset paths, and WebAuthn boundary while validating the
-          deployment.
-        </p>
-        <p>
-          3. Cut over DNS or proxy routing to the customer deployment when the team is ready to
-          self-host.
-        </p>
+        <ul className="dashboard-view-list">
+          {rollout.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
       </section>
 
       <section className="dashboard-view__section" aria-label="Self hosting tradeoffs">

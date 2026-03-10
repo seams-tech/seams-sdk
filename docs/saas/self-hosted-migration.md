@@ -1,6 +1,6 @@
 # Customer-Owned Wallet Domain Plan
 
-Date updated: March 9, 2026
+Date updated: March 10, 2026
 
 ## Objective
 
@@ -9,7 +9,7 @@ Support a customer-owned wallet origin such as `https://wallet.dev1.com` from da
 This plan intentionally optimizes for:
 
 - stable `rpId` and wallet origin from the user's point of view,
-- zero-touch infrastructure cutover later,
+- low-touch infrastructure cutover later,
 - explicit tradeoffs versus shared-network wallet composability.
 
 ## Recommended Model
@@ -42,11 +42,9 @@ The customer must provide:
 
 1. A domain they already control.
 2. A dedicated wallet subdomain, for example `wallet.dev1.com`.
-3. DNS control for that subdomain.
-4. A willingness to point that subdomain at vendor infrastructure first.
-5. A TLS ownership flow:
-   - either they allow vendor-managed certificate issuance for the hostname,
-   - or they provision certificates through their own edge/CDN arrangement.
+3. DNS control for that subdomain so they can add `CNAME` and `TXT` records.
+4. A willingness to point that subdomain at vendor infrastructure first with a `CNAME`.
+5. A willingness to complete ownership / TLS validation with vendor-provided `TXT` records when required.
 
 Recommended complementary app setup:
 
@@ -64,13 +62,13 @@ Pick a stable wallet hostname that will not change later:
 
 Do not start on a vendor hostname if the customer may later require self-hosting.
 
-### 2. Point DNS at vendor infrastructure
+### 2. Add DNS records for hosted rollout
 
-Use a browser-transparent routing setup:
+Use a browser-transparent `CNAME + TXT` setup:
 
 - `CNAME wallet.dev1.com -> customer-wallet-edge.tatchi.xyz`
-- or delegated DNS / custom-hostname onboarding to vendor edge
-- or customer CDN proxying `wallet.dev1.com` to vendor origin
+- `TXT _tatchi-verify.wallet.dev1.com -> <vendor-generated-verification-token>`
+- optional: `TXT _acme-challenge.wallet.dev1.com -> <vendor-generated-acme-token>` when DNS-based certificate validation is required
 
 Requirements:
 
@@ -81,6 +79,12 @@ Requirements:
 Non-goal:
 
 - HTTP redirects from `wallet.dev1.com` to `wallet.tatchi.xyz`
+- NS delegation of the customer subdomain for the default onboarding flow
+
+Operational note:
+
+- the customer keeps DNS control in their own provider and only copies vendor-provided records,
+- vendor activates the hostname after the `CNAME` and verification `TXT` records resolve.
 
 ### 3. Configure app integration
 
@@ -108,18 +112,26 @@ Changing this later turns the project into a passkey migration.
 
 ### Phase 1. Hosting and routing
 
-1. Add custom-hostname support on vendor edge for customer wallet domains.
-2. Support browser-transparent serving of:
+1. Add `CNAME`-based custom-domain support on vendor edge for customer wallet domains.
+2. Generate per-customer DNS onboarding instructions:
+   - `CNAME` target for wallet traffic,
+   - ownership verification `TXT` record,
+   - temporary ACME / certificate-validation `TXT` records when required.
+3. Support browser-transparent serving of:
    - `/wallet-service`
    - `/sdk/*` assets
    - wallet CSP and WebAuthn delegation headers
-3. Add TLS issuance/renewal support for customer wallet hostnames.
+4. Add TLS issuance/renewal support for customer wallet hostnames after DNS verification succeeds.
 
 ### Phase 2. Tenant configuration
 
 1. Persist per-customer wallet origin and `rpId` settings.
 2. Validate that configured app origins are allowed to embed the wallet.
 3. Expose onboarding instructions for DNS and app integration.
+4. Track hostname activation state:
+   - pending DNS,
+   - pending verification / TLS,
+   - active.
 
 ### Phase 3. Runtime support
 
@@ -141,7 +153,7 @@ When the customer is ready to self-host:
    - `https://wallet.dev1.com`
    - the same `rpId`
    - the same WebAuthn delegation and wallet CSP behavior
-4. Customer repoints DNS or proxy routing from vendor edge to customer infrastructure.
+4. Customer updates the `CNAME` target or equivalent edge routing from vendor infrastructure to customer infrastructure.
 5. Vendor and customer perform a short validation window for:
    - registration,
    - login,
@@ -211,3 +223,5 @@ Support two explicit modes rather than trying to make one mode satisfy conflicti
    - optimized for future self-hosting and white-label portability
 
 Do not promise seamless migration from a vendor-owned wallet domain to a customer-owned wallet domain after launch. That is a true passkey-domain migration and should be treated as a separate product with explicit user migration steps.
+
+For the default customer-owned wallet flow, prefer `CNAME + TXT` onboarding over delegated subdomain DNS or full registrar transfer.
