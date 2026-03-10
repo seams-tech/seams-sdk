@@ -22,9 +22,9 @@ test.describe('relay cloudflare worker scheduled handler', () => {
           seen.outboxEvents.push(event);
         },
       },
-      createCron: (_service, options) => {
+      createCron: (_service: any, options: any) => {
         seen.cronOptions = options;
-        return async (event, env, ctx) => {
+        return async (event: any, env: any, ctx: any) => {
           seen.event = event;
           seen.env = env;
           seen.ctx = ctx;
@@ -77,7 +77,7 @@ test.describe('relay cloudflare worker scheduled handler', () => {
       outboxSink: {
         applyOutboxEvent() {},
       },
-      createCron: (_service, options) => {
+      createCron: (_service: any, options: any) => {
         cronOptions = options;
         return async () => {};
       },

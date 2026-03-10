@@ -688,7 +688,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         authorizePostCount += 1;
         if (authorizePostCount === 1) {
           await new Promise<void>((resolve) => {
-            releaseFirstAuthorize = resolve;
+            releaseFirstAuthorize = () => resolve();
           });
         }
         await route.fallback();
@@ -707,7 +707,8 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       await page.waitForTimeout(400);
       expect(authorizePostCount).toBe(1);
 
-      releaseFirstAuthorize?.();
+      const releaseFirstAuthorizeFn = releaseFirstAuthorize as (() => void) | null;
+      releaseFirstAuthorizeFn?.();
       const result = await pending;
       expect(authorizePostCount).toBeGreaterThanOrEqual(2);
       expect(result.first.ok || result.second.ok).toBe(true);
@@ -743,7 +744,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         authorizePostCount += 1;
         if (authorizePostCount === 1) {
           await new Promise<void>((resolve) => {
-            releaseFirstAuthorize = resolve;
+            releaseFirstAuthorize = () => resolve();
           });
         }
         await route.fallback();
@@ -760,7 +761,8 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       }
       expect(authorizePostCount).toBeGreaterThanOrEqual(2);
 
-      releaseFirstAuthorize?.();
+      const releaseFirstAuthorizeFn = releaseFirstAuthorize as (() => void) | null;
+      releaseFirstAuthorizeFn?.();
       const result = await pending;
       expect(result.first.ok || result.second.ok).toBe(true);
     } finally {

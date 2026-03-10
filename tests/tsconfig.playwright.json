@@ -6,7 +6,12 @@
       "@shared/*": ["../shared/src/*"],
       "@server": ["../server/src/index.ts"],
       "@server/*": ["../server/src/*"],
-      "@build-paths": ["../sdk/build-paths.ts"]
+      "@build-paths": ["../sdk/build-paths.ts"],
+      "@tatchi-xyz/sdk/server": ["../server/src/index.ts"],
+      "@tatchi-xyz/sdk/server/router/cloudflare": ["../server/src/router/cloudflare-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/router/express": ["../server/src/router/express-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/router/ror": ["../server/src/router/ror-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/wasm/signer": ["../server/src/wasm/signer.ts"]
     }
   }
 }

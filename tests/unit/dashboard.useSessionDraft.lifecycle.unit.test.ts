@@ -70,12 +70,12 @@ test.describe('useSessionDraft lifecycle behavior', () => {
       }
 
       function Harness() {
-        const [isOpen, setIsOpen] = React.useState<boolean>(false);
-        const [initialForm] = React.useState<DraftForm>({
+        const [isOpen, setIsOpen] = React.useState(false);
+        const [initialForm] = React.useState({
           policyName: 'default-form',
           enabled: false,
         });
-        const hook = useSessionDraft<DraftForm>({
+        const hook = useSessionDraft({
           identity,
           initialForm,
           isOpen,
@@ -254,12 +254,12 @@ test.describe('useSessionDraft lifecycle behavior', () => {
       }
 
       function Harness() {
-        const [identity, setIdentity] = React.useState<typeof identityA | null>(identityA);
-        const [initialForm] = React.useState<DraftForm>({
+        const [identity, setIdentity] = React.useState(identityA as typeof identityA | null);
+        const [initialForm] = React.useState({
           policyName: 'default-policy',
           enabled: false,
         });
-        const hook = useSessionDraft<DraftForm>({
+        const hook = useSessionDraft({
           identity,
           initialForm,
           isOpen: true,

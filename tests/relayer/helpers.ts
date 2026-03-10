@@ -139,7 +139,7 @@ export async function callCf(
 }
 
 export function getPath(
-  json: Record<string, unknown> | null,
+  json: unknown,
   ...path: Array<string | number>
 ): unknown {
   let cursor: unknown = json;

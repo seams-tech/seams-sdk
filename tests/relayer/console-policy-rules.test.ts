@@ -3,13 +3,13 @@ import {
   evaluateConsolePolicyRules,
   parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
-} from '../../server/src/console/policies/rules.ts';
+} from '../../server/src/console/policies/rules';
 import {
   parseCreateConsolePolicyRequest,
   parseSimulateConsolePolicyRequest,
   parseUpdateConsolePolicyRequest,
-} from '../../server/src/console/policies/requests.ts';
-import { createInMemoryConsolePolicyService } from '../../server/src/console/policies/service.ts';
+} from '../../server/src/console/policies/requests';
+import { createInMemoryConsolePolicyService } from '../../server/src/console/policies/service';
 
 async function expectPolicyError(
   fn: () => unknown | Promise<unknown>,

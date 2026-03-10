@@ -64,6 +64,37 @@ function makeConsoleAuthAdapter(
   };
 }
 
+function makeObservabilityIngestionCollector(
+  ingested: Array<{
+    ingestCtx: Record<string, unknown>;
+    event: Record<string, unknown>;
+  }>,
+): ConsoleObservabilityIngestionService {
+  const appendOne = async (
+    ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
+    event: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[1],
+  ) => {
+    ingested.push({
+      ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+      event: event as unknown as Record<string, unknown>,
+    });
+    return { accepted: 1, deduplicated: 0 };
+  };
+
+  return {
+    appendEvent: appendOne,
+    appendEvents: async (ingestCtx, events) => {
+      for (const event of events) {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+      }
+      return { accepted: events.length, deduplicated: 0 };
+    },
+  };
+}
+
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
@@ -388,15 +419,7 @@ test.describe('console router (express)', () => {
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
     }> = [];
-    const observabilityIngestion: ConsoleObservabilityIngestionService = {
-      appendEvent: async (ingestCtx, event) => {
-        ingested.push({
-          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
-          event: event as unknown as Record<string, unknown>,
-        });
-        return { accepted: 1, deduplicated: 0 };
-      },
-    };
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const basePolicies = createInMemoryConsolePolicyService();
     const failingPolicies: ConsolePolicyService = {
       ...basePolicies,
@@ -470,15 +493,7 @@ test.describe('console router (express)', () => {
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
     }> = [];
-    const observabilityIngestion: ConsoleObservabilityIngestionService = {
-      appendEvent: async (ingestCtx, event) => {
-        ingested.push({
-          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
-          event: event as unknown as Record<string, unknown>,
-        });
-        return { accepted: 1, deduplicated: 0 };
-      },
-    };
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const baseBilling = createInMemoryConsoleBillingService();
     const failingBilling: ConsoleBillingService = {
       ...baseBilling,
@@ -661,7 +676,7 @@ test.describe('console router (express)', () => {
       eventType: 'invoice.payment_failed',
       invoiceId: generatedInvoice.invoice.id,
       invoiceStatus: 'UNCOLLECTIBLE',
-    });
+    } as any);
     await auditExports.createExport(serviceCtx, { format: 'JSONL' });
     await enterpriseIsolation.triggerIsolation(serviceCtx, {
       scope: 'ORG',
@@ -4821,15 +4836,7 @@ test.describe('console router (cloudflare)', () => {
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
     }> = [];
-    const observabilityIngestion: ConsoleObservabilityIngestionService = {
-      appendEvent: async (ingestCtx, event) => {
-        ingested.push({
-          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
-          event: event as unknown as Record<string, unknown>,
-        });
-        return { accepted: 1, deduplicated: 0 };
-      },
-    };
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const basePolicies = createInMemoryConsolePolicyService();
     const failingPolicies: ConsolePolicyService = {
       ...basePolicies,
@@ -4901,15 +4908,7 @@ test.describe('console router (cloudflare)', () => {
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
     }> = [];
-    const observabilityIngestion: ConsoleObservabilityIngestionService = {
-      appendEvent: async (ingestCtx, event) => {
-        ingested.push({
-          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
-          event: event as unknown as Record<string, unknown>,
-        });
-        return { accepted: 1, deduplicated: 0 };
-      },
-    };
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
     const baseBilling = createInMemoryConsoleBillingService();
     const failingBilling: ConsoleBillingService = {
       ...baseBilling,
@@ -5077,7 +5076,7 @@ test.describe('console router (cloudflare)', () => {
       eventType: 'invoice.payment_failed',
       invoiceId: generatedInvoice.invoice.id,
       invoiceStatus: 'UNCOLLECTIBLE',
-    });
+    } as any);
     await auditExports.createExport(serviceCtx, { format: 'JSONL' });
     await enterpriseIsolation.triggerIsolation(serviceCtx, {
       scope: 'ORG',

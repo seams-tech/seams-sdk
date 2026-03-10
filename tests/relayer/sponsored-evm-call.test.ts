@@ -260,7 +260,7 @@ async function publishAllowedPolicy(runtimeSnapshots: ReturnType<typeof createIn
     environmentId,
     payload: {
       policy: {},
-      settings: {},
+      metadata: {},
       smartWallets: {},
       gasSponsorship: {
         status: 'resolved',
@@ -272,14 +272,13 @@ async function publishAllowedPolicy(runtimeSnapshots: ReturnType<typeof createIn
             policyName: 'Tempo Testnet Onboarding',
             templateId: 'tempo_testnet_onboarding',
             networkClass: 'TESTNET',
-            executor: 'RELAY_EOA',
+            allowedChainIds: [42_431],
+            callMode: 'ALLOWLIST',
             allowedCalls: [
               {
                 chainId: 42_431,
                 to: contractAddress,
                 selector,
-                maxGasLimit: '300000',
-                maxValueWei: '0',
               },
             ],
           },
@@ -425,13 +424,14 @@ test.describe('sponsored evm call route', () => {
           sourceEventId,
         }),
       });
+      const body = response.json || {};
       expect(response.status).toBe(200);
-      expect(response.json.ok).toBe(true);
-      expect(response.json.txHash).toBe(txHash);
-      expect(response.json.policyId).toBe('gs_onboarding');
-      expect(response.json.gasUsed).toBe(gasUsedDec);
-      expect(response.json.effectiveGasPrice).toBe(effectiveGasPriceDec);
-      expect(response.json.spendWei).toBe(spendWeiDec);
+      expect(body.ok).toBe(true);
+      expect(body.txHash).toBe(txHash);
+      expect(body.policyId).toBe('gs_onboarding');
+      expect(body.gasUsed).toBe(gasUsedDec);
+      expect(body.effectiveGasPrice).toBe(effectiveGasPriceDec);
+      expect(body.spendWei).toBe(spendWeiDec);
 
       const record = await ledger.getRecordBySourceEventId(apiKeyCtx, sourceEventId);
       const details = parseRecordDetails(record?.detailsJson);
@@ -515,10 +515,11 @@ test.describe('sponsored evm call route', () => {
         },
         body: JSON.stringify(requestBody),
       });
+      const replayed = second.json || {};
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(second.json.replayed).toBe(true);
-      expect(second.json.txHash).toBe(txHash);
+      expect(replayed.replayed).toBe(true);
+      expect(replayed.txHash).toBe(txHash);
     } finally {
       await server.close();
       await rpc.close();
@@ -563,8 +564,9 @@ test.describe('sponsored evm call route', () => {
         },
         body: JSON.stringify(requestBody),
       });
+      const invalidBody = invalid.json || {};
       expect(invalid.status).toBe(401);
-      expect(invalid.json.code).toBe('publishable_key_invalid');
+      expect(invalidBody.code).toBe('publishable_key_invalid');
 
       const blocked = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
         method: 'POST',
@@ -576,8 +578,9 @@ test.describe('sponsored evm call route', () => {
         },
         body: JSON.stringify(requestBody),
       });
+      const blockedBody = blocked.json || {};
       expect(blocked.status).toBe(403);
-      expect(blocked.json.code).toBe('origin_not_allowed');
+      expect(blockedBody.code).toBe('origin_not_allowed');
     } finally {
       await server.close();
       await rpc.close();
@@ -621,8 +624,9 @@ test.describe('sponsored evm call route', () => {
           },
         }),
       });
+      const mismatchBody = mismatch.json || {};
       expect(mismatch.status).toBe(403);
-      expect(mismatch.json.code).toBe('sponsorship_policy_not_matched');
+      expect(mismatchBody.code).toBe('sponsorship_policy_not_matched');
     } finally {
       await server.close();
       await rpc.close();
@@ -668,8 +672,9 @@ test.describe('sponsored evm call route', () => {
           sourceEventId,
         }),
       });
+      const body = response.json || {};
       expect(response.status).toBe(502);
-      expect(response.json.code).toBe('tx_reverted');
+      expect(body.code).toBe('tx_reverted');
 
       const record = await ledger.getRecordBySourceEventId(apiKeyCtx, sourceEventId);
       const details = parseRecordDetails(record?.detailsJson);
@@ -728,8 +733,9 @@ test.describe('sponsored evm call route', () => {
           },
         }),
       });
+      const body = response.json || {};
       expect(response.status).toBe(503);
-      expect(response.json.code).toBe('runtime_snapshot_not_found');
+      expect(body.code).toBe('runtime_snapshot_not_found');
     } finally {
       await server.close();
       await rpc.close();

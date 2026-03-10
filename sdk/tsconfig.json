@@ -33,6 +33,11 @@
       "@shared/*": ["../shared/src/*"],
       "@server": ["../server/src/index.ts"],
       "@server/*": ["../server/src/*"],
+      "@tatchi-xyz/sdk/server": ["../server/src/index.ts"],
+      "@tatchi-xyz/sdk/server/router/cloudflare": ["../server/src/router/cloudflare-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/router/express": ["../server/src/router/express-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/router/ror": ["../server/src/router/ror-adaptor.ts"],
+      "@tatchi-xyz/sdk/server/wasm/signer": ["../server/src/wasm/signer.ts"],
       "@build-paths": ["./build-paths.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
@@ -45,5 +50,5 @@
     }
   },
   "include": ["../client/src/**/*", "../server/src/**/*", "../shared/src/**/*", "../tests/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "../dist", "../tests/scripts/**/*"]
 }

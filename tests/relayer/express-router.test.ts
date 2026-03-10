@@ -17,6 +17,14 @@ import {
   startExpressRouter,
 } from './helpers';
 
+type IssuedAppSessionClaims = {
+  sub: string;
+  appSessionVersion: string;
+  email?: string;
+  name?: string;
+  [key: string]: unknown;
+};
+
 function validLoginOptionsBody(overrides?: Partial<any>): any {
   return {
     user_id: 'bob.testnet',
@@ -377,7 +385,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-auth-identities-parse-fail', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 
@@ -548,7 +556,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-parse-fail', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
@@ -599,7 +607,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-cookie-parse-fail', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
@@ -654,7 +662,7 @@ test.describe('relayer router (express) – P0', () => {
       },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
     const session = makeSessionAdapter({ parse: async () => ({ ok: false }) });
@@ -755,7 +763,7 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /session/exchange + /session/revoke: oidc_jwt cookie session is invalidated after revoke', async () => {
-    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     let currentAppSessionVersion = 'v1';
 
     const parseCookieToken = (cookieHeader: string): string | null => {
@@ -873,7 +881,7 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates console session', async () => {
-    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     let currentAppSessionVersion = 'v1';
 
     const parseCookieToken = (cookieHeader: string): string | null => {
@@ -1001,7 +1009,7 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('GET /console/session: authenticated user without membership is forbidden', async () => {
-    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     const parseCookieToken = (cookieHeader: string): string | null => {
       for (const part of cookieHeader.split(';')) {
         const chunk = String(part || '').trim();
@@ -1098,7 +1106,7 @@ test.describe('relayer router (express) – P0', () => {
   });
 
   test('GET /console/session: first login provisions membership and audit event', async () => {
-    const issuedClaimsByToken = new Map<string, { sub: string; appSessionVersion: string }>();
+    const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     const parseCookieToken = (cookieHeader: string): string | null => {
       for (const part of cookieHeader.split(';')) {
         const chunk = String(part || '').trim();
@@ -1245,7 +1253,7 @@ test.describe('relayer router (express) – P0', () => {
       },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session', 'wallet'],
+        eventCategories: ['session', 'wallet'],
       },
     );
 
@@ -1445,7 +1453,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-warm', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 
@@ -1523,7 +1531,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-1', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 
@@ -1688,7 +1696,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-signature-format', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 
@@ -1842,7 +1850,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-invalid-version', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 
@@ -2058,7 +2066,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-2', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session', 'wallet'],
+        eventCategories: ['session', 'wallet'],
       },
     );
 
@@ -2161,7 +2169,7 @@ test.describe('relayer router (express) – P0', () => {
       { orgId: 'org-relay-express-expired', actorUserId: 'test-admin', roles: ['admin'] },
       {
         url: 'https://example.com/relay-webhooks',
-        subscriptions: ['session'],
+        eventCategories: ['session'],
       },
     );
 

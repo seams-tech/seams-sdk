@@ -254,8 +254,12 @@ test.describe('threshold-ecdsa tempo signing', () => {
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.code).toBe('tx_payload_mismatch');
       expect(result.reason).toBe('mismatch');
-      expect(result.observedInput.toLowerCase()).toBe('0xdeadbeef');
-      expect(result.observedTo.toLowerCase()).toBe('0x1111111111111111111111111111111111111111');
+      const observedInput = result.observedInput;
+      const observedTo = result.observedTo;
+      expect(observedInput).toBeTruthy();
+      expect(observedTo).toBeTruthy();
+      expect(observedInput?.toLowerCase()).toBe('0xdeadbeef');
+      expect(observedTo?.toLowerCase()).toBe('0x1111111111111111111111111111111111111111');
     } finally {
       await harness.close();
     }

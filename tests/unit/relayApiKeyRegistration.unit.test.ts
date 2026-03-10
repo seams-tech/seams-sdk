@@ -9,6 +9,7 @@ function buildSerializedCredential(): WebAuthnRegistrationCredential {
     id: 'cred_registration_1',
     rawId: 'raw_registration_1',
     type: 'public-key',
+    authenticatorAttachment: undefined,
     response: {
       clientDataJSON: 'Y2xpZW50RGF0YQ',
       attestationObject: 'YXR0ZXN0YXRpb24',

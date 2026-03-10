@@ -334,7 +334,9 @@ test.describe('prf session seal routes', () => {
     const second = await service.applyServerSeal(request, auth);
 
     expect(first.ok).toBe(false);
-    expect(first.code).toBe('internal');
+    if (!first.ok) {
+      expect(first.code).toBe('internal');
+    }
     expect(second.ok).toBe(true);
     expect(applyCalls).toBe(2);
   });

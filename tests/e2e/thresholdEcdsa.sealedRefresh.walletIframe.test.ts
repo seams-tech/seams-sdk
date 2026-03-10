@@ -184,7 +184,12 @@ async function installThresholdRegistrationBootstrapMock(
     ).trim();
     let thresholdEcdsaResponse: Record<string, unknown> | undefined;
     if (thresholdEcdsaClientVerifyingShareB64u) {
-      const keygen = (await threshold.ecdsaRegistrationKeygenFromClientVerifyingShare({
+      const ecdsaRegistrationKeygenFromClientVerifyingShare =
+        threshold.ecdsaRegistrationKeygenFromClientVerifyingShare;
+      if (!ecdsaRegistrationKeygenFromClientVerifyingShare) {
+        throw new Error('Missing ECDSA client verifying-share registration helper');
+      }
+      const keygen = (await ecdsaRegistrationKeygenFromClientVerifyingShare({
         userId: accountId,
         rpId,
         clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,

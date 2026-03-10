@@ -7,9 +7,12 @@ declare module 'express' {
   }
   export interface Response {
     status: (code: number) => Response;
-    json: (body: any) => void;
-    send: (body: any) => void;
-    set: (name: string, value: any) => void;
+    json: (body: any) => Response;
+    send: (body?: any) => Response;
+    set: {
+      (name: string, value: any): Response;
+      (headers: Record<string, any>): Response;
+    };
     sendStatus?: (code: number) => void;
   }
   export interface Router {

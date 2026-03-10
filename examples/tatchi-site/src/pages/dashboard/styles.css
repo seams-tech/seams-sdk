@@ -31,8 +31,8 @@
   --dashboard-motion-sidebar: 280ms;
   --dashboard-motion-item: 220ms;
   --dashboard-motion-fast: 140ms;
-  --dashboard-motion-header-delay: 42ms;
-  --dashboard-motion-label-delay: 78ms;
+  --dashboard-motion-header-delay: 0ms;
+  --dashboard-motion-label-delay: 0ms;
   --dashboard-ease-layout: cubic-bezier(0.22, 1, 0.36, 1);
   --dashboard-ease-reveal: cubic-bezier(0.16, 1, 0.3, 1);
   min-height: 100dvh;
@@ -112,16 +112,13 @@
 }
 
 .dashboard-sidebar-toggle {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   border: 1px solid var(--dashboard-border);
   background: transparent;
-  display: inline-flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 4px;
+  display: inline-grid;
+  place-items: center;
   cursor: pointer;
   color: var(--dashboard-ink-soft);
   transition:
@@ -129,16 +126,58 @@
     border-color 160ms ease;
 }
 
-.dashboard-sidebar-toggle span {
+.dashboard-sidebar-toggle__icon {
   display: block;
-  width: 14px;
-  height: 1.5px;
-  background: currentColor;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+}
+
+.dashboard-sidebar-toggle__rail {
+  fill: currentColor;
+  opacity: 0.22;
+  transition:
+    opacity var(--dashboard-motion-fast) ease,
+    transform var(--dashboard-motion-item) var(--dashboard-ease-reveal);
+}
+
+.dashboard-sidebar-toggle__content,
+.dashboard-sidebar-toggle__arrow {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-sidebar-toggle__content {
+  stroke-width: 1.65;
+  opacity: 0.34;
+  transition: opacity var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-sidebar-toggle__arrow {
+  stroke-width: 2;
+  transform-origin: 14.25px 12px;
+  transition: transform var(--dashboard-motion-item) var(--dashboard-ease-reveal);
+}
+
+.dashboard-sidebar-toggle--collapsed .dashboard-sidebar-toggle__arrow {
+  transform: rotate(180deg);
 }
 
 .dashboard-sidebar-toggle:hover {
   background: var(--dashboard-muted);
   border-color: var(--dashboard-active-border);
+}
+
+.dashboard-sidebar-toggle:hover .dashboard-sidebar-toggle__rail,
+.dashboard-sidebar-toggle:focus-visible .dashboard-sidebar-toggle__rail {
+  opacity: 0.3;
+}
+
+.dashboard-sidebar-toggle:hover .dashboard-sidebar-toggle__content,
+.dashboard-sidebar-toggle:focus-visible .dashboard-sidebar-toggle__content {
+  opacity: 0.46;
 }
 
 .dashboard-home-link {
@@ -405,12 +444,32 @@
   align-content: start;
   gap: 20px;
   background: var(--dashboard-surface);
-  transition: padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
+  transition:
+    padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout),
+    gap var(--dashboard-motion-item) var(--dashboard-ease-layout);
 }
 
 .dashboard-sidebar-group {
+  position: relative;
   display: grid;
   gap: 6px;
+}
+
+.dashboard-sidebar-group + .dashboard-sidebar-group::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--dashboard-border) 86%, transparent);
+  opacity: 0;
+  transform: scaleX(0.74);
+  transform-origin: center;
+  pointer-events: none;
+  transition:
+    opacity var(--dashboard-motion-fast) ease,
+    transform var(--dashboard-motion-item) var(--dashboard-ease-reveal);
 }
 
 .dashboard-sidebar-group__panel {
@@ -1551,7 +1610,7 @@
 }
 
 .dashboard-policy-scope-select {
-  padding-right: 40px;
+  padding-right: var(--dashboard-select-padding-end, 35px);
 }
 
 .dashboard-policy-filters {
@@ -2556,8 +2615,8 @@ select.dashboard-input,
   --dashboard-select-chevron-color: color-mix(in srgb, var(--dashboard-ink-soft) 82%, transparent);
   --dashboard-select-chevron-size: 7px;
   --dashboard-select-chevron-gap: 7px;
-  --dashboard-select-chevron-inset: 18px;
-  --dashboard-select-padding-end: 44px;
+  --dashboard-select-chevron-inset: 11px;
+  --dashboard-select-padding-end: 35px;
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -2914,7 +2973,7 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   display: grid;
   align-content: start;
   justify-items: center;
-  padding: 18px;
+  padding: 18px 18px 32vh;
   z-index: 40;
   overflow: auto;
 }
@@ -3338,10 +3397,10 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-group-toggle {
-  max-height: 0;
+  max-height: 30px;
   opacity: 0;
-  padding-top: 0;
-  padding-bottom: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
   pointer-events: none;
   transition-delay: 0s;
 }
@@ -3385,6 +3444,33 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 
 .dashboard-shell--sidebar-collapsed .dashboard-sidebar-group {
   gap: 6px;
+}
+
+@media (min-width: 1161px) {
+  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar {
+    gap: 8px;
+  }
+
+  .dashboard-shell--sidebar-collapsed-settled .dashboard-group-toggle {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar-group {
+    gap: 0;
+  }
+
+  .dashboard-shell--sidebar-collapsed-settled .dashboard-sidebar-group + .dashboard-sidebar-group {
+    padding-top: 8px;
+  }
+
+  .dashboard-shell--sidebar-collapsed-settled
+    .dashboard-sidebar-group
+    + .dashboard-sidebar-group::before {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 
 .dashboard-login {
@@ -3537,7 +3623,7 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 
   .dashboard-inline-modal-backdrop {
-    padding: 12px;
+    padding: 12px 12px 28vh;
   }
 
   .dashboard-topbar {
@@ -3739,6 +3825,9 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   .dashboard-group-toggle,
   .dashboard-sidebar-group__title,
   .dashboard-sidebar-toggle,
+  .dashboard-sidebar-toggle__rail,
+  .dashboard-sidebar-toggle__content,
+  .dashboard-sidebar-toggle__arrow,
   .dashboard-nav-item,
   .dashboard-nav-label,
   .dashboard-nav-icon,
@@ -3748,6 +3837,10 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   .dashboard-audit-events__toggle,
   .dashboard-data-table__details-panel.dashboard-audit-events__details-panel,
   .dashboard-audit-events__details-content {
+    transition: none;
+  }
+
+  .dashboard-sidebar-group + .dashboard-sidebar-group::before {
     transition: none;
   }
 }

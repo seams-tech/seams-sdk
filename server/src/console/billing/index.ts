@@ -85,3 +85,4 @@ export {
 } from './requests';
 
 export { buildConsoleBillingInvoicePdf, buildConsoleBillingInvoicePdfFilename } from './pdf';
+export { canTransitionPaymentState, listAllowedPaymentTransitions } from './paymentStateMachine';
