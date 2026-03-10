@@ -1,15 +1,9 @@
 import React from 'react';
 
 const requirements = [
-  'Reserve a customer-owned wallet origin such as `wallet.dev1.com` before the first production launch.',
-  'Keep DNS control for that hostname so the team can add vendor-provided CNAME and TXT records.',
-  'Keep WebAuthn `rpId`, headers, and wallet paths stable across hosted and self-hosted environments.',
-] as const;
-
-const rollout = [
-  'Add the hosted CNAME and verification TXT records while traffic is still served by hosted infrastructure.',
-  'Keep the same wallet contract, asset paths, and WebAuthn boundary while validating the deployment.',
-  'When the team is ready to self-host, update the CNAME target or equivalent edge routing without changing the visible hostname.',
+  'Use a customer-owned wallet hostname, like `wallet.dev1.com`, from the start.',
+  'Keep DNS access so you can add our CNAME and TXT records.',
+  'Keep the same WebAuthn `rpId`, headers, and wallet paths in hosted and self-hosted setups.',
 ] as const;
 
 const dnsExample = [
@@ -55,12 +49,24 @@ export function SelfHostingPage(): React.JSX.Element {
         </p>
       </section>
 
-      <section className="dashboard-view__section" aria-label="Hosted to self-hosted rollout">
-        <h2>Recommended rollout</h2>
+      <section className="dashboard-view__section" aria-label="After DNS setup">
+        <h2>After DNS setup</h2>
         <ul className="dashboard-view-list">
-          {rollout.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
+          <li>Wait for the CNAME and TXT records to propagate and for hostname verification/TLS activation to finish.</li>
+          <li>
+            Once activation completes, <code>https://wallet.dev1.com</code> automatically routes to
+            our hosted wallet-service and SDK asset endpoints through the configured CNAME target.
+          </li>
+          <li>
+            Point the customer app at <code>https://wallet.dev1.com</code>, keep the same
+            {' '}
+            <code>/wallet-service</code> path and WebAuthn <code>rpId</code>, then validate
+            registration, login, and signing.
+          </li>
+          <li>
+            If DNS has not propagated yet, or verification/TLS is still pending, the hostname is
+            not ready for production traffic.
+          </li>
         </ul>
       </section>
 

@@ -12,7 +12,7 @@ const productModules: MarketingCard[] = [
   {
     title: 'Passkey-native UX',
     description: 'No extension installs or popup handoffs in core wallet flows.',
-    to: '/products/',
+    to: '/docs/concepts/passkey-scope',
     icon: Fingerprint,
   },
   {
@@ -33,17 +33,17 @@ const solutionCards: MarketingCard[] = [
   {
     title: 'Consumer Apps',
     description: 'Keep wallet flows in your app to reduce onboarding drop-off.',
-    to: '/solutions/#consumer-apps',
+    to: '/docs/concepts/passkey-scope',
   },
   {
     title: 'Stablecoin Payments',
     description: 'Embed confirmation and signing directly in payment journeys.',
-    to: '/solutions/#stablecoin-payments',
+    to: '/docs/concepts/secureconfirm-sessions',
   },
   {
     title: 'Treasury and Payouts',
     description: 'Use policy-based approvals for internal transfers and disbursements.',
-    to: '/solutions/#treasury-and-payouts',
+    to: '/docs/concepts/security-model',
   },
 ];
 

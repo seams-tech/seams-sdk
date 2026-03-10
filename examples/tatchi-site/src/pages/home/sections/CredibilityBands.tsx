@@ -5,13 +5,12 @@ type CredibilityLogo = {
 
 const trustedLogos: CredibilityLogo[] = [
   { label: 'Ethereum', tone: 'ink' },
-  { label: 'Base', tone: 'ink' },
-  { label: 'Stripe Tempo', tone: 'ink' },
-  { label: 'Circle Arc', tone: 'slate' },
-  { label: 'NEAR protocol', tone: 'ink' },
+  { label: 'Stripe Tempo', tone: 'slate' },
+  { label: 'Circle Arc', tone: 'ink' },
+  { label: 'NEAR', tone: 'slate' },
   { label: 'Hyperliquid', tone: 'ink' },
-  { label: 'Solana', tone: 'ink' },
   { label: 'Polygon', tone: 'slate' },
+  { label: 'Solana (soon)', tone: 'ink' },
 ];
 
 function renderLogo(logo: CredibilityLogo): React.JSX.Element {
@@ -27,7 +26,7 @@ export function CredibilityBands(): React.JSX.Element {
   return (
     <section className="credibility-bands" aria-label="Credibility">
       <p id="credibility-trusted-title" className="credibility-bands__title">
-        Powering thousands of accounts for projects built on
+        Powering frictionless accounts for projects built on
       </p>
       <ul className="credibility-bands__logos" aria-label="Trusted by">
         {trustedLogos.map(renderLogo)}
