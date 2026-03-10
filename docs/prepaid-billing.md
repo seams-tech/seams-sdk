@@ -2,47 +2,55 @@
 
 ## Objective
 
-Replace subscription lifecycle billing with an org-scoped prepaid balance model.
+Replace subscription lifecycle billing with an org-scoped prepaid billing system built on a ledger-first model.
 
-Customers should:
+Target properties:
 
-1. Buy prepaid credit packs.
-2. Consume balance as they use the product.
-3. View current balance, usage, receipts, and statements from the dashboard.
+1. immutable journal entries
+2. strict per-org account segregation
+3. balances derived from postings, not edited state
+4. compensating entries instead of record mutation
+5. receipts, statements, and account views generated from stable projections
 
-The target model is closer to usage-based compute platforms than subscription SaaS:
+This is a hard model replacement. We are in development, so no legacy subscription compatibility layer should remain.
 
-- no recurring subscription status
-- no cancel / resume lifecycle
-- no renewal state
-- no "current period" subscription semantics
-- no mandatory customer portal dependency for plan lifecycle
+## Document Role
 
-We are in development, so this should be treated as a hard model replacement, not a legacy-compatible layer.
+This is the canonical billing architecture and migration document.
 
-## Status snapshot (2026-03-10)
+Use this file for:
+
+- billing domain language
+- ledger model
+- journal and projection design
+- schema direction
+- phased migration order
+
+Use [billing-2.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-2.md) only for the remaining operational follow-up work after the core prepaid migration.
+
+## Status Snapshot (2026-03-10)
 
 Implemented now:
 
-- Prepaid balance overview, credit-pack top-ups, and payment-method management on `/dashboard/billing/account`
-- Receipt / usage-statement history, filters, pagination, detail pages, and PDF export on `/dashboard/invoices`
-- One-time Stripe checkout settlement into prepaid balance with receipt generation
-- Usage debits rated into ledger entries and synced into monthly usage statements
-- Legacy subscription routes removed from the dashboard and console router surface
-- Dead dashboard billing client helpers for direct payment intents and stablecoin invoice settlement removed
-- Remaining direct invoice-settlement backend routes removed from the console router surface
-- Shared billing service contracts, request parsers, provider hooks, and dashboard DTOs now expose prepaid-only fields
-- Invoice detail activity is now document-and-ledger only; payment-intent and rail metadata are removed from the active prepaid surface
-- Postgres billing bootstrap now destructively drops the deleted settlement tables and removes invoice/webhook rail fields that no longer belong to the prepaid model
-- Postgres billing service and tenant-isolation suites are rewritten to prepaid-only receipt / statement / ledger coverage
+- Billing is split into `/dashboard/billing/account`, `/dashboard/invoices`, and `/dashboard/invoices/:invoiceId`
+- One-time Stripe checkout settles prepaid credit purchases
+- Usage is rated into debit entries and surfaced in usage statements
+- Receipt and statement history, filters, pagination, detail pages, and PDF export are live
+- Subscription lifecycle routes, UI, DTOs, and settlement rails have been removed
+- Direct invoice-settlement tables and routes have been removed from the active backend surface
+- Billing activity is document-and-ledger based, not payment-intent based
+- Postgres billing test coverage has been rewritten to prepaid-only semantics
 
 Still to finish:
 
-- Enforce zero-balance or low-balance gating in the production product path
-- Add manual adjustment / reversal flows with audit logging
-- Decide whether PDF exports need stored immutable snapshots beyond the current deterministic statement / receipt model
+- Move from the current prepaid implementation to a canonical ledger-first write path with accounts, entries, and postings
+- Rebuild balances and documents as explicit projections from the journal
+- Enforce zero-balance and low-balance policy in the real production execution path
+- Add internal operator adjustments as append-only journal entries
+- Decide the final Stripe account-management path and delete the unused one
+- Validate the final ledger-first model against a real Postgres instance
 
-## Product shape
+## Product Shape
 
 Expose billing through two sidebar routes:
 
@@ -53,434 +61,490 @@ Expose billing through two sidebar routes:
 View responsibilities:
 
 - `Billing account`
-  - current prepaid balance
-  - recent spend summary
+  - projected prepaid balance
+  - recent usage and spend summary
   - top-up actions
   - payment methods
-  - balance warning / depletion state
+  - low-balance / blocked-state messaging
+  - internal operator adjustment tools, if enabled for staff
 - `Invoices`
   - purchase receipts
   - usage statements
-  - invoice / receipt statuses
+  - status and period filters
   - PDF download
 - `Invoice detail`
-  - receipt or statement metadata
+  - document metadata
   - line items
-  - debits / credits summary
+  - ledger-linked activity
   - PDF download
 
-## Canonical product rules
+## Core Principles
 
-These rules should be locked before implementation starts:
+1. Append-only journal.
+   - Billing writes must only append new records.
+   - No updates or deletes to settled billing history.
 
-1. Balance is org-scoped.
-2. Customers buy credits, not months and not subscriptions.
-3. Usage burns down credits.
-4. Credit purchases are one-time checkout actions.
-5. Payment methods remain reusable, but subscription lifecycle management is deleted.
-6. Receipts are generated for credit purchases.
-7. Statements or invoices may still be generated for usage reporting, but they no longer drive subscription collection state.
-8. When balance reaches zero, production usage is blocked unless we intentionally define a grace policy.
+2. Balances are projections.
+   - Customer balance is derived from journal postings.
+   - Cached balance rows are projections, not source of truth.
 
-Open policy decisions that must be made explicitly:
+3. Compensating entries only.
+   - Corrections append new entries.
+   - Historical billing records are never edited in place.
 
-- pack sizes and pricing, for example `$50`, `$200`, `$500`, `$1,000`
-- whether credits expire
-- whether negative balance is ever allowed
-- whether statements are monthly, rolling, or only generated on demand
-- whether stablecoin top-ups launch in phase 1 or later
+4. Strict account segregation.
+   - Each org has its own prepaid liability account.
+   - Platform-side accounts remain separate from customer-scoped accounts.
 
-## Phased todo list
+5. Idempotent financial writes.
+   - Every external billing event must carry an idempotency key or stable source event id.
+   - Replays must not create duplicate financial impact.
 
-This is the execution checklist. Each phase should end with the old subscription-era code deleted for that area before the next phase begins.
+6. Full traceability.
+   - Every journal entry must capture actor, reason, source reference, related document ids, and timestamps.
 
-### Phase 1: Lock the prepaid model and delete subscription concepts
+## Canonical Target Model
+
+### Source of truth
+
+The source of truth is the journal, not `billing_account.credit_balance_minor` or any mutable balance field.
+
+Canonical write model:
+
+- `ledger_account`
+- `ledger_entry`
+- `ledger_posting`
+
+Canonical read models:
+
+- org balance projection
+- receipt projection
+- usage statement projection
+- account activity projection
+- low-balance / blocked-state projection
+
+### Recommended accounting model
+
+Use double-entry accounting.
+
+Each business event creates one journal entry with two or more postings that net to zero.
+
+That gives us:
+
+- invariant checks for balanced writes
+- safer reconciliation
+- better auditability
+- cleaner reporting and finance integration later
+
+## Ledger Accounts
+
+### Customer-scoped accounts
+
+Per org:
+
+- `org_prepaid_liability:{orgId}`
+- `org_usage_consumption:{orgId}` if a supporting customer-side account is useful for reporting
+
+### Platform accounts
+
+Platform-level:
+
+- `processor_clearing:stripe`
+- `revenue_usage`
+- `expense_support_credit`
+- `suspense_admin_debit`
+- `loss_chargeback` if needed later
+- `suspense_reconciliation` for exceptional system-only recovery flows
+
+## Canonical Business Events And Postings
+
+### Credit purchase settlement
+
+When Stripe checkout settles:
+
+- debit `processor_clearing:stripe`
+- credit `org_prepaid_liability:{orgId}`
+
+Effects:
+
+- projected customer balance increases
+- purchase receipt is generated or refreshed
+
+### Usage debit
+
+When usage is rated:
+
+- debit `org_prepaid_liability:{orgId}`
+- credit `revenue_usage`
+
+Effects:
+
+- projected customer balance decreases
+- usage statement projection updates
+
+### Manual support credit
+
+When internal staff grants corrective credit:
+
+- debit `expense_support_credit`
+- credit `org_prepaid_liability:{orgId}`
+
+Effects:
+
+- projected customer balance increases
+- account activity shows a manual credit entry
+
+### Manual admin debit
+
+When internal staff appends a corrective debit:
+
+- debit `org_prepaid_liability:{orgId}`
+- credit `suspense_admin_debit` or another explicit correction account
+
+Effects:
+
+- projected customer balance decreases
+- account activity shows a manual debit entry
+- the action stays visible and correctable through future compensating entries
+
+### Refund or chargeback
+
+Do not expose this as a generic support tool.
+
+If we implement it later, it should be a dedicated system or finance workflow, not a broad dashboard action.
+
+## Operator Policy
+
+Supported operator actions:
+
+- append manual support credits
+- append manual admin debits
+
+Not supported:
+
+- direct balance mutation
+- editing or deleting historical billing rows
+- hidden or in-place reversals
+- direct SQL correction as an operating procedure
+
+Principle:
+
+- operators may add or remove value only through explicit journal entries that remain visible forever
+
+## Operator Use Cases
+
+### Manual support credits should cover
+
+- processor charged successfully but settlement projection failed
+- duplicate usage debit or overbilling bug
+- migration correction in the customer's favor
+- SLA / incident remediation credit
+- promotional or goodwill credit
+- temporary recovery credit during provider outage
+
+### Manual admin debits should cover
+
+- mistaken support credit that must be corrected
+- duplicate purchase settlement that credited the org twice
+- migration over-credit correction
+- explicit internal billing correction approved by finance or ops
+
+### Cases that should not use generic operator tooling
+
+- chargeback clawbacks
+- fraud clawbacks
+- platform-side reconciliation mismatches that need engineering repair
+- settlement anomalies that require provider-specific recovery logic
+
+## Required Guardrails
+
+1. Only internal billing admins may append manual credits or debits.
+2. Every operator adjustment must require:
+   - positive amount
+   - reason code
+   - operator note
+   - idempotency key
+3. Every operator adjustment must be append-only.
+4. Large debits should require stronger authorization or secondary approval.
+5. Every operator adjustment must be audit-logged.
+6. The UI must preview the resulting projected balance before confirmation.
+7. Normal org admins must not see internal adjustment controls.
+
+## Schema Direction
+
+### Canonical write tables
+
+- `console_billing_ledger_accounts`
+- `console_billing_ledger_entries`
+- `console_billing_ledger_postings`
+
+### Projection tables
+
+- `console_billing_account_balances`
+- `console_billing_documents`
+- `console_billing_document_line_items`
+- `console_billing_activity_projection`
+
+### Minimum fields
+
+`console_billing_ledger_accounts`
+
+- `namespace`
+- `id`
+- `scope_type`
+- `scope_org_id`
+- `account_code`
+- `currency`
+- `status`
+- `created_at_ms`
+
+`console_billing_ledger_entries`
+
+- `namespace`
+- `id`
+- `entry_type`
+- `actor_type`
+- `actor_user_id`
+- `reason_code`
+- `note`
+- `source_event_id`
+- `idempotency_key`
+- `created_at_ms`
+
+`console_billing_ledger_postings`
+
+- `namespace`
+- `id`
+- `entry_id`
+- `account_id`
+- `org_id`
+- `direction`
+- `amount_minor`
+- `currency`
+- `related_document_id`
+- `related_purchase_id`
+- `created_at_ms`
+
+`console_billing_account_balances`
+
+- `namespace`
+- `org_id`
+- `projected_balance_minor`
+- `low_balance_threshold_minor`
+- `enforcement_state`
+- `updated_at_ms`
+
+## Migration Policy
+
+Breaking changes are acceptable.
+
+Migration rules:
+
+1. Keep the prepaid product behavior already shipped.
+2. Replace the remaining single-entry-style implementation with double-entry journal tables.
+3. Rebuild balance and document projections from the journal.
+4. Delete superseded balance/account code in the same phase.
+5. Do not support dual billing models long term.
+6. Do not retain subscription-era concepts once their replacement is live.
+
+## Phased Todo List
+
+### Phase 0: Remove subscriptions and settlement rails
 
 Backend logic:
 
-- [x] Delete subscription lifecycle services, DTOs, and controller logic that model recurring plan state.
-- [x] Rename billing service interfaces around `balance`, `ledger`, `credit purchase`, and `statement`.
-- [x] Remove subscription-specific webhook handling that exists only to maintain recurring state.
-- [ ] Replace readiness and enforcement checks that read subscription status with balance-policy checks.
+- [x] Delete subscription lifecycle services, DTOs, and controller logic.
+- [x] Delete direct invoice-settlement routes and provider-specific settlement flows.
+- [x] Remove subscription-specific webhook handling from the active prepaid path.
 
 DB schema:
 
-- [x] Add canonical prepaid entities:
-  - `billing_account`
-  - `billing_ledger_entry`
-  - `billing_credit_purchase`
-  - `billing_statement`
-- [x] Add immutable event references and audit columns required for ledger correctness.
-- [x] Add low-balance threshold and available-balance fields at the org billing-account level.
-
-Migrations:
-
-- [x] Create new prepaid tables in a single forward-only migration set.
-- [x] Delete obsolete subscription tables or columns that are no longer part of the target model.
-- [x] Drop indexes and foreign keys that only support subscription-era reads and writes.
-- [x] Remove old SQL queries, schema helpers, and repository code in the same phase as the schema cutover.
+- [x] Drop subscription-era tables, columns, and indexes.
+- [x] Drop invoice-settlement tables and related schema objects.
 
 Console UI:
 
-- [x] Remove all subscription labels, cards, and lifecycle actions from `/dashboard/billing/account`.
-- [x] Replace plan terminology with balance terminology throughout the billing console.
-- [x] Remove navigation affordances that imply recurring-plan management.
+- [x] Remove subscription lifecycle UI and wording.
+- [x] Split billing into account and invoices surfaces.
 
-### Phase 2: Implement prepaid purchase flows
+### Phase 1: Stabilize prepaid purchase and usage flows
 
 Backend logic:
 
-- [x] Add one-time checkout session creation for predefined credit packs.
-- [x] Add purchase-settlement handling that writes credit ledger entries idempotently.
-- [x] Keep reusable payment-method setup, replacement, deletion, and default selection flows.
-- [x] Ensure purchase settlement updates account balance atomically.
+- [x] Add one-time checkout sessions for credit packs.
+- [x] Settle purchases into prepaid balance.
+- [x] Rate usage into debit entries.
+- [x] Keep reusable payment-method flows.
 
 DB schema:
 
-- [x] Add provider reference columns required to map checkout sessions, payment intents, and payment methods to purchases.
-- [x] Add purchase status and settlement timestamp fields needed for reconciliation.
-- [x] Add uniqueness constraints to prevent duplicate settlement writes for the same provider event.
-
-Migrations:
-
-- [x] Backfill or initialize billing-account rows for all orgs before enabling top-ups.
-- [x] Remove obsolete subscription checkout references from persisted records.
-- [x] Remove direct payment-intent / stablecoin settlement request parsers and provider adapter hooks from the active prepaid API surface.
-- [ ] Delete migration helpers or compatibility code once prepaid purchase flows are live.
+- [x] Add prepaid purchase tables and usage/balance support tables.
+- [x] Add idempotency-safe purchase and usage constraints.
 
 Console UI:
 
-- [x] Add top-up purchase cards or buttons for fixed credit packs on `/dashboard/billing/account`.
-- [x] Show current balance, low-balance warning threshold, and recent credit purchases.
-- [x] Keep payment-method management on `/dashboard/billing/account`, but remove subscription wording and actions.
-- [x] Remove any account-page controls that attempt to cancel, resume, or otherwise manage a subscription.
+- [x] Add top-up actions, balance summary, receipts, statements, and PDF export.
+- [x] Remove all recurring-plan semantics.
 
-### Phase 3: Rate usage into debits and enforce balance policy
+### Phase 2: Introduce ledger accounts, entries, and postings
 
 Backend logic:
 
-- [x] Implement deterministic rating from usage events into `USAGE_DEBIT` ledger entries.
-- [x] Make debit application idempotent and concurrency-safe.
-- [ ] Enforce zero-balance or low-balance policy in the product path that gates production usage.
-- [ ] Add reversal and manual-adjustment flows for operator correction.
+- [ ] Add a journal writer that creates entries plus balanced postings.
+- [ ] Add invariant checks that reject unbalanced entries.
+- [ ] Route all new billing writes through the journal writer.
+- [ ] Define canonical entry types:
+  - `CREDIT_PURCHASE_SETTLED`
+  - `USAGE_DEBIT_RECORDED`
+  - `MANUAL_SUPPORT_CREDIT_GRANTED`
+  - `MANUAL_ADMIN_DEBIT_APPENDED`
 
 DB schema:
 
-- [x] Add source-event identifiers and uniqueness constraints for debit deduplication.
-- [ ] Add any required balance snapshot or sequence columns used for concurrency control.
-- [ ] Add tables or columns needed for adjustment and reversal audit trails.
+- [ ] Add `console_billing_ledger_accounts`.
+- [ ] Add `console_billing_ledger_entries`.
+- [ ] Add `console_billing_ledger_postings`.
+- [ ] Add uniqueness constraints for idempotency keys.
+- [ ] Add balanced-entry and positive-posting invariants where practical.
 
 Migrations:
 
-- [x] Stop writing any new usage data into subscription-era billing tables.
-- [ ] Delete old usage-to-subscription aggregation tables if they only exist for recurring billing.
-- [ ] Remove cron jobs, workers, or queue consumers that compute subscription-period charges.
+- [ ] Seed platform accounts.
+- [ ] Seed per-org prepaid liability accounts.
+- [ ] Backfill opening journal entries if needed.
+- [ ] Delete superseded single-entry helper paths after cutover.
 
-Console UI:
-
-- [x] Add recent usage and debit summaries to `/dashboard/billing/account`.
-- [x] Surface low-balance and insufficient-balance states clearly.
-- [x] Update `/dashboard/invoices` to distinguish credit purchases from usage statements.
-- [x] Remove "upcoming charge" language that implies end-of-period subscription billing.
-
-### Phase 4: Cut over invoices, receipts, and account history
+### Phase 3: Rebuild projections from the journal
 
 Backend logic:
 
-- [x] Make invoice history serve only prepaid-model documents:
-  - purchase receipts
-  - usage statements
-  - manual adjustments if intentionally exposed
-- [x] Keep server-side PDF generation, but rename and scope it to the new document types.
-- [ ] Audit-log every PDF export and every manual balance adjustment.
+- [ ] Build org balance projections from journal postings.
+- [ ] Build receipt projections from settlement entries.
+- [ ] Build usage statement projections from usage entries.
+- [ ] Build account activity projections from journal + document links.
 
 DB schema:
 
-- [ ] Store stable receipt and statement snapshots for deterministic exports.
-- [x] Add document-type fields and indexes for receipt vs statement filtering.
-- [x] Add any metadata required for PDF filenames, document numbering, and export audits.
+- [ ] Add or revise projection tables for balances, documents, and activity.
+- [ ] Add indexes for org/account/document lookups.
 
 Migrations:
 
-- [ ] Migrate existing invoice-history rows into receipt or statement categories if those rows are kept.
-- [x] Delete invoice fields that only exist for subscription collection state.
-- [ ] Drop old "subscription invoice" concepts from schema names and code identifiers.
+- [ ] Recompute projected balances from journal state.
+- [ ] Recompute receipts and statements from journal state.
+- [ ] Delete deprecated projection code that reads pre-ledger semantics.
 
 Console UI:
 
-- [x] Make `/dashboard/invoices` the canonical history view for receipts and statements only.
-- [x] Add filtering by document type and status.
-- [x] Keep `/dashboard/invoices/:invoiceId` for detail, but rename the content model away from subscription invoices.
-- [x] Update visible copy and download filenames to reflect receipts and statements.
+- [ ] Keep `/dashboard/billing/account` projection-only.
+- [ ] Keep `/dashboard/invoices` and detail pages projection-only.
+- [ ] Surface ledger-linked activity cleanly.
 
-### Phase 5: Hard migration and cleanup
+### Phase 4: Enforce balance policy in the real execution path
 
 Backend logic:
 
-- [ ] Convert or grant starting balances for existing orgs according to the chosen migration policy.
-- [ ] Remove feature flags and dual-path routing once the prepaid model is live.
-- [x] Delete dead subscription services, validators, webhook handlers, and tests.
+- [ ] Add a single enforcement helper that consumes projected available balance.
+- [ ] Define enforcement states:
+  - `HEALTHY`
+  - `LOW_BALANCE`
+  - `BLOCKED`
+- [ ] Enforce zero-balance / low-balance policy in the production execution path.
+- [ ] Allow explicit local/dev bypass only if intentionally configured.
 
 DB schema:
 
-- [x] Drop all remaining subscription-era tables, columns, constraints, and indexes.
-- [ ] Rename any holdover schema objects that still expose subscription terminology.
-- [ ] Remove legacy enum values and stored-state representations that no longer exist in the product.
-
-Migrations:
-
-- [x] Run a final destructive migration that leaves only the prepaid model in the database.
-- [x] Do not retain fallback reads or writes for the old model after cutover.
-- [ ] Remove migration-only scripts once production data has been converted.
+- [ ] Add `enforcement_state` to balance projections if useful.
+- [ ] Add any projection metadata needed for efficient gating.
 
 Console UI:
 
-- [ ] Delete any remaining subscription components, route helpers, and API clients.
-- [ ] Verify `/dashboard/billing/account` shows only balance, top-up, payment-method, and usage information.
-- [ ] Verify `/dashboard/invoices` shows only prepaid receipts and statements.
-- [ ] Remove any legacy redirects that preserve old subscription page structures.
+- [ ] Show low-balance and blocked states clearly.
+- [ ] Explain what happens at zero balance.
+- [ ] Optionally show projected runway.
 
-## Phase 0: Model definition and deletion plan
+### Phase 5: Internal operator adjustments
 
-- [ ] Delete `subscription` as a first-class product concept from the target billing model.
-- [ ] Define the canonical balance entity:
-  - current balance
-  - pending debits
-  - available balance
-  - low-balance threshold
-- [ ] Define the canonical ledger event types:
-  - `CREDIT_PURCHASE`
-  - `PROMOTIONAL_CREDIT`
-  - `USAGE_DEBIT`
-  - `MANUAL_ADJUSTMENT`
-  - `REFUND`
-  - `REVERSAL`
-- [ ] Define the rating unit for product usage so debits are deterministic.
-- [ ] Decide whether MAW remains the primary rating dimension or whether another usage unit becomes canonical.
-- [ ] Decide how zero-balance enforcement works for development, staging, and production environments.
-- [ ] Document exactly which subscription-era fields and states will be deleted.
+Backend logic:
 
-Required deletion target:
+- [ ] Add `grantManualSupportCredit`.
+- [ ] Add `appendManualAdminDebit`.
+- [ ] Implement both as journal entries plus balanced postings.
+- [ ] Restrict both to internal billing admins only.
+- [ ] Require positive amount, reason code, note, and idempotency key.
+- [ ] Audit-log every invocation.
 
-- subscription status
-- cancel-at-period-end
-- resume / cancel flows
-- checkout sessions for subscription creation
-- subscription readiness gates and messaging
+DB schema:
 
-## Next implementation steps
+- [ ] Add any missing operator-adjustment metadata fields.
+- [ ] Add indexes for operator review and audit queries.
 
-1. Implement zero-balance or low-balance enforcement in the production execution path.
-2. Add manual balance adjustment / reversal flows with audit logging.
-3. Decide whether to keep the Stripe customer portal or reduce account mutations to setup-intent-only flows.
+Console UI:
 
-## Phase 1: Data model and backend primitives
+- [ ] Add an internal-only billing-adjustments panel on `/dashboard/billing/account`.
+- [ ] Show impact preview before confirmation.
+- [ ] Surface both manual credits and manual debits in account activity.
 
-- [ ] Introduce a canonical org balance store.
-- [ ] Introduce an append-only billing ledger.
-- [ ] Introduce a usage rating pipeline that converts usage events into balance debits.
-- [ ] Make debit application idempotent and concurrency-safe.
-- [ ] Ensure every ledger mutation has an audit trail and source event id where applicable.
-- [ ] Define receipt and statement records separately from the ledger so PDFs and exports use stable snapshots.
+### Phase 6: Documents, audit, and exports
 
-Suggested entities:
+Backend logic:
 
-- `billing_account`
-  - org id
-  - available balance minor
-  - pending balance minor
-  - currency
-  - low balance threshold minor
-- `billing_ledger_entry`
-  - id
-  - org id
-  - type
-  - amount minor
-  - currency
-  - occurred at
-  - source event id
-  - actor type / actor id
-  - related invoice id or purchase id
-- `billing_credit_purchase`
-  - id
-  - org id
-  - amount purchased minor
-  - checkout provider refs
-  - payment method refs
-  - settled at
-- `billing_statement`
-  - id
-  - org id
-  - period start / end
-  - opening balance
-  - closing balance
-  - total debits
-  - total credits
+- [ ] Audit-log every operator adjustment and PDF export.
+- [ ] Keep document activity projection in sync with ledger-linked events.
+- [ ] Decide whether immutable document snapshots are required beyond deterministic rendering.
 
-## Phase 2: Checkout and payment collection flows
+DB schema:
 
-- [x] Replace subscription checkout with one-time credit purchase checkout.
-- [x] Define top-up pack SKUs and provider mapping.
-- [x] Keep payment-method add / replace / remove / set-default flows where useful.
-- [x] Remove subscription cancel / resume / customer-portal language from the UI and API.
-- [ ] Decide whether the Stripe customer portal remains available only for payment-method and billing-profile management.
-- [ ] Decide whether top-up checkout can reuse the existing Stripe customer object and payment methods.
+- [ ] Add snapshot storage only if deterministic rendering is insufficient.
+- [ ] Add structured audit payload fields if current audit storage is too generic.
 
-Target API surface:
+Console UI:
 
-- [ ] `GET /console/billing/account`
-- [ ] `GET /console/billing/ledger?cursor=...`
-- [ ] `GET /console/billing/purchases?cursor=...`
-- [ ] `POST /console/billing/credit-purchases/checkout-session`
-- [x] `POST /console/billing/payment-methods`
-- [x] `DELETE /console/billing/payment-methods/:id`
-- [x] `POST /console/billing/payment-methods/:id/default`
-- [x] `POST /console/billing/stripe/setup-intent`
-- [x] `POST /console/billing/stripe/customer-portal-session`
+- [ ] Show manual adjustment activity where document-linked.
+- [ ] Keep PDF export policy explicit for internal vs customer-facing visibility.
 
-Delete or replace:
+### Phase 7: Stripe account-management decision and final cleanup
 
-- [x] `GET /console/billing/subscription`
-- [x] `POST /console/billing/subscription/cancel`
-- [x] `POST /console/billing/subscription/resume`
-- [ ] subscription-oriented Stripe webhook handling that exists only to maintain subscription state
+Decision:
 
-## Phase 3: Rating usage into debits
+Choose one path and delete the other.
 
-- [x] Convert billing usage events into rated debits against prepaid balance.
-- [ ] Define exactly when a usage event becomes billable.
-- [ ] Define how retries and replayed events avoid double-debiting.
-- [ ] Decide whether debits happen synchronously during product execution or asynchronously through a durable rating worker.
-- [ ] Add insufficient-balance handling that is deterministic and testable.
-- [ ] Define observability around rating failures and stuck debits.
+Option A: Keep customer portal
 
-Critical technical requirements:
+- use it only for billing-profile / payment-method management
+- keep top-ups as checkout sessions
+- keep all copy strictly prepaid
 
-- idempotent debit creation
-- exactly-once or effectively-once debit application
-- balance floor enforcement under concurrency
-- auditable reversal path for bad debits
+Option B: Remove customer portal
 
-## Phase 4: Console UX rewrite
+- use setup-intent plus app-owned payment-method CRUD only
+- delete customer-portal session creation entirely
 
-- [x] Replace the account page subscription card with a balance card.
-- [x] Add top-up CTAs for predefined packs.
-- [x] Show:
-  - available balance
-  - recent spend
-  - low-balance threshold
-  - default payment method
-- [x] Remove all subscription lifecycle copy and controls.
-- [x] Update invoice history to distinguish:
-  - credit purchase receipts
-  - usage statements
-  - manual adjustments if exposed
-- [x] Keep invoice detail, but adapt it to the new receipt / statement model.
-- [x] Ensure the dashboard always displays human-readable org / project / environment labels, not raw ids.
+Cleanup tasks:
 
-Recommended account-page language:
+- [ ] Pick one path.
+- [ ] Delete the unused backend route, service, and provider hook.
+- [ ] Delete the unused UI controls and copy.
+- [ ] Update tests and docs.
+- [ ] Run full validation against a real Postgres instance.
 
-- `Balance`
-- `Top up credits`
-- `Recent usage`
-- `Low balance warning`
-- `Payment methods`
+## Next Implementation Steps
 
-Language to delete:
+1. Introduce ledger accounts, entries, and postings as the canonical write path.
+2. Rebuild balances and documents as projections from the journal.
+3. Enforce zero-balance / low-balance policy in the real production path.
+4. Add internal operator credits and debits as append-only journal actions.
+5. Choose a single Stripe account-management path and delete the unused one.
 
-- `subscription`
-- `renewal`
-- `cancel at period end`
-- `resume subscription`
-- `upcoming charge estimate` if it still implies subscription billing
+## Definition Of Done
 
-## Phase 5: Receipts, statements, and PDFs
+This migration is done when:
 
-- [x] Define two document types clearly:
-  - purchase receipt
-  - usage statement
-- [x] Decide whether both use the same invoice detail route and PDF export mechanism.
-- [x] Keep deterministic server-side PDF generation.
-- [x] Update filenames and visible copy so PDFs reflect the new model.
-- [ ] Ensure exported documents are snapshot-based and audit logged.
-
-Examples:
-
-- `receipt_<date>_<id>.pdf`
-- `statement_<period>_<id>.pdf`
-
-## Phase 6: Migration strategy
-
-- [ ] Freeze creation of new subscriptions.
-- [ ] Decide how existing subscription-backed orgs migrate:
-  - convert remaining paid time into credits
-  - grant a starting promotional balance
-  - manually migrate selected tenants first
-- [ ] Remove subscription gating from production enablement and replace it with prepaid-balance gating.
-- [ ] Backfill any required balance or ledger records for existing tenants.
-- [ ] Define rollback strategy before deleting subscription-era persistence.
-- [ ] Delete dead code and dead schema once the migration is complete.
-
-Important rule:
-
-- do not leave parallel subscription and prepaid billing logic in the steady state
-- do not retain compatibility layers once the destructive migration is complete
-- delete old schema, routes, types, and UI copy as each area is cut over
-
-## Phase 7: Tests and rollout
-
-- [ ] Add backend tests for:
-  - credit purchase settlement
-  - debit idempotency
-  - insufficient balance enforcement
-  - concurrent debit safety
-  - receipt / statement PDF export
-  - tenant isolation
-- [ ] Add dashboard tests for:
-  - top-up checkout
-  - low-balance warning state
-  - payment-method mutation
-  - receipt and statement navigation
-- [ ] Add observability for:
-  - failed rating jobs
-  - negative balance attempts
-  - orphaned purchases
-  - reconciliation mismatches
-- [ ] Roll out behind a short-lived development flag only if necessary for migration sequencing.
-- [ ] Remove the flag after migration. No permanent dual model.
-
-## Recommended implementation order
-
-1. Phase 0
-2. Phase 1
-3. Phase 2
-4. Phase 3
-5. Phase 4
-6. Phase 5
-7. Phase 6
-8. Phase 7
-
-Reasoning:
-
-- The billing model must be locked before UI or API cleanup is safe.
-- Ledger and rating correctness matter more than frontend polish.
-- Checkout should only ship after the balance primitives exist.
-- Migration should start only after the prepaid model is operational and testable.
-
-## Immediate decisions needed
-
-1. Choose the prepaid pack sizes and prices.
-2. Decide whether credits expire.
-3. Decide the zero-balance behavior for production usage.
-4. Decide whether monthly statements remain necessary or whether receipts plus ledger history are sufficient.
-5. Decide whether stablecoin top-up is phase 1 or deferred.
-
-## Definition of done
-
-- Subscription lifecycle is deleted from the product model.
-- Customers buy prepaid credits through one-time checkout.
-- Usage burns down org balance deterministically.
-- The account page shows balance, not subscription state.
-- Invoice history shows receipts and statements that match the prepaid model.
-- Production gating depends on prepaid balance policy, not subscription status.
-- Legacy subscription-era billing code is deleted.
+- billing writes go through an append-only journal
+- customer balances are derived projections, not mutable source rows
+- customer prepaid value is segregated per org
+- receipts and statements are projection-only views over journal-backed data
+- production balance enforcement works end-to-end
+- internal staff can append audited corrective credits and debits without direct DB edits
+- account and invoice pages contain no subscription-era concepts
+- Postgres-backed billing suites pass against a real database

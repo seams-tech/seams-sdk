@@ -1,6 +1,6 @@
 # Dashboard + Backend Implementation Plan
 
-Date updated: March 2, 2026
+Date updated: March 10, 2026
 
 ## Objective
 
@@ -49,7 +49,7 @@ Frontend:
 
 Backend:
 
-- Dedicated SaaS console backend modules are implemented for billing, webhooks, and API keys.
+- Dedicated SaaS console backend modules are implemented for billing, webhooks, API keys, and account settings.
 - Org/project/environment metadata APIs are implemented.
 - Wallet-index console APIs are implemented.
 
@@ -154,6 +154,17 @@ Completed:
   - `DELETE /console/members/:id`
   - role-spec driven invite/update/remove actions are wired with owner/admin mutation gating.
   - browser-level API wiring coverage validates invite -> role update -> remove and status-filter refresh behavior.
+- Account settings backend slice is implemented (in-memory + Postgres service + router contracts):
+  - `GET /console/account/profile`
+  - `PATCH /console/account/profile`
+  - `GET /console/account/organizations`
+  - `POST /console/account/organizations`
+  - `PATCH /console/account/organizations/:orgId`
+  - `POST /console/account/organizations/:orgId/transfer-owner`
+  - `POST /console/account/organizations/:orgId/switch-context`
+  - account org creation reuses the onboarding org bootstrap path instead of duplicating owner/bootstrap logic.
+  - Postgres-backed account persistence is implemented with `console_user_profiles`, `console_user_backup_emails`, and `console_organizations.created_by_user_id`.
+  - focused relayer route coverage is implemented for Express and Cloudflare adapters, including owner transfer and context-switch session re-signing.
 - Wallet backend slice is implemented:
   - `GET /console/wallets`
   - `GET /console/wallets/search`
@@ -215,12 +226,15 @@ Completed:
   - single-rail semantics are surfaced in UI via invoice rail-lock and outstanding-balance guidance per payment rail.
   - card management actions in UI are gated to `admin` role to match backend RBAC.
   - subscription-management controls are wired in UI (subscription status visibility, cancel/resume actions, Stripe checkout handoff, and customer-portal entry).
-  - dashboard billing now consumes:
-    - `GET /console/billing/subscription`
-    - `POST /console/billing/subscription/cancel`
-    - `POST /console/billing/subscription/resume`
-    - `POST /console/billing/stripe/checkout-session`
-    - `POST /console/billing/stripe/customer-portal-session`
+- Dashboard account settings page now consumes live console APIs:
+  - `GET/PATCH /console/account/profile`
+  - `GET/POST /console/account/organizations`
+  - `PATCH /console/account/organizations/:orgId`
+  - `POST /console/account/organizations/:orgId/transfer-owner`
+  - `POST /console/account/organizations/:orgId/switch-context`
+  - topbar account-menu cutover now routes directly to `/dashboard/account-settings`.
+  - `/dashboard/account-settings` remains reachable while onboarding is incomplete.
+  - opening an org from account settings refreshes `orgId`, `projectId`, and `environmentId` together, then routes to onboarding or the default dashboard entry based on target-org readiness.
 - Dashboard console frontend clients now share a common HTTP helper for base URL resolution, headers, JSON parsing, and API error normalization (session/context/wallet/api-keys/webhooks/billing).
 - Dashboard now bootstraps console auth state via `GET /console/session` and gates wallet page API calls on active session claims.
 - Dashboard topbar org/project/environment selectors are now wired to live console APIs:

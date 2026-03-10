@@ -1,6 +1,6 @@
 # SaaS DB Schema Plan
 
-Date updated: March 1, 2026
+Date updated: March 10, 2026
 
 Related implementation plan:
 
@@ -89,6 +89,8 @@ Reason:
 Tables:
 
 - `users`
+- `user_profiles`
+- `user_backup_emails`
 - `organizations`
 - `organization_memberships`
 - `organization_invites`
@@ -100,11 +102,16 @@ Tables:
 Notes:
 
 - Membership is the source of truth for org-level access.
+- Account settings needs user-owned profile/contact state that is separate from org membership:
+  - `user_profiles` stores display name and primary email.
+  - `user_backup_emails` stores additional recovery addresses plus verification status.
+  - `organizations.created_by_user_id` supports “organizations created by me” without inferring authorship from current membership.
 - Hybrid role scope model:
   - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
   - project-scoped roles: `developer`, `support`, `ops`
 - Support account states: invited, active, suspended, removed.
 - Billing permissions include explicit actions such as `billing.payment_methods.write` and map `add/remove card` to `admin` only.
+- Current console implementation materializes these as `console_user_profiles`, `console_user_backup_emails`, and `created_by_user_id` on `console_organizations`.
 
 ### 2) Projects and Environments
 
@@ -320,6 +327,7 @@ Optional at scale:
 ### Phase 0: Foundation
 
 - Create core tenancy tables: `organizations`, `projects`, `environments`, `organization_memberships`.
+- Add account-settings identity tables: `user_profiles`, `user_backup_emails`, and `organizations.created_by_user_id`.
 - Implement RLS and tenant context middleware.
 - Add `audit_log` and `event_outbox`.
 
