@@ -177,6 +177,19 @@ resolve_wasm_bindgen_cli_version_from_lockfile() {
   printf '%s\n' "$version"
 }
 
+should_auto_install_wasm_bindgen_cli() {
+  case "${WASM_BINDGEN_AUTO_INSTALL:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+  esac
+
+  [ "${GITHUB_ACTIONS:-}" = "true" ]
+}
+
 resolve_wasm_bindgen_bin_for_version() {
   local expected_version="$1"
   local toolchain_root local_bin local_version global_bin global_version
@@ -214,9 +227,9 @@ resolve_wasm_bindgen_bin_for_version() {
     fi
   done
 
-  if [ "${WASM_BINDGEN_AUTO_INSTALL:-0}" = "1" ]; then
+  if should_auto_install_wasm_bindgen_cli; then
     mkdir -p "$toolchain_root/$expected_version"
-    echo "Installing wasm-bindgen-cli ${expected_version} into $toolchain_root/$expected_version ..."
+    echo "[wasm-toolchain] installing wasm-bindgen-cli ${expected_version} into $toolchain_root/$expected_version"
     cargo install --locked --version "$expected_version" wasm-bindgen-cli --root "$toolchain_root/$expected_version"
     if [ -x "$local_bin" ]; then
       local_version="$("$local_bin" --version 2>/dev/null | awk '{print $2}')"
