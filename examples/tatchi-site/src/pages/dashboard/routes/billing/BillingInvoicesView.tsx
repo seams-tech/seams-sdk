@@ -81,21 +81,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
 
   return (
     <>
-      <section
-        className="dashboard-view__section dashboard-billing-overview"
-        aria-label="Invoice history overview"
-      >
-        <div className="dashboard-billing-overview__header">
-          <div className="dashboard-billing-overview__copy">
-            <h2>Invoice history</h2>
-            <p>
-              Review prepaid purchase receipts and usage statements, open document detail, and
-              download PDF exports for finance workflows.
-            </p>
-          </div>
-        </div>
-      </section>
-
       <BillingMetricsGrid metrics={invoiceMetrics} ariaLabel="Invoice summary metrics" />
 
       <DashboardTable
@@ -179,7 +164,9 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           <DashboardTableState>Loading invoices...</DashboardTableState>
         ) : invoices.length === 0 ? (
           <DashboardTableState>
-            {hasAnyInvoices ? 'No documents match the current filters.' : 'No billing documents yet.'}
+            {hasAnyInvoices
+              ? 'No documents match the current filters.'
+              : 'No billing documents yet.'}
           </DashboardTableState>
         ) : (
           <>

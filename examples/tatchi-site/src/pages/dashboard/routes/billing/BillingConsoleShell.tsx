@@ -79,10 +79,7 @@ function parseInvoicePeriodRange(
   return { startMs, endMs };
 }
 
-function isInvoiceOverdueAt(
-  invoice: DashboardBillingInvoice,
-  referenceNowMs: number,
-): boolean {
+function isInvoiceOverdueAt(invoice: DashboardBillingInvoice, referenceNowMs: number): boolean {
   if (invoice.status !== 'OPEN' || !invoice.dueAt) return false;
   const dueAtMs = Date.parse(invoice.dueAt);
   if (!Number.isFinite(dueAtMs)) return false;
@@ -203,8 +200,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [invoiceDocumentTypeFilter, setInvoiceDocumentTypeFilter] = React.useState<string>('all');
   const [invoicePeriodStartDateFilter, setInvoicePeriodStartDateFilter] =
     React.useState<string>('');
-  const [invoicePeriodEndDateFilter, setInvoicePeriodEndDateFilter] =
-    React.useState<string>('');
+  const [invoicePeriodEndDateFilter, setInvoicePeriodEndDateFilter] = React.useState<string>('');
   const [downloadingInvoicePdfId, setDownloadingInvoicePdfId] = React.useState<string>('');
   const [invoiceDownloadError, setInvoiceDownloadError] = React.useState<string>('');
 
