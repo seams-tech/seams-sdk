@@ -18,7 +18,6 @@ import {
 } from '../../components/DashboardTable';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { useDashboardConsoleSession } from '../../consoleSession';
-import { useDashboardSelectedContext } from '../../selectedContext';
 import {
   createDashboardWebhookEndpoint,
   deleteDashboardWebhookEndpoint,
@@ -89,7 +88,6 @@ function formatTimestamp(value: string | null): string {
 
 export function WebhooksPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
-  const selectedContext = useDashboardSelectedContext();
   const [endpoints, setEndpoints] = React.useState<DashboardConsoleWebhookEndpoint[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -168,7 +166,7 @@ export function WebhooksPage(): React.JSX.Element {
   }, [endpoints, selectedEndpointId]);
 
   const loadDeliveries = React.useCallback(
-    (input: { endpointId: string; cursor?: string; append?: boolean }) => {
+    (input: { endpointId: string }) => {
       const endpointId = String(input.endpointId || '').trim();
       if (!endpointId || !session.claims) {
         setDeliveries([]);
@@ -180,7 +178,7 @@ export function WebhooksPage(): React.JSX.Element {
       setDeliveriesError('');
       void (async () => {
         try {
-          let cursor = String(input.cursor || '').trim();
+          let cursor = '';
           const allDeliveries: DashboardConsoleWebhookDelivery[] = [];
           for (;;) {
             const page = await listDashboardWebhookDeliveries({
@@ -316,13 +314,11 @@ export function WebhooksPage(): React.JSX.Element {
     <div className="dashboard-view" aria-label="Webhooks page">
       <section className="dashboard-view__section" aria-label="Webhook endpoint controls">
         <h2>Create webhook endpoint</h2>
-        <p>
-          Webhooks are org-scoped. Current topbar context: org {selectedContext.organization || '-'}
-          , project {selectedContext.project || '-'}, environment{' '}
-          {selectedContext.environment || '-'}.
-        </p>
-        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateEndpoint}>
-          <label className="dashboard-form-field">
+        <form
+          className="dashboard-view-grid dashboard-webhook-form"
+          onSubmit={onCreateEndpoint}
+        >
+          <label className="dashboard-form-field dashboard-webhook-form__field">
             <span>Endpoint URL</span>
             <input
               className="dashboard-input"
@@ -337,10 +333,11 @@ export function WebhooksPage(): React.JSX.Element {
             values={eventCategories}
             onChange={(next) => setEventCategories(next as ConsoleWebhookEventCategory[])}
             disabled={creating}
-            addLabel="Add event category"
+            addLabel=""
             emptyLabel="No event categories selected."
+            placeholderLabel="Select an event category"
           />
-          <div className="dashboard-form-actions">
+          <div className="dashboard-form-actions dashboard-webhook-form__actions">
             <button type="submit" className="dashboard-pagination-button" disabled={creating}>
               {creating ? 'Creating...' : 'Create endpoint'}
             </button>

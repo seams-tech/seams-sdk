@@ -1,5 +1,10 @@
 import { ConsoleWebhookError } from './errors';
 import {
+  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
+  normalizeConsoleWebhookEventCategory,
+  type ConsoleWebhookEventCategory,
+} from '@shared/console/webhookEventCategories';
+import {
   readOptionalQueryBooleanField as readOptionalQueryBoolean,
   readOptionalQueryPositiveIntegerField as readOptionalQueryInteger,
   readOptionalQueryStringField as readOptionalQueryString,
@@ -10,7 +15,6 @@ import {
 } from '../shared/requestParse';
 import type {
   ConsoleWebhookEndpointStatus,
-  ConsoleWebhookSubscription,
   CreateConsoleWebhookEndpointRequest,
   ListConsoleWebhookDeliveriesRequest,
   ListConsoleWebhookAttemptsRequest,
@@ -19,14 +23,9 @@ import type {
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
 
-const WEBHOOK_SUBSCRIPTIONS: Set<ConsoleWebhookSubscription> = new Set([
-  'wallet',
-  'policy',
-  'auth',
-  'tx',
-  'billing',
-  'session',
-]);
+const WEBHOOK_EVENT_CATEGORIES: Set<ConsoleWebhookEventCategory> = new Set(
+  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
+);
 
 const WEBHOOK_ENDPOINT_STATUSES: Set<ConsoleWebhookEndpointStatus> = new Set([
   'ACTIVE',
@@ -58,26 +57,30 @@ function normalizeWebhookUrlOrThrow(value: string, fieldName: string): string {
   return parsed.toString();
 }
 
-function parseWebhookSubscriptionsOrThrow(raw: unknown): ConsoleWebhookSubscription[] {
+function parseWebhookEventCategoriesOrThrow(raw: unknown): ConsoleWebhookEventCategory[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new ConsoleWebhookError(
       'invalid_body',
       400,
-      'Field subscriptions must be a non-empty array',
+      'Field eventCategories must be a non-empty array',
     );
   }
-  const out: ConsoleWebhookSubscription[] = [];
+  const out: ConsoleWebhookEventCategory[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    const value = String(item || '')
-      .trim()
-      .toLowerCase();
-    if (!WEBHOOK_SUBSCRIPTIONS.has(value as ConsoleWebhookSubscription)) {
-      throw new ConsoleWebhookError('invalid_body', 400, `Unsupported subscription: ${value}`);
+    const value = normalizeConsoleWebhookEventCategory(item);
+    if (!value || !WEBHOOK_EVENT_CATEGORIES.has(value)) {
+      throw new ConsoleWebhookError(
+        'invalid_body',
+        400,
+        `Unsupported event category: ${String(item || '')
+          .trim()
+          .toLowerCase()}`,
+      );
     }
     if (!seen.has(value)) {
       seen.add(value);
-      out.push(value as ConsoleWebhookSubscription);
+      out.push(value);
     }
   }
   return out;
@@ -101,13 +104,13 @@ export function parseCreateConsoleWebhookEndpointRequest(
 ): CreateConsoleWebhookEndpointRequest {
   const obj = requireObject(body, createParseError);
   const url = normalizeWebhookUrlOrThrow(readRequiredString(obj, 'url', createParseError), 'url');
-  const subscriptions = parseWebhookSubscriptionsOrThrow(obj.subscriptions);
+  const eventCategories = parseWebhookEventCategoriesOrThrow(obj.eventCategories);
   const statusRaw = obj.status;
   const status =
     statusRaw === undefined ? undefined : parseWebhookStatusOrThrow(statusRaw, 'status');
   return {
     url,
-    subscriptions,
+    eventCategories,
     status,
   };
 }
@@ -118,23 +121,23 @@ export function parseUpdateConsoleWebhookEndpointRequest(
   const obj = requireObject(body, createParseError);
   const urlRaw = readOptionalString(obj, 'url');
   const statusRaw = obj.status;
-  const subscriptionsRaw = obj.subscriptions;
+  const eventCategoriesRaw = obj.eventCategories;
 
   const out: UpdateConsoleWebhookEndpointRequest = {};
   if (urlRaw !== undefined) {
     out.url = normalizeWebhookUrlOrThrow(urlRaw, 'url');
   }
-  if (subscriptionsRaw !== undefined) {
-    out.subscriptions = parseWebhookSubscriptionsOrThrow(subscriptionsRaw);
+  if (eventCategoriesRaw !== undefined) {
+    out.eventCategories = parseWebhookEventCategoriesOrThrow(eventCategoriesRaw);
   }
   if (statusRaw !== undefined) {
     out.status = parseWebhookStatusOrThrow(statusRaw, 'status');
   }
-  if (!out.url && !out.subscriptions && !out.status) {
+  if (!out.url && !out.eventCategories && !out.status) {
     throw new ConsoleWebhookError(
       'invalid_body',
       400,
-      'Update request must include at least one of: url, subscriptions, status',
+      'Update request must include at least one of: url, eventCategories, status',
     );
   }
   return out;

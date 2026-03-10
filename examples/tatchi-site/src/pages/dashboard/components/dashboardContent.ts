@@ -105,9 +105,9 @@ export const DASHBOARD_CARD_PAGE_CONTENT = {
     {
       title: 'Endpoint and signing setup',
       items: [
-        'Register endpoints with event subscriptions.',
+        'Register endpoints with event categories.',
         'Signed payloads with rotating secrets.',
-        'Subscription scopes: wallet, policy, auth, tx lifecycle.',
+        'Event categories: wallet, policy, auth, tx lifecycle, session.',
       ],
     },
     {

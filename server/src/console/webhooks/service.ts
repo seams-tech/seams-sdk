@@ -125,7 +125,7 @@ function cloneEndpoint(endpoint: StoredWebhookEndpoint): ConsoleWebhookEndpoint 
     id: endpoint.id,
     orgId: endpoint.orgId,
     url: endpoint.url,
-    subscriptions: [...endpoint.subscriptions],
+    eventCategories: [...endpoint.eventCategories],
     status: endpoint.status,
     secretVersion: endpoint.secretVersion,
     secretPreview: endpoint.secretPreview,
@@ -282,7 +282,7 @@ export function createInMemoryConsoleWebhookService(
     if (endpoint.status !== 'ACTIVE') return false;
     const category = normalizeEventCategory(eventType);
     if (!category) return false;
-    return endpoint.subscriptions.includes(category);
+    return endpoint.eventCategories.includes(category);
   }
 
   async function deliver(
@@ -409,7 +409,7 @@ export function createInMemoryConsoleWebhookService(
         id: makeId('wh', createdAt),
         orgId: ctx.orgId,
         url: request.url,
-        subscriptions: [...request.subscriptions],
+        eventCategories: [...request.eventCategories],
         status: request.status || 'ACTIVE',
         secretVersion: 1,
         secretPreview: makeSecretPreview(signingSecret),
@@ -432,7 +432,9 @@ export function createInMemoryConsoleWebhookService(
       if (!endpoint) return null;
 
       if (request.url !== undefined) endpoint.url = request.url;
-      if (request.subscriptions !== undefined) endpoint.subscriptions = [...request.subscriptions];
+      if (request.eventCategories !== undefined) {
+        endpoint.eventCategories = [...request.eventCategories];
+      }
       if (request.status !== undefined) endpoint.status = request.status;
       endpoint.updatedAt = coerceIsoDate(now());
 

@@ -1,10 +1,5 @@
-export type ConsoleWebhookSubscription =
-  | 'wallet'
-  | 'policy'
-  | 'auth'
-  | 'tx'
-  | 'billing'
-  | 'session';
+export type { ConsoleWebhookEventCategory } from '@shared/console/webhookEventCategories';
+import type { ConsoleWebhookEventCategory } from '@shared/console/webhookEventCategories';
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 
@@ -14,7 +9,7 @@ export interface ConsoleWebhookEndpoint {
   id: string;
   orgId: string;
   url: string;
-  subscriptions: ConsoleWebhookSubscription[];
+  eventCategories: ConsoleWebhookEventCategory[];
   status: ConsoleWebhookEndpointStatus;
   secretVersion: number;
   secretPreview: string;
@@ -75,13 +70,13 @@ export interface ConsoleWebhookPage<T> {
 
 export interface CreateConsoleWebhookEndpointRequest {
   url: string;
-  subscriptions: ConsoleWebhookSubscription[];
+  eventCategories: ConsoleWebhookEventCategory[];
   status?: ConsoleWebhookEndpointStatus;
 }
 
 export interface UpdateConsoleWebhookEndpointRequest {
   url?: string;
-  subscriptions?: ConsoleWebhookSubscription[];
+  eventCategories?: ConsoleWebhookEventCategory[];
   status?: ConsoleWebhookEndpointStatus;
 }
 

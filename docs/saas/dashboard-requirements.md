@@ -102,7 +102,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 
 ### 8) Webhooks
 
-- Webhook endpoints with event subscriptions (wallet, policy, auth, tx lifecycle).
+- Webhook endpoints with event categories (wallet, policy, auth, tx lifecycle, session).
 - Signed payloads with rotating secrets.
 - Retry strategy with backoff and dead-letter queue handling.
 - Delivery logs with request/response metadata and replay action.

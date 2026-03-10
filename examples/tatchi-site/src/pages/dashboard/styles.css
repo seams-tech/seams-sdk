@@ -3765,7 +3765,11 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   border: 1px solid var(--dashboard-border);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--dashboard-surface-2) 90%, transparent), transparent 32%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--dashboard-surface-2) 90%, transparent),
+      transparent 32%
+    ),
     var(--dashboard-surface);
   box-shadow: 0 20px 36px color-mix(in srgb, #0d1b34 8%, transparent);
 }

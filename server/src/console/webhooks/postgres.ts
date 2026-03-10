@@ -1,4 +1,8 @@
 import type { NormalizedLogger } from '../../core/logger';
+import {
+  normalizeConsoleWebhookEventCategory,
+  type ConsoleWebhookEventCategory,
+} from '@shared/console/webhookEventCategories';
 import { getPostgresPool } from '../../storage/postgres';
 import {
   ensureConsoleNamespace as ensureNamespace,
@@ -27,7 +31,6 @@ import type {
   ConsoleWebhookDeadLetter,
   ConsoleWebhookEndpoint,
   ConsoleWebhookPage,
-  ConsoleWebhookSubscription,
   CreateConsoleWebhookEndpointRequest,
   EmitConsoleWebhookEventRequest,
   EmitConsoleWebhookEventResult,
@@ -97,7 +100,7 @@ function parseBigintCursorId(id: string): string {
   return value;
 }
 
-function parseSubscriptions(raw: unknown): ConsoleWebhookSubscription[] {
+function parseEventCategories(raw: unknown): ConsoleWebhookEventCategory[] {
   const parsed = (() => {
     if (Array.isArray(raw)) return raw;
     if (typeof raw === 'string') {
@@ -111,25 +114,14 @@ function parseSubscriptions(raw: unknown): ConsoleWebhookSubscription[] {
     return [];
   })();
 
-  const values: ConsoleWebhookSubscription[] = [];
+  const values: ConsoleWebhookEventCategory[] = [];
   const seen = new Set<string>();
   for (const item of parsed) {
-    const value = String(item || '')
-      .trim()
-      .toLowerCase();
-    if (
-      value !== 'wallet' &&
-      value !== 'policy' &&
-      value !== 'auth' &&
-      value !== 'tx' &&
-      value !== 'billing' &&
-      value !== 'session'
-    ) {
-      continue;
-    }
+    const value = normalizeConsoleWebhookEventCategory(item);
+    if (!value) continue;
     if (seen.has(value)) continue;
     seen.add(value);
-    values.push(value as ConsoleWebhookSubscription);
+    values.push(value);
   }
   return values;
 }
@@ -156,7 +148,7 @@ function parseEndpointRow(row: PgRow): StoredWebhookEndpoint {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
     url: String(row.url || ''),
-    subscriptions: parseSubscriptions(row.subscriptions),
+    eventCategories: parseEventCategories(row.event_categories),
     status: String(row.status || 'ACTIVE') as ConsoleWebhookEndpoint['status'],
     secretVersion: toNumber(row.secret_version),
     secretPreview: String(row.secret_preview || ''),
@@ -226,7 +218,7 @@ function toPublicEndpoint(input: StoredWebhookEndpoint): ConsoleWebhookEndpoint 
     id: input.id,
     orgId: input.orgId,
     url: input.url,
-    subscriptions: [...input.subscriptions],
+    eventCategories: [...input.eventCategories],
     status: input.status,
     secretVersion: input.secretVersion,
     secretPreview: input.secretPreview,
@@ -471,7 +463,7 @@ export async function ensureConsoleWebhooksPostgresSchema(
         id TEXT NOT NULL,
         org_id TEXT NOT NULL,
         url TEXT NOT NULL,
-        subscriptions JSONB NOT NULL,
+        event_categories JSONB NOT NULL,
         status TEXT NOT NULL,
         signing_secret TEXT NOT NULL,
         secret_version INTEGER NOT NULL,
@@ -480,16 +472,62 @@ export async function ensureConsoleWebhooksPostgresSchema(
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
         CHECK (status IN ('ACTIVE', 'DISABLED')),
-        CHECK (jsonb_typeof(subscriptions) = 'array')
+        CHECK (jsonb_typeof(event_categories) = 'array')
       )
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'console_webhook_endpoints'
+             AND column_name = 'subscriptions'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_schema = current_schema()
+             AND table_name = 'console_webhook_endpoints'
+             AND column_name = 'event_categories'
+        ) THEN
+          ALTER TABLE console_webhook_endpoints
+            RENAME COLUMN subscriptions TO event_categories;
+        END IF;
+      END
+      $$;
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM pg_class idx
+            JOIN pg_namespace ns ON ns.oid = idx.relnamespace
+           WHERE idx.relkind = 'i'
+             AND idx.relname = 'console_webhook_endpoints_subscriptions_gin_idx'
+             AND ns.nspname = current_schema()
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM pg_class idx
+            JOIN pg_namespace ns ON ns.oid = idx.relnamespace
+           WHERE idx.relkind = 'i'
+             AND idx.relname = 'console_webhook_endpoints_event_categories_gin_idx'
+             AND ns.nspname = current_schema()
+        ) THEN
+          ALTER INDEX console_webhook_endpoints_subscriptions_gin_idx
+            RENAME TO console_webhook_endpoints_event_categories_gin_idx;
+        END IF;
+      END
+      $$;
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_webhook_endpoints_org_created_idx
       ON console_webhook_endpoints (namespace, org_id, created_at_ms DESC)
     `);
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS console_webhook_endpoints_subscriptions_gin_idx
-      ON console_webhook_endpoints USING GIN (subscriptions)
+      CREATE INDEX IF NOT EXISTS console_webhook_endpoints_event_categories_gin_idx
+      ON console_webhook_endpoints USING GIN (event_categories)
     `);
 
     await pool.query(`
@@ -724,7 +762,7 @@ export async function createPostgresConsoleWebhookService(
         const row = await queryOne(
           q,
           `INSERT INTO console_webhook_endpoints
-            (namespace, id, org_id, url, subscriptions, status, signing_secret, secret_version, secret_preview, created_at_ms, updated_at_ms)
+            (namespace, id, org_id, url, event_categories, status, signing_secret, secret_version, secret_preview, created_at_ms, updated_at_ms)
            VALUES
             ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $10)
            RETURNING *`,
@@ -733,7 +771,7 @@ export async function createPostgresConsoleWebhookService(
             makeId('wh', now),
             ctx.orgId,
             request.url,
-            JSON.stringify(request.subscriptions),
+            JSON.stringify(request.eventCategories),
             request.status || 'ACTIVE',
             signingSecret,
             1,
@@ -759,15 +797,15 @@ export async function createPostgresConsoleWebhookService(
 
         const now = nowFn();
         const nextUrl = request.url !== undefined ? request.url : current.url;
-        const nextSubscriptions =
-          request.subscriptions !== undefined ? request.subscriptions : current.subscriptions;
+        const nextEventCategories =
+          request.eventCategories !== undefined ? request.eventCategories : current.eventCategories;
         const nextStatus = request.status !== undefined ? request.status : current.status;
 
         const row = await queryOne(
           q,
           `UPDATE console_webhook_endpoints
               SET url = $4,
-                  subscriptions = $5::jsonb,
+                  event_categories = $5::jsonb,
                   status = $6,
                   updated_at_ms = $7
             WHERE namespace = $1 AND org_id = $2 AND id = $3
@@ -777,7 +815,7 @@ export async function createPostgresConsoleWebhookService(
             ctx.orgId,
             endpointId,
             nextUrl,
-            JSON.stringify(nextSubscriptions),
+            JSON.stringify(nextEventCategories),
             nextStatus,
             nowMs(now),
           ],
@@ -1092,7 +1130,7 @@ export async function createPostgresConsoleWebhookService(
             WHERE namespace = $1
               AND org_id = $2
               AND status = 'ACTIVE'
-              AND subscriptions ? $3
+              AND event_categories ? $3
             ORDER BY created_at_ms DESC`,
           [namespace, ctx.orgId, category],
         );

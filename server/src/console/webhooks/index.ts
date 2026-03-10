@@ -1,5 +1,5 @@
 export type {
-  ConsoleWebhookSubscription,
+  ConsoleWebhookEventCategory,
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookDeliveryStatus,
   ConsoleWebhookEndpoint,

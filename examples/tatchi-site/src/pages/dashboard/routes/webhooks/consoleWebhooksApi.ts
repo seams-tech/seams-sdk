@@ -1,4 +1,8 @@
 import {
+  normalizeConsoleWebhookEventCategory,
+  type ConsoleWebhookEventCategory,
+} from '../../../../../../../shared/src/console/webhookEventCategories';
+import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,
   consoleErrorMessage,
@@ -10,7 +14,7 @@ export interface DashboardConsoleWebhookEndpoint {
   id: string;
   orgId: string;
   url: string;
-  subscriptions: string[];
+  eventCategories: ConsoleWebhookEventCategory[];
   status: string;
   secretVersion: number;
   secretPreview: string;
@@ -95,6 +99,17 @@ function readStringArray(raw: unknown): string[] {
   return out;
 }
 
+function readEventCategories(raw: unknown): ConsoleWebhookEventCategory[] {
+  const values = readStringArray(raw);
+  const out: ConsoleWebhookEventCategory[] = [];
+  for (const value of values) {
+    const normalized = normalizeConsoleWebhookEventCategory(value);
+    if (!normalized) continue;
+    out.push(normalized);
+  }
+  return out;
+}
+
 function decodeEndpoint(raw: unknown): DashboardConsoleWebhookEndpoint | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -106,7 +121,7 @@ function decodeEndpoint(raw: unknown): DashboardConsoleWebhookEndpoint | null {
     id,
     orgId,
     url,
-    subscriptions: readStringArray(row.subscriptions),
+    eventCategories: readEventCategories(row.eventCategories),
     status: String(row.status || '').trim() || 'ACTIVE',
     secretVersion: Number(row.secretVersion || 0),
     secretPreview: String(row.secretPreview || '').trim(),
@@ -203,7 +218,7 @@ export async function listDashboardWebhookEndpoints(): Promise<DashboardConsoleW
 
 export async function createDashboardWebhookEndpoint(input: {
   url: string;
-  subscriptions: string[];
+  eventCategories: ConsoleWebhookEventCategory[];
   status?: 'ACTIVE' | 'DISABLED';
 }): Promise<DashboardConsoleWebhookEndpoint> {
   const base = requireConsoleBaseUrl();
@@ -227,7 +242,7 @@ export async function updateDashboardWebhookEndpoint(input: {
   endpointId: string;
   status?: 'ACTIVE' | 'DISABLED';
   url?: string;
-  subscriptions?: string[];
+  eventCategories?: ConsoleWebhookEventCategory[];
 }): Promise<DashboardConsoleWebhookEndpoint> {
   const endpointId = String(input.endpointId || '').trim();
   if (!endpointId) throw new Error('Endpoint id is required');
@@ -240,7 +255,7 @@ export async function updateDashboardWebhookEndpoint(input: {
     body: JSON.stringify({
       ...(input.status ? { status: input.status } : {}),
       ...(input.url ? { url: input.url } : {}),
-      ...(input.subscriptions ? { subscriptions: input.subscriptions } : {}),
+      ...(input.eventCategories ? { eventCategories: input.eventCategories } : {}),
     }),
   });
   const body = (await parseConsoleJson(response)) as ConsoleWebhookEndpointResponse | null;
@@ -313,13 +328,16 @@ export async function replayDashboardWebhookDelivery(input: {
   const endpointId = String(input.endpointId || '').trim();
   if (!endpointId) throw new Error('Endpoint id is required');
   const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/webhooks/${encodeURIComponent(endpointId)}/replay`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input.deliveryId ? { deliveryId: input.deliveryId } : {}),
-  });
+  const response = await fetch(
+    `${base}/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+    {
+      method: 'POST',
+      headers: buildConsoleJsonHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+      body: JSON.stringify(input.deliveryId ? { deliveryId: input.deliveryId } : {}),
+    },
+  );
   const body = await parseConsoleJson(response);
   if (!response.ok || body?.ok !== true) {
     throw new Error(consoleErrorMessage(response, body, 'Webhook replay request failed'));

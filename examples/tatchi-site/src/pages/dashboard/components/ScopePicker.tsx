@@ -12,6 +12,9 @@ interface ScopePickerProps {
   values: string[];
   onChange(next: string[]): void;
   disabled?: boolean;
+  addLabel?: string;
+  emptyLabel?: string;
+  placeholderLabel?: string;
 }
 
 function dedupeScopes(values: string[]): string[] {
@@ -29,7 +32,16 @@ function dedupeScopes(values: string[]): string[] {
 }
 
 export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
-  const { label, options, values, onChange, disabled = false } = props;
+  const {
+    label,
+    options,
+    values,
+    onChange,
+    disabled = false,
+    addLabel = 'Add scope',
+    emptyLabel = 'No scopes selected.',
+    placeholderLabel = 'Select a scope',
+  } = props;
   const selected = dedupeScopes(values);
   const knownValues = new Set(options.map((option) => option.value));
   const availableOptions = options.filter((option) => !selected.includes(option.value));
@@ -41,7 +53,7 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
       </div>
 
       <label className="dashboard-form-field">
-        <span>Add scope</span>
+        {addLabel ? <span>{addLabel}</span> : null}
         <select
           className="dashboard-input dashboard-scope-picker__select"
           value=""
@@ -54,7 +66,9 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
           }}
         >
           <option value="">
-            {availableOptions.length > 0 ? 'Select a scope' : 'All available scopes selected'}
+            {availableOptions.length > 0
+              ? placeholderLabel
+              : 'All available scopes selected'}
           </option>
           {options.map((option) => (
             <option
@@ -97,7 +111,7 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
             );
           })
         ) : (
-          <p className="dashboard-scope-picker__empty">No scopes selected.</p>
+          <p className="dashboard-scope-picker__empty">{emptyLabel}</p>
         )}
       </div>
     </div>

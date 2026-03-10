@@ -77,7 +77,7 @@ test.describe('console webhooks postgres service', () => {
 
     const created = await service!.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-crud',
-      subscriptions: ['billing', 'wallet'],
+      eventCategories: ['billing', 'wallet'],
     });
     expect(created.id).toBeTruthy();
     expect(created.secretVersion).toBe(1);
@@ -89,11 +89,11 @@ test.describe('console webhooks postgres service', () => {
 
     const updated = await service!.updateEndpoint(ctx, created.id, {
       status: 'DISABLED',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
     expect(updated?.id).toBe(created.id);
     expect(updated?.status).toBe('DISABLED');
-    expect(updated?.subscriptions).toEqual(['billing']);
+    expect(updated?.eventCategories).toEqual(['billing']);
 
     const removed = await service!.deleteEndpoint(ctx, created.id);
     expect(removed.removed).toBe(true);
@@ -111,7 +111,7 @@ test.describe('console webhooks postgres service', () => {
 
     const endpoint = await service!.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-delivery',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
 
     const emitted = await service!.emitEvent(ctx, {
@@ -225,7 +225,7 @@ test.describe('console webhooks postgres service', () => {
 
     const endpoint = await seedService.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-retry-dispatch',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
 
     const firstEmit = await seedService.emitEvent(ctx, {
@@ -290,7 +290,7 @@ test.describe('console webhooks postgres service', () => {
 
     const endpoint = await service!.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-pagination',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
 
     const baseMs = Date.parse('2026-01-01T00:00:00.000Z');
@@ -445,7 +445,7 @@ test.describe('console webhooks postgres service', () => {
 
     const endpoint = await service!.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-pagination-tie',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
 
     const createdAtMs = Date.parse('2026-01-02T00:00:00.000Z');
@@ -588,7 +588,7 @@ test.describe('console webhooks postgres service', () => {
 
     const endpoint = await service!.createEndpoint(ctx, {
       url: 'https://example.com/webhooks/postgres-invalid-attempt-cursor',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
 
     let caught: any;
