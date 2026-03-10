@@ -16,7 +16,7 @@ export function SelfHostingPage(): React.JSX.Element {
   return (
     <div className="dashboard-view" aria-label="Self hosting page">
       <section className="dashboard-view__section" aria-label="Self hosting overview">
-        <h2>Self Hosting</h2>
+        <h2>Self Hosting (to be implemented later)</h2>
         <p>
           Start with a customer-owned wallet origin, run it on hosted infrastructure first, then
           move the same origin to customer infrastructure later. Passkeys stay valid as long as the
