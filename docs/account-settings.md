@@ -12,7 +12,7 @@ Target outcomes:
 - Page lives in the `Administration` sidebar group.
 - Page supports:
   - account profile editing (username, primary email, backup emails),
-  - user-created organizations list with create/open/edit actions,
+  - user-created organizations list with create/open/edit/delete actions,
   - organization owner transfer to another admin.
 
 ## Product Decision (Locked)
@@ -34,6 +34,7 @@ Target outcomes:
   - `GET/PATCH /console/account/profile`
   - `GET/POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
+  - `DELETE /console/account/organizations/:orgId`
   - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
 - Account profile persistence now exists for display name, primary email, and backup emails.
@@ -69,6 +70,7 @@ Out of scope (this plan):
    - Per-organization actions:
      - open/switch into org dashboard context,
      - edit organization name,
+     - delete organization when it is empty,
      - transfer owner to another admin
 
 Navigation:
@@ -87,6 +89,7 @@ New `/console/account/*` endpoints:
 - `GET /console/account/organizations`
 - `POST /console/account/organizations`
 - `PATCH /console/account/organizations/:orgId`
+- `DELETE /console/account/organizations/:orgId`
 - `POST /console/account/organizations/:orgId/transfer-owner`
 - `POST /console/account/organizations/:orgId/switch-context`
 
@@ -97,6 +100,7 @@ Notes:
 - `switch-context` must refresh `orgId`, `projectId`, and `environmentId` claims together so the client never carries project/environment scope from the previous org.
 - If the target org has no active default project/environment yet, `switch-context` should clear those claims and let the dashboard route decision fall back to onboarding for org-scoped navigation.
 - Organization creation should extract or share the existing onboarding organization bootstrap implementation so onboarding and account settings stay on one canonical path for org creation + initial owner bootstrap + audit behavior.
+- Organization deletion should stay owner-only and only succeed when the target org is not the active org, has no other non-removed members, and has no wallets.
 - Owner transfer should be transactional:
   - validate actor is current owner in target org,
   - validate target member has admin eligibility,
@@ -130,8 +134,8 @@ Recommended access index:
 Shipped:
 
 - Dedicated dashboard route, sidebar entry, and topbar cutover are implemented.
-- Dedicated account backend slice is implemented for profile, backup emails, organization directory, org create/rename, owner transfer, and context switching.
-- Account page UI is implemented for profile editing, backup emails, and organization management.
+- Dedicated account backend slice is implemented for profile, backup emails, organization directory, org create/rename/delete, owner transfer, and context switching.
+- Account page UI is implemented for profile editing, backup emails, and organization management, including owner-only delete actions for empty non-current orgs.
 - Account org creation reuses onboarding bootstrap, and org rename/owner transfer emit audit events.
 - Context switching now refreshes `orgId`, `projectId`, and `environmentId` together and routes to onboarding for incomplete target orgs.
 - Focused relayer parity coverage exists for Express and Cloudflare account routes, including OIDC primary-email read-only enforcement, forbidden owner transfer, and org-directory visibility checks.
@@ -198,11 +202,13 @@ Exit criteria:
 ### Phase 5: Organization Editing + Owner Transfer
 
 - [x] Implement `PATCH /console/account/organizations/:orgId` (rename).
+- [x] Implement `DELETE /console/account/organizations/:orgId` for empty-org deletion.
 - [x] Implement `POST /console/account/organizations/:orgId/transfer-owner`.
 - [x] Add UI actions for rename and transfer owner in org row/details panel.
+- [x] Add UI action for owner-only org deletion with empty-org guardrails.
 - [x] Reuse existing Team RBAC role semantics; enforce last-owner safety.
 - [x] Emit audit events for rename and owner transfer.
-- [ ] Finish browser verification for successful transfer flows once the dashboard harness is green; relayer parity coverage now includes successful and forbidden transfer cases.
+- [ ] Finish browser verification for successful transfer and delete flows once the dashboard harness is green; relayer parity coverage now includes successful and blocked delete cases.
 
 Exit criteria:
 
@@ -240,6 +246,7 @@ Exit criteria:
 - `/dashboard/account-settings` remains accessible even when the active org is still onboarding.
 - Account page supports profile editing + backup emails.
 - Account page lists organizations created by current user and supports create/rename/transfer owner.
+- Account page supports owner-only deletion for empty non-current orgs and blocks deletion when other members or wallets exist.
 - User can switch active org context from account settings without leaking stale project/environment scope from the previous org.
 - Opening an incomplete org from account settings routes to onboarding; opening a complete org routes to the default dashboard entry.
 - No legacy modal-intent account settings path remains in dashboard code.

@@ -6,6 +6,7 @@ import {
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleTeamRbacService,
+  createInMemoryConsoleWalletService,
   type ConsoleAuthAdapter,
   type ConsoleOrgProjectEnvService,
   type ConsoleTeamRbacService,
@@ -67,6 +68,32 @@ async function seedOrganization(input: {
     name: `${input.organizationName} Project`,
     liveEnvironmentsEnabled: true,
   });
+}
+
+function buildWalletSeed(input: {
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  walletId: string;
+}) {
+  const now = new Date('2026-03-10T00:00:00.000Z').toISOString();
+  return {
+    id: input.walletId,
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    userId: 'wallet-user',
+    externalRefId: `${input.walletId}-external`,
+    address: '0x0000000000000000000000000000000000000001',
+    chain: 'Ethereum' as const,
+    walletType: 'EOA' as const,
+    status: 'ACTIVE' as const,
+    policyId: null,
+    balanceMinor: 0,
+    lastActivityAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 type RouterMode = 'express' | 'cloudflare';
@@ -590,6 +617,185 @@ for (const mode of ['express', 'cloudflare'] as const) {
         roles: ['admin'],
       });
       expect(switchResponse.cookie).toContain('switched-session-token');
+    });
+
+    test('deletes an empty non-current organization', async () => {
+      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+      const teamRbac = createInMemoryConsoleTeamRbacService();
+      const onboarding = createInMemoryConsoleOnboardingService({
+        orgProjectEnv,
+        apiKeys: createInMemoryConsoleApiKeyService(),
+        teamRbac,
+      });
+      const account = createInMemoryConsoleAccountService({
+        orgProjectEnv,
+        teamRbac,
+        onboarding,
+        wallets: createInMemoryConsoleWalletService(),
+      });
+      await seedOrganization({
+        orgProjectEnv,
+        teamRbac,
+        orgId: 'org_current',
+        actorUserId: 'user_current',
+        actorEmail: 'owner@example.com',
+        actorDisplayName: 'Owner User',
+        organizationName: 'Current Org',
+      });
+      await seedOrganization({
+        orgProjectEnv,
+        teamRbac,
+        orgId: 'org_empty_delete',
+        actorUserId: 'user_current',
+        actorEmail: 'owner@example.com',
+        actorDisplayName: 'Owner User',
+        organizationName: 'Delete Me',
+      });
+
+      const auth = makeConsoleAuthAdapter({
+        userId: 'user_current',
+        orgId: 'org_current',
+        roles: ['owner', 'admin'],
+        email: 'owner@example.com',
+        name: 'Owner User',
+      });
+
+      const deleteResponse = await callConsoleRoute(mode, {
+        auth,
+        account,
+        method: 'DELETE',
+        path: '/console/account/organizations/org_empty_delete',
+      });
+      expect(deleteResponse.status).toBe(200);
+      expect(deleteResponse.json?.deleted).toMatchObject({
+        orgId: 'org_empty_delete',
+      });
+
+      const listResponse = await callConsoleRoute(mode, {
+        auth,
+        account,
+        method: 'GET',
+        path: '/console/account/organizations',
+      });
+      expect(listResponse.status).toBe(200);
+      expect(
+        Array.isArray(listResponse.json?.organizations)
+          ? listResponse.json?.organizations.some(
+              (entry) => String((entry as Record<string, unknown>).id || '') === 'org_empty_delete',
+            )
+          : false,
+      ).toBe(false);
+    });
+
+    test('blocks organization delete for current org, other members, or wallets', async () => {
+      const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+      const teamRbac = createInMemoryConsoleTeamRbacService();
+      const onboarding = createInMemoryConsoleOnboardingService({
+        orgProjectEnv,
+        apiKeys: createInMemoryConsoleApiKeyService(),
+        teamRbac,
+      });
+      const account = createInMemoryConsoleAccountService({
+        orgProjectEnv,
+        teamRbac,
+        onboarding,
+        wallets: createInMemoryConsoleWalletService({
+          seedWallets: [
+            buildWalletSeed({
+              orgId: 'org_with_wallet',
+              projectId: 'proj_wallet',
+              environmentId: 'proj_wallet:dev',
+              walletId: 'wallet_delete_blocker',
+            }),
+          ],
+        }),
+      });
+      await seedOrganization({
+        orgProjectEnv,
+        teamRbac,
+        orgId: 'org_current',
+        actorUserId: 'user_current',
+        actorEmail: 'owner@example.com',
+        actorDisplayName: 'Owner User',
+        organizationName: 'Current Org',
+      });
+      await seedOrganization({
+        orgProjectEnv,
+        teamRbac,
+        orgId: 'org_with_member',
+        actorUserId: 'user_current',
+        actorEmail: 'owner@example.com',
+        actorDisplayName: 'Owner User',
+        organizationName: 'Member Blocked Org',
+      });
+      await seedOrganization({
+        orgProjectEnv,
+        teamRbac,
+        orgId: 'org_with_wallet',
+        actorUserId: 'user_current',
+        actorEmail: 'owner@example.com',
+        actorDisplayName: 'Owner User',
+        organizationName: 'Wallet Blocked Org',
+      });
+      await teamRbac.inviteMember(
+        {
+          orgId: 'org_with_member',
+          actorUserId: 'user_current',
+          roles: ['owner', 'admin'],
+          actorEmail: 'owner@example.com',
+          actorDisplayName: 'Owner User',
+        },
+        {
+          userId: 'user_other',
+          email: 'other@example.com',
+          displayName: 'Other User',
+          roles: [{ role: 'admin', scope: 'ORG' }],
+        },
+      );
+
+      const auth = makeConsoleAuthAdapter({
+        userId: 'user_current',
+        orgId: 'org_current',
+        roles: ['owner', 'admin'],
+        email: 'owner@example.com',
+        name: 'Owner User',
+      });
+
+      const currentDelete = await callConsoleRoute(mode, {
+        auth,
+        account,
+        method: 'DELETE',
+        path: '/console/account/organizations/org_current',
+      });
+      expect(currentDelete.status).toBe(409);
+      expect(currentDelete.json).toMatchObject({
+        ok: false,
+        code: 'organization_current_context_active',
+      });
+
+      const memberDelete = await callConsoleRoute(mode, {
+        auth,
+        account,
+        method: 'DELETE',
+        path: '/console/account/organizations/org_with_member',
+      });
+      expect(memberDelete.status).toBe(409);
+      expect(memberDelete.json).toMatchObject({
+        ok: false,
+        code: 'organization_delete_has_other_members',
+      });
+
+      const walletDelete = await callConsoleRoute(mode, {
+        auth,
+        account,
+        method: 'DELETE',
+        path: '/console/account/organizations/org_with_wallet',
+      });
+      expect(walletDelete.status).toBe(409);
+      expect(walletDelete.json).toMatchObject({
+        ok: false,
+        code: 'organization_delete_has_wallets',
+      });
     });
   });
 }

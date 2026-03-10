@@ -1158,6 +1158,7 @@ async function main() {
       orgProjectEnv: consoleOrgProjectEnv,
       teamRbac: consoleTeamRbac,
       onboarding: consoleOnboarding,
+      wallets: consoleWallets,
       logger: console,
     });
   } else {
@@ -1165,6 +1166,7 @@ async function main() {
       orgProjectEnv: consoleOrgProjectEnv,
       teamRbac: consoleTeamRbac,
       onboarding: consoleOnboarding,
+      wallets: consoleWallets,
     });
   }
   const consoleAuth = createAppSessionConsoleAuthAdapter({

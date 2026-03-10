@@ -160,9 +160,11 @@ Completed:
   - `GET /console/account/organizations`
   - `POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
+  - `DELETE /console/account/organizations/:orgId`
   - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
   - account org creation reuses the onboarding org bootstrap path instead of duplicating owner/bootstrap logic.
+  - empty-org deletion is implemented with owner-only, non-current-org, no-other-members, and no-wallets guardrails.
   - Postgres-backed account persistence is implemented with `console_user_profiles`, `console_user_backup_emails`, and `console_organizations.created_by_user_id`.
   - focused relayer route coverage is implemented for Express and Cloudflare adapters, including owner transfer and context-switch session re-signing.
 - Wallet backend slice is implemented:
@@ -230,6 +232,7 @@ Completed:
   - `GET/PATCH /console/account/profile`
   - `GET/POST /console/account/organizations`
   - `PATCH /console/account/organizations/:orgId`
+  - `DELETE /console/account/organizations/:orgId`
   - `POST /console/account/organizations/:orgId/transfer-owner`
   - `POST /console/account/organizations/:orgId/switch-context`
   - topbar account-menu cutover now routes directly to `/dashboard/account-settings`.
