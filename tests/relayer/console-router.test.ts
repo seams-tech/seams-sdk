@@ -3958,7 +3958,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
           cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-          creditPackId: 'usd_200',
+          creditPackId: 'usd_25',
         }),
       });
       expect(created.status).toBe(201);
@@ -3969,10 +3969,29 @@ test.describe('console router (express)', () => {
       expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain(
         'cus_',
       );
-      expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_200');
-      expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(20000);
+      expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_25');
+      expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(2500);
       expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
         /^\d{4}-\d{2}-\d{2}T/,
+      );
+
+      const customCreated = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+            creditPackId: 'usd_custom',
+            customAmountMinor: 12345,
+          }),
+        },
+      );
+      expect(customCreated.status).toBe(201);
+      expect(getPath(customCreated.json, 'checkoutSession', 'creditPackId')).toBe('usd_custom');
+      expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(
+        12345,
       );
 
       const invalid = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
@@ -3981,11 +4000,26 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           successUrl: '/dashboard/billing',
           cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-          creditPackId: 'usd_200',
+          creditPackId: 'usd_25',
         }),
       });
       expect(invalid.status).toBe(400);
       expect(invalid.json?.code).toBe('invalid_body');
+
+      const missingCustomAmount = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+            creditPackId: 'usd_custom',
+          }),
+        },
+      );
+      expect(missingCustomAmount.status).toBe(400);
+      expect(missingCustomAmount.json?.code).toBe('invalid_body');
     } finally {
       await srv.close();
     }
@@ -4127,7 +4161,7 @@ test.describe('console router (express)', () => {
           body: JSON.stringify({
             successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
             cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-            creditPackId: 'usd_200',
+            creditPackId: 'usd_25',
           }),
         },
       );
@@ -4160,7 +4194,7 @@ test.describe('console router (express)', () => {
       expect(projectedPurchase.status).toBe(200);
       expect(projectedPurchase.json?.accepted).toBe(true);
       expect(getPath(projectedPurchase.json, 'purchase', 'status')).toBe('SETTLED');
-      expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_200');
+      expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_25');
       const receiptInvoiceId = String(getPath(projectedPurchase.json, 'invoice', 'id') || '');
       expect(receiptInvoiceId).toContain('receipt_');
 
@@ -4191,7 +4225,7 @@ test.describe('console router (express)', () => {
       });
       expect(overviewAfter.status).toBe(200);
       expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(
-        20000,
+        2500,
       );
     } finally {
       await srv.close();
@@ -4293,7 +4327,7 @@ test.describe('console router (express)', () => {
     const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
-      creditPackId: 'usd_200',
+      creditPackId: 'usd_25',
     });
     await billing.processStripeWebhookEvent({
       eventId: 'evt_billing_purchase_settled',
@@ -8012,7 +8046,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_200',
+        creditPackId: 'usd_25',
       },
     });
     expect(created.status).toBe(201);
@@ -8021,10 +8055,26 @@ test.describe('console router (cloudflare)', () => {
     expect(checkoutSessionId).toBeTruthy();
     expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
     expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
-    expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_200');
-    expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(20000);
+    expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_25');
+    expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(2500);
     expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
       /^\d{4}-\d{2}-\d{2}T/,
+    );
+
+    const customCreated = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_custom',
+        customAmountMinor: 12345,
+      },
+    });
+    expect(customCreated.status).toBe(201);
+    expect(getPath(customCreated.json, 'checkoutSession', 'creditPackId')).toBe('usd_custom');
+    expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(
+      12345,
     );
 
     const invalid = await callCf(handler, {
@@ -8033,11 +8083,23 @@ test.describe('console router (cloudflare)', () => {
       body: {
         successUrl: '/dashboard/billing',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_200',
+        creditPackId: 'usd_25',
       },
     });
     expect(invalid.status).toBe(400);
     expect(invalid.json?.code).toBe('invalid_body');
+
+    const missingCustomAmount = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_custom',
+      },
+    });
+    expect(missingCustomAmount.status).toBe(400);
+    expect(missingCustomAmount.json?.code).toBe('invalid_body');
   });
 
   test('POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service', async () => {
@@ -8165,7 +8227,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_200',
+        creditPackId: 'usd_25',
       },
     });
     expect(checkoutSession.status).toBe(201);
@@ -8195,7 +8257,7 @@ test.describe('console router (cloudflare)', () => {
     expect(projectedPurchase.status).toBe(200);
     expect(projectedPurchase.json?.accepted).toBe(true);
     expect(getPath(projectedPurchase.json, 'purchase', 'status')).toBe('SETTLED');
-    expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_200');
+    expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_25');
     const receiptInvoiceId = String(getPath(projectedPurchase.json, 'invoice', 'id') || '');
     expect(receiptInvoiceId).toContain('receipt_');
 
@@ -8223,7 +8285,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/billing/overview',
     });
     expect(overviewAfter.status).toBe(200);
-    expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(20000);
+    expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
   });
 
   test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
@@ -8316,7 +8378,7 @@ test.describe('console router (cloudflare)', () => {
     const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
-      creditPackId: 'usd_200',
+      creditPackId: 'usd_25',
     });
     await billing.processStripeWebhookEvent({
       eventId: 'evt_billing_purchase_settled_cf',

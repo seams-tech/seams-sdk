@@ -118,30 +118,28 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
                 <option value="uncollectible">Uncollectible</option>
               </select>
             </label>
-            <div className="dashboard-form-field dashboard-form-field--full">
+            <div className="dashboard-form-field dashboard-form-field--full dashboard-billing-filters__period">
               <span>Billing period</span>
-              <div className="dashboard-billing-filters__period-inputs">
-                <label className="dashboard-form-field">
-                  <span>Start date</span>
-                  <input
-                    className="dashboard-input"
-                    type="date"
-                    value={invoicePeriodStartDateFilter}
-                    max={invoicePeriodEndDateFilter || undefined}
-                    onChange={(event) => setInvoicePeriodStartDateFilter(event.target.value)}
-                  />
-                </label>
-                <label className="dashboard-form-field">
-                  <span>End date</span>
-                  <input
-                    className="dashboard-input"
-                    type="date"
-                    value={invoicePeriodEndDateFilter}
-                    min={invoicePeriodStartDateFilter || undefined}
-                    onChange={(event) => setInvoicePeriodEndDateFilter(event.target.value)}
-                  />
-                </label>
-              </div>
+              <label className="dashboard-form-field dashboard-billing-filters__period-input--start">
+                <span>Start date</span>
+                <input
+                  className="dashboard-input"
+                  type="date"
+                  value={invoicePeriodStartDateFilter}
+                  max={invoicePeriodEndDateFilter || undefined}
+                  onChange={(event) => setInvoicePeriodStartDateFilter(event.target.value)}
+                />
+              </label>
+              <label className="dashboard-form-field dashboard-billing-filters__period-input--end">
+                <span>End date</span>
+                <input
+                  className="dashboard-input"
+                  type="date"
+                  value={invoicePeriodEndDateFilter}
+                  min={invoicePeriodStartDateFilter || undefined}
+                  onChange={(event) => setInvoicePeriodEndDateFilter(event.target.value)}
+                />
+              </label>
             </div>
           </div>
           {invoiceDownloadError ? (

@@ -12,6 +12,7 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import {
   useDashboardConsoleSession,
   type DashboardConsoleSessionClaims,
@@ -799,238 +800,228 @@ export function TeamMembersPage(): React.JSX.Element {
 
   const inviteModal =
     activeModal === 'invite' ? (
-      <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
-        <section
-          className="dashboard-modal dashboard-modal--wide"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add team member modal"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <h2>Invite member</h2>
-          <form className="dashboard-view-grid" onSubmit={onInviteMember}>
-            <label className="dashboard-form-field">
-              <span>Email</span>
-              <input
-                className="dashboard-input"
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="member@example.com"
-                disabled={inviting || !canMutateTeam}
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Display name (optional)</span>
-              <input
-                className="dashboard-input"
-                value={inviteDisplayName}
-                onChange={(event) => setInviteDisplayName(event.target.value)}
-                placeholder="Jane Doe"
-                disabled={inviting || !canMutateTeam}
-              />
-            </label>
-            <TeamPermissionEditor
-              isAdmin={invitePermissions.isAdmin}
-              canManageAdmins={invitePermissions.canManageAdmins}
-              canManageMembers={invitePermissions.canManageMembers}
-              categoryAccess={invitePermissions.categoryAccess}
-              ownerRolePresent={false}
+      <DashboardInlineModal
+        isOpen
+        ariaLabel="Add team member modal"
+        onRequestClose={onCloseModal}
+        className="dashboard-modal--wide"
+      >
+        <h2>Invite member</h2>
+        <form className="dashboard-view-grid" onSubmit={onInviteMember}>
+          <label className="dashboard-form-field">
+            <span>Email</span>
+            <input
+              className="dashboard-input"
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="member@example.com"
               disabled={inviting || !canMutateTeam}
-              onIsAdminChange={(next) =>
-                setInvitePermissions((prev) => ({
-                  ...prev,
-                  isAdmin: next,
-                }))
-              }
-              onCanManageAdminsChange={(next) =>
-                setInvitePermissions((prev) => ({
-                  ...prev,
-                  canManageAdmins: next,
-                }))
-              }
-              onCanManageMembersChange={(next) =>
-                setInvitePermissions((prev) => ({
-                  ...prev,
-                  canManageMembers: next,
-                }))
-              }
-              onCategoryAccessChange={(category, level) =>
-                setInvitePermissions((prev) => ({
-                  ...prev,
-                  categoryAccess: {
-                    ...prev.categoryAccess,
-                    [category]: level,
-                  },
-                }))
-              }
             />
-            {mutationError ? (
-              <p className="dashboard-form-alert" role="alert">
-                {mutationError}
-              </p>
-            ) : null}
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                onClick={onCloseModal}
-                disabled={inviting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="dashboard-pagination-button"
-                disabled={inviting || !canMutateTeam}
-              >
-                {inviting ? 'Inviting...' : 'Invite member'}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
+          </label>
+          <label className="dashboard-form-field">
+            <span>Display name (optional)</span>
+            <input
+              className="dashboard-input"
+              value={inviteDisplayName}
+              onChange={(event) => setInviteDisplayName(event.target.value)}
+              placeholder="Jane Doe"
+              disabled={inviting || !canMutateTeam}
+            />
+          </label>
+          <TeamPermissionEditor
+            isAdmin={invitePermissions.isAdmin}
+            canManageAdmins={invitePermissions.canManageAdmins}
+            canManageMembers={invitePermissions.canManageMembers}
+            categoryAccess={invitePermissions.categoryAccess}
+            ownerRolePresent={false}
+            disabled={inviting || !canMutateTeam}
+            onIsAdminChange={(next) =>
+              setInvitePermissions((prev) => ({
+                ...prev,
+                isAdmin: next,
+              }))
+            }
+            onCanManageAdminsChange={(next) =>
+              setInvitePermissions((prev) => ({
+                ...prev,
+                canManageAdmins: next,
+              }))
+            }
+            onCanManageMembersChange={(next) =>
+              setInvitePermissions((prev) => ({
+                ...prev,
+                canManageMembers: next,
+              }))
+            }
+            onCategoryAccessChange={(category, level) =>
+              setInvitePermissions((prev) => ({
+                ...prev,
+                categoryAccess: {
+                  ...prev.categoryAccess,
+                  [category]: level,
+                },
+              }))
+            }
+          />
+          {mutationError ? (
+            <p className="dashboard-form-alert" role="alert">
+              {mutationError}
+            </p>
+          ) : null}
+          <div className="dashboard-form-actions">
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={onCloseModal}
+              disabled={inviting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="dashboard-pagination-button"
+              disabled={inviting || !canMutateTeam}
+            >
+              {inviting ? 'Inviting...' : 'Invite member'}
+            </button>
+          </div>
+        </form>
+      </DashboardInlineModal>
     ) : null;
 
   const updateModal =
     activeModal === 'update' && selectedMember ? (
-      <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
-        <section
-          className="dashboard-modal dashboard-modal--wide"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Update member permissions modal"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <h2>Update member permissions</h2>
-          <p className="dashboard-pagination-note">
-            {formatMemberPrimaryIdentity(selectedMember, session.claims)} · {selectedMember.status}
-          </p>
-          <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onApplyRoles}>
-            <label className="dashboard-form-field dashboard-form-field--full">
-              <span>User ID</span>
-              <input className="dashboard-input" value={selectedMember.userId} disabled />
-            </label>
-            <TeamPermissionEditor
-              isAdmin={updatePermissions.isAdmin}
-              canManageAdmins={updatePermissions.canManageAdmins}
-              canManageMembers={updatePermissions.canManageMembers}
-              categoryAccess={updatePermissions.categoryAccess}
-              ownerRolePresent={selectedMember.roles.some((entry) => entry.role === 'owner')}
+      <DashboardInlineModal
+        isOpen
+        ariaLabel="Update member permissions modal"
+        onRequestClose={onCloseModal}
+        className="dashboard-modal--wide"
+      >
+        <h2>Update member permissions</h2>
+        <p className="dashboard-pagination-note">
+          {formatMemberPrimaryIdentity(selectedMember, session.claims)} · {selectedMember.status}
+        </p>
+        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onApplyRoles}>
+          <label className="dashboard-form-field dashboard-form-field--full">
+            <span>User ID</span>
+            <input className="dashboard-input" value={selectedMember.userId} disabled />
+          </label>
+          <TeamPermissionEditor
+            isAdmin={updatePermissions.isAdmin}
+            canManageAdmins={updatePermissions.canManageAdmins}
+            canManageMembers={updatePermissions.canManageMembers}
+            categoryAccess={updatePermissions.categoryAccess}
+            ownerRolePresent={selectedMember.roles.some((entry) => entry.role === 'owner')}
+            disabled={updating || !canMutateTeam}
+            onIsAdminChange={(next) =>
+              setUpdatePermissions((prev) => ({
+                ...prev,
+                isAdmin: next,
+              }))
+            }
+            onCanManageAdminsChange={(next) =>
+              setUpdatePermissions((prev) => ({
+                ...prev,
+                canManageAdmins: next,
+              }))
+            }
+            onCanManageMembersChange={(next) =>
+              setUpdatePermissions((prev) => ({
+                ...prev,
+                canManageMembers: next,
+              }))
+            }
+            onCategoryAccessChange={(category, level) =>
+              setUpdatePermissions((prev) => ({
+                ...prev,
+                categoryAccess: {
+                  ...prev.categoryAccess,
+                  [category]: level,
+                },
+              }))
+            }
+          />
+          {mutationError ? (
+            <p className="dashboard-form-alert" role="alert">
+              {mutationError}
+            </p>
+          ) : null}
+          <div className="dashboard-form-actions">
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={onCloseModal}
+              disabled={updating}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="dashboard-pagination-button"
               disabled={updating || !canMutateTeam}
-              onIsAdminChange={(next) =>
-                setUpdatePermissions((prev) => ({
-                  ...prev,
-                  isAdmin: next,
-                }))
-              }
-              onCanManageAdminsChange={(next) =>
-                setUpdatePermissions((prev) => ({
-                  ...prev,
-                  canManageAdmins: next,
-                }))
-              }
-              onCanManageMembersChange={(next) =>
-                setUpdatePermissions((prev) => ({
-                  ...prev,
-                  canManageMembers: next,
-                }))
-              }
-              onCategoryAccessChange={(category, level) =>
-                setUpdatePermissions((prev) => ({
-                  ...prev,
-                  categoryAccess: {
-                    ...prev.categoryAccess,
-                    [category]: level,
-                  },
-                }))
-              }
-            />
-            {mutationError ? (
-              <p className="dashboard-form-alert" role="alert">
-                {mutationError}
-              </p>
-            ) : null}
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                onClick={onCloseModal}
-                disabled={updating}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="dashboard-pagination-button"
-                disabled={updating || !canMutateTeam}
-              >
-                {updating ? 'Applying...' : 'Apply permissions'}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
+            >
+              {updating ? 'Applying...' : 'Apply permissions'}
+            </button>
+          </div>
+        </form>
+      </DashboardInlineModal>
     ) : null;
 
   const detailsModal = detailMember ? (
-    <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onCloseModal}>
-      <section
-        className="dashboard-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Team member details modal"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h2>Member details</h2>
-        <div className="dashboard-team-member-details">
-          <div className="dashboard-team-member-details__item">
-            <span>Email</span>
-            <strong>{detailMemberEmail || '-'}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>User ID</span>
-            <strong>{detailMember.userId || '-'}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Display name</span>
-            <strong>{detailMemberDisplayName || '-'}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Status</span>
-            <strong>{detailMember.status}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Invited by</span>
-            <strong>{detailMember.invitedByUserId || '-'}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Invited at</span>
-            <strong>{formatTimestamp(detailMember.invitedAt)}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Created at</span>
-            <strong>{formatTimestamp(detailMember.createdAt)}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item">
-            <span>Updated at</span>
-            <strong>{formatTimestamp(detailMember.updatedAt || detailMember.createdAt)}</strong>
-          </div>
-          <div className="dashboard-team-member-details__item dashboard-team-member-details__item--full">
-            <span>Permissions</span>
-            <strong>{formatPermissionSummary(detailMember.roles)}</strong>
-          </div>
+    <DashboardInlineModal
+      isOpen
+      ariaLabel="Team member details modal"
+      onRequestClose={onCloseModal}
+    >
+      <h2>Member details</h2>
+      <div className="dashboard-team-member-details">
+        <div className="dashboard-team-member-details__item">
+          <span>Email</span>
+          <strong>{detailMemberEmail || '-'}</strong>
         </div>
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button dashboard-pagination-button--secondary"
-            onClick={onCloseModal}
-          >
-            Close
-          </button>
+        <div className="dashboard-team-member-details__item">
+          <span>User ID</span>
+          <strong>{detailMember.userId || '-'}</strong>
         </div>
-      </section>
-    </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Display name</span>
+          <strong>{detailMemberDisplayName || '-'}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Status</span>
+          <strong>{detailMember.status}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Invited by</span>
+          <strong>{detailMember.invitedByUserId || '-'}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Invited at</span>
+          <strong>{formatTimestamp(detailMember.invitedAt)}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Created at</span>
+          <strong>{formatTimestamp(detailMember.createdAt)}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item">
+          <span>Updated at</span>
+          <strong>{formatTimestamp(detailMember.updatedAt || detailMember.createdAt)}</strong>
+        </div>
+        <div className="dashboard-team-member-details__item dashboard-team-member-details__item--full">
+          <span>Permissions</span>
+          <strong>{formatPermissionSummary(detailMember.roles)}</strong>
+        </div>
+      </div>
+      <div className="dashboard-form-actions">
+        <button
+          type="button"
+          className="dashboard-pagination-button dashboard-pagination-button--secondary"
+          onClick={onCloseModal}
+        >
+          Close
+        </button>
+      </div>
+    </DashboardInlineModal>
   ) : null;
 
   return (

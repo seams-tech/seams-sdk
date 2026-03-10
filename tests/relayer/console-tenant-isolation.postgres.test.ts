@@ -1070,7 +1070,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   async function settleCreditPurchaseForTenant(
     ctx: { orgId: string; actorUserId: string; roles: string[] },
-    creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000' = 'usd_200',
+    creditPackId: 'usd_10' | 'usd_25' | 'usd_50' = 'usd_25',
   ): Promise<{
     eventId: string;
     checkoutSession: Awaited<ReturnType<ConsoleBillingService['createStripeCheckoutSession']>>;

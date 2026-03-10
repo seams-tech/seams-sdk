@@ -12,6 +12,7 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import {
   approveDashboardApproval,
   createDashboardApproval,
@@ -1677,30 +1678,24 @@ export function PolicyEnginePage(): React.JSX.Element {
       </section>
 
       {activeModal ? (
-        <div
-          className="dashboard-inline-modal-backdrop"
-          role="presentation"
-          onClick={closePolicyModal}
+        <DashboardInlineModal
+          isOpen
+          onRequestClose={closePolicyModal}
+          className="dashboard-modal--wide"
+          ariaLabel={
+            activeModal.kind === 'create'
+              ? 'Create policy modal'
+              : activeModal.kind === 'view'
+                ? 'View policy modal'
+                : activeModal.kind === 'edit'
+                  ? 'Edit policy modal'
+                  : activeModal.kind === 'delete'
+                      ? 'Delete policy modal'
+                      : activeModal.kind === 'simulate'
+                        ? 'Simulate policy modal'
+                        : 'Schedule live policy change modal'
+          }
         >
-          <section
-            className="dashboard-modal dashboard-modal--wide"
-            role="dialog"
-            aria-modal="true"
-            aria-label={
-              activeModal.kind === 'create'
-                ? 'Create policy modal'
-                : activeModal.kind === 'view'
-                  ? 'View policy modal'
-                  : activeModal.kind === 'edit'
-                    ? 'Edit policy modal'
-                    : activeModal.kind === 'delete'
-                        ? 'Delete policy modal'
-                        : activeModal.kind === 'simulate'
-                          ? 'Simulate policy modal'
-                          : 'Schedule live policy change modal'
-            }
-            onClick={(event) => event.stopPropagation()}
-          >
             {activeModal.kind === 'create' || activeModal.kind === 'edit' ? (
               <>
                 <h2>
@@ -2462,8 +2457,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                 </p>
               )
             ) : null}
-          </section>
-        </div>
+        </DashboardInlineModal>
       ) : null}
     </div>
   );

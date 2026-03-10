@@ -14,6 +14,7 @@ import {
   DashboardTableState,
   dashboardTableColumns,
 } from '../../components/DashboardTable';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   clearDashboardUiState,
@@ -354,73 +355,65 @@ export function AccountSettingsPage(): React.JSX.Element {
 
   const renameModal =
     renameOrganization !== null ? (
-      <div
-        className="dashboard-inline-modal-backdrop"
-        role="presentation"
-        onClick={onCloseRenameModal}
+      <DashboardInlineModal
+        isOpen
+        ariaLabel="Rename organization modal"
+        onRequestClose={onCloseRenameModal}
       >
-        <section
-          className="dashboard-modal"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Rename organization modal"
-          onClick={(event) => event.stopPropagation()}
+        <h2>Rename organization</h2>
+        <p className="dashboard-pagination-note">
+          {renameOrganization.slug || renameOrganization.id}
+        </p>
+        <form
+          className="dashboard-view-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onRenameOrganization(renameOrganization);
+          }}
         >
-          <h2>Rename organization</h2>
-          <p className="dashboard-pagination-note">
-            {renameOrganization.slug || renameOrganization.id}
-          </p>
-          <form
-            className="dashboard-view-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onRenameOrganization(renameOrganization);
-            }}
-          >
-            <label className="dashboard-form-field">
-              <span>Organization name</span>
-              <input
-                className="dashboard-input"
-                value={renameDrafts[renameOrganization.id] || ''}
-                onChange={(event) =>
-                  setRenameDrafts((current) => ({
-                    ...current,
-                    [renameOrganization.id]: event.target.value,
-                  }))
-                }
-                disabled={renamingOrganizationId === renameOrganization.id}
-                placeholder="Organization name"
-                autoFocus
-              />
-            </label>
-            {actionErrorMessage ? (
-              <p className="dashboard-form-alert" role="alert">
-                {actionErrorMessage}
-              </p>
-            ) : null}
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                onClick={onCloseRenameModal}
-                disabled={renamingOrganizationId === renameOrganization.id}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="dashboard-pagination-button"
-                disabled={
-                  renamingOrganizationId === renameOrganization.id ||
-                  !String(renameDrafts[renameOrganization.id] || '').trim()
-                }
-              >
-                {renamingOrganizationId === renameOrganization.id ? 'Saving...' : 'Rename'}
-              </button>
-            </div>
-          </form>
-        </section>
-      </div>
+          <label className="dashboard-form-field">
+            <span>Organization name</span>
+            <input
+              className="dashboard-input"
+              value={renameDrafts[renameOrganization.id] || ''}
+              onChange={(event) =>
+                setRenameDrafts((current) => ({
+                  ...current,
+                  [renameOrganization.id]: event.target.value,
+                }))
+              }
+              disabled={renamingOrganizationId === renameOrganization.id}
+              placeholder="Organization name"
+              autoFocus
+            />
+          </label>
+          {actionErrorMessage ? (
+            <p className="dashboard-form-alert" role="alert">
+              {actionErrorMessage}
+            </p>
+          ) : null}
+          <div className="dashboard-form-actions">
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={onCloseRenameModal}
+              disabled={renamingOrganizationId === renameOrganization.id}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="dashboard-pagination-button"
+              disabled={
+                renamingOrganizationId === renameOrganization.id ||
+                !String(renameDrafts[renameOrganization.id] || '').trim()
+              }
+            >
+              {renamingOrganizationId === renameOrganization.id ? 'Saving...' : 'Rename'}
+            </button>
+          </div>
+        </form>
+      </DashboardInlineModal>
     ) : null;
 
   return (

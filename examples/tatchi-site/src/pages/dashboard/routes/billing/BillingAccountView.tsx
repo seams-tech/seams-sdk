@@ -14,17 +14,30 @@ import {
 } from '../../components/DashboardTable';
 import type { TopbarContextState } from '../../types';
 import type {
+  DashboardBillingCreditPackId,
   DashboardBillingPaymentMethod,
+  DashboardStripeCheckoutSessionRequest,
   DashboardStripeSetupIntent,
 } from './consoleBillingApi';
+import { formatUsdMinor } from './consoleBillingApi';
 import { BillingMetricsGrid, formatTimestamp, type BillingMetric } from './billingShared';
 
-const CREDIT_PACK_OPTIONS = [
-  { id: 'usd_50', label: '$50', detail: 'Small prepaid top-up' },
-  { id: 'usd_200', label: '$200', detail: 'Starter production balance' },
-  { id: 'usd_500', label: '$500', detail: 'Growth top-up' },
-  { id: 'usd_1000', label: '$1,000', detail: 'High-volume prepaid balance' },
+const PRESET_CREDIT_PACK_OPTIONS = [
+  { id: 'usd_10', label: '$10', detail: 'Quick prepaid top-up for test traffic.' },
+  { id: 'usd_25', label: '$25', detail: 'Starter prepaid balance for light production.' },
+  { id: 'usd_50', label: '$50', detail: 'Larger one-time top-up for ongoing usage.' },
 ] as const;
+const CUSTOM_CREDIT_PACK_ID = 'usd_custom' as const satisfies DashboardBillingCreditPackId;
+const MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR = 1000;
+
+function parseUsdAmountInputToMinor(input: string): number | null {
+  const normalized = String(input || '').trim();
+  if (!normalized) return null;
+  if (!/^\d+(?:\.\d{0,2})?$/.test(normalized)) return null;
+  const [whole, fraction = ''] = normalized.split('.');
+  return Number.parseInt(whole, 10) * 100 + Number.parseInt(fraction.padEnd(2, '0'), 10);
+}
+
 const BILLING_PAYMENT_METHODS_TABLE_COLUMNS = dashboardTableColumns(
   1.05,
   0.85,
@@ -40,9 +53,11 @@ export interface BillingAccountViewProps {
   selectedContext: TopbarContextState;
   summaryMetrics: BillingMetric[];
   checkoutActionError: string;
-  startingCheckoutPackId: string;
+  startingCheckoutPackId: DashboardBillingCreditPackId | '';
   openingCustomerPortal: boolean;
-  onStartStripeCheckout: (creditPackId: (typeof CREDIT_PACK_OPTIONS)[number]['id']) => void;
+  onStartStripeCheckout: (
+    request: Pick<DashboardStripeCheckoutSessionRequest, 'creditPackId' | 'customAmountMinor'>,
+  ) => void;
   onOpenPaymentMethodPortal: () => void;
   providerRefInput: string;
   setProviderRefInput: React.Dispatch<React.SetStateAction<string>>;
@@ -102,6 +117,31 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
     itemLabel: 'payment method',
     itemLabelPlural: 'payment methods',
   });
+  const [customAmountInput, setCustomAmountInput] = React.useState<string>('');
+  const customAmountMinor = React.useMemo(
+    () => parseUsdAmountInputToMinor(customAmountInput),
+    [customAmountInput],
+  );
+  const isCustomAmountValid =
+    customAmountMinor != null && customAmountMinor >= MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR;
+  const customAmountHint = React.useMemo(() => {
+    const normalizedInput = String(customAmountInput || '').trim();
+    if (!normalizedInput) {
+      return `Choose any one-time amount from ${formatUsdMinor(MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR)} and up.`;
+    }
+    if (customAmountMinor == null) {
+      return 'Use a USD amount with up to 2 decimal places.';
+    }
+    if (!isCustomAmountValid) {
+      return `Minimum custom top-up is ${formatUsdMinor(MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR)}.`;
+    }
+    return `Checkout will start for ${formatUsdMinor(customAmountMinor)}.`;
+  }, [customAmountInput, customAmountMinor, isCustomAmountValid]);
+  const customAmountHintClassName = `dashboard-form-hint${String(customAmountInput || '').trim() && !isCustomAmountValid ? ' dashboard-form-hint--error' : ''}`;
+  const customAmountButtonLabel =
+    isCustomAmountValid && customAmountMinor != null
+      ? `Buy ${formatUsdMinor(customAmountMinor)}`
+      : 'Buy custom amount';
 
   return (
     <>
@@ -149,10 +189,10 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
             <p className="dashboard-pagination-note">{checkoutActionError}</p>
           ) : null}
         </div>
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          {CREDIT_PACK_OPTIONS.map((pack) => (
+        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-billing-top-up-grid">
+          {PRESET_CREDIT_PACK_OPTIONS.map((pack) => (
             <article
-              className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card"
+              className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card"
               key={pack.id}
             >
               <h2>{pack.label}</h2>
@@ -161,7 +201,7 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
                 <button
                   type="button"
                   className="dashboard-pagination-button"
-                  onClick={() => onStartStripeCheckout(pack.id)}
+                  onClick={() => onStartStripeCheckout({ creditPackId: pack.id })}
                   disabled={startingCheckoutPackId === pack.id}
                 >
                   {startingCheckoutPackId === pack.id
@@ -171,6 +211,43 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
               </div>
             </article>
           ))}
+          <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card">
+            <h2>Custom</h2>
+            <p className="dashboard-pagination-note">
+              Choose any prepaid balance top-up starting at $10.00.
+            </p>
+            <label className="dashboard-form-field">
+              <span>Amount (USD)</span>
+              <input
+                className="dashboard-input"
+                type="number"
+                min="10"
+                step="0.01"
+                inputMode="decimal"
+                placeholder="100.00"
+                value={customAmountInput}
+                onChange={(event) => setCustomAmountInput(event.target.value)}
+              />
+            </label>
+            <p className={customAmountHintClassName}>{customAmountHint}</p>
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button"
+                onClick={() =>
+                  onStartStripeCheckout({
+                    creditPackId: CUSTOM_CREDIT_PACK_ID,
+                    ...(customAmountMinor == null ? {} : { customAmountMinor }),
+                  })
+                }
+                disabled={!isCustomAmountValid || startingCheckoutPackId === CUSTOM_CREDIT_PACK_ID}
+              >
+                {startingCheckoutPackId === CUSTOM_CREDIT_PACK_ID
+                  ? 'Starting checkout...'
+                  : customAmountButtonLabel}
+              </button>
+            </div>
+          </article>
         </div>
       </section>
 

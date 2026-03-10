@@ -2406,10 +2406,22 @@
   align-items: end;
 }
 
-.dashboard-billing-filters__period-inputs {
+.dashboard-billing-filters__period {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.dashboard-billing-filters__period > span {
+  grid-column: 1;
+}
+
+.dashboard-billing-filters__period-input--start {
+  grid-column: 2;
+}
+
+.dashboard-billing-filters__period-input--end {
+  grid-column: 1;
 }
 
 .dashboard-billing-invoice-hero {
@@ -3661,8 +3673,13 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
     grid-template-columns: 1fr;
   }
 
-  .dashboard-billing-filters__period-inputs {
+  .dashboard-billing-filters__period {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-billing-filters__period-input--start,
+  .dashboard-billing-filters__period-input--end {
+    grid-column: auto;
   }
 
   .dashboard-billing-overview__header {

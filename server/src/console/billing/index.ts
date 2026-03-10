@@ -34,6 +34,15 @@ export type {
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
 } from './types';
+export {
+  CUSTOM_BILLING_CREDIT_PACK_ID,
+  MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR,
+  BILLING_CREDIT_PACK_IDS,
+  BILLING_PRESET_CREDIT_PACKS,
+  isBillingCreditPackId,
+  validateCustomCreditPackAmountMinor,
+  resolveCreditPackAmountMinorOrThrow,
+} from './creditPacks';
 
 export type {
   StripeSetupIntentProviderInput,

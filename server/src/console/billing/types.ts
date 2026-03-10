@@ -2,7 +2,7 @@ export type BillingUsageMetricVersion = 'maw_v1';
 export type BillingDocumentType = 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
 export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
 export type BillingInvoiceLineItemType = 'CREDIT_TOP_UP' | 'MAW_USAGE_DEBIT' | 'MANUAL_ADJUSTMENT';
-export type BillingCreditPackId = 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
+export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
 export type BillingCreditPurchaseStatus = 'PENDING' | 'SETTLED' | 'CANCELED';
 export type BillingLedgerEntryType =
   | 'CREDIT_PURCHASE'
@@ -12,7 +12,7 @@ export type BillingLedgerEntryType =
   | 'REVERSAL';
 
 export interface BillingCreditPack {
-  id: BillingCreditPackId;
+  id: Exclude<BillingCreditPackId, 'usd_custom'>;
   label: string;
   description: string;
   amountMinor: number;
@@ -218,6 +218,7 @@ export interface StripeCheckoutSessionRequest {
   successUrl: string;
   cancelUrl: string;
   creditPackId: BillingCreditPackId;
+  customAmountMinor?: number;
 }
 
 export interface StripeCheckoutSession {

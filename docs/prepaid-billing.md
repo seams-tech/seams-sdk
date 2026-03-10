@@ -28,7 +28,7 @@ Use this file for:
 
 Use [billing-2.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-2.md) only for the remaining operational follow-up work after the core prepaid migration.
 
-## Status Snapshot (2026-03-10)
+## Status Snapshot (2026-03-11)
 
 Implemented now:
 
@@ -46,6 +46,9 @@ Implemented now:
 - The Postgres billing path now rebuilds receipt and usage-statement projections from purchase and journal state
 - Invoice/account reads in the Postgres billing path now refresh document projections before serving
 - The in-memory billing service now derives invoices, line items, and activity from purchase and ledger state instead of mutable invoice/document maps
+- The invoice console no longer fans out account-shell billing reads on `/dashboard/invoices`
+- The Postgres billing path now uses a consistent overview/MAW lock order to avoid the observed `deadlock detected` failure on invoice entry
+- Regression coverage now exists for the invoice-route shell fetch path and the concurrent overview/MAW billing-service path
 
 Still to finish:
 
@@ -55,6 +58,7 @@ Still to finish:
 - Add internal operator adjustments as append-only journal entries
 - Decide the final Stripe account-management path and delete the unused one
 - Validate the final ledger-first model against a real Postgres instance with `POSTGRES_URL` set
+- Validate the overview/MAW deadlock regression against a live Postgres instance
 
 ## Product Shape
 
@@ -536,6 +540,15 @@ Cleanup tasks:
 - [ ] Delete the unused UI controls and copy.
 - [ ] Update tests and docs.
 - [ ] Run full validation against a real Postgres instance.
+
+### Validation Note
+
+The `deadlock detected` issue previously seen on `/dashboard/invoices` came from two separate problems:
+
+- the invoices route was still issuing account-shell fetches it did not need
+- `getOverview()` and `getMonthlyActiveWallets()` acquired Postgres locks in different orders
+
+Both code paths are now fixed. The remaining work is to validate that fix against a real Postgres instance with `POSTGRES_URL` set and keep regression coverage in place.
 
 ## Next Implementation Steps
 

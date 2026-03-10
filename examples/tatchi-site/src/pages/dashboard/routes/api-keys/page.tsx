@@ -12,6 +12,7 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -890,158 +891,136 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         )}
       </DashboardTable>
 
-      {isCreateModalOpen ? (
-        <div
-          className="dashboard-inline-modal-backdrop"
-          role="presentation"
-          onClick={onCloseCreateModal}
-        >
-          <section
-            className="dashboard-modal dashboard-modal--wide"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Create credential modal"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2>Create credential</h2>
+      <DashboardInlineModal
+        isOpen={isCreateModalOpen}
+        ariaLabel="Create credential modal"
+        onRequestClose={onCloseCreateModal}
+        className="dashboard-modal--wide"
+      >
+        <h2>Create credential</h2>
 
-            <div className="dashboard-mode-toggle" aria-label="Credential kind">
-              {(['secret_key', 'publishable_key'] as DashboardCredentialKind[]).map((kind) => {
-                const mode = describeCredentialMode(kind);
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    aria-pressed={credentialKindInput === kind}
-                    className={[
-                      'dashboard-mode-toggle__button',
-                      credentialKindInput === kind ? 'dashboard-mode-toggle__button--active' : '',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                    onClick={() => setCredentialKindInput(kind)}
-                    disabled={creating}
-                  >
-                    <strong>{mode.title}</strong>
-                    <span>{mode.summary}</span>
-                  </button>
-                );
-              })}
-            </div>
+        <div className="dashboard-mode-toggle" aria-label="Credential kind">
+          {(['secret_key', 'publishable_key'] as DashboardCredentialKind[]).map((kind) => {
+            const mode = describeCredentialMode(kind);
+            return (
+              <button
+                key={kind}
+                type="button"
+                aria-pressed={credentialKindInput === kind}
+                className={[
+                  'dashboard-mode-toggle__button',
+                  credentialKindInput === kind ? 'dashboard-mode-toggle__button--active' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() => setCredentialKindInput(kind)}
+                disabled={creating}
+              >
+                <strong>{mode.title}</strong>
+                <span>{mode.summary}</span>
+              </button>
+            );
+          })}
+        </div>
 
-            <form
-              className="dashboard-view-grid dashboard-view-grid--two"
-              onSubmit={onCreateApiKey}
-            >
-              <label className="dashboard-form-field dashboard-form-field--full">
-                <span>Name</span>
+        <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateApiKey}>
+          <label className="dashboard-form-field dashboard-form-field--full">
+            <span>Name</span>
+            <input
+              className="dashboard-input"
+              value={nameInput}
+              onChange={(event) => setNameInput(event.target.value)}
+              placeholder={credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'}
+              disabled={creating}
+            />
+          </label>
+
+          {credentialKindInput === 'publishable_key' ? (
+            <>
+              <div className="dashboard-form-field dashboard-form-field--full">
+                <UriListEditor
+                  label="Allowed origins"
+                  description={
+                    <>
+                      <p>
+                        Use exact browser origins only. Managed registration runs from the wallet
+                        origin, not the app origin.
+                      </p>
+                      <p>
+                        In this local dev setup, include <code>{walletOriginHint}</code>.
+                      </p>
+                    </>
+                  }
+                  values={allowedOriginsInput}
+                  onChange={setAllowedOriginsInput}
+                  placeholder="https://app.example.com"
+                  addLabel="Add URI"
+                  disabled={creating}
+                />
+              </div>
+
+              <PublishablePaymentPolicyField
+                value={paymentPolicyInput}
+                onChange={setPaymentPolicyInput}
+                disabled={creating}
+              />
+            </>
+          ) : (
+            <>
+              <div className="dashboard-form-field dashboard-form-field--full">
+                <ScopePicker
+                  label="Scopes"
+                  options={SECRET_KEY_SCOPE_OPTIONS}
+                  values={scopesInput}
+                  onChange={setScopesInput}
+                  disabled={creating}
+                />
+              </div>
+
+              <label className="dashboard-form-field">
+                <span>IP allowlist (optional, comma separated)</span>
                 <input
                   className="dashboard-input"
-                  value={nameInput}
-                  onChange={(event) => setNameInput(event.target.value)}
-                  placeholder={
-                    credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'
-                  }
+                  value={ipAllowlistInput}
+                  onChange={(event) => setIpAllowlistInput(event.target.value)}
+                  placeholder="198.51.100.24/32,198.51.100.0/24"
                   disabled={creating}
                 />
               </label>
+            </>
+          )}
 
-              {credentialKindInput === 'publishable_key' ? (
-                <>
-                  <div className="dashboard-form-field dashboard-form-field--full">
-                    <UriListEditor
-                      label="Allowed origins"
-                      description={
-                        <>
-                          <p>
-                            Use exact browser origins only. Managed registration runs from the
-                            wallet origin, not the app origin.
-                          </p>
-                          <p>
-                            In this local dev setup, include <code>{walletOriginHint}</code>.
-                          </p>
-                        </>
-                      }
-                      values={allowedOriginsInput}
-                      onChange={setAllowedOriginsInput}
-                      placeholder="https://app.example.com"
-                      addLabel="Add URI"
-                      disabled={creating}
-                    />
-                  </div>
+          {mutationError ? <p className="dashboard-form-alert">{mutationError}</p> : null}
 
-                  <PublishablePaymentPolicyField
-                    value={paymentPolicyInput}
-                    onChange={setPaymentPolicyInput}
-                    disabled={creating}
-                  />
-                </>
-              ) : (
-                <>
-                  <div className="dashboard-form-field dashboard-form-field--full">
-                    <ScopePicker
-                      label="Scopes"
-                      options={SECRET_KEY_SCOPE_OPTIONS}
-                      values={scopesInput}
-                      onChange={setScopesInput}
-                      disabled={creating}
-                    />
-                  </div>
+          <div className="dashboard-form-actions">
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={onCloseCreateModal}
+              disabled={creating}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="dashboard-pagination-button" disabled={creating}>
+              {creating ? 'Creating...' : `Create ${credentialKindInput}`}
+            </button>
+          </div>
+        </form>
+      </DashboardInlineModal>
 
-                  <label className="dashboard-form-field">
-                    <span>IP allowlist (optional, comma separated)</span>
-                    <input
-                      className="dashboard-input"
-                      value={ipAllowlistInput}
-                      onChange={(event) => setIpAllowlistInput(event.target.value)}
-                      placeholder="198.51.100.24/32,198.51.100.0/24"
-                      disabled={creating}
-                    />
-                  </label>
-                </>
-              )}
-
-              {mutationError ? <p className="dashboard-form-alert">{mutationError}</p> : null}
-
-              <div className="dashboard-form-actions">
-                <button
-                  type="button"
-                  className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                  onClick={onCloseCreateModal}
-                  disabled={creating}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="dashboard-pagination-button" disabled={creating}>
-                  {creating ? 'Creating...' : `Create ${credentialKindInput}`}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      {editingApiKey ? (
-        <div
-          className="dashboard-inline-modal-backdrop"
-          role="presentation"
-          onClick={onCloseEditApiKey}
-        >
-          <section
-            className="dashboard-modal dashboard-modal--wide"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Edit credential modal"
-            onClick={(event) => event.stopPropagation()}
-          >
+      <DashboardInlineModal
+        isOpen={editingApiKey !== null}
+        ariaLabel="Edit credential modal"
+        onRequestClose={onCloseEditApiKey}
+        className="dashboard-modal--wide"
+      >
+        {editingApiKey ? (
+          <>
             <h2>Edit credential</h2>
             <p className="dashboard-pagination-note">
               <code>{editingApiKey.kind}</code> {editingApiKey.id}
             </p>
-            <form
-              className="dashboard-view-grid dashboard-view-grid--two"
-              onSubmit={onSaveApiKeyEdits}
-            >
+            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSaveApiKeyEdits}>
               <label className="dashboard-form-field">
                 <span>Name</span>
                 <input
@@ -1129,18 +1108,14 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="dashboard-pagination-button"
-                  disabled={editingBusy}
-                >
+                <button type="submit" className="dashboard-pagination-button" disabled={editingBusy}>
                   {editingBusy ? 'Saving...' : 'Save changes'}
                 </button>
               </div>
             </form>
-          </section>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </DashboardInlineModal>
     </div>
   );
 }

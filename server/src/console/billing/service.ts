@@ -1,9 +1,8 @@
 import { ConsoleBillingError } from './errors';
+import { resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
-  BillingCreditPack,
-  BillingCreditPackId,
   BillingCreditPurchase,
   BillingInvoiceActivity,
   BillingInvoiceActivityEntry,
@@ -163,45 +162,6 @@ function coerceIsoDate(input: Date): string {
 
 function makeStripeCustomerRef(orgId: string): string {
   return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
-}
-
-const BILLING_CREDIT_PACKS: BillingCreditPack[] = [
-  {
-    id: 'usd_50',
-    label: '$50 credit pack',
-    description: 'Prepaid credits for smaller teams or initial testing.',
-    amountMinor: 5000,
-  },
-  {
-    id: 'usd_200',
-    label: '$200 credit pack',
-    description: 'Prepaid credits for growing production usage.',
-    amountMinor: 20000,
-  },
-  {
-    id: 'usd_500',
-    label: '$500 credit pack',
-    description: 'Prepaid credits for sustained production throughput.',
-    amountMinor: 50000,
-  },
-  {
-    id: 'usd_1000',
-    label: '$1,000 credit pack',
-    description: 'Prepaid credits for larger teams and higher spend.',
-    amountMinor: 100000,
-  },
-];
-
-function getCreditPackOrThrow(creditPackId: BillingCreditPackId): BillingCreditPack {
-  const pack = BILLING_CREDIT_PACKS.find((entry) => entry.id === creditPackId) || null;
-  if (!pack) {
-    throw new ConsoleBillingError(
-      'invalid_credit_pack',
-      400,
-      `Unsupported credit pack: ${creditPackId}`,
-    );
-  }
-  return pack;
 }
 
 function makeInvoiceLineItem(input: {
@@ -1050,13 +1010,16 @@ export function createInMemoryConsoleBillingService(
     ): Promise<StripeCheckoutSession> {
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
-      const pack = getCreditPackOrThrow(request.creditPackId);
+      const amountMinor = resolveCreditPackAmountMinorOrThrow({
+        creditPackId: request.creditPackId,
+        customAmountMinor: request.customAmountMinor,
+      });
       const providerCheckoutSession = await providers.stripe.createCheckoutSession({
         orgId: ctx.orgId,
         successUrl: request.successUrl,
         cancelUrl: request.cancelUrl,
         creditPackId: request.creditPackId,
-        amountMinor: pack.amountMinor,
+        amountMinor,
         now,
       });
       const id = String(providerCheckoutSession.id || '').trim();
@@ -1075,7 +1038,7 @@ export function createInMemoryConsoleBillingService(
         orgId: ctx.orgId,
         creditPackId: request.creditPackId,
         status: 'PENDING',
-        amountMinor: pack.amountMinor,
+        amountMinor,
         currency: 'USD',
         provider: 'stripe',
         providerCheckoutSessionRef: id,
@@ -1091,7 +1054,7 @@ export function createInMemoryConsoleBillingService(
         url,
         customerRef,
         creditPackId: request.creditPackId,
-        amountMinor: pack.amountMinor,
+        amountMinor,
         expiresAt,
       };
     },

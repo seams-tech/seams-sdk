@@ -28,6 +28,7 @@ import {
   type DashboardBillingOverview,
   type DashboardBillingPaymentMethod,
   type DashboardBillingUsage,
+  type DashboardStripeCheckoutSessionRequest,
   type DashboardStripeSetupIntent,
 } from './consoleBillingApi';
 import {
@@ -166,7 +167,9 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
   const [invoiceListError, setInvoiceListError] = React.useState<string>('');
 
-  const [startingCheckoutPackId, setStartingCheckoutPackId] = React.useState<string>('');
+  const [startingCheckoutPackId, setStartingCheckoutPackId] = React.useState<
+    DashboardStripeCheckoutSessionRequest['creditPackId'] | ''
+  >('');
   const [checkoutActionError, setCheckoutActionError] = React.useState<string>('');
   const [openingCustomerPortal, setOpeningCustomerPortal] = React.useState<boolean>(false);
   const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
@@ -599,7 +602,10 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   );
 
   const onStartStripeCheckout = React.useCallback(
-    async (creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000') => {
+    async ({
+      creditPackId,
+      customAmountMinor,
+    }: Pick<DashboardStripeCheckoutSessionRequest, 'creditPackId' | 'customAmountMinor'>) => {
       if (!session.claims) {
         setCheckoutActionError(session.errorMessage || 'Console session is unavailable');
         return;
@@ -612,6 +618,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           successUrl: `${origin}/dashboard/billing/account?checkout=success`,
           cancelUrl: `${origin}/dashboard/billing/account?checkout=cancel`,
           creditPackId,
+          ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
         });
         window.location.assign(checkoutSession.url);
       } catch (error: unknown) {
@@ -705,8 +712,8 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           checkoutActionError={checkoutActionError}
           startingCheckoutPackId={startingCheckoutPackId}
           openingCustomerPortal={openingCustomerPortal}
-          onStartStripeCheckout={(creditPackId) => {
-            void onStartStripeCheckout(creditPackId);
+          onStartStripeCheckout={(checkoutRequest) => {
+            void onStartStripeCheckout(checkoutRequest);
           }}
           onOpenPaymentMethodPortal={() => {
             void onOpenPaymentMethodPortal();

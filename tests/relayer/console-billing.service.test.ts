@@ -25,7 +25,7 @@ async function expectBillingError(fn: () => Promise<unknown>, code: string): Pro
 async function settleCreditPurchase(
   service: ConsoleBillingService,
   ctx: { orgId: string; actorUserId: string; roles: string[] },
-  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000' = 'usd_200',
+  creditPackId: 'usd_10' | 'usd_25' | 'usd_50' = 'usd_25',
 ): Promise<{
   checkoutSession: Awaited<ReturnType<ConsoleBillingService['createStripeCheckoutSession']>>;
   purchase: NonNullable<
@@ -100,13 +100,13 @@ test.describe('console billing service prepaid model', () => {
     const checkoutSession = await service.createStripeCheckoutSession(ctx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-      creditPackId: 'usd_200',
+      creditPackId: 'usd_25',
     });
     expect(checkoutSession.id).toBe('cs_mem_provider');
     expect(checkoutSession.url).toBe('https://checkout.example/memory');
     expect(checkoutSession.customerRef).toBe('cus_mem_provider');
-    expect(checkoutSession.creditPackId).toBe('usd_200');
-    expect(checkoutSession.amountMinor).toBe(20000);
+    expect(checkoutSession.creditPackId).toBe('usd_25');
+    expect(checkoutSession.amountMinor).toBe(2500);
     expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
     const portalSession = await service.createStripeCustomerPortalSession(ctx, {
@@ -127,12 +127,12 @@ test.describe('console billing service prepaid model', () => {
     });
     expect(projection.accepted).toBe(true);
     expect(projection.purchase?.status).toBe('SETTLED');
-    expect(projection.purchase?.creditPackId).toBe('usd_200');
+    expect(projection.purchase?.creditPackId).toBe('usd_25');
     expect(projection.invoice?.documentType).toBe('PURCHASE_RECEIPT');
 
     const overview = await service.getOverview(ctx);
-    expect(overview.creditBalanceMinor).toBe(20000);
-    expect(overview.recentCreditPurchasedMinor).toBe(20000);
+    expect(overview.creditBalanceMinor).toBe(2500);
+    expect(overview.recentCreditPurchasedMinor).toBe(2500);
   });
 
   test('in-memory service enforces admin-only card mutations', async () => {
@@ -212,7 +212,7 @@ test.describe('console billing service prepaid model', () => {
     const checkoutSession = await service.createStripeCheckoutSession(ctx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
-      creditPackId: 'usd_200',
+      creditPackId: 'usd_25',
     });
 
     const first = await service.processStripeWebhookEvent({
@@ -239,7 +239,38 @@ test.describe('console billing service prepaid model', () => {
     expect(duplicate.purchase?.status).toBe('SETTLED');
 
     const overview = await service.getOverview(ctx);
-    expect(overview.creditBalanceMinor).toBe(20000);
+    expect(overview.creditBalanceMinor).toBe(2500);
+  });
+
+  test('in-memory service supports custom prepaid checkout amounts', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-custom-topup-memory',
+      actorUserId: 'ops-custom-topup-memory',
+      roles: ['ops'],
+    };
+
+    const checkoutSession = await service.createStripeCheckoutSession(ctx, {
+      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+      creditPackId: 'usd_custom',
+      customAmountMinor: 12345,
+    });
+
+    expect(checkoutSession.creditPackId).toBe('usd_custom');
+    expect(checkoutSession.amountMinor).toBe(12345);
+
+    const projection = await service.processStripeWebhookEvent({
+      eventId: 'evt_mem_custom_amount',
+      eventType: 'checkout.session.completed',
+      orgId: ctx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
+    });
+
+    expect(projection.purchase?.creditPackId).toBe('usd_custom');
+    expect(projection.purchase?.amountMinor).toBe(12345);
   });
 
   test('in-memory service MAW counts distinct wallets with exclusions and idempotency', async () => {
@@ -439,7 +470,7 @@ test.describe('console billing service prepaid model', () => {
       occurredAt: '2026-03-15T00:00:00.000Z',
     });
     const march = await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-03' });
-    const receipt = await settleCreditPurchase(service, ctx, 'usd_200');
+    const receipt = await settleCreditPurchase(service, ctx, 'usd_25');
     expect(receipt.invoice.documentType).toBe('PURCHASE_RECEIPT');
 
     const firstPage = await service.listInvoicesPage(ctx, { limit: 1 });
@@ -509,7 +540,7 @@ test.describe('console billing service prepaid model', () => {
     });
     expect(usage.statementId).toBeTruthy();
 
-    const receipt = await settleCreditPurchase(service, ctx, 'usd_200');
+    const receipt = await settleCreditPurchase(service, ctx, 'usd_25');
 
     const invoices = await service.listInvoices(ctx);
     expect(invoices.some((invoice) => invoice.id === usage.statementId)).toBe(true);
@@ -527,7 +558,7 @@ test.describe('console billing service prepaid model', () => {
     const receiptItems = await service.listInvoiceLineItems(ctx, receipt.invoice.id);
     expect(receiptItems.length).toBe(1);
     expect(receiptItems[0]?.itemType).toBe('CREDIT_TOP_UP');
-    expect(receiptItems[0]?.amountMinor).toBe(20000);
+    expect(receiptItems[0]?.amountMinor).toBe(2500);
 
     const statementActivity = await service.getInvoiceActivity(
       ctx,

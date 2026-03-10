@@ -9,11 +9,14 @@ import {
   ensureConsoleTenantRlsPolicies,
   withConsoleTenantContextTx,
 } from '../shared/postgresTenantContext';
+import {
+  BILLING_CREDIT_PACK_ID_SQL,
+  resolveCreditPackAmountMinorOrThrow,
+} from './creditPacks';
 import { ConsoleBillingError } from './errors';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
-  BillingCreditPack,
   BillingCreditPackId,
   BillingCreditPurchase,
   BillingInvoiceActivity,
@@ -61,32 +64,6 @@ const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
   'approve',
   'contract_call',
 ]);
-const BILLING_CREDIT_PACKS: BillingCreditPack[] = [
-  {
-    id: 'usd_50',
-    label: '$50 credit pack',
-    description: 'Top up prepaid balance by $50.',
-    amountMinor: 5000,
-  },
-  {
-    id: 'usd_200',
-    label: '$200 credit pack',
-    description: 'Top up prepaid balance by $200.',
-    amountMinor: 20000,
-  },
-  {
-    id: 'usd_500',
-    label: '$500 credit pack',
-    description: 'Top up prepaid balance by $500.',
-    amountMinor: 50000,
-  },
-  {
-    id: 'usd_1000',
-    label: '$1,000 credit pack',
-    description: 'Top up prepaid balance by $1,000.',
-    amountMinor: 100000,
-  },
-];
 
 const PLATFORM_LEDGER_ACCOUNTS = [
   {
@@ -514,7 +491,7 @@ function parseCreditPurchaseRow(row: PgRow): BillingCreditPurchase {
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
-    creditPackId: String(row.credit_pack_id || 'usd_50') as BillingCreditPackId,
+    creditPackId: String(row.credit_pack_id || 'usd_10') as BillingCreditPackId,
     status: String(row.status || 'PENDING') as BillingCreditPurchase['status'],
     amountMinor: toNumber(row.amount_minor),
     currency: 'USD',
@@ -942,18 +919,6 @@ async function listInvoiceLineItemsByInvoice(
     [namespace, orgId, invoiceId],
   );
   return out.rows.map((row) => parseInvoiceLineItemRow(row as PgRow));
-}
-
-function getCreditPackOrThrow(creditPackId: BillingCreditPackId): BillingCreditPack {
-  const pack = BILLING_CREDIT_PACKS.find((entry) => entry.id === creditPackId) || null;
-  if (!pack) {
-    throw new ConsoleBillingError(
-      'invalid_checkout_request',
-      400,
-      `Unsupported credit pack: ${creditPackId}`,
-    );
-  }
-  return pack;
 }
 
 async function appendLedgerEntry(
@@ -1776,11 +1741,25 @@ export async function ensureConsoleBillingPostgresSchema(
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
         UNIQUE (namespace, provider_checkout_session_ref),
-        CHECK (credit_pack_id IN ('usd_50', 'usd_200', 'usd_500', 'usd_1000')),
+        CHECK (credit_pack_id IN (${BILLING_CREDIT_PACK_ID_SQL})),
         CHECK (status IN ('PENDING', 'SETTLED', 'CANCELED')),
         CHECK (currency IN ('USD')),
         CHECK (provider IN ('stripe'))
       )
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_credit_purchases
+      DROP CONSTRAINT IF EXISTS console_billing_credit_purchases_credit_pack_id_check
+    `);
+    await pool.query(`
+      UPDATE console_billing_credit_purchases
+      SET credit_pack_id = 'usd_custom'
+      WHERE credit_pack_id IN ('usd_200', 'usd_500', 'usd_1000')
+    `);
+    await pool.query(`
+      ALTER TABLE console_billing_credit_purchases
+      ADD CONSTRAINT console_billing_credit_purchases_credit_pack_id_check
+      CHECK (credit_pack_id IN (${BILLING_CREDIT_PACK_ID_SQL}))
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_billing_credit_purchases_org_created_idx
@@ -2801,13 +2780,16 @@ export async function createPostgresConsoleBillingService(
       request: StripeCheckoutSessionRequest,
     ): Promise<StripeCheckoutSession> {
       return withOrgTx(ctx, async (q, now) => {
-        const pack = getCreditPackOrThrow(request.creditPackId);
+        const amountMinor = resolveCreditPackAmountMinorOrThrow({
+          creditPackId: request.creditPackId,
+          customAmountMinor: request.customAmountMinor,
+        });
         const providerCheckoutSession = await providers.stripe.createCheckoutSession({
           orgId: ctx.orgId,
           successUrl: request.successUrl,
           cancelUrl: request.cancelUrl,
           creditPackId: request.creditPackId,
-          amountMinor: pack.amountMinor,
+          amountMinor,
           now,
         });
         const id = String(providerCheckoutSession.id || '').trim();
@@ -2833,7 +2815,7 @@ export async function createPostgresConsoleBillingService(
             makeId('bcp', now),
             ctx.orgId,
             request.creditPackId,
-            pack.amountMinor,
+            amountMinor,
             id,
             customerRef,
             nowMs(now),
@@ -2851,7 +2833,7 @@ export async function createPostgresConsoleBillingService(
           url,
           customerRef,
           creditPackId: request.creditPackId,
-          amountMinor: pack.amountMinor,
+          amountMinor,
           expiresAt,
         };
       });

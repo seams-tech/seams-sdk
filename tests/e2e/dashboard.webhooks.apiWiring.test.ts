@@ -205,6 +205,11 @@ test.describe('dashboard webhooks console api wiring', () => {
 
     await page.getByRole('button', { name: 'Create Webhook' }).click();
     await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeHidden();
+
+    await page.getByRole('button', { name: 'Create Webhook' }).click();
+    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeVisible();
     await page
       .getByPlaceholder('https://example.com/webhooks/tatchi')
       .fill('https://example.com/webhooks/dashboard-test');

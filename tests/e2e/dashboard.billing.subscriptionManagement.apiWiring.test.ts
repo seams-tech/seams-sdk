@@ -139,7 +139,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               creditBalanceMinor: 2500,
               lowBalanceThresholdMinor: 3000,
               recentUsageDebitMinor: 12600,
-              recentCreditPurchasedMinor: 20000,
+              recentCreditPurchasedMinor: 2500,
               documentCount: 3,
             },
           });
@@ -211,8 +211,8 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                 id: 'cs_dash_billing_prepaid',
                 url: `${consoleOrigin}/dashboard/billing/account?checkout=success`,
                 customerRef: 'cus_dash_billing_prepaid',
-                creditPackId: 'usd_200',
-                amountMinor: 20000,
+                creditPackId: 'usd_25',
+                amountMinor: 2500,
                 expiresAt: iso('2026-03-01T01:00:00.000Z'),
               },
             },
@@ -246,9 +246,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     const topUpSection = page.locator('section[aria-label="Prepaid top-up actions"]');
     await expect(topUpSection).toContainText('Top up credits');
-    await topUpSection.getByRole('button', { name: 'Buy $200' }).click();
+    await topUpSection.getByRole('button', { name: 'Buy $25' }).click();
     await expect.poll(() => checkoutBodies.length).toBe(1);
-    expect(String(checkoutBodies[0]?.creditPackId || '')).toBe('usd_200');
+    expect(String(checkoutBodies[0]?.creditPackId || '')).toBe('usd_25');
     expect(String(checkoutBodies[0]?.successUrl || '')).toContain(
       '/dashboard/billing/account?checkout=success',
     );
@@ -265,14 +265,17 @@ test.describe('dashboard billing prepaid console api wiring', () => {
   test('wires invoice navigation, filters, and PDF export actions', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const invoiceListUrls: string[] = [];
+    let overviewRequestCount = 0;
+    let usageRequestCount = 0;
+    let paymentMethodRequestCount = 0;
     let pdfDownloadCount = 0;
     const documents = [
       {
         id: 'receipt_dash_billing_1',
         documentType: 'PURCHASE_RECEIPT',
         status: 'PAID',
-        amountDueMinor: 20000,
-        amountPaidMinor: 20000,
+        amountDueMinor: 2500,
+        amountPaidMinor: 2500,
         periodMonthUtc: '2026-03',
         dueAt: null,
         createdAt: iso('2026-03-05T00:00:00.000Z'),
@@ -329,6 +332,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       },
       handleBillingRequest: async (route, pathname, method, url) => {
         if (method === 'GET' && pathname === '/console/billing/overview') {
+          overviewRequestCount += 1;
           await fulfillJson(route, {
             ok: true,
             overview: {
@@ -338,7 +342,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               creditBalanceMinor: 7400,
               lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 12600,
-              recentCreditPurchasedMinor: 20000,
+              recentCreditPurchasedMinor: 2500,
               documentCount: 2,
             },
           });
@@ -346,6 +350,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
         }
 
         if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
+          usageRequestCount += 1;
           await fulfillJson(route, {
             ok: true,
             usage: { usageMetricVersion: 'maw_v1', monthUtc: '2026-03', monthlyActiveWallets: 42 },
@@ -354,6 +359,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
         }
 
         if (method === 'GET' && pathname === '/console/billing/payment-methods') {
+          paymentMethodRequestCount += 1;
           await fulfillJson(route, { ok: true, paymentMethods: [] });
           return true;
         }
@@ -406,10 +412,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                     id: 'li_receipt_1',
                     invoiceId,
                     itemType: 'CREDIT_TOP_UP',
-                    description: 'Prepaid credit top-up (usd_200)',
+                    description: 'Prepaid credit top-up (usd_25)',
                     quantity: 1,
-                    unitAmountMinor: 20000,
-                    amountMinor: 20000,
+                    unitAmountMinor: 2500,
+                    amountMinor: 2500,
                     periodMonthUtc: '2026-03',
                   },
                 ]
@@ -469,7 +475,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                     ? 'cs_dash_billing_prepaid'
                     : 'evt_usage_stmt_1',
                   summary: invoiceId.startsWith('receipt_')
-                    ? 'Credit pack usd_200 settled'
+                    ? 'Credit pack usd_25 settled'
                     : 'MAW usage debit for March activity',
                 },
               ],
@@ -502,17 +508,15 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     const invoicesTable = page.locator('section[aria-label="Invoices table"]');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).toContainText('stmt_dash_billing_1');
+    expect(invoiceListUrls.length).toBe(1);
+    expect(overviewRequestCount).toBe(0);
+    expect(usageRequestCount).toBe(0);
+    expect(paymentMethodRequestCount).toBe(0);
 
     await page.locator('select.dashboard-input').first().selectOption('PURCHASE_RECEIPT');
-    await expect
-      .poll(() =>
-        invoiceListUrls.some(
-          (entry) => new URL(entry).searchParams.get('documentType') === 'PURCHASE_RECEIPT',
-        ),
-      )
-      .toBe(true);
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).not.toContainText('stmt_dash_billing_1');
+    expect(invoiceListUrls.length).toBe(1);
 
     await invoicesTable.locator('button:has-text("Download PDF")').click();
     await expect.poll(() => pdfDownloadCount).toBe(1);
@@ -523,12 +527,15 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       'receipt_dash_billing_1',
     );
     await expect(page.locator('section[aria-label="Invoice activity timeline"]')).toContainText(
-      'Credit pack usd_200 settled',
+      'Credit pack usd_25 settled',
     );
     await expect(page.locator('section[aria-label="Invoice line items"]')).toContainText(
-      'Prepaid credit top-up (usd_200)',
+      'Prepaid credit top-up (usd_25)',
     );
     await expect(page.locator('section[aria-label="Payment execution table"]')).toHaveCount(0);
+    expect(overviewRequestCount).toBe(0);
+    expect(usageRequestCount).toBe(0);
+    expect(paymentMethodRequestCount).toBe(0);
 
     await page
       .locator('section[aria-label="Invoice detail header"]')

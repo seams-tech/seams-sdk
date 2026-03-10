@@ -65,12 +65,15 @@ function toStripeApiErrorMessage(status: number, payload: unknown): string {
 
 function buildCreditPackName(input: StripeCheckoutSessionProviderInput): string {
   const checkoutInput = input as StripeCheckoutSessionProviderInput & {
-    creditPackId?: string;
+    amountMinor?: number;
   };
-  const label = String(checkoutInput.creditPackId || '')
-    .trim()
-    .replace(/^usd_/, '$');
-  return label ? `Tatchi prepaid credit pack ${label}` : 'Tatchi prepaid credit pack';
+  const amountMinor = Number(checkoutInput.amountMinor);
+  if (!Number.isFinite(amountMinor) || amountMinor <= 0) return 'Tatchi prepaid credits';
+  const amount = `$${(amountMinor / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+  return `Tatchi prepaid credits (${amount})`;
 }
 
 export function createStripeBillingProviderAdapter(

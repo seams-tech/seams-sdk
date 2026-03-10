@@ -21,6 +21,7 @@ const PRIMARY_TEST_ORG_IDS = [
   'org-postgres-card-defaults',
   'org-postgres-purchase-webhook',
   'org-postgres-maw',
+  'org-postgres-concurrent-billing-reads',
 ];
 
 async function queryInOrg(input: {
@@ -72,7 +73,7 @@ async function cleanupBillingNamespaceForOrgs(input: {
 async function settleCreditPurchase(
   service: ConsoleBillingService,
   ctx: BillingCtx,
-  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000' = 'usd_200',
+  creditPackId: 'usd_10' | 'usd_25' | 'usd_50' = 'usd_25',
 ): Promise<{
   checkoutSession: Awaited<ReturnType<ConsoleBillingService['createStripeCheckoutSession']>>;
   purchase: NonNullable<
@@ -247,13 +248,13 @@ test.describe('console billing postgres service prepaid model', () => {
       const checkoutSession = await providerService.createStripeCheckoutSession(ctx, {
         successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        creditPackId: 'usd_200',
+        creditPackId: 'usd_25',
       });
       expect(checkoutSession.id).toBe('cs_pg_provider');
       expect(checkoutSession.url).toBe('https://checkout.example/postgres');
       expect(checkoutSession.customerRef).toBe('cus_pg_provider');
-      expect(checkoutSession.creditPackId).toBe('usd_200');
-      expect(checkoutSession.amountMinor).toBe(20000);
+      expect(checkoutSession.creditPackId).toBe('usd_25');
+      expect(checkoutSession.amountMinor).toBe(2500);
       expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
       const portalSession = await providerService.createStripeCustomerPortalSession(ctx, {
@@ -274,12 +275,12 @@ test.describe('console billing postgres service prepaid model', () => {
       });
       expect(projection.accepted).toBe(true);
       expect(projection.purchase?.status).toBe('SETTLED');
-      expect(projection.purchase?.creditPackId).toBe('usd_200');
+      expect(projection.purchase?.creditPackId).toBe('usd_25');
       expect(projection.invoice?.documentType).toBe('PURCHASE_RECEIPT');
 
       const overview = await providerService.getOverview(ctx);
-      expect(overview.creditBalanceMinor).toBe(20000);
-      expect(overview.recentCreditPurchasedMinor).toBe(20000);
+      expect(overview.creditBalanceMinor).toBe(2500);
+      expect(overview.recentCreditPurchasedMinor).toBe(2500);
     } finally {
       await cleanupBillingNamespaceForOrgs({
         postgresUrl,
@@ -300,7 +301,7 @@ test.describe('console billing postgres service prepaid model', () => {
     const checkoutSession = await service!.createStripeCheckoutSession(ctx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
-      creditPackId: 'usd_200',
+      creditPackId: 'usd_25',
     });
     const eventId = `evt_pg_same_${Date.now()}`;
 
@@ -314,7 +315,7 @@ test.describe('console billing postgres service prepaid model', () => {
     });
     expect(first.accepted).toBe(true);
     expect(first.purchase?.status).toBe('SETTLED');
-    expect(first.purchase?.creditPackId).toBe('usd_200');
+    expect(first.purchase?.creditPackId).toBe('usd_25');
     expect(first.invoice?.documentType).toBe('PURCHASE_RECEIPT');
 
     const duplicate = await service!.processStripeWebhookEvent({
@@ -330,8 +331,8 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(duplicate.invoice?.id).toBe(first.invoice?.id);
 
     const overview = await service!.getOverview(ctx);
-    expect(overview.creditBalanceMinor).toBe(20000);
-    expect(overview.recentCreditPurchasedMinor).toBe(20000);
+    expect(overview.creditBalanceMinor).toBe(2500);
+    expect(overview.recentCreditPurchasedMinor).toBe(2500);
 
     const receipts = await service!.listInvoicesPage(ctx, { documentType: 'PURCHASE_RECEIPT' });
     expect(receipts.totalCount).toBe(1);
@@ -341,7 +342,7 @@ test.describe('console billing postgres service prepaid model', () => {
     const lineItems = await service!.listInvoiceLineItems(ctx, first.invoice!.id);
     expect(lineItems.length).toBe(1);
     expect(lineItems[0]?.itemType).toBe('CREDIT_TOP_UP');
-    expect(lineItems[0]?.amountMinor).toBe(20000);
+    expect(lineItems[0]?.amountMinor).toBe(2500);
 
     const purchases = await queryInOrg({
       postgresUrl,
@@ -370,7 +371,7 @@ test.describe('console billing postgres service prepaid model', () => {
     });
     expect(ledger.rows.length).toBe(1);
     expect(String((ledger.rows[0] as any).entry_type || '')).toBe('CREDIT_PURCHASE');
-    expect(Number((ledger.rows[0] as any).amount_minor || 0)).toBe(20000);
+    expect(Number((ledger.rows[0] as any).amount_minor || 0)).toBe(2500);
 
     const postings = await queryInOrg({
       postgresUrl,
@@ -394,12 +395,12 @@ test.describe('console billing postgres service prepaid model', () => {
       {
         account_id: 'acct:org_prepaid_liability:org-postgres-purchase-webhook',
         direction: 'CREDIT',
-        amount_minor: 20000,
+        amount_minor: 2500,
       },
       {
         account_id: 'acct:processor_clearing:stripe',
         direction: 'DEBIT',
-        amount_minor: 20000,
+        amount_minor: 2500,
       },
     ]);
 
@@ -530,6 +531,49 @@ test.describe('console billing postgres service prepaid model', () => {
     });
     expect(rollup.rows.length).toBe(1);
     expect(Number((rollup.rows[0] as any).monthly_active_wallets || 0)).toBe(2);
+  });
+
+  test('postgres service allows concurrent overview and MAW reads without deadlock', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-concurrent-billing-reads',
+      actorUserId: 'ops-concurrent-billing-reads-postgres',
+      roles: ['ops'],
+    } satisfies BillingCtx;
+
+    await service!.recordUsageEvent(ctx, {
+      walletId: 'wallet_pg_concurrent_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'maw_pg_concurrent_evt_1',
+      occurredAt: '2026-03-02T00:00:00.000Z',
+    });
+    await service!.recordUsageEvent(ctx, {
+      walletId: 'wallet_pg_concurrent_2',
+      action: 'swap',
+      succeeded: true,
+      sourceEventId: 'maw_pg_concurrent_evt_2',
+      occurredAt: '2026-03-03T00:00:00.000Z',
+    });
+    await service!.getMonthlyActiveWallets(ctx, '2026-03');
+
+    const rounds = await Promise.all(
+      Array.from({ length: 6 }, async () =>
+        Promise.all([
+          service!.getOverview(ctx),
+          service!.getMonthlyActiveWallets(ctx, '2026-03'),
+          service!.listInvoicesPage(ctx, { limit: 10 }),
+        ]),
+      ),
+    );
+
+    for (const [overview, usage, invoices] of rounds) {
+      expect(overview.currentMonthUtc).toBe('2026-03');
+      expect(overview.monthlyActiveWallets).toBe(2);
+      expect(usage.monthUtc).toBe('2026-03');
+      expect(usage.monthlyActiveWallets).toBe(2);
+      expect(invoices.totalCount).toBeGreaterThanOrEqual(1);
+    }
   });
 
   test('postgres service regenerates monthly usage statements idempotently from MAW rollups', async () => {
@@ -665,7 +709,7 @@ test.describe('console billing postgres service prepaid model', () => {
         occurredAt: '2026-03-15T00:00:00.000Z',
       });
       const march = await historyService.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-03' });
-      const receipt = await settleCreditPurchase(historyService, ctx, 'usd_200');
+      const receipt = await settleCreditPurchase(historyService, ctx, 'usd_25');
       expect(receipt.invoice.documentType).toBe('PURCHASE_RECEIPT');
 
       const firstPage = await historyService.listInvoicesPage(ctx, { limit: 1 });
@@ -749,7 +793,7 @@ test.describe('console billing postgres service prepaid model', () => {
       const statement = await projectionService.generateMonthlyInvoice(ctx, {
         periodMonthUtc: '2026-03',
       });
-      const receipt = await settleCreditPurchase(projectionService, ctx, 'usd_200');
+      const receipt = await settleCreditPurchase(projectionService, ctx, 'usd_25');
 
       await queryInOrg({
         postgresUrl,
@@ -778,7 +822,7 @@ test.describe('console billing postgres service prepaid model', () => {
       expect(rebuiltStatement?.documentType).toBe('USAGE_STATEMENT');
 
       const rebuiltReceipt = await projectionService.getInvoice(ctx, receipt.invoice.id);
-      expect(rebuiltReceipt?.amountDueMinor).toBe(20000);
+      expect(rebuiltReceipt?.amountDueMinor).toBe(2500);
       expect(rebuiltReceipt?.documentType).toBe('PURCHASE_RECEIPT');
 
       const rebuiltStatementItems = await projectionService.listInvoiceLineItems(
@@ -795,7 +839,7 @@ test.describe('console billing postgres service prepaid model', () => {
       );
       expect(rebuiltReceiptItems.length).toBe(1);
       expect(rebuiltReceiptItems[0]?.itemType).toBe('CREDIT_TOP_UP');
-      expect(rebuiltReceiptItems[0]?.amountMinor).toBe(20000);
+      expect(rebuiltReceiptItems[0]?.amountMinor).toBe(2500);
 
       const rebuiltActivity = await projectionService.getInvoiceActivity(ctx, statement.invoice.id);
       expect(

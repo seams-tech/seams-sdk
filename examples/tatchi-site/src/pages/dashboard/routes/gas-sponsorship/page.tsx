@@ -13,6 +13,7 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useSessionDraft } from '../../drafts/useSessionDraft';
@@ -1361,20 +1362,18 @@ export function GasSponsorshipPage(): React.JSX.Element {
         </>
       )}
       {activeModal ? (
-        <div className="dashboard-inline-modal-backdrop" role="presentation" onClick={onResetForm}>
-          <section
-            className="dashboard-modal dashboard-modal--wide"
-            role="dialog"
-            aria-modal="true"
-            aria-label={
-              activeModal === 'create'
-                ? 'Create gas sponsorship policy modal'
-                : activeModal === 'edit'
-                  ? 'Edit gas sponsorship policy modal'
-                  : 'View gas sponsorship coverage modal'
-            }
-            onClick={(event) => event.stopPropagation()}
-          >
+        <DashboardInlineModal
+          isOpen
+          onRequestClose={onResetForm}
+          className="dashboard-modal--wide"
+          ariaLabel={
+            activeModal === 'create'
+              ? 'Create gas sponsorship policy modal'
+              : activeModal === 'edit'
+                ? 'Edit gas sponsorship policy modal'
+                : 'View gas sponsorship coverage modal'
+          }
+        >
             {activeModal === 'view' ? (
               <>
                 <h2>Coverage</h2>
@@ -1938,8 +1937,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                 </form>
               </>
             )}
-          </section>
-        </div>
+        </DashboardInlineModal>
       ) : null}
     </div>
   );

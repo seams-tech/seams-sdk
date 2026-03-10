@@ -41,6 +41,9 @@ Already done:
 - Postgres receipt and usage-statement projections now rebuild from purchase and journal state
 - Postgres invoice reads now refresh projections before serving account and invoice data
 - The in-memory billing service now derives invoices, line items, and activity from purchase and ledger state instead of mutable invoice/document maps
+- `/dashboard/invoices` no longer issues account-shell billing fetches that it does not need
+- The Postgres billing overview and MAW read paths now use a consistent lock order to prevent the observed invoice-page deadlock
+- Regression coverage now exists for the invoice-route shell fetch path and the concurrent overview/MAW billing-service path
 
 Still open:
 
@@ -50,6 +53,7 @@ Still open:
 - add internal operator adjustments as append-only journal events
 - choose the final Stripe account-management path and delete the unused one
 - validate the final model against a real Postgres instance with `POSTGRES_URL` set
+- validate the deadlock fix against a live Postgres instance
 
 ## Operator Adjustment Policy
 
@@ -151,6 +155,8 @@ Cases that should stay outside generic operator tooling:
 
 - [ ] Run billing Postgres suites against a real Postgres instance.
 - [ ] Validate schema bootstrap on an existing dev database.
+- [ ] Validate concurrent `getOverview()` and `getMonthlyActiveWallets()` reads against live Postgres.
+- [x] Keep regression coverage for the invoice-route deadlock path.
 - [ ] Confirm deleted settlement tables stay gone.
 - [ ] Confirm runtime reads use journal/projection tables only.
 - [ ] Remove stale migration helpers and outdated naming where worth the churn.
@@ -284,6 +290,8 @@ Tasks:
 
 - run billing Postgres suites against a real Postgres instance
 - validate schema bootstrap on an existing dev database
+- validate concurrent overview/MAW reads against live Postgres
+- keep deadlock regression coverage for the invoice route and billing service
 - confirm deleted settlement tables stay gone
 - confirm runtime reads use journal/projection tables only
 - remove stale migration helpers and outdated naming where worth the churn

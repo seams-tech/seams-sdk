@@ -122,17 +122,20 @@ export interface DashboardStripeSetupIntent {
   expiresAt: string;
 }
 
+export type DashboardBillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
+
 export interface DashboardStripeCheckoutSessionRequest {
   successUrl: string;
   cancelUrl: string;
-  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
+  creditPackId: DashboardBillingCreditPackId;
+  customAmountMinor?: number;
 }
 
 export interface DashboardStripeCheckoutSession {
   id: string;
   url: string;
   customerRef: string;
-  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
+  creditPackId: DashboardBillingCreditPackId;
   amountMinor: number;
   expiresAt: string;
 }

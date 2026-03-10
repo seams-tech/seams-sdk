@@ -1,5 +1,10 @@
 import { ConsoleBillingError } from './errors';
 import {
+  CUSTOM_BILLING_CREDIT_PACK_ID,
+  isBillingCreditPackId,
+  validateCustomCreditPackAmountMinor,
+} from './creditPacks';
+import {
   readOptionalQueryBooleanField as readOptionalQueryBoolean,
   readOptionalQueryPositiveIntegerField as readOptionalQueryPositiveInteger,
   readOptionalQueryStringField as readOptionalQueryString,
@@ -176,16 +181,49 @@ export function parseStripeCheckoutSessionRequest(body: unknown): StripeCheckout
   const successUrl = readRequiredString(obj, 'successUrl', createParseError);
   const cancelUrl = readRequiredString(obj, 'cancelUrl', createParseError);
   const creditPackId = readRequiredString(obj, 'creditPackId', createParseError);
+  const customAmountMinorRaw = obj.customAmountMinor;
   validateHttpUrlOrThrow(successUrl, 'successUrl');
   validateHttpUrlOrThrow(cancelUrl, 'cancelUrl');
-  const supportedCreditPackIds = new Set(['usd_50', 'usd_200', 'usd_500', 'usd_1000']);
-  if (!supportedCreditPackIds.has(creditPackId)) {
+  if (!isBillingCreditPackId(creditPackId)) {
     throw new ConsoleBillingError('invalid_body', 400, `Unsupported creditPackId: ${creditPackId}`);
+  }
+  const customAmountMinor =
+    customAmountMinorRaw === undefined || customAmountMinorRaw === null
+      ? undefined
+      : typeof customAmountMinorRaw === 'number'
+        ? customAmountMinorRaw
+        : Number(customAmountMinorRaw);
+  if (
+    customAmountMinor !== undefined &&
+    (!Number.isFinite(customAmountMinor) || !Number.isInteger(customAmountMinor))
+  ) {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field customAmountMinor must be an integer number of cents',
+    );
+  }
+  if (creditPackId === CUSTOM_BILLING_CREDIT_PACK_ID) {
+    if (customAmountMinor === undefined) {
+      throw new ConsoleBillingError(
+        'invalid_body',
+        400,
+        'Field customAmountMinor is required when creditPackId is usd_custom',
+      );
+    }
+    validateCustomCreditPackAmountMinor(customAmountMinor);
+  } else if (customAmountMinor !== undefined) {
+    throw new ConsoleBillingError(
+      'invalid_body',
+      400,
+      'Field customAmountMinor is only supported when creditPackId is usd_custom',
+    );
   }
   return {
     successUrl,
     cancelUrl,
     creditPackId: creditPackId as StripeCheckoutSessionRequest['creditPackId'],
+    ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
   };
 }
 
