@@ -18,6 +18,10 @@ const KNOWN_RULE_KEYS = new Set([
   'maxAmountMinor',
   'allowedContractCalls',
 ]);
+const EVM_CONTRACT_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
+const EVM_FUNCTION_SELECTOR_PATTERN = /^0x[a-fA-F0-9]{8}$/;
+const FUNCTION_SIGNATURE_PATTERN = /^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$/;
+const FUNCTION_SIGNATURE_PARAM_PATTERN = /^[A-Za-z0-9_$.[\]]+$/;
 
 type ParseMode = 'request' | 'storage';
 
@@ -42,6 +46,17 @@ function dedupeCaseInsensitive(values: string[]): string[] {
     const normalized = entry.toLowerCase();
     if (seen.has(normalized)) continue;
     seen.add(normalized);
+    out.push(entry);
+  }
+  return out;
+}
+
+function dedupeExact(values: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of values) {
+    if (seen.has(entry)) continue;
+    seen.add(entry);
     out.push(entry);
   }
   return out;
@@ -80,18 +95,31 @@ function readStringListField(
   return dedupeCaseInsensitive(out);
 }
 
-function normalizeContractAddress(value: unknown): string | null {
+export function normalizeConsolePolicyContractAddress(value: unknown): string | null {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
-  return normalized || null;
+  if (!normalized) return null;
+  if (!EVM_CONTRACT_ADDRESS_PATTERN.test(normalized)) return null;
+  return normalized;
 }
 
-function normalizeFunctionSelector(value: unknown): string | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  return normalized || null;
+export function normalizeConsolePolicyFunctionIdentifier(value: unknown): string | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (EVM_FUNCTION_SELECTOR_PATTERN.test(normalized)) {
+    return normalized.toLowerCase();
+  }
+  const signatureMatch = normalized.match(FUNCTION_SIGNATURE_PATTERN);
+  if (!signatureMatch) return null;
+  const functionName = String(signatureMatch[1] || '').trim();
+  const rawParamList = String(signatureMatch[2] || '').trim();
+  if (!functionName) return null;
+  if (!rawParamList) return `${functionName}()`;
+  const params = rawParamList.split(',').map((entry) => entry.trim());
+  if (params.length === 0 || params.some((entry) => !entry)) return null;
+  if (params.some((entry) => !FUNCTION_SIGNATURE_PARAM_PATTERN.test(entry))) return null;
+  return `${functionName}(${params.join(',')})`;
 }
 
 function readContractCallRules(
@@ -115,11 +143,11 @@ function readContractCallRules(
       }
       continue;
     }
-    const contractAddress = normalizeContractAddress(entry.contractAddress);
+    const contractAddress = normalizeConsolePolicyContractAddress(entry.contractAddress);
     if (!contractAddress) {
       if (mode === 'request') {
         throw invalidRulesError(
-          'Policy rule allowedContractCalls entries require contractAddress',
+          'Policy rule allowedContractCalls contractAddress must be a 20-byte hex address',
         );
       }
       continue;
@@ -147,19 +175,29 @@ function readContractCallRules(
               return [];
             }
             const values: string[] = [];
+            const seenFunctions = new Set<string>();
             for (const functionEntry of functionsRaw) {
-              const normalized = normalizeFunctionSelector(functionEntry);
+              const normalized = normalizeConsolePolicyFunctionIdentifier(functionEntry);
               if (!normalized) {
                 if (mode === 'request') {
                   throw invalidRulesError(
-                    'Policy rule allowedContractCalls functions may not contain empty values',
+                    'Policy rule allowedContractCalls functions must be 4-byte selectors or function signatures',
                   );
                 }
                 continue;
               }
+              if (seenFunctions.has(normalized)) {
+                if (mode === 'request') {
+                  throw invalidRulesError(
+                    `Policy rule allowedContractCalls functions may not repeat ${normalized}`,
+                  );
+                }
+                continue;
+              }
+              seenFunctions.add(normalized);
               values.push(normalized);
             }
-            return dedupeCaseInsensitive(values);
+            return dedupeExact(values);
           })();
     out.push({
       contractAddress,
@@ -309,8 +347,8 @@ export function evaluateConsolePolicyRules(
       typeof request.amountMinor === 'number' && Number.isFinite(request.amountMinor)
         ? request.amountMinor
         : null,
-    contractAddress: normalizeContractAddress(request.contractAddress),
-    functionSelector: normalizeFunctionSelector(request.functionSelector),
+    contractAddress: normalizeConsolePolicyContractAddress(request.contractAddress),
+    functionSelector: normalizeConsolePolicyFunctionIdentifier(request.functionSelector),
   };
   const action = normalizedRequest.action;
   const blockedActions = new Set(rules.blockedActions.map((entry) => entry.toLowerCase()));

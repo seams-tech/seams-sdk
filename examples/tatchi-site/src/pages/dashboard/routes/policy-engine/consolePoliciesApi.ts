@@ -20,6 +20,16 @@ export interface DashboardConsolePolicy {
   publishedAt: string | null;
 }
 
+export interface DashboardConsolePolicyVersion {
+  policyId: string;
+  version: number;
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  rules: Record<string, unknown>;
+  publishedAt: string | null;
+  createdAt: string;
+  actorUserId: string;
+}
+
 export interface DashboardConsolePolicySimulation {
   policyId: string;
   decision: 'ALLOW' | 'DENY';
@@ -59,6 +69,12 @@ interface ConsolePoliciesResponse {
   policies?: unknown;
 }
 
+interface ConsolePolicyVersionsResponse {
+  ok?: boolean;
+  message?: string;
+  versions?: unknown;
+}
+
 interface ConsolePolicyResponse {
   ok?: boolean;
   message?: string;
@@ -85,13 +101,6 @@ interface ConsolePolicyAssignmentsResponse {
   ok?: boolean;
   message?: string;
   assignments?: unknown;
-}
-
-interface ConsolePolicyAssignmentResponse {
-  ok?: boolean;
-  message?: string;
-  assignment?: unknown;
-  removed?: unknown;
 }
 
 function decodeStringArray(raw: unknown): string[] {
@@ -154,6 +163,29 @@ function decodePolicy(raw: unknown): DashboardConsolePolicy | null {
     createdAt: String(row.createdAt || '').trim(),
     updatedAt: String(row.updatedAt || '').trim(),
     publishedAt: row.publishedAt == null ? null : String(row.publishedAt || '').trim() || null,
+  };
+}
+
+function decodePolicyVersion(raw: unknown): DashboardConsolePolicyVersion | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const policyId = String(row.policyId || '').trim();
+  if (!policyId) return null;
+  const statusRaw = String(row.status || '').trim().toUpperCase();
+  const status =
+    statusRaw === 'ARCHIVED' ? 'ARCHIVED' : statusRaw === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
+  const rulesRaw =
+    row.rules && typeof row.rules === 'object' && !Array.isArray(row.rules)
+      ? (row.rules as Record<string, unknown>)
+      : {};
+  return {
+    policyId,
+    version: Number(row.version || 0),
+    status,
+    rules: rulesRaw,
+    publishedAt: row.publishedAt == null ? null : String(row.publishedAt || '').trim() || null,
+    createdAt: String(row.createdAt || '').trim(),
+    actorUserId: String(row.actorUserId || '').trim(),
   };
 }
 
@@ -265,11 +297,46 @@ export async function listDashboardPolicies(): Promise<DashboardConsolePolicy[]>
     .filter((entry): entry is DashboardConsolePolicy => entry !== null);
 }
 
+export async function listDashboardPolicyVersions(
+  policyId: string,
+): Promise<DashboardConsolePolicyVersion[]> {
+  const normalizedPolicyId = String(policyId || '').trim();
+  if (!normalizedPolicyId) throw new Error('Policy id is required');
+  const base = requireConsoleBaseUrl();
+  const versionsPath = `/console/policies/${encodeURIComponent(normalizedPolicyId)}/versions`;
+  const response = await fetchConsoleEndpoint(
+    `${base}${versionsPath}`,
+    {
+      method: 'GET',
+      headers: buildConsoleAcceptHeaders(),
+      credentials: 'include',
+      cache: 'no-store',
+    },
+    {
+      baseUrl: base,
+      path: versionsPath,
+      operation: 'Policy version list request',
+    },
+  );
+  const body = (await parseConsoleJson(response)) as ConsolePolicyVersionsResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw new Error(consoleErrorMessage(response, body, 'Policy version list request failed'));
+  }
+  const rows = Array.isArray(body?.versions) ? body.versions : [];
+  return rows
+    .map((entry) => decodePolicyVersion(entry))
+    .filter((entry): entry is DashboardConsolePolicyVersion => entry !== null);
+}
+
 export async function createDashboardPolicy(input: {
   id?: string;
   name: string;
   description?: string;
   rules?: Record<string, unknown>;
+  assignment?: {
+    scopeType: 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
+    scopeId: string;
+  };
 }): Promise<DashboardConsolePolicy> {
   const base = requireConsoleBaseUrl();
   const response = await fetchConsoleEndpoint(
@@ -475,65 +542,4 @@ export async function listDashboardPolicyAssignments(input: {
   return rows
     .map((entry) => decodeAssignment(entry))
     .filter((entry): entry is DashboardConsolePolicyAssignment => entry !== null);
-}
-
-export async function upsertDashboardPolicyAssignment(input: {
-  scopeType: 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
-  scopeId: string;
-  policyId: string;
-}): Promise<DashboardConsolePolicyAssignment> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetchConsoleEndpoint(
-    `${base}/console/policies/assignments`,
-    {
-      method: 'PUT',
-      headers: buildConsoleJsonHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-      body: JSON.stringify(input),
-    },
-    {
-      baseUrl: base,
-      path: '/console/policies/assignments',
-      operation: 'Policy assignment upsert request',
-    },
-  );
-  const body = (await parseConsoleJson(response)) as ConsolePolicyAssignmentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Policy assignment upsert request failed'));
-  }
-  const assignment = decodeAssignment(body?.assignment);
-  if (!assignment) throw new Error('Policy assignment upsert response missing assignment');
-  return assignment;
-}
-
-export async function deleteDashboardPolicyAssignment(input: {
-  assignmentId: string;
-}): Promise<{ removed: boolean; assignment: DashboardConsolePolicyAssignment | null }> {
-  const assignmentId = String(input.assignmentId || '').trim();
-  if (!assignmentId) throw new Error('Assignment id is required');
-  const base = requireConsoleBaseUrl();
-  const deletePath = `/console/policies/assignments/${encodeURIComponent(assignmentId)}`;
-  const response = await fetchConsoleEndpoint(
-    `${base}${deletePath}`,
-    {
-      method: 'DELETE',
-      headers: buildConsoleAcceptHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-    },
-    {
-      baseUrl: base,
-      path: deletePath,
-      operation: 'Policy assignment delete request',
-    },
-  );
-  const body = (await parseConsoleJson(response)) as ConsolePolicyAssignmentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Policy assignment delete request failed'));
-  }
-  return {
-    removed: body?.removed === true,
-    assignment: decodeAssignment(body?.assignment) || null,
-  };
 }

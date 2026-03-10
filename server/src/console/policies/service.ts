@@ -13,6 +13,7 @@ import type {
   ConsolePolicyAssignment,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
+  ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
   ListConsolePolicyAssignmentsRequest,
@@ -31,6 +32,10 @@ export interface ConsolePoliciesContext {
 
 export interface ConsolePolicyService {
   listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]>;
+  listPolicyVersions(
+    ctx: ConsolePoliciesContext,
+    policyId: string,
+  ): Promise<ConsolePolicyVersion[] | null>;
   createPolicy(ctx: ConsolePoliciesContext, request: CreateConsolePolicyRequest): Promise<ConsolePolicy>;
   updatePolicy(
     ctx: ConsolePoliciesContext,
@@ -74,6 +79,7 @@ export interface InMemoryConsolePolicyServiceOptions {
 
 interface OrgPolicyStore {
   policies: Map<string, ConsolePolicy>;
+  versions: Map<string, ConsolePolicyVersion[]>;
   assignments: Map<string, ConsolePolicyAssignment>;
   assignmentsByScope: Map<string, string>;
 }
@@ -99,6 +105,17 @@ function cloneAssignment(assignment: ConsolePolicyAssignment): ConsolePolicyAssi
   return {
     ...assignment,
   };
+}
+
+function clonePolicyVersion(version: ConsolePolicyVersion): ConsolePolicyVersion {
+  return {
+    ...version,
+    rules: cloneConsolePolicyRules(version.rules),
+  };
+}
+
+function hasPublishedPolicyVersion(policy: ConsolePolicy | null | undefined): boolean {
+  return Boolean(policy && String(policy.publishedAt || '').trim() && Number(policy.version || 0) > 0);
 }
 
 export function createInMemoryConsolePolicyService(
@@ -135,6 +152,22 @@ export function createInMemoryConsolePolicyService(
       };
       store = {
         policies: new Map([[defaultPolicy.id, defaultPolicy]]),
+        versions: new Map([
+          [
+            defaultPolicy.id,
+            [
+              {
+                policyId: defaultPolicy.id,
+                version: defaultPolicy.version,
+                status: defaultPolicy.status,
+                rules: cloneConsolePolicyRules(defaultPolicy.rules),
+                publishedAt: defaultPolicy.publishedAt,
+                createdAt,
+                actorUserId: 'system-bootstrap',
+              },
+            ],
+          ],
+        ]),
         assignments: new Map([[defaultAssignment.id, defaultAssignment]]),
         assignmentsByScope: new Map([[
           scopeKey(defaultAssignment.scopeType, defaultAssignment.scopeId),
@@ -146,12 +179,54 @@ export function createInMemoryConsolePolicyService(
     return store;
   }
 
+  function upsertAssignmentInStore(
+    store: OrgPolicyStore,
+    ctx: ConsolePoliciesContext,
+    request: UpsertConsolePolicyAssignmentRequest,
+    nowIso: string = toIso(nowFn()),
+  ): ConsolePolicyAssignment {
+    const key = scopeKey(request.scopeType, request.scopeId);
+    const existingAssignmentId = store.assignmentsByScope.get(key);
+    if (existingAssignmentId) {
+      const existing = store.assignments.get(existingAssignmentId);
+      if (!existing) {
+        store.assignmentsByScope.delete(key);
+      } else {
+        existing.policyId = request.policyId;
+        existing.updatedAt = nowIso;
+        store.assignments.set(existing.id, existing);
+        return cloneAssignment(existing);
+      }
+    }
+
+    const assignment: ConsolePolicyAssignment = {
+      id: makeId('policy_assignment', nowFn()),
+      orgId: ctx.orgId,
+      scopeType: request.scopeType,
+      scopeId: request.scopeId,
+      policyId: request.policyId,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    store.assignments.set(assignment.id, assignment);
+    store.assignmentsByScope.set(key, assignment.id);
+    return cloneAssignment(assignment);
+  }
+
   return {
     async listPolicies(ctx): Promise<ConsolePolicy[]> {
       const store = ensureOrgStore(ctx);
       return Array.from(store.policies.values())
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((policy) => clonePolicy(policy));
+    },
+
+    async listPolicyVersions(ctx, policyId): Promise<ConsolePolicyVersion[] | null> {
+      const store = ensureOrgStore(ctx);
+      if (!store.policies.has(policyId)) return null;
+      return [...(store.versions.get(policyId) || [])]
+        .sort((a, b) => b.version - a.version || b.createdAt.localeCompare(a.createdAt))
+        .map((version) => clonePolicyVersion(version));
     },
 
     async createPolicy(ctx, request): Promise<ConsolePolicy> {
@@ -175,6 +250,13 @@ export function createInMemoryConsolePolicyService(
         publishedAt: null,
       };
       store.policies.set(policy.id, policy);
+      if (request.assignment) {
+        upsertAssignmentInStore(store, ctx, {
+          scopeType: request.assignment.scopeType,
+          scopeId: request.assignment.scopeId,
+          policyId: policy.id,
+        }, ts);
+      }
       return clonePolicy(policy);
     },
 
@@ -215,6 +297,19 @@ export function createInMemoryConsolePolicyService(
       current.updatedAt = toIso(now);
       current.publishedAt = current.updatedAt;
       store.policies.set(current.id, current);
+      const nextVersions = [
+        ...(store.versions.get(current.id) || []).filter((entry) => entry.version !== current.version),
+        {
+          policyId: current.id,
+          version: current.version,
+          status: current.status,
+          rules: cloneConsolePolicyRules(current.rules),
+          publishedAt: current.publishedAt,
+          createdAt: current.updatedAt,
+          actorUserId: ctx.actorUserId,
+        },
+      ].sort((a, b) => b.version - a.version || b.createdAt.localeCompare(a.createdAt));
+      store.versions.set(current.id, nextVersions);
       return {
         published: true,
         policy: clonePolicy(current),
@@ -240,6 +335,7 @@ export function createInMemoryConsolePolicyService(
         store.assignmentsByScope.delete(scopeKey(assignment.scopeType, assignment.scopeId));
       }
       store.policies.delete(policyId);
+      store.versions.delete(policyId);
       return {
         removed: true,
         policy: clonePolicy(current),
@@ -282,33 +378,7 @@ export function createInMemoryConsolePolicyService(
         throw new ConsolePolicyError('policy_not_found', 404, `Policy ${request.policyId} was not found`);
       }
 
-      const key = scopeKey(request.scopeType, request.scopeId);
-      const nowIso = toIso(nowFn());
-      const existingAssignmentId = store.assignmentsByScope.get(key);
-      if (existingAssignmentId) {
-        const existing = store.assignments.get(existingAssignmentId);
-        if (!existing) {
-          store.assignmentsByScope.delete(key);
-        } else {
-          existing.policyId = request.policyId;
-          existing.updatedAt = nowIso;
-          store.assignments.set(existing.id, existing);
-          return cloneAssignment(existing);
-        }
-      }
-
-      const assignment: ConsolePolicyAssignment = {
-        id: makeId('policy_assignment', nowFn()),
-        orgId: ctx.orgId,
-        scopeType: request.scopeType,
-        scopeId: request.scopeId,
-        policyId: request.policyId,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-      store.assignments.set(assignment.id, assignment);
-      store.assignmentsByScope.set(key, assignment.id);
-      return cloneAssignment(assignment);
+      return upsertAssignmentInStore(store, ctx, request);
     },
 
     async deleteAssignment(
@@ -335,30 +405,41 @@ export function createInMemoryConsolePolicyService(
       const assignments = store.assignments;
       const resolved: Record<string, string | null> = {};
 
-      const orgAssignmentId = assignmentsByScope.get(scopeKey('ORG', ctx.orgId));
-      const orgPolicyId = orgAssignmentId ? assignments.get(orgAssignmentId)?.policyId || null : null;
+      const resolveLiveAssignedPolicyId = (
+        scopeType: ConsolePolicyAssignment['scopeType'],
+        scopeId: string,
+      ): string | null => {
+        const assignmentId = assignmentsByScope.get(scopeKey(scopeType, scopeId));
+        if (!assignmentId) return null;
+        const assignment = assignments.get(assignmentId);
+        if (!assignment) return null;
+        const policy = store.policies.get(assignment.policyId);
+        return hasPublishedPolicyVersion(policy) ? assignment.policyId : null;
+      };
+
+      const orgPolicyId = resolveLiveAssignedPolicyId('ORG', ctx.orgId);
 
       for (const wallet of wallets) {
         const walletId = String(wallet.walletId || '').trim();
         if (!walletId) continue;
-        const walletAssignmentId = assignmentsByScope.get(scopeKey('WALLET', walletId));
-        if (walletAssignmentId) {
-          resolved[walletId] = assignments.get(walletAssignmentId)?.policyId || null;
+        const walletPolicyId = resolveLiveAssignedPolicyId('WALLET', walletId);
+        if (walletPolicyId) {
+          resolved[walletId] = walletPolicyId;
           continue;
         }
         const envId = String(wallet.environmentId || '').trim();
         if (envId) {
-          const environmentAssignmentId = assignmentsByScope.get(scopeKey('ENVIRONMENT', envId));
-          if (environmentAssignmentId) {
-            resolved[walletId] = assignments.get(environmentAssignmentId)?.policyId || null;
+          const environmentPolicyId = resolveLiveAssignedPolicyId('ENVIRONMENT', envId);
+          if (environmentPolicyId) {
+            resolved[walletId] = environmentPolicyId;
             continue;
           }
         }
         const projectId = String(wallet.projectId || '').trim();
         if (projectId) {
-          const projectAssignmentId = assignmentsByScope.get(scopeKey('PROJECT', projectId));
-          if (projectAssignmentId) {
-            resolved[walletId] = assignments.get(projectAssignmentId)?.policyId || null;
+          const projectPolicyId = resolveLiveAssignedPolicyId('PROJECT', projectId);
+          if (projectPolicyId) {
+            resolved[walletId] = projectPolicyId;
             continue;
           }
         }

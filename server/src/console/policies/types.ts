@@ -47,11 +47,27 @@ export interface ConsolePolicy {
   publishedAt: string | null;
 }
 
+export interface ConsolePolicyVersion {
+  policyId: string;
+  version: number;
+  status: ConsolePolicyStatus;
+  rules: ConsolePolicyRules;
+  publishedAt: string | null;
+  createdAt: string;
+  actorUserId: string;
+}
+
+export interface CreateConsolePolicyAssignmentInput {
+  scopeType: ConsolePolicyAssignmentScopeType;
+  scopeId: string;
+}
+
 export interface CreateConsolePolicyRequest {
   id?: string;
   name: string;
   description?: string;
   rules?: ConsolePolicyRulesInput;
+  assignment?: CreateConsolePolicyAssignmentInput;
 }
 
 export interface UpdateConsolePolicyRequest {

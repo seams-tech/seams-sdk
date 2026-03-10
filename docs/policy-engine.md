@@ -1,6 +1,6 @@
 # Policy Engine Implementation Plan
 
-Last updated: 2026-03-09
+Last updated: 2026-03-10
 Status: in progress
 
 ## Goal
@@ -58,17 +58,19 @@ Implemented today:
 - simulation results now include typed deny reason codes plus normalized action and chain identifiers
 - policy publish approval enforcement when an approvals service is mounted
 - policy coverage API contract
+- attached drafts now auto-attach to the current context or selected wallet without a separate dashboard assign step
+- wallet policy resolution and runtime snapshot payloads now treat published policy state as the live boundary instead of mutable draft rules
 - example relay wiring for policies, wallets, and approvals in the local stack
 - demo seed data for wallets, policies, assignments, and publish approvals in the example relay
-- dashboard policy workspace with scoped policy tables, inline create/edit/simulate flows, and scheduled live policy changes through approvals
+- dashboard policy workspace with current-context policy tables, auto-attached draft creation, inline create/edit/simulate flows, and scheduled live policy changes through approvals
 - a separate gas sponsorship config module exists for current EVM sponsorship flows
 - runtime snapshots already publish resolved EVM `sponsoredCallPolicies`
 
 Not yet at the desired product shape:
 
-- the current dashboard builder only exposes the rule families the backend enforces today: blocked actions, allowed chains, and max amount
+- the current dashboard builder only exposes the rule families the backend enforces today: blocked actions, allowed chains, max amount, and contract-call allowlists
 - version history and published-version diff UX are still missing
-- contract restrictions, function restrictions, and typed action families are not implemented in the shared schema yet
+- contract-call target and function allowlists are now implemented, but broader typed action families are still incomplete
 - velocity limits are still planned and should not be reintroduced in UI until enforced
 - sponsorship authorization still lives in a separate gas-sponsorship config surface instead of the policy engine
 - sponsorship resolution is still EVM-shaped and not yet generalized across `evm_call` and `near_delegate`
@@ -165,12 +167,55 @@ Required UX features:
 
 UX rules:
 
+- normal `Create policy` inherits the current org, project, and environment context from the top navbar
+- normal draft creation should not ask for scope; the draft auto-attaches to the current topbar context
+- wallet picker UI only appears in an explicit `Create wallet override` flow
+- wallet override creation auto-attaches the draft to the selected wallet
+- the main dashboard flow should not expose a separate `Assign` step; `Go live` is the explicit activation step
+- precedence should be stated plainly anywhere scope is shown: a wallet-specific override wins over inherited defaults, including environment policies
 - the structured rule builder is the main UX
 - a raw JSON view may exist as an advanced read-only or import-export tool
 - do not keep the CSV editor once the structured builder lands
 - do not keep a free-text `approvalId` field as the long-term UX once approval queue integration exists
 
 ## Phased todo list
+
+## Current high-impact todo list
+
+### 1. Finalize backend contract-call policy model and validation
+
+- [x] Replace the current `contractCallAllowlistEnabled` UI-only mode split with one explicit typed backend rule shape.
+- [x] Keep contract-call rules policy-wide rather than chain-aware per rule; chain applicability already comes from the policy's allowed-chain setting.
+- [x] Validate contract addresses strictly instead of accepting arbitrary strings.
+- [x] Validate function selectors and method signatures strictly instead of storing free-form values without checks.
+- [x] Reject empty allowlist entries, duplicate contracts, and duplicate selectors at request-parse time.
+- [x] Normalize contract addresses and selectors into one canonical stored form.
+- [x] Emit stable deny codes for contract mismatch versus function mismatch.
+- [x] Align the dashboard create or edit modal so it only exposes fields that are truly enforced by the backend.
+- [x] Default new policies to all chains by leaving `allowedChains` unset unless the user narrows them.
+
+### 2. Make `Go live` show a real change and impact summary
+
+- [x] Compare the selected draft against the current published version before scheduling approvals.
+- [x] Show field-level diffs for actions, chains, contract-call rules, and amount limits.
+- [x] Show the target assignment scope affected by the live change.
+- [x] Show impact summary for the selected policy, including wallet usage count.
+- [x] Make the modal clearly distinguish between scheduling approvals and actually publishing live.
+
+### 3. Add minimal live-version visibility
+
+- [x] Show current published version, last published timestamp, and draft versus published status in the row-driven view flow.
+- [x] Reuse the same version metadata in the `Go live` diff flow so live review is grounded in the actual published state.
+
+### 4. Expand focused tests for the new modal flows
+
+- [x] Add relayer tests for invalid contract addresses, invalid selectors, duplicate allowlist entries, and normalized storage behavior.
+- [x] Add relayer tests for contract mismatch versus function mismatch deny reasons.
+- [x] Add dashboard tests for creating a policy with contract-call allowlist rules.
+- [x] Add dashboard tests for modal validation failures and save blocking.
+- [x] Add dashboard tests for row-driven simulate flow.
+- [x] Add dashboard tests for `Go live` diff and impact summary rendering.
+- [x] Add dashboard tests for minimal live-version visibility after publish.
 
 ### Phase 0: Audit, cleanup, and contract freeze
 
@@ -213,7 +258,7 @@ UX rules:
 - [ ] Add version history and published-version diff support.
 - [ ] Add archive or retire behavior for obsolete policies.
 - [ ] Add policy decision logs storage and query APIs.
-- [ ] Ensure runtime snapshot payloads include resolved policy metadata and assignments for the target environment.
+- [x] Ensure runtime snapshot payloads include resolved published policy metadata and assignments for the target environment.
 - [ ] Publish resolved sponsorship policy artifacts in runtime snapshots for policy-owned sponsorship flows.
 
 ### Phase 4: Dashboard UX overhaul
@@ -248,7 +293,7 @@ UX rules:
 ### Phase 7: Runtime enforcement and observability
 
 - [ ] Use the shared evaluator in actual signing enforcement paths, not only the simulate endpoint.
-- [ ] Ensure runtime consumers read published policy versions, not mutable drafts.
+- [x] Ensure runtime consumers read published policy versions, not mutable drafts.
 - [ ] Emit structured observability events for allow and deny decisions.
 - [ ] Link decision logs back to policy id, policy version, wallet id, environment id, and request type.
 - [ ] Emit equivalent allow and deny observability for sponsorship authorization decisions once sponsorship is policy-owned.

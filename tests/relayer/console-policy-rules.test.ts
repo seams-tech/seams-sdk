@@ -1,9 +1,14 @@
 import { expect, test } from '@playwright/test';
 import {
   evaluateConsolePolicyRules,
+  parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
 } from '../../server/src/console/policies/rules.ts';
-import { parseCreateConsolePolicyRequest, parseUpdateConsolePolicyRequest } from '../../server/src/console/policies/requests.ts';
+import {
+  parseCreateConsolePolicyRequest,
+  parseSimulateConsolePolicyRequest,
+  parseUpdateConsolePolicyRequest,
+} from '../../server/src/console/policies/requests.ts';
 import { createInMemoryConsolePolicyService } from '../../server/src/console/policies/service.ts';
 
 async function expectPolicyError(
@@ -150,10 +155,12 @@ test.describe('console policy rules parser and evaluator', () => {
   });
 
   test('contract_call allowlists enforce contract and function restrictions', async () => {
+    const allowedContractAddress = '0x1111111111111111111111111111111111111111';
+    const deniedContractAddress = '0x2222222222222222222222222222222222222222';
     const rules = parseStoredConsolePolicyRules({
       allowedContractCalls: [
         {
-          contractAddress: '0xabc123',
+          contractAddress: allowedContractAddress,
           functions: ['0xa9059cbb'],
         },
       ],
@@ -162,21 +169,21 @@ test.describe('console policy rules parser and evaluator', () => {
     expect(
       evaluateConsolePolicyRules(rules, {
         action: 'contract_call',
-        contractAddress: '0xdef456',
+        contractAddress: deniedContractAddress,
       }),
     ).toEqual({
       decision: 'DENY',
       denyReasons: [
         {
           code: 'CONTRACT_NOT_ALLOWED',
-          message: 'Contract 0xdef456 is not allowed by policy',
+          message: `Contract ${deniedContractAddress} is not allowed by policy`,
         },
       ],
       normalizedRequest: {
         action: 'contract_call',
         chain: null,
         amountMinor: null,
-        contractAddress: '0xdef456',
+        contractAddress: deniedContractAddress,
         functionSelector: null,
       },
     });
@@ -184,7 +191,7 @@ test.describe('console policy rules parser and evaluator', () => {
     expect(
       evaluateConsolePolicyRules(rules, {
         action: 'contract_call',
-        contractAddress: '0xabc123',
+        contractAddress: allowedContractAddress,
         functionSelector: '0x095ea7b3',
       }),
     ).toEqual({
@@ -192,14 +199,14 @@ test.describe('console policy rules parser and evaluator', () => {
       denyReasons: [
         {
           code: 'FUNCTION_NOT_ALLOWED',
-          message: 'Function 0x095ea7b3 is not allowed for contract 0xabc123',
+          message: `Function 0x095ea7b3 is not allowed for contract ${allowedContractAddress}`,
         },
       ],
       normalizedRequest: {
         action: 'contract_call',
         chain: null,
         amountMinor: null,
-        contractAddress: '0xabc123',
+        contractAddress: allowedContractAddress,
         functionSelector: '0x095ea7b3',
       },
     });
@@ -207,7 +214,7 @@ test.describe('console policy rules parser and evaluator', () => {
     expect(
       evaluateConsolePolicyRules(rules, {
         action: 'contract_call',
-        contractAddress: '0xabc123',
+        contractAddress: allowedContractAddress,
         functionSelector: '0xa9059cbb',
       }),
     ).toEqual({
@@ -217,9 +224,109 @@ test.describe('console policy rules parser and evaluator', () => {
         action: 'contract_call',
         chain: null,
         amountMinor: null,
-        contractAddress: '0xabc123',
+        contractAddress: allowedContractAddress,
         functionSelector: '0xa9059cbb',
       },
+    });
+  });
+
+  test('contract_call rules reject invalid addresses, invalid selectors, and duplicates', async () => {
+    await expectPolicyError(
+      async () =>
+        parseCreateConsolePolicyRequest({
+          name: 'Invalid contract address policy',
+          rules: {
+            allowedContractCalls: [
+              {
+                contractAddress: '0xabc123',
+              },
+            ],
+          },
+        }),
+      'invalid_body',
+    );
+
+    await expectPolicyError(
+      async () =>
+        parseUpdateConsolePolicyRequest({
+          rules: {
+            allowedContractCalls: [
+              {
+                contractAddress: '0x1111111111111111111111111111111111111111',
+                functions: ['approve('],
+              },
+            ],
+          },
+        }),
+      'invalid_body',
+    );
+
+    await expectPolicyError(
+      async () =>
+        parseUpdateConsolePolicyRequest({
+          rules: {
+            allowedContractCalls: [
+              {
+                contractAddress: '0x1111111111111111111111111111111111111111',
+              },
+              {
+                contractAddress: '0x1111111111111111111111111111111111111111',
+              },
+            ],
+          },
+        }),
+      'invalid_body',
+    );
+
+    await expectPolicyError(
+      async () =>
+        parseUpdateConsolePolicyRequest({
+          rules: {
+            allowedContractCalls: [
+              {
+                contractAddress: '0x1111111111111111111111111111111111111111',
+                functions: ['0xA9059CBB', '0xa9059cbb'],
+              },
+            ],
+          },
+        }),
+      'invalid_body',
+    );
+  });
+
+  test('contract_call rules normalize stored addresses and function identifiers', async () => {
+    expect(
+      parseConsolePolicyRulesInput({
+        allowedContractCalls: [
+          {
+            contractAddress: '0x1111111111111111111111111111111111111111',
+            functions: ['0xA9059CBB', 'transfer( address , uint256 )'],
+          },
+        ],
+      }),
+    ).toEqual({
+      schemaVersion: 1,
+      blockedActions: [],
+      allowedChains: [],
+      maxAmountMinor: undefined,
+      allowedContractCalls: [
+        {
+          contractAddress: '0x1111111111111111111111111111111111111111',
+          functions: ['0xa9059cbb', 'transfer(address,uint256)'],
+        },
+      ],
+    });
+
+    expect(
+      parseSimulateConsolePolicyRequest({
+        action: 'contract_call',
+        contractAddress: '0x1111111111111111111111111111111111111111',
+        functionSelector: 'transfer( address , uint256 )',
+      }),
+    ).toEqual({
+      action: 'contract_call',
+      contractAddress: '0x1111111111111111111111111111111111111111',
+      functionSelector: 'transfer(address,uint256)',
     });
   });
 });

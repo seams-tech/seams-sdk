@@ -565,40 +565,36 @@ test.describe('dashboard console config page api wiring', () => {
       .toBeNull();
   });
 
-  test('account settings routes to team-members and opens self edit modal', async ({
+  test('account settings routes to the dedicated account settings page', async ({
     page,
     baseURL,
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    const members = [
+    const accountOrganizations = [
       {
-        id: 'member_self',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_dash_console_pages',
-        email: 'user-self@example.com',
-        displayName: 'User Self',
+        id: 'org_dash_console_pages',
+        name: 'Dashboard Console Pages Org',
+        slug: 'dashboard-console-pages-org',
         status: 'ACTIVE',
-        roles: [{ role: 'admin', scope: 'ORG' }],
-        invitedByUserId: 'user_seed',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
         createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      {
-        id: 'member_other',
-        orgId: 'org_dash_console_pages',
-        userId: 'user_other',
-        email: 'other@example.com',
-        displayName: 'Other User',
-        status: 'ACTIVE',
-        roles: [{ role: 'overview_read', scope: 'ORG' }],
-        invitedByUserId: 'user_seed',
-        invitedAt: iso('2026-01-01T00:00:00.000Z'),
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-02T00:00:00.000Z'),
+        isCurrentOrg: true,
+        actorRoles: ['admin'],
+        actorIsOwner: false,
+        actorIsAdmin: true,
+        onboardingComplete: true,
+        selectedProjectId: 'proj_active',
+        selectedEnvironmentId: 'env_active',
+        adminCandidates: [
+          {
+            memberId: 'member_admin',
+            userId: 'user_admin',
+            email: 'admin@example.com',
+            displayName: 'Admin User',
+            isOwner: false,
+          },
+        ],
       },
     ];
 
@@ -684,17 +680,76 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/members' && method === 'GET') {
-        const status = String(url.searchParams.get('status') || '')
-          .trim()
-          .toUpperCase();
-        const rows = status
-          ? members.filter((entry) => String(entry.status || '').toUpperCase() === status)
-          : members;
+      if (pathname === '/console/account/profile' && method === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, members: rows }),
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_dash_console_pages',
+              displayName: 'User Self',
+              primaryEmail: 'user-self@example.com',
+              canEditPrimaryEmail: true,
+              backupEmails: [],
+              createdAt: iso('2026-01-01T00:00:00.000Z'),
+              updatedAt: iso('2026-01-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: accountOrganizations }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/overview' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              usageMetricVersion: 'v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 12,
+              creditBalanceMinor: 125000,
+              lowBalanceThresholdMinor: 10000,
+              recentUsageDebitMinor: 3200,
+              recentCreditPurchasedMinor: 50000,
+              documentCount: 2,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/payment-methods' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            paymentMethods: [
+              {
+                id: 'pm_default',
+                provider: 'stripe',
+                type: 'card',
+                brand: 'visa',
+                last4: '4242',
+                expMonth: 12,
+                expYear: 2030,
+                isDefault: true,
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+              },
+            ],
+          }),
         });
         return;
       }
@@ -717,12 +772,116 @@ test.describe('dashboard console config page api wiring', () => {
     await page.getByRole('button', { name: /account.*settings/i }).click();
     await page.getByRole('menuitem', { name: 'Account Settings' }).click();
 
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/team-members');
-    const updateModal = page.locator('section[aria-label="Update member permissions modal"]');
-    await expect(updateModal).toBeVisible();
-    await expect(updateModal.locator('label:has-text("User ID") input')).toHaveValue(
-      'user_dash_console_pages',
-    );
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/account-settings');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/account settings/i);
+    await expect(page.locator('[aria-label="Account settings page"]')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+  });
+
+  test('account settings remains reachable while onboarding is incomplete', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_account_settings_gate',
+              orgId: 'org_account_settings_gate',
+              roles: ['admin'],
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_account_settings_gate',
+              organization: null,
+              activeProjectCount: 0,
+              activeEnvironmentCount: 0,
+              activeApiKeyCount: 0,
+              hasOrganization: false,
+              hasProject: false,
+              hasEnvironment: false,
+              hasApiKey: false,
+              accountReady: true,
+              organizationReady: false,
+              billingReady: false,
+              projectReady: false,
+              onboardingComplete: false,
+              currentStep: 'organization',
+              complete: false,
+              selectedProjectId: null,
+              selectedEnvironmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_account_settings_gate',
+              displayName: 'Gate User',
+              primaryEmail: 'gate@example.com',
+              canEditPrimaryEmail: true,
+              backupEmails: [],
+              createdAt: iso('2026-01-01T00:00:00.000Z'),
+              updatedAt: iso('2026-01-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [] }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/account-settings');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/account settings/i);
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
   });
 
   test('account settings menu toggles dark and light theme', async ({ page, baseURL }) => {
@@ -1156,21 +1315,6 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
-    const billingSubscription = {
-      id: 'sub_dash_env_gate',
-      orgId: 'org_dash_console_pages',
-      planId: 'pro_maw_v1',
-      planName: 'Pro (MAW)',
-      status: 'ACTIVE',
-      cancelAtPeriodEnd: false,
-      cancelAt: null,
-      currentPeriodStart: iso('2026-03-01T00:00:00.000Z'),
-      currentPeriodEnd: iso('2026-04-01T00:00:00.000Z'),
-      providerCustomerRef: 'cus_env_gate',
-      providerSubscriptionRef: 'sub_env_gate',
-      createdAt: iso('2026-03-01T00:00:00.000Z'),
-      updatedAt: iso('2026-03-01T00:00:00.000Z'),
-    };
     const developmentEnvironment = {
       id: 'proj_active:dev',
       projectId: 'proj_active',
@@ -1304,14 +1448,14 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             overview: {
-              planId: billingSubscription.planId,
-              planName: billingSubscription.planName,
               usageMetricVersion: 'maw_v1',
               currentMonthUtc: '2026-03',
               monthlyActiveWallets: 0,
               creditBalanceMinor: 0,
-              upcomingChargeEstimateMinor: 0,
-              openInvoiceCount: 0,
+              lowBalanceThresholdMinor: 2000,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: 0,
             },
           }),
         });
@@ -1348,15 +1492,6 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, paymentMethods: [] }),
-        });
-        return;
-      }
-
-      if (method === 'GET' && pathname === '/console/billing/subscription') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, subscription: billingSubscription }),
         });
         return;
       }
@@ -2592,35 +2727,47 @@ test.describe('dashboard console config page api wiring', () => {
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const context = buildMockDashboardContext();
+    const developmentEnvironment = {
+      id: 'env_active',
+      projectId: 'proj_active',
+      key: 'dev',
+      name: 'Development',
+      status: 'ACTIVE',
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-02T00:00:00.000Z'),
+    };
+    const productionEnvironment = {
+      id: 'env_prod',
+      projectId: 'proj_active',
+      key: 'prod',
+      name: 'Production',
+      status: 'ACTIVE',
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-03T00:00:00.000Z'),
+    };
     const gasConfigs: any[] = [
       {
         id: 'gs_existing',
         policyName: 'Existing sponsorship',
         scopeType: 'ENVIRONMENT',
         projectId: 'proj_active',
-        environmentId: 'env_active',
+        environmentId: developmentEnvironment.id,
         policyId: null,
         walletSegmentId: null,
         networkClass: 'TESTNET',
-        executor: 'RELAY_EOA',
         enabled: true,
-        paymasterMode: 'AUTO',
-        fallbackBehavior: 'REJECT',
-        chainBudgets: [
-          {
-            chain: 'Ethereum',
-            period: 'MONTHLY',
-            budgetMinor: 50000,
-            quotaTransactions: 100,
-          },
-        ],
+        allowedChainIds: [42431],
+        callMode: 'ALLOWLIST',
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 42431, capMinor: 50000 }],
+        },
         allowedCalls: [
           {
             chainId: 42431,
             to: '0xbb85080E6953f25197ec68798360667140EbAf4b',
             selector: '0x428dc451',
-            maxGasLimit: '300000',
-            maxValueWei: '0',
           },
         ],
         updatedAt: iso('2026-01-10T00:00:00.000Z'),
@@ -2646,7 +2793,7 @@ test.describe('dashboard console config page api wiring', () => {
               orgId: 'org_dash_console_pages',
               roles: ['admin'],
               projectId: 'proj_active',
-              environmentId: 'env_active',
+              environmentId: developmentEnvironment.id,
             },
           }),
         });
@@ -2679,7 +2826,7 @@ test.describe('dashboard console config page api wiring', () => {
       if (pathname === '/console/environments') {
         const projectId = String(url.searchParams.get('projectId') || '').trim();
         const status = String(url.searchParams.get('status') || '').toUpperCase();
-        let environments = [context.activeEnvironment, context.archivedEnvironment];
+        let environments = [developmentEnvironment, productionEnvironment];
         if (projectId) {
           environments = environments.filter((entry: any) => String(entry.projectId) === projectId);
         }
@@ -2739,11 +2886,13 @@ test.describe('dashboard console config page api wiring', () => {
           policyId: body.policyId ?? null,
           walletSegmentId: body.walletSegmentId ?? null,
           networkClass: String(body.networkClass || 'ANY'),
-          executor: String(body.executor || 'RELAY_EOA'),
           enabled: body.enabled !== false,
-          paymasterMode: String(body.paymasterMode || 'AUTO'),
-          fallbackBehavior: String(body.fallbackBehavior || 'REJECT'),
-          chainBudgets: Array.isArray(body.chainBudgets) ? body.chainBudgets : [],
+          allowedChainIds: Array.isArray(body.allowedChainIds) ? body.allowedChainIds : [],
+          callMode: String(body.callMode || 'ALLOW_ALL'),
+          spendCap:
+            body.spendCap && typeof body.spendCap === 'object' && !Array.isArray(body.spendCap)
+              ? body.spendCap
+              : { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
           allowedCalls: Array.isArray(body.allowedCalls) ? body.allowedCalls : [],
           updatedAt: now,
         };
@@ -2829,50 +2978,136 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(gasPolicyNameInputAfterRefresh).toHaveValue('Draft before refresh');
 
     await gasPolicyNameInputAfterRefresh.fill('New sponsorship');
+    const developmentTargetHeader = gasCreateModalAfterRefresh.locator(
+      '.dashboard-gas-target-matrix__header',
+    );
+    await expect(developmentTargetHeader).toContainText('Testnet');
+    await expect(developmentTargetHeader).not.toContainText('Mainnet');
+    await expect(gasCreateModalAfterRefresh.getByRole('group', { name: 'Tempo Mainnet' })).toHaveCount(0);
+    await expect(gasCreateModalAfterRefresh.getByRole('button', { name: 'All mainnets' })).toHaveCount(0);
     await gasCreateModalAfterRefresh
-      .locator('label:has-text("Budget chain") input')
-      .fill('Ethereum');
+      .getByRole('group', { name: 'Tempo Testnet' })
+      .getByRole('button', { name: 'On' })
+      .click();
+    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Per chain total' }).click();
     await gasCreateModalAfterRefresh
-      .locator('label:has-text("Budget (minor units)") input')
+      .getByLabel('Tempo Testnet spend cap')
       .fill('50000');
+    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Allowlist' }).click();
+    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Add contract' }).click();
     await gasCreateModalAfterRefresh
-      .locator('label:has-text("Transaction quota") input')
-      .fill('1200');
-    await gasCreateModalAfterRefresh
-      .locator('label:has-text("Allowed call chain ID") input')
-      .fill('42431');
-    await gasCreateModalAfterRefresh
-      .locator('label:has-text("Allowed contract") input')
+      .locator('label:has-text("Contract address") input')
       .fill('0xbb85080E6953f25197ec68798360667140EbAf4b');
     await gasCreateModalAfterRefresh
-      .locator('label:has-text("Function selector") input')
+      .locator('label:has-text("Allowed functions") input')
       .fill('0x428dc451');
-    await gasCreateModalAfterRefresh
-      .locator('label:has-text("Max gas limit") input')
-      .fill('300000');
-    await gasCreateModalAfterRefresh.locator('label:has-text("Max value (wei)") input').fill('0');
+    await expect(
+      gasCreateModalAfterRefresh.locator('label:has-text("Max gas limit") input'),
+    ).toHaveCount(0);
+    await expect(
+      gasCreateModalAfterRefresh.locator('label:has-text("Max value (wei)") input'),
+    ).toHaveCount(0);
     await gasCreateModalAfterRefresh
       .locator('button:has-text("Create sponsorship policy")')
       .click();
 
     await expect.poll(() => String(lastGasCreateBody?.scopeType || '')).toBe('ENVIRONMENT');
-    await expect.poll(() => String(lastGasCreateBody?.environmentId || '')).toBe('env_active');
+    await expect.poll(() => String(lastGasCreateBody?.environmentId || '')).toBe(
+      developmentEnvironment.id,
+    );
+    await expect.poll(() => String(lastGasCreateBody?.networkClass || '')).toBe('TESTNET');
+    await expect.poll(() => String(lastGasCreateBody?.callMode || '')).toBe('ALLOWLIST');
+    await expect
+      .poll(() =>
+        Array.isArray(lastGasCreateBody?.allowedChainIds)
+          ? [...(lastGasCreateBody.allowedChainIds as any[])].map(String).sort().join(',')
+          : '',
+      )
+      .toBe('42431');
+    await expect
+      .poll(() => {
+        const spendCap =
+          lastGasCreateBody?.spendCap &&
+          typeof lastGasCreateBody.spendCap === 'object' &&
+          !Array.isArray(lastGasCreateBody.spendCap)
+            ? (lastGasCreateBody.spendCap as {
+                mode?: unknown;
+                period?: unknown;
+                capsByChain?: Array<{ chainId?: unknown; capMinor?: unknown }>;
+              })
+            : null;
+        return JSON.stringify(spendCap || {});
+      })
+      .toBe(
+        JSON.stringify({
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 42431, capMinor: 50000 }],
+        }),
+      );
+    await expect
+      .poll(() =>
+        Array.isArray(lastGasCreateBody?.allowedCalls)
+          ? Array.from(
+              new Set(
+                (lastGasCreateBody.allowedCalls as Array<{ chainId?: unknown }>)
+                  .map((entry) => String(entry.chainId || ''))
+                  .filter(Boolean),
+              ),
+            )
+              .sort()
+              .join(',')
+          : '',
+      )
+      .toBe('42431');
     await expect(page.locator('section[aria-label="Gas sponsorship configs"]')).toContainText(
       'New sponsorship',
     );
     await expect.poll(() => Array.isArray(lastGasCreateBody?.allowedCalls)).toBe(true);
 
+    const topbarContext = page.locator('header[aria-label="Workspace context"]');
+    const environmentCard = topbarContext.locator('button.dashboard-context-card--highlight');
+    await expect(environmentCard).toContainText('Development');
+    await environmentCard.click();
+    await page
+      .locator('[aria-label="Environment options"]')
+      .getByRole('menuitemradio', { name: 'Production' })
+      .click();
+    await expect(environmentCard).toContainText('Production');
+
     await gasCreateSection.locator('button:has-text("Create policy")').click();
-    const gasCreateModalAfterSave = page.locator(
+    const gasCreateModalAfterEnvironmentSwitch = page.locator(
       'section[aria-label="Create gas sponsorship policy modal"]',
     );
+    const productionTargetHeader = gasCreateModalAfterEnvironmentSwitch.locator(
+      '.dashboard-gas-target-matrix__header',
+    );
     await expect(
-      gasCreateModalAfterSave.locator('label:has-text("Policy name") input'),
+      gasCreateModalAfterEnvironmentSwitch.locator('label:has-text("Policy name") input'),
     ).toHaveValue('Project gas sponsorship');
-    await gasCreateModalAfterSave.locator('button:has-text("Cancel")').click();
+    await expect(productionTargetHeader).toContainText('Mainnet');
+    await expect(productionTargetHeader).not.toContainText('Testnet');
+    await expect(
+      gasCreateModalAfterEnvironmentSwitch.getByRole('group', { name: 'Tempo Mainnet' }),
+    ).toBeVisible();
+    await expect(
+      gasCreateModalAfterEnvironmentSwitch.getByRole('group', { name: 'Tempo Testnet' }),
+    ).toHaveCount(0);
+    await expect(
+      gasCreateModalAfterEnvironmentSwitch.getByRole('button', { name: 'All testnets' }),
+    ).toHaveCount(0);
+    await gasCreateModalAfterEnvironmentSwitch.locator('button:has-text("Cancel")').click();
+    await environmentCard.click();
+    await page
+      .locator('[aria-label="Environment options"]')
+      .getByRole('menuitemradio', { name: 'Development' })
+      .click();
+    await expect(environmentCard).toContainText('Development');
 
     const existingGasCard = page
-      .locator('section[aria-label="Gas sponsorship configs"] .dashboard-table-wrapper')
+      .locator(
+        'section[aria-label="Gas sponsorship configs"] .dashboard-gas-sponsorship-table__row',
+      )
       .filter({ hasText: 'Existing sponsorship' })
       .first();
     await existingGasCard.locator('button:has-text("Disable")').click();
@@ -2901,9 +3136,26 @@ test.describe('dashboard console config page api wiring', () => {
         },
         createdAt: iso('2026-02-01T00:00:00.000Z'),
         updatedAt: iso('2026-02-01T00:00:00.000Z'),
-        publishedAt: null,
+        publishedAt: iso('2026-01-15T00:00:00.000Z'),
       },
     ];
+    const policyVersionsById: Record<string, any[]> = {
+      policy_draft_e2e: [
+        {
+          policyId: 'policy_draft_e2e',
+          version: 1,
+          status: 'PUBLISHED',
+          rules: {
+            blockedActions: ['delete_key'],
+            allowedChains: ['Ethereum', 'NEAR'],
+            maxAmountMinor: 250000,
+          },
+          publishedAt: iso('2026-01-15T00:00:00.000Z'),
+          createdAt: iso('2026-01-15T00:00:00.000Z'),
+          actorUserId: 'approver_prev_policy_publish_e2e',
+        },
+      ],
+    };
     const wallets: any[] = [
       {
         id: 'wallet_policy_publish_e2e_1',
@@ -3042,6 +3294,30 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      const versionMatch = pathname.match(/^\/console\/policies\/([^/]+)\/versions$/);
+      if (versionMatch && method === 'GET') {
+        const policyId = decodeURIComponent(String(versionMatch[1] || ''));
+        const versions = policyVersionsById[policyId];
+        if (!versions) {
+          await route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'policy_not_found',
+              message: `Policy ${policyId} was not found`,
+            }),
+          });
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, versions }),
+        });
+        return;
+      }
+
       if (pathname === '/console/policies' && method === 'POST') {
         const body = parseJsonBody(req.postData());
         lastPolicyCreateBody = body;
@@ -3059,6 +3335,17 @@ test.describe('dashboard console config page api wiring', () => {
           publishedAt: null,
         };
         policies.unshift(created);
+        if (isPlainObject(body.assignment)) {
+          assignments.unshift({
+            id: `assignment_${created.id}`,
+            orgId: 'org_dash_console_pages',
+            scopeType: String(body.assignment.scopeType || ''),
+            scopeId: String(body.assignment.scopeId || ''),
+            policyId: created.id,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        }
         await route.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -3117,6 +3404,18 @@ test.describe('dashboard console config page api wiring', () => {
         target.version = Number(target.version || 0) + 1;
         target.publishedAt = iso('2026-02-21T00:00:00.000Z');
         target.updatedAt = target.publishedAt;
+        policyVersionsById[policyId] = [
+          {
+            policyId,
+            version: target.version,
+            status: 'PUBLISHED',
+            rules: target.rules,
+            publishedAt: target.publishedAt,
+            createdAt: target.publishedAt,
+            actorUserId: 'user_dash_console_pages',
+          },
+          ...(policyVersionsById[policyId] || []),
+        ];
         coverage = {
           ...coverage,
           policies: [
@@ -3187,6 +3486,9 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() => String(lastPolicyCreateBody?.name || ''))
       .toBe('Created from restored draft');
+    await expect
+      .poll(() => JSON.stringify(lastPolicyCreateBody?.assignment || null))
+      .toBe(JSON.stringify({ scopeType: 'ENVIRONMENT', scopeId: 'env_active' }));
 
     await policySetupSection.locator('button:has-text("Create policy")').click();
     const createPolicyModalAfterSave = page.locator('section[aria-label="Create policy modal"]');
@@ -3201,6 +3503,13 @@ test.describe('dashboard console config page api wiring', () => {
     await policyRow.locator('button:has-text("Go live")').click();
 
     const publishModal = page.locator('section[aria-label="Schedule live policy change modal"]');
+    await expect(publishModal).toContainText('Current live version');
+    await expect(publishModal).toContainText('Next live version');
+    await expect(publishModal).toContainText('Wallet impact');
+    await expect(publishModal).toContainText('Blocked actions');
+    await expect(publishModal).toContainText('delete_key -> export_key');
+    await expect(publishModal).toContainText('Ethereum, NEAR -> Ethereum');
+    await expect(publishModal).toContainText('250000 -> 500000');
     await expect(publishModal).toContainText('apr_policy_publish_e2e');
     await publishModal.locator('button:has-text("Publish live")').click();
 
@@ -3209,6 +3518,491 @@ test.describe('dashboard console config page api wiring', () => {
       .poll(() => String(lastPublishBody?.approvalId || ''))
       .toBe('apr_policy_publish_e2e');
     await expect(page.locator('section[aria-label="Policies table"]')).toContainText('PUBLISHED');
+  });
+
+  test('policy-engine page creates contract-call allowlist drafts and simulates from a row', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const policies: any[] = [
+      {
+        id: 'policy_existing_contract_sim_e2e',
+        orgId: 'org_dash_console_pages',
+        name: 'Existing contract policy',
+        description: 'Existing draft policy for simulate test',
+        status: 'DRAFT',
+        version: 1,
+        rules: {
+          blockedActions: ['delete_key'],
+        },
+        createdAt: iso('2026-02-01T00:00:00.000Z'),
+        updatedAt: iso('2026-02-01T00:00:00.000Z'),
+        publishedAt: null,
+      },
+    ];
+    const wallets: any[] = [
+      {
+        id: 'wallet_contract_sim_e2e_1',
+        address: '0x1111111111111111111111111111111111111111',
+        chain: 'Ethereum',
+        userId: 'user_wallet_contract_sim_e2e_1',
+        policyId: 'policy_existing_contract_sim_e2e',
+        balanceMinor: 250000,
+        status: 'ACTIVE',
+        updatedAt: iso('2026-02-20T00:00:00.000Z'),
+        lastActivityAt: iso('2026-02-20T00:00:00.000Z'),
+      },
+    ];
+    const coverage = {
+      scope: { projectId: 'proj_active', environmentId: 'env_active' },
+      totals: {
+        walletCount: 1,
+        policyCount: 1,
+        unassignedWalletCount: 0,
+        activeWalletCount: 1,
+        archivedWalletCount: 0,
+      },
+      policies: [
+        {
+          policyId: 'policy_existing_contract_sim_e2e',
+          walletCount: 1,
+          activeWalletCount: 1,
+          archivedWalletCount: 0,
+          totalBalanceMinor: 250000,
+          lastActivityAt: iso('2026-02-20T00:00:00.000Z'),
+        },
+      ],
+      unassignedWalletSample: [],
+      truncated: false,
+    };
+    let lastPolicyCreateBody: Record<string, unknown> | null = null;
+    let lastSimulationBody: Record<string, unknown> | null = null;
+    let lastSimulationPolicyId = '';
+    const assignments: any[] = [];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policy/coverage' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, coverage }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, policies }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        lastPolicyCreateBody = body;
+        const createdAt = iso('2026-02-22T00:00:00.000Z');
+        const created = {
+          id: 'policy_created_contract_allowlist_e2e',
+          orgId: 'org_dash_console_pages',
+          name: String(body.name || 'Contract allowlist policy'),
+          description: String(body.description || ''),
+          status: 'DRAFT',
+          version: 1,
+          rules: isPlainObject(body.rules) ? body.rules : {},
+          createdAt,
+          updatedAt: createdAt,
+          publishedAt: null,
+        };
+        policies.unshift(created);
+        if (isPlainObject(body.assignment)) {
+          assignments.unshift({
+            id: `assignment_${created.id}`,
+            orgId: 'org_dash_console_pages',
+            scopeType: String(body.assignment.scopeType || ''),
+            scopeId: String(body.assignment.scopeId || ''),
+            policyId: created.id,
+            createdAt,
+            updatedAt: createdAt,
+          });
+        }
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, policy: created }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies/assignments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, assignments }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/wallets' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, wallets }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/approvals' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, approvals: [] }),
+        });
+        return;
+      }
+
+      const simulateMatch = pathname.match(/^\/console\/policies\/([^/]+)\/simulate$/);
+      if (simulateMatch && method === 'POST') {
+        lastSimulationBody = parseJsonBody(req.postData());
+        lastSimulationPolicyId = decodeURIComponent(String(simulateMatch[1] || ''));
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            simulation: {
+              policyId: lastSimulationPolicyId,
+              decision: 'ALLOW',
+              denyReasons: [],
+              evaluatedAt: iso('2026-02-22T01:00:00.000Z'),
+              policyVersion: 1,
+              normalizedRequest: {
+                action: 'contract_call',
+                chain: 'ethereum',
+                amountMinor: 10000,
+                contractAddress: '0x1111111111111111111111111111111111111111',
+                functionSelector: 'transfer(address,uint256)',
+              },
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/policy-engine');
+    const policySetupSection = page.locator('section[aria-label="Policy setup"]');
+    await policySetupSection.locator('button:has-text("Create policy")').click();
+
+    const createPolicyModal = page.locator('section[aria-label="Create policy modal"]');
+    await createPolicyModal.locator('label:has-text("Policy name") input').fill(
+      'Contract allowlist policy',
+    );
+    await createPolicyModal.locator('button:has-text("Allowlist")').click();
+    await createPolicyModal.locator('button:has-text("Add contract")').click();
+
+    const contractCard = createPolicyModal.locator('.dashboard-policy-contract-card').first();
+    await contractCard
+      .locator('label:has-text("Contract address") input')
+      .fill('0x1111111111111111111111111111111111111111');
+    await contractCard
+      .locator('label:has-text("Allowed functions") input')
+      .fill('transfer(address,uint256)');
+    await createPolicyModal.locator('button:has-text("Create draft")').click();
+
+    await expect
+      .poll(() => String(lastPolicyCreateBody?.name || ''))
+      .toBe('Contract allowlist policy');
+    await expect
+      .poll(() => JSON.stringify((lastPolicyCreateBody?.rules as Record<string, unknown>) || {}))
+      .toBe(
+        JSON.stringify({
+          blockedActions: ['delete_key'],
+          allowedContractCalls: [
+            {
+              contractAddress: '0x1111111111111111111111111111111111111111',
+              functions: ['transfer(address,uint256)'],
+            },
+          ],
+        }),
+      );
+    await expect
+      .poll(() => JSON.stringify(lastPolicyCreateBody?.assignment || null))
+      .toBe(JSON.stringify({ scopeType: 'ENVIRONMENT', scopeId: 'env_active' }));
+
+    const createdPolicyRow = page.locator('.dashboard-policy-table__row').filter({
+      hasText: 'Contract allowlist policy',
+    });
+    await expect(createdPolicyRow).toBeVisible();
+    await createdPolicyRow.locator('button:has-text("Simulate")').click();
+
+    const simulatePolicyModal = page.locator('section[aria-label="Simulate policy modal"]');
+    await simulatePolicyModal.locator('label:has-text("Action") select').selectOption(
+      'contract_call',
+    );
+    await simulatePolicyModal
+      .locator('label:has-text("Contract address") input')
+      .fill('0x1111111111111111111111111111111111111111');
+    await simulatePolicyModal
+      .locator('label:has-text("Function selector") input')
+      .fill('transfer(address,uint256)');
+    await simulatePolicyModal.locator('button:has-text("Run simulation")').click();
+
+    await expect.poll(() => lastSimulationPolicyId).toBe('policy_created_contract_allowlist_e2e');
+    await expect
+      .poll(() => JSON.stringify(lastSimulationBody || {}))
+      .toBe(
+        JSON.stringify({
+          action: 'contract_call',
+          chain: 'Ethereum',
+          amountMinor: 10000,
+          contractAddress: '0x1111111111111111111111111111111111111111',
+          functionSelector: 'transfer(address,uint256)',
+        }),
+      );
+    await expect(simulatePolicyModal).toContainText('Decision ALLOW');
+    await expect(simulatePolicyModal).toContainText(
+      'Allowed contract_call on ethereum with amount 10000',
+    );
+  });
+
+  test('policy-engine create modal blocks empty contract-call allowlists', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    let createRequestCount = 0;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policy/coverage' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            coverage: {
+              scope: { projectId: 'proj_active', environmentId: 'env_active' },
+              totals: {
+                walletCount: 0,
+                policyCount: 1,
+                unassignedWalletCount: 0,
+                activeWalletCount: 0,
+                archivedWalletCount: 0,
+              },
+              policies: [],
+              unassignedWalletSample: [],
+              truncated: false,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            policies: [
+              {
+                id: 'policy_existing_validation_e2e',
+                orgId: 'org_dash_console_pages',
+                name: 'Existing validation policy',
+                description: '',
+                status: 'DRAFT',
+                version: 1,
+                rules: { blockedActions: ['delete_key'] },
+                createdAt: iso('2026-02-01T00:00:00.000Z'),
+                updatedAt: iso('2026-02-01T00:00:00.000Z'),
+                publishedAt: null,
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies' && method === 'POST') {
+        createRequestCount += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: false,
+            code: 'unexpected_create',
+            message: 'Create should not have been called for an invalid allowlist.',
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/policies/assignments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, assignments: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/wallets' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, wallets: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/approvals' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, approvals: [] }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/policy-engine');
+    await page.locator('section[aria-label="Policy setup"] button:has-text("Create policy")').click();
+
+    const createPolicyModal = page.locator('section[aria-label="Create policy modal"]');
+    await createPolicyModal
+      .locator('label:has-text("Policy name") input')
+      .fill('Invalid allowlist policy');
+    await createPolicyModal.locator('button:has-text("Allowlist")').click();
+    await createPolicyModal.locator('button:has-text("Create draft")').click();
+
+    await expect(createPolicyModal).toContainText(
+      'Add at least one contract before saving a contract-call allowlist.',
+    );
+    await expect.poll(() => createRequestCount).toBe(0);
   });
 
   test('export-keys page removes admin request and approval controls', async ({
@@ -5224,18 +6018,24 @@ test.describe('dashboard console config page api wiring', () => {
                 pending: [
                   {
                     id: 'apr_1',
-                    operationType: 'KEY_EXPORT',
+                    operationType: 'POLICY_PUBLISH',
+                    reason: 'Policy reviewed for publish.',
                     requestedByUserId: 'user_alpha',
-                    resourceType: 'KEY_EXPORT',
-                    resourceId: 'ke_123',
+                    requiredApprovals: 1,
+                    requireMfa: false,
+                    resourceType: 'POLICY',
+                    resourceId: 'pol_123',
                     createdAt: iso('2026-03-01T10:00:00.000Z'),
                   },
                   {
                     id: 'apr_2',
-                    operationType: 'POLICY_PUBLISH',
+                    operationType: 'KEY_EXPORT',
+                    reason: 'Emergency recovery export.',
                     requestedByUserId: 'user_beta',
-                    resourceType: 'POLICY',
-                    resourceId: 'pol_123',
+                    requiredApprovals: 2,
+                    requireMfa: true,
+                    resourceType: 'KEY_EXPORT',
+                    resourceId: 'ke_123',
                     createdAt: iso('2026-03-01T11:00:00.000Z'),
                   },
                 ],
@@ -5436,16 +6236,16 @@ test.describe('dashboard console config page api wiring', () => {
             approval: {
               id: 'apr_1',
               orgId: 'org_dash_console_pages',
-              operationType: 'KEY_EXPORT',
+              operationType: 'POLICY_PUBLISH',
               status: 'APPROVED',
-              reason: 'Approve export request',
+              reason: 'Policy reviewed for publish.',
               requestedByUserId: 'user_alpha',
               requiredApprovals: 1,
-              requireMfa: true,
+              requireMfa: false,
               projectId: 'proj_active',
               environmentId: 'env_active',
-              resourceType: 'KEY_EXPORT',
-              resourceId: 'ke_123',
+              resourceType: 'POLICY',
+              resourceId: 'pol_123',
               metadata: {},
               decisions: [
                 {
@@ -5476,16 +6276,16 @@ test.describe('dashboard console config page api wiring', () => {
             approval: {
               id: 'apr_2',
               orgId: 'org_dash_console_pages',
-              operationType: 'POLICY_PUBLISH',
+              operationType: 'KEY_EXPORT',
               status: 'REJECTED',
-              reason: 'Reject policy publish request',
+              reason: 'Emergency recovery export.',
               requestedByUserId: 'user_beta',
-              requiredApprovals: 1,
-              requireMfa: false,
+              requiredApprovals: 2,
+              requireMfa: true,
               projectId: 'proj_active',
               environmentId: 'env_active',
-              resourceType: 'POLICY',
-              resourceId: 'pol_123',
+              resourceType: 'KEY_EXPORT',
+              resourceId: 'ke_123',
               metadata: {},
               decisions: [
                 {
@@ -5543,20 +6343,41 @@ test.describe('dashboard console config page api wiring', () => {
     ).toContainText('1');
 
     const pendingApprovalsSummary = page.locator('section[aria-label="Pending approvals summary"]');
-    await pendingApprovalsSummary.locator('button:has-text("Approve")').first().click();
+    await expect(pendingApprovalsSummary).not.toContainText('Approval action reason');
+    await expect(pendingApprovalsSummary).not.toContainText('MFA verified (approve)');
+    await expect(pendingApprovalsSummary).toContainText(
+      'Requested reason: Policy reviewed for publish.',
+    );
+    await expect(pendingApprovalsSummary).toContainText(
+      'Requested reason: Emergency recovery export.',
+    );
+    await expect(pendingApprovalsSummary).toContainText(
+      'Approve unavailable in overview: this request requires MFA verification.',
+    );
+
+    const policyApprovalRow = pendingApprovalsSummary.locator('li').filter({ hasText: 'pol_123' });
+    await policyApprovalRow.locator('button:has-text("Approve")').click();
     await expect.poll(() => approveRequestCount).toBe(1);
     await expect
       .poll(() => String(lastApproveBody?.reason || ''))
-      .toBe('Processed from Ops Cockpit');
-    await expect.poll(() => lastApproveBody?.mfaVerified === true).toBe(true);
-    await expect(pendingApprovalsSummary).toContainText('Approved request apr_1.');
+      .toBe('Approved from Ops Cockpit');
+    await expect.poll(() => lastApproveBody?.mfaVerified === true).toBe(false);
+    await expect(pendingApprovalsSummary).toContainText(
+      'Approval request apr_1 is now APPROVED.',
+    );
 
-    await pendingApprovalsSummary.locator('button:has-text("Reject")').nth(1).click();
+    const keyExportApprovalRow = pendingApprovalsSummary
+      .locator('li')
+      .filter({ hasText: 'ke_123' });
+    await expect(keyExportApprovalRow.locator('button:has-text("Approve")')).toHaveCount(0);
+    await keyExportApprovalRow.locator('button:has-text("Reject")').click();
     await expect.poll(() => rejectRequestCount).toBe(1);
     await expect
       .poll(() => String(lastRejectBody?.reason || ''))
-      .toBe('Processed from Ops Cockpit');
-    await expect(pendingApprovalsSummary).toContainText('Rejected request apr_2.');
+      .toBe('Rejected from Ops Cockpit');
+    await expect(pendingApprovalsSummary).toContainText(
+      'Approval request apr_2 is now REJECTED.',
+    );
 
     const failedWebhookSummary = page.locator('section[aria-label="Failed webhook summary"]');
     await failedWebhookSummary.locator('button:has-text("Replay")').click();

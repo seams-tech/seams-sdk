@@ -26,6 +26,7 @@ import type {
   ConsolePolicyAssignment,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
+  ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
   ListConsolePolicyAssignmentsRequest,
@@ -93,6 +94,18 @@ function parsePolicyAssignmentRow(row: PgRow): ConsolePolicyAssignment {
     policyId: String(row.policy_id || ''),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
+  };
+}
+
+function parsePolicyVersionRow(row: PgRow): ConsolePolicyVersion {
+  return {
+    policyId: String(row.policy_id || ''),
+    version: toNumber(row.version),
+    status: String(row.status || 'PUBLISHED') as ConsolePolicyVersion['status'],
+    rules: parseStoredConsolePolicyRules(parseRules(row.rules)),
+    publishedAt: toIso(row.published_at_ms == null ? null : toNumber(row.published_at_ms)),
+    createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
+    actorUserId: String(row.actor_user_id || ''),
   };
 }
 
@@ -330,6 +343,35 @@ export async function createPostgresConsolePolicyService(
     return row ? parsePolicyAssignmentRow(row) : null;
   }
 
+  async function upsertPolicyAssignmentRow(
+    q: Queryable,
+    ctx: ConsolePoliciesContext,
+    request: UpsertConsolePolicyAssignmentRequest,
+    now: Date = nowFn(),
+  ): Promise<ConsolePolicyAssignment> {
+    const tsMs = nowMs(now);
+    const scopeType = normalizeScopeType(request.scopeType);
+    const scopeId = String(request.scopeId || '').trim();
+    const assignmentId = makeId('policy_assignment', now);
+    const row = await queryOne(
+      q,
+      `INSERT INTO console_policy_assignments
+        (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $7)
+       ON CONFLICT (namespace, org_id, scope_type, scope_id)
+       DO UPDATE
+         SET policy_id = EXCLUDED.policy_id,
+             updated_at_ms = EXCLUDED.updated_at_ms
+       RETURNING *`,
+      [namespace, ctx.orgId, assignmentId, scopeType, scopeId, request.policyId, tsMs],
+    );
+    if (!row) {
+      throw new ConsolePolicyError('internal', 500, 'Failed to upsert policy assignment');
+    }
+    return parsePolicyAssignmentRow(row);
+  }
+
   return {
     async listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]> {
       return withTenantTx(ctx, async (q) => {
@@ -342,6 +384,25 @@ export async function createPostgresConsolePolicyService(
           [namespace, ctx.orgId],
         );
         return out.rows.map((row) => parsePolicyRow(row as PgRow));
+      });
+    },
+
+    async listPolicyVersions(
+      ctx: ConsolePoliciesContext,
+      policyId: string,
+    ): Promise<ConsolePolicyVersion[] | null> {
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!current) return null;
+        const out = await q.query(
+          `SELECT *
+             FROM console_policy_versions
+            WHERE namespace = $1 AND org_id = $2 AND policy_id = $3
+            ORDER BY version DESC, created_at_ms DESC`,
+          [namespace, ctx.orgId, policyId],
+        );
+        return out.rows.map((row) => parsePolicyVersionRow(row as PgRow));
       });
     },
 
@@ -376,7 +437,20 @@ export async function createPostgresConsolePolicyService(
           if (!inserted) {
             throw new ConsolePolicyError('internal', 500, 'Failed to create policy');
           }
-          return parsePolicyRow(inserted);
+          const policy = parsePolicyRow(inserted);
+          if (request.assignment) {
+            await upsertPolicyAssignmentRow(
+              q,
+              ctx,
+              {
+                scopeType: request.assignment.scopeType,
+                scopeId: request.assignment.scopeId,
+                policyId: policy.id,
+              },
+              now,
+            );
+          }
+          return policy;
         } catch (error: unknown) {
           if (typeof error === 'object' && error && (error as any).code === '23505') {
             throw new ConsolePolicyError(
@@ -586,28 +660,7 @@ export async function createPostgresConsolePolicyService(
           );
         }
 
-        const now = nowFn();
-        const tsMs = nowMs(now);
-        const scopeType = normalizeScopeType(request.scopeType);
-        const scopeId = String(request.scopeId || '').trim();
-        const assignmentId = makeId('policy_assignment', now);
-        const row = await queryOne(
-          q,
-          `INSERT INTO console_policy_assignments
-            (namespace, org_id, id, scope_type, scope_id, policy_id, created_at_ms, updated_at_ms)
-           VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $7)
-           ON CONFLICT (namespace, org_id, scope_type, scope_id)
-           DO UPDATE
-             SET policy_id = EXCLUDED.policy_id,
-                 updated_at_ms = EXCLUDED.updated_at_ms
-           RETURNING *`,
-          [namespace, ctx.orgId, assignmentId, scopeType, scopeId, request.policyId, tsMs],
-        );
-        if (!row) {
-          throw new ConsolePolicyError('internal', 500, 'Failed to upsert policy assignment');
-        }
-        return parsePolicyAssignmentRow(row);
+        return await upsertPolicyAssignmentRow(q, ctx, request);
       });
     },
 
@@ -639,15 +692,25 @@ export async function createPostgresConsolePolicyService(
       return withTenantTx(ctx, async (q) => {
         await ensureDefaultPolicy(q, ctx);
         const out = await q.query(
-          `SELECT *
-             FROM console_policy_assignments
-            WHERE namespace = $1 AND org_id = $2`,
+          `SELECT a.scope_type, a.scope_id, a.policy_id
+             FROM console_policy_assignments a
+             JOIN console_policies p
+               ON p.namespace = a.namespace
+              AND p.org_id = a.org_id
+              AND p.id = a.policy_id
+            WHERE a.namespace = $1
+              AND a.org_id = $2
+              AND p.published_at_ms IS NOT NULL
+              AND p.version > 0`,
           [namespace, ctx.orgId],
         );
-        const assignments = out.rows.map((row) => parsePolicyAssignmentRow(row as PgRow));
         const byScope = new Map<string, string>();
-        for (const assignment of assignments) {
-          byScope.set(assignmentScopeKey(assignment.scopeType, assignment.scopeId), assignment.policyId);
+        for (const row of out.rows) {
+          const scopeType = String((row as PgRow).scope_type || 'ORG') as ConsolePolicyAssignment['scopeType'];
+          const scopeId = String((row as PgRow).scope_id || '');
+          const policyId = String((row as PgRow).policy_id || '');
+          if (!scopeId || !policyId) continue;
+          byScope.set(assignmentScopeKey(scopeType, scopeId), policyId);
         }
 
         const orgPolicyId = byScope.get(assignmentScopeKey('ORG', ctx.orgId)) || null;

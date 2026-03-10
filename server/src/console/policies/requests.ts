@@ -1,5 +1,9 @@
 import { ConsolePolicyError } from './errors';
-import { parseConsolePolicyRulesInput } from './rules';
+import {
+  normalizeConsolePolicyContractAddress,
+  normalizeConsolePolicyFunctionIdentifier,
+  parseConsolePolicyRulesInput,
+} from './rules';
 import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,
@@ -42,6 +46,39 @@ function readOptionalRules(
   return parseConsolePolicyRulesInput(raw);
 }
 
+function readOptionalAssignment(
+  body: Record<string, unknown>,
+): CreateConsolePolicyRequest['assignment'] | undefined {
+  const raw = body.assignment;
+  if (raw === undefined || raw === null) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field assignment must be a JSON object');
+  }
+  const row = raw as Record<string, unknown>;
+  const scopeType = String(readRequiredString(row, 'scopeType', createParseError) || '')
+    .trim()
+    .toUpperCase();
+  if (!ASSIGNMENT_SCOPE_TYPES.has(scopeType)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment.scopeType must be one of ORG, PROJECT, ENVIRONMENT, WALLET',
+    );
+  }
+  const scopeId = readRequiredString(row, 'scopeId', createParseError);
+  if (!RESOURCE_ID_PATTERN.test(scopeId)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment.scopeId may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  return {
+    scopeType: scopeType as NonNullable<CreateConsolePolicyRequest['assignment']>['scopeType'],
+    scopeId,
+  };
+}
+
 function readOptionalInteger(
   body: Record<string, unknown>,
   key: string,
@@ -61,11 +98,13 @@ export function parseCreateConsolePolicyRequest(body: unknown): CreateConsolePol
   const name = readRequiredString(obj, 'name', createParseError);
   const description = readOptionalString(obj, 'description');
   const rules = readOptionalRules(obj, 'rules');
+  const assignment = readOptionalAssignment(obj);
   return {
     ...(id ? { id } : {}),
     name,
     ...(description ? { description } : {}),
     ...(rules ? { rules } : {}),
+    ...(assignment ? { assignment } : {}),
   };
 }
 
@@ -93,10 +132,30 @@ export function parseSimulateConsolePolicyRequest(body: unknown): SimulateConsol
   const action = readRequiredString(obj, 'action', createParseError);
   const chain = readOptionalString(obj, 'chain');
   const amountMinor = readOptionalInteger(obj, 'amountMinor');
-  const contractAddress = readOptionalString(obj, 'contractAddress');
-  const functionSelector = readOptionalString(obj, 'functionSelector');
+  const contractAddressRaw = readOptionalString(obj, 'contractAddress');
+  const functionSelectorRaw = readOptionalString(obj, 'functionSelector');
   if (amountMinor !== undefined && amountMinor < 0) {
     throw new ConsolePolicyError('invalid_body', 400, 'Field amountMinor must be >= 0');
+  }
+  const contractAddress = contractAddressRaw
+    ? normalizeConsolePolicyContractAddress(contractAddressRaw)
+    : null;
+  if (contractAddressRaw && !contractAddress) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field contractAddress must be a 20-byte hex address',
+    );
+  }
+  const functionSelector = functionSelectorRaw
+    ? normalizeConsolePolicyFunctionIdentifier(functionSelectorRaw)
+    : null;
+  if (functionSelectorRaw && !functionSelector) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field functionSelector must be a 4-byte selector or function signature',
+    );
   }
   const metadataRaw = obj.metadata;
   if (

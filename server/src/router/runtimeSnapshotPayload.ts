@@ -2,7 +2,7 @@ import {
   type ConsoleGasSponsorshipService,
   resolveSponsoredCallPoliciesFromConfigs,
 } from '../console/gasSponsorship';
-import type { ConsolePolicyService } from '../console/policies';
+import type { ConsolePolicy, ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
 import type { ConsoleSmartWalletService } from '../console/smartWallets';
 
@@ -32,6 +32,33 @@ function isSameScope(
   return false;
 }
 
+function hasPublishedRuntimePolicy(policy: ConsolePolicy | null | undefined): boolean {
+  return Boolean(policy && String(policy.publishedAt || '').trim() && Number(policy.version || 0) > 0);
+}
+
+async function resolveLiveRuntimePolicy(input: {
+  policies: ConsolePolicyService;
+  ctx: { orgId: string; actorUserId: string; roles: string[] };
+  policy: ConsolePolicy;
+}): Promise<ConsolePolicy | null> {
+  if (!hasPublishedRuntimePolicy(input.policy)) return null;
+  if (input.policy.status === 'PUBLISHED') return input.policy;
+  const versions = await input.policies.listPolicyVersions(input.ctx, input.policy.id);
+  const latestPublished =
+    versions?.find(
+      (entry) => entry.status === 'PUBLISHED' && String(entry.publishedAt || '').trim(),
+    ) || null;
+  if (!latestPublished) return null;
+  return {
+    ...input.policy,
+    status: 'PUBLISHED',
+    version: latestPublished.version,
+    rules: latestPublished.rules,
+    updatedAt: latestPublished.createdAt,
+    publishedAt: latestPublished.publishedAt,
+  };
+}
+
 export async function resolveConsoleRuntimeSnapshotPayload(
   input: ResolveConsoleRuntimeSnapshotPayloadInput,
 ): Promise<ConsoleRuntimeSnapshotPayload> {
@@ -57,12 +84,29 @@ export async function resolveConsoleRuntimeSnapshotPayload(
     const scopedAssignments = assignments.filter((assignment) =>
       isSameScope(assignment, input.orgId, input.environmentId, input.projectId),
     );
+    const policyById = new Map(policies.map((policy) => [policy.id, policy]));
+    const scopedPolicyIds = [...new Set(scopedAssignments.map((assignment) => assignment.policyId))];
+    const livePolicies = (
+      await Promise.all(
+        scopedPolicyIds.map(async (policyId) => {
+          const policy = policyById.get(policyId) || null;
+          if (!policy) return null;
+          return resolveLiveRuntimePolicy({
+            policies: input.policies!,
+            ctx,
+            policy,
+          });
+        }),
+      )
+    ).filter((policy): policy is ConsolePolicy => policy !== null);
+    const livePolicyIds = new Set(livePolicies.map((policy) => policy.id));
+    const liveAssignments = scopedAssignments.filter((assignment) => livePolicyIds.has(assignment.policyId));
     return {
       status: 'resolved',
-      policyCount: policies.length,
-      assignmentCount: scopedAssignments.length,
-      policies,
-      assignments: scopedAssignments,
+      policyCount: livePolicies.length,
+      assignmentCount: liveAssignments.length,
+      policies: livePolicies,
+      assignments: liveAssignments,
     };
   })();
 

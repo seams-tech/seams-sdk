@@ -7,6 +7,7 @@ export type {
   ConsolePolicyRules,
   ConsolePolicyDenyReason,
   ConsolePolicy,
+  ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
   UpdateConsolePolicyRequest,

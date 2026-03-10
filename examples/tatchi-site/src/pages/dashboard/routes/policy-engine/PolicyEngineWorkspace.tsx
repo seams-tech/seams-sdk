@@ -387,11 +387,6 @@ function simulationSummary(result: DashboardConsolePolicySimulation): string {
   return `Denied ${result.normalizedRequest.action} on ${chainLabel} with amount ${amountLabel}${contractLabel}. ${denySummary}`;
 }
 
-function resolveScopeLabel(scopeType: PolicyScopeType, scopeId: string): string {
-  if (!scopeId) return `${scopeType} scope not selected`;
-  return `${scopeType.toLowerCase()} scope ${scopeId}`;
-}
-
 function policyCoverageSummary(entry: DashboardPolicyCoverage['policies'][number] | null): string {
   if (!entry) return 'Not currently covering wallets in this scope.';
   return `${entry.walletCount} wallet${entry.walletCount === 1 ? '' : 's'}, total balance ${formatWalletBalanceMinor(entry.totalBalanceMinor)}, last activity ${formatTimestamp(entry.lastActivityAt)}`;
@@ -413,8 +408,6 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [policiesErrorMessage, setPoliciesErrorMessage] = React.useState<string>('');
   const [policies, setPolicies] = React.useState<DashboardConsolePolicy[]>([]);
 
-  const [assignmentsLoading, setAssignmentsLoading] = React.useState<boolean>(true);
-  const [assignmentsErrorMessage, setAssignmentsErrorMessage] = React.useState<string>('');
   const [assignmentsByScope, setAssignmentsByScope] =
     React.useState<Record<PolicyScopeType, DashboardConsolePolicyAssignment | null>>(
       EMPTY_ASSIGNMENTS,
@@ -674,12 +667,8 @@ export function PolicyEnginePage(): React.JSX.Element {
   const loadAssignments = React.useCallback(async (): Promise<void> => {
     if (!session.claims) {
       setAssignmentsByScope(EMPTY_ASSIGNMENTS);
-      setAssignmentsLoading(false);
-      setAssignmentsErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
-    setAssignmentsLoading(true);
-    setAssignmentsErrorMessage('');
     try {
       const nextAssignments: Record<PolicyScopeType, DashboardConsolePolicyAssignment | null> = {
         ORG: null,
@@ -703,9 +692,6 @@ export function PolicyEnginePage(): React.JSX.Element {
       setAssignmentsByScope(nextAssignments);
     } catch (error: unknown) {
       setAssignmentsByScope(EMPTY_ASSIGNMENTS);
-      setAssignmentsErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAssignmentsLoading(false);
     }
   }, [
     environmentScopeId,
@@ -922,6 +908,14 @@ export function PolicyEnginePage(): React.JSX.Element {
         setMutationErrorMessage('Policy name is required.');
         return;
       }
+      if (
+        creatingNewPolicy &&
+        policyCreateMode === 'WALLET_OVERRIDE' &&
+        !String(policyEditorForm.walletId || '').trim()
+      ) {
+        setMutationErrorMessage('Select or enter a wallet before creating a wallet override.');
+        return;
+      }
 
       setMutationBusy('save');
       setMutationErrorMessage('');
@@ -962,6 +956,16 @@ export function PolicyEnginePage(): React.JSX.Element {
             ? await createDashboardPolicy({
                 name: trimmedName,
                 rules: nextRules,
+                assignment:
+                  policyCreateMode === 'WALLET_OVERRIDE'
+                    ? {
+                        scopeType: 'WALLET',
+                        scopeId: String(policyEditorForm.walletId || '').trim(),
+                      }
+                    : {
+                        scopeType: currentContextScopeType,
+                        scopeId: currentContextScopeId,
+                      },
               })
             : await updateDashboardPolicy({
                 policyId: selectedPolicyId,
@@ -970,17 +974,11 @@ export function PolicyEnginePage(): React.JSX.Element {
               });
 
         setCreatingNewPolicy(false);
-        if (creatingNewPolicy && policyCreateMode === 'WALLET_OVERRIDE') {
-          setAssignScopeType('WALLET');
-          if (policyEditorForm.walletId) {
-            setAssignWalletId(policyEditorForm.walletId);
-          }
-        }
         setSelectedPolicyId(policy.id);
         clearPolicyEditorDraft();
         setActiveModal(null);
         setMutationNotice(`Saved policy ${policy.id} (${policy.status}, v${policy.version}).`);
-        await loadPolicies();
+        await Promise.all([loadPolicies(), loadAssignments(), loadCoverage()]);
       } catch (error: unknown) {
         setMutationErrorMessage(error instanceof Error ? error.message : String(error));
       } finally {
@@ -991,6 +989,10 @@ export function PolicyEnginePage(): React.JSX.Element {
       canMutatePolicies,
       clearPolicyEditorDraft,
       creatingNewPolicy,
+      currentContextScopeId,
+      currentContextScopeType,
+      loadAssignments,
+      loadCoverage,
       loadPolicies,
       policyCreateMode,
       policyEditorForm,
@@ -1038,57 +1040,6 @@ export function PolicyEnginePage(): React.JSX.Element {
     session.claims,
     session.errorMessage,
   ]);
-
-  const assignPolicyToSelectedScope = React.useCallback(
-    async (policyId: string) => {
-      if (!session.claims) {
-        setMutationErrorMessage(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!canMutatePolicies) {
-        setMutationErrorMessage('Owner, admin, or security_admin is required for assignments.');
-        return;
-      }
-      if (!scopeId) {
-        setMutationErrorMessage(
-          assignScopeType === 'WALLET'
-            ? 'Select or enter a wallet before assigning a wallet override.'
-            : `${assignScopeType.toLowerCase()} scope is not selected.`,
-        );
-        return;
-      }
-
-      setMutationBusy('assign');
-      setMutationErrorMessage('');
-      setMutationNotice('');
-      try {
-        const assignment = await upsertDashboardPolicyAssignment({
-          scopeType: assignScopeType,
-          scopeId,
-          policyId,
-        });
-        setCreatingNewPolicy(false);
-        setSelectedPolicyId(policyId);
-        setMutationNotice(
-          `Assigned ${assignment.policyId} to ${resolveScopeLabel(assignScopeType, scopeId)}.`,
-        );
-        await Promise.all([loadAssignments(), loadCoverage()]);
-      } catch (error: unknown) {
-        setMutationErrorMessage(error instanceof Error ? error.message : String(error));
-      } finally {
-        setMutationBusy('');
-      }
-    },
-    [
-      canMutatePolicies,
-      loadAssignments,
-      loadCoverage,
-      scopeId,
-      assignScopeType,
-      session.claims,
-      session.errorMessage,
-    ],
-  );
 
   const publishSelectedPolicy = React.useCallback(async () => {
     if (!session.claims) {
@@ -1295,7 +1246,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       const walletCoverage = coverageEntry
         ? `${coverageEntry.walletCount} wallet${coverageEntry.walletCount === 1 ? '' : 's'}`
         : '0 wallets';
-      return `${labels.length > 0 ? labels.join(', ') : 'draft or unassigned'} | ${walletCoverage}`;
+      return `${labels.length > 0 ? labels.join(', ') : 'draft or not attached'} | ${walletCoverage}`;
     },
     [coverageByPolicyId, policyScopeUsageLabels],
   );
@@ -1453,82 +1404,48 @@ export function PolicyEnginePage(): React.JSX.Element {
     },
     [setPolicyEditorForm],
   );
-  const renderScopeSelectorField = (
-    scopeTypeValue: PolicyScopeType = assignScopeType,
-    onScopeTypeChange: ((nextScopeType: PolicyScopeType) => void) | null = null,
-  ): React.JSX.Element => (
-    <label className="dashboard-form-field dashboard-policy-form-row__field">
-      <span>Target scope</span>
-      <select
-        className="dashboard-input dashboard-policy-scope-select"
-        value={scopeTypeValue}
-        onChange={(event) => {
-          const nextScopeType = String(event.target.value || '').toUpperCase() as PolicyScopeType;
-          if (onScopeTypeChange) {
-            onScopeTypeChange(nextScopeType);
-            return;
-          }
-          setAssignScopeType(nextScopeType);
-        }}
-      >
-        <option value="ORG">Organization default</option>
-        <option value="PROJECT">Project default</option>
-        <option value="ENVIRONMENT">Environment override</option>
-        <option value="WALLET">Wallet override</option>
-      </select>
-    </label>
-  );
-
   const renderWalletOverrideFields = (
-    scopeTypeValue: PolicyScopeType = assignScopeType,
-    walletIdValue: string = assignWalletId,
-    onWalletIdChange: ((nextWalletId: string) => void) | null = null,
-  ): React.JSX.Element | null =>
-    scopeTypeValue === 'WALLET' ? (
-      <div className="dashboard-view-grid dashboard-view-grid--two dashboard-form-field dashboard-form-field--full">
-        <label className="dashboard-form-field">
-          <span>Wallet override target</span>
-          <input
-            className="dashboard-input"
-            list="policy-engine-wallets"
-            value={walletIdValue}
-            onChange={(event) => {
-              if (onWalletIdChange) {
-                onWalletIdChange(event.target.value);
-                return;
-              }
-              setAssignWalletId(event.target.value);
-            }}
-            placeholder="wallet_..."
-          />
-          <datalist id="policy-engine-wallets">
-            {wallets.map((wallet) => (
-              <option key={wallet.id} value={wallet.id}>
-                {wallet.address}
-              </option>
-            ))}
-          </datalist>
-        </label>
-        <div className="dashboard-form-field">
-          <span>Wallet preview</span>
-          {walletsLoading ? (
-            <p className="dashboard-pagination-note">Loading wallets...</p>
-          ) : walletsErrorMessage ? (
-            <p className="dashboard-pagination-note">{walletsErrorMessage}</p>
-          ) : walletIdValue ? (
-            <p className="dashboard-pagination-note">
-              {(() => {
-                const wallet = wallets.find((entry) => entry.id === walletIdValue) || null;
-                if (!wallet) return `Wallet ${walletIdValue}`;
-                return `${wallet.id} (${wallet.chain}, ${wallet.address})`;
-              })()}
-            </p>
-          ) : (
-            <p className="dashboard-pagination-note">Choose a wallet for the override target.</p>
-          )}
-        </div>
+    walletIdValue: string,
+    onWalletIdChange: (nextWalletId: string) => void,
+  ): React.JSX.Element => (
+    <div className="dashboard-view-grid dashboard-view-grid--two dashboard-form-field dashboard-form-field--full">
+      <label className="dashboard-form-field">
+        <span>Wallet override target</span>
+        <input
+          className="dashboard-input"
+          list="policy-engine-wallets"
+          value={walletIdValue}
+          onChange={(event) => onWalletIdChange(event.target.value)}
+          placeholder="wallet_..."
+        />
+        <datalist id="policy-engine-wallets">
+          {wallets.map((wallet) => (
+            <option key={wallet.id} value={wallet.id}>
+              {wallet.address}
+            </option>
+          ))}
+        </datalist>
+      </label>
+      <div className="dashboard-form-field">
+        <span>Wallet preview</span>
+        {walletsLoading ? (
+          <p className="dashboard-pagination-note">Loading wallets...</p>
+        ) : walletsErrorMessage ? (
+          <p className="dashboard-pagination-note">{walletsErrorMessage}</p>
+        ) : walletIdValue ? (
+          <p className="dashboard-pagination-note">
+            {(() => {
+              const wallet = wallets.find((entry) => entry.id === walletIdValue) || null;
+              if (!wallet) return `Wallet ${walletIdValue}`;
+              return `${wallet.id} (${wallet.chain}, ${wallet.address})`;
+            })()}
+          </p>
+        ) : (
+          <p className="dashboard-pagination-note">Choose a wallet for the override target.</p>
+        )}
       </div>
-    ) : null;
+    </div>
+  );
 
   const onPolicyEditorWalletIdChange = React.useCallback(
     (nextWalletId: string) => {
@@ -1559,8 +1476,8 @@ export function PolicyEnginePage(): React.JSX.Element {
       <section className="dashboard-view__section" aria-label="Policy setup">
         <h2>Create policy</h2>
         <p className="dashboard-pagination-note">
-          Create draft policies for the current dashboard context, then manage them from the policy
-          table.
+          Create draft policies that stay attached to the current dashboard context, then manage
+          them from the policy table.
         </p>
         <p className="dashboard-pagination-note">
           A wallet-specific override wins over inherited defaults, including environment policies.
@@ -1576,7 +1493,7 @@ export function PolicyEnginePage(): React.JSX.Element {
               Create policy
             </button>
             <p className="dashboard-pagination-note">
-              Create a policy that affects all wallets once it is assigned.
+              Create a policy for all wallets in the current dashboard context.
             </p>
           </div>
           <div className="dashboard-policy-setup-action">
@@ -1589,8 +1506,7 @@ export function PolicyEnginePage(): React.JSX.Element {
               Create wallet override
             </button>
             <p className="dashboard-pagination-note">
-              Create a wallet-specific override. Wallet-specific overrides override environment
-              policies.
+              Create a wallet-specific override for one wallet in the current dashboard context.
             </p>
           </div>
         </div>
@@ -1719,16 +1635,6 @@ export function PolicyEnginePage(): React.JSX.Element {
                           Simulate
                         </DashboardTableActionButton>
                         <DashboardTableActionButton
-                          onClick={() => {
-                            setCreatingNewPolicy(false);
-                            setSelectedPolicyId(policy.id);
-                            openPolicyModal('assign', policy.id);
-                          }}
-                          disabled={!canMutatePolicies}
-                        >
-                          Assign
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
                           onClick={() => openPolicyModal('publish', policy.id)}
                           disabled={!canMutatePolicies}
                         >
@@ -1773,9 +1679,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                   ? 'View policy modal'
                   : activeModal.kind === 'edit'
                     ? 'Edit policy modal'
-                    : activeModal.kind === 'assign'
-                      ? 'Assign policy modal'
-                      : activeModal.kind === 'delete'
+                    : activeModal.kind === 'delete'
                         ? 'Delete policy modal'
                         : activeModal.kind === 'simulate'
                           ? 'Simulate policy modal'
@@ -1794,8 +1698,8 @@ export function PolicyEnginePage(): React.JSX.Element {
                 </h2>
                 <p className="dashboard-pagination-note dashboard-policy-modal-intro">
                   {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
-                    ? 'Create a wallet-specific draft in the current dashboard context. Live assignment still happens from Assign.'
-                    : 'Create a draft in the current dashboard context, then use Assign to decide where it goes live.'}
+                    ? 'Create a wallet-specific draft for one wallet in the current dashboard context, then use Go live to publish it.'
+                    : 'Create a draft for the current dashboard context, then use Go live to publish it.'}
                 </p>
                 {mutationErrorMessage ? (
                   <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
@@ -1839,7 +1743,6 @@ export function PolicyEnginePage(): React.JSX.Element {
                   </div>
                   {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
                     ? renderWalletOverrideFields(
-                        'WALLET',
                         policyEditorForm.walletId,
                         onPolicyEditorWalletIdChange,
                       )
@@ -2184,8 +2087,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                 <>
                   <h2>Simulate policy</h2>
                   <p className="dashboard-pagination-note">
-                    Test {activeModalPolicy.name || activeModalPolicy.id} before assigning or
-                    publishing it.
+                    Test {activeModalPolicy.name || activeModalPolicy.id} before publishing it.
                   </p>
                   <div className="dashboard-view-grid dashboard-view-grid--two">
                     <label className="dashboard-form-field">
@@ -2281,53 +2183,6 @@ export function PolicyEnginePage(): React.JSX.Element {
               )
             ) : null}
 
-            {activeModal.kind === 'assign' ? (
-              activeModalPolicy ? (
-                <>
-                  <h2>Assign policy</h2>
-                  <p className="dashboard-pagination-note">
-                    Assign <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> to the
-                    current dashboard context.
-                  </p>
-                  {assignScopeType === 'WALLET' ? (
-                    <>
-                      <p className="dashboard-pagination-note">
-                        This will create a wallet-specific assignment. Wallet-specific overrides
-                        override environment policies.
-                      </p>
-                      {renderWalletOverrideFields('WALLET', assignWalletId, setAssignWalletId)}
-                    </>
-                  ) : (
-                    <p className="dashboard-pagination-note">
-                      This will assign to{' '}
-                      <strong>{resolveScopeLabel(currentContextScopeType, currentContextScopeId)}</strong>{' '}
-                      from the current topbar selection.
-                    </p>
-                  )}
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                      disabled={mutationBusy === 'assign'}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void assignPolicyToSelectedScope(activeModalPolicy.id)}
-                      disabled={!canMutatePolicies || mutationBusy === 'assign'}
-                    >
-                      {mutationBusy === 'assign' ? 'Assigning...' : 'Assign policy'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="dashboard-pagination-note">Policy details are unavailable.</p>
-              )
-            ) : null}
-
             {activeModal.kind === 'delete' ? (
               activeModalPolicy ? (
                 <>
@@ -2401,7 +2256,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                       <strong>Scope affected</strong>{' '}
                       {activeModalScopeUsageLabels.length > 0
                         ? activeModalScopeUsageLabels.join(', ')
-                        : 'Not assigned in the current org, project, and environment selection'}
+                        : 'Not attached in the current org, project, and environment selection'}
                     </li>
                     <li>
                       <strong>Wallet impact</strong>{' '}
