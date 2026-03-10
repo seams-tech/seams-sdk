@@ -393,6 +393,7 @@ function policyCoverageSummary(entry: DashboardPolicyCoverage['policies'][number
 }
 
 export function PolicyEnginePage(): React.JSX.Element {
+  const viewRef = React.useRef<HTMLDivElement | null>(null);
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
 
@@ -641,6 +642,19 @@ export function PolicyEnginePage(): React.JSX.Element {
       });
     return () => {
       cancelled = true;
+    };
+  }, [activeModal]);
+
+  React.useEffect(() => {
+    const scrollHost = viewRef.current?.closest('.dashboard-main');
+    if (!scrollHost) return undefined;
+    if (activeModal) {
+      scrollHost.classList.add('dashboard-main--modal-open');
+    } else {
+      scrollHost.classList.remove('dashboard-main--modal-open');
+    }
+    return () => {
+      scrollHost.classList.remove('dashboard-main--modal-open');
     };
   }, [activeModal]);
 
@@ -1472,7 +1486,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [closePolicyModal, policyEditorDraftDiffersFromInitial, resetPolicyEditorDraftToInitial]);
 
   return (
-    <div className="dashboard-view" aria-label="Policy engine page">
+    <div ref={viewRef} className="dashboard-view" aria-label="Policy engine page">
       <section className="dashboard-view__section" aria-label="Policy setup">
         <h2>Create policy</h2>
         <p className="dashboard-pagination-note">
