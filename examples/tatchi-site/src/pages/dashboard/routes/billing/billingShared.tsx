@@ -79,7 +79,7 @@ export function getInvoiceStatusBadgeClassName(status: string): string {
     normalized === 'open' ||
     normalized === 'past_due'
   ) {
-    return 'dashboard-billing-status dashboard-billing-status--open';
+    return 'dashboard-data-table__status dashboard-data-table__status--warning';
   }
   if (
     normalized === 'paid' ||
@@ -87,16 +87,15 @@ export function getInvoiceStatusBadgeClassName(status: string): string {
     normalized === 'partially_settled' ||
     normalized === 'overpaid'
   ) {
-    return 'dashboard-billing-status dashboard-billing-status--paid';
+    return 'dashboard-data-table__status dashboard-data-table__status--success';
   }
   if (normalized === 'void' || normalized === 'canceled' || normalized === 'expired') {
-    return 'dashboard-billing-status dashboard-billing-status--void';
+    return 'dashboard-data-table__status dashboard-data-table__status--neutral';
   }
   if (normalized === 'uncollectible' || normalized === 'failed' || normalized === 'disputed') {
-    return 'dashboard-billing-status dashboard-billing-status--uncollectible';
+    return 'dashboard-data-table__status dashboard-data-table__status--danger';
   }
-  const tone = normalized || 'unknown';
-  return `dashboard-billing-status dashboard-billing-status--${tone}`;
+  return 'dashboard-data-table__status dashboard-data-table__status--neutral';
 }
 
 export function buildInvoicePdfFilename(
@@ -107,7 +106,8 @@ export function buildInvoicePdfFilename(
   const safePeriod = String(invoice?.periodMonthUtc || 'unknown')
     .trim()
     .replace(/[^a-zA-Z0-9_-]+/g, '_');
-  return `invoice_${safePeriod}_${safeInvoiceId}.pdf`;
+  const prefix = invoice?.documentType === 'PURCHASE_RECEIPT' ? 'receipt' : 'statement';
+  return `${prefix}_${safePeriod}_${safeInvoiceId}.pdf`;
 }
 
 export function BillingMetricsGrid(props: {

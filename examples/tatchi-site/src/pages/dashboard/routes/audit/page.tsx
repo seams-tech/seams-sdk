@@ -1,4 +1,20 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableBadge,
+  DashboardTableCell,
+  DashboardTableDetailsGrid,
+  DashboardTableDetailsItem,
+  DashboardTableDetailsPanel,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  DashboardTableStatus,
+  dashboardTableColumns,
+  type DashboardTableTone,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -23,6 +39,7 @@ const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
 ];
 
 const OUTCOME_OPTIONS: readonly DashboardConsoleAuditOutcome[] = ['SUCCESS', 'FAILURE', 'PENDING'];
+const AUDIT_EVENTS_TABLE_COLUMNS = dashboardTableColumns(1.05, 2.1, 0.95, 1.1, 0.8, 0.75);
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -57,10 +74,10 @@ function scopeSummary(row: DashboardConsoleAuditEvent): string {
   return 'Organization';
 }
 
-function outcomeClassName(outcome: DashboardConsoleAuditOutcome): string {
-  if (outcome === 'SUCCESS') return 'dashboard-audit-events-table__outcome--success';
-  if (outcome === 'FAILURE') return 'dashboard-audit-events-table__outcome--failure';
-  return 'dashboard-audit-events-table__outcome--pending';
+function outcomeTone(outcome: DashboardConsoleAuditOutcome): DashboardTableTone {
+  if (outcome === 'SUCCESS') return 'success';
+  if (outcome === 'FAILURE') return 'danger';
+  return 'warning';
 }
 
 export function AuditLogsPage(): React.JSX.Element {
@@ -104,8 +121,12 @@ export function AuditLogsPage(): React.JSX.Element {
     listDashboardAuditEvents({
       ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
       ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
-      ...(eventCategoryFilter ? { category: eventCategoryFilter as DashboardConsoleAuditCategory } : {}),
-      ...(eventOutcomeFilter ? { outcome: eventOutcomeFilter as DashboardConsoleAuditOutcome } : {}),
+      ...(eventCategoryFilter
+        ? { category: eventCategoryFilter as DashboardConsoleAuditCategory }
+        : {}),
+      ...(eventOutcomeFilter
+        ? { outcome: eventOutcomeFilter as DashboardConsoleAuditOutcome }
+        : {}),
       ...(debouncedSearchInput ? { q: debouncedSearchInput } : {}),
       ...(toIsoTimestamp(fromInput) ? { from: toIsoTimestamp(fromInput) } : {}),
       ...(toIsoTimestamp(toInput) ? { to: toIsoTimestamp(toInput) } : {}),
@@ -166,7 +187,7 @@ export function AuditLogsPage(): React.JSX.Element {
                 placeholder="Search user id, action, summary, event id, approval id, API key id, metadata"
               />
             </div>
-            <label className="dashboard-form-field">
+            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--full">
               <span>Category</span>
               <select
                 className="dashboard-select dashboard-select--audit"
@@ -182,7 +203,7 @@ export function AuditLogsPage(): React.JSX.Element {
               </select>
             </label>
 
-            <label className="dashboard-form-field">
+            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--full">
               <span>Outcome</span>
               <select
                 className="dashboard-select dashboard-select--audit"
@@ -198,24 +219,27 @@ export function AuditLogsPage(): React.JSX.Element {
               </select>
             </label>
 
-            <label className="dashboard-form-field">
-              <span>From</span>
-              <input
-                className="dashboard-input dashboard-input--audit"
-                type="datetime-local"
-                value={fromInput}
-                onChange={(event) => setFromInput(event.target.value)}
-              />
-            </label>
-
-            <label className="dashboard-form-field">
-              <span>To</span>
-              <input
-                className="dashboard-input dashboard-input--audit"
-                type="datetime-local"
-                value={toInput}
-                onChange={(event) => setToInput(event.target.value)}
-              />
+            <label className="dashboard-form-field dashboard-form-field--audit-inline dashboard-form-field--audit-period dashboard-form-field--full">
+              <span>Period</span>
+              <div className="dashboard-audit-period-inputs">
+                <input
+                  className="dashboard-input dashboard-input--audit"
+                  type="datetime-local"
+                  aria-label="Period start"
+                  value={fromInput}
+                  onChange={(event) => setFromInput(event.target.value)}
+                />
+                <span className="dashboard-audit-period-separator" aria-hidden="true">
+                  to
+                </span>
+                <input
+                  className="dashboard-input dashboard-input--audit"
+                  type="datetime-local"
+                  aria-label="Period end"
+                  value={toInput}
+                  onChange={(event) => setToInput(event.target.value)}
+                />
+              </div>
             </label>
           </div>
         </section>
@@ -228,106 +252,113 @@ export function AuditLogsPage(): React.JSX.Element {
         aria-label="Audit events table"
       >
         <h2>Events</h2>
-        <section
-          className="dashboard-table-wrapper dashboard-audit-events-table"
-          aria-label="Audit events"
-        >
-          <div className="dashboard-audit-events-table__header" role="row">
-            <span>Timestamp</span>
-            <span>Event</span>
-            <span>Actor</span>
-            <span>Scope</span>
-            <span>Outcome</span>
-            <span>Details</span>
-          </div>
+        <DashboardTable ariaLabel="Audit events" columns={AUDIT_EVENTS_TABLE_COLUMNS}>
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Actor</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Scope</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Outcome</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
+          </DashboardTableHeader>
           {events.length === 0 ? (
-            <p className="dashboard-empty-state dashboard-empty-state--audit">
-              {loading ? 'Loading audit events...' : 'No audit events matched the current scope and filters.'}
-            </p>
+            <DashboardTableState>
+              {loading
+                ? 'Loading audit events...'
+                : 'No audit events matched the current scope and filters.'}
+            </DashboardTableState>
           ) : (
             events.map((row) => {
               const isExpanded = expandedEventId === row.id;
               return (
                 <React.Fragment key={row.id}>
-                  <div className="dashboard-audit-events-table__row" role="row">
-                    <div className="dashboard-audit-events-table__cell">
+                  <DashboardTableRow
+                    className={
+                      isExpanded
+                        ? 'dashboard-audit-events__row dashboard-audit-events__row--expanded'
+                        : 'dashboard-audit-events__row'
+                    }
+                  >
+                    <DashboardTableCell truncate>
                       <span>{formatTimestamp(row.createdAt)}</span>
-                    </div>
-                    <div className="dashboard-audit-events-table__cell dashboard-audit-events-table__cell--event">
-                      <strong className="dashboard-audit-events-table__summary">
+                    </DashboardTableCell>
+                    <DashboardTableCell className="dashboard-data-table__cell--event">
+                      <strong className="dashboard-data-table__summary">
                         {row.summary || row.action || row.id}
                       </strong>
-                      <span className="dashboard-audit-events-table__subline">
-                        <span className="dashboard-audit-events-table__badge">{row.category}</span>
+                      <span className="dashboard-data-table__subline">
+                        <DashboardTableBadge>{row.category}</DashboardTableBadge>
                         <span>{row.action || '-'}</span>
                       </span>
                       <span
-                        className="dashboard-audit-events-table__subline dashboard-audit-events-table__subline--muted"
+                        className="dashboard-data-table__subline dashboard-data-table__subline--muted"
                         title={JSON.stringify(row.metadata)}
                       >
                         Metadata: {metadataSummary(row.metadata)}
                       </span>
-                    </div>
-                    <div className="dashboard-audit-events-table__cell">
+                    </DashboardTableCell>
+                    <DashboardTableCell>
                       <span>{row.actorUserId}</span>
-                      <span className="dashboard-audit-events-table__subline dashboard-audit-events-table__subline--muted">
+                      <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
                         {row.actorType}
                       </span>
-                    </div>
-                    <div className="dashboard-audit-events-table__cell">
+                    </DashboardTableCell>
+                    <DashboardTableCell>
                       <span>{scopeSummary(row)}</span>
-                    </div>
-                    <div className="dashboard-audit-events-table__cell">
-                      <span
-                        className={`dashboard-audit-events-table__outcome ${outcomeClassName(row.outcome)}`}
-                      >
+                    </DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableStatus tone={outcomeTone(row.outcome)}>
                         {row.outcome}
-                      </span>
-                    </div>
-                    <div className="dashboard-audit-events-table__cell dashboard-audit-events-table__cell--details">
-                      <button
-                        type="button"
-                        className="dashboard-audit-events-table__details-toggle"
+                      </DashboardTableStatus>
+                    </DashboardTableCell>
+                    <DashboardTableCell
+                      className="dashboard-data-table__cell--details"
+                      align="center"
+                    >
+                      <DashboardTableActionButton
+                        className="dashboard-audit-events__toggle"
+                        aria-expanded={isExpanded}
                         onClick={() =>
                           setExpandedEventId((current) => (current === row.id ? '' : row.id))
                         }
                       >
                         {isExpanded ? 'Hide' : 'View'}
-                      </button>
-                    </div>
-                  </div>
-                  {isExpanded ? (
-                    <div className="dashboard-audit-events-table__details-panel">
-                      <div className="dashboard-audit-events-table__details-grid">
-                        <div className="dashboard-audit-events-table__details-item">
-                          <span className="dashboard-audit-events-table__details-label">Event ID</span>
+                      </DashboardTableActionButton>
+                    </DashboardTableCell>
+                  </DashboardTableRow>
+                  <DashboardTableDetailsPanel
+                    className={
+                      isExpanded
+                        ? 'dashboard-audit-events__details-panel is-expanded'
+                        : 'dashboard-audit-events__details-panel'
+                    }
+                    aria-hidden={!isExpanded}
+                  >
+                    <div className="dashboard-audit-events__details-content">
+                      <DashboardTableDetailsGrid>
+                        <DashboardTableDetailsItem label="Event ID">
                           <span>{row.id}</span>
-                        </div>
-                        <div className="dashboard-audit-events-table__details-item">
-                          <span className="dashboard-audit-events-table__details-label">Action</span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Action">
                           <span>{row.action || '-'}</span>
-                        </div>
-                        <div className="dashboard-audit-events-table__details-item">
-                          <span className="dashboard-audit-events-table__details-label">Project</span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Project">
                           <span>{row.projectId || '-'}</span>
-                        </div>
-                        <div className="dashboard-audit-events-table__details-item">
-                          <span className="dashboard-audit-events-table__details-label">
-                            Environment
-                          </span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Environment">
                           <span>{row.environmentId || '-'}</span>
-                        </div>
-                      </div>
-                      <pre className="dashboard-audit-events-table__metadata-json">
+                        </DashboardTableDetailsItem>
+                      </DashboardTableDetailsGrid>
+                      <pre className="dashboard-data-table__metadata-json">
                         {JSON.stringify(row.metadata, null, 2)}
                       </pre>
                     </div>
-                  ) : null}
+                  </DashboardTableDetailsPanel>
                 </React.Fragment>
               );
             })
           )}
-        </section>
+        </DashboardTable>
       </section>
     </div>
   );

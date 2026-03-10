@@ -4,6 +4,16 @@ import {
   USER_WALLETS_TABLE_COLUMNS,
   USER_WALLETS_TABLE_NOTE,
 } from '../../components/dashboardContent';
+import {
+  DashboardTable,
+  DashboardTableCell,
+  DashboardTableFooter,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
@@ -66,6 +76,7 @@ const SORT_OPTIONS: readonly WalletSortOption[] = [
     sortOrder: 'asc',
   },
 ];
+const WALLETS_TABLE_COLUMNS = dashboardTableColumns(1.1, 1.3, 0.7, 0.95, 0.95, 0.8, 0.7, 0.95);
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -511,33 +522,33 @@ export function UserWalletsListPage(): React.JSX.Element {
         ))}
       </section>
 
-      <section className="dashboard-table-wrapper" aria-label="Wallets table">
-        <div className="dashboard-table-header" role="row">
+      <DashboardTable ariaLabel="Wallets table" columns={WALLETS_TABLE_COLUMNS}>
+        <DashboardTableHeader>
           {USER_WALLETS_TABLE_COLUMNS.map((column) => (
-            <span key={column}>{column}</span>
+            <DashboardTableHeaderCell key={column}>{column}</DashboardTableHeaderCell>
           ))}
-        </div>
+        </DashboardTableHeader>
         {loading ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             {searchMode ? 'Searching wallets...' : 'Loading wallets from console API...'}
-          </p>
+          </DashboardTableState>
         ) : errorMessage ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             {searchMode
               ? `Search failed: ${errorMessage}`
               : `Wallet list unavailable: ${errorMessage}`}
-          </p>
+          </DashboardTableState>
         ) : wallets.length === 0 ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             {searchMode
               ? 'No wallets matched this query.'
               : 'No wallets returned by /console/wallets.'}
-          </p>
+          </DashboardTableState>
         ) : (
           <>
             {wallets.map((wallet) => (
-              <div className="dashboard-table-row" key={wallet.id} role="row">
-                <span title={wallet.id}>
+              <DashboardTableRow key={wallet.id}>
+                <DashboardTableCell title={wallet.id}>
                   <button
                     type="button"
                     className="dashboard-inline-link"
@@ -545,17 +556,25 @@ export function UserWalletsListPage(): React.JSX.Element {
                   >
                     {wallet.id}
                   </button>
-                </span>
-                <span title={wallet.address}>{wallet.address}</span>
-                <span>{wallet.chain || '-'}</span>
-                <span title={wallet.userId}>{wallet.userId || '-'}</span>
-                <span title={wallet.policyId || ''}>{wallet.policyId || '-'}</span>
-                <span>{formatWalletBalanceMinor(wallet.balanceMinor)}</span>
-                <span>{wallet.status || '-'}</span>
-                <span>{formatTimestamp(wallet.updatedAt)}</span>
-              </div>
+                </DashboardTableCell>
+                <DashboardTableCell title={wallet.address}>{wallet.address}</DashboardTableCell>
+                <DashboardTableCell>{wallet.chain || '-'}</DashboardTableCell>
+                <DashboardTableCell title={wallet.userId}>
+                  {wallet.userId || '-'}
+                </DashboardTableCell>
+                <DashboardTableCell title={wallet.policyId || ''}>
+                  {wallet.policyId || '-'}
+                </DashboardTableCell>
+                <DashboardTableCell>
+                  {formatWalletBalanceMinor(wallet.balanceMinor)}
+                </DashboardTableCell>
+                <DashboardTableCell>{wallet.status || '-'}</DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(wallet.updatedAt)}
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))}
-            <p className="dashboard-table-limit">
+            <DashboardTableFooter>
               {searchMode
                 ? `Showing ${wallets.length} result${wallets.length === 1 ? '' : 's'}.`
                 : USER_WALLETS_TABLE_NOTE}
@@ -569,7 +588,7 @@ export function UserWalletsListPage(): React.JSX.Element {
                     walletScope.environmentId ? `, environment ${walletScope.environmentId}` : ''
                   }.`
                 : ''}
-            </p>
+            </DashboardTableFooter>
             <div className="dashboard-pagination-controls">
               {nextCursor ? (
                 <button
@@ -595,7 +614,7 @@ export function UserWalletsListPage(): React.JSX.Element {
             </div>
           </>
         )}
-      </section>
+      </DashboardTable>
 
       {selectedWalletId ? (
         <section className="dashboard-view__section" aria-label="Selected wallet detail">

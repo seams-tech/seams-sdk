@@ -1,4 +1,17 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableCell,
+  DashboardTableFooter,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableIntro,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { formatUsdMinor, type DashboardBillingInvoice } from './consoleBillingApi';
 import {
   BillingMetricsGrid,
@@ -14,6 +27,8 @@ export interface BillingInvoicesViewProps {
   invoiceListError: string;
   invoiceStatusFilter: string;
   setInvoiceStatusFilter: React.Dispatch<React.SetStateAction<string>>;
+  invoiceDocumentTypeFilter: string;
+  setInvoiceDocumentTypeFilter: React.Dispatch<React.SetStateAction<string>>;
   invoicePeriodFilter: string;
   setInvoicePeriodFilter: React.Dispatch<React.SetStateAction<string>>;
   invoices: DashboardBillingInvoice[];
@@ -27,6 +42,18 @@ export interface BillingInvoicesViewProps {
   onDownloadInvoicePdf: (invoiceId: string) => Promise<void>;
 }
 
+const BILLING_INVOICES_TABLE_COLUMNS = dashboardTableColumns(
+  1.05,
+  0.8,
+  0.8,
+  0.75,
+  0.9,
+  0.8,
+  0.75,
+  0.75,
+  1,
+);
+
 export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.Element {
   const {
     invoiceMetrics,
@@ -34,6 +61,8 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
     invoiceListError,
     invoiceStatusFilter,
     setInvoiceStatusFilter,
+    invoiceDocumentTypeFilter,
+    setInvoiceDocumentTypeFilter,
     invoicePeriodFilter,
     setInvoicePeriodFilter,
     invoices,
@@ -55,10 +84,10 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
       >
         <div className="dashboard-billing-overview__header">
           <div className="dashboard-billing-overview__copy">
-            <h2>Bill history</h2>
+            <h2>Invoice history</h2>
             <p>
-              Review invoice states, open details for settlement actions, and download PDF exports
-              for finance workflows.
+              Review prepaid purchase receipts and usage statements, open document detail, and
+              download PDF exports for finance workflows.
             </p>
           </div>
         </div>
@@ -72,9 +101,21 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
       >
         <div className="dashboard-billing-filters__copy">
           <h2>Filters</h2>
-          <p>Filter bill history by status or billing period month.</p>
+          <p>Filter history by document type, status, or billing period month.</p>
         </div>
         <div className="dashboard-billing-filters__controls">
+          <label className="dashboard-form-field">
+            <span>Document type</span>
+            <select
+              className="dashboard-input"
+              value={invoiceDocumentTypeFilter}
+              onChange={(event) => setInvoiceDocumentTypeFilter(event.target.value)}
+            >
+              <option value="all">All documents</option>
+              <option value="PURCHASE_RECEIPT">Purchase receipts</option>
+              <option value="USAGE_STATEMENT">Usage statements</option>
+            </select>
+          </label>
           <label className="dashboard-form-field">
             <span>Status</span>
             <select
@@ -102,95 +143,93 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
         </div>
       </section>
 
-      <section className="dashboard-table-wrapper" aria-label="Invoices table">
-        <div className="dashboard-table-limit dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">Invoices</h3>
+      <DashboardTable ariaLabel="Invoices table" columns={BILLING_INVOICES_TABLE_COLUMNS}>
+        <DashboardTableIntro className="dashboard-billing-table__intro">
+          <h3 className="dashboard-billing-table__title">Receipts and statements</h3>
           <p className="dashboard-billing-table__description">
-            Open any invoice to view line items, payment execution, and export actions.
+            Open any document to review line items, ledger activity, and export actions.
           </p>
           {invoiceDownloadError ? (
             <p className="dashboard-pagination-note">{invoiceDownloadError}</p>
           ) : invoiceListError ? (
             <p className="dashboard-pagination-note">{invoiceListError}</p>
           ) : null}
-        </div>
-        <div className="dashboard-table-header dashboard-billing-table--invoices" role="row">
-          <span>Invoice ID</span>
-          <span>Status</span>
-          <span>Period</span>
-          <span>Created</span>
-          <span>Due</span>
-          <span>Rail lock</span>
-          <span>Amount due</span>
-          <span>Amount paid</span>
-          <span>Actions</span>
-        </div>
+        </DashboardTableIntro>
+        <DashboardTableHeader>
+          <DashboardTableHeaderCell>Document ID</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Period</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Created</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Recorded rail</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Amount</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Paid</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {invoiceListLoading ? (
-          <p className="dashboard-table-limit">Loading invoices...</p>
+          <DashboardTableState>Loading invoices...</DashboardTableState>
         ) : invoices.length === 0 ? (
-          <p className="dashboard-table-limit">
-            {totalInvoices === 0 ? 'No invoices yet.' : 'No invoices match the current filters.'}
-          </p>
+          <DashboardTableState>
+            {totalInvoices === 0
+              ? 'No billing documents yet.'
+              : 'No documents match the current filters.'}
+          </DashboardTableState>
         ) : (
           <>
             {invoices.map((invoice) => (
-              <div
-                className="dashboard-table-row dashboard-billing-table--invoices"
-                key={invoice.id}
-                role="row"
-              >
-                <span title={invoice.id}>{invoice.id}</span>
-                <span>
+              <DashboardTableRow key={invoice.id}>
+                <DashboardTableCell title={invoice.id}>{invoice.id}</DashboardTableCell>
+                <DashboardTableCell>
+                  {invoice.documentType === 'PURCHASE_RECEIPT' ? 'Receipt' : 'Statement'}
+                </DashboardTableCell>
+                <DashboardTableCell>
                   <span className={getInvoiceStatusBadgeClassName(invoice.status)}>
                     {formatInvoiceStatusLabel(invoice.status)}
                   </span>
-                </span>
-                <span>{invoice.periodMonthUtc || '-'}</span>
-                <span>{formatTimestamp(invoice.createdAt)}</span>
-                <span>{formatTimestamp(invoice.dueAt)}</span>
-                <span>{invoice.railLock || '-'}</span>
-                <span>{formatUsdMinor(invoice.amountDueMinor)}</span>
-                <span>{formatUsdMinor(invoice.amountPaidMinor)}</span>
-                <span className="dashboard-billing-table__actions">
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => onOpenInvoice(invoice.id)}
-                  >
-                    View invoice
-                  </button>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => {
-                      void onDownloadInvoicePdf(invoice.id);
-                    }}
-                    disabled={downloadingInvoicePdfId === invoice.id}
-                  >
-                    {downloadingInvoicePdfId === invoice.id ? 'Downloading...' : 'Download PDF'}
-                  </button>
-                </span>
-              </div>
+                </DashboardTableCell>
+                <DashboardTableCell>{invoice.periodMonthUtc || '-'}</DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(invoice.createdAt)}
+                </DashboardTableCell>
+                <DashboardTableCell>{invoice.railLock || '-'}</DashboardTableCell>
+                <DashboardTableCell>{formatUsdMinor(invoice.amountDueMinor)}</DashboardTableCell>
+                <DashboardTableCell>{formatUsdMinor(invoice.amountPaidMinor)}</DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableActionGroup>
+                    <DashboardTableActionButton onClick={() => onOpenInvoice(invoice.id)}>
+                      View document
+                    </DashboardTableActionButton>
+                    <DashboardTableActionButton
+                      onClick={() => {
+                        void onDownloadInvoicePdf(invoice.id);
+                      }}
+                      disabled={downloadingInvoicePdfId === invoice.id}
+                    >
+                      {downloadingInvoicePdfId === invoice.id ? 'Downloading...' : 'Download PDF'}
+                    </DashboardTableActionButton>
+                  </DashboardTableActionGroup>
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))}
-            <p className="dashboard-table-limit">
-              Showing {invoices.length} invoice{invoices.length === 1 ? '' : 's'} of {totalInvoices}
-              .
-            </p>
+            <DashboardTableFooter>
+              Showing {invoices.length} document{invoices.length === 1 ? '' : 's'} of{' '}
+              {totalInvoices}.
+            </DashboardTableFooter>
             {hasMoreInvoices ? (
-              <div className="dashboard-table-limit dashboard-billing-pagination">
+              <div className="dashboard-data-table__footer dashboard-billing-pagination">
                 <button
                   type="button"
                   className="dashboard-pagination-button"
                   onClick={onLoadMoreInvoices}
                   disabled={loadingMoreInvoices}
                 >
-                  {loadingMoreInvoices ? 'Loading more...' : 'Load more invoices'}
+                  {loadingMoreInvoices ? 'Loading more...' : 'Load more documents'}
                 </button>
               </div>
             ) : null}
           </>
         )}
-      </section>
+      </DashboardTable>
     </>
   );
 }

@@ -1,6 +1,17 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableCell,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
+import {
   DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT,
   consumeOpenSelfMemberSettingsRequest,
 } from '../../accountSettingsIntents';
@@ -93,6 +104,7 @@ const DEFAULT_CATEGORY_ACCESS: TeamCategoryAccessMap = {
   integrations: 'NONE',
   billing: 'NONE',
 };
+const TEAM_MEMBERS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.8, 1.5, 0.85, 1.2);
 
 function makeDefaultCategoryAccess(): TeamCategoryAccessMap {
   return { ...DEFAULT_CATEGORY_ACCESS };
@@ -345,39 +357,52 @@ function TeamPermissionEditor(props: TeamPermissionEditorProps): React.JSX.Eleme
       <section className="dashboard-team-members-permission-editor__section">
         <p className="dashboard-team-members-permission-editor__title">Admin controls</p>
         <div className="dashboard-team-members-permission-flags">
-          <label className="dashboard-team-members-permission-flag">
-            <input
-              type="checkbox"
-              checked={props.isAdmin}
-              onChange={(event) => props.onIsAdminChange(event.target.checked)}
-              disabled={props.disabled || props.ownerRolePresent}
-            />
-            <span>Admin member</span>
-          </label>
-          <label className="dashboard-team-members-permission-flag">
-            <input
-              type="checkbox"
-              checked={props.canManageAdmins}
-              onChange={(event) => props.onCanManageAdminsChange(event.target.checked)}
-              disabled={props.disabled || props.ownerRolePresent}
-            />
-            <span>Can add/remove admins</span>
-          </label>
-          <label className="dashboard-team-members-permission-flag">
-            <input
-              type="checkbox"
-              checked={props.canManageMembers}
-              onChange={(event) => props.onCanManageMembersChange(event.target.checked)}
-              disabled={props.disabled || props.ownerRolePresent}
-            />
-            <span>Can add/remove team members</span>
-          </label>
+          <div className="dashboard-team-members-permission-flag dashboard-team-members-permission-flag--with-description">
+            <label className="dashboard-team-members-permission-flag__toggle dashboard-team-members-permission-flag__toggle-card">
+              <input
+                type="checkbox"
+                checked={props.isAdmin}
+                onChange={(event) => props.onIsAdminChange(event.target.checked)}
+                disabled={props.disabled || props.ownerRolePresent}
+              />
+              <span className="dashboard-team-members-permission-flag__label">Admin member</span>
+            </label>
+            <p className="dashboard-team-members-permission-flag__description">
+              Allows inviting members, editing member permissions, and removing members.
+            </p>
+          </div>
+          <div className="dashboard-team-members-permission-flag">
+            <label className="dashboard-team-members-permission-flag__toggle">
+              <input
+                type="checkbox"
+                checked={props.canManageAdmins}
+                onChange={(event) => props.onCanManageAdminsChange(event.target.checked)}
+                disabled={props.disabled || props.ownerRolePresent}
+              />
+              <span className="dashboard-team-members-permission-flag__label">
+                Can add/remove admins
+              </span>
+            </label>
+          </div>
+          <div className="dashboard-team-members-permission-flag">
+            <label className="dashboard-team-members-permission-flag__toggle">
+              <input
+                type="checkbox"
+                checked={props.canManageMembers}
+                onChange={(event) => props.onCanManageMembersChange(event.target.checked)}
+                disabled={props.disabled || props.ownerRolePresent}
+              />
+              <span className="dashboard-team-members-permission-flag__label">
+                Can add/remove team members
+              </span>
+            </label>
+          </div>
         </div>
       </section>
 
       <section className="dashboard-team-members-permission-editor__section">
         <p className="dashboard-team-members-permission-editor__title">
-          Sidebar category access levels
+          Sidebar Access Permissions
         </p>
         <div className="dashboard-team-members-access-list">
           {TEAM_PERMISSION_CATEGORIES.map((category) => (
@@ -778,19 +803,7 @@ export function TeamMembersPage(): React.JSX.Element {
           onClick={(event) => event.stopPropagation()}
         >
           <h2>Invite member</h2>
-          <p className="dashboard-pagination-note">
-            Use admin controls plus per-category read/write access levels when adding a member.
-          </p>
           <form className="dashboard-view-grid" onSubmit={onInviteMember}>
-            <label className="dashboard-form-field">
-              <span>User ID</span>
-              <input
-                className="dashboard-input"
-                value={generatedInviteUserId}
-                readOnly
-                placeholder="Generated from email"
-              />
-            </label>
             <label className="dashboard-form-field">
               <span>Email</span>
               <input
@@ -1072,37 +1085,34 @@ export function TeamMembersPage(): React.JSX.Element {
             </select>
           </label>
         </div>
-        <p className="dashboard-pagination-note">
-          Showing {visibleMembers.length} of {orderedMembers.length} loaded member
-          {orderedMembers.length === 1 ? '' : 's'}.
-        </p>
       </section>
 
-      <section
-        className="dashboard-table-wrapper dashboard-team-members-table"
-        aria-label="Team members table"
+      <DashboardTable
+        ariaLabel="Team members table"
+        className="dashboard-team-members-table"
+        columns={TEAM_MEMBERS_TABLE_COLUMNS}
       >
-        <div className="dashboard-table-header dashboard-team-members-table__row" role="row">
-          <span>Member</span>
-          <span>Status</span>
-          <span>Permissions</span>
-          <span>Updated</span>
-          <span>Actions</span>
-        </div>
+        <DashboardTableHeader className="dashboard-team-members-table__row">
+          <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Permissions</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {session.loading || loading ? (
-          <p className="dashboard-table-limit">Loading team members...</p>
+          <DashboardTableState>Loading team members...</DashboardTableState>
         ) : !session.claims ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             Team members unavailable: {session.errorMessage || 'unauthorized'}.
-          </p>
+          </DashboardTableState>
         ) : errorMessage ? (
-          <p className="dashboard-table-limit">Team members unavailable: {errorMessage}</p>
+          <DashboardTableState>Team members unavailable: {errorMessage}</DashboardTableState>
         ) : visibleMembers.length === 0 ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             {orderedMembers.length === 0
               ? 'No members found for the selected filter.'
               : 'No members matched the current search.'}
-          </p>
+          </DashboardTableState>
         ) : (
           <>
             {visibleMembers.map((member) => {
@@ -1110,12 +1120,11 @@ export function TeamMembersPage(): React.JSX.Element {
               const memberProfile = buildMemberProfile(member, session.claims);
               const permissionSummary = formatPermissionSummary(member.roles);
               return (
-                <div
-                  className="dashboard-table-row dashboard-team-members-table__row"
-                  key={member.id}
-                  role="row"
-                >
-                  <span className="dashboard-team-members-table__member" title={memberIdentity}>
+                <DashboardTableRow className="dashboard-team-members-table__row" key={member.id}>
+                  <DashboardTableCell
+                    className="dashboard-team-members-table__member"
+                    title={memberIdentity}
+                  >
                     <span className="dashboard-team-members-table__member-title">
                       {memberProfile.title}
                     </span>
@@ -1129,48 +1138,47 @@ export function TeamMembersPage(): React.JSX.Element {
                         {memberProfile.subtitle}
                       </span>
                     ) : null}
-                  </span>
-                  <span>{member.status}</span>
-                  <span
+                  </DashboardTableCell>
+                  <DashboardTableCell>{member.status}</DashboardTableCell>
+                  <DashboardTableCell
                     className="dashboard-team-members-table__permissions"
                     title={permissionSummary}
                   >
                     {permissionSummary}
-                  </span>
-                  <span>{formatTimestamp(member.updatedAt || member.createdAt)}</span>
-                  <span className="dashboard-team-members-table__actions">
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onOpenDetailModal(member)}
-                    >
-                      Details
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onOpenUpdateModal(member)}
-                      disabled={!canMutateTeam || member.status === 'REMOVED'}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-inline-link dashboard-inline-link--danger"
-                      onClick={() => onRemoveMember(member)}
-                      disabled={
-                        !canMutateTeam || busyMemberId === member.id || member.status === 'REMOVED'
-                      }
-                    >
-                      {busyMemberId === member.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </span>
-                </div>
+                  </DashboardTableCell>
+                  <DashboardTableCell truncate>
+                    {formatTimestamp(member.updatedAt || member.createdAt)}
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableActionGroup>
+                      <DashboardTableActionButton onClick={() => onOpenDetailModal(member)}>
+                        Details
+                      </DashboardTableActionButton>
+                      <DashboardTableActionButton
+                        onClick={() => onOpenUpdateModal(member)}
+                        disabled={!canMutateTeam || member.status === 'REMOVED'}
+                      >
+                        Edit
+                      </DashboardTableActionButton>
+                      <DashboardTableActionButton
+                        tone="danger"
+                        onClick={() => onRemoveMember(member)}
+                        disabled={
+                          !canMutateTeam ||
+                          busyMemberId === member.id ||
+                          member.status === 'REMOVED'
+                        }
+                      >
+                        {busyMemberId === member.id ? 'Deleting...' : 'Delete'}
+                      </DashboardTableActionButton>
+                    </DashboardTableActionGroup>
+                  </DashboardTableCell>
+                </DashboardTableRow>
               );
             })}
           </>
         )}
-      </section>
+      </DashboardTable>
       {modalHost ? createPortal(inviteModal, modalHost) : inviteModal}
       {modalHost ? createPortal(updateModal, modalHost) : updateModal}
       {modalHost ? createPortal(detailsModal, modalHost) : detailsModal}

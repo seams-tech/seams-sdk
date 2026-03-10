@@ -1,4 +1,13 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableCell,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -12,6 +21,26 @@ import {
 
 const DEFAULT_OBSERVABILITY_EVENTS_PAGE_SIZE = 50;
 const OBSERVABILITY_EVENTS_PAGE_SIZES = [25, 50, 100] as const;
+const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(
+  1,
+  0.8,
+  0.75,
+  0.95,
+  0.85,
+  0.95,
+  0.8,
+  1.1,
+);
+const OBSERVABILITY_EVENTS_TABLE_COLUMNS = dashboardTableColumns(
+  1,
+  1,
+  0.65,
+  0.85,
+  1.55,
+  0.8,
+  0.8,
+  1.15,
+);
 
 function formatTimestamp(value: string | undefined | null): string {
   const normalized = String(value || '').trim();
@@ -37,7 +66,10 @@ function metadataSummary(metadata: Record<string, unknown>): string {
   return keys.length > 3 ? `${first}, +${keys.length - 3} more` : first;
 }
 
-function toStatusWarning(label: string, status: DashboardConsoleObservabilityModuleStatus): string | null {
+function toStatusWarning(
+  label: string,
+  status: DashboardConsoleObservabilityModuleStatus,
+): string | null {
   if (status.state === 'ok') return null;
   const detail = status.message ? `: ${status.message}` : '';
   if (status.state === 'not_configured') return `${label} is not configured${detail}`;
@@ -267,36 +299,43 @@ export function ObservabilityPage(): React.JSX.Element {
             </article>
           </section>
         ) : null}
-        <section className="dashboard-table-wrapper" aria-label="Observability service health">
-          <div className="dashboard-table-header" role="row">
-            <span>Service</span>
-            <span>Status</span>
-            <span>Recent failures</span>
-            <span>Latest incident</span>
-            <span>Scope project</span>
-            <span>Scope environment</span>
-            <span>Summary state</span>
-            <span>Notes</span>
-          </div>
+        <DashboardTable
+          ariaLabel="Observability service health"
+          columns={OBSERVABILITY_SERVICE_TABLE_COLUMNS}
+        >
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Recent failures</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Latest incident</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Scope project</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Scope environment</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Summary state</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Notes</DashboardTableHeaderCell>
+          </DashboardTableHeader>
           {services.length === 0 ? (
-            <p className="dashboard-table-limit">
+            <DashboardTableState>
               {loading ? 'Loading service health...' : 'No service health records for this scope.'}
-            </p>
+            </DashboardTableState>
           ) : (
             services.map((entry) => (
-              <div className="dashboard-table-row" key={entry.service} role="row">
-                <span>{entry.service}</span>
-                <span>{entry.status}</span>
-                <span>{entry.recentFailureCount}</span>
-                <span>{formatTimestamp(entry.latestIncidentAt)}</span>
-                <span>{scope.projectId || '-'}</span>
-                <span>{scope.environmentId || '-'}</span>
-                <span>{summary?.status.state || '-'}</span>
-                <span>{entry.recentFailureCount > 0 ? 'Investigate recent failures' : '-'}</span>
-              </div>
+              <DashboardTableRow key={entry.service}>
+                <DashboardTableCell>{entry.service}</DashboardTableCell>
+                <DashboardTableCell>{entry.status}</DashboardTableCell>
+                <DashboardTableCell>{entry.recentFailureCount}</DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(entry.latestIncidentAt)}
+                </DashboardTableCell>
+                <DashboardTableCell>{scope.projectId || '-'}</DashboardTableCell>
+                <DashboardTableCell>{scope.environmentId || '-'}</DashboardTableCell>
+                <DashboardTableCell>{summary?.status.state || '-'}</DashboardTableCell>
+                <DashboardTableCell>
+                  {entry.recentFailureCount > 0 ? 'Investigate recent failures' : '-'}
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))
           )}
-        </section>
+        </DashboardTable>
       </section>
 
       <section
@@ -304,7 +343,10 @@ export function ObservabilityPage(): React.JSX.Element {
         aria-label="Observability events table"
       >
         <h2>Recent events</h2>
-        <div className="dashboard-filters dashboard-observability-filters" aria-label="Observability event filters">
+        <div
+          className="dashboard-filters dashboard-observability-filters"
+          aria-label="Observability event filters"
+        >
           <label className="dashboard-search-control dashboard-search-control--compact">
             <span className="dashboard-search-icon" aria-hidden="true" />
             <input
@@ -353,42 +395,49 @@ export function ObservabilityPage(): React.JSX.Element {
             />
           </label>
         </div>
-        <section className="dashboard-table-wrapper" aria-label="Observability events">
-          <div className="dashboard-table-header" role="row">
-            <span>Timestamp</span>
-            <span>Service</span>
-            <span>Level</span>
-            <span>Event type</span>
-            <span>Message</span>
-            <span>Request</span>
-            <span>Trace</span>
-            <span>Metadata</span>
-          </div>
+        <DashboardTable
+          ariaLabel="Observability events"
+          columns={OBSERVABILITY_EVENTS_TABLE_COLUMNS}
+        >
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Level</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Event type</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Message</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Request</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Trace</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Metadata</DashboardTableHeaderCell>
+          </DashboardTableHeader>
           {events.length === 0 ? (
-            <p className="dashboard-table-limit">
+            <DashboardTableState>
               {loading
                 ? 'Loading observability events...'
                 : hasEventsFilters
                   ? 'No observability events match the current filters.'
                   : 'No observability events for this scope.'}
-            </p>
+            </DashboardTableState>
           ) : (
             events.map((entry) => (
-              <div className="dashboard-table-row" key={entry.id} role="row">
-                <span>{formatTimestamp(entry.timestamp)}</span>
-                <span title={`${entry.service}/${entry.component}`}>
+              <DashboardTableRow key={entry.id}>
+                <DashboardTableCell truncate>{formatTimestamp(entry.timestamp)}</DashboardTableCell>
+                <DashboardTableCell title={`${entry.service}/${entry.component}`}>
                   {entry.service || '-'} {entry.component ? `(${entry.component})` : ''}
-                </span>
-                <span>{entry.level}</span>
-                <span>{entry.eventType || '-'}</span>
-                <span title={entry.message}>{entry.message || '-'}</span>
-                <span>{entry.requestId || '-'}</span>
-                <span>{entry.traceId || '-'}</span>
-                <span title={JSON.stringify(entry.metadata)}>{metadataSummary(entry.metadata)}</span>
-              </div>
+                </DashboardTableCell>
+                <DashboardTableCell>{entry.level}</DashboardTableCell>
+                <DashboardTableCell>{entry.eventType || '-'}</DashboardTableCell>
+                <DashboardTableCell title={entry.message}>
+                  {entry.message || '-'}
+                </DashboardTableCell>
+                <DashboardTableCell>{entry.requestId || '-'}</DashboardTableCell>
+                <DashboardTableCell>{entry.traceId || '-'}</DashboardTableCell>
+                <DashboardTableCell title={JSON.stringify(entry.metadata)}>
+                  {metadataSummary(entry.metadata)}
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))
           )}
-        </section>
+        </DashboardTable>
         <div className="dashboard-form-actions dashboard-observability-pagination">
           <button
             type="button"
@@ -433,10 +482,7 @@ export function ObservabilityPage(): React.JSX.Element {
                   {pageSize}
                 </button>
                 {index < OBSERVABILITY_EVENTS_PAGE_SIZES.length - 1 ? (
-                  <span
-                    className="dashboard-observability-page-size__separator"
-                    aria-hidden="true"
-                  >
+                  <span className="dashboard-observability-page-size__separator" aria-hidden="true">
                     |
                   </span>
                 ) : null}

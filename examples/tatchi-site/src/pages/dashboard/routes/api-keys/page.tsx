@@ -1,4 +1,16 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableCell,
+  DashboardTableFooter,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -73,6 +85,7 @@ const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = [
     description: 'Allows session refresh operations.',
   },
 ] as const;
+const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.15, 0.9, 0.9, 0.65, 0.95, 1.2, 0.85, 1.2);
 const DEFAULT_SECRET_SCOPES = ['accounts.create', 'accounts.sync'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
@@ -114,7 +127,9 @@ function formatTimestamp(value: string | null): string {
 }
 
 function normalizeOrigin(value: string): string {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizePaymentPolicyValue(
@@ -166,11 +181,11 @@ function parseOptionalDateTimeLocalValue(raw: string): string | null | undefined
 function buildSecretKeyServerSnippet(credential: string, environmentId: string): string {
   const envScope = String(environmentId || '').trim() || '<environment-id>';
   return [
-    "curl -X POST \"$RELAYER_URL/registration/bootstrap\" \\",
+    'curl -X POST "$RELAYER_URL/registration/bootstrap" \\',
     `  -H "Authorization: Bearer ${credential}" \\`,
     `  -H "X-Tatchi-Environment-Id: ${envScope}" \\`,
     '  -H "Content-Type: application/json" \\',
-    '  -d \'{',
+    "  -d '{",
     '    "new_account_id": "alice.testnet",',
     '    "rp_id": "localhost",',
     '    "account": { "type": "passkey" }',
@@ -252,7 +267,10 @@ function PublishablePaymentPolicyField(props: {
   );
 }
 
-function describeCredentialDetails(apiKey: DashboardConsoleApiKey): { short: string; title: string } {
+function describeCredentialDetails(apiKey: DashboardConsoleApiKey): {
+  short: string;
+  title: string;
+} {
   if (apiKey.kind === 'publishable_key') {
     const parts: string[] = [];
     parts.push(
@@ -554,7 +572,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             apiKeyId: editingApiKey.id,
             name,
             allowedOrigins,
-            rateLimitBucket: String(editingApiKey.rateLimitBucket || '').trim() || DEFAULT_RATE_LIMIT_BUCKET,
+            rateLimitBucket:
+              String(editingApiKey.rateLimitBucket || '').trim() || DEFAULT_RATE_LIMIT_BUCKET,
             quotaBucket: String(editingApiKey.quotaBucket || '').trim() || DEFAULT_QUOTA_BUCKET,
             riskPolicy:
               Object.keys(editingApiKey.riskPolicy || {}).length > 0
@@ -696,8 +715,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
           <div className="dashboard-section-toolbar__copy">
             <h2>Credentials</h2>
             <p className="dashboard-form-hint">
-              Create and manage <code>secret_key</code> and <code>publishable_key</code>{' '}
-              credentials for the selected environment.
+              Create and manage <code>secret_key</code> and <code>publishable_key</code> credentials
+              for the selected environment.
             </p>
           </div>
           <button
@@ -775,86 +794,94 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         </section>
       ) : null}
 
-      <section className="dashboard-table-wrapper" aria-label="Credentials table">
-        <div className="dashboard-table-header" role="row">
-          <span>Name</span>
-          <span>Kind</span>
-          <span>Environment</span>
-          <span>Status</span>
-          <span>Preview</span>
-          <span>Details</span>
-          <span>Last used</span>
-          <span>Actions</span>
-        </div>
+      <DashboardTable
+        ariaLabel="Credentials table"
+        className="dashboard-credential-table"
+        columns={API_KEYS_TABLE_COLUMNS}
+      >
+        <DashboardTableHeader>
+          <DashboardTableHeaderCell>Name</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Kind</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Environment</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Preview</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Last used</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {session.loading || loading ? (
-          <p className="dashboard-table-limit">Loading credentials...</p>
+          <DashboardTableState>Loading credentials...</DashboardTableState>
         ) : !session.claims ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             Credentials unavailable: {session.errorMessage || 'unauthorized'}.
-          </p>
+          </DashboardTableState>
         ) : errorMessage ? (
-          <p className="dashboard-table-limit">Credentials unavailable: {errorMessage}</p>
+          <DashboardTableState>Credentials unavailable: {errorMessage}</DashboardTableState>
         ) : visibleApiKeys.length === 0 ? (
-          <p className="dashboard-table-limit">No credentials found for current scope.</p>
+          <DashboardTableState>No credentials found for current scope.</DashboardTableState>
         ) : (
           <>
             {visibleApiKeys.map((apiKey) => {
               const details = describeCredentialDetails(apiKey);
               return (
-                <div className="dashboard-table-row" key={apiKey.id} role="row">
-                  <span title={apiKey.name}>{apiKey.name}</span>
-                  <span title={apiKey.kind}>{apiKey.kind}</span>
-                  <span title={apiKey.environmentId}>{apiKey.environmentId || '-'}</span>
-                  <span>{apiKey.status}</span>
-                  <span title={apiKey.credentialPreview}>{apiKey.credentialPreview || '-'}</span>
-                  <span title={details.title}>{details.short || '-'}</span>
-                  <span>{formatTimestamp(apiKey.lastUsedAt)}</span>
-                  <span className="dashboard-credential-table__actions">
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onOpenEditApiKey(apiKey)}
-                      disabled={busyApiKeyId === apiKey.id}
-                    >
-                      Edit
-                    </button>{' '}
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onRotateApiKey(apiKey)}
-                      disabled={busyApiKeyId === apiKey.id || apiKey.status === 'REVOKED'}
-                    >
-                      Rotate
-                    </button>{' '}
-                    {apiKey.status === 'REVOKED' ? (
-                      <button
-                        type="button"
-                        className="dashboard-inline-link dashboard-inline-link--danger"
-                        onClick={() => onDeleteRevokedApiKey(apiKey)}
+                <DashboardTableRow key={apiKey.id}>
+                  <DashboardTableCell title={apiKey.name}>{apiKey.name}</DashboardTableCell>
+                  <DashboardTableCell title={apiKey.kind}>{apiKey.kind}</DashboardTableCell>
+                  <DashboardTableCell title={apiKey.environmentId}>
+                    {apiKey.environmentId || '-'}
+                  </DashboardTableCell>
+                  <DashboardTableCell>{apiKey.status}</DashboardTableCell>
+                  <DashboardTableCell title={apiKey.credentialPreview}>
+                    {apiKey.credentialPreview || '-'}
+                  </DashboardTableCell>
+                  <DashboardTableCell title={details.title}>
+                    {details.short || '-'}
+                  </DashboardTableCell>
+                  <DashboardTableCell truncate>
+                    {formatTimestamp(apiKey.lastUsedAt)}
+                  </DashboardTableCell>
+                  <DashboardTableCell>
+                    <DashboardTableActionGroup>
+                      <DashboardTableActionButton
+                        onClick={() => onOpenEditApiKey(apiKey)}
                         disabled={busyApiKeyId === apiKey.id}
                       >
-                        Delete
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="dashboard-inline-link dashboard-inline-link--danger"
-                        onClick={() => onRevokeApiKey(apiKey)}
-                        disabled={busyApiKeyId === apiKey.id}
+                        Edit
+                      </DashboardTableActionButton>
+                      <DashboardTableActionButton
+                        onClick={() => onRotateApiKey(apiKey)}
+                        disabled={busyApiKeyId === apiKey.id || apiKey.status === 'REVOKED'}
                       >
-                        Revoke
-                      </button>
-                    )}
-                  </span>
-                </div>
+                        Rotate
+                      </DashboardTableActionButton>
+                      {apiKey.status === 'REVOKED' ? (
+                        <DashboardTableActionButton
+                          tone="danger"
+                          onClick={() => onDeleteRevokedApiKey(apiKey)}
+                          disabled={busyApiKeyId === apiKey.id}
+                        >
+                          Delete
+                        </DashboardTableActionButton>
+                      ) : (
+                        <DashboardTableActionButton
+                          tone="danger"
+                          onClick={() => onRevokeApiKey(apiKey)}
+                          disabled={busyApiKeyId === apiKey.id}
+                        >
+                          Revoke
+                        </DashboardTableActionButton>
+                      )}
+                    </DashboardTableActionGroup>
+                  </DashboardTableCell>
+                </DashboardTableRow>
               );
             })}
-            <p className="dashboard-table-limit">
+            <DashboardTableFooter>
               Showing {visibleApiKeys.length} credential{visibleApiKeys.length === 1 ? '' : 's'}.
-            </p>
+            </DashboardTableFooter>
           </>
         )}
-      </section>
+      </DashboardTable>
 
       {isCreateModalOpen ? (
         <div
@@ -895,14 +922,19 @@ export function ApiKeyManagementPage(): React.JSX.Element {
               })}
             </div>
 
-            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateApiKey}>
+            <form
+              className="dashboard-view-grid dashboard-view-grid--two"
+              onSubmit={onCreateApiKey}
+            >
               <label className="dashboard-form-field dashboard-form-field--full">
                 <span>Name</span>
                 <input
                   className="dashboard-input"
                   value={nameInput}
                   onChange={(event) => setNameInput(event.target.value)}
-                  placeholder={credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'}
+                  placeholder={
+                    credentialKindInput === 'publishable_key' ? 'frontend-app' : 'server-key'
+                  }
                   disabled={creating}
                 />
               </label>
@@ -914,7 +946,10 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       label="Allowed origins"
                       description={
                         <>
-                          <p>Use exact browser origins only. Managed registration runs from the wallet origin, not the app origin.</p>
+                          <p>
+                            Use exact browser origins only. Managed registration runs from the
+                            wallet origin, not the app origin.
+                          </p>
                           <p>
                             In this local dev setup, include <code>{walletOriginHint}</code>.
                           </p>
@@ -956,7 +991,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       disabled={creating}
                     />
                   </label>
-
                 </>
               )}
 
@@ -997,7 +1031,10 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             <p className="dashboard-pagination-note">
               <code>{editingApiKey.kind}</code> {editingApiKey.id}
             </p>
-            <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSaveApiKeyEdits}>
+            <form
+              className="dashboard-view-grid dashboard-view-grid--two"
+              onSubmit={onSaveApiKeyEdits}
+            >
               <label className="dashboard-form-field">
                 <span>Name</span>
                 <input
@@ -1031,8 +1068,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                             These origins are stored on this specific <code>publishable_key</code>.
                           </p>
                           <p className="dashboard-pagination-note">
-                            Use exact browser origins only. For local managed registration, include{' '}
-                            <code>{walletOriginHint}</code>.
+                            Use exact browser origins only.
                           </p>
                         </>
                       }
@@ -1086,7 +1122,11 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="dashboard-pagination-button" disabled={editingBusy}>
+                <button
+                  type="submit"
+                  className="dashboard-pagination-button"
+                  disabled={editingBusy}
+                >
                   {editingBusy ? 'Saving...' : 'Save changes'}
                 </button>
               </div>

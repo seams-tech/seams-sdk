@@ -1,4 +1,16 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableCell,
+  DashboardTableFooter,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -14,6 +26,26 @@ import {
 
 const WEBHOOK_SUBSCRIPTIONS = ['wallet', 'policy', 'auth', 'tx', 'billing'] as const;
 const WEBHOOK_SUBSCRIPTION_SET = new Set<string>(WEBHOOK_SUBSCRIPTIONS);
+const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(
+  1,
+  1.45,
+  1.05,
+  0.7,
+  0.85,
+  0.85,
+  0.85,
+  0.95,
+);
+const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(
+  1,
+  0.95,
+  0.9,
+  0.65,
+  0.8,
+  0.75,
+  0.9,
+  0.8,
+);
 
 function parseSubscriptions(raw: string): string[] {
   const out: string[] = [];
@@ -131,7 +163,9 @@ export function WebhooksPage(): React.JSX.Element {
         ...(input.cursor ? { cursor: input.cursor } : {}),
       })
         .then((page) => {
-          setDeliveries((current) => (appending ? [...current, ...page.deliveries] : page.deliveries));
+          setDeliveries((current) =>
+            appending ? [...current, ...page.deliveries] : page.deliveries,
+          );
           setDeliveriesNextCursor(page.nextCursor || '');
         })
         .catch((error: unknown) => {
@@ -264,8 +298,9 @@ export function WebhooksPage(): React.JSX.Element {
       <section className="dashboard-view__section" aria-label="Webhook endpoint controls">
         <h2>Create webhook endpoint</h2>
         <p>
-          Webhooks are org-scoped. Current topbar context: org {selectedContext.organization || '-'},
-          project {selectedContext.project || '-'}, environment {selectedContext.environment || '-'}.
+          Webhooks are org-scoped. Current topbar context: org {selectedContext.organization || '-'}
+          , project {selectedContext.project || '-'}, environment{' '}
+          {selectedContext.environment || '-'}.
         </p>
         <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onCreateEndpoint}>
           <label className="dashboard-form-field">
@@ -295,32 +330,32 @@ export function WebhooksPage(): React.JSX.Element {
         {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
       </section>
 
-      <section className="dashboard-table-wrapper" aria-label="Webhook endpoints table">
-        <div className="dashboard-table-header" role="row">
-          <span>Endpoint ID</span>
-          <span>URL</span>
-          <span>Subscriptions</span>
-          <span>Status</span>
-          <span>Secret</span>
-          <span>Updated</span>
-          <span>Created</span>
-          <span>Actions</span>
-        </div>
+      <DashboardTable ariaLabel="Webhook endpoints table" columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}>
+        <DashboardTableHeader>
+          <DashboardTableHeaderCell>Endpoint ID</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>URL</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Subscriptions</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Secret</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Created</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {session.loading || loading ? (
-          <p className="dashboard-table-limit">Loading webhook endpoints...</p>
+          <DashboardTableState>Loading webhook endpoints...</DashboardTableState>
         ) : !session.claims ? (
-          <p className="dashboard-table-limit">
+          <DashboardTableState>
             Webhooks unavailable: {session.errorMessage || 'unauthorized'}.
-          </p>
+          </DashboardTableState>
         ) : errorMessage ? (
-          <p className="dashboard-table-limit">Webhook endpoints unavailable: {errorMessage}</p>
+          <DashboardTableState>Webhook endpoints unavailable: {errorMessage}</DashboardTableState>
         ) : endpoints.length === 0 ? (
-          <p className="dashboard-table-limit">No webhook endpoints configured yet.</p>
+          <DashboardTableState>No webhook endpoints configured yet.</DashboardTableState>
         ) : (
           <>
             {endpoints.map((endpoint) => (
-              <div className="dashboard-table-row" key={endpoint.id} role="row">
-                <span title={endpoint.id}>
+              <DashboardTableRow key={endpoint.id}>
+                <DashboardTableCell title={endpoint.id}>
                   <button
                     type="button"
                     className="dashboard-inline-link"
@@ -328,89 +363,99 @@ export function WebhooksPage(): React.JSX.Element {
                   >
                     {endpoint.id}
                   </button>
-                </span>
-                <span title={endpoint.url}>{endpoint.url}</span>
-                <span title={endpoint.subscriptions.join(', ')}>
+                </DashboardTableCell>
+                <DashboardTableCell title={endpoint.url}>{endpoint.url}</DashboardTableCell>
+                <DashboardTableCell title={endpoint.subscriptions.join(', ')}>
                   {endpoint.subscriptions.join(', ') || '-'}
-                </span>
-                <span>{endpoint.status}</span>
-                <span title={endpoint.secretPreview}>
+                </DashboardTableCell>
+                <DashboardTableCell>{endpoint.status}</DashboardTableCell>
+                <DashboardTableCell title={endpoint.secretPreview}>
                   v{endpoint.secretVersion} {endpoint.secretPreview || ''}
-                </span>
-                <span>{formatTimestamp(endpoint.updatedAt)}</span>
-                <span>{formatTimestamp(endpoint.createdAt)}</span>
-                <span>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => onToggleEndpointStatus(endpoint)}
-                    disabled={busyEndpointId === endpoint.id}
-                  >
-                    {endpoint.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                  </button>{' '}
-                  <button
-                    type="button"
-                    className="dashboard-inline-link dashboard-inline-link--danger"
-                    onClick={() => onDeleteEndpoint(endpoint.id)}
-                    disabled={busyEndpointId === endpoint.id}
-                  >
-                    Delete
-                  </button>
-                </span>
-              </div>
+                </DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(endpoint.updatedAt)}
+                </DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(endpoint.createdAt)}
+                </DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableActionGroup>
+                    <DashboardTableActionButton
+                      onClick={() => onToggleEndpointStatus(endpoint)}
+                      disabled={busyEndpointId === endpoint.id}
+                    >
+                      {endpoint.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+                    </DashboardTableActionButton>
+                    <DashboardTableActionButton
+                      tone="danger"
+                      onClick={() => onDeleteEndpoint(endpoint.id)}
+                      disabled={busyEndpointId === endpoint.id}
+                    >
+                      Delete
+                    </DashboardTableActionButton>
+                  </DashboardTableActionGroup>
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))}
-            <p className="dashboard-table-limit">
+            <DashboardTableFooter>
               Showing {endpoints.length} endpoint{endpoints.length === 1 ? '' : 's'}.
-            </p>
+            </DashboardTableFooter>
           </>
         )}
-      </section>
+      </DashboardTable>
 
-      <section className="dashboard-table-wrapper" aria-label="Webhook deliveries table">
-        <div className="dashboard-table-header" role="row">
-          <span>Delivery ID</span>
-          <span>Event ID</span>
-          <span>Event type</span>
-          <span>Status</span>
-          <span>Attempts</span>
-          <span>Response</span>
-          <span>Last attempt</span>
-          <span>Action</span>
-        </div>
+      <DashboardTable
+        ariaLabel="Webhook deliveries table"
+        columns={WEBHOOK_DELIVERIES_TABLE_COLUMNS}
+      >
+        <DashboardTableHeader>
+          <DashboardTableHeaderCell>Delivery ID</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Event ID</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Event type</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Attempts</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Response</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Last attempt</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Action</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {!selectedEndpointId ? (
-          <p className="dashboard-table-limit">Select an endpoint to view deliveries.</p>
+          <DashboardTableState>Select an endpoint to view deliveries.</DashboardTableState>
         ) : deliveriesLoading ? (
-          <p className="dashboard-table-limit">Loading deliveries for {selectedEndpointId}...</p>
+          <DashboardTableState>Loading deliveries for {selectedEndpointId}...</DashboardTableState>
         ) : deliveriesError ? (
-          <p className="dashboard-table-limit">Deliveries unavailable: {deliveriesError}</p>
+          <DashboardTableState>Deliveries unavailable: {deliveriesError}</DashboardTableState>
         ) : deliveries.length === 0 ? (
-          <p className="dashboard-table-limit">No deliveries recorded for this endpoint yet.</p>
+          <DashboardTableState>No deliveries recorded for this endpoint yet.</DashboardTableState>
         ) : (
           <>
             {deliveries.map((delivery) => (
-              <div className="dashboard-table-row" key={delivery.id} role="row">
-                <span title={delivery.id}>{delivery.id}</span>
-                <span title={delivery.eventId}>{delivery.eventId || '-'}</span>
-                <span title={delivery.eventType}>{delivery.eventType || '-'}</span>
-                <span>{delivery.status}</span>
-                <span>
+              <DashboardTableRow key={delivery.id}>
+                <DashboardTableCell title={delivery.id}>{delivery.id}</DashboardTableCell>
+                <DashboardTableCell title={delivery.eventId}>
+                  {delivery.eventId || '-'}
+                </DashboardTableCell>
+                <DashboardTableCell title={delivery.eventType}>
+                  {delivery.eventType || '-'}
+                </DashboardTableCell>
+                <DashboardTableCell>{delivery.status}</DashboardTableCell>
+                <DashboardTableCell>
                   {delivery.attemptCount} (replays: {delivery.replayCount})
-                </span>
-                <span title={delivery.errorMessage || ''}>
+                </DashboardTableCell>
+                <DashboardTableCell title={delivery.errorMessage || ''}>
                   {delivery.responseStatus != null ? String(delivery.responseStatus) : '-'}
-                </span>
-                <span>{formatTimestamp(delivery.lastAttemptAt || delivery.deliveredAt)}</span>
-                <span>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
+                </DashboardTableCell>
+                <DashboardTableCell truncate>
+                  {formatTimestamp(delivery.lastAttemptAt || delivery.deliveredAt)}
+                </DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableActionButton
                     onClick={() => onReplayDelivery(delivery.endpointId, delivery.id)}
                     disabled={replayingDeliveryId === delivery.id}
                   >
                     {replayingDeliveryId === delivery.id ? 'Replaying...' : 'Replay'}
-                  </button>
-                </span>
-              </div>
+                  </DashboardTableActionButton>
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))}
             <div className="dashboard-pagination-controls">
               {deliveriesNextCursor ? (
@@ -434,7 +479,7 @@ export function WebhooksPage(): React.JSX.Element {
             </div>
           </>
         )}
-      </section>
+      </DashboardTable>
     </div>
   );
 }

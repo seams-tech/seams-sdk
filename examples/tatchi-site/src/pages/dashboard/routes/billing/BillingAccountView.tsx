@@ -1,33 +1,49 @@
 import React from 'react';
+import {
+  DashboardTable,
+  DashboardTableActionButton,
+  DashboardTableActionGroup,
+  DashboardTableCell,
+  DashboardTableFooter,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableIntro,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
 import type { TopbarContextState } from '../../types';
 import type {
   DashboardBillingPaymentMethod,
-  DashboardBillingSubscription,
   DashboardStripeSetupIntent,
 } from './consoleBillingApi';
-import {
-  BillingMetricsGrid,
-  formatInvoiceStatusLabel,
-  formatTimestamp,
-  type BillingMetric,
-} from './billingShared';
+import { BillingMetricsGrid, formatTimestamp, type BillingMetric } from './billingShared';
+
+const CREDIT_PACK_OPTIONS = [
+  { id: 'usd_50', label: '$50', detail: 'Small prepaid top-up' },
+  { id: 'usd_200', label: '$200', detail: 'Starter production balance' },
+  { id: 'usd_500', label: '$500', detail: 'Growth top-up' },
+  { id: 'usd_1000', label: '$1,000', detail: 'High-volume prepaid balance' },
+] as const;
+const BILLING_PAYMENT_METHODS_TABLE_COLUMNS = dashboardTableColumns(
+  1.05,
+  0.85,
+  0.75,
+  0.75,
+  0.65,
+  0.7,
+  0.65,
+  1.1,
+);
 
 export interface BillingAccountViewProps {
   selectedContext: TopbarContextState;
   summaryMetrics: BillingMetric[];
-  subscription: DashboardBillingSubscription | null;
-  subscriptionActionError: string;
-  startingCheckout: boolean;
+  checkoutActionError: string;
+  startingCheckoutPackId: string;
   openingCustomerPortal: boolean;
-  cancelingSubscription: boolean;
-  resumingSubscription: boolean;
-  canCancelSubscription: boolean;
-  canResumeSubscription: boolean;
-  onStartStripeCheckout: () => void;
-  onOpenCustomerPortal: () => void;
+  onStartStripeCheckout: (creditPackId: (typeof CREDIT_PACK_OPTIONS)[number]['id']) => void;
   onOpenPaymentMethodPortal: () => void;
-  onCancelSubscription: () => void;
-  onResumeSubscription: () => void;
   providerRefInput: string;
   setProviderRefInput: React.Dispatch<React.SetStateAction<string>>;
   brandInput: string;
@@ -55,19 +71,11 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
   const {
     selectedContext,
     summaryMetrics,
-    subscription,
-    subscriptionActionError,
-    startingCheckout,
+    checkoutActionError,
+    startingCheckoutPackId,
     openingCustomerPortal,
-    cancelingSubscription,
-    resumingSubscription,
-    canCancelSubscription,
-    canResumeSubscription,
     onStartStripeCheckout,
-    onOpenCustomerPortal,
     onOpenPaymentMethodPortal,
-    onCancelSubscription,
-    onResumeSubscription,
     providerRefInput,
     setProviderRefInput,
     brandInput,
@@ -101,8 +109,8 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
           <div className="dashboard-billing-overview__copy">
             <h2>Billing account</h2>
             <p>
-              Billing is organization-scoped. Use this view for plan lifecycle and payment method
-              administration. Invoice settlement actions live in invoice detail.
+              Billing is organization-scoped. Use prepaid balance for usage, top up credits with
+              one-time checkout, and manage saved payment methods here.
             </p>
           </div>
         </div>
@@ -126,111 +134,47 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
 
       <BillingMetricsGrid metrics={summaryMetrics} ariaLabel="Billing account summary metrics" />
 
-      <section className="dashboard-table-wrapper" aria-label="Subscription management table">
+      <section className="dashboard-table-wrapper" aria-label="Prepaid top-up actions">
         <div className="dashboard-table-limit dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">Subscriptions</h3>
+          <h3 className="dashboard-billing-table__title">Top up credits</h3>
           <p className="dashboard-billing-table__description">
-            Start or update plan checkout in Stripe, then manage renewals and billing profile access
-            from the customer portal.
+            Start a one-time Stripe checkout to add prepaid balance. Settled purchases appear in
+            invoice history as receipts.
           </p>
-          {subscriptionActionError ? (
-            <p className="dashboard-pagination-note">{subscriptionActionError}</p>
+          {checkoutActionError ? (
+            <p className="dashboard-pagination-note">{checkoutActionError}</p>
           ) : null}
         </div>
         <div className="dashboard-view-grid dashboard-view-grid--two">
-          <div className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card">
-            <h2>Current subscription</h2>
-            {!subscription ? (
-              <p className="dashboard-pagination-note">No subscription returned for this org.</p>
-            ) : (
-              <dl className="dashboard-billing-meta-list">
-                <div>
-                  <dt>Plan</dt>
-                  <dd>
-                    {subscription.planName} ({subscription.planId})
-                  </dd>
-                </div>
-                <div>
-                  <dt>Status</dt>
-                  <dd>{formatInvoiceStatusLabel(subscription.status)}</dd>
-                </div>
-                <div>
-                  <dt>Cancel at period end</dt>
-                  <dd>{subscription.cancelAtPeriodEnd ? 'Yes' : 'No'}</dd>
-                </div>
-                <div>
-                  <dt>Current period</dt>
-                  <dd>
-                    {formatTimestamp(subscription.currentPeriodStart)} to{' '}
-                    {formatTimestamp(subscription.currentPeriodEnd)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Cancel at</dt>
-                  <dd>{formatTimestamp(subscription.cancelAt)}</dd>
-                </div>
-                <div>
-                  <dt>Canceled at</dt>
-                  <dd>{formatTimestamp(subscription.canceledAt)}</dd>
-                </div>
-                <div>
-                  <dt>Customer reference</dt>
-                  <dd>{subscription.providerCustomerRef || '-'}</dd>
-                </div>
-                <div>
-                  <dt>Subscription reference</dt>
-                  <dd>{subscription.providerSubscriptionRef || '-'}</dd>
-                </div>
-              </dl>
-            )}
-          </div>
-          <div className="dashboard-view-card dashboard-view-grid dashboard-billing-actions-card">
-            <h2>Subscription actions</h2>
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={onStartStripeCheckout}
-                disabled={startingCheckout}
-              >
-                {startingCheckout ? 'Starting checkout...' : 'Start Stripe Checkout'}
-              </button>
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={onOpenCustomerPortal}
-                disabled={openingCustomerPortal}
-              >
-                {openingCustomerPortal ? 'Opening portal...' : 'Open Stripe Customer Portal'}
-              </button>
-            </div>
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={onCancelSubscription}
-                disabled={!canCancelSubscription || cancelingSubscription}
-              >
-                {cancelingSubscription ? 'Scheduling cancel...' : 'Cancel at period end'}
-              </button>
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={onResumeSubscription}
-                disabled={!canResumeSubscription || resumingSubscription}
-              >
-                {resumingSubscription ? 'Resuming...' : 'Resume subscription'}
-              </button>
-            </div>
-            <p className="dashboard-pagination-note">
-              Checkout success returns to <code>/dashboard/billing/account?checkout=success</code>.
-            </p>
-          </div>
+          {CREDIT_PACK_OPTIONS.map((pack) => (
+            <article
+              className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card"
+              key={pack.id}
+            >
+              <h2>{pack.label}</h2>
+              <p className="dashboard-pagination-note">{pack.detail}</p>
+              <div className="dashboard-form-actions">
+                <button
+                  type="button"
+                  className="dashboard-pagination-button"
+                  onClick={() => onStartStripeCheckout(pack.id)}
+                  disabled={startingCheckoutPackId === pack.id}
+                >
+                  {startingCheckoutPackId === pack.id
+                    ? 'Starting checkout...'
+                    : `Buy ${pack.label}`}
+                </button>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="dashboard-table-wrapper" aria-label="Payment methods table">
-        <div className="dashboard-table-limit dashboard-billing-table__intro">
+      <DashboardTable
+        ariaLabel="Payment methods table"
+        columns={BILLING_PAYMENT_METHODS_TABLE_COLUMNS}
+      >
+        <DashboardTableIntro className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Payment methods</h3>
           <p className="dashboard-billing-table__description">
             Use Stripe-managed flows for real card replacement and billing profile updates. The
@@ -336,67 +280,70 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
           {paymentMutationError ? (
             <p className="dashboard-pagination-note">{paymentMutationError}</p>
           ) : null}
-        </div>
-        <div className="dashboard-table-header" role="row">
-          <span>Method ID</span>
-          <span>Provider</span>
-          <span>Type</span>
-          <span>Brand</span>
-          <span>Last4</span>
-          <span>Expiry</span>
-          <span>Default</span>
-          <span>Actions</span>
-        </div>
+        </DashboardTableIntro>
+        <DashboardTableHeader>
+          <DashboardTableHeaderCell>Method ID</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Provider</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Brand</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Last4</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Expiry</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Default</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+        </DashboardTableHeader>
         {paymentMethods.length === 0 ? (
-          <p className="dashboard-table-limit">No card payment methods on file.</p>
+          <DashboardTableState>No card payment methods on file.</DashboardTableState>
         ) : (
           <>
             {paymentMethods.map((method) => (
-              <div className="dashboard-table-row" key={method.id} role="row">
-                <span title={method.id}>{method.id}</span>
-                <span>{method.provider || '-'}</span>
-                <span>{method.type || '-'}</span>
-                <span>{method.brand || '-'}</span>
-                <span>{method.last4 || '-'}</span>
-                <span>
+              <DashboardTableRow key={method.id}>
+                <DashboardTableCell title={method.id}>{method.id}</DashboardTableCell>
+                <DashboardTableCell>{method.provider || '-'}</DashboardTableCell>
+                <DashboardTableCell>{method.type || '-'}</DashboardTableCell>
+                <DashboardTableCell>{method.brand || '-'}</DashboardTableCell>
+                <DashboardTableCell>{method.last4 || '-'}</DashboardTableCell>
+                <DashboardTableCell>
                   {method.expMonth > 0 && method.expYear > 0
-                    ? `${String(method.expMonth).padStart(2, '0')}/${String(method.expYear)}`
+                    ? `${String(method.expMonth).padStart(2, '0')}/${method.expYear}`
                     : '-'}
-                </span>
-                <span>{method.isDefault ? 'Yes' : 'No'}</span>
-                <span className="dashboard-billing-payment-method-row__actions">
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => {
-                      void onSetDefaultPaymentMethod(method.id);
-                    }}
-                    disabled={
-                      !isBillingCardAdmin || busyPaymentMethodId === method.id || method.isDefault
-                    }
-                  >
-                    Set default
-                  </button>{' '}
-                  <button
-                    type="button"
-                    className="dashboard-inline-link dashboard-inline-link--danger"
-                    onClick={() => {
-                      void onRemovePaymentMethod(method.id);
-                    }}
-                    disabled={!isBillingCardAdmin || busyPaymentMethodId === method.id}
-                  >
-                    Remove
-                  </button>
-                </span>
-              </div>
+                </DashboardTableCell>
+                <DashboardTableCell>{method.isDefault ? 'Yes' : 'No'}</DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableActionGroup>
+                    <DashboardTableActionButton
+                      onClick={() => {
+                        void onSetDefaultPaymentMethod(method.id);
+                      }}
+                      disabled={
+                        busyPaymentMethodId === method.id || method.isDefault || !isBillingCardAdmin
+                      }
+                    >
+                      {busyPaymentMethodId === method.id && !method.isDefault
+                        ? 'Updating...'
+                        : method.isDefault
+                          ? 'Default'
+                          : 'Set default'}
+                    </DashboardTableActionButton>
+                    <DashboardTableActionButton
+                      tone="danger"
+                      onClick={() => {
+                        void onRemovePaymentMethod(method.id);
+                      }}
+                      disabled={busyPaymentMethodId === method.id || !isBillingCardAdmin}
+                    >
+                      {busyPaymentMethodId === method.id ? 'Removing...' : 'Remove'}
+                    </DashboardTableActionButton>
+                  </DashboardTableActionGroup>
+                </DashboardTableCell>
+              </DashboardTableRow>
             ))}
-            <p className="dashboard-table-limit">
-              Showing {paymentMethods.length} payment method{paymentMethods.length === 1 ? '' : 's'}
-              .
-            </p>
+            <DashboardTableFooter>
+              Showing {paymentMethods.length} payment method
+              {paymentMethods.length === 1 ? '' : 's'}.
+            </DashboardTableFooter>
           </>
         )}
-      </section>
+      </DashboardTable>
     </>
   );
 }

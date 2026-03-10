@@ -1,14 +1,19 @@
 import React from 'react';
 import {
+  DashboardTable,
+  DashboardTableCell,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableIntro,
+  DashboardTableRow,
+  DashboardTableState,
+  dashboardTableColumns,
+} from '../../components/DashboardTable';
+import {
   formatUsdMinor,
   type DashboardBillingInvoiceActivity,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceLineItem,
-  type DashboardStablecoinAssetSupport,
-  type DashboardStablecoinPaymentIntent,
-  type DashboardStablecoinPaymentQuote,
-  type DashboardStripePaymentIntent,
-  type DashboardStripeSetupIntent,
 } from './consoleBillingApi';
 import {
   BillingMetricsGrid,
@@ -17,6 +22,17 @@ import {
   getInvoiceStatusBadgeClassName,
   type BillingMetric,
 } from './billingShared';
+
+const BILLING_INVOICE_LINE_ITEMS_TABLE_COLUMNS = dashboardTableColumns(
+  1,
+  0.7,
+  1.45,
+  0.7,
+  0.55,
+  0.7,
+  0.7,
+  0.95,
+);
 
 export interface BillingInvoiceDetailViewProps {
   invoiceId: string;
@@ -33,35 +49,6 @@ export interface BillingInvoiceDetailViewProps {
   invoiceDownloadError: string;
   onBackToInvoices: () => void;
   onDownloadInvoicePdf: (invoiceId: string) => Promise<void>;
-  stripePaymentMethodIdInput: string;
-  setStripePaymentMethodIdInput: React.Dispatch<React.SetStateAction<string>>;
-  creatingStripeSetupIntent: boolean;
-  creatingStripePaymentIntent: boolean;
-  onCreateStripeSetupIntent: () => Promise<void>;
-  onCreateStripePaymentIntent: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  stripeSetupIntent: DashboardStripeSetupIntent | null;
-  stripePaymentIntent: DashboardStripePaymentIntent | null;
-  stablecoinAssets: DashboardStablecoinAssetSupport[];
-  stablecoinAssetInput: string;
-  setStablecoinAssetInput: React.Dispatch<React.SetStateAction<string>>;
-  stablecoinChainInput: string;
-  setStablecoinChainInput: React.Dispatch<React.SetStateAction<string>>;
-  stablecoinChainOptions: DashboardStablecoinAssetSupport['chains'];
-  creatingStablecoinQuote: boolean;
-  onCreateStablecoinQuote: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  stablecoinQuote: DashboardStablecoinPaymentQuote | null;
-  stablecoinQuoteIdInput: string;
-  setStablecoinQuoteIdInput: React.Dispatch<React.SetStateAction<string>>;
-  creatingStablecoinPaymentIntent: boolean;
-  onCreateStablecoinPaymentIntent: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  stablecoinPaymentIntent: DashboardStablecoinPaymentIntent | null;
-  stablecoinIntentIdInput: string;
-  setStablecoinIntentIdInput: React.Dispatch<React.SetStateAction<string>>;
-  refreshingStablecoinIntent: boolean;
-  cancelingStablecoinIntent: boolean;
-  onRefreshStablecoinIntent: () => Promise<void>;
-  onCancelStablecoinIntent: () => Promise<void>;
-  paymentExecutionError: string;
 }
 
 export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): React.JSX.Element {
@@ -80,64 +67,28 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
     invoiceDownloadError,
     onBackToInvoices,
     onDownloadInvoicePdf,
-    stripePaymentMethodIdInput,
-    setStripePaymentMethodIdInput,
-    creatingStripeSetupIntent,
-    creatingStripePaymentIntent,
-    onCreateStripeSetupIntent,
-    onCreateStripePaymentIntent,
-    stripeSetupIntent,
-    stripePaymentIntent,
-    stablecoinAssets,
-    stablecoinAssetInput,
-    setStablecoinAssetInput,
-    stablecoinChainInput,
-    setStablecoinChainInput,
-    stablecoinChainOptions,
-    creatingStablecoinQuote,
-    onCreateStablecoinQuote,
-    stablecoinQuote,
-    stablecoinQuoteIdInput,
-    setStablecoinQuoteIdInput,
-    creatingStablecoinPaymentIntent,
-    onCreateStablecoinPaymentIntent,
-    stablecoinPaymentIntent,
-    stablecoinIntentIdInput,
-    setStablecoinIntentIdInput,
-    refreshingStablecoinIntent,
-    cancelingStablecoinIntent,
-    onRefreshStablecoinIntent,
-    onCancelStablecoinIntent,
-    paymentExecutionError,
   } = props;
-
-  const outstandingBalanceMinor = Math.max(
-    0,
-    Number(invoice?.amountDueMinor || 0) - Number(invoice?.amountPaidMinor || 0),
-  );
-  const canExecutePayment =
-    invoice != null && invoice.status === 'OPEN' && outstandingBalanceMinor > 0;
 
   const detailMetrics: BillingMetric[] = [
     {
+      label: 'Document type',
+      value: invoice?.documentType === 'PURCHASE_RECEIPT' ? 'Purchase receipt' : 'Usage statement',
+      hint: invoice?.id || invoiceId,
+    },
+    {
       label: 'Status',
       value: invoice ? formatInvoiceStatusLabel(invoice.status) : '-',
-      hint: invoice?.railLock ? `Rail lock: ${invoice.railLock}` : 'No rail lock',
+      hint: invoice?.railLock ? `Recorded via ${invoice.railLock}` : 'No payment rail recorded',
     },
     {
-      label: 'Outstanding',
-      value: formatUsdMinor(outstandingBalanceMinor),
-      hint: `Amount due ${formatUsdMinor(Number(invoice?.amountDueMinor || 0))}`,
+      label: 'Amount',
+      value: formatUsdMinor(Number(invoice?.amountDueMinor || 0)),
+      hint: `Paid ${formatUsdMinor(Number(invoice?.amountPaidMinor || 0))}`,
     },
     {
-      label: 'Billing period',
+      label: 'Period',
       value: invoice?.periodMonthUtc || '-',
       hint: `Created ${formatTimestamp(invoice?.createdAt || null)}`,
-    },
-    {
-      label: 'Due date',
-      value: formatTimestamp(invoice?.dueAt || null),
-      hint: `Paid ${formatUsdMinor(Number(invoice?.amountPaidMinor || 0))}`,
     },
   ];
 
@@ -167,9 +118,9 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
           </button>
         </div>
         <div className="dashboard-billing-invoice-hero__copy">
-          <p className="dashboard-billing-invoice-hero__eyebrow">Invoice detail</p>
+          <p className="dashboard-billing-invoice-hero__eyebrow">Billing document</p>
           <h2>{invoice?.id || invoiceId}</h2>
-          <p>View line items, payment state, and settlement actions for this invoice.</p>
+          <p>View document status, line items, and recorded ledger activity.</p>
         </div>
         {invoiceDownloadError ? (
           <p className="dashboard-pagination-note">{invoiceDownloadError}</p>
@@ -194,9 +145,10 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
 
           <section className="dashboard-table-wrapper" aria-label="Invoice activity timeline">
             <div className="dashboard-table-limit dashboard-billing-table__intro">
-              <h3 className="dashboard-billing-table__title">Status timeline</h3>
+              <h3 className="dashboard-billing-table__title">Document activity</h3>
               <p className="dashboard-billing-table__description">
-                Review invoice issuance and payment-state transitions in one chronological feed.
+                Review document creation, ledger entries, and any recorded payment transitions in
+                one chronological feed.
               </p>
               {invoiceActivity?.latestPaymentState ? (
                 <p className="dashboard-pagination-note">
@@ -216,7 +168,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
               ) : null}
             </div>
             {invoiceActivityLoading ? (
-              <p className="dashboard-table-limit">Loading invoice activity...</p>
+              <p className="dashboard-table-limit">Loading document activity...</p>
             ) : invoiceActivity?.entries.length ? (
               <div className="dashboard-billing-timeline">
                 {invoiceActivity.entries.map((entry) => (
@@ -237,262 +189,59 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
                 ))}
               </div>
             ) : (
-              <p className="dashboard-table-limit">No invoice activity has been recorded yet.</p>
+              <p className="dashboard-table-limit">No document activity has been recorded yet.</p>
             )}
           </section>
 
-          <section className="dashboard-table-wrapper" aria-label="Invoice line items">
-            <div className="dashboard-table-limit dashboard-billing-table__intro">
+          <DashboardTable
+            ariaLabel="Invoice line items"
+            columns={BILLING_INVOICE_LINE_ITEMS_TABLE_COLUMNS}
+          >
+            <DashboardTableIntro className="dashboard-billing-table__intro">
               <h3 className="dashboard-billing-table__title">Line items</h3>
               <p className="dashboard-billing-table__description">
-                Review the priced components that make up this invoice.
+                Review the billed or credited components captured in this document snapshot.
               </p>
-            </div>
-            <div className="dashboard-table-header" role="row">
-              <span>Line item ID</span>
-              <span>Type</span>
-              <span>Description</span>
-              <span>Period</span>
-              <span>Quantity</span>
-              <span>Unit amount</span>
-              <span>Amount</span>
-              <span>Invoice</span>
-            </div>
+            </DashboardTableIntro>
+            <DashboardTableHeader>
+              <DashboardTableHeaderCell>Line item ID</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Description</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Period</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Quantity</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Unit amount</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Amount</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Invoice</DashboardTableHeaderCell>
+            </DashboardTableHeader>
             {lineItemsLoading ? (
-              <p className="dashboard-table-limit">Loading line items...</p>
+              <DashboardTableState>Loading line items...</DashboardTableState>
             ) : lineItemsError ? (
-              <p className="dashboard-table-limit">Line items unavailable: {lineItemsError}</p>
+              <DashboardTableState>Line items unavailable: {lineItemsError}</DashboardTableState>
             ) : lineItems.length === 0 ? (
-              <p className="dashboard-table-limit">No line items for this invoice.</p>
+              <DashboardTableState>No line items for this document.</DashboardTableState>
             ) : (
               <>
                 {lineItems.map((lineItem) => (
-                  <div className="dashboard-table-row" key={lineItem.id} role="row">
-                    <span title={lineItem.id}>{lineItem.id}</span>
-                    <span>{lineItem.itemType || '-'}</span>
-                    <span title={lineItem.description}>{lineItem.description || '-'}</span>
-                    <span>{lineItem.periodMonthUtc || '-'}</span>
-                    <span>{String(lineItem.quantity)}</span>
-                    <span>{formatUsdMinor(lineItem.unitAmountMinor)}</span>
-                    <span>{formatUsdMinor(lineItem.amountMinor)}</span>
-                    <span title={lineItem.invoiceId}>{lineItem.invoiceId}</span>
-                  </div>
+                  <DashboardTableRow key={lineItem.id}>
+                    <DashboardTableCell title={lineItem.id}>{lineItem.id}</DashboardTableCell>
+                    <DashboardTableCell>{lineItem.itemType || '-'}</DashboardTableCell>
+                    <DashboardTableCell title={lineItem.description}>
+                      {lineItem.description || '-'}
+                    </DashboardTableCell>
+                    <DashboardTableCell>{lineItem.periodMonthUtc || '-'}</DashboardTableCell>
+                    <DashboardTableCell>{String(lineItem.quantity)}</DashboardTableCell>
+                    <DashboardTableCell>
+                      {formatUsdMinor(lineItem.unitAmountMinor)}
+                    </DashboardTableCell>
+                    <DashboardTableCell>{formatUsdMinor(lineItem.amountMinor)}</DashboardTableCell>
+                    <DashboardTableCell title={lineItem.invoiceId} truncate>
+                      {lineItem.invoiceId}
+                    </DashboardTableCell>
+                  </DashboardTableRow>
                 ))}
-                <p className="dashboard-table-limit">
-                  Showing {lineItems.length} line item{lineItems.length === 1 ? '' : 's'}.
-                </p>
               </>
             )}
-          </section>
-
-          <section className="dashboard-table-wrapper" aria-label="Payment execution table">
-            <div className="dashboard-table-limit dashboard-billing-table__intro">
-              <h3 className="dashboard-billing-table__title">Payment execution</h3>
-              <p className="dashboard-billing-table__description">
-                Settlement actions are invoice-scoped. Card and stablecoin flows both operate
-                against the current invoice.
-              </p>
-              {!canExecutePayment ? (
-                <p className="dashboard-pagination-note">
-                  This invoice is not currently payable from the dashboard. Open invoices with
-                  outstanding balance can create settlement intents.
-                </p>
-              ) : null}
-              {paymentExecutionError ? (
-                <p className="dashboard-pagination-note">{paymentExecutionError}</p>
-              ) : null}
-            </div>
-            <div className="dashboard-view-grid dashboard-view-grid--two">
-              <form
-                className="dashboard-view-card dashboard-view-grid dashboard-billing-execution-card"
-                onSubmit={(event) => {
-                  void onCreateStripePaymentIntent(event);
-                }}
-              >
-                <h2>Stripe card payment</h2>
-                <p className="dashboard-pagination-note">Invoice: {invoice.id}</p>
-                <label className="dashboard-form-field">
-                  <span>Payment method ID (optional)</span>
-                  <input
-                    className="dashboard-input"
-                    value={stripePaymentMethodIdInput}
-                    onChange={(event) => setStripePaymentMethodIdInput(event.target.value)}
-                    placeholder="pm_..."
-                    disabled={!canExecutePayment}
-                  />
-                </label>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="button"
-                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                    onClick={() => {
-                      void onCreateStripeSetupIntent();
-                    }}
-                    disabled={creatingStripeSetupIntent}
-                  >
-                    {creatingStripeSetupIntent ? 'Creating setup intent...' : 'Create setup intent'}
-                  </button>
-                </div>
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={!canExecutePayment || creatingStripePaymentIntent}
-                  >
-                    {creatingStripePaymentIntent
-                      ? 'Creating payment intent...'
-                      : 'Create Stripe payment intent'}
-                  </button>
-                </div>
-                <p className="dashboard-pagination-note">
-                  Invoice rail lock: {invoice.railLock || '-'}; outstanding:{' '}
-                  {formatUsdMinor(outstandingBalanceMinor)}.
-                </p>
-                <p className="dashboard-pagination-note">
-                  Setup intent:{' '}
-                  {stripeSetupIntent
-                    ? `${stripeSetupIntent.id} (expires ${formatTimestamp(stripeSetupIntent.expiresAt)})`
-                    : '-'}
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest card payment intent:{' '}
-                  {stripePaymentIntent
-                    ? `${stripePaymentIntent.id} state=${stripePaymentIntent.state} amount=${formatUsdMinor(stripePaymentIntent.amountMinor)}`
-                    : '-'}
-                </p>
-              </form>
-
-              <div className="dashboard-view-card dashboard-view-grid dashboard-billing-execution-card">
-                <form
-                  className="dashboard-view-grid"
-                  onSubmit={(event) => {
-                    void onCreateStablecoinQuote(event);
-                  }}
-                >
-                  <h2>Stablecoin payment</h2>
-                  <p className="dashboard-pagination-note">Invoice: {invoice.id}</p>
-                  <label className="dashboard-form-field">
-                    <span>Asset</span>
-                    <select
-                      className="dashboard-input"
-                      value={stablecoinAssetInput}
-                      onChange={(event) => setStablecoinAssetInput(event.target.value)}
-                      disabled={!canExecutePayment}
-                    >
-                      {stablecoinAssets.map((assetSupport) => (
-                        <option key={assetSupport.asset} value={assetSupport.asset}>
-                          {assetSupport.asset}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="dashboard-form-field">
-                    <span>Chain</span>
-                    <select
-                      className="dashboard-input"
-                      value={stablecoinChainInput}
-                      onChange={(event) => setStablecoinChainInput(event.target.value)}
-                      disabled={!canExecutePayment}
-                    >
-                      {stablecoinChainOptions.map((policy) => (
-                        <option key={policy.chain} value={policy.chain}>
-                          {policy.chain}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
-                      disabled={!canExecutePayment || creatingStablecoinQuote}
-                    >
-                      {creatingStablecoinQuote ? 'Creating quote...' : 'Create stablecoin quote'}
-                    </button>
-                  </div>
-                </form>
-
-                <form
-                  className="dashboard-view-grid"
-                  onSubmit={(event) => {
-                    void onCreateStablecoinPaymentIntent(event);
-                  }}
-                >
-                  <label className="dashboard-form-field">
-                    <span>Quote ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={stablecoinQuoteIdInput}
-                      onChange={(event) => setStablecoinQuoteIdInput(event.target.value)}
-                      placeholder="scq_..."
-                      disabled={!canExecutePayment}
-                    />
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
-                      disabled={!canExecutePayment || creatingStablecoinPaymentIntent}
-                    >
-                      {creatingStablecoinPaymentIntent
-                        ? 'Creating payment intent...'
-                        : 'Create stablecoin payment intent'}
-                    </button>
-                  </div>
-                </form>
-
-                <div className="dashboard-view-grid">
-                  <label className="dashboard-form-field">
-                    <span>Stablecoin payment intent ID</span>
-                    <input
-                      className="dashboard-input"
-                      value={stablecoinIntentIdInput}
-                      onChange={(event) => setStablecoinIntentIdInput(event.target.value)}
-                      placeholder="scpi_..."
-                    />
-                  </label>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={() => {
-                        void onRefreshStablecoinIntent();
-                      }}
-                      disabled={refreshingStablecoinIntent}
-                    >
-                      {refreshingStablecoinIntent ? 'Refreshing...' : 'Refresh stablecoin status'}
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => {
-                        void onCancelStablecoinIntent();
-                      }}
-                      disabled={cancelingStablecoinIntent}
-                    >
-                      {cancelingStablecoinIntent ? 'Canceling...' : 'Cancel stablecoin intent'}
-                    </button>
-                  </div>
-                </div>
-                <p className="dashboard-pagination-note">
-                  Invoice rail lock: {invoice.railLock || '-'}; outstanding:{' '}
-                  {formatUsdMinor(outstandingBalanceMinor)}.
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest stablecoin quote:{' '}
-                  {stablecoinQuote
-                    ? `${stablecoinQuote.id} ${stablecoinQuote.asset}/${stablecoinQuote.chain} amount=${formatUsdMinor(stablecoinQuote.amountMinor)} state=${stablecoinQuote.state}`
-                    : '-'}
-                </p>
-                <p className="dashboard-pagination-note">
-                  Latest stablecoin payment intent:{' '}
-                  {stablecoinPaymentIntent
-                    ? `${stablecoinPaymentIntent.id} state=${stablecoinPaymentIntent.state} amount=${formatUsdMinor(stablecoinPaymentIntent.expectedAmountMinor)} destination=${stablecoinPaymentIntent.destinationAddress || '-'}`
-                    : '-'}
-                </p>
-              </div>
-            </div>
-          </section>
+          </DashboardTable>
         </>
       )}
     </>
