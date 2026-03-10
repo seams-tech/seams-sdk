@@ -13,6 +13,7 @@ import {
   DashboardTableState,
   DashboardTableStatus,
   dashboardTableColumns,
+  useDashboardTablePagination,
   type DashboardTableTone,
 } from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
@@ -96,6 +97,27 @@ export function AuditLogsPage(): React.JSX.Element {
   const [fromInput, setFromInput] = React.useState<string>('');
   const [toInput, setToInput] = React.useState<string>('');
   const [expandedEventId, setExpandedEventId] = React.useState<string>('');
+  const eventsPagination = useDashboardTablePagination(events, {
+    disabled: loading,
+    initialRowsPerPage: 10,
+    itemLabel: 'event',
+    itemLabelPlural: 'events',
+  });
+  const setEventsPage = eventsPagination.setPage;
+  const auditTablePagination = React.useMemo(
+    () => ({
+      ...eventsPagination.pagination,
+      onPageChange: (page: number) => {
+        setExpandedEventId('');
+        eventsPagination.setPage(page);
+      },
+      onRowsPerPageChange: (rowsPerPage: number) => {
+        setExpandedEventId('');
+        eventsPagination.setRowsPerPage(rowsPerPage);
+      },
+    }),
+    [eventsPagination, setExpandedEventId],
+  );
 
   React.useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -110,6 +132,8 @@ export function AuditLogsPage(): React.JSX.Element {
     if (!session.claims) {
       setLoading(false);
       setEvents([]);
+      setEventsPage(1);
+      setExpandedEventId('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
@@ -135,10 +159,14 @@ export function AuditLogsPage(): React.JSX.Element {
       .then((nextEvents) => {
         if (cancelled) return;
         setEvents(nextEvents);
+        setEventsPage(1);
+        setExpandedEventId('');
       })
       .catch((error: unknown) => {
         if (cancelled) return;
         setEvents([]);
+        setEventsPage(1);
+        setExpandedEventId('');
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
@@ -153,6 +181,7 @@ export function AuditLogsPage(): React.JSX.Element {
     debouncedSearchInput,
     eventCategoryFilter,
     eventOutcomeFilter,
+    setEventsPage,
     fromInput,
     selectedEnvironmentId,
     selectedProjectId,
@@ -252,7 +281,11 @@ export function AuditLogsPage(): React.JSX.Element {
         aria-label="Audit events table"
       >
         <h2>Events</h2>
-        <DashboardTable ariaLabel="Audit events" columns={AUDIT_EVENTS_TABLE_COLUMNS}>
+        <DashboardTable
+          ariaLabel="Audit events"
+          columns={AUDIT_EVENTS_TABLE_COLUMNS}
+          pagination={auditTablePagination}
+        >
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
@@ -268,7 +301,7 @@ export function AuditLogsPage(): React.JSX.Element {
                 : 'No audit events matched the current scope and filters.'}
             </DashboardTableState>
           ) : (
-            events.map((row) => {
+            eventsPagination.rows.map((row) => {
               const isExpanded = expandedEventId === row.id;
               return (
                 <React.Fragment key={row.id}>

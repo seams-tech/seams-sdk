@@ -10,6 +10,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -385,6 +386,11 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     () => visibleApiKeys.find((entry) => entry.id === editingApiKeyId) || null,
     [editingApiKeyId, visibleApiKeys],
   );
+  const apiKeysPagination = useDashboardTablePagination(visibleApiKeys, {
+    disabled: session.loading || loading,
+    itemLabel: 'credential',
+    itemLabelPlural: 'credentials',
+  });
 
   const onOpenCreateModal = React.useCallback(() => {
     setEditingApiKeyId('');
@@ -798,6 +804,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         ariaLabel="Credentials table"
         className="dashboard-credential-table"
         columns={API_KEYS_TABLE_COLUMNS}
+        pagination={apiKeysPagination.pagination}
       >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Name</DashboardTableHeaderCell>
@@ -821,7 +828,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
           <DashboardTableState>No credentials found for current scope.</DashboardTableState>
         ) : (
           <>
-            {visibleApiKeys.map((apiKey) => {
+            {apiKeysPagination.rows.map((apiKey) => {
               const details = describeCredentialDetails(apiKey);
               return (
                 <DashboardTableRow key={apiKey.id}>

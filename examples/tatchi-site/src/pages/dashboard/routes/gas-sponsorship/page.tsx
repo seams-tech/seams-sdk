@@ -11,6 +11,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
 import { useDashboardConsoleSession } from '../../consoleSession';
@@ -719,7 +720,6 @@ function formatRuleSummary(config: DashboardGasSponsorshipConfig): string {
 export function GasSponsorshipPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
-  const viewRef = React.useRef<HTMLDivElement | null>(null);
   const selectedOrgId = normalizeString(
     selectedContext.organization || session.claims?.orgId || '',
   );
@@ -743,7 +743,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
   const [selectedProjectName, setSelectedProjectName] = React.useState<string>('');
   const [selectedEnvironmentKey, setSelectedEnvironmentKey] = React.useState<string>('');
   const [selectedEnvironmentName, setSelectedEnvironmentName] = React.useState<string>('');
-  const [modalScrollRoot, setModalScrollRoot] = React.useState<HTMLElement | null>(null);
   const [modalInitialForm, setModalInitialForm] = React.useState<GasSponsorshipFormState>(() =>
     createInitialFormState(selectedProjectId, selectedEnvironmentId),
   );
@@ -790,18 +789,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
 
   const currentScopeKey = `${selectedOrgId}:${selectedProjectId}:${selectedEnvironmentId}`;
   const previousScopeKeyRef = React.useRef<string>(currentScopeKey);
-  React.useEffect(() => {
-    setModalScrollRoot(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
-  }, []);
-
-  React.useEffect(() => {
-    if (!modalScrollRoot || !activeModal) return;
-    modalScrollRoot.classList.add('dashboard-main--modal-open');
-    return () => {
-      modalScrollRoot.classList.remove('dashboard-main--modal-open');
-    };
-  }, [activeModal, modalScrollRoot]);
-
   React.useEffect(() => {
     if (previousScopeKeyRef.current === currentScopeKey) return;
     previousScopeKeyRef.current = currentScopeKey;
@@ -892,6 +879,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
     () => gasConfigs.find((config) => config.id === selectedConfigId) || null,
     [gasConfigs, selectedConfigId],
   );
+  const gasConfigsPagination = useDashboardTablePagination(gasConfigs, {
+    disabled: session.loading || loading,
+    itemLabel: 'policy',
+    itemLabelPlural: 'policies',
+  });
 
   React.useEffect(() => {
     if (!session.claims || !selectedProjectId || !selectedEnvironmentId) {
@@ -1251,7 +1243,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
   );
 
   return (
-    <div ref={viewRef} className="dashboard-view" aria-label="Gas sponsorship page">
+    <div className="dashboard-view" aria-label="Gas sponsorship page">
       {mutationNotice || mutationError ? (
         <section className="dashboard-view__section" aria-label="Gas sponsorship summary">
           {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
@@ -1298,6 +1290,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
               ariaLabel="Gas sponsorship rows"
               className="dashboard-gas-sponsorship-table"
               columns={GAS_SPONSORSHIP_TABLE_COLUMNS}
+              pagination={gasConfigsPagination.pagination}
             >
               <DashboardTableHeader className="dashboard-gas-sponsorship-table__header">
                 <DashboardTableHeaderCell>Policy</DashboardTableHeaderCell>
@@ -1313,7 +1306,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   No gas sponsorship configs found in this scope yet.
                 </DashboardTableState>
               ) : (
-                gasConfigs.map((config) => (
+                gasConfigsPagination.rows.map((config) => (
                   <DashboardTableRow
                     className="dashboard-gas-sponsorship-table__row"
                     key={config.id}

@@ -11,6 +11,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { formatUsdMinor, type DashboardBillingInvoice } from './consoleBillingApi';
 import {
@@ -33,12 +34,9 @@ export interface BillingInvoicesViewProps {
   setInvoicePeriodFilter: React.Dispatch<React.SetStateAction<string>>;
   invoices: DashboardBillingInvoice[];
   totalInvoices: number;
-  hasMoreInvoices: boolean;
-  loadingMoreInvoices: boolean;
   downloadingInvoicePdfId: string;
   invoiceDownloadError: string;
   onOpenInvoice: (invoiceId: string) => void;
-  onLoadMoreInvoices: () => void;
   onDownloadInvoicePdf: (invoiceId: string) => Promise<void>;
 }
 
@@ -67,14 +65,16 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
     setInvoicePeriodFilter,
     invoices,
     totalInvoices,
-    hasMoreInvoices,
-    loadingMoreInvoices,
     downloadingInvoicePdfId,
     invoiceDownloadError,
     onOpenInvoice,
-    onLoadMoreInvoices,
     onDownloadInvoicePdf,
   } = props;
+  const invoicesPagination = useDashboardTablePagination(invoices, {
+    disabled: invoiceListLoading,
+    itemLabel: 'document',
+    itemLabelPlural: 'documents',
+  });
 
   return (
     <>
@@ -143,7 +143,11 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
         </div>
       </section>
 
-      <DashboardTable ariaLabel="Invoices table" columns={BILLING_INVOICES_TABLE_COLUMNS}>
+      <DashboardTable
+        ariaLabel="Invoices table"
+        columns={BILLING_INVOICES_TABLE_COLUMNS}
+        pagination={invoicesPagination.pagination}
+      >
         <DashboardTableIntro className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Receipts and statements</h3>
           <p className="dashboard-billing-table__description">
@@ -161,7 +165,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Period</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Created</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Recorded rail</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Amount</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Paid</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
@@ -176,7 +179,7 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           </DashboardTableState>
         ) : (
           <>
-            {invoices.map((invoice) => (
+            {invoicesPagination.rows.map((invoice) => (
               <DashboardTableRow key={invoice.id}>
                 <DashboardTableCell title={invoice.id}>{invoice.id}</DashboardTableCell>
                 <DashboardTableCell>
@@ -191,7 +194,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
                 <DashboardTableCell truncate>
                   {formatTimestamp(invoice.createdAt)}
                 </DashboardTableCell>
-                <DashboardTableCell>{invoice.railLock || '-'}</DashboardTableCell>
                 <DashboardTableCell>{formatUsdMinor(invoice.amountDueMinor)}</DashboardTableCell>
                 <DashboardTableCell>{formatUsdMinor(invoice.amountPaidMinor)}</DashboardTableCell>
                 <DashboardTableCell>
@@ -212,21 +214,9 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
               </DashboardTableRow>
             ))}
             <DashboardTableFooter>
-              Showing {invoices.length} document{invoices.length === 1 ? '' : 's'} of{' '}
+              Showing {invoices.length} loaded document{invoices.length === 1 ? '' : 's'} of{' '}
               {totalInvoices}.
             </DashboardTableFooter>
-            {hasMoreInvoices ? (
-              <div className="dashboard-data-table__footer dashboard-billing-pagination">
-                <button
-                  type="button"
-                  className="dashboard-pagination-button"
-                  onClick={onLoadMoreInvoices}
-                  disabled={loadingMoreInvoices}
-                >
-                  {loadingMoreInvoices ? 'Loading more...' : 'Load more documents'}
-                </button>
-              </div>
-            ) : null}
           </>
         )}
       </DashboardTable>

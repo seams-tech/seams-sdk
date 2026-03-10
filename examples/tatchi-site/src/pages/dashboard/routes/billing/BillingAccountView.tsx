@@ -4,13 +4,13 @@ import {
   DashboardTableActionButton,
   DashboardTableActionGroup,
   DashboardTableCell,
-  DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableIntro,
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import type { TopbarContextState } from '../../types';
 import type {
@@ -98,6 +98,10 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
     onSetDefaultPaymentMethod,
     onRemovePaymentMethod,
   } = props;
+  const paymentMethodsPagination = useDashboardTablePagination(paymentMethods, {
+    itemLabel: 'payment method',
+    itemLabelPlural: 'payment methods',
+  });
 
   return (
     <>
@@ -173,6 +177,7 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
       <DashboardTable
         ariaLabel="Payment methods table"
         columns={BILLING_PAYMENT_METHODS_TABLE_COLUMNS}
+        pagination={paymentMethodsPagination.pagination}
       >
         <DashboardTableIntro className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Payment methods</h3>
@@ -295,7 +300,7 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
           <DashboardTableState>No card payment methods on file.</DashboardTableState>
         ) : (
           <>
-            {paymentMethods.map((method) => (
+            {paymentMethodsPagination.rows.map((method) => (
               <DashboardTableRow key={method.id}>
                 <DashboardTableCell title={method.id}>{method.id}</DashboardTableCell>
                 <DashboardTableCell>{method.provider || '-'}</DashboardTableCell>
@@ -337,10 +342,6 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
                 </DashboardTableCell>
               </DashboardTableRow>
             ))}
-            <DashboardTableFooter>
-              Showing {paymentMethods.length} payment method
-              {paymentMethods.length === 1 ? '' : 's'}.
-            </DashboardTableFooter>
           </>
         )}
       </DashboardTable>

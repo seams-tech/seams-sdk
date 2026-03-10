@@ -5,11 +5,55 @@ export type DashboardTableTone = 'neutral' | 'success' | 'warning' | 'danger';
 export type DashboardTableColumnSize = number | string;
 export type DashboardTableColumns = number | readonly DashboardTableColumnSize[];
 
+const DEFAULT_DASHBOARD_TABLE_ROWS_PER_PAGE_OPTIONS = [10, 25, 50] as const;
+const DEFAULT_DASHBOARD_TABLE_JUMP_PAGES = [10, 25, 50] as const;
+
 export interface DashboardTableProps {
   ariaLabel: string;
   columns: DashboardTableColumns;
   className?: string;
+  pagination?: DashboardTablePaginationConfig;
   children: React.ReactNode;
+}
+
+export interface DashboardTablePaginationConfig {
+  page: number;
+  totalPages: number;
+  totalRows: number;
+  rowsPerPage: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+  disabled?: boolean;
+  itemLabel?: string;
+  itemLabelPlural?: string;
+  quickJumpPages?: readonly number[];
+  quickJumpThreshold?: number;
+  rowsPerPageOptions?: readonly number[];
+  showJumpToPageInput?: boolean;
+  onRowsPerPageChange?: (rowsPerPage: number) => void;
+}
+
+export interface DashboardTablePaginationOptions {
+  initialPage?: number;
+  initialRowsPerPage?: number;
+  disabled?: boolean;
+  itemLabel?: string;
+  itemLabelPlural?: string;
+  quickJumpPages?: readonly number[];
+  quickJumpThreshold?: number;
+  rowsPerPageOptions?: readonly number[];
+  showJumpToPageInput?: boolean;
+}
+
+export interface DashboardTablePaginationResult<T> {
+  page: number;
+  rows: readonly T[];
+  rowsPerPage: number;
+  setPage: (page: number) => void;
+  setRowsPerPage: (rowsPerPage: number) => void;
+  totalPages: number;
+  totalRows: number;
+  pagination: DashboardTablePaginationConfig;
 }
 
 export interface DashboardTableIntroProps {
@@ -90,6 +134,68 @@ export interface DashboardTableDetailsItemProps {
   children: React.ReactNode;
 }
 
+interface DashboardTablePaginationJumpTarget {
+  label: string;
+  page: number;
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function normalizeRowsPerPageOptions(options?: readonly number[]): number[] {
+  const source = options?.length ? options : DEFAULT_DASHBOARD_TABLE_ROWS_PER_PAGE_OPTIONS;
+  const normalized: number[] = [];
+  const seen = new Set<number>();
+  for (const option of source) {
+    const pageSize = Math.max(1, Math.floor(Number(option) || 0));
+    if (seen.has(pageSize)) continue;
+    seen.add(pageSize);
+    normalized.push(pageSize);
+  }
+  return normalized.length > 0 ? normalized : [DEFAULT_DASHBOARD_TABLE_ROWS_PER_PAGE_OPTIONS[0]];
+}
+
+function normalizeRowsPerPageValue(value: number, options: readonly number[]): number {
+  const normalized = Math.max(1, Math.floor(Number(value) || 0));
+  return options.includes(normalized) ? normalized : options[0];
+}
+
+function buildPaginationJumpTargets(
+  totalPages: number,
+  quickJumpPages?: readonly number[],
+  quickJumpThreshold?: number,
+): DashboardTablePaginationJumpTarget[] {
+  const minimumPageCount = Math.max(1, Math.floor(Number(quickJumpThreshold) || 10));
+  if (totalPages <= minimumPageCount) return [];
+  const targets: DashboardTablePaginationJumpTarget[] = [];
+  const seen = new Set<number>();
+  const normalizedTargets = quickJumpPages?.length
+    ? quickJumpPages
+    : DEFAULT_DASHBOARD_TABLE_JUMP_PAGES;
+  for (const rawTarget of normalizedTargets) {
+    const targetPage = Math.max(1, Math.floor(Number(rawTarget) || 0));
+    if (targetPage <= 1 || targetPage >= totalPages || seen.has(targetPage)) continue;
+    seen.add(targetPage);
+    targets.push({ label: String(targetPage), page: targetPage });
+  }
+  if (!seen.has(totalPages)) {
+    targets.push({ label: 'Last', page: totalPages });
+  }
+  return targets;
+}
+
+function buildPaginationSummary(config: DashboardTablePaginationConfig): string {
+  const singular = config.itemLabel || 'row';
+  const plural = config.itemLabelPlural || `${singular}s`;
+  if (config.totalRows <= 0) return `Showing 0 of 0 ${plural}`;
+  const rangeStart = (config.page - 1) * config.rowsPerPage + 1;
+  const rangeEnd = Math.min(config.totalRows, config.page * config.rowsPerPage);
+  return `Showing ${rangeStart}-${rangeEnd} of ${config.totalRows} ${
+    config.totalRows === 1 ? singular : plural
+  }`;
+}
+
 function buildTableTemplate(columns: DashboardTableColumns): string {
   if (typeof columns === 'number') {
     return `repeat(${Math.max(1, columns)}, minmax(0, 1fr))`;
@@ -120,6 +226,98 @@ export function dashboardTableColumns(
   return sizes.length === 0 ? [1] : sizes;
 }
 
+export function useDashboardTablePagination<T>(
+  rows: readonly T[],
+  options: DashboardTablePaginationOptions = {},
+): DashboardTablePaginationResult<T> {
+  const rowsPerPageOptions = React.useMemo(
+    () => normalizeRowsPerPageOptions(options.rowsPerPageOptions),
+    [options.rowsPerPageOptions],
+  );
+  const [page, setPageState] = React.useState<number>(Math.max(1, options.initialPage || 1));
+  const [rowsPerPage, setRowsPerPageState] = React.useState<number>(() =>
+    normalizeRowsPerPageValue(
+      options.initialRowsPerPage || rowsPerPageOptions[0],
+      rowsPerPageOptions,
+    ),
+  );
+  const totalRows = rows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / rowsPerPage));
+
+  React.useEffect(() => {
+    setPageState((current) => clampNumber(current, 1, totalPages));
+  }, [totalPages]);
+
+  React.useEffect(() => {
+    setRowsPerPageState((current) => normalizeRowsPerPageValue(current, rowsPerPageOptions));
+  }, [rowsPerPageOptions]);
+
+  const setPage = React.useCallback(
+    (nextPage: number) => {
+      setPageState(clampNumber(Math.floor(Number(nextPage) || 1), 1, totalPages));
+    },
+    [totalPages],
+  );
+
+  const setRowsPerPage = React.useCallback(
+    (nextRowsPerPage: number) => {
+      const normalized = normalizeRowsPerPageValue(nextRowsPerPage, rowsPerPageOptions);
+      setRowsPerPageState(normalized);
+      setPageState(1);
+    },
+    [rowsPerPageOptions],
+  );
+
+  const pagedRows = React.useMemo(() => {
+    const start = (page - 1) * rowsPerPage;
+    return rows.slice(start, start + rowsPerPage);
+  }, [page, rows, rowsPerPage]);
+
+  const pagination = React.useMemo<DashboardTablePaginationConfig>(
+    () => ({
+      page,
+      totalPages,
+      totalRows,
+      rowsPerPage,
+      rowsPerPageOptions,
+      quickJumpPages: options.quickJumpPages,
+      quickJumpThreshold: options.quickJumpThreshold,
+      showJumpToPageInput: options.showJumpToPageInput,
+      itemLabel: options.itemLabel,
+      itemLabelPlural: options.itemLabelPlural,
+      disabled: options.disabled,
+      onPageChange: setPage,
+      onRowsPerPageChange: setRowsPerPage,
+    }),
+    [
+      options.disabled,
+      options.itemLabel,
+      options.itemLabelPlural,
+      options.quickJumpPages,
+      options.quickJumpThreshold,
+      options.showJumpToPageInput,
+      page,
+      rowsPerPage,
+      rowsPerPageOptions,
+      setPage,
+      setRowsPerPage,
+      totalPages,
+      totalRows,
+    ],
+  );
+
+  return {
+    page,
+    rows: pagedRows,
+    rowsPerPage,
+    setPage,
+    setRowsPerPage,
+    totalPages,
+    totalRows,
+    pagination,
+  };
+}
+
 export function dashboardTableToneClassName(
   baseClassName: string,
   tone: DashboardTableTone = 'neutral',
@@ -128,7 +326,7 @@ export function dashboardTableToneClassName(
 }
 
 export function DashboardTable(props: DashboardTableProps): React.JSX.Element {
-  const { ariaLabel, columns, className, children } = props;
+  const { ariaLabel, columns, className, pagination, children } = props;
   return (
     <section
       className={clsx('dashboard-data-table', className)}
@@ -137,6 +335,9 @@ export function DashboardTable(props: DashboardTableProps): React.JSX.Element {
       style={buildTableStyle(columns)}
     >
       {children}
+      {pagination && pagination.totalRows > 0 && !pagination.disabled ? (
+        <DashboardTablePagination pagination={pagination} />
+      ) : null}
     </section>
   );
 }
@@ -214,6 +415,150 @@ export function DashboardTableState(props: DashboardTableStateProps): React.JSX.
 export function DashboardTableFooter(props: DashboardTableFooterProps): React.JSX.Element {
   const { className, children } = props;
   return <div className={clsx('dashboard-data-table__footer', className)}>{children}</div>;
+}
+
+export function DashboardTablePagination(props: {
+  pagination: DashboardTablePaginationConfig;
+}): React.JSX.Element {
+  const { pagination } = props;
+  const {
+    className,
+    disabled = false,
+    onPageChange,
+    onRowsPerPageChange,
+    page,
+    quickJumpPages,
+    quickJumpThreshold,
+    rowsPerPage,
+    showJumpToPageInput,
+    totalPages,
+    rowsPerPageOptions,
+  } = pagination;
+  const jumpTargets = React.useMemo(
+    () => buildPaginationJumpTargets(totalPages, quickJumpPages, quickJumpThreshold),
+    [quickJumpPages, quickJumpThreshold, totalPages],
+  );
+  const pageSizeOptions = React.useMemo(
+    () => normalizeRowsPerPageOptions(rowsPerPageOptions),
+    [rowsPerPageOptions],
+  );
+  const controlsDisabled = disabled || pagination.totalRows <= 0;
+  const showPageJumpInput = showJumpToPageInput !== false && totalPages > 1;
+  const [jumpToPageValue, setJumpToPageValue] = React.useState<string>(String(page));
+
+  React.useEffect(() => {
+    setJumpToPageValue(String(page));
+  }, [page]);
+
+  const commitJumpToPage = React.useCallback(() => {
+    if (controlsDisabled) return;
+    const nextPage = Math.floor(Number(jumpToPageValue) || 0);
+    if (nextPage < 1) {
+      setJumpToPageValue(String(page));
+      return;
+    }
+    const normalizedPage = clampNumber(nextPage, 1, totalPages);
+    setJumpToPageValue(String(normalizedPage));
+    if (normalizedPage !== page) {
+      onPageChange(normalizedPage);
+    }
+  }, [controlsDisabled, jumpToPageValue, onPageChange, page, totalPages]);
+
+  return (
+    <div className={clsx('dashboard-data-table__pagination', className)}>
+      <span className="dashboard-data-table__pagination-summary">
+        {buildPaginationSummary(pagination)}
+      </span>
+      <div className="dashboard-data-table__pagination-controls">
+        <div className="dashboard-data-table__pagination-nav">
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            disabled={controlsDisabled || page <= 1}
+            onClick={() => onPageChange(page - 1)}
+          >
+            Previous
+          </button>
+          <span
+            className="dashboard-data-table__pagination-page"
+            aria-label={`Current page ${page} of ${totalPages}`}
+          >
+            Page {page} | {totalPages}
+          </span>
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            disabled={controlsDisabled || page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+          >
+            Next
+          </button>
+        </div>
+        {jumpTargets.length > 0 ? (
+          <div className="dashboard-data-table__pagination-jumps" aria-label="Jump to page">
+            <span className="dashboard-pagination-note">Jump to</span>
+            {jumpTargets.map((target) => (
+              <button
+                key={`${target.label}-${target.page}`}
+                type="button"
+                className="dashboard-data-table__pagination-jump-button"
+                disabled={controlsDisabled || target.page === page}
+                onClick={() => onPageChange(target.page)}
+              >
+                {target.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      {showPageJumpInput || onRowsPerPageChange ? (
+        <div className="dashboard-data-table__pagination-tools">
+          {showPageJumpInput ? (
+            <form
+              className="dashboard-data-table__pagination-jump-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                commitJumpToPage();
+              }}
+            >
+              <label className="dashboard-data-table__pagination-jump-label">
+                <span className="dashboard-pagination-note">Jump to page</span>
+                <input
+                  className="dashboard-input dashboard-data-table__pagination-jump-input"
+                  type="number"
+                  min={1}
+                  max={totalPages}
+                  step={1}
+                  inputMode="numeric"
+                  value={jumpToPageValue}
+                  disabled={controlsDisabled}
+                  onChange={(event) => setJumpToPageValue(event.target.value)}
+                  onBlur={commitJumpToPage}
+                />
+              </label>
+            </form>
+          ) : null}
+          {onRowsPerPageChange ? (
+            <label className="dashboard-data-table__pagination-size">
+              <span className="dashboard-pagination-note">Rows</span>
+              <select
+                className="dashboard-input dashboard-data-table__pagination-select"
+                value={rowsPerPage}
+                disabled={disabled}
+                onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
+              >
+                {pageSizeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function DashboardTableBadge(props: DashboardTableBadgeProps): React.JSX.Element {

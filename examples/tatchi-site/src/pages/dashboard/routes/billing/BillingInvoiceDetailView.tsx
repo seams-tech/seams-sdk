@@ -8,6 +8,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import {
   formatUsdMinor,
@@ -78,7 +79,10 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
     {
       label: 'Status',
       value: invoice ? formatInvoiceStatusLabel(invoice.status) : '-',
-      hint: invoice?.railLock ? `Recorded via ${invoice.railLock}` : 'No payment rail recorded',
+      hint:
+        invoice?.documentType === 'PURCHASE_RECEIPT'
+          ? 'Settled prepaid credit purchase'
+          : 'Generated from recorded prepaid usage',
     },
     {
       label: 'Amount',
@@ -91,6 +95,11 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
       hint: `Created ${formatTimestamp(invoice?.createdAt || null)}`,
     },
   ];
+  const lineItemsPagination = useDashboardTablePagination(lineItems, {
+    disabled: lineItemsLoading,
+    itemLabel: 'line item',
+    itemLabelPlural: 'line items',
+  });
 
   return (
     <>
@@ -147,22 +156,8 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
             <div className="dashboard-table-limit dashboard-billing-table__intro">
               <h3 className="dashboard-billing-table__title">Document activity</h3>
               <p className="dashboard-billing-table__description">
-                Review document creation, ledger entries, and any recorded payment transitions in
-                one chronological feed.
+                Review document creation and ledger activity in one chronological feed.
               </p>
-              {invoiceActivity?.latestPaymentState ? (
-                <p className="dashboard-pagination-note">
-                  Latest payment state:{' '}
-                  <span
-                    className={getInvoiceStatusBadgeClassName(invoiceActivity.latestPaymentState)}
-                  >
-                    {formatInvoiceStatusLabel(invoiceActivity.latestPaymentState)}
-                  </span>
-                  {invoiceActivity.latestPaymentRail
-                    ? ` via ${invoiceActivity.latestPaymentRail}`
-                    : ''}
-                </p>
-              ) : null}
               {invoiceActivityError ? (
                 <p className="dashboard-pagination-note">{invoiceActivityError}</p>
               ) : null}
@@ -181,8 +176,6 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
                     </div>
                     <p className="dashboard-billing-timeline__meta">
                       {formatTimestamp(entry.occurredAt)}
-                      {entry.rail ? ` • ${entry.rail}` : ''}
-                      {entry.paymentId ? ` • ${entry.paymentId}` : ''}
                       {entry.actorUserId ? ` • ${entry.actorUserId}` : ''}
                     </p>
                   </article>
@@ -196,6 +189,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
           <DashboardTable
             ariaLabel="Invoice line items"
             columns={BILLING_INVOICE_LINE_ITEMS_TABLE_COLUMNS}
+            pagination={lineItemsPagination.pagination}
           >
             <DashboardTableIntro className="dashboard-billing-table__intro">
               <h3 className="dashboard-billing-table__title">Line items</h3>
@@ -221,7 +215,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
               <DashboardTableState>No line items for this document.</DashboardTableState>
             ) : (
               <>
-                {lineItems.map((lineItem) => (
+                {lineItemsPagination.rows.map((lineItem) => (
                   <DashboardTableRow key={lineItem.id}>
                     <DashboardTableCell title={lineItem.id}>{lineItem.id}</DashboardTableCell>
                     <DashboardTableCell>{lineItem.itemType || '-'}</DashboardTableCell>

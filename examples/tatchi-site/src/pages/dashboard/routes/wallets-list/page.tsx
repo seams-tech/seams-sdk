@@ -13,6 +13,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -148,11 +149,8 @@ export function UserWalletsListPage(): React.JSX.Element {
   const filtersRef = React.useRef<HTMLElement | null>(null);
   const [query, setQuery] = React.useState<string>('');
   const [wallets, setWallets] = React.useState<DashboardConsoleWallet[]>([]);
-  const [nextCursor, setNextCursor] = React.useState<string>('');
   const [loading, setLoading] = React.useState<boolean>(true);
-  const [loadingMore, setLoadingMore] = React.useState<boolean>(false);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
-  const [paginationError, setPaginationError] = React.useState<string>('');
   const [selectedWalletId, setSelectedWalletId] = React.useState<string>('');
   const [selectedWallet, setSelectedWallet] = React.useState<DashboardConsoleWallet | null>(null);
   const [selectedLoading, setSelectedLoading] = React.useState<boolean>(false);
@@ -174,6 +172,11 @@ export function UserWalletsListPage(): React.JSX.Element {
   );
   const trimmedQuery = query.trim();
   const searchMode = trimmedQuery.length >= 2;
+  const walletsPagination = useDashboardTablePagination(wallets, {
+    disabled: loading,
+    itemLabel: 'wallet',
+    itemLabelPlural: 'wallets',
+  });
   const activeSort = SORT_OPTIONS.find((option) => option.value === sortValue) || SORT_OPTIONS[0];
   const walletRequest = React.useMemo<DashboardConsoleWalletListInput>(
     () => ({
@@ -285,39 +288,49 @@ export function UserWalletsListPage(): React.JSX.Element {
     if (!session.claims) {
       setLoading(false);
       setWallets([]);
-      setNextCursor('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
-      setPaginationError('');
       return;
     }
 
     let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    setPaginationError('');
-    const fetchWallets = () => {
-      const request = searchMode
-        ? searchDashboardWallets({ q: trimmedQuery, limit: 25, ...walletRequest })
-        : listDashboardWallets({ limit: 25, ...walletRequest });
-      request
-        .then((page) => {
+    const fetchWallets = async () => {
+      try {
+        let cursor: string | undefined;
+        let allWallets: DashboardConsoleWallet[] = [];
+        for (;;) {
+          const page = await (searchMode
+            ? searchDashboardWallets({
+                q: trimmedQuery,
+                limit: 100,
+                ...(cursor ? { cursor } : {}),
+                ...walletRequest,
+              })
+            : listDashboardWallets({
+                limit: 100,
+                ...(cursor ? { cursor } : {}),
+                ...walletRequest,
+              }));
           if (cancelled) return;
-          setWallets(page.wallets);
-          setNextCursor(page.nextCursor || '');
-        })
-        .catch((error: unknown) => {
-          if (cancelled) return;
-          setWallets([]);
-          setNextCursor('');
-          setErrorMessage(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
-          if (cancelled) return;
-          setLoading(false);
-        });
+          allWallets = mergeDashboardWalletsById(allWallets, page.wallets);
+          cursor = page.nextCursor;
+          if (!cursor) break;
+        }
+        if (cancelled) return;
+        setWallets(allWallets);
+      } catch (error: unknown) {
+        if (cancelled) return;
+        setWallets([]);
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     const timeoutId = searchMode ? window.setTimeout(fetchWallets, 200) : undefined;
-    if (!searchMode) fetchWallets();
+    if (!searchMode) {
+      void fetchWallets();
+    }
     return () => {
       cancelled = true;
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
@@ -327,47 +340,6 @@ export function UserWalletsListPage(): React.JSX.Element {
     session.claims,
     session.errorMessage,
     session.loading,
-    trimmedQuery,
-    walletRequest,
-  ]);
-
-  const loadMore = React.useCallback(() => {
-    if (!nextCursor || loadingMore) return;
-    if (!session.claims) {
-      setPaginationError(session.errorMessage || 'Console session is unavailable');
-      return;
-    }
-    setLoadingMore(true);
-    setPaginationError('');
-    const request = searchMode
-      ? searchDashboardWallets({
-          q: trimmedQuery,
-          limit: 25,
-          cursor: nextCursor,
-          ...walletRequest,
-        })
-      : listDashboardWallets({
-          limit: 25,
-          cursor: nextCursor,
-          ...walletRequest,
-        });
-    request
-      .then((page) => {
-        setWallets((current) => mergeDashboardWalletsById(current, page.wallets));
-        setNextCursor(page.nextCursor || '');
-      })
-      .catch((error: unknown) => {
-        setPaginationError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        setLoadingMore(false);
-      });
-  }, [
-    loadingMore,
-    nextCursor,
-    searchMode,
-    session.claims,
-    session.errorMessage,
     trimmedQuery,
     walletRequest,
   ]);
@@ -522,7 +494,11 @@ export function UserWalletsListPage(): React.JSX.Element {
         ))}
       </section>
 
-      <DashboardTable ariaLabel="Wallets table" columns={WALLETS_TABLE_COLUMNS}>
+      <DashboardTable
+        ariaLabel="Wallets table"
+        columns={WALLETS_TABLE_COLUMNS}
+        pagination={walletsPagination.pagination}
+      >
         <DashboardTableHeader>
           {USER_WALLETS_TABLE_COLUMNS.map((column) => (
             <DashboardTableHeaderCell key={column}>{column}</DashboardTableHeaderCell>
@@ -546,7 +522,7 @@ export function UserWalletsListPage(): React.JSX.Element {
           </DashboardTableState>
         ) : (
           <>
-            {wallets.map((wallet) => (
+            {walletsPagination.rows.map((wallet) => (
               <DashboardTableRow key={wallet.id}>
                 <DashboardTableCell title={wallet.id}>
                   <button
@@ -578,40 +554,12 @@ export function UserWalletsListPage(): React.JSX.Element {
               {searchMode
                 ? `Showing ${wallets.length} result${wallets.length === 1 ? '' : 's'}.`
                 : USER_WALLETS_TABLE_NOTE}
-              {nextCursor
-                ? searchMode
-                  ? ' Additional matches are available via nextCursor.'
-                  : ' More rows are available via nextCursor.'
-                : ''}
               {walletScope.projectId
                 ? ` Scope: project ${walletScope.projectId}${
                     walletScope.environmentId ? `, environment ${walletScope.environmentId}` : ''
                   }.`
                 : ''}
             </DashboardTableFooter>
-            <div className="dashboard-pagination-controls">
-              {nextCursor ? (
-                <button
-                  type="button"
-                  className="dashboard-pagination-button"
-                  onClick={loadMore}
-                  disabled={loadingMore}
-                >
-                  {loadingMore
-                    ? 'Loading more...'
-                    : searchMode
-                      ? 'Load more results'
-                      : 'Load more wallets'}
-                </button>
-              ) : (
-                <span className="dashboard-pagination-note">
-                  {searchMode ? 'End of search results.' : 'End of wallet results.'}
-                </span>
-              )}
-              {paginationError ? (
-                <span className="dashboard-pagination-note">{paginationError}</span>
-              ) : null}
-            </div>
           </>
         )}
       </DashboardTable>

@@ -10,6 +10,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import {
   DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT,
@@ -556,6 +557,11 @@ export function TeamMembersPage(): React.JSX.Element {
       orderedMembers.filter((member) => matchesMemberQuery(member, memberQuery, session.claims)),
     [memberQuery, orderedMembers, session.claims],
   );
+  const membersPagination = useDashboardTablePagination(visibleMembers, {
+    disabled: session.loading || loading,
+    itemLabel: 'member',
+    itemLabelPlural: 'members',
+  });
 
   const selectedMember = React.useMemo(
     () => members.find((entry) => entry.id === editingMemberId) || null,
@@ -1091,6 +1097,7 @@ export function TeamMembersPage(): React.JSX.Element {
         ariaLabel="Team members table"
         className="dashboard-team-members-table"
         columns={TEAM_MEMBERS_TABLE_COLUMNS}
+        pagination={membersPagination.pagination}
       >
         <DashboardTableHeader className="dashboard-team-members-table__row">
           <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
@@ -1115,7 +1122,7 @@ export function TeamMembersPage(): React.JSX.Element {
           </DashboardTableState>
         ) : (
           <>
-            {visibleMembers.map((member) => {
+            {membersPagination.rows.map((member) => {
               const memberIdentity = formatMemberPrimaryIdentity(member, session.claims);
               const memberProfile = buildMemberProfile(member, session.claims);
               const permissionSummary = formatPermissionSummary(member.roles);

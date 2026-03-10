@@ -7,6 +7,7 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -15,12 +16,13 @@ import {
   type DashboardConsoleObservabilityLevel,
   type DashboardConsoleObservabilityModuleStatus,
   type DashboardConsoleObservabilitySnapshot,
-  getDashboardObservabilitySnapshot,
+  getDashboardObservabilitySummary,
   isDashboardConsoleObservabilityApiErrorCode,
+  listDashboardObservabilityEvents,
+  listDashboardObservabilityServices,
 } from './consoleObservabilityApi';
 
-const DEFAULT_OBSERVABILITY_EVENTS_PAGE_SIZE = 50;
-const OBSERVABILITY_EVENTS_PAGE_SIZES = [25, 50, 100] as const;
+const OBSERVABILITY_EVENTS_FETCH_LIMIT = 100;
 const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(
   1,
   0.8,
@@ -102,11 +104,6 @@ export function ObservabilityPage(): React.JSX.Element {
   >('');
   const [eventsServiceFilter, setEventsServiceFilter] = React.useState<string>('');
   const [eventsEventTypeFilter, setEventsEventTypeFilter] = React.useState<string>('');
-  const [eventsPageSize, setEventsPageSize] = React.useState<number>(
-    DEFAULT_OBSERVABILITY_EVENTS_PAGE_SIZE,
-  );
-  const [eventsCursor, setEventsCursor] = React.useState<string | null>(null);
-  const [previousEventCursors, setPreviousEventCursors] = React.useState<Array<string | null>>([]);
   const deferredEventsQueryInput = React.useDeferredValue(eventsQueryInput);
   const deferredEventsServiceFilter = React.useDeferredValue(eventsServiceFilter);
   const deferredEventsEventTypeFilter = React.useDeferredValue(eventsEventTypeFilter);
@@ -153,26 +150,57 @@ export function ObservabilityPage(): React.JSX.Element {
     setLoading(true);
     setErrorMessage('');
 
-    getDashboardObservabilitySnapshot({
-      ...scope,
-      ...(eventsCursor ? { eventsCursor } : {}),
-      eventsLimit: eventsPageSize,
-      ...(normalizedEventsQuery ? { eventsQuery: normalizedEventsQuery } : {}),
-      ...(eventsLevelFilter ? { eventsLevel: eventsLevelFilter } : {}),
-      ...(normalizedEventsServiceFilter ? { eventsService: normalizedEventsServiceFilter } : {}),
-      ...(normalizedEventsEventTypeFilter
-        ? { eventsEventType: normalizedEventsEventTypeFilter }
-        : {}),
-    })
-      .then((snapshot) => {
+    Promise.all([
+      getDashboardObservabilitySummary(scope),
+      listDashboardObservabilityServices({ ...scope, limit: 25 }),
+      (async () => {
+        const firstPage = await listDashboardObservabilityEvents({
+          ...scope,
+          ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
+          ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
+          ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
+          ...(normalizedEventsEventTypeFilter
+            ? { eventType: normalizedEventsEventTypeFilter }
+            : {}),
+          limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
+        });
+        const events = [...firstPage.events];
+        let nextCursor = String(firstPage.nextCursor || '').trim();
+        while (nextCursor) {
+          const nextPage = await listDashboardObservabilityEvents({
+            ...scope,
+            ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
+            ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
+            ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
+            ...(normalizedEventsEventTypeFilter
+              ? { eventType: normalizedEventsEventTypeFilter }
+              : {}),
+            cursor: nextCursor,
+            limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
+          });
+          events.push(...nextPage.events);
+          nextCursor = String(nextPage.nextCursor || '').trim();
+        }
+        return {
+          ...firstPage,
+          events,
+          nextCursor: undefined,
+        };
+      })(),
+    ])
+      .then(([summary, services, events]) => {
         if (cancelled) return;
         const nextWarnings = [
-          toStatusWarning('Summary', snapshot.summary.status),
-          toStatusWarning('Events', snapshot.events.status),
-          toStatusWarning('Service health', snapshot.services.status),
+          toStatusWarning('Summary', summary.status),
+          toStatusWarning('Events', events.status),
+          toStatusWarning('Service health', services.status),
         ].filter((entry): entry is string => Boolean(entry));
         setWarnings(nextWarnings);
-        setData(snapshot);
+        setData({
+          summary,
+          events,
+          services,
+        } satisfies DashboardConsoleObservabilitySnapshot);
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -189,9 +217,7 @@ export function ObservabilityPage(): React.JSX.Element {
       cancelled = true;
     };
   }, [
-    eventsCursor,
     eventsLevelFilter,
-    eventsPageSize,
     normalizedEventsEventTypeFilter,
     normalizedEventsQuery,
     normalizedEventsServiceFilter,
@@ -204,50 +230,21 @@ export function ObservabilityPage(): React.JSX.Element {
   const summary = data?.summary || null;
   const events = data?.events.events || [];
   const services = data?.services.services || [];
-  const hasNextEventsPage = Boolean(data?.events.nextCursor);
-  const eventsTotalPages = Math.max(1, Number(data?.events.totalPages || 1));
-  const hasPreviousEventsPage = previousEventCursors.length > 0;
-  const eventsPageNumber = Math.min(previousEventCursors.length + 1, eventsTotalPages);
   const hasEventsFilters =
     Boolean(normalizedEventsQuery) ||
     Boolean(eventsLevelFilter) ||
     Boolean(normalizedEventsServiceFilter) ||
     Boolean(normalizedEventsEventTypeFilter);
-
-  React.useEffect(() => {
-    setEventsCursor(null);
-    setPreviousEventCursors([]);
-  }, [
-    eventsLevelFilter,
-    normalizedEventsEventTypeFilter,
-    normalizedEventsQuery,
-    normalizedEventsServiceFilter,
-    scope.environmentId,
-    scope.projectId,
-  ]);
-
-  const onNextEventsPage = React.useCallback(() => {
-    const nextCursor = String(data?.events.nextCursor || '').trim();
-    if (!nextCursor || loading) return;
-    setPreviousEventCursors((current) => [...current, eventsCursor]);
-    setEventsCursor(nextCursor);
-  }, [data?.events.nextCursor, eventsCursor, loading]);
-  const onPreviousEventsPage = React.useCallback(() => {
-    if (loading || previousEventCursors.length === 0) return;
-    const nextHistory = previousEventCursors.slice(0, -1);
-    const previousCursor = previousEventCursors[previousEventCursors.length - 1] ?? null;
-    setPreviousEventCursors(nextHistory);
-    setEventsCursor(previousCursor);
-  }, [loading, previousEventCursors]);
-  const onSelectEventsPageSize = React.useCallback(
-    (nextPageSize: number) => {
-      if (loading || nextPageSize === eventsPageSize) return;
-      setPreviousEventCursors([]);
-      setEventsCursor(null);
-      setEventsPageSize(nextPageSize);
-    },
-    [eventsPageSize, loading],
-  );
+  const servicesPagination = useDashboardTablePagination(services, {
+    disabled: loading,
+    itemLabel: 'service',
+    itemLabelPlural: 'services',
+  });
+  const eventsPagination = useDashboardTablePagination(events, {
+    disabled: loading,
+    itemLabel: 'event',
+    itemLabelPlural: 'events',
+  });
 
   return (
     <div className="dashboard-view" aria-label="Observability page">
@@ -302,6 +299,7 @@ export function ObservabilityPage(): React.JSX.Element {
         <DashboardTable
           ariaLabel="Observability service health"
           columns={OBSERVABILITY_SERVICE_TABLE_COLUMNS}
+          pagination={servicesPagination.pagination}
         >
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Service</DashboardTableHeaderCell>
@@ -318,7 +316,7 @@ export function ObservabilityPage(): React.JSX.Element {
               {loading ? 'Loading service health...' : 'No service health records for this scope.'}
             </DashboardTableState>
           ) : (
-            services.map((entry) => (
+            servicesPagination.rows.map((entry) => (
               <DashboardTableRow key={entry.service}>
                 <DashboardTableCell>{entry.service}</DashboardTableCell>
                 <DashboardTableCell>{entry.status}</DashboardTableCell>
@@ -398,6 +396,7 @@ export function ObservabilityPage(): React.JSX.Element {
         <DashboardTable
           ariaLabel="Observability events"
           columns={OBSERVABILITY_EVENTS_TABLE_COLUMNS}
+          pagination={eventsPagination.pagination}
         >
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
@@ -418,7 +417,7 @@ export function ObservabilityPage(): React.JSX.Element {
                   : 'No observability events for this scope.'}
             </DashboardTableState>
           ) : (
-            events.map((entry) => (
+            eventsPagination.rows.map((entry) => (
               <DashboardTableRow key={entry.id}>
                 <DashboardTableCell truncate>{formatTimestamp(entry.timestamp)}</DashboardTableCell>
                 <DashboardTableCell title={`${entry.service}/${entry.component}`}>
@@ -438,59 +437,6 @@ export function ObservabilityPage(): React.JSX.Element {
             ))
           )}
         </DashboardTable>
-        <div className="dashboard-form-actions dashboard-observability-pagination">
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            disabled={loading || !hasPreviousEventsPage}
-            onClick={onPreviousEventsPage}
-          >
-            Previous page
-          </button>
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            disabled={loading || !hasNextEventsPage}
-            onClick={onNextEventsPage}
-          >
-            Next page
-          </button>
-          <span
-            className="dashboard-observability-pagination__page"
-            aria-label={`Current page ${eventsPageNumber} of ${eventsTotalPages}`}
-          >
-            Page {eventsPageNumber} / {eventsTotalPages}
-          </span>
-          <div className="dashboard-observability-page-size" aria-label="Events per page">
-            <span className="dashboard-pagination-note">Show</span>
-            {OBSERVABILITY_EVENTS_PAGE_SIZES.map((pageSize, index) => (
-              <React.Fragment key={pageSize}>
-                <button
-                  type="button"
-                  className={[
-                    'dashboard-observability-page-size__button',
-                    eventsPageSize === pageSize
-                      ? 'dashboard-observability-page-size__button--active'
-                      : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  aria-pressed={eventsPageSize === pageSize}
-                  disabled={loading && eventsPageSize !== pageSize}
-                  onClick={() => onSelectEventsPageSize(pageSize)}
-                >
-                  {pageSize}
-                </button>
-                {index < OBSERVABILITY_EVENTS_PAGE_SIZES.length - 1 ? (
-                  <span className="dashboard-observability-page-size__separator" aria-hidden="true">
-                    |
-                  </span>
-                ) : null}
-              </React.Fragment>
-            ))}
-            <span className="dashboard-pagination-note">events per page</span>
-          </div>
-        </div>
       </section>
     </div>
   );

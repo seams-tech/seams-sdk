@@ -1,5 +1,9 @@
 import React from 'react';
 import {
+  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
+  type ConsoleWebhookEventCategory,
+} from '../../../../../../../shared/src/console/webhookEventCategories';
+import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
@@ -10,7 +14,9 @@ import {
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
+  useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -24,8 +30,35 @@ import {
   type DashboardConsoleWebhookEndpoint,
 } from './consoleWebhooksApi';
 
-const WEBHOOK_SUBSCRIPTIONS = ['wallet', 'policy', 'auth', 'tx', 'billing'] as const;
-const WEBHOOK_SUBSCRIPTION_SET = new Set<string>(WEBHOOK_SUBSCRIPTIONS);
+const DEFAULT_WEBHOOK_EVENT_CATEGORIES: ConsoleWebhookEventCategory[] = ['billing'];
+const WEBHOOK_EVENT_CATEGORY_OPTIONS: readonly DashboardScopeOption[] =
+  CONSOLE_WEBHOOK_EVENT_CATEGORIES.map((value) => ({
+    value,
+    label:
+      value === 'tx'
+        ? 'Transaction lifecycle'
+        : value === 'auth'
+          ? 'Authentication'
+          : value === 'policy'
+            ? 'Policy changes'
+            : value === 'wallet'
+              ? 'Wallet activity'
+              : value === 'billing'
+                ? 'Billing'
+                : 'Session lifecycle',
+    description:
+      value === 'tx'
+        ? 'Transaction creation, signing, submission, and status transitions.'
+        : value === 'auth'
+          ? 'Authentication and identity lifecycle events.'
+          : value === 'policy'
+            ? 'Policy publish, assignment, and approval events.'
+            : value === 'wallet'
+              ? 'Wallet provisioning, configuration, and state changes.'
+              : value === 'billing'
+                ? 'Invoices, usage, and payment lifecycle events.'
+                : 'Session creation, refresh, and teardown events.',
+  }));
 const WEBHOOK_ENDPOINTS_TABLE_COLUMNS = dashboardTableColumns(
   1,
   1.45,
@@ -47,21 +80,6 @@ const WEBHOOK_DELIVERIES_TABLE_COLUMNS = dashboardTableColumns(
   0.8,
 );
 
-function parseSubscriptions(raw: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of String(raw || '')
-    .split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean)) {
-    if (!WEBHOOK_SUBSCRIPTION_SET.has(entry)) continue;
-    if (seen.has(entry)) continue;
-    seen.add(entry);
-    out.push(entry);
-  }
-  return out;
-}
-
 function formatTimestamp(value: string | null): string {
   if (!value) return '-';
   const date = new Date(value);
@@ -77,17 +95,27 @@ export function WebhooksPage(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
   const [urlInput, setUrlInput] = React.useState<string>('');
-  const [subscriptionsInput, setSubscriptionsInput] = React.useState<string>('billing');
+  const [eventCategories, setEventCategories] = React.useState<ConsoleWebhookEventCategory[]>(
+    DEFAULT_WEBHOOK_EVENT_CATEGORIES,
+  );
   const [creating, setCreating] = React.useState<boolean>(false);
   const [busyEndpointId, setBusyEndpointId] = React.useState<string>('');
   const [selectedEndpointId, setSelectedEndpointId] = React.useState<string>('');
 
   const [deliveries, setDeliveries] = React.useState<DashboardConsoleWebhookDelivery[]>([]);
-  const [deliveriesNextCursor, setDeliveriesNextCursor] = React.useState<string>('');
   const [deliveriesLoading, setDeliveriesLoading] = React.useState<boolean>(false);
   const [deliveriesError, setDeliveriesError] = React.useState<string>('');
-  const [loadingMoreDeliveries, setLoadingMoreDeliveries] = React.useState<boolean>(false);
   const [replayingDeliveryId, setReplayingDeliveryId] = React.useState<string>('');
+  const endpointsPagination = useDashboardTablePagination(endpoints, {
+    disabled: session.loading || loading,
+    itemLabel: 'endpoint',
+    itemLabelPlural: 'endpoints',
+  });
+  const deliveriesPagination = useDashboardTablePagination(deliveries, {
+    disabled: deliveriesLoading,
+    itemLabel: 'delivery',
+    itemLabelPlural: 'deliveries',
+  });
 
   const loadEndpoints = React.useCallback(() => {
     if (!session.claims) {
@@ -144,42 +172,34 @@ export function WebhooksPage(): React.JSX.Element {
       const endpointId = String(input.endpointId || '').trim();
       if (!endpointId || !session.claims) {
         setDeliveries([]);
-        setDeliveriesNextCursor('');
         setDeliveriesLoading(false);
-        setLoadingMoreDeliveries(false);
         setDeliveriesError('');
         return;
       }
-      const appending = input.append === true;
-      if (appending) {
-        setLoadingMoreDeliveries(true);
-      } else {
-        setDeliveriesLoading(true);
-        setDeliveriesError('');
-      }
-      listDashboardWebhookDeliveries({
-        endpointId,
-        limit: 20,
-        ...(input.cursor ? { cursor: input.cursor } : {}),
-      })
-        .then((page) => {
-          setDeliveries((current) =>
-            appending ? [...current, ...page.deliveries] : page.deliveries,
-          );
-          setDeliveriesNextCursor(page.nextCursor || '');
-        })
-        .catch((error: unknown) => {
-          if (!appending) setDeliveries([]);
-          setDeliveriesNextCursor('');
-          setDeliveriesError(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
-          if (appending) {
-            setLoadingMoreDeliveries(false);
-          } else {
-            setDeliveriesLoading(false);
+      setDeliveriesLoading(true);
+      setDeliveriesError('');
+      void (async () => {
+        try {
+          let cursor = String(input.cursor || '').trim();
+          const allDeliveries: DashboardConsoleWebhookDelivery[] = [];
+          for (;;) {
+            const page = await listDashboardWebhookDeliveries({
+              endpointId,
+              limit: 100,
+              ...(cursor ? { cursor } : {}),
+            });
+            allDeliveries.push(...page.deliveries);
+            cursor = String(page.nextCursor || '').trim();
+            if (!cursor) break;
           }
-        });
+          setDeliveries(allDeliveries);
+        } catch (error: unknown) {
+          setDeliveries([]);
+          setDeliveriesError(error instanceof Error ? error.message : String(error));
+        } finally {
+          setDeliveriesLoading(false);
+        }
+      })();
     },
     [session.claims],
   );
@@ -196,13 +216,12 @@ export function WebhooksPage(): React.JSX.Element {
         return;
       }
       const url = String(urlInput || '').trim();
-      const subscriptions = parseSubscriptions(subscriptionsInput);
       if (!url) {
         setMutationError('URL is required.');
         return;
       }
-      if (subscriptions.length === 0) {
-        setMutationError('At least one subscription is required.');
+      if (eventCategories.length === 0) {
+        setMutationError('At least one event category is required.');
         return;
       }
       setCreating(true);
@@ -210,11 +229,11 @@ export function WebhooksPage(): React.JSX.Element {
       try {
         const endpoint = await createDashboardWebhookEndpoint({
           url,
-          subscriptions,
+          eventCategories,
           status: 'ACTIVE',
         });
         setUrlInput('');
-        setSubscriptionsInput('billing');
+        setEventCategories([...DEFAULT_WEBHOOK_EVENT_CATEGORIES]);
         loadEndpoints();
         setSelectedEndpointId(endpoint.id);
       } catch (error: unknown) {
@@ -223,7 +242,7 @@ export function WebhooksPage(): React.JSX.Element {
         setCreating(false);
       }
     },
-    [loadEndpoints, session.claims, session.errorMessage, subscriptionsInput, urlInput],
+    [eventCategories, loadEndpoints, session.claims, session.errorMessage, urlInput],
   );
 
   const onToggleEndpointStatus = React.useCallback(
@@ -312,15 +331,15 @@ export function WebhooksPage(): React.JSX.Element {
               placeholder="https://example.com/webhooks/tatchi"
             />
           </label>
-          <label className="dashboard-form-field">
-            <span>Subscriptions (comma separated)</span>
-            <input
-              className="dashboard-input"
-              value={subscriptionsInput}
-              onChange={(event) => setSubscriptionsInput(event.target.value)}
-              placeholder="billing,tx"
-            />
-          </label>
+          <ScopePicker
+            label="Event categories"
+            options={WEBHOOK_EVENT_CATEGORY_OPTIONS}
+            values={eventCategories}
+            onChange={(next) => setEventCategories(next as ConsoleWebhookEventCategory[])}
+            disabled={creating}
+            addLabel="Add event category"
+            emptyLabel="No event categories selected."
+          />
           <div className="dashboard-form-actions">
             <button type="submit" className="dashboard-pagination-button" disabled={creating}>
               {creating ? 'Creating...' : 'Create endpoint'}
@@ -330,11 +349,15 @@ export function WebhooksPage(): React.JSX.Element {
         {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
       </section>
 
-      <DashboardTable ariaLabel="Webhook endpoints table" columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}>
+      <DashboardTable
+        ariaLabel="Webhook endpoints table"
+        columns={WEBHOOK_ENDPOINTS_TABLE_COLUMNS}
+        pagination={endpointsPagination.pagination}
+      >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Endpoint ID</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>URL</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Subscriptions</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Event categories</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Secret</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
@@ -353,7 +376,7 @@ export function WebhooksPage(): React.JSX.Element {
           <DashboardTableState>No webhook endpoints configured yet.</DashboardTableState>
         ) : (
           <>
-            {endpoints.map((endpoint) => (
+            {endpointsPagination.rows.map((endpoint) => (
               <DashboardTableRow key={endpoint.id}>
                 <DashboardTableCell title={endpoint.id}>
                   <button
@@ -365,8 +388,8 @@ export function WebhooksPage(): React.JSX.Element {
                   </button>
                 </DashboardTableCell>
                 <DashboardTableCell title={endpoint.url}>{endpoint.url}</DashboardTableCell>
-                <DashboardTableCell title={endpoint.subscriptions.join(', ')}>
-                  {endpoint.subscriptions.join(', ') || '-'}
+                <DashboardTableCell title={endpoint.eventCategories.join(', ')}>
+                  {endpoint.eventCategories.join(', ') || '-'}
                 </DashboardTableCell>
                 <DashboardTableCell>{endpoint.status}</DashboardTableCell>
                 <DashboardTableCell title={endpoint.secretPreview}>
@@ -407,6 +430,7 @@ export function WebhooksPage(): React.JSX.Element {
       <DashboardTable
         ariaLabel="Webhook deliveries table"
         columns={WEBHOOK_DELIVERIES_TABLE_COLUMNS}
+        pagination={selectedEndpointId ? deliveriesPagination.pagination : undefined}
       >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Delivery ID</DashboardTableHeaderCell>
@@ -428,7 +452,7 @@ export function WebhooksPage(): React.JSX.Element {
           <DashboardTableState>No deliveries recorded for this endpoint yet.</DashboardTableState>
         ) : (
           <>
-            {deliveries.map((delivery) => (
+            {deliveriesPagination.rows.map((delivery) => (
               <DashboardTableRow key={delivery.id}>
                 <DashboardTableCell title={delivery.id}>{delivery.id}</DashboardTableCell>
                 <DashboardTableCell title={delivery.eventId}>
@@ -457,26 +481,6 @@ export function WebhooksPage(): React.JSX.Element {
                 </DashboardTableCell>
               </DashboardTableRow>
             ))}
-            <div className="dashboard-pagination-controls">
-              {deliveriesNextCursor ? (
-                <button
-                  type="button"
-                  className="dashboard-pagination-button"
-                  onClick={() =>
-                    loadDeliveries({
-                      endpointId: selectedEndpointId,
-                      cursor: deliveriesNextCursor,
-                      append: true,
-                    })
-                  }
-                  disabled={loadingMoreDeliveries}
-                >
-                  {loadingMoreDeliveries ? 'Loading more...' : 'Load more deliveries'}
-                </button>
-              ) : (
-                <span className="dashboard-pagination-note">End of delivery history.</span>
-              )}
-            </div>
           </>
         )}
       </DashboardTable>

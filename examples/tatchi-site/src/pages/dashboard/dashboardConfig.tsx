@@ -1,9 +1,10 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
-import { BillingPage } from './routes/billing/page';
+import { BillingAccountPage } from './routes/billing/page';
 import { AuditLogsPage } from './routes/audit/page';
 import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipPage } from './routes/gas-sponsorship/page';
 import { SelfHostingPage } from './routes/integrations/self-hosting/page';
+import { InvoicesPage } from './routes/invoices/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
 import { TeamMembersPage } from './routes/team-members/page';
 import { DashboardOnboardingPage } from './routes/onboarding/page';
@@ -152,14 +153,14 @@ const sidebarGroups: SidebarGroup[] = [
         label: 'Billing account',
         path: '/dashboard/billing/account',
         icon: ReceiptTextIcon,
-        component: BillingPage,
+        component: BillingAccountPage,
       },
       {
         key: 'invoices',
         label: 'Invoices',
         path: '/dashboard/invoices',
         icon: ReceiptTextIcon,
-        component: BillingPage,
+        component: InvoicesPage,
       },
     ],
   },
