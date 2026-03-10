@@ -24,6 +24,11 @@ export interface ConsoleTeamRbacService {
     ctx: ConsoleTeamRbacContext,
     request?: ListConsoleTeamMembersRequest,
   ): Promise<ConsoleTeamMember[]>;
+  purgeOrganization(ctx: ConsoleTeamRbacContext): Promise<void>;
+  transferOwner(
+    ctx: ConsoleTeamRbacContext,
+    targetMemberId: string,
+  ): Promise<{ previousOwner: ConsoleTeamMember; nextOwner: ConsoleTeamMember }>;
   inviteMember(
     ctx: ConsoleTeamRbacContext,
     request: InviteConsoleTeamMemberRequest,
@@ -180,6 +185,10 @@ function resolveActorDisplayName(ctx: ConsoleTeamRbacContext): string {
   return String(ctx.actorUserId || '').trim();
 }
 
+function memberHasAdminEligibility(member: ConsoleTeamMember): boolean {
+  return member.roles.some((entry) => entry.role === 'owner' || entry.role === 'admin');
+}
+
 function sortMembers(items: ConsoleTeamMember[]): ConsoleTeamMember[] {
   const rank = (status: ConsoleTeamMember['status']): number => {
     if (status === 'ACTIVE') return 0;
@@ -313,6 +322,85 @@ export function createInMemoryConsoleTeamRbacService(
       return sortMembers(Array.from(store.members.values()))
         .filter((member) => (!status ? true : member.status === status))
         .map(cloneMember);
+    },
+
+    async purgeOrganization(ctx: ConsoleTeamRbacContext): Promise<void> {
+      stores.delete(ctx.orgId);
+    },
+
+    async transferOwner(
+      ctx: ConsoleTeamRbacContext,
+      targetMemberId: string,
+    ): Promise<{ previousOwner: ConsoleTeamMember; nextOwner: ConsoleTeamMember }> {
+      ensureActorMembership(ctx);
+      const store = ensureOrgStore(ctx.orgId);
+      const actorUserId = String(ctx.actorUserId || '').trim();
+      if (!actorUserId) {
+        throw new ConsoleTeamRbacError('invalid_body', 400, 'Actor user id is required');
+      }
+      const actor = findMemberByUserId(store, actorUserId);
+      if (!actor) {
+        throw new ConsoleTeamRbacError(
+          'member_not_found',
+          404,
+          `Actor member for user ${actorUserId} was not found`,
+        );
+      }
+      if (actor.status !== 'ACTIVE' || !hasOwnerRole(actor)) {
+        throw new ConsoleTeamRbacError(
+          'forbidden',
+          403,
+          'Only the current owner can transfer organization ownership',
+        );
+      }
+
+      const target = store.members.get(targetMemberId);
+      if (!target) {
+        throw new ConsoleTeamRbacError(
+          'member_not_found',
+          404,
+          `Member ${targetMemberId} was not found`,
+        );
+      }
+      if (target.status !== 'ACTIVE') {
+        throw new ConsoleTeamRbacError(
+          'invalid_body',
+          409,
+          'Owner transfer target must be an active organization member',
+        );
+      }
+      if (!memberHasAdminEligibility(target)) {
+        throw new ConsoleTeamRbacError(
+          'invalid_body',
+          409,
+          'Owner transfer target must already have admin eligibility',
+        );
+      }
+      if (target.id === actor.id) {
+        return {
+          previousOwner: cloneMember(actor),
+          nextOwner: cloneMember(actor),
+        };
+      }
+
+      const ts = toIso(now());
+      target.roles = normalizeRoleAssignments([
+        ...target.roles,
+        { role: 'owner', scope: 'ORG' },
+        { role: 'admin', scope: 'ORG' },
+      ]);
+      target.updatedAt = ts;
+
+      actor.roles = normalizeRoleAssignments([
+        ...actor.roles.filter((entry) => entry.role !== 'owner'),
+        { role: 'admin', scope: 'ORG' },
+      ]);
+      actor.updatedAt = ts;
+
+      return {
+        previousOwner: cloneMember(actor),
+        nextOwner: cloneMember(target),
+      };
     },
 
     async inviteMember(

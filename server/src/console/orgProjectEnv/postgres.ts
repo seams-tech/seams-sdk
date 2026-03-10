@@ -169,12 +169,17 @@ export async function ensureConsoleOrgProjectEnvPostgresSchema(
         id TEXT NOT NULL,
         name TEXT NOT NULL,
         slug TEXT NOT NULL,
+        created_by_user_id TEXT,
         status TEXT NOT NULL,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
         CHECK (status IN ('ACTIVE'))
       )
+    `);
+    await pool.query(`
+      ALTER TABLE console_organizations
+      ADD COLUMN IF NOT EXISTS created_by_user_id TEXT
     `);
 
     await pool.query(`
@@ -378,9 +383,9 @@ export async function createPostgresConsoleOrgProjectEnvService(
           const created = await queryOne(
             q,
             `INSERT INTO console_organizations
-              (namespace, id, name, slug, status, created_at_ms, updated_at_ms)
+              (namespace, id, name, slug, created_by_user_id, status, created_at_ms, updated_at_ms)
              VALUES
-              ($1, $2, $3, $4, 'ACTIVE', $5, $5)
+              ($1, $2, $3, $4, $5, 'ACTIVE', $6, $6)
              ON CONFLICT (namespace, id) DO NOTHING
              RETURNING *`,
             [
@@ -388,6 +393,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
               ctx.orgId,
               String(request.name || '').trim() || defaultName,
               slugify(String(request.slug || '').trim() || String(request.name || '').trim() || defaultName),
+              String(ctx.actorUserId || '').trim() || null,
               nowMs(now),
             ],
           );
@@ -434,6 +440,25 @@ export async function createPostgresConsoleOrgProjectEnvService(
           );
         }
         return parseOrgRow(updated);
+      });
+    },
+
+    async deleteOrganization(
+      ctx,
+    ): Promise<{ deleted: boolean; organization: ConsoleOrganization | null }> {
+      return withTenantTx(ctx, async (q) => {
+        const row = await queryOne(
+          q,
+          `DELETE FROM console_organizations
+            WHERE namespace = $1
+              AND id = $2
+          RETURNING *`,
+          [namespace, ctx.orgId],
+        );
+        return {
+          deleted: Boolean(row),
+          organization: row ? parseOrgRow(row) : null,
+        };
       });
     },
 

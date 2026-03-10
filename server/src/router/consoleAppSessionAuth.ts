@@ -1,8 +1,6 @@
 import type { ConsoleAuditService } from '../console/audit';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
-import {
-  type ConsoleTeamRbacService,
-} from '../console/teamRbac';
+import { type ConsoleTeamRbacService } from '../console/teamRbac';
 import {
   CONSOLE_ORG_SCOPED_TEAM_ROLES,
   type ConsoleOrgScopedTeamRole,
@@ -252,7 +250,9 @@ async function ensureConsoleSsoProvisioning(input: {
       } catch (error: unknown) {
         if (!hasConsoleErrorCode(error, 'member_already_exists')) throw error;
         const refreshed = await teamRbac.listMembers(readCtx, { status: 'ACTIVE' });
-        const matched = refreshed.find((entry) => String(entry.userId || '').trim() === input.userId);
+        const matched = refreshed.find(
+          (entry) => String(entry.userId || '').trim() === input.userId,
+        );
         roles = matched ? extractConsoleOrgScopedRoleClaims(matched.roles) : [];
       }
     } else if (currentMember && roles.length === 0 && input.bootstrapRoles.length > 0) {
@@ -382,6 +382,9 @@ export function createAppSessionConsoleAuthAdapter(
           orgId,
           userId,
           roles,
+          ...(String(claims.provider || '').trim()
+            ? { provider: String(claims.provider).trim() }
+            : {}),
           ...(readConsoleSsoEmailClaim(claims) ? { email: readConsoleSsoEmailClaim(claims) } : {}),
           ...(readConsoleSsoDisplayNameClaim(claims)
             ? { name: readConsoleSsoDisplayNameClaim(claims) }

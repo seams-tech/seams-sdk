@@ -1029,7 +1029,9 @@ function requireAccountService(ctx: CloudflareConsoleContext): ConsoleAccountSer
   );
 }
 
-function requireSessionAdapter(ctx: CloudflareConsoleContext): NonNullable<ConsoleRouterOptions['session']> | Response {
+function requireSessionAdapter(
+  ctx: CloudflareConsoleContext,
+): NonNullable<ConsoleRouterOptions['session']> | Response {
   if (ctx.opts.session) return ctx.opts.session;
   return json(
     {
@@ -1201,6 +1203,7 @@ function toAccountContext(claims: ConsoleAuthClaims): {
   roles: string[];
   email?: string;
   name?: string;
+  provider?: string;
   projectId?: string;
   environmentId?: string;
 } {
@@ -1212,6 +1215,9 @@ function toAccountContext(claims: ConsoleAuthClaims): {
       ? { email: claims.email.trim().toLowerCase() }
       : {}),
     ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
+    ...(typeof claims.provider === 'string' && claims.provider.trim()
+      ? { provider: claims.provider.trim() }
+      : {}),
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1798,6 +1804,20 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, organization }, { status: 200 });
     }
 
+    if (ctx.method === 'DELETE' && !action) {
+      const deleted = await account.deleteOrganization(toAccountContext(auth.claims), orgId);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.delete',
+        summary: `Deleted organization ${deleted.orgId} from account settings`,
+        metadata: {
+          organizationId: deleted.orgId,
+          source: 'account_settings',
+        },
+      });
+      return json({ ok: true, deleted }, { status: 200 });
+    }
+
     if (ctx.method === 'POST' && action === 'transfer-owner') {
       const request = parseTransferConsoleAccountOrganizationOwnerRequest(
         await readJson(ctx.request),
@@ -2022,7 +2042,9 @@ function isConsoleBillingPath(pathname: string): boolean {
 }
 
 function isConsoleAccountPath(pathname: string): boolean {
-  return pathname === '/console/account/profile' || pathname.startsWith('/console/account/organizations');
+  return (
+    pathname === '/console/account/profile' || pathname.startsWith('/console/account/organizations')
+  );
 }
 
 function isConsoleOnboardingPath(pathname: string): boolean {

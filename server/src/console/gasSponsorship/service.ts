@@ -1,11 +1,13 @@
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
   ConsoleGasSponsorshipAllowedCall,
-  ConsoleGasSponsorshipChainBudget,
+  ConsoleGasSponsorshipCallMode,
   ConsoleGasSponsorshipConfig,
-  ConsoleGasSponsorshipExecutor,
   ConsoleGasSponsorshipNetworkClass,
   ConsoleGasSponsorshipScopeType,
+  ConsoleGasSponsorshipSpendCap,
+  ConsoleGasSponsorshipSpendCapMode,
+  ConsoleGasSponsorshipSpendCapPeriod,
   CreateConsoleGasSponsorshipRequest,
   ListConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
@@ -52,13 +54,15 @@ function normalizeString(value: unknown): string | null {
   return out || null;
 }
 
-function cloneBudgets(input: ConsoleGasSponsorshipChainBudget[]): ConsoleGasSponsorshipChainBudget[] {
-  return input.map((entry) => ({
-    chain: entry.chain,
-    period: entry.period,
-    budgetMinor: entry.budgetMinor,
-    quotaTransactions: entry.quotaTransactions,
-  }));
+function cloneSpendCap(input: ConsoleGasSponsorshipSpendCap): ConsoleGasSponsorshipSpendCap {
+  return {
+    mode: input.mode,
+    period: input.period,
+    capsByChain: input.capsByChain.map((entry) => ({
+      chainId: entry.chainId,
+      capMinor: entry.capMinor,
+    })),
+  };
 }
 
 function normalizeAddress(value: unknown): string | null {
@@ -71,25 +75,16 @@ function normalizeSelector(value: unknown): string | null {
   return /^0x[0-9a-fA-F]{8}$/.test(normalized) ? normalized.toLowerCase() : null;
 }
 
-function normalizeBigIntString(value: unknown, fallback: string): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return fallback;
-  try {
-    const parsed = BigInt(normalized);
-    return parsed >= 0n ? parsed.toString(10) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function cloneAllowedCalls(input: ConsoleGasSponsorshipAllowedCall[]): ConsoleGasSponsorshipAllowedCall[] {
   return input.map((entry) => ({
     chainId: entry.chainId,
     to: entry.to,
     selector: entry.selector,
-    maxGasLimit: entry.maxGasLimit,
-    maxValueWei: entry.maxValueWei,
   }));
+}
+
+function cloneAllowedChainIds(input: number[]): number[] {
+  return [...input];
 }
 
 function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClass {
@@ -100,21 +95,124 @@ function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClas
   return 'ANY';
 }
 
-function normalizeExecutor(value: unknown): ConsoleGasSponsorshipExecutor {
+function normalizeCallMode(
+  value: unknown,
+  inputAllowedCalls: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): ConsoleGasSponsorshipCallMode {
   const normalized = String(value || '')
     .trim()
     .toUpperCase();
-  if (normalized === 'RELAY_EOA') return normalized;
-  return 'RELAY_EOA';
+  if (normalized === 'ALLOW_ALL' || normalized === 'ALLOWLIST') return normalized;
+  return Array.isArray(inputAllowedCalls) && inputAllowedCalls.length > 0 ? 'ALLOWLIST' : 'ALLOW_ALL';
+}
+
+function normalizeAllowedChainIds(
+  input: number[] | undefined,
+  inputAllowedCalls: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): number[] {
+  const source =
+    Array.isArray(input) && input.length > 0
+      ? input
+      : Array.isArray(inputAllowedCalls)
+        ? inputAllowedCalls.map((entry) => Number(entry.chainId || 0))
+        : [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  source.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry) || 0));
+    if (!chainId || seen.has(chainId)) return;
+    seen.add(chainId);
+    out.push(chainId);
+  });
+  return out;
+}
+
+function normalizeSpendCapMode(value: unknown): ConsoleGasSponsorshipSpendCapMode {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'CHAIN_TOTAL' || normalized === 'WALLET_CHAIN_TOTAL') {
+    return normalized;
+  }
+  return 'NONE';
+}
+
+function normalizeSpendCapPeriod(value: unknown): ConsoleGasSponsorshipSpendCapPeriod {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  return normalized === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY';
+}
+
+function normalizeSpendCap(input: ConsoleGasSponsorshipSpendCap | undefined): ConsoleGasSponsorshipSpendCap {
+  const mode = normalizeSpendCapMode(input?.mode);
+  const capsByChain = new Map<number, { chainId: number; capMinor: number }>();
+  const rawCaps = Array.isArray(input?.capsByChain) ? input?.capsByChain : [];
+  rawCaps.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry.chainId) || 0));
+    if (!chainId) return;
+    capsByChain.set(chainId, {
+      chainId,
+      capMinor: Math.max(0, Math.floor(Number(entry.capMinor) || 0)),
+    });
+  });
+  return {
+    mode,
+    period: normalizeSpendCapPeriod(input?.period),
+    capsByChain: mode === 'NONE' ? [] : Array.from(capsByChain.values()),
+  };
 }
 
 function cloneConfig(config: ConsoleGasSponsorshipConfig): ConsoleGasSponsorshipConfig {
   return {
     ...config,
-    chainBudgets: cloneBudgets(config.chainBudgets),
+    allowedChainIds: cloneAllowedChainIds(config.allowedChainIds),
+    spendCap: cloneSpendCap(config.spendCap),
     allowedCalls: cloneAllowedCalls(config.allowedCalls),
     telemetry: { ...config.telemetry },
   };
+}
+
+function validatePolicyRules(input: {
+  allowedChainIds: number[];
+  callMode: ConsoleGasSponsorshipCallMode;
+  allowedCalls: ConsoleGasSponsorshipAllowedCall[];
+  spendCap: ConsoleGasSponsorshipSpendCap;
+}): void {
+  if (input.allowedChainIds.length === 0) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_allowed_chains',
+      400,
+      'At least one allowed chain is required.',
+    );
+  }
+  if (input.callMode === 'ALLOWLIST' && input.allowedCalls.length === 0) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_allowed_calls',
+      400,
+      'Allowlist mode requires at least one allowed contract function.',
+    );
+  }
+  const chainIdSet = new Set(input.allowedChainIds);
+  if (input.callMode === 'ALLOWLIST') {
+    const invalidCall = input.allowedCalls.find((entry) => !chainIdSet.has(entry.chainId));
+    if (invalidCall) {
+      throw new ConsoleGasSponsorshipError(
+        'invalid_allowed_calls',
+        400,
+        `Allowed call chain ${invalidCall.chainId} is not part of the selected chains.`,
+      );
+    }
+  }
+  if (input.spendCap.mode === 'NONE') return;
+  const invalidSpendCap = input.spendCap.capsByChain.find((entry) => !chainIdSet.has(entry.chainId));
+  if (invalidSpendCap) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_spend_cap',
+      400,
+      `Spend cap chain ${invalidSpendCap.chainId} is not part of the selected chains.`,
+    );
+  }
 }
 
 function validateScope(input: {
@@ -144,25 +242,6 @@ function sortConfigs(configs: ConsoleGasSponsorshipConfig[]): ConsoleGasSponsors
   });
 }
 
-function normalizeBudgets(
-  input: ConsoleGasSponsorshipChainBudget[] | undefined,
-): ConsoleGasSponsorshipChainBudget[] {
-  const raw = Array.isArray(input) ? input : [];
-  const deduped = new Map<string, ConsoleGasSponsorshipChainBudget>();
-  raw.forEach((entry) => {
-    const chain = String(entry.chain || '').trim();
-    if (!chain) return;
-    const key = `${chain.toLowerCase()}:${entry.period}`;
-    deduped.set(key, {
-      chain,
-      period: entry.period,
-      budgetMinor: Math.max(0, Number(entry.budgetMinor || 0)),
-      quotaTransactions: Math.max(0, Number(entry.quotaTransactions || 0)),
-    });
-  });
-  return Array.from(deduped.values());
-}
-
 function normalizeAllowedCalls(
   input: ConsoleGasSponsorshipAllowedCall[] | undefined,
 ): ConsoleGasSponsorshipAllowedCall[] {
@@ -173,14 +252,10 @@ function normalizeAllowedCalls(
     const to = normalizeAddress(entry.to);
     const selector = normalizeSelector(entry.selector);
     if (!chainId || !to || !selector) return;
-    const maxGasLimit = normalizeBigIntString(entry.maxGasLimit, '0');
-    const maxValueWei = normalizeBigIntString(entry.maxValueWei, '0');
     deduped.set(`${chainId}:${to.toLowerCase()}:${selector}`, {
       chainId,
       to,
       selector,
-      maxGasLimit,
-      maxValueWei,
     });
   });
   return Array.from(deduped.values());
@@ -239,11 +314,10 @@ export function createInMemoryConsoleGasSponsorshipService(
         policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
         templateId: normalizeString(request.templateId),
         networkClass: normalizeNetworkClass(request.networkClass),
-        executor: normalizeExecutor(request.executor),
         enabled: request.enabled ?? true,
-        paymasterMode: request.paymasterMode || 'AUTO',
-        fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
-        chainBudgets: normalizeBudgets(request.chainBudgets),
+        allowedChainIds: normalizeAllowedChainIds(request.allowedChainIds, request.allowedCalls),
+        callMode: normalizeCallMode(request.callMode, request.allowedCalls),
+        spendCap: normalizeSpendCap(request.spendCap),
         allowedCalls: normalizeAllowedCalls(request.allowedCalls),
         telemetry: {
           sponsoredTransactionCount: 0,
@@ -254,6 +328,8 @@ export function createInMemoryConsoleGasSponsorshipService(
         createdAt: iso,
         updatedAt: iso,
       };
+      config.allowedCalls = config.callMode === 'ALLOW_ALL' ? [] : config.allowedCalls;
+      validatePolicyRules(config);
 
       const store = requireOrgStore(ctx.orgId);
       if (store.has(config.id)) {
@@ -295,15 +371,19 @@ export function createInMemoryConsoleGasSponsorshipService(
           request.networkClass === undefined
             ? current.networkClass
             : normalizeNetworkClass(request.networkClass),
-        executor:
-          request.executor === undefined ? current.executor : normalizeExecutor(request.executor),
         enabled: request.enabled === undefined ? current.enabled : request.enabled,
-        paymasterMode: request.paymasterMode || current.paymasterMode,
-        fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
-        chainBudgets:
-          request.chainBudgets === undefined
-            ? cloneBudgets(current.chainBudgets)
-            : normalizeBudgets(request.chainBudgets),
+        allowedChainIds:
+          request.allowedChainIds === undefined
+            ? cloneAllowedChainIds(current.allowedChainIds)
+            : normalizeAllowedChainIds(request.allowedChainIds, request.allowedCalls),
+        callMode:
+          request.callMode === undefined
+            ? current.callMode
+            : normalizeCallMode(request.callMode, request.allowedCalls),
+        spendCap:
+          request.spendCap === undefined
+            ? cloneSpendCap(current.spendCap)
+            : normalizeSpendCap(request.spendCap),
         allowedCalls:
           request.allowedCalls === undefined
             ? cloneAllowedCalls(current.allowedCalls)
@@ -318,6 +398,8 @@ export function createInMemoryConsoleGasSponsorshipService(
         policyId: next.policyId,
         walletSegmentId: next.walletSegmentId,
       });
+      next.allowedCalls = next.callMode === 'ALLOW_ALL' ? [] : next.allowedCalls;
+      validatePolicyRules(next);
 
       store.set(configId, next);
       return cloneConfig(next);

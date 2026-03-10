@@ -140,6 +140,10 @@ function hasOwnerRole(member: ConsoleTeamMember): boolean {
   return member.roles.some((entry) => entry.role === 'owner');
 }
 
+function memberHasAdminEligibility(member: ConsoleTeamMember): boolean {
+  return member.roles.some((entry) => entry.role === 'owner' || entry.role === 'admin');
+}
+
 function deriveActorRoles(ctx: ConsoleTeamRbacContext): ConsoleTeamRoleAssignment[] {
   const out: ConsoleTeamRoleAssignment[] = [];
   for (const roleRaw of ctx.roles) {
@@ -492,6 +496,118 @@ export async function createPostgresConsoleTeamRbacService(
           [namespace, ctx.orgId, status],
         );
         return out.rows.map((row) => parseMemberRow(row as PgRow));
+      });
+    },
+
+    async purgeOrganization(ctx: ConsoleTeamRbacContext): Promise<void> {
+      await withTenantTx(ctx, async (q) => {
+        await q.query(
+          `DELETE FROM console_team_members
+            WHERE namespace = $1
+              AND org_id = $2`,
+          [namespace, ctx.orgId],
+        );
+      });
+    },
+
+    async transferOwner(
+      ctx: ConsoleTeamRbacContext,
+      targetMemberId: string,
+    ): Promise<{ previousOwner: ConsoleTeamMember; nextOwner: ConsoleTeamMember }> {
+      return withTenantTx(ctx, async (q) => {
+        const currentNow = nowFn();
+        const ts = nowMs(currentNow);
+        await ensureActorMembership(q, { namespace, ctx, now: currentNow });
+
+        const actorUserId = String(ctx.actorUserId || '').trim();
+        if (!actorUserId) {
+          throw new ConsoleTeamRbacError('invalid_body', 400, 'Actor user id is required');
+        }
+        const actor = await findMemberByUserId(q, { namespace, orgId: ctx.orgId, userId: actorUserId });
+        if (!actor) {
+          throw new ConsoleTeamRbacError(
+            'member_not_found',
+            404,
+            `Actor member for user ${actorUserId} was not found`,
+          );
+        }
+        if (actor.status !== 'ACTIVE' || !hasOwnerRole(actor)) {
+          throw new ConsoleTeamRbacError(
+            'forbidden',
+            403,
+            'Only the current owner can transfer organization ownership',
+          );
+        }
+
+        const target = await findMemberById(q, { namespace, orgId: ctx.orgId, memberId: targetMemberId });
+        if (!target) {
+          throw new ConsoleTeamRbacError(
+            'member_not_found',
+            404,
+            `Member ${targetMemberId} was not found`,
+          );
+        }
+        if (target.status !== 'ACTIVE') {
+          throw new ConsoleTeamRbacError(
+            'invalid_body',
+            409,
+            'Owner transfer target must be an active organization member',
+          );
+        }
+        if (!memberHasAdminEligibility(target)) {
+          throw new ConsoleTeamRbacError(
+            'invalid_body',
+            409,
+            'Owner transfer target must already have admin eligibility',
+          );
+        }
+        if (target.id === actor.id) {
+          return {
+            previousOwner: actor,
+            nextOwner: target,
+          };
+        }
+
+        const nextTargetRoles = normalizeRoleAssignments([
+          ...target.roles,
+          { role: 'owner', scope: 'ORG' },
+          { role: 'admin', scope: 'ORG' },
+        ]);
+        const nextActorRoles = normalizeRoleAssignments([
+          ...actor.roles.filter((entry) => entry.role !== 'owner'),
+          { role: 'admin', scope: 'ORG' },
+        ]);
+
+        const targetRow = await queryOne(
+          q,
+          `UPDATE console_team_members
+              SET roles = $4::jsonb,
+                  updated_at_ms = $5
+            WHERE namespace = $1
+              AND org_id = $2
+              AND id = $3
+          RETURNING *`,
+          [namespace, ctx.orgId, target.id, JSON.stringify(nextTargetRoles), ts],
+        );
+        const actorRow = await queryOne(
+          q,
+          `UPDATE console_team_members
+              SET roles = $4::jsonb,
+                  updated_at_ms = $5
+            WHERE namespace = $1
+              AND org_id = $2
+              AND id = $3
+          RETURNING *`,
+          [namespace, ctx.orgId, actor.id, JSON.stringify(nextActorRoles), ts],
+        );
+        if (!targetRow || !actorRow) {
+          throw new ConsoleTeamRbacError('internal', 500, 'Failed to transfer owner membership');
+        }
+
+        return {
+          previousOwner: parseMemberRow(actorRow),
+          nextOwner: parseMemberRow(targetRow),
+        };
       });
     },
 

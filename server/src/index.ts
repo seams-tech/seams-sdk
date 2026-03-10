@@ -33,6 +33,8 @@ export type {
 export * from './email-recovery';
 export * from './threshold/session/prfSessionSeal';
 export * from './router/ror';
+export * from './console/account';
 export * from './console/gasSponsorship';
+export * from './console/sponsorshipSpendCaps';
 export * from './console/sponsoredCalls';
 export * from './sponsorship';

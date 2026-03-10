@@ -536,14 +536,6 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
       });
       return;
     }
-    if (matched.policy.executor !== 'RELAY_EOA') {
-      res.status(503).json({
-        ok: false,
-        code: 'unsupported_sponsorship_executor',
-        message: `Unsupported sponsorship executor: ${matched.policy.executor}`,
-      });
-      return;
-    }
     if (parsedBody.chainId !== args.config.chainId) {
       res.status(503).json({
         ok: false,

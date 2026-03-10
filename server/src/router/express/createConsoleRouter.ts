@@ -973,10 +973,7 @@ function requireAccountService(
   return null;
 }
 
-function requireSessionAdapter(
-  res: Response,
-  ctx: ExpressConsoleContext,
-): SessionAdapter | null {
+function requireSessionAdapter(res: Response, ctx: ExpressConsoleContext): SessionAdapter | null {
   if (ctx.opts.session) return ctx.opts.session;
   res.status(501).json({
     ok: false,
@@ -1146,6 +1143,7 @@ function toAccountContext(claims: ConsoleAuthClaims): {
   roles: string[];
   email?: string;
   name?: string;
+  provider?: string;
   projectId?: string;
   environmentId?: string;
 } {
@@ -1157,6 +1155,9 @@ function toAccountContext(claims: ConsoleAuthClaims): {
       ? { email: claims.email.trim().toLowerCase() }
       : {}),
     ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
+    ...(typeof claims.provider === 'string' && claims.provider.trim()
+      ? { provider: claims.provider.trim() }
+      : {}),
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
@@ -1690,7 +1691,11 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
     try {
       const request = parseUpdateConsoleAccountOrganizationRequest((req as any).body || {});
-      const organization = await account.updateOrganization(toAccountContext(claims), orgId, request);
+      const organization = await account.updateOrganization(
+        toAccountContext(claims),
+        orgId,
+        request,
+      );
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.update',
@@ -1703,6 +1708,33 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
         },
       });
       res.status(200).json({ ok: true, organization });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.delete('/console/account/organizations/:orgId', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    const orgId = readPathParam(req, 'orgId');
+    if (!orgId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing organization id' });
+      return;
+    }
+    try {
+      const deleted = await account.deleteOrganization(toAccountContext(claims), orgId);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.delete',
+        summary: `Deleted organization ${deleted.orgId} from account settings`,
+        metadata: {
+          organizationId: deleted.orgId,
+          source: 'account_settings',
+        },
+      });
+      res.status(200).json({ ok: true, deleted });
     } catch (error: unknown) {
       sendAccountError(res, error);
     }
@@ -1766,8 +1798,14 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
         return;
       }
       try {
-        const nextContext = await account.switchOrganizationContext(toAccountContext(claims), orgId);
-        const parsedSession = await parseConsoleSessionForContextSwitch(session, (req as any).headers);
+        const nextContext = await account.switchOrganizationContext(
+          toAccountContext(claims),
+          orgId,
+        );
+        const parsedSession = await parseConsoleSessionForContextSwitch(
+          session,
+          (req as any).headers,
+        );
         if (!parsedSession) {
           res.status(401).json({
             ok: false,

@@ -14,19 +14,28 @@ export type SponsoredEvmCallRequest = {
   sourceEventId: string | null;
 };
 
+export type ResolvedSponsoredEvmCallSpendCap = {
+  mode: 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
+  period: 'WEEKLY' | 'MONTHLY';
+  capsByChain: Array<{
+    chainId: number;
+    capMinor: number;
+  }>;
+};
+
 export type ResolvedSponsoredEvmCallPolicy = {
   policyId: string;
   policyName: string;
   templateId: string | null;
   networkClass: 'ANY' | 'TESTNET' | 'MAINNET';
-  executor: 'RELAY_EOA';
+  allowedChainIds: number[];
+  callMode: 'ALLOW_ALL' | 'ALLOWLIST';
   allowedCalls: Array<{
     chainId: number;
     to: string;
     selector: string;
-    maxGasLimit: string;
-    maxValueWei: string;
   }>;
+  spendCap: ResolvedSponsoredEvmCallSpendCap;
   scopeType: 'ENVIRONMENT';
   projectId: string | null;
   environmentId: string | null;
@@ -82,6 +91,53 @@ export function parseRequiredUnsignedBigInt(value: unknown, field: string): bigi
   }
 }
 
+function parseResolvedSponsoredEvmCallSpendCap(
+  raw: unknown,
+): ResolvedSponsoredEvmCallSpendCap {
+  const row =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const modeRaw = String(row.mode || '')
+    .trim()
+    .toUpperCase();
+  const periodRaw = String(row.period || '')
+    .trim()
+    .toUpperCase();
+  const mode =
+    modeRaw === 'CHAIN_TOTAL' || modeRaw === 'WALLET_CHAIN_TOTAL'
+      ? (modeRaw as ResolvedSponsoredEvmCallSpendCap['mode'])
+      : 'NONE';
+  const period = periodRaw === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY';
+  const capsByChainRaw = Array.isArray(row.capsByChain) ? row.capsByChain : [];
+  const capsByChain = Array.from(
+    new Map(
+      capsByChainRaw
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+          const capRow = entry as Record<string, unknown>;
+          const chainId = parseOptionalPositiveInteger(capRow.chainId);
+          const capMinorRaw = Number(capRow.capMinor);
+          const capMinor =
+            Number.isFinite(capMinorRaw) && capMinorRaw >= 0 ? Math.floor(capMinorRaw) : undefined;
+          if (!chainId || capMinor === undefined) return null;
+          return [chainId, { chainId, capMinor }] as const;
+        })
+        .filter(
+          (
+            entry,
+          ): entry is readonly [number, ResolvedSponsoredEvmCallSpendCap['capsByChain'][number]] =>
+            Boolean(entry),
+        ),
+    ).values(),
+  );
+  return {
+    mode,
+    period,
+    capsByChain: mode === 'NONE' ? [] : capsByChain,
+  };
+}
+
 export function extractEvmFunctionSelector(data: `0x${string}`): `0x${string}` | null {
   return data.length >= 10 ? (`0x${data.slice(2, 10).toLowerCase()}` as `0x${string}`) : null;
 }
@@ -121,10 +177,10 @@ export function parseResolvedSponsoredEvmCallPolicies(
     const row = entry as Record<string, unknown>;
     const policyId = String(row.policyId || '').trim();
     const policyName = String(row.policyName || '').trim() || policyId;
-    const executor = String(row.executor || '').trim().toUpperCase();
     const networkClass = String(row.networkClass || 'ANY').trim().toUpperCase();
+    const callModeRaw = String(row.callMode || '').trim().toUpperCase();
     const allowedCallsRaw = Array.isArray(row.allowedCalls) ? row.allowedCalls : [];
-    if (!policyId || executor !== 'RELAY_EOA') continue;
+    if (!policyId) continue;
     const allowedCalls = allowedCallsRaw
       .map((call): ResolvedSponsoredEvmCallPolicy['allowedCalls'][number] | null => {
         if (!call || typeof call !== 'object' || Array.isArray(call)) return null;
@@ -133,34 +189,48 @@ export function parseResolvedSponsoredEvmCallPolicies(
         const to = normalizeEvmAddress(callRow.to);
         const selector = normalizeEvmSelector(callRow.selector);
         if (!chainId || !to || !selector) return null;
-        try {
-          return {
-            chainId,
-            to,
-            selector,
-            maxGasLimit: parseRequiredUnsignedBigInt(
-              callRow.maxGasLimit,
-              'allowedCalls[].maxGasLimit',
-            ).toString(10),
-            maxValueWei: parseRequiredUnsignedBigInt(
-              callRow.maxValueWei,
-              'allowedCalls[].maxValueWei',
-            ).toString(10),
-          };
-        } catch {
-          return null;
-        }
+        return {
+          chainId,
+          to,
+          selector,
+        };
       })
       .filter((call): call is ResolvedSponsoredEvmCallPolicy['allowedCalls'][number] => Boolean(call));
-    if (allowedCalls.length === 0) continue;
+    const allowedChainIdsRaw = Array.isArray(row.allowedChainIds) ? row.allowedChainIds : [];
+    const allowedChainIds = Array.from(
+      new Set(
+        allowedChainIdsRaw
+          .map((entry) => parseOptionalPositiveInteger(entry))
+          .filter((entry): entry is number => Boolean(entry)),
+      ),
+    );
+    if (allowedChainIds.length === 0) {
+      for (const allowedCall of allowedCalls) {
+        if (!allowedChainIds.includes(allowedCall.chainId)) {
+          allowedChainIds.push(allowedCall.chainId);
+        }
+      }
+    }
+    const callMode =
+      callModeRaw === 'ALLOW_ALL' || callModeRaw === 'ALLOWLIST'
+        ? (callModeRaw as 'ALLOW_ALL' | 'ALLOWLIST')
+        : allowedCalls.length > 0
+          ? 'ALLOWLIST'
+          : 'ALLOW_ALL';
+    if (allowedChainIds.length === 0) continue;
+    if (callMode === 'ALLOWLIST' && allowedCalls.length === 0) continue;
     out.push({
       policyId,
       policyName,
       templateId: String(row.templateId || '').trim() || null,
       networkClass:
-        networkClass === 'TESTNET' || networkClass === 'MAINNET' ? (networkClass as any) : 'ANY',
-      executor: 'RELAY_EOA',
+        networkClass === 'TESTNET' || networkClass === 'MAINNET'
+          ? (networkClass as 'TESTNET' | 'MAINNET')
+          : 'ANY',
+      allowedChainIds,
+      callMode,
       allowedCalls,
+      spendCap: parseResolvedSponsoredEvmCallSpendCap(row.spendCap),
       scopeType: 'ENVIRONMENT',
       projectId: String(row.projectId || '').trim() || null,
       environmentId: String(row.environmentId || '').trim() || null,
@@ -178,12 +248,14 @@ export function matchResolvedSponsoredEvmCallPolicy(input: {
   if (!selector) return null;
   const targetAddress = input.call.to.toLowerCase();
   for (const policy of input.policies) {
+    if (!policy.allowedChainIds.includes(input.chainId)) continue;
+    if (policy.callMode === 'ALLOW_ALL') {
+      return { policy, selector };
+    }
     for (const allowedCall of policy.allowedCalls) {
       if (allowedCall.chainId !== input.chainId) continue;
       if (allowedCall.to.toLowerCase() !== targetAddress) continue;
       if (allowedCall.selector.toLowerCase() !== selector.toLowerCase()) continue;
-      if (input.call.gasLimit > BigInt(allowedCall.maxGasLimit)) continue;
-      if (input.call.value > BigInt(allowedCall.maxValueWei)) continue;
       return { policy, selector };
     }
   }

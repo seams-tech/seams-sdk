@@ -5,29 +5,26 @@ export type ConsoleGasSponsorshipScopeType =
   | 'POLICY'
   | 'WALLET_SEGMENT';
 
-export type ConsoleGasSponsorshipBudgetPeriod = 'DAILY' | 'WEEKLY' | 'MONTHLY';
-
-export type ConsoleGasSponsorshipPaymasterMode = 'DISABLED' | 'AUTO' | 'FORCED';
-
-export type ConsoleGasSponsorshipFallbackBehavior = 'REJECT' | 'ALLOW_UNSPONSORED';
-
 export type ConsoleGasSponsorshipNetworkClass = 'ANY' | 'TESTNET' | 'MAINNET';
+export type ConsoleGasSponsorshipCallMode = 'ALLOW_ALL' | 'ALLOWLIST';
+export type ConsoleGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
+export type ConsoleGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
 
-export type ConsoleGasSponsorshipExecutor = 'RELAY_EOA';
+export interface ConsoleGasSponsorshipSpendCapChain {
+  chainId: number;
+  capMinor: number;
+}
 
-export interface ConsoleGasSponsorshipChainBudget {
-  chain: string;
-  period: ConsoleGasSponsorshipBudgetPeriod;
-  budgetMinor: number;
-  quotaTransactions: number;
+export interface ConsoleGasSponsorshipSpendCap {
+  mode: ConsoleGasSponsorshipSpendCapMode;
+  period: ConsoleGasSponsorshipSpendCapPeriod;
+  capsByChain: ConsoleGasSponsorshipSpendCapChain[];
 }
 
 export interface ConsoleGasSponsorshipAllowedCall {
   chainId: number;
   to: string;
   selector: string;
-  maxGasLimit: string;
-  maxValueWei: string;
 }
 
 export interface ConsoleGasSponsorshipTelemetry {
@@ -48,11 +45,10 @@ export interface ConsoleGasSponsorshipConfig {
   policyName: string;
   templateId: string | null;
   networkClass: ConsoleGasSponsorshipNetworkClass;
-  executor: ConsoleGasSponsorshipExecutor;
   enabled: boolean;
-  paymasterMode: ConsoleGasSponsorshipPaymasterMode;
-  fallbackBehavior: ConsoleGasSponsorshipFallbackBehavior;
-  chainBudgets: ConsoleGasSponsorshipChainBudget[];
+  allowedChainIds: number[];
+  callMode: ConsoleGasSponsorshipCallMode;
+  spendCap: ConsoleGasSponsorshipSpendCap;
   allowedCalls: ConsoleGasSponsorshipAllowedCall[];
   telemetry: ConsoleGasSponsorshipTelemetry;
   createdAt: string;
@@ -78,11 +74,10 @@ export interface CreateConsoleGasSponsorshipRequest {
   policyName?: string;
   templateId?: string;
   networkClass?: ConsoleGasSponsorshipNetworkClass;
-  executor?: ConsoleGasSponsorshipExecutor;
   enabled?: boolean;
-  paymasterMode?: ConsoleGasSponsorshipPaymasterMode;
-  fallbackBehavior?: ConsoleGasSponsorshipFallbackBehavior;
-  chainBudgets?: ConsoleGasSponsorshipChainBudget[];
+  allowedChainIds?: number[];
+  callMode?: ConsoleGasSponsorshipCallMode;
+  spendCap?: ConsoleGasSponsorshipSpendCap;
   allowedCalls?: ConsoleGasSponsorshipAllowedCall[];
 }
 
@@ -95,10 +90,9 @@ export interface UpdateConsoleGasSponsorshipRequest {
   policyName?: string;
   templateId?: string;
   networkClass?: ConsoleGasSponsorshipNetworkClass;
-  executor?: ConsoleGasSponsorshipExecutor;
   enabled?: boolean;
-  paymasterMode?: ConsoleGasSponsorshipPaymasterMode;
-  fallbackBehavior?: ConsoleGasSponsorshipFallbackBehavior;
-  chainBudgets?: ConsoleGasSponsorshipChainBudget[];
+  allowedChainIds?: number[];
+  callMode?: ConsoleGasSponsorshipCallMode;
+  spendCap?: ConsoleGasSponsorshipSpendCap;
   allowedCalls?: ConsoleGasSponsorshipAllowedCall[];
 }

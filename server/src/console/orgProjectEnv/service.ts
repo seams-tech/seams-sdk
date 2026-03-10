@@ -26,6 +26,9 @@ export interface ConsoleOrgProjectEnvService {
     ctx: ConsoleOrgProjectEnvContext,
     request: UpsertConsoleOrganizationRequest,
   ): Promise<ConsoleOrganization>;
+  deleteOrganization(
+    ctx: ConsoleOrgProjectEnvContext,
+  ): Promise<{ deleted: boolean; organization: ConsoleOrganization | null }>;
   listProjects(
     ctx: ConsoleOrgProjectEnvContext,
     request?: ListConsoleProjectsRequest,
@@ -218,6 +221,16 @@ export function createInMemoryConsoleOrgProjectEnvService(
       store.org.slug = slugify(nextSlug);
       store.org.updatedAt = toIso(currentNow);
       return cloneOrg(store.org);
+    },
+
+    async deleteOrganization(
+      ctx,
+    ): Promise<{ deleted: boolean; organization: ConsoleOrganization | null }> {
+      const store = stores.get(ctx.orgId);
+      if (!store) return { deleted: false, organization: null };
+      const organization = cloneOrg(store.org);
+      stores.delete(ctx.orgId);
+      return { deleted: true, organization };
     },
 
     async listProjects(

@@ -15,10 +15,12 @@ import type { ConsoleAuditService } from '../console/audit';
 import type { ConsoleAuditExportsService } from '../console/auditExports';
 import type { ConsoleEnterpriseIsolationService } from '../console/enterpriseIsolation';
 import type { ConsoleOnboardingService } from '../console/onboarding';
+import type { ConsoleAccountService } from '../console/account';
 import type {
   ConsoleObservabilityIngestionService,
   ConsoleObservabilityService,
 } from '../console/observability';
+import type { SessionAdapter } from './relay';
 
 export type ConsoleRole =
   | 'owner'
@@ -92,10 +94,14 @@ export interface ConsoleRouterOptions {
   enterpriseIsolation?: ConsoleEnterpriseIsolationService | null;
   // Optional onboarding adapter for first-run setup and onboarding state endpoints.
   onboarding?: ConsoleOnboardingService | null;
+  // Optional account settings adapter for profile and multi-org operations.
+  account?: ConsoleAccountService | null;
   // Optional observability adapter for logs/metrics/health read APIs.
   observability?: ConsoleObservabilityService | null;
   // Optional observability ingestion adapter for telemetry event writes.
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
+  // Optional app session adapter used when console routes need to rotate session scope.
+  session?: SessionAdapter | null;
   // Optional shared secret required by Stripe webhook ingestion endpoint.
   billingStripeWebhookSecret?: string;
   // Optional logger; defaults to silent.

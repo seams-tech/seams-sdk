@@ -12,10 +12,12 @@ import {
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
   ConsoleGasSponsorshipAllowedCall,
-  ConsoleGasSponsorshipChainBudget,
+  ConsoleGasSponsorshipCallMode,
   ConsoleGasSponsorshipConfig,
-  ConsoleGasSponsorshipExecutor,
   ConsoleGasSponsorshipNetworkClass,
+  ConsoleGasSponsorshipSpendCap,
+  ConsoleGasSponsorshipSpendCapMode,
+  ConsoleGasSponsorshipSpendCapPeriod,
   ConsoleGasSponsorshipTelemetry,
   CreateConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
@@ -73,45 +75,60 @@ function toNullableString(raw: unknown): string | null {
   return value || null;
 }
 
-function normalizeBudgets(input: ConsoleGasSponsorshipChainBudget[] | undefined): ConsoleGasSponsorshipChainBudget[] {
-  const source = Array.isArray(input) ? input : [];
-  const deduped = new Map<string, ConsoleGasSponsorshipChainBudget>();
-  source.forEach((entry) => {
-    const chain = String(entry.chain || '').trim();
-    if (!chain) return;
-    const period = String(entry.period || '')
-      .trim()
-      .toUpperCase();
-    if (!period) return;
-    const key = `${chain.toLowerCase()}:${period}`;
-    deduped.set(key, {
-      chain,
-      period: period as ConsoleGasSponsorshipChainBudget['period'],
-      budgetMinor: Math.max(0, Number(entry.budgetMinor || 0)),
-      quotaTransactions: Math.max(0, Number(entry.quotaTransactions || 0)),
-    });
-  });
-  return Array.from(deduped.values());
+function normalizeSpendCapMode(value: unknown): ConsoleGasSponsorshipSpendCapMode {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (normalized === 'CHAIN_TOTAL' || normalized === 'WALLET_CHAIN_TOTAL') {
+    return normalized;
+  }
+  return 'NONE';
 }
 
-function parseChainBudgets(raw: unknown): ConsoleGasSponsorshipChainBudget[] {
-  const out: ConsoleGasSponsorshipChainBudget[] = [];
-  for (const entry of parseJsonArray(raw)) {
+function normalizeSpendCapPeriod(value: unknown): ConsoleGasSponsorshipSpendCapPeriod {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  return normalized === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY';
+}
+
+function normalizeSpendCap(input: ConsoleGasSponsorshipSpendCap | undefined): ConsoleGasSponsorshipSpendCap {
+  const mode = normalizeSpendCapMode(input?.mode);
+  const capsByChain = new Map<number, { chainId: number; capMinor: number }>();
+  const source = Array.isArray(input?.capsByChain) ? input?.capsByChain : [];
+  source.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry.chainId) || 0));
+    if (!chainId) return;
+    capsByChain.set(chainId, {
+      chainId,
+      capMinor: Math.max(0, Math.floor(Number(entry.capMinor) || 0)),
+    });
+  });
+  return {
+    mode,
+    period: normalizeSpendCapPeriod(input?.period),
+    capsByChain: mode === 'NONE' ? [] : Array.from(capsByChain.values()),
+  };
+}
+
+function parseSpendCap(raw: unknown): ConsoleGasSponsorshipSpendCap {
+  const row = parseJsonObject(raw);
+  const out: ConsoleGasSponsorshipSpendCap = {
+    mode: normalizeSpendCapMode(row.mode),
+    period: normalizeSpendCapPeriod(row.period),
+    capsByChain: [],
+  };
+  for (const entry of parseJsonArray(row.capsByChain)) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-    const row = entry as Record<string, unknown>;
-    const chain = String(row.chain || '').trim();
-    const period = String(row.period || '')
-      .trim()
-      .toUpperCase();
-    if (!chain || !period) continue;
-    out.push({
-      chain,
-      period: period as ConsoleGasSponsorshipChainBudget['period'],
-      budgetMinor: Math.max(0, Math.floor(toNumber(row.budgetMinor, 0))),
-      quotaTransactions: Math.max(0, Math.floor(toNumber(row.quotaTransactions, 0))),
+    const capRow = entry as Record<string, unknown>;
+    const chainId = Math.max(0, Math.floor(toNumber(capRow.chainId, 0)));
+    if (!chainId) continue;
+    out.capsByChain.push({
+      chainId,
+      capMinor: Math.max(0, Math.floor(toNumber(capRow.capMinor, 0))),
     });
   }
-  return normalizeBudgets(out);
+  return normalizeSpendCap(out);
 }
 
 function normalizeAddress(value: unknown): string | null {
@@ -124,17 +141,6 @@ function normalizeSelector(value: unknown): string | null {
   return /^0x[0-9a-fA-F]{8}$/.test(normalized) ? normalized.toLowerCase() : null;
 }
 
-function normalizeBigIntString(value: unknown, fallback: string): string {
-  const normalized = String(value || '').trim();
-  if (!normalized) return fallback;
-  try {
-    const parsed = BigInt(normalized);
-    return parsed >= 0n ? parsed.toString(10) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClass {
   const normalized = String(value || '')
     .trim()
@@ -143,12 +149,36 @@ function normalizeNetworkClass(value: unknown): ConsoleGasSponsorshipNetworkClas
   return 'ANY';
 }
 
-function normalizeExecutor(value: unknown): ConsoleGasSponsorshipExecutor {
+function normalizeCallMode(
+  value: unknown,
+  inputAllowedCalls: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): ConsoleGasSponsorshipCallMode {
   const normalized = String(value || '')
     .trim()
     .toUpperCase();
-  if (normalized === 'RELAY_EOA') return normalized;
-  return 'RELAY_EOA';
+  if (normalized === 'ALLOW_ALL' || normalized === 'ALLOWLIST') return normalized;
+  return Array.isArray(inputAllowedCalls) && inputAllowedCalls.length > 0 ? 'ALLOWLIST' : 'ALLOW_ALL';
+}
+
+function normalizeAllowedChainIds(
+  input: number[] | undefined,
+  inputAllowedCalls: ConsoleGasSponsorshipAllowedCall[] | undefined,
+): number[] {
+  const source =
+    Array.isArray(input) && input.length > 0
+      ? input
+      : Array.isArray(inputAllowedCalls)
+        ? inputAllowedCalls.map((entry) => Number(entry.chainId || 0))
+        : [];
+  const out: number[] = [];
+  const seen = new Set<number>();
+  source.forEach((entry) => {
+    const chainId = Math.max(0, Math.floor(Number(entry) || 0));
+    if (!chainId || seen.has(chainId)) return;
+    seen.add(chainId);
+    out.push(chainId);
+  });
+  return out;
 }
 
 function normalizeAllowedCalls(
@@ -165,8 +195,6 @@ function normalizeAllowedCalls(
       chainId,
       to,
       selector,
-      maxGasLimit: normalizeBigIntString(entry.maxGasLimit, '0'),
-      maxValueWei: normalizeBigIntString(entry.maxValueWei, '0'),
     });
   });
   return Array.from(deduped.values());
@@ -185,11 +213,19 @@ function parseAllowedCalls(raw: unknown): ConsoleGasSponsorshipAllowedCall[] {
       chainId,
       to,
       selector,
-      maxGasLimit: normalizeBigIntString(row.maxGasLimit, '0'),
-      maxValueWei: normalizeBigIntString(row.maxValueWei, '0'),
     });
   }
   return normalizeAllowedCalls(out);
+}
+
+function parseAllowedChainIds(
+  raw: unknown,
+  allowedCalls: ConsoleGasSponsorshipAllowedCall[],
+): number[] {
+  const rawValues = parseJsonArray(raw)
+    .map((entry) => Math.max(0, Math.floor(toNumber(entry, 0))))
+    .filter((entry) => entry > 0);
+  return normalizeAllowedChainIds(rawValues, allowedCalls);
 }
 
 function parseTelemetry(raw: unknown): ConsoleGasSponsorshipTelemetry {
@@ -203,6 +239,9 @@ function parseTelemetry(raw: unknown): ConsoleGasSponsorshipTelemetry {
 }
 
 function parseConfigRow(row: PgRow): ConsoleGasSponsorshipConfig {
+  const allowedCalls = parseAllowedCalls(row.allowed_calls);
+  const allowedChainIds = parseAllowedChainIds(row.allowed_chain_ids, allowedCalls);
+  const callMode = normalizeCallMode(row.call_mode, allowedCalls);
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
@@ -214,12 +253,11 @@ function parseConfigRow(row: PgRow): ConsoleGasSponsorshipConfig {
     policyName: String(row.policy_name || 'Gas Sponsorship Policy'),
     templateId: toNullableString(row.template_id),
     networkClass: normalizeNetworkClass(row.network_class),
-    executor: normalizeExecutor(row.executor),
     enabled: row.enabled !== false,
-    paymasterMode: String(row.paymaster_mode || 'AUTO') as ConsoleGasSponsorshipConfig['paymasterMode'],
-    fallbackBehavior: String(row.fallback_behavior || 'ALLOW_UNSPONSORED') as ConsoleGasSponsorshipConfig['fallbackBehavior'],
-    chainBudgets: parseChainBudgets(row.chain_budgets),
-    allowedCalls: parseAllowedCalls(row.allowed_calls),
+    allowedChainIds,
+    callMode,
+    spendCap: parseSpendCap(row.spend_cap),
+    allowedCalls: callMode === 'ALLOW_ALL' ? [] : allowedCalls,
     telemetry: parseTelemetry(row.telemetry),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
@@ -245,8 +283,51 @@ function validateScope(config: {
   );
 }
 
+function validatePolicyRules(config: {
+  allowedChainIds: number[];
+  callMode: ConsoleGasSponsorshipCallMode;
+  allowedCalls: ConsoleGasSponsorshipAllowedCall[];
+  spendCap: ConsoleGasSponsorshipSpendCap;
+}): void {
+  if (config.allowedChainIds.length === 0) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_allowed_chains',
+      400,
+      'At least one allowed chain is required.',
+    );
+  }
+  if (config.callMode === 'ALLOWLIST' && config.allowedCalls.length === 0) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_allowed_calls',
+      400,
+      'Allowlist mode requires at least one allowed contract function.',
+    );
+  }
+  const chainIdSet = new Set(config.allowedChainIds);
+  if (config.callMode === 'ALLOWLIST') {
+    const invalidCall = config.allowedCalls.find((entry) => !chainIdSet.has(entry.chainId));
+    if (invalidCall) {
+      throw new ConsoleGasSponsorshipError(
+        'invalid_allowed_calls',
+        400,
+        `Allowed call chain ${invalidCall.chainId} is not part of the selected chains.`,
+      );
+    }
+  }
+  if (config.spendCap.mode === 'NONE') return;
+  const invalidSpendCap = config.spendCap.capsByChain.find((entry) => !chainIdSet.has(entry.chainId));
+  if (invalidSpendCap) {
+    throw new ConsoleGasSponsorshipError(
+      'invalid_spend_cap',
+      400,
+      `Spend cap chain ${invalidSpendCap.chainId} is not part of the selected chains.`,
+    );
+  }
+}
+
 function isUniqueViolation(error: unknown): boolean {
-  return !!error && typeof error === 'object' && (error as any).code === '23505';
+  if (!error || typeof error !== 'object') return false;
+  return (error as { code?: unknown }).code === '23505';
 }
 
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
@@ -278,11 +359,10 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
         policy_name TEXT NOT NULL,
         template_id TEXT,
         network_class TEXT NOT NULL,
-        executor TEXT NOT NULL,
         enabled BOOLEAN NOT NULL,
-        paymaster_mode TEXT NOT NULL,
-        fallback_behavior TEXT NOT NULL,
-        chain_budgets JSONB NOT NULL,
+        allowed_chain_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        call_mode TEXT NOT NULL DEFAULT 'ALLOW_ALL',
+        spend_cap JSONB NOT NULL DEFAULT '{"mode":"NONE","period":"MONTHLY","capsByChain":[]}'::jsonb,
         allowed_calls JSONB NOT NULL,
         telemetry JSONB NOT NULL,
         created_at_ms BIGINT NOT NULL,
@@ -290,10 +370,9 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
         PRIMARY KEY (namespace, org_id, id),
         CHECK (scope_type IN ('ORG', 'PROJECT', 'ENVIRONMENT', 'POLICY', 'WALLET_SEGMENT')),
         CHECK (network_class IN ('ANY', 'TESTNET', 'MAINNET')),
-        CHECK (executor IN ('RELAY_EOA')),
-        CHECK (paymaster_mode IN ('DISABLED', 'AUTO', 'FORCED')),
-        CHECK (fallback_behavior IN ('REJECT', 'ALLOW_UNSPONSORED')),
-        CHECK (jsonb_typeof(chain_budgets) = 'array'),
+        CHECK (call_mode IN ('ALLOW_ALL', 'ALLOWLIST')),
+        CHECK (jsonb_typeof(allowed_chain_ids) = 'array'),
+        CHECK (jsonb_typeof(spend_cap) = 'object'),
         CHECK (jsonb_typeof(allowed_calls) = 'array'),
         CHECK (jsonb_typeof(telemetry) = 'object')
       )
@@ -313,11 +392,56 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
     `);
     await pool.query(`
       ALTER TABLE console_gas_sponsorship_configs
-      ADD COLUMN IF NOT EXISTS executor TEXT NOT NULL DEFAULT 'RELAY_EOA'
+      ADD COLUMN IF NOT EXISTS allowed_calls JSONB NOT NULL DEFAULT '[]'::jsonb
     `);
     await pool.query(`
       ALTER TABLE console_gas_sponsorship_configs
-      ADD COLUMN IF NOT EXISTS allowed_calls JSONB NOT NULL DEFAULT '[]'::jsonb
+      ADD COLUMN IF NOT EXISTS allowed_chain_ids JSONB NOT NULL DEFAULT '[]'::jsonb
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS call_mode TEXT NOT NULL DEFAULT 'ALLOW_ALL'
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      ADD COLUMN IF NOT EXISTS spend_cap JSONB NOT NULL DEFAULT '{"mode":"NONE","period":"MONTHLY","capsByChain":[]}'::jsonb
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      DROP COLUMN IF EXISTS executor
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      DROP COLUMN IF EXISTS paymaster_mode
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      DROP COLUMN IF EXISTS fallback_behavior
+    `);
+    await pool.query(`
+      ALTER TABLE console_gas_sponsorship_configs
+      DROP COLUMN IF EXISTS chain_budgets
+    `);
+    await pool.query(`
+      UPDATE console_gas_sponsorship_configs
+         SET allowed_calls = COALESCE(
+           (
+             SELECT jsonb_agg(
+               CASE
+                 WHEN jsonb_typeof(entry) = 'object' THEN (entry - 'maxGasLimit') - 'maxValueWei'
+                 ELSE entry
+               END
+             )
+             FROM jsonb_array_elements(
+               CASE
+                 WHEN jsonb_typeof(allowed_calls) = 'array' THEN allowed_calls
+                 ELSE '[]'::jsonb
+               END
+             ) AS entry
+           ),
+           '[]'::jsonb
+         )
+       WHERE jsonb_typeof(allowed_calls) = 'array'
     `);
 
     await pool.query(`
@@ -425,7 +549,9 @@ export async function createPostgresConsoleGasSponsorshipService(
     async createConfig(ctx, request: CreateConsoleGasSponsorshipRequest) {
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
-        const chainBudgets = normalizeBudgets(request.chainBudgets);
+        const spendCap = normalizeSpendCap(request.spendCap);
+        const callMode = normalizeCallMode(request.callMode, request.allowedCalls);
+        const allowedChainIds = normalizeAllowedChainIds(request.allowedChainIds, request.allowedCalls);
         const allowedCalls = normalizeAllowedCalls(request.allowedCalls);
         const config: ConsoleGasSponsorshipConfig = {
           id: toNullableString(request.id) || makeId('gs', now),
@@ -438,12 +564,11 @@ export async function createPostgresConsoleGasSponsorshipService(
           policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
           templateId: toNullableString(request.templateId),
           networkClass: normalizeNetworkClass(request.networkClass),
-          executor: normalizeExecutor(request.executor),
           enabled: request.enabled ?? true,
-          paymasterMode: request.paymasterMode || 'AUTO',
-          fallbackBehavior: request.fallbackBehavior || 'ALLOW_UNSPONSORED',
-          chainBudgets,
-          allowedCalls,
+          allowedChainIds,
+          callMode,
+          spendCap,
+          allowedCalls: callMode === 'ALLOW_ALL' ? [] : allowedCalls,
           telemetry: {
             sponsoredTransactionCount: 0,
             failedTransactionCount: 0,
@@ -454,14 +579,15 @@ export async function createPostgresConsoleGasSponsorshipService(
           updatedAt: now.toISOString(),
         };
         validateScope(config);
+        validatePolicyRules(config);
         const createdAtMs = nowMs(now);
         try {
           const row = await queryOne(
             q,
             `INSERT INTO console_gas_sponsorship_configs
-              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, policy_name, template_id, network_class, executor, enabled, paymaster_mode, fallback_behavior, chain_budgets, allowed_calls, telemetry, created_at_ms, updated_at_ms)
+              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, policy_name, template_id, network_class, enabled, allowed_chain_ids, call_mode, spend_cap, allowed_calls, telemetry, created_at_ms, updated_at_ms)
              VALUES
-              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18::jsonb, $19, $19)
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18, $18)
              RETURNING *`,
             [
               namespace,
@@ -475,11 +601,10 @@ export async function createPostgresConsoleGasSponsorshipService(
               config.policyName,
               config.templateId,
               config.networkClass,
-              config.executor,
               config.enabled,
-              config.paymasterMode,
-              config.fallbackBehavior,
-              JSON.stringify(config.chainBudgets),
+              JSON.stringify(config.allowedChainIds),
+              config.callMode,
+              JSON.stringify(config.spendCap),
               JSON.stringify(config.allowedCalls),
               JSON.stringify(config.telemetry),
               createdAtMs,
@@ -531,15 +656,19 @@ export async function createPostgresConsoleGasSponsorshipService(
             request.networkClass === undefined
               ? current.networkClass
               : normalizeNetworkClass(request.networkClass),
-          executor:
-            request.executor === undefined ? current.executor : normalizeExecutor(request.executor),
           enabled: request.enabled === undefined ? current.enabled : request.enabled,
-          paymasterMode: request.paymasterMode || current.paymasterMode,
-          fallbackBehavior: request.fallbackBehavior || current.fallbackBehavior,
-          chainBudgets:
-            request.chainBudgets === undefined
-              ? current.chainBudgets
-              : normalizeBudgets(request.chainBudgets),
+          allowedChainIds:
+            request.allowedChainIds === undefined
+              ? [...current.allowedChainIds]
+              : normalizeAllowedChainIds(request.allowedChainIds, request.allowedCalls),
+          callMode:
+            request.callMode === undefined
+              ? current.callMode
+              : normalizeCallMode(request.callMode, request.allowedCalls),
+          spendCap:
+            request.spendCap === undefined
+              ? current.spendCap
+              : normalizeSpendCap(request.spendCap),
           allowedCalls:
             request.allowedCalls === undefined
               ? current.allowedCalls
@@ -547,6 +676,8 @@ export async function createPostgresConsoleGasSponsorshipService(
           updatedAt: nowFn().toISOString(),
         };
         validateScope(next);
+        next.allowedCalls = next.callMode === 'ALLOW_ALL' ? [] : next.allowedCalls;
+        validatePolicyRules(next);
 
         const updatedAtMs = nowMs(new Date(next.updatedAt));
         const row = await queryOne(
@@ -560,13 +691,12 @@ export async function createPostgresConsoleGasSponsorshipService(
                   policy_name = $9,
                   template_id = $10,
                   network_class = $11,
-                  executor = $12,
-                  enabled = $13,
-                  paymaster_mode = $14,
-                  fallback_behavior = $15,
-                  chain_budgets = $16::jsonb,
-                  allowed_calls = $17::jsonb,
-                  updated_at_ms = $18
+                  enabled = $12,
+                  allowed_chain_ids = $13::jsonb,
+                  call_mode = $14,
+                  spend_cap = $15::jsonb,
+                  allowed_calls = $16::jsonb,
+                  updated_at_ms = $17
             WHERE namespace = $1
               AND org_id = $2
               AND id = $3
@@ -583,11 +713,10 @@ export async function createPostgresConsoleGasSponsorshipService(
             next.policyName,
             next.templateId,
             next.networkClass,
-            next.executor,
             next.enabled,
-            next.paymasterMode,
-            next.fallbackBehavior,
-            JSON.stringify(next.chainBudgets),
+            JSON.stringify(next.allowedChainIds),
+            next.callMode,
+            JSON.stringify(next.spendCap),
             JSON.stringify(next.allowedCalls),
             updatedAtMs,
           ],

@@ -82,21 +82,21 @@ test.describe('console config modules postgres services', () => {
       scopeType: 'ENVIRONMENT',
       environmentId: 'prod',
       enabled: true,
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'ALLOW_UNSPONSORED',
-      chainBudgets: [
-        {
-          chain: 'Ethereum',
-          period: 'MONTHLY',
-          budgetMinor: 400_000,
-          quotaTransactions: 2_000,
-        },
-      ],
+      allowedChainIds: [1],
+      spendCap: {
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capsByChain: [{ chainId: 1, capMinor: 400_000 }],
+      },
     });
     expect(created.id).toBe('gs-postgres-1');
     expect(created.scopeType).toBe('ENVIRONMENT');
     expect(created.environmentId).toBe('prod');
-    expect(created.chainBudgets.length).toBe(1);
+    expect(created.spendCap).toEqual({
+      mode: 'CHAIN_TOTAL',
+      period: 'MONTHLY',
+      capsByChain: [{ chainId: 1, capMinor: 400_000 }],
+    });
 
     const listAll = await service.listConfigs(adminCtx);
     expect(listAll.some((entry) => entry.id === 'gs-postgres-1')).toBe(true);
@@ -107,19 +107,20 @@ test.describe('console config modules postgres services', () => {
 
     const updated = await service.updateConfig(adminCtx, 'gs-postgres-1', {
       enabled: false,
-      chainBudgets: [
-        {
-          chain: 'Base',
-          period: 'MONTHLY',
-          budgetMinor: 250_000,
-          quotaTransactions: 1_200,
-        },
-      ],
+      allowedChainIds: [8_453],
+      spendCap: {
+        mode: 'WALLET_CHAIN_TOTAL',
+        period: 'WEEKLY',
+        capsByChain: [{ chainId: 8_453, capMinor: 250_000 }],
+      },
     });
     expect(updated).toBeTruthy();
     expect(updated?.enabled).toBe(false);
-    expect(updated?.chainBudgets.length).toBe(1);
-    expect(updated?.chainBudgets[0].chain).toBe('Base');
+    expect(updated?.spendCap).toEqual({
+      mode: 'WALLET_CHAIN_TOTAL',
+      period: 'WEEKLY',
+      capsByChain: [{ chainId: 8_453, capMinor: 250_000 }],
+    });
   });
 
   test('smart wallets postgres service supports create/list/update + scope validation', async () => {
@@ -552,16 +553,12 @@ test.describe('console config modules postgres services', () => {
       scopeType: 'ENVIRONMENT',
       environmentId: 'prod-rls',
       enabled: true,
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'ALLOW_UNSPONSORED',
     });
     await gasService.createConfig(attackerCtx, {
       id: 'gs-postgres-rls-attacker',
       scopeType: 'ENVIRONMENT',
       environmentId: 'prod-rls',
       enabled: true,
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'ALLOW_UNSPONSORED',
     });
 
     await smartWalletService.createConfig(ownerCtx, {
@@ -735,8 +732,6 @@ test.describe('console config modules postgres services', () => {
       scopeType: 'ENVIRONMENT',
       environmentId: ownerEnvironmentId,
       enabled: true,
-      paymasterMode: 'AUTO',
-      fallbackBehavior: 'ALLOW_UNSPONSORED',
     });
     expect(createdGas.id).toBe('gs-postgres-isolation-1');
 

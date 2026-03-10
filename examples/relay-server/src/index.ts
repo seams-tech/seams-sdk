@@ -9,7 +9,6 @@ import {
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
-  DEFAULT_TEMPO_DRIP_GAS_LIMIT,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   ensureTempoOnboardingSponsorshipForExistingEnvironments,
   resolvePrfSessionSealIdempotencyFromEnv,
@@ -21,6 +20,7 @@ import {
 } from '@tatchi-xyz/sdk/server';
 import {
   createConsoleRouter,
+  createInMemoryConsoleAccountService,
   createInMemoryConsoleBillingService,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
@@ -35,6 +35,7 @@ import {
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWalletService,
   createInMemoryConsoleWebhookService,
+  createPostgresConsoleAccountService,
   createPostgresConsoleApprovalService,
   createPostgresConsoleApiKeyService,
   createPostgresConsoleAuditService,
@@ -56,6 +57,7 @@ import {
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
   createRelayRouter,
+  type ConsoleAccountService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
   type ConsoleAuditService,
@@ -216,7 +218,6 @@ async function seedDemoConsoleOrgAndMembers(input: {
         throw error;
       }
     }
-
   }
 
   const seedMembers: InviteConsoleTeamMemberRequest[] = [
@@ -745,7 +746,9 @@ async function main() {
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
   const sponsoredEvmCallConfig = resolveSponsoredEvmCallConfigFromEnv(env);
-  const tempoOnboardingFaucetContractRaw = String(env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '').trim();
+  const tempoOnboardingFaucetContractRaw = String(
+    env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '',
+  ).trim();
   const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
     .trim()
     .toLowerCase();
@@ -961,6 +964,7 @@ async function main() {
   let consoleTeamRbac: ConsoleTeamRbacService;
   let consoleWallets: ConsoleWalletService;
   let consoleSponsoredCalls: ConsoleSponsoredCallService;
+  let consoleAccount: ConsoleAccountService;
   const consoleCoreNamespace = consoleBillingNamespace;
   const demoWalletSeeds = buildDemoConsoleWalletSeeds({
     orgId: consoleDemoOrgId,
@@ -1080,7 +1084,6 @@ async function main() {
     gasSponsorship: consoleGasSponsorship,
     runtimeSnapshots: consoleRuntimeSnapshots,
     faucetContractAddress: normalizedOnboardingContractAddress,
-    maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
   });
 
   if (consoleWebhooksBackend === 'postgres') {
@@ -1148,6 +1151,22 @@ async function main() {
     apiKeys: consoleApiKeys,
     teamRbac: consoleTeamRbac,
   });
+  if (consolePostgresUrl) {
+    consoleAccount = await createPostgresConsoleAccountService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      orgProjectEnv: consoleOrgProjectEnv,
+      teamRbac: consoleTeamRbac,
+      onboarding: consoleOnboarding,
+      logger: console,
+    });
+  } else {
+    consoleAccount = createInMemoryConsoleAccountService({
+      orgProjectEnv: consoleOrgProjectEnv,
+      teamRbac: consoleTeamRbac,
+      onboarding: consoleOnboarding,
+    });
+  }
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session: jwtSession,
     authService,
@@ -1200,8 +1219,6 @@ async function main() {
       environmentId: consoleDemoEnvironmentId,
     },
     faucetContractAddress: normalizedOnboardingContractAddress,
-    maxGasLimit: DEFAULT_TEMPO_DRIP_GAS_LIMIT,
-    projectId: consoleDemoProjectId,
   });
 
   app.use((_req, res, next) => {
@@ -1258,6 +1275,7 @@ async function main() {
       readyz: true,
       corsOrigins: [config.expectedOrigin, config.expectedWalletOrigin],
       auth: consoleAuth,
+      session: jwtSession,
       billing: consoleBilling,
       billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
       webhooks: consoleWebhooks,
@@ -1267,6 +1285,7 @@ async function main() {
       policies: consolePolicies,
       runtimeSnapshots: consoleRuntimeSnapshots,
       onboarding: consoleOnboarding,
+      account: consoleAccount,
       orgProjectEnv: consoleOrgProjectEnv,
       teamRbac: consoleTeamRbac,
       wallets: consoleWallets,
@@ -1281,11 +1300,7 @@ async function main() {
     const listenHost = config.host || 'localhost';
     console.log(`Server listening on http://${listenHost}:${config.port}`);
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
-    console.log(
-      `Sponsored EVM route: ${
-        sponsoredEvmCallConfig?.enabled ? 'enabled' : 'disabled'
-      }`,
-    );
+    console.log(`Sponsored EVM route: ${sponsoredEvmCallConfig?.enabled ? 'enabled' : 'disabled'}`);
     if (sponsoredEvmCallConfig?.enabled) {
       console.log(
         `Sponsored EVM executor: chainId=${sponsoredEvmCallConfig.chainId} sponsor=${sponsoredEvmCallConfig.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,

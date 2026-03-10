@@ -165,6 +165,7 @@ export type {
   UpdateConsoleAccountOrganizationRequest,
   TransferConsoleAccountOrganizationOwnerRequest,
   TransferConsoleAccountOrganizationOwnerResult,
+  DeleteConsoleAccountOrganizationResult,
   SwitchConsoleAccountOrganizationContextResult,
 } from '../console/account';
 export type {

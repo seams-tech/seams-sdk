@@ -4,8 +4,6 @@ import type {
   StripeCheckoutSessionProviderOutput,
   StripeCustomerPortalSessionProviderInput,
   StripeCustomerPortalSessionProviderOutput,
-  StripePaymentIntentProviderInput,
-  StripePaymentIntentProviderOutput,
   StripeSetupIntentProviderInput,
   StripeSetupIntentProviderOutput,
 } from '@tatchi-xyz/sdk/server/router/express';
@@ -232,34 +230,6 @@ export function createStripeBillingProviderAdapter(
           stripeUnixSeconds: payload.created,
           fallbackMinutes: 30,
         }),
-      };
-    },
-
-    async createPaymentIntent(
-      input: StripePaymentIntentProviderInput,
-    ): Promise<StripePaymentIntentProviderOutput> {
-      const customerRef = await ensureCustomer(input.orgId);
-      const form = new URLSearchParams();
-      setFormField(form, 'amount', input.amountMinor);
-      setFormField(form, 'currency', input.currency.toLowerCase());
-      setFormField(form, 'customer', customerRef);
-      setFormField(form, 'automatic_payment_methods[enabled]', 'true');
-      setFormField(form, 'metadata[org_id]', input.orgId);
-      setFormField(form, 'metadata[invoice_id]', input.invoiceId);
-      if (input.paymentMethodProviderRef) {
-        setFormField(form, 'payment_method', input.paymentMethodProviderRef);
-      }
-
-      const payload = await postForm('/v1/payment_intents', form);
-      const providerRef = normalizeString(payload.id);
-      const clientSecret = normalizeString(payload.client_secret);
-      if (!providerRef || !clientSecret) {
-        throw new Error('Stripe payment intent returned missing id/client_secret');
-      }
-
-      return {
-        providerRef,
-        clientSecret,
       };
     },
   };
