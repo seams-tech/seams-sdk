@@ -7,14 +7,14 @@ import {
 } from '../../consoleHttp';
 
 export interface DashboardBillingOverview {
-  planId: string;
-  planName: string;
   usageMetricVersion: string;
   currentMonthUtc: string;
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
-  upcomingChargeEstimateMinor: number;
-  openInvoiceCount: number;
+  lowBalanceThresholdMinor: number;
+  recentUsageDebitMinor: number;
+  recentCreditPurchasedMinor: number;
+  documentCount: number;
 }
 
 export interface DashboardBillingUsage {
@@ -25,10 +25,10 @@ export interface DashboardBillingUsage {
 
 export interface DashboardBillingInvoice {
   id: string;
+  documentType: 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
   status: string;
   amountDueMinor: number;
   amountPaidMinor: number;
-  railLock: 'CARD' | 'STABLECOIN' | null;
   periodMonthUtc: string;
   dueAt: string | null;
   createdAt: string;
@@ -38,6 +38,7 @@ export interface DashboardBillingInvoiceListRequest {
   status?: 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE' | 'OVERDUE';
   overdue?: boolean;
   periodMonthUtc?: string;
+  documentType?: 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
   limit?: number;
   cursor?: string;
 }
@@ -49,6 +50,8 @@ export interface DashboardBillingInvoiceListSummary {
   paidCount: number;
   outstandingAmountMinor: number;
   latestPeriodMonthUtc: string | null;
+  receiptCount: number;
+  statementCount: number;
 }
 
 export interface DashboardBillingInvoicePage {
@@ -83,10 +86,8 @@ export interface DashboardBillingPaymentMethod {
 
 export interface DashboardBillingInvoiceActivityEntry {
   id: string;
-  type: 'INVOICE' | 'PAYMENT';
+  type: 'DOCUMENT' | 'LEDGER';
   invoiceId: string;
-  paymentId: string | null;
-  rail: 'CARD' | 'STABLECOIN' | null;
   fromState: string | null;
   toState: string;
   occurredAt: string;
@@ -99,8 +100,6 @@ export interface DashboardBillingInvoiceActivityEntry {
 
 export interface DashboardBillingInvoiceActivity {
   invoice: DashboardBillingInvoice;
-  latestPaymentState: string | null;
-  latestPaymentRail: 'CARD' | 'STABLECOIN' | null;
   entries: DashboardBillingInvoiceActivityEntry[];
 }
 
@@ -123,34 +122,18 @@ export interface DashboardStripeSetupIntent {
   expiresAt: string;
 }
 
-export interface DashboardBillingSubscription {
-  id: string;
-  orgId: string;
-  provider: 'stripe';
-  providerCustomerRef: string | null;
-  providerSubscriptionRef: string | null;
-  planId: string;
-  planName: string;
-  status: 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
-  cancelAtPeriodEnd: boolean;
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  cancelAt: string | null;
-  canceledAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface DashboardStripeCheckoutSessionRequest {
   successUrl: string;
   cancelUrl: string;
-  planId?: string;
+  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
 }
 
 export interface DashboardStripeCheckoutSession {
   id: string;
   url: string;
   customerRef: string;
+  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
+  amountMinor: number;
   expiresAt: string;
 }
 
@@ -162,80 +145,6 @@ export interface DashboardStripeCustomerPortalSession {
   id: string;
   url: string;
   customerRef: string;
-  expiresAt: string;
-}
-
-export interface DashboardStripePaymentIntentRequest {
-  invoiceId: string;
-  paymentMethodId?: string;
-}
-
-export interface DashboardStripePaymentIntent {
-  id: string;
-  providerRef: string;
-  invoiceId: string;
-  amountMinor: number;
-  currency: string;
-  paymentMethodId: string | null;
-  state: string;
-  clientSecret: string;
-  createdAt: string;
-  rail: 'CARD';
-}
-
-export interface DashboardStablecoinChainPolicy {
-  chain: string;
-  requiredConfirmations: number;
-  confirmationTimeoutMinutes: number;
-  reorgRiskWindowHours: number;
-}
-
-export interface DashboardStablecoinAssetSupport {
-  asset: string;
-  chains: DashboardStablecoinChainPolicy[];
-}
-
-export interface DashboardStablecoinQuoteRequest {
-  invoiceId: string;
-  asset: string;
-  chain: string;
-}
-
-export interface DashboardStablecoinPaymentQuote {
-  id: string;
-  orgId: string;
-  invoiceId: string;
-  asset: string;
-  chain: string;
-  amountMinor: number;
-  createdAt: string;
-  expiresAt: string;
-  state: 'OPEN' | 'EXPIRED';
-}
-
-export interface DashboardStablecoinPaymentIntentRequest {
-  invoiceId: string;
-  quoteId: string;
-}
-
-export interface DashboardStablecoinPaymentIntent {
-  id: string;
-  orgId: string;
-  invoiceId: string;
-  quoteId: string;
-  asset: string;
-  chain: string;
-  expectedAmountMinor: number;
-  destinationAddress: string;
-  state: string;
-  rail: 'STABLECOIN';
-  requiredConfirmations: number;
-  confirmationTimeoutMinutes: number;
-  reorgRiskWindowHours: number;
-  settledAt: string | null;
-  reorgRiskWindowEndsAt: string | null;
-  withinReorgRiskWindow: boolean;
-  createdAt: string;
   expiresAt: string;
 }
 
@@ -291,23 +200,10 @@ interface ConsolePaymentMethodResponse {
   removed?: unknown;
 }
 
-interface ConsoleStablecoinAssetsResponse {
-  ok?: boolean;
-  message?: string;
-  version?: unknown;
-  assets?: unknown;
-}
-
 interface ConsoleStripeSetupIntentResponse {
   ok?: boolean;
   message?: string;
   setupIntent?: unknown;
-}
-
-interface ConsoleSubscriptionResponse {
-  ok?: boolean;
-  message?: string;
-  subscription?: unknown;
 }
 
 interface ConsoleStripeCheckoutSessionResponse {
@@ -320,24 +216,6 @@ interface ConsoleStripeCustomerPortalSessionResponse {
   ok?: boolean;
   message?: string;
   portalSession?: unknown;
-}
-
-interface ConsoleStripePaymentIntentResponse {
-  ok?: boolean;
-  message?: string;
-  paymentIntent?: unknown;
-}
-
-interface ConsoleStablecoinQuoteResponse {
-  ok?: boolean;
-  message?: string;
-  quote?: unknown;
-}
-
-interface ConsoleStablecoinPaymentIntentResponse {
-  ok?: boolean;
-  message?: string;
-  paymentIntent?: unknown;
 }
 
 interface ConsoleBillingErrorBody {
@@ -382,18 +260,17 @@ export function isDashboardBillingApiErrorCode(error: unknown, code: string): bo
 function decodeOverview(raw: unknown): DashboardBillingOverview | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
-  const planId = String(row.planId || '').trim();
   const currentMonthUtc = String(row.currentMonthUtc || '').trim();
-  if (!planId || !currentMonthUtc) return null;
+  if (!currentMonthUtc) return null;
   return {
-    planId,
-    planName: String(row.planName || '').trim() || planId,
     usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'maw_v1',
     currentMonthUtc,
     monthlyActiveWallets: Number(row.monthlyActiveWallets || 0),
     creditBalanceMinor: Number(row.creditBalanceMinor || 0),
-    upcomingChargeEstimateMinor: Number(row.upcomingChargeEstimateMinor || 0),
-    openInvoiceCount: Number(row.openInvoiceCount || 0),
+    lowBalanceThresholdMinor: Number(row.lowBalanceThresholdMinor || 0),
+    recentUsageDebitMinor: Number(row.recentUsageDebitMinor || 0),
+    recentCreditPurchasedMinor: Number(row.recentCreditPurchasedMinor || 0),
+    documentCount: Number(row.documentCount || 0),
   };
 }
 
@@ -414,18 +291,15 @@ function decodeInvoice(raw: unknown): DashboardBillingInvoice | null {
   const row = raw as Record<string, unknown>;
   const id = String(row.id || '').trim();
   if (!id) return null;
-  const railLockRaw = String(row.railLock || '')
+  const documentTypeRaw = String(row.documentType || '')
     .trim()
     .toUpperCase();
   return {
     id,
+    documentType: documentTypeRaw === 'PURCHASE_RECEIPT' ? 'PURCHASE_RECEIPT' : 'USAGE_STATEMENT',
     status: String(row.status || '').trim() || 'OPEN',
     amountDueMinor: Number(row.amountDueMinor || 0),
     amountPaidMinor: Number(row.amountPaidMinor || 0),
-    railLock:
-      railLockRaw === 'CARD' || railLockRaw === 'STABLECOIN'
-        ? (railLockRaw as 'CARD' | 'STABLECOIN')
-        : null,
     periodMonthUtc: String(row.periodMonthUtc || '').trim(),
     dueAt: row.dueAt == null ? null : String(row.dueAt || '').trim() || null,
     createdAt: String(row.createdAt || '').trim(),
@@ -441,6 +315,8 @@ function decodeInvoiceListSummary(raw: unknown): DashboardBillingInvoiceListSumm
       paidCount: 0,
       outstandingAmountMinor: 0,
       latestPeriodMonthUtc: null,
+      receiptCount: 0,
+      statementCount: 0,
     };
   }
   const row = raw as Record<string, unknown>;
@@ -454,6 +330,8 @@ function decodeInvoiceListSummary(raw: unknown): DashboardBillingInvoiceListSumm
       row.latestPeriodMonthUtc == null
         ? null
         : String(row.latestPeriodMonthUtc || '').trim() || null,
+    receiptCount: Number(row.receiptCount || 0),
+    statementCount: Number(row.statementCount || 0),
   };
 }
 
@@ -493,54 +371,6 @@ function decodePaymentMethod(raw: unknown): DashboardBillingPaymentMethod | null
   };
 }
 
-function decodeBillingSubscription(raw: unknown): DashboardBillingSubscription | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const orgId = String(row.orgId || '').trim();
-  const planId = String(row.planId || '').trim();
-  const currentPeriodStart = String(row.currentPeriodStart || '').trim();
-  const currentPeriodEnd = String(row.currentPeriodEnd || '').trim();
-  const createdAt = String(row.createdAt || '').trim();
-  const updatedAt = String(row.updatedAt || '').trim();
-  if (
-    !id ||
-    !orgId ||
-    !planId ||
-    !currentPeriodStart ||
-    !currentPeriodEnd ||
-    !createdAt ||
-    !updatedAt
-  ) {
-    return null;
-  }
-  const statusRaw = String(row.status || 'ACTIVE')
-    .trim()
-    .toUpperCase();
-  const status = statusRaw === 'PAST_DUE' || statusRaw === 'CANCELED' ? statusRaw : 'ACTIVE';
-  return {
-    id,
-    orgId,
-    provider: 'stripe',
-    providerCustomerRef:
-      row.providerCustomerRef == null ? null : String(row.providerCustomerRef || '').trim() || null,
-    providerSubscriptionRef:
-      row.providerSubscriptionRef == null
-        ? null
-        : String(row.providerSubscriptionRef || '').trim() || null,
-    planId,
-    planName: String(row.planName || '').trim() || planId,
-    status,
-    cancelAtPeriodEnd: row.cancelAtPeriodEnd === true,
-    currentPeriodStart,
-    currentPeriodEnd,
-    cancelAt: row.cancelAt == null ? null : String(row.cancelAt || '').trim() || null,
-    canceledAt: row.canceledAt == null ? null : String(row.canceledAt || '').trim() || null,
-    createdAt,
-    updatedAt,
-  };
-}
-
 function decodeStripeSetupIntent(raw: unknown): DashboardStripeSetupIntent | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -564,11 +394,14 @@ function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSessi
   const url = String(row.url || '').trim();
   const customerRef = String(row.customerRef || '').trim();
   const expiresAt = String(row.expiresAt || '').trim();
-  if (!id || !url || !customerRef || !expiresAt) return null;
+  const creditPackId = String(row.creditPackId || '').trim();
+  if (!id || !url || !customerRef || !expiresAt || !creditPackId) return null;
   return {
     id,
     url,
     customerRef,
+    creditPackId: creditPackId as DashboardStripeCheckoutSession['creditPackId'],
+    amountMinor: Number(row.amountMinor || 0),
     expiresAt,
   };
 }
@@ -591,112 +424,6 @@ function decodeStripeCustomerPortalSession(
   };
 }
 
-function decodeStripePaymentIntent(raw: unknown): DashboardStripePaymentIntent | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const providerRef = String(row.providerRef || '').trim();
-  const invoiceId = String(row.invoiceId || '').trim();
-  const clientSecret = String(row.clientSecret || '').trim();
-  if (!id || !providerRef || !invoiceId || !clientSecret) return null;
-  return {
-    id,
-    providerRef,
-    invoiceId,
-    amountMinor: Number(row.amountMinor || 0),
-    currency: String(row.currency || '').trim() || 'USD',
-    paymentMethodId:
-      row.paymentMethodId == null ? null : String(row.paymentMethodId || '').trim() || null,
-    state: String(row.state || '').trim() || 'CREATED',
-    clientSecret,
-    createdAt: String(row.createdAt || '').trim(),
-    rail: 'CARD',
-  };
-}
-
-function decodeChainPolicy(raw: unknown): DashboardStablecoinChainPolicy | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const chain = String(row.chain || '').trim();
-  if (!chain) return null;
-  return {
-    chain,
-    requiredConfirmations: Number(row.requiredConfirmations || 0),
-    confirmationTimeoutMinutes: Number(row.confirmationTimeoutMinutes || 0),
-    reorgRiskWindowHours: Number(row.reorgRiskWindowHours || 0),
-  };
-}
-
-function decodeStablecoinAssetSupport(raw: unknown): DashboardStablecoinAssetSupport | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const asset = String(row.asset || '').trim();
-  if (!asset) return null;
-  const chainsRaw = Array.isArray(row.chains) ? row.chains : [];
-  return {
-    asset,
-    chains: chainsRaw
-      .map((entry) => decodeChainPolicy(entry))
-      .filter((entry): entry is DashboardStablecoinChainPolicy => entry !== null),
-  };
-}
-
-function decodeStablecoinQuote(raw: unknown): DashboardStablecoinPaymentQuote | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const orgId = String(row.orgId || '').trim();
-  const invoiceId = String(row.invoiceId || '').trim();
-  if (!id || !orgId || !invoiceId) return null;
-  const stateRaw = String(row.state || '')
-    .trim()
-    .toUpperCase();
-  return {
-    id,
-    orgId,
-    invoiceId,
-    asset: String(row.asset || '').trim(),
-    chain: String(row.chain || '').trim(),
-    amountMinor: Number(row.amountMinor || 0),
-    createdAt: String(row.createdAt || '').trim(),
-    expiresAt: String(row.expiresAt || '').trim(),
-    state: stateRaw === 'EXPIRED' ? 'EXPIRED' : 'OPEN',
-  };
-}
-
-function decodeStablecoinPaymentIntent(raw: unknown): DashboardStablecoinPaymentIntent | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const orgId = String(row.orgId || '').trim();
-  const invoiceId = String(row.invoiceId || '').trim();
-  const quoteId = String(row.quoteId || '').trim();
-  if (!id || !orgId || !invoiceId || !quoteId) return null;
-  return {
-    id,
-    orgId,
-    invoiceId,
-    quoteId,
-    asset: String(row.asset || '').trim(),
-    chain: String(row.chain || '').trim(),
-    expectedAmountMinor: Number(row.expectedAmountMinor || 0),
-    destinationAddress: String(row.destinationAddress || '').trim(),
-    state: String(row.state || '').trim() || 'PENDING',
-    rail: 'STABLECOIN',
-    requiredConfirmations: Number(row.requiredConfirmations || 0),
-    confirmationTimeoutMinutes: Number(row.confirmationTimeoutMinutes || 0),
-    reorgRiskWindowHours: Number(row.reorgRiskWindowHours || 0),
-    settledAt: row.settledAt == null ? null : String(row.settledAt || '').trim() || null,
-    reorgRiskWindowEndsAt:
-      row.reorgRiskWindowEndsAt == null
-        ? null
-        : String(row.reorgRiskWindowEndsAt || '').trim() || null,
-    withinReorgRiskWindow: row.withinReorgRiskWindow === true,
-    createdAt: String(row.createdAt || '').trim(),
-    expiresAt: String(row.expiresAt || '').trim(),
-  };
-}
-
 function decodeInvoiceActivityEntry(raw: unknown): DashboardBillingInvoiceActivityEntry | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -710,15 +437,10 @@ function decodeInvoiceActivityEntry(raw: unknown): DashboardBillingInvoiceActivi
   const actorType = String(row.actorType || '')
     .trim()
     .toUpperCase();
-  const railRaw = String(row.rail || '')
-    .trim()
-    .toUpperCase();
   return {
     id,
-    type: type === 'PAYMENT' ? 'PAYMENT' : 'INVOICE',
+    type: type === 'LEDGER' ? 'LEDGER' : 'DOCUMENT',
     invoiceId,
-    paymentId: row.paymentId == null ? null : String(row.paymentId || '').trim() || null,
-    rail: railRaw === 'CARD' || railRaw === 'STABLECOIN' ? railRaw : null,
     fromState: row.fromState == null ? null : String(row.fromState || '').trim() || null,
     toState,
     occurredAt: String(row.occurredAt || '').trim(),
@@ -737,17 +459,8 @@ function decodeInvoiceActivity(raw: unknown): DashboardBillingInvoiceActivity | 
   const invoice = decodeInvoice(row.invoice);
   if (!invoice) return null;
   const entriesRaw = Array.isArray(row.entries) ? row.entries : [];
-  const latestPaymentRailRaw = String(row.latestPaymentRail || '')
-    .trim()
-    .toUpperCase();
   return {
     invoice,
-    latestPaymentState:
-      row.latestPaymentState == null ? null : String(row.latestPaymentState || '').trim() || null,
-    latestPaymentRail:
-      latestPaymentRailRaw === 'CARD' || latestPaymentRailRaw === 'STABLECOIN'
-        ? latestPaymentRailRaw
-        : null,
     entries: entriesRaw
       .map((entry) => decodeInvoiceActivityEntry(entry))
       .filter((entry): entry is DashboardBillingInvoiceActivityEntry => entry !== null),
@@ -818,6 +531,7 @@ export async function listDashboardBillingInvoices(
   if (input.status) params.set('status', input.status);
   if (input.overdue === true) params.set('overdue', 'true');
   if (input.periodMonthUtc) params.set('periodMonthUtc', input.periodMonthUtc);
+  if (input.documentType) params.set('documentType', input.documentType);
   if (input.limit && Number.isFinite(input.limit) && input.limit > 0) {
     params.set('limit', String(Math.floor(input.limit)));
   }
@@ -930,49 +644,6 @@ export async function listDashboardBillingPaymentMethods(): Promise<
     .filter((entry): entry is DashboardBillingPaymentMethod => entry !== null);
 }
 
-export async function getDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
-  const body = (await fetchJson('/console/billing/subscription')) as ConsoleSubscriptionResponse;
-  const subscription = decodeBillingSubscription(body.subscription);
-  if (!subscription) throw new Error('Billing subscription response was invalid');
-  return subscription;
-}
-
-export async function cancelDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/subscription/cancel`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({}),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Cancel subscription request failed');
-  }
-  const subscription = decodeBillingSubscription(body.subscription);
-  if (!subscription) throw new Error('Cancel subscription response was invalid');
-  return subscription;
-}
-
-export async function resumeDashboardBillingSubscription(): Promise<DashboardBillingSubscription> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/subscription/resume`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify({}),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleSubscriptionResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Resume subscription request failed');
-  }
-  const subscription = decodeBillingSubscription(body.subscription);
-  if (!subscription) throw new Error('Resume subscription response was invalid');
-  return subscription;
-}
-
 export async function addDashboardCardPaymentMethod(
   input: DashboardAddCardPaymentMethodRequest,
 ): Promise<DashboardBillingPaymentMethod> {
@@ -1038,22 +709,6 @@ export async function setDashboardDefaultCardPaymentMethod(
   return paymentMethod;
 }
 
-export async function getDashboardStablecoinAssetSupport(): Promise<{
-  version: string;
-  assets: DashboardStablecoinAssetSupport[];
-}> {
-  const body = (await fetchJson(
-    '/console/billing/stablecoins/assets',
-  )) as ConsoleStablecoinAssetsResponse;
-  const rows = Array.isArray(body.assets) ? body.assets : [];
-  return {
-    version: String(body.version || '').trim() || 'v1',
-    assets: rows
-      .map((entry) => decodeStablecoinAssetSupport(entry))
-      .filter((entry): entry is DashboardStablecoinAssetSupport => entry !== null),
-  };
-}
-
 export async function createDashboardStripeSetupIntent(
   input: DashboardStripeSetupIntentRequest = {},
 ): Promise<DashboardStripeSetupIntent> {
@@ -1114,104 +769,6 @@ export async function createDashboardStripeCustomerPortalSession(
   const portalSession = decodeStripeCustomerPortalSession(body.portalSession);
   if (!portalSession) throw new Error('Stripe customer portal session response was invalid');
   return portalSession;
-}
-
-export async function createDashboardStripePaymentIntent(
-  input: DashboardStripePaymentIntentRequest,
-): Promise<DashboardStripePaymentIntent> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/stripe/payment-intent`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleStripePaymentIntentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stripe payment intent request failed');
-  }
-  const paymentIntent = decodeStripePaymentIntent(body.paymentIntent);
-  if (!paymentIntent) throw new Error('Stripe payment intent response was invalid');
-  return paymentIntent;
-}
-
-export async function createDashboardStablecoinQuote(
-  input: DashboardStablecoinQuoteRequest,
-): Promise<DashboardStablecoinPaymentQuote> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/stablecoins/quotes`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleStablecoinQuoteResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stablecoin quote request failed');
-  }
-  const quote = decodeStablecoinQuote(body.quote);
-  if (!quote) throw new Error('Stablecoin quote response was invalid');
-  return quote;
-}
-
-export async function createDashboardStablecoinPaymentIntent(
-  input: DashboardStablecoinPaymentIntentRequest,
-): Promise<DashboardStablecoinPaymentIntent> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/stablecoins/payment-intents`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleStablecoinPaymentIntentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stablecoin payment intent request failed');
-  }
-  const paymentIntent = decodeStablecoinPaymentIntent(body.paymentIntent);
-  if (!paymentIntent) throw new Error('Stablecoin payment intent response was invalid');
-  return paymentIntent;
-}
-
-export async function getDashboardStablecoinPaymentIntent(
-  paymentIntentId: string,
-): Promise<DashboardStablecoinPaymentIntent> {
-  const normalizedId = String(paymentIntentId || '').trim();
-  if (!normalizedId) throw new Error('Stablecoin payment intent id is required');
-  const body = (await fetchJson(
-    `/console/billing/stablecoins/payment-intents/${encodeURIComponent(normalizedId)}`,
-  )) as ConsoleStablecoinPaymentIntentResponse;
-  const paymentIntent = decodeStablecoinPaymentIntent(body.paymentIntent);
-  if (!paymentIntent) throw new Error('Stablecoin payment intent response was invalid');
-  return paymentIntent;
-}
-
-export async function cancelDashboardStablecoinPaymentIntent(
-  paymentIntentId: string,
-): Promise<DashboardStablecoinPaymentIntent> {
-  const normalizedId = String(paymentIntentId || '').trim();
-  if (!normalizedId) throw new Error('Stablecoin payment intent id is required');
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/billing/stablecoins/payment-intents/${encodeURIComponent(normalizedId)}/cancel`,
-    {
-      method: 'POST',
-      headers: buildConsoleJsonHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-      body: JSON.stringify({}),
-    },
-  );
-  const body = (await parseConsoleJson(response)) as ConsoleStablecoinPaymentIntentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stablecoin payment cancel request failed');
-  }
-  const paymentIntent = decodeStablecoinPaymentIntent(body.paymentIntent);
-  if (!paymentIntent) throw new Error('Stablecoin payment cancel response was invalid');
-  return paymentIntent;
 }
 
 export function formatUsdMinor(amountMinor: number): string {

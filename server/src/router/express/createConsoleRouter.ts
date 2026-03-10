@@ -4,22 +4,15 @@ import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
-  CHAIN_FINALITY_POLICY_VERSION,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
   ensureBillingReadyForLiveEnvironment,
   isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
-  listStablecoinAssetSupport,
   parseBillingInvoiceListRequest,
   parseAddCardPaymentMethodRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
-  parseStablecoinPaymentIntentReconcileRequest,
-  parseStablecoinPaymentIntentRequest,
-  parseStablecoinQuoteRequest,
-  parseStripePaymentIntentReconcileRequest,
-  parseStripePaymentIntentRequest,
   parseStripeWebhookEventRequest,
   parseStripeCustomerPortalSessionRequest,
   parseStripeCheckoutSessionRequest,
@@ -141,6 +134,14 @@ import {
   type ConsoleOnboardingService,
 } from '../../console/onboarding';
 import {
+  isConsoleAccountError,
+  parseCreateConsoleAccountOrganizationRequest,
+  parsePatchConsoleAccountProfileRequest,
+  parseTransferConsoleAccountOrganizationOwnerRequest,
+  parseUpdateConsoleAccountOrganizationRequest,
+  type ConsoleAccountService,
+} from '../../console/account';
+import {
   buildApprovalFailureObservabilityEvent,
   buildBillingFailureObservabilityEvent,
   buildRouterTimingObservabilityEvent,
@@ -151,6 +152,10 @@ import {
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
+  buildConsoleContextSwitchSessionClaims,
+  parseConsoleSessionForContextSwitch,
+} from '../consoleSessionContext';
+import {
   buildConsoleExportGovernanceView,
   buildConsoleGasReadinessView,
   buildConsolePolicyCoverageView,
@@ -160,6 +165,7 @@ import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload'
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
+import type { SessionAdapter } from '../relay';
 import { registerConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 
 export interface ExpressConsoleContext {
@@ -181,6 +187,7 @@ export interface ExpressConsoleContext {
   auditExports: ConsoleAuditExportsService | null;
   enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
   onboarding: ConsoleOnboardingService | null;
+  account: ConsoleAccountService | null;
   observability: ConsoleObservabilityService | null;
   observabilityIngestion: ConsoleObservabilityIngestionService | null;
 }
@@ -322,7 +329,7 @@ async function emitBillingFailureObservabilityEvent(
   req: Request,
   claims: ConsoleAuthClaims,
   input: {
-    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    operation: 'INVOICE_FINALIZATION';
     invoiceId?: string;
     providerRef?: string;
     error: unknown;
@@ -711,6 +718,23 @@ function sendObservabilityError(res: Response, error: unknown): void {
   });
 }
 
+function sendAccountError(res: Response, error: unknown): void {
+  if (isConsoleAccountError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
+    return;
+  }
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
 async function requireConsoleAuth(
   req: Request,
   res: Response,
@@ -936,6 +960,32 @@ function requireOnboardingService(
   return null;
 }
 
+function requireAccountService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleAccountService | null {
+  if (ctx.account) return ctx.account;
+  res.status(501).json({
+    ok: false,
+    code: 'account_not_configured',
+    message: 'Account service is not configured on this server',
+  });
+  return null;
+}
+
+function requireSessionAdapter(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): SessionAdapter | null {
+  if (ctx.opts.session) return ctx.opts.session;
+  res.status(501).json({
+    ok: false,
+    code: 'session_not_configured',
+    message: 'Session adapter is not configured on this server',
+  });
+  return null;
+}
+
 function requireObservabilityService(
   res: Response,
   ctx: ExpressConsoleContext,
@@ -1090,6 +1140,28 @@ function toOnboardingContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toAccountContext(claims: ConsoleAuthClaims): {
+  userId: string;
+  orgId: string;
+  roles: string[];
+  email?: string;
+  name?: string;
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    userId: claims.userId,
+    orgId: claims.orgId,
+    roles: claims.roles,
+    ...(typeof claims.email === 'string' && claims.email.trim()
+      ? { email: claims.email.trim().toLowerCase() }
+      : {}),
+    ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
 function readApprovalIdFromBody(body: unknown): string {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
   return String((body as Record<string, unknown>).approvalId || '').trim();
@@ -1208,16 +1280,6 @@ function requireAdminRoleForCardActions(claims: ConsoleAuthClaims, res: Response
     ok: false,
     code: 'forbidden',
     message: 'Only admin can add, remove, or set default card payment methods',
-  });
-  return false;
-}
-
-function requirePaymentReconcileRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or ops can reconcile payment intents',
   });
   return false;
 }
@@ -1364,8 +1426,6 @@ function requireKeyExportApprovalRole(claims: ConsoleAuthClaims, res: Response):
   return false;
 }
 
-const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
-
 async function requireActiveApiKeyEnvironmentForCreate(
   res: Response,
   ctx: ExpressConsoleContext,
@@ -1510,52 +1570,6 @@ async function emitConsoleAuditEvent(
   }
 }
 
-async function emitInvoicePaidWebhookIfApplicable(
-  ctx: ExpressConsoleContext,
-  billing: ConsoleBillingService,
-  input: {
-    orgId: string;
-    actorUserId: string;
-    roles: string[];
-    invoiceId: string;
-    paymentIntentId: string;
-    rail: 'CARD' | 'STABLECOIN';
-  },
-): Promise<void> {
-  try {
-    const invoice = await billing.getInvoice(
-      {
-        orgId: input.orgId,
-        actorUserId: input.actorUserId,
-        roles: input.roles,
-      },
-      input.invoiceId,
-    );
-    if (!invoice || invoice.status !== 'PAID') return;
-
-    await emitBillingWebhookEvent(ctx, {
-      orgId: input.orgId,
-      actorUserId: input.actorUserId,
-      eventType: 'billing.invoice.paid',
-      payload: {
-        invoiceId: invoice.id,
-        status: invoice.status,
-        amountDueMinor: invoice.amountDueMinor,
-        amountPaidMinor: invoice.amountPaidMinor,
-        railLock: invoice.railLock,
-        paymentIntentId: input.paymentIntentId,
-        paymentRail: input.rail,
-      },
-    });
-  } catch (error: unknown) {
-    ctx.logger.warn('[console][webhooks] failed to inspect invoice after payment update', {
-      invoiceId: input.invoiceId,
-      orgId: input.orgId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 function registerConsoleHealthRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
   if (ctx.opts.healthz) {
     router.get('/console/healthz', async (_req: Request, res: Response) => {
@@ -1596,6 +1610,183 @@ function registerConsoleSessionRoute(router: ExpressRouter, ctx: ExpressConsoleC
       claims,
     });
   });
+}
+
+function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
+  router.get('/console/account/profile', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    try {
+      const profile = await account.getProfile(toAccountContext(claims));
+      res.status(200).json({ ok: true, profile });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.patch('/console/account/profile', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    try {
+      const request = parsePatchConsoleAccountProfileRequest((req as any).body || {});
+      const profile = await account.updateProfile(toAccountContext(claims), request);
+      res.status(200).json({ ok: true, profile });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.get('/console/account/organizations', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    try {
+      const organizations = await account.listOrganizations(toAccountContext(claims));
+      res.status(200).json({ ok: true, organizations });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.post('/console/account/organizations', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    try {
+      const request = parseCreateConsoleAccountOrganizationRequest((req as any).body || {});
+      const organization = await account.createOrganization(toAccountContext(claims), request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.create',
+        summary: `Created organization ${organization.id} from account settings`,
+        metadata: {
+          organizationId: organization.id,
+          organizationName: organization.name,
+          organizationSlug: organization.slug,
+          source: 'account_settings',
+        },
+      });
+      res.status(201).json({ ok: true, organization });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.patch('/console/account/organizations/:orgId', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const account = requireAccountService(res, ctx);
+    if (!account) return;
+    const orgId = readPathParam(req, 'orgId');
+    if (!orgId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing organization id' });
+      return;
+    }
+    try {
+      const request = parseUpdateConsoleAccountOrganizationRequest((req as any).body || {});
+      const organization = await account.updateOrganization(toAccountContext(claims), orgId, request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.update',
+        summary: `Updated organization ${organization.id} from account settings`,
+        metadata: {
+          organizationId: organization.id,
+          organizationName: organization.name,
+          organizationSlug: organization.slug,
+          source: 'account_settings',
+        },
+      });
+      res.status(200).json({ ok: true, organization });
+    } catch (error: unknown) {
+      sendAccountError(res, error);
+    }
+  });
+
+  router.post(
+    '/console/account/organizations/:orgId/transfer-owner',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const account = requireAccountService(res, ctx);
+      if (!account) return;
+      const orgId = readPathParam(req, 'orgId');
+      if (!orgId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing organization id' });
+        return;
+      }
+      try {
+        const request = parseTransferConsoleAccountOrganizationOwnerRequest(
+          (req as any).body || {},
+        );
+        const transfer = await account.transferOrganizationOwner(
+          toAccountContext(claims),
+          orgId,
+          request,
+        );
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'TEAM',
+          action: 'member.owner.transfer',
+          summary: `Transferred organization ${transfer.organization.id} ownership to ${transfer.nextOwner.userId}`,
+          metadata: {
+            organizationId: transfer.organization.id,
+            previousOwnerUserId: transfer.previousOwner.userId,
+            nextOwnerUserId: transfer.nextOwner.userId,
+            source: 'account_settings',
+          },
+        });
+        res.status(200).json({ ok: true, transfer });
+      } catch (error: unknown) {
+        sendAccountError(res, error);
+      }
+    },
+  );
+
+  router.post(
+    '/console/account/organizations/:orgId/switch-context',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const account = requireAccountService(res, ctx);
+      if (!account) return;
+      const session = requireSessionAdapter(res, ctx);
+      if (!session) return;
+      const orgId = readPathParam(req, 'orgId');
+      if (!orgId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_path', message: 'Missing organization id' });
+        return;
+      }
+      try {
+        const nextContext = await account.switchOrganizationContext(toAccountContext(claims), orgId);
+        const parsedSession = await parseConsoleSessionForContextSwitch(session, (req as any).headers);
+        if (!parsedSession) {
+          res.status(401).json({
+            ok: false,
+            code: 'unauthorized',
+            message: 'A valid app session is required to switch organization context',
+          });
+          return;
+        }
+        const jwt = await session.signJwt(
+          parsedSession.userId,
+          buildConsoleContextSwitchSessionClaims(parsedSession.claims, nextContext),
+        );
+        res.set('Set-Cookie', session.buildSetCookie(jwt));
+        res.status(200).json({ ok: true, context: nextContext });
+      } catch (error: unknown) {
+        sendAccountError(res, error);
+      }
+    },
+  );
 }
 
 function registerConsoleOnboardingRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
@@ -2477,6 +2668,32 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
     try {
       const out = await policies.listPolicies(toBillingContext(claims));
       res.status(200).json({ ok: true, policies: out });
+    } catch (error: unknown) {
+      sendPolicyError(res, error);
+    }
+  });
+
+  router.get('/console/policies/:id/versions', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const policies = requirePolicyService(res, ctx);
+    if (!policies) return;
+    const policyId = readPathParam(req, 'id');
+    if (!policyId) {
+      res.status(400).json({ ok: false, code: 'invalid_path', message: 'Missing policy id' });
+      return;
+    }
+    try {
+      const versions = await policies.listPolicyVersions(toBillingContext(claims), policyId);
+      if (!versions) {
+        res.status(404).json({
+          ok: false,
+          code: 'policy_not_found',
+          message: `Policy ${policyId} was not found`,
+        });
+        return;
+      }
+      res.status(200).json({ ok: true, versions });
     } catch (error: unknown) {
       sendPolicyError(res, error);
     }
@@ -3478,18 +3695,17 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     try {
       const request = parseStripeWebhookEventRequest((req as any).body);
       const result = await billing.processStripeWebhookEvent(request);
-      if (result.accepted && result.paymentIntent && result.orgId) {
+      if (result.accepted && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
           orgId: result.orgId,
           actorUserId: 'system-stripe-webhook',
-          eventType: 'billing.payment_intent.updated',
+          eventType: 'billing.credit_purchase.settled',
           eventId: request.eventId,
           payload: {
-            paymentIntentId: result.paymentIntent.id,
-            invoiceId: result.paymentIntent.invoiceId,
-            providerRef: result.paymentIntent.providerRef,
-            state: result.paymentIntent.state,
-            rail: result.paymentIntent.rail,
+            purchaseId: result.purchase.id,
+            creditPackId: result.purchase.creditPackId,
+            amountMinor: result.purchase.amountMinor,
+            receiptId: result.invoice?.id || null,
             source: 'stripe_webhook',
           },
         });
@@ -3867,329 +4083,6 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       }
     },
   );
-
-  router.get('/console/billing/subscription', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const subscription = await billing.getSubscription(toBillingContext(claims));
-      res.status(200).json({ ok: true, subscription });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/subscription/cancel', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const subscription = await billing.cancelSubscription(toBillingContext(claims));
-      res.status(200).json({ ok: true, subscription });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/subscription/resume', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const subscription = await billing.resumeSubscription(toBillingContext(claims));
-      res.status(200).json({ ok: true, subscription });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/stripe/payment-intent', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseStripePaymentIntentRequest((req as any).body);
-      const paymentIntent = await billing.createStripePaymentIntent(
-        toBillingContext(claims),
-        request,
-      );
-      await emitBillingWebhookEvent(ctx, {
-        orgId: claims.orgId,
-        actorUserId: claims.userId,
-        eventType: 'billing.payment_intent.created',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          rail: paymentIntent.rail,
-          state: paymentIntent.state,
-          amountMinor: paymentIntent.amountMinor,
-        },
-      });
-      res.status(201).json({ ok: true, paymentIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post(
-    '/console/billing/stripe/payment-intents/:id/reconcile',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims || !requirePaymentReconcileRole(claims, res)) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      const paymentIntentId = readPathParam(req, 'id');
-      if (!paymentIntentId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-        return;
-      }
-      try {
-        const request = parseStripePaymentIntentReconcileRequest((req as any).body);
-        const paymentIntent = await billing.reconcileStripePaymentIntent(
-          toBillingContext(claims),
-          paymentIntentId,
-          request,
-        );
-        if (!paymentIntent) {
-          res.status(404).json({
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stripe payment intent ${paymentIntentId} was not found`,
-          });
-          return;
-        }
-        await emitBillingWebhookEvent(ctx, {
-          orgId: claims.orgId,
-          actorUserId: claims.userId,
-          eventType: 'billing.payment_intent.updated',
-          payload: {
-            paymentIntentId: paymentIntent.id,
-            invoiceId: paymentIntent.invoiceId,
-            providerRef: paymentIntent.providerRef,
-            state: paymentIntent.state,
-            rail: paymentIntent.rail,
-            source: 'manual_reconcile',
-          },
-        });
-        if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-          await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
-            orgId: claims.orgId,
-            actorUserId: claims.userId,
-            roles: claims.roles,
-            invoiceId: paymentIntent.invoiceId,
-            paymentIntentId: paymentIntent.id,
-            rail: 'CARD',
-          });
-        }
-        res.status(200).json({ ok: true, paymentIntent });
-      } catch (error: unknown) {
-        await emitBillingFailureObservabilityEvent(ctx, req, claims, {
-          operation: 'PAYMENT_RECONCILE',
-          invoiceId: `payment_intent:${paymentIntentId}`,
-          error,
-        });
-        sendBillingError(res, error);
-      }
-    },
-  );
-
-  router.get('/console/billing/stablecoins/assets', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    res.status(200).json({
-      ok: true,
-      version: CHAIN_FINALITY_POLICY_VERSION,
-      assets: listStablecoinAssetSupport(),
-    });
-  });
-
-  router.post('/console/billing/stablecoins/quotes', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseStablecoinQuoteRequest((req as any).body);
-      const quote = await billing.createStablecoinQuote(toBillingContext(claims), request);
-      res.status(201).json({ ok: true, quote });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post(
-    '/console/billing/stablecoins/payment-intents',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      try {
-        const request = parseStablecoinPaymentIntentRequest((req as any).body);
-        const paymentIntent = await billing.createStablecoinPaymentIntent(
-          toBillingContext(claims),
-          request,
-        );
-        await emitBillingWebhookEvent(ctx, {
-          orgId: claims.orgId,
-          actorUserId: claims.userId,
-          eventType: 'billing.payment_intent.created',
-          payload: {
-            paymentIntentId: paymentIntent.id,
-            invoiceId: paymentIntent.invoiceId,
-            rail: paymentIntent.rail,
-            state: paymentIntent.state,
-            expectedAmountMinor: paymentIntent.expectedAmountMinor,
-            asset: paymentIntent.asset,
-            chain: paymentIntent.chain,
-          },
-        });
-        res.status(201).json({ ok: true, paymentIntent });
-      } catch (error: unknown) {
-        sendBillingError(res, error);
-      }
-    },
-  );
-
-  router.get(
-    '/console/billing/stablecoins/payment-intents/:id',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      const paymentIntentId = readPathParam(req, 'id');
-      if (!paymentIntentId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-        return;
-      }
-      try {
-        const paymentIntent = await billing.getStablecoinPaymentIntent(
-          toBillingContext(claims),
-          paymentIntentId,
-        );
-        if (!paymentIntent) {
-          res.status(404).json({
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          });
-          return;
-        }
-        res.status(200).json({ ok: true, paymentIntent });
-      } catch (error: unknown) {
-        sendBillingError(res, error);
-      }
-    },
-  );
-
-  router.post(
-    '/console/billing/stablecoins/payment-intents/:id/cancel',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      const paymentIntentId = readPathParam(req, 'id');
-      if (!paymentIntentId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-        return;
-      }
-      try {
-        const paymentIntent = await billing.cancelStablecoinPaymentIntent(
-          toBillingContext(claims),
-          paymentIntentId,
-        );
-        if (!paymentIntent) {
-          res.status(404).json({
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          });
-          return;
-        }
-        res.status(200).json({ ok: true, paymentIntent });
-      } catch (error: unknown) {
-        sendBillingError(res, error);
-      }
-    },
-  );
-
-  router.post(
-    '/console/billing/stablecoins/payment-intents/:id/reconcile',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims || !requirePaymentReconcileRole(claims, res)) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      const paymentIntentId = readPathParam(req, 'id');
-      if (!paymentIntentId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing payment intent id' });
-        return;
-      }
-      try {
-        const request = parseStablecoinPaymentIntentReconcileRequest((req as any).body);
-        const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
-          toBillingContext(claims),
-          paymentIntentId,
-          request,
-        );
-        if (!paymentIntent) {
-          res.status(404).json({
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          });
-          return;
-        }
-        await emitBillingWebhookEvent(ctx, {
-          orgId: claims.orgId,
-          actorUserId: claims.userId,
-          eventType: 'billing.payment_intent.updated',
-          payload: {
-            paymentIntentId: paymentIntent.id,
-            invoiceId: paymentIntent.invoiceId,
-            state: paymentIntent.state,
-            rail: paymentIntent.rail,
-            asset: paymentIntent.asset,
-            chain: paymentIntent.chain,
-            source: 'manual_reconcile',
-          },
-        });
-        if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-          await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
-            orgId: claims.orgId,
-            actorUserId: claims.userId,
-            roles: claims.roles,
-            invoiceId: paymentIntent.invoiceId,
-            paymentIntentId: paymentIntent.id,
-            rail: 'STABLECOIN',
-          });
-        }
-        res.status(200).json({ ok: true, paymentIntent });
-      } catch (error: unknown) {
-        await emitBillingFailureObservabilityEvent(ctx, req, claims, {
-          operation: 'PAYMENT_RECONCILE',
-          invoiceId: `payment_intent:${paymentIntentId}`,
-          error,
-        });
-        sendBillingError(res, error);
-      }
-    },
-  );
 }
 
 export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRouter {
@@ -4203,7 +4096,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
   const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
   const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
-  const settings = opts.settings === undefined ? null : opts.settings;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
   const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
@@ -4213,6 +4105,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const enterpriseIsolation =
     opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
   const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
+  const account = opts.account === undefined ? null : opts.account;
   const observability = opts.observability === undefined ? null : opts.observability;
   const observabilityIngestion =
     opts.observabilityIngestion === undefined ? null : opts.observabilityIngestion;
@@ -4230,7 +4123,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     webhooks,
     gasSponsorship,
     smartWallets,
-    settings,
     keyExports,
     runtimeSnapshots,
     teamRbac,
@@ -4239,6 +4131,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     auditExports,
     enterpriseIsolation,
     onboarding,
+    account,
     observability,
     observabilityIngestion,
   };
@@ -4246,6 +4139,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
 
   registerConsoleHealthRoutes(router, ctx);
   registerConsoleSessionRoute(router, ctx);
+  registerConsoleAccountRoutes(router, ctx);
   registerConsoleOnboardingRoutes(router, ctx);
   registerConsoleOpsCockpitRoutes(router, ctx);
   registerConsoleObservabilityRoutes(router, ctx, {

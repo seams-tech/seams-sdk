@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import {
   createInMemoryConsoleBillingService,
   createPostgresConsoleBillingService,
@@ -22,8 +22,44 @@ async function expectBillingError(fn: () => Promise<unknown>, code: string): Pro
   expect(String(caught?.code || '')).toBe(code);
 }
 
-test.describe('console billing service rbac', () => {
-  test('in-memory service uses injected billing provider adapters', async () => {
+async function settleCreditPurchase(
+  service: ConsoleBillingService,
+  ctx: { orgId: string; actorUserId: string; roles: string[] },
+  creditPackId: 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000' = 'usd_200',
+): Promise<{
+  checkoutSession: Awaited<ReturnType<ConsoleBillingService['createStripeCheckoutSession']>>;
+  purchase: NonNullable<
+    Awaited<ReturnType<ConsoleBillingService['processStripeWebhookEvent']>>['purchase']
+  >;
+  invoice: NonNullable<
+    Awaited<ReturnType<ConsoleBillingService['processStripeWebhookEvent']>>['invoice']
+  >;
+}> {
+  const checkoutSession = await service.createStripeCheckoutSession(ctx, {
+    successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+    cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+    creditPackId,
+  });
+  const projection = await service.processStripeWebhookEvent({
+    eventId: `evt_purchase_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    eventType: 'checkout.session.completed',
+    orgId: ctx.orgId,
+    checkoutSessionId: checkoutSession.id,
+    providerCustomerRef: checkoutSession.customerRef,
+    providerRef: checkoutSession.id,
+  });
+  expect(projection.accepted).toBe(true);
+  expect(projection.purchase).toBeTruthy();
+  expect(projection.invoice).toBeTruthy();
+  return {
+    checkoutSession,
+    purchase: projection.purchase!,
+    invoice: projection.invoice!,
+  };
+}
+
+test.describe('console billing service prepaid model', () => {
+  test('in-memory service uses injected prepaid billing provider adapters', async () => {
     const service = createInMemoryConsoleBillingService({
       providers: {
         stripe: {
@@ -45,73 +81,58 @@ test.describe('console billing service rbac', () => {
             customerRef: 'cus_mem_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
-          createPaymentIntent: () => ({
-            providerRef: 'pi_mem_provider',
-            clientSecret: 'pi_mem_provider_secret',
-          }),
-        },
-        stablecoin: {
-          allocateDestination: () => ({
-            destinationAddress: 'pay_mem_provider_destination',
-          }),
         },
       },
     });
 
-    const cardCtx = {
-      orgId: 'org-provider-adapter-memory-card',
+    const ctx = {
+      orgId: 'org-provider-adapter-memory',
       actorUserId: 'ops-provider-adapter-memory',
       roles: ['ops'],
     };
-    const setupIntent = await service.createStripeSetupIntent(cardCtx, {});
+
+    const setupIntent = await service.createStripeSetupIntent(ctx, {});
     expect(setupIntent.id).toBe('seti_mem_provider');
     expect(setupIntent.clientSecret).toBe('seti_mem_provider_secret');
     expect(setupIntent.customerRef).toBe('cus_mem_provider');
     expect(setupIntent.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
-    const checkoutSession = await service.createStripeCheckoutSession(cardCtx, {
-      successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
+    const checkoutSession = await service.createStripeCheckoutSession(ctx, {
+      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-      planId: 'pro_maw_v1',
+      creditPackId: 'usd_200',
     });
     expect(checkoutSession.id).toBe('cs_mem_provider');
     expect(checkoutSession.url).toBe('https://checkout.example/memory');
     expect(checkoutSession.customerRef).toBe('cus_mem_provider');
+    expect(checkoutSession.creditPackId).toBe('usd_200');
+    expect(checkoutSession.amountMinor).toBe(20000);
     expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
-    const portalSession = await service.createStripeCustomerPortalSession(cardCtx, {
-      returnUrl: 'https://app.example.com/dashboard/billing',
+    const portalSession = await service.createStripeCustomerPortalSession(ctx, {
+      returnUrl: 'https://app.example.com/dashboard/billing/account',
     });
     expect(portalSession.id).toBe('bps_mem_provider');
     expect(portalSession.url).toBe('https://billing.example/memory');
     expect(portalSession.customerRef).toBe('cus_mem_provider');
     expect(portalSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
-    const cardInvoices = await service.listInvoices(cardCtx);
-    expect(cardInvoices.length).toBeGreaterThan(0);
-    const cardIntent = await service.createStripePaymentIntent(cardCtx, {
-      invoiceId: cardInvoices[0].id,
+    const projection = await service.processStripeWebhookEvent({
+      eventId: 'evt_mem_provider_purchase',
+      eventType: 'checkout.session.completed',
+      orgId: ctx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
-    expect(cardIntent.providerRef).toBe('pi_mem_provider');
-    expect(cardIntent.clientSecret).toBe('pi_mem_provider_secret');
+    expect(projection.accepted).toBe(true);
+    expect(projection.purchase?.status).toBe('SETTLED');
+    expect(projection.purchase?.creditPackId).toBe('usd_200');
+    expect(projection.invoice?.documentType).toBe('PURCHASE_RECEIPT');
 
-    const stableCtx = {
-      orgId: 'org-provider-adapter-memory-stable',
-      actorUserId: 'ops-provider-adapter-memory',
-      roles: ['ops'],
-    };
-    const stableInvoices = await service.listInvoices(stableCtx);
-    expect(stableInvoices.length).toBeGreaterThan(0);
-    const quote = await service.createStablecoinQuote(stableCtx, {
-      invoiceId: stableInvoices[0].id,
-      asset: 'USDC',
-      chain: 'Ethereum',
-    });
-    const stableIntent = await service.createStablecoinPaymentIntent(stableCtx, {
-      invoiceId: stableInvoices[0].id,
-      quoteId: quote.id,
-    });
-    expect(stableIntent.destinationAddress).toBe('pay_mem_provider_destination');
+    const overview = await service.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(20000);
+    expect(overview.recentCreditPurchasedMinor).toBe(20000);
   });
 
   test('in-memory service enforces admin-only card mutations', async () => {
@@ -141,243 +162,84 @@ test.describe('console billing service rbac', () => {
     }, 'forbidden');
   });
 
-  test('in-memory service supports subscription lifecycle cancel/resume', async () => {
+  test('in-memory card payment method lifecycle keeps a default method', async () => {
     const service = createInMemoryConsoleBillingService();
     const ctx = {
-      orgId: 'org-subscription-lifecycle-memory',
-      actorUserId: 'admin-subscription-memory',
+      orgId: 'org-card-defaults-memory',
+      actorUserId: 'admin-card-defaults-memory',
       roles: ['admin'],
     };
 
-    const initial = await service.getSubscription(ctx);
-    expect(initial.status).toBe('ACTIVE');
-    expect(initial.cancelAtPeriodEnd).toBe(false);
-    expect(initial.cancelAt).toBeNull();
+    const pm1 = await service.addCardPaymentMethod(ctx, {
+      providerRef: 'pm_mem_1',
+      brand: 'visa',
+      last4: '1111',
+      expMonth: 1,
+      expYear: 2031,
+    });
+    expect(pm1.isDefault).toBe(true);
 
-    const canceled = await service.cancelSubscription(ctx);
-    expect(canceled.status).toBe('ACTIVE');
-    expect(canceled.cancelAtPeriodEnd).toBe(true);
-    expect(canceled.cancelAt).toBe(canceled.currentPeriodEnd);
+    const pm2 = await service.addCardPaymentMethod(ctx, {
+      providerRef: 'pm_mem_2',
+      brand: 'mastercard',
+      last4: '2222',
+      expMonth: 2,
+      expYear: 2032,
+    });
+    expect(pm2.isDefault).toBe(false);
 
-    const resumed = await service.resumeSubscription(ctx);
-    expect(resumed.status).toBe('ACTIVE');
-    expect(resumed.cancelAtPeriodEnd).toBe(false);
-    expect(resumed.cancelAt).toBeNull();
+    const updatedDefault = await service.setDefaultCardPaymentMethod(ctx, pm2.id);
+    expect(updatedDefault?.id).toBe(pm2.id);
+    expect(updatedDefault?.isDefault).toBe(true);
+
+    const removed = await service.removeCardPaymentMethod(ctx, pm2.id);
+    expect(removed.removed).toBe(true);
+
+    const methods = await service.listPaymentMethods(ctx);
+    expect(methods.length).toBe(1);
+    expect(methods[0]?.id).toBe(pm1.id);
+    expect(methods[0]?.isDefault).toBe(true);
   });
 
-  test('in-memory service reconciles stablecoin intent to settled', async () => {
+  test('in-memory service settles prepaid purchase receipts idempotently by event id', async () => {
     const service = createInMemoryConsoleBillingService();
     const ctx = {
-      orgId: 'org-reconcile-memory',
-      actorUserId: 'ops-1',
+      orgId: 'org-stripe-webhook-memory',
+      actorUserId: 'ops-webhook-memory',
       roles: ['ops'],
     };
 
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const quote = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDC',
-      chain: 'Ethereum',
+    const checkoutSession = await service.createStripeCheckoutSession(ctx, {
+      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+      creditPackId: 'usd_200',
     });
-    const created = await service.createStablecoinPaymentIntent(ctx, {
-      invoiceId,
-      quoteId: quote.id,
+
+    const first = await service.processStripeWebhookEvent({
+      eventId: 'evt_mem_same',
+      eventType: 'checkout.session.completed',
+      orgId: ctx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
-    expect(created.state).toBe('PENDING');
+    expect(first.accepted).toBe(true);
+    expect(first.purchase?.status).toBe('SETTLED');
+    expect(first.invoice?.documentType).toBe('PURCHASE_RECEIPT');
 
-    const confirming = await service.reconcileStablecoinPaymentIntent(ctx, created.id, {
-      observedAmountMinor: created.expectedAmountMinor,
-      observedConfirmations: Math.max(created.requiredConfirmations - 1, 0),
+    const duplicate = await service.processStripeWebhookEvent({
+      eventId: 'evt_mem_same',
+      eventType: 'checkout.session.completed',
+      orgId: ctx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
-    expect(confirming?.state).toBe('CONFIRMING');
+    expect(duplicate.accepted).toBe(false);
+    expect(duplicate.purchase?.status).toBe('SETTLED');
 
-    const settled = await service.reconcileStablecoinPaymentIntent(ctx, created.id, {
-      observedAmountMinor: created.expectedAmountMinor,
-      observedConfirmations: created.requiredConfirmations,
-    });
-    expect(settled?.state).toBe('SETTLED');
-    expect(settled?.settledAt).toBeTruthy();
-    expect(settled?.reorgRiskWindowEndsAt).toBeTruthy();
-    expect(settled?.withinReorgRiskWindow).toBe(true);
-
-    const invoice = await service.getInvoice(ctx, invoiceId);
-    expect(invoice?.status).toBe('PAID');
-  });
-
-  test('in-memory service tracks stablecoin post-settlement reorg risk window', async () => {
-    let current = new Date('2026-03-01T00:00:00.000Z');
-    const service = createInMemoryConsoleBillingService({
-      now: () => current,
-    });
-    const ctx = {
-      orgId: 'org-stablecoin-risk-window-memory',
-      actorUserId: 'ops-risk-window',
-      roles: ['ops'],
-    };
-
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const quote = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDC',
-      chain: 'NEAR',
-    });
-    const created = await service.createStablecoinPaymentIntent(ctx, {
-      invoiceId,
-      quoteId: quote.id,
-    });
-    const settled = await service.reconcileStablecoinPaymentIntent(ctx, created.id, {
-      observedAmountMinor: created.expectedAmountMinor,
-      observedConfirmations: created.requiredConfirmations,
-    });
-    expect(settled?.state).toBe('SETTLED');
-    expect(settled?.settledAt).toBe(current.toISOString());
-    expect(settled?.reorgRiskWindowEndsAt).toBe(
-      new Date(current.getTime() + 6 * 60 * 60 * 1000).toISOString(),
-    );
-    expect(settled?.withinReorgRiskWindow).toBe(true);
-
-    current = new Date(current.getTime() + 6 * 60 * 60 * 1000 + 60 * 1000);
-    const afterRiskWindow = await service.getStablecoinPaymentIntent(ctx, created.id);
-    expect(afterRiskWindow?.state).toBe('SETTLED');
-    expect(afterRiskWindow?.withinReorgRiskWindow).toBe(false);
-    expect(afterRiskWindow?.reorgRiskWindowEndsAt).toBe(
-      new Date(new Date('2026-03-01T00:00:00.000Z').getTime() + 6 * 60 * 60 * 1000).toISOString(),
-    );
-  });
-
-  test('in-memory service auto-expires stablecoin intent before reconcile/cancel', async () => {
-    let current = new Date('2026-03-01T00:00:00.000Z');
-    const service = createInMemoryConsoleBillingService({
-      now: () => current,
-    });
-    const ctx = {
-      orgId: 'org-expire-guard-memory',
-      actorUserId: 'ops-expire-guard',
-      roles: ['ops'],
-    };
-
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const quote = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDC',
-      chain: 'Ethereum',
-    });
-    const created = await service.createStablecoinPaymentIntent(ctx, {
-      invoiceId,
-      quoteId: quote.id,
-    });
-    expect(created.state).toBe('PENDING');
-
-    current = new Date(current.getTime() + 16 * 60 * 1000);
-
-    const reconciled = await service.reconcileStablecoinPaymentIntent(ctx, created.id, {
-      observedAmountMinor: created.expectedAmountMinor,
-      observedConfirmations: created.requiredConfirmations,
-    });
-    expect(reconciled?.state).toBe('EXPIRED');
-
-    const canceled = await service.cancelStablecoinPaymentIntent(ctx, created.id);
-    expect(canceled?.state).toBe('EXPIRED');
-
-    const invoice = await service.getInvoice(ctx, invoiceId);
-    expect(invoice?.status).toBe('OPEN');
-    expect(invoice?.amountPaidMinor).toBe(0);
-  });
-
-  test('in-memory service enforces stablecoin quote single-use and stale-amount guards', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const ctx = {
-      orgId: 'org-quote-semantics-memory',
-      actorUserId: 'ops-quote-semantics',
-      roles: ['ops'],
-    };
-
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const quoteA = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDC',
-      chain: 'Ethereum',
-    });
-    const createdA = await service.createStablecoinPaymentIntent(ctx, {
-      invoiceId,
-      quoteId: quoteA.id,
-    });
-    expect(createdA.state).toBe('PENDING');
-    const canceledA = await service.cancelStablecoinPaymentIntent(ctx, createdA.id);
-    expect(canceledA?.state).toBe('CANCELED');
-
-    await expectBillingError(async () => {
-      await service.createStablecoinPaymentIntent(ctx, {
-        invoiceId,
-        quoteId: quoteA.id,
-      });
-    }, 'quote_already_consumed');
-
-    const quoteB = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDT',
-      chain: 'Base',
-    });
-    const quoteC = await service.createStablecoinQuote(ctx, {
-      invoiceId,
-      asset: 'USDT',
-      chain: 'Base',
-    });
-    const createdB = await service.createStablecoinPaymentIntent(ctx, {
-      invoiceId,
-      quoteId: quoteB.id,
-    });
-    expect(createdB.state).toBe('PENDING');
-
-    const partialAmount = Math.max(createdB.expectedAmountMinor - 1, 1);
-    const partiallySettled = await service.reconcileStablecoinPaymentIntent(ctx, createdB.id, {
-      observedAmountMinor: partialAmount,
-      observedConfirmations: createdB.requiredConfirmations,
-    });
-    expect(partiallySettled?.state).toBe('PARTIALLY_SETTLED');
-
-    await expectBillingError(async () => {
-      await service.createStablecoinPaymentIntent(ctx, {
-        invoiceId,
-        quoteId: quoteC.id,
-      });
-    }, 'quote_amount_mismatch');
-  });
-
-  test('in-memory service blocks concurrent active card payment intents on one invoice', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const ctx = {
-      orgId: 'org-card-intent-gate-memory',
-      actorUserId: 'ops-card-intent-gate',
-      roles: ['ops'],
-    };
-
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const firstIntent = await service.createStripePaymentIntent(ctx, {
-      invoiceId,
-    });
-    expect(firstIntent.state).toBe('CREATED');
-
-    await expectBillingError(async () => {
-      await service.createStripePaymentIntent(ctx, {
-        invoiceId,
-      });
-    }, 'active_payment_intent_exists');
+    const overview = await service.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(20000);
   });
 
   test('in-memory service MAW counts distinct wallets with exclusions and idempotency', async () => {
@@ -397,6 +259,9 @@ test.describe('console billing service rbac', () => {
     expect(first.accepted).toBe(true);
     expect(first.counted).toBe(true);
     expect(first.monthlyActiveWallets).toBe(1);
+    expect(first.debitAppliedMinor).toBe(300);
+    expect(first.creditBalanceMinor).toBe(-300);
+    expect(first.statementId).toBeTruthy();
 
     const secondSameWallet = await service.recordUsageEvent(ctx, {
       walletId: 'wallet_mem_1',
@@ -407,6 +272,7 @@ test.describe('console billing service rbac', () => {
     expect(secondSameWallet.accepted).toBe(true);
     expect(secondSameWallet.counted).toBe(true);
     expect(secondSameWallet.monthlyActiveWallets).toBe(1);
+    expect(secondSameWallet.debitAppliedMinor).toBe(0);
 
     const excluded = await service.recordUsageEvent(ctx, {
       walletId: 'wallet_mem_2',
@@ -427,6 +293,7 @@ test.describe('console billing service rbac', () => {
     expect(thirdDistinct.accepted).toBe(true);
     expect(thirdDistinct.counted).toBe(true);
     expect(thirdDistinct.monthlyActiveWallets).toBe(2);
+    expect(thirdDistinct.debitAppliedMinor).toBe(300);
 
     const duplicate = await service.recordUsageEvent(ctx, {
       walletId: 'wallet_mem_3',
@@ -444,7 +311,7 @@ test.describe('console billing service rbac', () => {
     expect(usage.monthlyActiveWallets).toBe(2);
   });
 
-  test('in-memory service creates one invoice per org per period month', async () => {
+  test('in-memory service creates one statement per org per period month', async () => {
     let current = new Date('2026-01-20T00:00:00.000Z');
     const service = createInMemoryConsoleBillingService({
       now: () => current,
@@ -455,24 +322,28 @@ test.describe('console billing service rbac', () => {
       roles: ['ops'],
     };
 
-    const janInvoices = await service.listInvoices(ctx);
-    expect(janInvoices.length).toBe(1);
-    expect(janInvoices[0].periodMonthUtc).toBe('2026-01');
+    const januaryDocuments = await service.listInvoices(ctx);
+    expect(januaryDocuments.length).toBe(1);
+    expect(januaryDocuments[0]?.periodMonthUtc).toBe('2026-01');
+    expect(januaryDocuments[0]?.documentType).toBe('USAGE_STATEMENT');
+    expect(januaryDocuments[0]?.status).toBe('PAID');
 
     current = new Date('2026-02-02T00:00:00.000Z');
-    const febInvoices = await service.listInvoices(ctx);
-    expect(febInvoices.some((invoice) => invoice.periodMonthUtc === '2026-01')).toBe(true);
-    expect(febInvoices.some((invoice) => invoice.periodMonthUtc === '2026-02')).toBe(true);
-    expect(febInvoices.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(1);
-
-    current = new Date('2026-02-10T00:00:00.000Z');
-    const febInvoicesAgain = await service.listInvoices(ctx);
-    expect(febInvoicesAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(
+    const februaryDocuments = await service.listInvoices(ctx);
+    expect(februaryDocuments.some((invoice) => invoice.periodMonthUtc === '2026-01')).toBe(true);
+    expect(februaryDocuments.some((invoice) => invoice.periodMonthUtc === '2026-02')).toBe(true);
+    expect(februaryDocuments.filter((invoice) => invoice.periodMonthUtc === '2026-02').length).toBe(
       1,
     );
+
+    current = new Date('2026-02-10T00:00:00.000Z');
+    const februaryDocumentsAgain = await service.listInvoices(ctx);
+    expect(
+      februaryDocumentsAgain.filter((invoice) => invoice.periodMonthUtc === '2026-02').length,
+    ).toBe(1);
   });
 
-  test('in-memory service generates monthly invoice from MAW rollup with deterministic line items', async () => {
+  test('in-memory service regenerates monthly usage statements idempotently from MAW rollups', async () => {
     const current = new Date('2026-02-05T00:00:00.000Z');
     const service = createInMemoryConsoleBillingService({
       now: () => current,
@@ -508,173 +379,114 @@ test.describe('console billing service rbac', () => {
     const generation = await service.generateMonthlyInvoice(ctx, {
       periodMonthUtc: '2026-01',
     });
-    expect(generation.generated).toBe(true);
+    expect(generation.generated).toBe(false);
     expect(generation.monthlyActiveWallets).toBe(2);
-    expect(generation.pricing.baseFeeMinor).toBe(1900);
     expect(generation.pricing.mawUnitPriceMinor).toBe(300);
     expect(generation.invoice.periodMonthUtc).toBe('2026-01');
-    expect(generation.invoice.amountDueMinor).toBe(2500);
-    expect(generation.lineItems.length).toBe(2);
-    const baseFeeItem = generation.lineItems.find((item) => item.itemType === 'PLAN_BASE_FEE');
-    const mawItem = generation.lineItems.find((item) => item.itemType === 'MAW_USAGE');
-    expect(baseFeeItem?.amountMinor).toBe(1900);
-    expect(mawItem?.quantity).toBe(2);
-    expect(mawItem?.amountMinor).toBe(600);
+    expect(generation.invoice.documentType).toBe('USAGE_STATEMENT');
+    expect(generation.invoice.amountDueMinor).toBe(600);
+    expect(generation.invoice.amountPaidMinor).toBe(600);
+    expect(generation.lineItems.length).toBe(1);
+    expect(generation.lineItems[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+    expect(generation.lineItems[0]?.quantity).toBe(2);
+    expect(generation.lineItems[0]?.amountMinor).toBe(600);
 
     const listed = await service.listInvoiceLineItems(ctx, generation.invoice.id);
-    expect(listed.length).toBe(2);
+    expect(listed.length).toBe(1);
+    expect(listed[0]?.itemType).toBe('MAW_USAGE_DEBIT');
 
     const secondRun = await service.generateMonthlyInvoice(ctx, {
       periodMonthUtc: '2026-01',
     });
     expect(secondRun.generated).toBe(false);
-    expect(secondRun.invoice.amountDueMinor).toBe(2500);
+    expect(secondRun.invoice.amountDueMinor).toBe(600);
   });
 
-  test('in-memory service reconciles stripe intent to settled', async () => {
-    const service = createInMemoryConsoleBillingService();
+  test('in-memory service lists receipt and statement history with server-side filters', async () => {
+    let current = new Date('2026-01-20T00:00:00.000Z');
+    const service = createInMemoryConsoleBillingService({
+      now: () => current,
+    });
     const ctx = {
-      orgId: 'org-stripe-reconcile-memory',
-      actorUserId: 'ops-2',
+      orgId: 'org-invoice-history-memory',
+      actorUserId: 'ops-invoice-history',
       roles: ['ops'],
     };
 
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const created = await service.createStripePaymentIntent(ctx, {
-      invoiceId,
+    await service.recordUsageEvent(ctx, {
+      walletId: 'wallet_january_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_january_1',
+      occurredAt: '2026-01-09T00:00:00.000Z',
     });
-    expect(created.state).toBe('CREATED');
-
-    const actionRequired = await service.reconcileStripePaymentIntent(ctx, created.id, {
-      providerStatus: 'ACTION_REQUIRED',
-      sourceEventId: `evt_${Date.now()}_action_required`,
+    await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-01' });
+    current = new Date('2026-02-20T00:00:00.000Z');
+    await service.recordUsageEvent(ctx, {
+      walletId: 'wallet_february_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_february_1',
+      occurredAt: '2026-02-11T00:00:00.000Z',
     });
-    expect(actionRequired?.state).toBe('ACTION_REQUIRED');
-
-    const pending = await service.reconcileStripePaymentIntent(ctx, created.id, {
-      providerStatus: 'PENDING',
-      sourceEventId: `evt_${Date.now()}_pending`,
+    await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-02' });
+    current = new Date('2026-03-20T00:00:00.000Z');
+    await service.recordUsageEvent(ctx, {
+      walletId: 'wallet_march_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_march_1',
+      occurredAt: '2026-03-15T00:00:00.000Z',
     });
-    expect(pending?.state).toBe('PENDING');
+    const march = await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-03' });
+    const receipt = await settleCreditPurchase(service, ctx, 'usd_200');
+    expect(receipt.invoice.documentType).toBe('PURCHASE_RECEIPT');
 
-    const settled = await service.reconcileStripePaymentIntent(ctx, created.id, {
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: created.amountMinor,
-      sourceEventId: `evt_${Date.now()}_succeeded`,
+    const firstPage = await service.listInvoicesPage(ctx, { limit: 1 });
+    expect(firstPage.invoices.length).toBe(1);
+    expect(firstPage.totalCount).toBe(4);
+    expect(firstPage.nextCursor).toBeTruthy();
+    expect(firstPage.summary.receiptCount).toBe(1);
+    expect(firstPage.summary.statementCount).toBe(3);
+
+    const secondPage = await service.listInvoicesPage(ctx, {
+      limit: 1,
+      cursor: firstPage.nextCursor || undefined,
     });
-    expect(settled?.state).toBe('SETTLED');
+    expect(secondPage.invoices.length).toBe(1);
+    expect(secondPage.invoices[0]?.id).not.toBe(firstPage.invoices[0]?.id);
 
-    const invoice = await service.getInvoice(ctx, invoiceId);
-    expect(invoice?.status).toBe('PAID');
-  });
+    const paid = await service.listInvoicesPage(ctx, { status: 'PAID' });
+    expect(paid.totalCount).toBe(4);
+    expect(paid.summary.paidCount).toBe(4);
 
-  test('in-memory service processes Stripe webhook events idempotently by event id', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const ctx = {
-      orgId: 'org-stripe-webhook-memory',
-      actorUserId: 'ops-webhook-memory',
-      roles: ['ops'],
-    };
+    const receipts = await service.listInvoicesPage(ctx, { documentType: 'PURCHASE_RECEIPT' });
+    expect(receipts.totalCount).toBe(1);
+    expect(receipts.invoices[0]?.documentType).toBe('PURCHASE_RECEIPT');
 
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const created = await service.createStripePaymentIntent(ctx, {
-      invoiceId,
+    const february = await service.listInvoicesPage(ctx, {
+      documentType: 'USAGE_STATEMENT',
+      periodMonthUtc: '2026-02',
     });
-    expect(created.state).toBe('CREATED');
+    expect(february.totalCount).toBe(1);
+    expect(february.invoices[0]?.periodMonthUtc).toBe('2026-02');
+    expect(february.invoices[0]?.documentType).toBe('USAGE_STATEMENT');
 
-    const first = await service.processStripeWebhookEvent({
-      eventId: `evt_mem_${Date.now()}_1`,
-      providerRef: created.providerRef,
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: created.amountMinor,
-    });
-    expect(first.accepted).toBe(true);
-    expect(first.paymentIntent?.state).toBe('SETTLED');
+    const marchActivity = await service.getInvoiceActivity(ctx, march.invoice.id);
+    expect(marchActivity).toBeTruthy();
+    expect(
+      marchActivity?.entries.some(
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'USAGE_DEBIT',
+      ),
+    ).toBe(true);
 
-    const sameEvent = await service.processStripeWebhookEvent({
-      eventId: 'evt_mem_same',
-      providerRef: created.providerRef,
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: created.amountMinor,
-    });
-    expect(sameEvent.accepted).toBe(true);
-    expect(sameEvent.paymentIntent?.state).toBe('SETTLED');
-    const sameEventDuplicate = await service.processStripeWebhookEvent({
-      eventId: 'evt_mem_same',
-      providerRef: created.providerRef,
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: created.amountMinor,
-    });
-    expect(sameEventDuplicate.accepted).toBe(false);
-    expect(sameEventDuplicate.paymentIntent?.state).toBe('SETTLED');
-
-    const invoice = await service.getInvoice(ctx, invoiceId);
-    expect(invoice?.status).toBe('PAID');
-  });
-
-  test('in-memory service projects subscription/invoice webhook events idempotently', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const ctx = {
-      orgId: 'org-stripe-projection-memory',
-      actorUserId: 'ops-projection-memory',
-      roles: ['ops'],
-    };
-
-    const subscription = await service.getSubscription(ctx);
-    const invoices = await service.listInvoices(ctx);
-    expect(invoices.length).toBeGreaterThan(0);
-    const invoiceId = invoices[0].id;
-
-    const subscriptionEventId = `evt_mem_subscription_${Date.now()}`;
-    const subscriptionProjection = await service.processStripeWebhookEvent({
-      eventId: subscriptionEventId,
-      eventType: 'customer.subscription.updated',
-      orgId: ctx.orgId,
-      providerSubscriptionRef: subscription.providerSubscriptionRef || undefined,
-      providerCustomerRef: subscription.providerCustomerRef || undefined,
-      subscriptionStatus: 'PAST_DUE',
-      cancelAtPeriodEnd: true,
-    });
-    expect(subscriptionProjection.accepted).toBe(true);
-    expect(subscriptionProjection.subscription?.status).toBe('PAST_DUE');
-    expect(subscriptionProjection.subscription?.cancelAtPeriodEnd).toBe(true);
-
-    const duplicateSubscription = await service.processStripeWebhookEvent({
-      eventId: subscriptionEventId,
-      eventType: 'customer.subscription.updated',
-      orgId: ctx.orgId,
-      providerSubscriptionRef: subscription.providerSubscriptionRef || undefined,
-      providerCustomerRef: subscription.providerCustomerRef || undefined,
-      subscriptionStatus: 'PAST_DUE',
-      cancelAtPeriodEnd: true,
-    });
-    expect(duplicateSubscription.accepted).toBe(false);
-    expect(duplicateSubscription.subscription?.status).toBe('PAST_DUE');
-
-    const invoiceProjection = await service.processStripeWebhookEvent({
-      eventId: `evt_mem_invoice_${Date.now()}`,
-      eventType: 'invoice.paid',
-      orgId: ctx.orgId,
-      invoiceId,
-      invoiceStatus: 'PAID',
-      invoiceAmountPaidMinor: invoices[0].amountDueMinor,
-    });
-    expect(invoiceProjection.accepted).toBe(true);
-    expect(invoiceProjection.invoice?.status).toBe('PAID');
-    expect(Number(invoiceProjection.invoice?.amountPaidMinor || 0)).toBe(
-      invoices[0].amountDueMinor,
-    );
-
-    const updatedSubscription = await service.getSubscription(ctx);
-    expect(updatedSubscription.status).toBe('PAST_DUE');
-    const updatedInvoice = await service.getInvoice(ctx, invoiceId);
-    expect(updatedInvoice?.status).toBe('PAID');
+    const receiptActivity = await service.getInvoiceActivity(ctx, receipt.invoice.id);
+    expect(receiptActivity).toBeTruthy();
+    expect(
+      receiptActivity?.entries.some(
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'CREDIT_PURCHASE',
+      ),
+    ).toBe(true);
   });
 
   test('postgres service enforces admin-only card mutations', async () => {
@@ -710,32 +522,25 @@ test.describe('console billing service rbac', () => {
       }, 'forbidden');
     } finally {
       const pool = await getPostgresPool(postgresUrl);
-      await withConsoleTenantContextTx(
-        pool,
-        { namespace, orgId: nonAdminCtx.orgId },
-        async (q) => {
-          await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-            namespace,
-          ]);
-          await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-            namespace,
-          ]);
-          await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-            namespace,
-          ]);
-          await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_subscriptions WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-          await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
-        },
-      );
-      await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [
-        namespace,
-      ]);
+      await withConsoleTenantContextTx(pool, { namespace, orgId: nonAdminCtx.orgId }, async (q) => {
+        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
+      });
     }
   });
 });

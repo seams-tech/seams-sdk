@@ -94,6 +94,41 @@ function makeSeedWallet(input: {
   };
 }
 
+const REMOVED_BILLING_SETTLEMENT_ROUTE_CASES: Array<{
+  method: 'GET' | 'POST';
+  path: string;
+  body?: Record<string, unknown>;
+}> = [
+  {
+    method: 'POST',
+    path: '/console/billing/stripe/payment-intent',
+    body: { invoiceId: 'inv_removed' },
+  },
+  {
+    method: 'POST',
+    path: '/console/billing/stripe/payment-intents/pi_removed/reconcile',
+    body: { providerStatus: 'FAILED' },
+  },
+  { method: 'GET', path: '/console/billing/stablecoins/assets' },
+  {
+    method: 'POST',
+    path: '/console/billing/stablecoins/quotes',
+    body: { invoiceId: 'inv_removed', asset: 'USDC', chain: 'Ethereum' },
+  },
+  {
+    method: 'POST',
+    path: '/console/billing/stablecoins/payment-intents',
+    body: { invoiceId: 'inv_removed', quoteId: 'quote_removed' },
+  },
+  { method: 'GET', path: '/console/billing/stablecoins/payment-intents/scpi_removed' },
+  { method: 'POST', path: '/console/billing/stablecoins/payment-intents/scpi_removed/cancel' },
+  {
+    method: 'POST',
+    path: '/console/billing/stablecoins/payment-intents/scpi_removed/reconcile',
+    body: { observedAmountMinor: 0, observedConfirmations: 0 },
+  },
+];
+
 async function seedOrgProjectEnvironment(
   service: ConsoleOrgProjectEnvService,
   input: {
@@ -430,7 +465,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('billing reconcile failures emit billing observability events (express)', async () => {
+  test('billing invoice finalization failures emit billing observability events (express)', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -447,8 +482,8 @@ test.describe('console router (express)', () => {
     const baseBilling = createInMemoryConsoleBillingService();
     const failingBilling: ConsoleBillingService = {
       ...baseBilling,
-      reconcileStripePaymentIntent: async () => {
-        throw new Error('manual reconcile failed');
+      generateMonthlyInvoice: async () => {
+        throw new Error('invoice generation failed');
       },
     };
     const router = createConsoleRouter({
@@ -462,37 +497,35 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/pi_obs_failure/reconcile`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-request-id': 'req_obs_billing_reconcile',
-          },
-          body: JSON.stringify({ providerStatus: 'FAILED' }),
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/invoices/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-request-id': 'req_obs_billing_finalize',
         },
-      );
+        body: JSON.stringify({ periodMonthUtc: '2026-03' }),
+      });
       expect(res.status).toBe(500);
       expect(res.json?.code).toBe('internal');
 
       await expect
         .poll(
           () =>
-            ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
-              .length,
+            ingested.filter(
+              (entry) => entry.event.eventType === 'billing.invoice_finalization.failed',
+            ).length,
         )
         .toBe(1);
 
       const billingFailure = ingested.find(
-        (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+        (entry) => entry.event.eventType === 'billing.invoice_finalization.failed',
       );
       expect(billingFailure).toBeTruthy();
       expect(String(getPath(billingFailure?.event || null, 'metadata', 'invoiceId') || '')).toBe(
-        'payment_intent:pi_obs_failure',
+        'monthly:2026-03',
       );
       expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
-        'req_obs_billing_reconcile',
+        'req_obs_billing_finalize',
       );
     } finally {
       await srv.close();
@@ -637,7 +670,7 @@ test.describe('console router (express)', () => {
     });
     const endpoint = await webhooks.createEndpoint(serviceCtx, {
       url: 'https://example.com/ops-cockpit-webhook',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
     await webhooks.emitEvent(serviceCtx, {
       eventType: 'billing.invoice.payment_failed',
@@ -1740,7 +1773,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/approval-events',
-          subscriptions: ['policy'],
+          eventCategories: ['policy'],
         }),
       });
       expect(endpointCreated.status).toBe(201);
@@ -2155,14 +2188,12 @@ test.describe('console router (express)', () => {
           scopeType: 'ENVIRONMENT',
           environmentId: 'prod',
           enabled: true,
-          chainBudgets: [
-            {
-              chain: 'Ethereum',
-              period: 'MONTHLY',
-              budgetMinor: 500000,
-              quotaTransactions: 2000,
-            },
-          ],
+          allowedChainIds: [1],
+          spendCap: {
+            mode: 'CHAIN_TOTAL',
+            period: 'MONTHLY',
+            capsByChain: [{ chainId: 1, capMinor: 500000 }],
+          },
         }),
       });
       expect(createdGas.status).toBe(201);
@@ -2346,6 +2377,100 @@ test.describe('console router (express)', () => {
       expect(listed.status).toBe(200);
       expect(getPath(listed.json, 'snapshots', 0, 'snapshotId')).toBe('runtime-contract-v2');
       expect(getPath(listed.json, 'snapshots', 1, 'snapshotId')).toBe('runtime-contract-v1');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('runtime snapshot publish-current resolves published policy state instead of attached draft rules', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const policies = createInMemoryConsolePolicyService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-policy-express-1',
+        'user-runtime-policy-express-1',
+      ),
+      runtimeSnapshots,
+      policies,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const environmentId = 'env-runtime-policy-express-1';
+      const policyId = 'policy-runtime-live-express-1';
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: policyId,
+          name: 'Runtime policy express',
+          assignment: {
+            scopeType: 'ENVIRONMENT',
+            scopeId: environmentId,
+          },
+          rules: {
+            blockedActions: ['delete_key'],
+            allowedChains: ['Ethereum'],
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const published = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+        { method: 'POST' },
+      );
+      expect(published.status).toBe(200);
+
+      const drafted = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rules: {
+              blockedActions: ['export_key'],
+              allowedChains: ['NEAR'],
+            },
+          }),
+        },
+      );
+      expect(drafted.status).toBe(200);
+      expect(getPath(drafted.json, 'policy', 'status')).toBe('DRAFT');
+
+      const snapshot = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId,
+          snapshotId: 'runtime-policy-live-express-v1',
+        }),
+      });
+      expect(snapshot.status).toBe(201);
+      expect(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'status')).toBe('resolved');
+      const snapshotPolicies = Array.isArray(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'))
+        ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies') as any[])
+        : [];
+      const livePolicy = snapshotPolicies.find((entry) => String(entry?.id || '') === policyId);
+      expect(livePolicy).toBeTruthy();
+      expect(String(getPath(livePolicy, 'status') || '')).toBe('PUBLISHED');
+      expect(getPath(livePolicy, 'rules', 'blockedActions', 0)).toBe('delete_key');
+      expect(getPath(livePolicy, 'rules', 'allowedChains', 0)).toBe('Ethereum');
+      expect(getPath(livePolicy, 'rules', 'blockedActions', 0)).not.toBe('export_key');
+
+      const snapshotAssignments = Array.isArray(
+        getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'assignments'),
+      )
+        ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'assignments') as any[])
+        : [];
+      expect(
+        snapshotAssignments.some(
+          (entry) =>
+            String(entry?.policyId || '') === policyId &&
+            String(entry?.scopeType || '') === 'ENVIRONMENT' &&
+            String(entry?.scopeId || '') === environmentId,
+        ),
+      ).toBe(true);
     } finally {
       await srv.close();
     }
@@ -2553,6 +2678,7 @@ test.describe('console router (express)', () => {
           id: 'gs-express-isolation-1',
           scopeType: 'ENVIRONMENT',
           environmentId: ownerEnvironmentId,
+          allowedChainIds: [11_155_111],
         }),
       });
       expect(createGas.status).toBe(201);
@@ -3024,6 +3150,51 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('policy creation can attach a draft to scope in one request', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-create-attach-express',
+        'policy-create-attach-admin',
+      ),
+      policies,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    try {
+      const environmentScopeId = 'env_policy_create_attach_express_1';
+      const created = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy-create-attach-express-1',
+          name: 'Attached draft express',
+          assignment: {
+            scopeType: 'ENVIRONMENT',
+            scopeId: environmentScopeId,
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(getPath(created.json, 'policy', 'id')).toBe('policy-create-attach-express-1');
+
+      const listedAssignments = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/assignments?scopeType=ENVIRONMENT&scopeId=${encodeURIComponent(environmentScopeId)}`,
+        { method: 'GET' },
+      );
+      expect(listedAssignments.status).toBe(200);
+      const assignmentRows = Array.isArray(listedAssignments.json?.assignments)
+        ? listedAssignments.json?.assignments
+        : [];
+      expect(assignmentRows.length).toBe(1);
+      expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
+        'policy-create-attach-express-1',
+      );
+    } finally {
+      await adminServer.close();
+    }
+  });
+
   test('policy assignments support precedence and drive policy coverage', async () => {
     const policies = createInMemoryConsolePolicyService();
     const wallets = createInMemoryConsoleWalletService({
@@ -3065,6 +3236,11 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(createProjectPolicy.status).toBe(201);
+      const publishProjectPolicy = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent('policy-project-express-1')}/publish`,
+        { method: 'POST' },
+      );
+      expect(publishProjectPolicy.status).toBe(200);
       const createWalletPolicy = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3127,7 +3303,28 @@ test.describe('console router (express)', () => {
         ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
         : [];
       expect(
+        policyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-express-1'),
+      ).toBe(true);
+      expect(
         policyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1'),
+      ).toBe(false);
+
+      const publishWalletPolicy = await fetchJson(
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent('policy-wallet-express-1')}/publish`,
+        { method: 'POST' },
+      );
+      expect(publishWalletPolicy.status).toBe(200);
+
+      const liveWalletCoverage = await fetchJson(
+        `${adminServer.baseUrl}/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+        { method: 'GET' },
+      );
+      expect(liveWalletCoverage.status).toBe(200);
+      const livePolicyRows = Array.isArray(getPath(liveWalletCoverage.json, 'coverage', 'policies'))
+        ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
+        : [];
+      expect(
+        livePolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1'),
       ).toBe(true);
 
       const removedWalletAssignment = await fetchJson(
@@ -3417,7 +3614,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/hook',
-          subscriptions: ['billing'],
+          eventCategories: ['billing'],
         }),
       });
       expect(created.status).toBe(201);
@@ -3563,7 +3760,7 @@ test.describe('console router (express)', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             status: 'DISABLED',
-            subscriptions: ['wallet', 'policy'],
+            eventCategories: ['wallet', 'policy'],
           }),
         },
       );
@@ -3612,7 +3809,7 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/bad-cursor-express',
-          subscriptions: ['billing'],
+          eventCategories: ['billing'],
         }),
       });
       expect(created.status).toBe(201);
@@ -3659,34 +3856,22 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/billing/stablecoins/assets requires console auth adapter', async () => {
+  test('legacy billing settlement routes are removed (express)', async () => {
     const router = createConsoleRouter({});
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, {
-        method: 'GET',
-      });
-      expect(res.status).toBe(503);
-      expect(res.json?.code).toBe('console_auth_not_configured');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('GET /console/billing/stablecoins/assets returns supported assets/chains', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/assets`, {
-        method: 'GET',
-      });
-      expect(res.status).toBe(200);
-      expect(res.json?.version).toBe('v1');
-      const assets = Array.isArray(res.json?.assets) ? res.json?.assets : [];
-      expect(assets.length).toBe(2);
-      expect(JSON.stringify(assets)).toContain('"asset":"USDC"');
-      expect(JSON.stringify(assets)).toContain('"chain":"Ethereum"');
-      expect(JSON.stringify(assets)).toContain('"requiredConfirmations":12');
+      for (const routeCase of REMOVED_BILLING_SETTLEMENT_ROUTE_CASES) {
+        const res = await fetchJson(`${srv.baseUrl}${routeCase.path}`, {
+          method: routeCase.method,
+          ...(routeCase.body
+            ? {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(routeCase.body),
+              }
+            : {}),
+        });
+        expect(res.status, `${routeCase.method} ${routeCase.path}`).toBe(404);
+      }
     } finally {
       await srv.close();
     }
@@ -3756,7 +3941,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
           cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-          planId: 'pro_maw_v1',
+          creditPackId: 'usd_200',
         }),
       });
       expect(created.status).toBe(201);
@@ -3767,6 +3952,8 @@ test.describe('console router (express)', () => {
       expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain(
         'cus_',
       );
+      expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_200');
+      expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(20000);
       expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
         /^\d{4}-\d{2}-\d{2}T/,
       );
@@ -3777,6 +3964,7 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           successUrl: '/dashboard/billing',
           cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          creditPackId: 'usd_200',
         }),
       });
       expect(invalid.status).toBe(400);
@@ -3845,47 +4033,35 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/billing/subscription returns billing_not_configured without billing service', async () => {
+  test('legacy billing subscription route is removed', async () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
         method: 'GET',
       });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('billing_not_configured');
+      expect(res.status).toBe(404);
     } finally {
       await srv.close();
     }
   });
 
-  test('billing subscription lifecycle routes support get/cancel/resume', async () => {
+  test('legacy billing subscription lifecycle routes are removed', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
     try {
-      const initial = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
-        method: 'GET',
-      });
-      expect(initial.status).toBe(200);
-      expect(getPath(initial.json, 'subscription', 'status')).toBe('ACTIVE');
-      expect(getPath(initial.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
-
       const canceled = await fetchJson(`${srv.baseUrl}/console/billing/subscription/cancel`, {
         method: 'POST',
       });
-      expect(canceled.status).toBe(200);
-      expect(getPath(canceled.json, 'subscription', 'status')).toBe('ACTIVE');
-      expect(getPath(canceled.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+      expect(canceled.status).toBe(404);
 
       const resumed = await fetchJson(`${srv.baseUrl}/console/billing/subscription/resume`, {
         method: 'POST',
       });
-      expect(resumed.status).toBe(200);
-      expect(getPath(resumed.json, 'subscription', 'status')).toBe('ACTIVE');
-      expect(getPath(resumed.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+      expect(resumed.status).toBe(404);
     } finally {
       await srv.close();
     }
@@ -3914,224 +4090,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('billing flow: card methods + stablecoin intent + rail lock conflict', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const addCard = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerRef: 'pm_test_123',
-          brand: 'visa',
-          last4: '4242',
-          expMonth: 12,
-          expYear: 2030,
-        }),
-      });
-      expect(addCard.status).toBe(201);
-      expect(String(getPath(addCard.json, 'paymentMethod', 'id') || '')).toBeTruthy();
-
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          asset: 'USDC',
-          chain: 'Base',
-        }),
-      });
-      expect(quote.status).toBe(201);
-      const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-      expect(quoteId).toBeTruthy();
-
-      const stablecoinIntent = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            invoiceId,
-            quoteId,
-          }),
-        },
-      );
-      expect(stablecoinIntent.status).toBe(201);
-      expect(getPath(stablecoinIntent.json, 'paymentIntent', 'rail')).toBe('STABLECOIN');
-
-      const stripeIntent = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-        }),
-      });
-      expect(stripeIntent.status).toBe(409);
-      expect(stripeIntent.json?.code).toBe('invoice_rail_locked');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('stablecoin quote is single-use across payment intents', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          asset: 'USDC',
-          chain: 'Ethereum',
-        }),
-      });
-      expect(quote.status).toBe(201);
-      const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-      expect(quoteId).toBeTruthy();
-
-      const firstIntent = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId, quoteId }),
-        },
-      );
-      expect(firstIntent.status).toBe(201);
-      const paymentIntentId = String(getPath(firstIntent.json, 'paymentIntent', 'id') || '');
-      expect(paymentIntentId).toBeTruthy();
-
-      const canceled = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/cancel`,
-        {
-          method: 'POST',
-        },
-      );
-      expect(canceled.status).toBe(200);
-      expect(getPath(canceled.json, 'paymentIntent', 'state')).toBe('CANCELED');
-
-      const reused = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/payment-intents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId, quoteId }),
-      });
-      expect(reused.status).toBe(409);
-      expect(reused.json?.code).toBe('quote_already_consumed');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('Stripe webhook reconciles payment intent by providerRef and dedupes event id', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const secret = 'whsec_console_router_test';
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-      billingStripeWebhookSecret: secret,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
-      expect(created.status).toBe(201);
-      const providerRef = String(getPath(created.json, 'paymentIntent', 'providerRef') || '');
-      const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-      expect(providerRef).toBeTruthy();
-      expect(amountMinor).toBeGreaterThan(0);
-
-      const unauthorized = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventId: 'evt_express_webhook_unauthorized',
-          providerRef,
-          providerStatus: 'SUCCEEDED',
-          settledAmountMinor: amountMinor,
-        }),
-      });
-      expect(unauthorized.status).toBe(401);
-      expect(unauthorized.json?.code).toBe('unauthorized');
-
-      const eventId = `evt_express_webhook_${Date.now()}`;
-      const first = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': secret,
-        },
-        body: JSON.stringify({
-          eventId,
-          providerRef,
-          providerStatus: 'SUCCEEDED',
-          settledAmountMinor: amountMinor,
-        }),
-      });
-      expect(first.status).toBe(200);
-      expect(first.json?.accepted).toBe(true);
-      expect(getPath(first.json, 'paymentIntent', 'state')).toBe('SETTLED');
-
-      const duplicate = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-console-stripe-webhook-secret': secret,
-        },
-        body: JSON.stringify({
-          eventId,
-          providerRef,
-          providerStatus: 'SUCCEEDED',
-          settledAmountMinor: amountMinor,
-        }),
-      });
-      expect(duplicate.status).toBe(200);
-      expect(duplicate.json?.accepted).toBe(false);
-      expect(getPath(duplicate.json, 'paymentIntent', 'state')).toBe('SETTLED');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('Stripe webhook projects subscription/invoice events idempotently', async () => {
+  test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {
     const billing = createInMemoryConsoleBillingService();
     const secret = 'whsec_console_router_projection_test';
     const router = createConsoleRouter({
@@ -4141,112 +4100,82 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const subscriptionBefore = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
-        method: 'GET',
-      });
-      expect(subscriptionBefore.status).toBe(200);
-      const providerSubscriptionRef = String(
-        getPath(subscriptionBefore.json, 'subscription', 'providerSubscriptionRef') || '',
+      const checkoutSession = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+            creditPackId: 'usd_200',
+          }),
+        },
+      );
+      expect(checkoutSession.status).toBe(201);
+      const checkoutSessionId = String(
+        getPath(checkoutSession.json, 'checkoutSession', 'id') || '',
       );
       const providerCustomerRef = String(
-        getPath(subscriptionBefore.json, 'subscription', 'providerCustomerRef') || '',
+        getPath(checkoutSession.json, 'checkoutSession', 'customerRef') || '',
       );
-      expect(providerSubscriptionRef).toBeTruthy();
+      expect(checkoutSessionId).toBeTruthy();
       expect(providerCustomerRef).toBeTruthy();
 
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? String((invoices.json?.invoices?.[0] as any)?.id || '')
-        : '';
-      const invoiceAmountDueMinor = Array.isArray(invoices.json?.invoices)
-        ? Number((invoices.json?.invoices?.[0] as any)?.amountDueMinor || 0)
-        : 0;
-      expect(invoiceId).toBeTruthy();
-      expect(invoiceAmountDueMinor).toBeGreaterThan(0);
-
-      const subscriptionEventId = `evt_express_subscription_projection_${Date.now()}`;
-      const projectedSubscription = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/webhook`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-console-stripe-webhook-secret': secret,
-          },
-          body: JSON.stringify({
-            eventId: subscriptionEventId,
-            eventType: 'customer.subscription.updated',
-            orgId: 'org-1',
-            providerSubscriptionRef,
-            providerCustomerRef,
-            subscriptionStatus: 'PAST_DUE',
-            cancelAtPeriodEnd: true,
-          }),
-        },
-      );
-      expect(projectedSubscription.status).toBe(200);
-      expect(projectedSubscription.json?.accepted).toBe(true);
-      expect(getPath(projectedSubscription.json, 'subscription', 'status')).toBe('PAST_DUE');
-      expect(getPath(projectedSubscription.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
-
-      const projectedSubscriptionDuplicate = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/webhook`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-console-stripe-webhook-secret': secret,
-          },
-          body: JSON.stringify({
-            eventId: subscriptionEventId,
-            eventType: 'customer.subscription.updated',
-            orgId: 'org-1',
-            providerSubscriptionRef,
-            providerCustomerRef,
-            subscriptionStatus: 'PAST_DUE',
-            cancelAtPeriodEnd: true,
-          }),
-        },
-      );
-      expect(projectedSubscriptionDuplicate.status).toBe(200);
-      expect(projectedSubscriptionDuplicate.json?.accepted).toBe(false);
-
-      const projectedInvoice = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+      const purchaseEventId = `evt_express_purchase_projection_${Date.now()}`;
+      const projectedPurchase = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-console-stripe-webhook-secret': secret,
         },
         body: JSON.stringify({
-          eventId: `evt_express_invoice_projection_${Date.now()}`,
-          eventType: 'invoice.paid',
+          eventId: purchaseEventId,
+          eventType: 'checkout.session.completed',
           orgId: 'org-1',
-          invoiceId,
-          invoiceStatus: 'PAID',
-          invoiceAmountPaidMinor: invoiceAmountDueMinor,
+          checkoutSessionId,
+          providerCustomerRef,
+          providerRef: checkoutSessionId,
         }),
       });
-      expect(projectedInvoice.status).toBe(200);
-      expect(projectedInvoice.json?.accepted).toBe(true);
-      expect(getPath(projectedInvoice.json, 'invoice', 'status')).toBe('PAID');
+      expect(projectedPurchase.status).toBe(200);
+      expect(projectedPurchase.json?.accepted).toBe(true);
+      expect(getPath(projectedPurchase.json, 'purchase', 'status')).toBe('SETTLED');
+      expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_200');
+      const receiptInvoiceId = String(getPath(projectedPurchase.json, 'invoice', 'id') || '');
+      expect(receiptInvoiceId).toContain('receipt_');
 
-      const subscriptionAfter = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
-        method: 'GET',
-      });
-      expect(subscriptionAfter.status).toBe(200);
-      expect(getPath(subscriptionAfter.json, 'subscription', 'status')).toBe('PAST_DUE');
-
-      const invoiceAfter = await fetchJson(
-        `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(invoiceId)}`,
+      const projectedPurchaseDuplicate = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/webhook`,
         {
-          method: 'GET',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-console-stripe-webhook-secret': secret,
+          },
+          body: JSON.stringify({
+            eventId: purchaseEventId,
+            eventType: 'checkout.session.completed',
+            orgId: 'org-1',
+            checkoutSessionId,
+            providerCustomerRef,
+            providerRef: checkoutSessionId,
+          }),
         },
       );
-      expect(invoiceAfter.status).toBe(200);
-      expect(getPath(invoiceAfter.json, 'invoice', 'status')).toBe('PAID');
+      expect(projectedPurchaseDuplicate.status).toBe(200);
+      expect(projectedPurchaseDuplicate.json?.accepted).toBe(false);
+      expect(getPath(projectedPurchaseDuplicate.json, 'purchase', 'status')).toBe('SETTLED');
+
+      const overviewAfter = await fetchJson(`${srv.baseUrl}/console/billing/overview`, {
+        method: 'GET',
+      });
+      expect(overviewAfter.status).toBe(200);
+      expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(
+        20000,
+      );
     } finally {
       await srv.close();
     }
@@ -4280,12 +4209,12 @@ test.describe('console router (express)', () => {
       expect(pdf.status).toBe(200);
       expect(String(pdf.headers.get('content-type') || '')).toContain('application/pdf');
       expect(String(pdf.headers.get('content-disposition') || '')).toContain(
-        `invoice_${periodMonthUtc}_${invoiceId}.pdf`,
+        `statement_${periodMonthUtc}_${invoiceId}.pdf`,
       );
       expect(pdf.text.startsWith('%PDF-1.4')).toBe(true);
-      expect(pdf.text).toContain('Billing invoice');
+      expect(pdf.text).toContain('Usage statement');
       expect(pdf.text).toContain(`Organization: org-1`);
-      expect(pdf.text).toContain(`Invoice ID: ${invoiceId}`);
+      expect(pdf.text).toContain(`Document ID: ${invoiceId}`);
 
       const auditEvents = await audit.listEvents({
         orgId: 'org-1',
@@ -4318,21 +4247,44 @@ test.describe('console router (express)', () => {
       actorUserId: 'admin-activity-user',
       roles: ['admin'],
     };
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_january_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_january_1',
+      occurredAt: '2026-01-09T00:00:00.000Z',
+    });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-01' });
     current = new Date('2026-02-20T00:00:00.000Z');
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_february_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_february_1',
+      occurredAt: '2026-02-11T00:00:00.000Z',
+    });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-02' });
     current = new Date('2026-03-20T00:00:00.000Z');
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_march_1',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_march_1',
+      occurredAt: '2026-03-15T00:00:00.000Z',
+    });
     const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
-    const paymentIntent = await billing.createStripePaymentIntent(billingCtx, {
-      invoiceId: march.invoice.id,
+    const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
+      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+      creditPackId: 'usd_200',
     });
-    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
-      providerStatus: 'PENDING',
-    });
-    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: paymentIntent.amountMinor,
-      sourceEventId: 'evt_billing_activity_settled',
+    await billing.processStripeWebhookEvent({
+      eventId: 'evt_billing_purchase_settled',
+      eventType: 'checkout.session.completed',
+      orgId: billingCtx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
 
     const router = createConsoleRouter({
@@ -4347,8 +4299,10 @@ test.describe('console router (express)', () => {
       expect(firstPage.status).toBe(200);
       expect(Array.isArray(firstPage.json?.invoices)).toBe(true);
       expect((firstPage.json?.invoices as unknown[]).length).toBe(1);
-      expect(Number(firstPage.json?.totalCount || 0)).toBe(3);
+      expect(Number(firstPage.json?.totalCount || 0)).toBe(4);
       expect(String(firstPage.json?.nextCursor || '')).toBeTruthy();
+      expect(Number(getPath(firstPage.json, 'summary', 'receiptCount') || 0)).toBe(1);
+      expect(Number(getPath(firstPage.json, 'summary', 'statementCount') || 0)).toBe(3);
 
       const secondPage = await fetchJson(
         `${srv.baseUrl}/console/billing/invoices?limit=1&cursor=${encodeURIComponent(String(firstPage.json?.nextCursor || ''))}`,
@@ -4362,15 +4316,25 @@ test.describe('console router (express)', () => {
         getPath(secondPage.json, 'invoices', 0, 'id'),
       );
 
-      const overdue = await fetchJson(`${srv.baseUrl}/console/billing/invoices?status=OVERDUE`, {
+      const paid = await fetchJson(`${srv.baseUrl}/console/billing/invoices?status=PAID`, {
         method: 'GET',
       });
-      expect(overdue.status).toBe(200);
-      expect(Number(overdue.json?.totalCount || 0)).toBe(2);
-      expect(Number(getPath(overdue.json, 'summary', 'overdueCount') || 0)).toBe(2);
+      expect(paid.status).toBe(200);
+      expect(Number(paid.json?.totalCount || 0)).toBe(4);
+      expect(Number(getPath(paid.json, 'summary', 'paidCount') || 0)).toBe(4);
+
+      const receipts = await fetchJson(
+        `${srv.baseUrl}/console/billing/invoices?documentType=PURCHASE_RECEIPT`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(receipts.status).toBe(200);
+      expect(Number(receipts.json?.totalCount || 0)).toBe(1);
+      expect(getPath(receipts.json, 'invoices', 0, 'documentType')).toBe('PURCHASE_RECEIPT');
 
       const february = await fetchJson(
-        `${srv.baseUrl}/console/billing/invoices?periodMonthUtc=2026-02`,
+        `${srv.baseUrl}/console/billing/invoices?documentType=USAGE_STATEMENT&periodMonthUtc=2026-02`,
         {
           method: 'GET',
         },
@@ -4378,6 +4342,7 @@ test.describe('console router (express)', () => {
       expect(february.status).toBe(200);
       expect(Number(february.json?.totalCount || 0)).toBe(1);
       expect(getPath(february.json, 'invoices', 0, 'periodMonthUtc')).toBe('2026-02');
+      expect(getPath(february.json, 'invoices', 0, 'documentType')).toBe('USAGE_STATEMENT');
 
       const activity = await fetchJson(
         `${srv.baseUrl}/console/billing/invoices/${encodeURIComponent(march.invoice.id)}/activity`,
@@ -4386,56 +4351,16 @@ test.describe('console router (express)', () => {
         },
       );
       expect(activity.status).toBe(200);
-      expect(getPath(activity.json, 'activity', 'latestPaymentState')).toBe('SETTLED');
-      expect(getPath(activity.json, 'activity', 'latestPaymentRail')).toBe('CARD');
       const entries = Array.isArray(getPath(activity.json, 'activity', 'entries'))
         ? (getPath(activity.json, 'activity', 'entries') as Array<Record<string, unknown>>)
         : [];
-      expect(entries.length).toBeGreaterThanOrEqual(3);
+      expect(entries.length).toBeGreaterThanOrEqual(2);
       expect(
         entries.some(
           (entry) =>
-            String(entry.paymentId || '') === paymentIntent.id &&
-            String(entry.toState || '') === 'SETTLED',
+            String(entry.type || '') === 'LEDGER' && String(entry.toState || '') === 'USAGE_DEBIT',
         ),
       ).toBe(true);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('stripe payment intents reject concurrent active attempts', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const firstIntent = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
-      expect(firstIntent.status).toBe(201);
-      expect(getPath(firstIntent.json, 'paymentIntent', 'state')).toBe('CREATED');
-
-      const secondIntent = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
-      expect(secondIntent.status).toBe(409);
-      expect(secondIntent.json?.code).toBe('active_payment_intent_exists');
     } finally {
       await srv.close();
     }
@@ -4557,7 +4482,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('invoice generation endpoint returns deterministic line items', async () => {
+  test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['ops']),
@@ -4605,9 +4530,9 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({ periodMonthUtc: '2026-01' }),
       });
       expect(generated.status).toBe(200);
-      expect(getPath(generated.json, 'generation', 'generated')).toBe(true);
+      expect(getPath(generated.json, 'generation', 'generated')).toBe(false);
       expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(
-        2500,
+        600,
       );
       const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
       expect(invoiceId).toBeTruthy();
@@ -4620,295 +4545,14 @@ test.describe('console router (express)', () => {
       );
       expect(lineItems.status).toBe(200);
       const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
-      expect(items.length).toBe(2);
-      expect(JSON.stringify(items)).toContain('"itemType":"PLAN_BASE_FEE"');
-      expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE"');
+      expect(items.length).toBe(1);
+      expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
     } finally {
       await srv.close();
     }
   });
 
-  test('POST /console/billing/stablecoins/payment-intents/:id/reconcile requires admin or ops role', async () => {
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/scpi_fake/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            observedAmountMinor: 1,
-            observedConfirmations: 1,
-          }),
-        },
-      );
-      expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('forbidden');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('stablecoin reconcile transitions to confirming then settled and updates invoice', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          asset: 'USDC',
-          chain: 'Ethereum',
-        }),
-      });
-      expect(quote.status).toBe(201);
-      const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-      expect(quoteId).toBeTruthy();
-
-      const created = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId, quoteId }),
-        },
-      );
-      expect(created.status).toBe(201);
-      const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      const expectedAmountMinor = Number(
-        getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
-      );
-      const requiredConfirmations = Number(
-        getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
-      );
-      expect(paymentIntentId).toBeTruthy();
-      expect(expectedAmountMinor).toBeGreaterThan(0);
-      expect(requiredConfirmations).toBeGreaterThan(0);
-
-      const confirming = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            observedAmountMinor: expectedAmountMinor,
-            observedConfirmations: Math.max(requiredConfirmations - 1, 0),
-          }),
-        },
-      );
-      expect(confirming.status).toBe(200);
-      expect(getPath(confirming.json, 'paymentIntent', 'state')).toBe('CONFIRMING');
-
-      const settled = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            observedAmountMinor: expectedAmountMinor,
-            observedConfirmations: requiredConfirmations,
-          }),
-        },
-      );
-      expect(settled.status).toBe(200);
-      expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
-      expect(getPath(settled.json, 'paymentIntent', 'settledAt')).toBeTruthy();
-      expect(getPath(settled.json, 'paymentIntent', 'reorgRiskWindowEndsAt')).toBeTruthy();
-      expect(getPath(settled.json, 'paymentIntent', 'withinReorgRiskWindow')).toBe(true);
-
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
-        method: 'GET',
-      });
-      expect(invoice.status).toBe(200);
-      expect(getPath(invoice.json, 'invoice', 'status')).toBe('PAID');
-      expect(
-        Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0),
-      ).toBeGreaterThanOrEqual(expectedAmountMinor);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('stablecoin reconcile after intent expiry returns EXPIRED and leaves invoice open', async () => {
-    let current = new Date('2026-03-01T00:00:00.000Z');
-    const billing = createInMemoryConsoleBillingService({
-      now: () => current,
-    });
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const quote = await fetchJson(`${srv.baseUrl}/console/billing/stablecoins/quotes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          invoiceId,
-          asset: 'USDC',
-          chain: 'Ethereum',
-        }),
-      });
-      expect(quote.status).toBe(201);
-      const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-      expect(quoteId).toBeTruthy();
-
-      const created = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId, quoteId }),
-        },
-      );
-      expect(created.status).toBe(201);
-      const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      const expectedAmountMinor = Number(
-        getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
-      );
-      const requiredConfirmations = Number(
-        getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
-      );
-      expect(paymentIntentId).toBeTruthy();
-      expect(requiredConfirmations).toBeGreaterThan(0);
-
-      current = new Date(current.getTime() + 16 * 60 * 1000);
-
-      const reconcile = await fetchJson(
-        `${srv.baseUrl}/console/billing/stablecoins/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            observedAmountMinor: expectedAmountMinor,
-            observedConfirmations: requiredConfirmations,
-          }),
-        },
-      );
-      expect(reconcile.status).toBe(200);
-      expect(getPath(reconcile.json, 'paymentIntent', 'state')).toBe('EXPIRED');
-
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
-        method: 'GET',
-      });
-      expect(invoice.status).toBe(200);
-      expect(getPath(invoice.json, 'invoice', 'status')).toBe('OPEN');
-      expect(Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0)).toBe(0);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('stripe reconcile transitions action_required -> settled and updates invoice', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
-      billing,
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
-      });
-      expect(created.status).toBe(201);
-      const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      expect(getPath(created.json, 'paymentIntent', 'state')).toBe('CREATED');
-      const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-      expect(paymentIntentId).toBeTruthy();
-      expect(amountMinor).toBeGreaterThan(0);
-
-      const actionRequired = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'ACTION_REQUIRED',
-            sourceEventId: `evt_${Date.now()}_action_required`,
-          }),
-        },
-      );
-      expect(actionRequired.status).toBe(200);
-      expect(getPath(actionRequired.json, 'paymentIntent', 'state')).toBe('ACTION_REQUIRED');
-
-      const pending = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'PENDING',
-            sourceEventId: `evt_${Date.now()}_pending`,
-          }),
-        },
-      );
-      expect(pending.status).toBe(200);
-      expect(getPath(pending.json, 'paymentIntent', 'state')).toBe('PENDING');
-
-      const settled = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'SUCCEEDED',
-            settledAmountMinor: amountMinor,
-            sourceEventId: `evt_${Date.now()}_succeeded`,
-          }),
-        },
-      );
-      expect(settled.status).toBe(200);
-      expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
-
-      const invoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/${invoiceId}`, {
-        method: 'GET',
-      });
-      expect(invoice.status).toBe(200);
-      expect(getPath(invoice.json, 'invoice', 'status')).toBe('PAID');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('billing transitions emit billing webhook events when webhook endpoint is configured', async () => {
+  test('billing invoice generation emits webhook events when webhook endpoint is configured', async () => {
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
       dispatcher: {
@@ -4931,70 +4575,34 @@ test.describe('console router (express)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/billing-events',
-          subscriptions: ['billing'],
+          eventCategories: ['billing'],
         }),
       });
       expect(endpointCreated.status).toBe(201);
       const endpointId = String(getPath(endpointCreated.json, 'endpoint', 'id') || '');
       expect(endpointId).toBeTruthy();
 
-      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = Array.isArray(invoices.json?.invoices)
-        ? (invoices.json?.invoices?.[0] as any)?.id
-        : '';
-      expect(invoiceId).toBeTruthy();
-
-      const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/payment-intent`, {
+      const usage = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ invoiceId }),
+        body: JSON.stringify({
+          walletId: 'wallet_webhook_invoice_generated',
+          action: 'transfer',
+          succeeded: true,
+          sourceEventId: 'usage_evt_webhook_invoice_generated',
+        }),
       });
-      expect(created.status).toBe(201);
-      const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-      const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-      expect(paymentIntentId).toBeTruthy();
-      expect(amountMinor).toBeGreaterThan(0);
+      expect(usage.status).toBe(200);
 
-      const actionRequired = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'ACTION_REQUIRED',
-          }),
-        },
-      );
-      expect(actionRequired.status).toBe(200);
-
-      const pending = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'PENDING',
-          }),
-        },
-      );
-      expect(pending.status).toBe(200);
-
-      const settled = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/payment-intents/${paymentIntentId}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            providerStatus: 'SUCCEEDED',
-            settledAmountMinor: amountMinor,
-          }),
-        },
-      );
-      expect(settled.status).toBe(200);
-      expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
+      const generated = await fetchJson(`${srv.baseUrl}/console/billing/invoices/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodMonthUtc: '2026-03',
+        }),
+      });
+      expect(generated.status).toBe(200);
+      expect(String(getPath(generated.json, 'generation', 'invoice', 'id') || '')).toBeTruthy();
 
       const deliveries = await fetchJson(
         `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
@@ -5005,9 +4613,8 @@ test.describe('console router (express)', () => {
       expect(deliveries.status).toBe(200);
       const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
       const eventTypes = rows.map((row: any) => String(row?.eventType || ''));
-      expect(eventTypes).toContain('billing.payment_intent.created');
-      expect(eventTypes).toContain('billing.payment_intent.updated');
-      expect(eventTypes).toContain('billing.invoice.paid');
+      expect(eventTypes).toContain('billing.invoice.generated');
+      expect(rows.length).toBeGreaterThanOrEqual(1);
 
       const pageOne = await fetchJson(
         `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2`,
@@ -5017,19 +4624,7 @@ test.describe('console router (express)', () => {
       );
       expect(pageOne.status).toBe(200);
       const pageOneRows = Array.isArray(pageOne.json?.deliveries) ? pageOne.json?.deliveries : [];
-      expect(pageOneRows.length).toBe(2);
-      const pageOneCursor = String(pageOne.json?.nextCursor || '');
-      expect(pageOneCursor).toBeTruthy();
-
-      const pageTwo = await fetchJson(
-        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2&cursor=${encodeURIComponent(pageOneCursor)}`,
-        {
-          method: 'GET',
-        },
-      );
-      expect(pageTwo.status).toBe(200);
-      const pageTwoRows = Array.isArray(pageTwo.json?.deliveries) ? pageTwo.json?.deliveries : [];
-      expect(pageTwoRows.length).toBeGreaterThanOrEqual(1);
+      expect(pageOneRows.length).toBeGreaterThanOrEqual(1);
     } finally {
       await srv.close();
     }
@@ -5301,7 +4896,7 @@ test.describe('console router (cloudflare)', () => {
     expect(routerTiming).toBeTruthy();
   });
 
-  test('cloudflare billing reconcile failures emit billing observability events', async () => {
+  test('cloudflare billing invoice finalization failures emit billing observability events', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -5318,8 +4913,8 @@ test.describe('console router (cloudflare)', () => {
     const baseBilling = createInMemoryConsoleBillingService();
     const failingBilling: ConsoleBillingService = {
       ...baseBilling,
-      reconcileStripePaymentIntent: async () => {
-        throw new Error('manual reconcile failed');
+      generateMonthlyInvoice: async () => {
+        throw new Error('invoice generation failed');
       },
     };
     const handler = createCloudflareConsoleRouter({
@@ -5334,11 +4929,11 @@ test.describe('console router (cloudflare)', () => {
 
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/console/billing/stripe/payment-intents/pi_obs_failure_cf/reconcile',
+      path: '/console/billing/invoices/generate',
       headers: {
-        'x-request-id': 'req_obs_billing_reconcile_cf',
+        'x-request-id': 'req_obs_billing_finalize_cf',
       },
-      body: { providerStatus: 'FAILED' },
+      body: { periodMonthUtc: '2026-03' },
     });
     expect(res.status).toBe(500);
     expect(res.json?.code).toBe('internal');
@@ -5346,20 +4941,21 @@ test.describe('console router (cloudflare)', () => {
     await expect
       .poll(
         () =>
-          ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
-            .length,
+          ingested.filter(
+            (entry) => entry.event.eventType === 'billing.invoice_finalization.failed',
+          ).length,
       )
       .toBe(1);
 
     const billingFailure = ingested.find(
-      (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+      (entry) => entry.event.eventType === 'billing.invoice_finalization.failed',
     );
     expect(billingFailure).toBeTruthy();
     expect(String(getPath(billingFailure?.event || null, 'metadata', 'invoiceId') || '')).toBe(
-      'payment_intent:pi_obs_failure_cf',
+      'monthly:2026-03',
     );
     expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
-      'req_obs_billing_reconcile_cf',
+      'req_obs_billing_finalize_cf',
     );
   });
 
@@ -5490,7 +5086,7 @@ test.describe('console router (cloudflare)', () => {
     });
     const endpoint = await webhooks.createEndpoint(serviceCtx, {
       url: 'https://example.com/ops-cockpit-webhook-cf',
-      subscriptions: ['billing'],
+      eventCategories: ['billing'],
     });
     await webhooks.emitEvent(serviceCtx, {
       eventType: 'billing.invoice.payment_failed',
@@ -6497,7 +6093,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/approval-events-cf',
-        subscriptions: ['policy'],
+        eventCategories: ['policy'],
       },
     });
     expect(endpointCreated.status).toBe(201);
@@ -6879,14 +6475,12 @@ test.describe('console router (cloudflare)', () => {
         scopeType: 'ENVIRONMENT',
         environmentId: 'prod',
         enabled: true,
-        chainBudgets: [
-          {
-            chain: 'Ethereum',
-            period: 'MONTHLY',
-            budgetMinor: 500000,
-            quotaTransactions: 2000,
-          },
-        ],
+        allowedChainIds: [1],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 1, capMinor: 500000 }],
+        },
       },
     });
     expect(createdGas.status).toBe(201);
@@ -7064,6 +6658,93 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(listed.json, 'snapshots', 1, 'snapshotId')).toBe('runtime-contract-v1');
   });
 
+  test('cloudflare runtime snapshot publish-current resolves published policy state instead of attached draft rules', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const policies = createInMemoryConsolePolicyService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-policy-cf-1',
+        'user-runtime-policy-cf-1',
+      ),
+      runtimeSnapshots,
+      policies,
+    });
+
+    const environmentId = 'env-runtime-policy-cf-1';
+    const policyId = 'policy-runtime-live-cf-1';
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: policyId,
+        name: 'Runtime policy cloudflare',
+        assignment: {
+          scopeType: 'ENVIRONMENT',
+          scopeId: environmentId,
+        },
+        rules: {
+          blockedActions: ['delete_key'],
+          allowedChains: ['Ethereum'],
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const published = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(policyId)}/publish`,
+    });
+    expect(published.status).toBe(200);
+
+    const drafted = await callCf(handler, {
+      method: 'PATCH',
+      path: `/console/policies/${encodeURIComponent(policyId)}`,
+      body: {
+        rules: {
+          blockedActions: ['export_key'],
+          allowedChains: ['NEAR'],
+        },
+      },
+    });
+    expect(drafted.status).toBe(200);
+    expect(getPath(drafted.json, 'policy', 'status')).toBe('DRAFT');
+
+    const snapshot = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId,
+        snapshotId: 'runtime-policy-live-cf-v1',
+      },
+    });
+    expect(snapshot.status).toBe(201);
+    expect(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'status')).toBe('resolved');
+    const snapshotPolicies = Array.isArray(getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies'))
+      ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'policies') as any[])
+      : [];
+    const livePolicy = snapshotPolicies.find((entry) => String(entry?.id || '') === policyId);
+    expect(livePolicy).toBeTruthy();
+    expect(String(getPath(livePolicy, 'status') || '')).toBe('PUBLISHED');
+    expect(getPath(livePolicy, 'rules', 'blockedActions', 0)).toBe('delete_key');
+    expect(getPath(livePolicy, 'rules', 'allowedChains', 0)).toBe('Ethereum');
+    expect(getPath(livePolicy, 'rules', 'blockedActions', 0)).not.toBe('export_key');
+
+    const snapshotAssignments = Array.isArray(
+      getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'assignments'),
+    )
+      ? (getPath(snapshot.json, 'snapshot', 'payload', 'policy', 'assignments') as any[])
+      : [];
+    expect(
+      snapshotAssignments.some(
+        (entry) =>
+          String(entry?.policyId || '') === policyId &&
+          String(entry?.scopeType || '') === 'ENVIRONMENT' &&
+          String(entry?.scopeId || '') === environmentId,
+      ),
+    ).toBe(true);
+  });
+
   test('cloudflare new console endpoint mutations enforce role gates', async () => {
     const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
@@ -7239,6 +6920,7 @@ test.describe('console router (cloudflare)', () => {
         id: 'gs-cf-isolation-1',
         scopeType: 'ENVIRONMENT',
         environmentId: ownerEnvironmentId,
+        allowedChainIds: [11_155_111],
       },
     });
     expect(createGas.status).toBe(201);
@@ -7696,6 +7378,11 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     expect(createProjectPolicy.status).toBe(201);
+    const publishProjectPolicy = await callCf(adminHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent('policy-project-cloudflare-1')}/publish`,
+    });
+    expect(publishProjectPolicy.status).toBe(200);
 
     const createWalletPolicy = await callCf(adminHandler, {
       method: 'POST',
@@ -7754,6 +7441,31 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(
       walletPolicyRows.some(
+        (entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1',
+      ),
+    ).toBe(true);
+    expect(
+      walletPolicyRows.some(
+        (entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1',
+      ),
+    ).toBe(false);
+
+    const publishWalletPolicy = await callCf(adminHandler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent('policy-wallet-cloudflare-1')}/publish`,
+    });
+    expect(publishWalletPolicy.status).toBe(200);
+
+    const liveWalletCoverage = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/policy/coverage?projectId=${encodeURIComponent(projectId)}&environmentId=${encodeURIComponent(environmentId)}`,
+    });
+    expect(liveWalletCoverage.status).toBe(200);
+    const liveWalletPolicyRows = Array.isArray(getPath(liveWalletCoverage.json, 'coverage', 'policies'))
+      ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
+      : [];
+    expect(
+      liveWalletPolicyRows.some(
         (entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1',
       ),
     ).toBe(true);
@@ -7799,6 +7511,47 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(forbiddenAssignment.status).toBe(403);
     expect(forbiddenAssignment.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare policy creation can attach a draft to scope in one request', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-create-attach-cloudflare',
+        'policy-create-attach-admin-cf',
+      ),
+      policies,
+    });
+
+    const environmentScopeId = 'env_policy_create_attach_cloudflare_1';
+    const created = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy-create-attach-cloudflare-1',
+        name: 'Attached draft cloudflare',
+        assignment: {
+          scopeType: 'ENVIRONMENT',
+          scopeId: environmentScopeId,
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(getPath(created.json, 'policy', 'id')).toBe('policy-create-attach-cloudflare-1');
+
+    const listedAssignments = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/policies/assignments?scopeType=ENVIRONMENT&scopeId=${encodeURIComponent(environmentScopeId)}`,
+    });
+    expect(listedAssignments.status).toBe(200);
+    const assignmentRows = Array.isArray(listedAssignments.json?.assignments)
+      ? listedAssignments.json?.assignments
+      : [];
+    expect(assignmentRows.length).toBe(1);
+    expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
+      'policy-create-attach-cloudflare-1',
+    );
   });
 
   test('cloudflare API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
@@ -8016,7 +7769,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/cloudflare-webhook',
-        subscriptions: ['billing'],
+        eventCategories: ['billing'],
       },
     });
     expect(created.status).toBe(201);
@@ -8165,7 +7918,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/bad-cursor-cloudflare',
-        subscriptions: ['billing'],
+        eventCategories: ['billing'],
       },
     });
     expect(created.status).toBe(201);
@@ -8201,27 +7954,16 @@ test.describe('console router (cloudflare)', () => {
     expect(oversizedSortKey.json?.code).toBe('invalid_query');
   });
 
-  test('GET /console/billing/stablecoins/assets requires auth adapter', async () => {
+  test('legacy billing settlement routes are removed (cloudflare)', async () => {
     const handler = createCloudflareConsoleRouter({});
-    const res = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/stablecoins/assets',
-    });
-    expect(res.status).toBe(503);
-    expect(res.json?.code).toBe('console_auth_not_configured');
-  });
-
-  test('GET /console/billing/stablecoins/assets returns supported assets/chains', async () => {
-    const handler = createCloudflareConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const res = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/stablecoins/assets',
-    });
-    expect(res.status).toBe(200);
-    expect(res.json?.version).toBe('v1');
-    expect(JSON.stringify(res.json?.assets || null)).toContain('"asset":"USDT"');
-    expect(JSON.stringify(res.json?.assets || null)).toContain('"chain":"NEAR"');
-    expect(JSON.stringify(res.json?.assets || null)).toContain('"requiredConfirmations":10');
+    for (const routeCase of REMOVED_BILLING_SETTLEMENT_ROUTE_CASES) {
+      const res = await callCf(handler, {
+        method: routeCase.method,
+        path: routeCase.path,
+        ...(routeCase.body ? { body: routeCase.body } : {}),
+      });
+      expect(res.status, `${routeCase.method} ${routeCase.path}`).toBe(404);
+    }
   });
 
   test('POST /console/billing/payment-methods requires admin role', async () => {
@@ -8265,7 +8007,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         successUrl: 'https://app.example.com/dashboard/billing?checkout=success',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
-        planId: 'pro_maw_v1',
+        creditPackId: 'usd_200',
       },
     });
     expect(created.status).toBe(201);
@@ -8274,6 +8016,8 @@ test.describe('console router (cloudflare)', () => {
     expect(checkoutSessionId).toBeTruthy();
     expect(checkoutSessionUrl).toContain('https://checkout.stripe.com/pay/');
     expect(String(getPath(created.json, 'checkoutSession', 'customerRef') || '')).toContain('cus_');
+    expect(getPath(created.json, 'checkoutSession', 'creditPackId')).toBe('usd_200');
+    expect(Number(getPath(created.json, 'checkoutSession', 'amountMinor') || 0)).toBe(20000);
     expect(String(getPath(created.json, 'checkoutSession', 'expiresAt') || '')).toMatch(
       /^\d{4}-\d{2}-\d{2}T/,
     );
@@ -8284,6 +8028,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         successUrl: '/dashboard/billing',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_200',
       },
     });
     expect(invalid.status).toBe(400);
@@ -8336,7 +8081,7 @@ test.describe('console router (cloudflare)', () => {
     expect(invalid.json?.code).toBe('invalid_body');
   });
 
-  test('GET /console/billing/subscription returns billing_not_configured without billing service', async () => {
+  test('legacy billing subscription route is removed', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
     });
@@ -8344,39 +8089,26 @@ test.describe('console router (cloudflare)', () => {
       method: 'GET',
       path: '/console/billing/subscription',
     });
-    expect(res.status).toBe(501);
-    expect(res.json?.code).toBe('billing_not_configured');
+    expect(res.status).toBe(404);
   });
 
-  test('billing subscription lifecycle routes support get/cancel/resume', async () => {
+  test('legacy billing subscription lifecycle routes are removed', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing: createInMemoryConsoleBillingService(),
     });
 
-    const initial = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/subscription',
-    });
-    expect(initial.status).toBe(200);
-    expect(getPath(initial.json, 'subscription', 'status')).toBe('ACTIVE');
-    expect(getPath(initial.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
-
     const canceled = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/subscription/cancel',
     });
-    expect(canceled.status).toBe(200);
-    expect(getPath(canceled.json, 'subscription', 'status')).toBe('ACTIVE');
-    expect(getPath(canceled.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+    expect(canceled.status).toBe(404);
 
     const resumed = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/subscription/resume',
     });
-    expect(resumed.status).toBe(200);
-    expect(getPath(resumed.json, 'subscription', 'status')).toBe('ACTIVE');
-    expect(getPath(resumed.json, 'subscription', 'cancelAtPeriodEnd')).toBe(false);
+    expect(resumed.status).toBe(404);
   });
 
   test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
@@ -8413,227 +8145,7 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('forbidden');
   });
 
-  test('billing flow: stablecoin intent locks rail from stripe card intent', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const quote = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId,
-        asset: 'USDT',
-        chain: 'Ethereum',
-      },
-    });
-    expect(quote.status).toBe(201);
-    const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-    expect(quoteId).toBeTruthy();
-
-    const intent = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: {
-        invoiceId,
-        quoteId,
-      },
-    });
-    expect(intent.status).toBe(201);
-    expect(getPath(intent.json, 'paymentIntent', 'rail')).toBe('STABLECOIN');
-
-    const stripeIntent = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: {
-        invoiceId,
-      },
-    });
-    expect(stripeIntent.status).toBe(409);
-    expect(stripeIntent.json?.code).toBe('invoice_rail_locked');
-  });
-
-  test('stablecoin quote is single-use across payment intents', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const quote = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId,
-        asset: 'USDT',
-        chain: 'Ethereum',
-      },
-    });
-    expect(quote.status).toBe(201);
-    const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-    expect(quoteId).toBeTruthy();
-
-    const firstIntent = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: { invoiceId, quoteId },
-    });
-    expect(firstIntent.status).toBe(201);
-    const paymentIntentId = String(getPath(firstIntent.json, 'paymentIntent', 'id') || '');
-    expect(paymentIntentId).toBeTruthy();
-
-    const canceled = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(paymentIntentId)}/cancel`,
-    });
-    expect(canceled.status).toBe(200);
-    expect(getPath(canceled.json, 'paymentIntent', 'state')).toBe('CANCELED');
-
-    const reused = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: { invoiceId, quoteId },
-    });
-    expect(reused.status).toBe(409);
-    expect(reused.json?.code).toBe('quote_already_consumed');
-  });
-
-  test('stripe payment intents reject concurrent active attempts', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const firstIntent = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId },
-    });
-    expect(firstIntent.status).toBe(201);
-    expect(getPath(firstIntent.json, 'paymentIntent', 'state')).toBe('CREATED');
-
-    const secondIntent = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId },
-    });
-    expect(secondIntent.status).toBe(409);
-    expect(secondIntent.json?.code).toBe('active_payment_intent_exists');
-  });
-
-  test('Stripe webhook reconciles payment intent by providerRef and dedupes event id', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const secret = 'whsec_console_router_cf_test';
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-      billingStripeWebhookSecret: secret,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId },
-    });
-    expect(created.status).toBe(201);
-    const providerRef = String(getPath(created.json, 'paymentIntent', 'providerRef') || '');
-    const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-    expect(providerRef).toBeTruthy();
-    expect(amountMinor).toBeGreaterThan(0);
-
-    const unauthorized = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/webhook',
-      body: {
-        eventId: 'evt_cf_webhook_unauthorized',
-        providerRef,
-        providerStatus: 'SUCCEEDED',
-        settledAmountMinor: amountMinor,
-      },
-    });
-    expect(unauthorized.status).toBe(401);
-    expect(unauthorized.json?.code).toBe('unauthorized');
-
-    const eventId = `evt_cf_webhook_${Date.now()}`;
-    const first = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/webhook',
-      headers: {
-        'x-console-stripe-webhook-secret': secret,
-      },
-      body: {
-        eventId,
-        providerRef,
-        providerStatus: 'SUCCEEDED',
-        settledAmountMinor: amountMinor,
-      },
-    });
-    expect(first.status).toBe(200);
-    expect(first.json?.accepted).toBe(true);
-    expect(getPath(first.json, 'paymentIntent', 'state')).toBe('SETTLED');
-
-    const duplicate = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/webhook',
-      headers: {
-        'x-console-stripe-webhook-secret': secret,
-      },
-      body: {
-        eventId,
-        providerRef,
-        providerStatus: 'SUCCEEDED',
-        settledAmountMinor: amountMinor,
-      },
-    });
-    expect(duplicate.status).toBe(200);
-    expect(duplicate.json?.accepted).toBe(false);
-    expect(getPath(duplicate.json, 'paymentIntent', 'state')).toBe('SETTLED');
-  });
-
-  test('Stripe webhook projects subscription/invoice events idempotently', async () => {
+  test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {
     const billing = createInMemoryConsoleBillingService();
     const secret = 'whsec_console_router_cf_projection_test';
     const handler = createCloudflareConsoleRouter({
@@ -8642,107 +8154,71 @@ test.describe('console router (cloudflare)', () => {
       billingStripeWebhookSecret: secret,
     });
 
-    const subscriptionBefore = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/subscription',
+    const checkoutSession = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_200',
+      },
     });
-    expect(subscriptionBefore.status).toBe(200);
-    const providerSubscriptionRef = String(
-      getPath(subscriptionBefore.json, 'subscription', 'providerSubscriptionRef') || '',
-    );
+    expect(checkoutSession.status).toBe(201);
+    const checkoutSessionId = String(getPath(checkoutSession.json, 'checkoutSession', 'id') || '');
     const providerCustomerRef = String(
-      getPath(subscriptionBefore.json, 'subscription', 'providerCustomerRef') || '',
+      getPath(checkoutSession.json, 'checkoutSession', 'customerRef') || '',
     );
-    expect(providerSubscriptionRef).toBeTruthy();
+    expect(checkoutSessionId).toBeTruthy();
     expect(providerCustomerRef).toBeTruthy();
 
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? String((invoices.json?.invoices?.[0] as any)?.id || '')
-      : '';
-    const invoiceAmountDueMinor = Array.isArray(invoices.json?.invoices)
-      ? Number((invoices.json?.invoices?.[0] as any)?.amountDueMinor || 0)
-      : 0;
-    expect(invoiceId).toBeTruthy();
-    expect(invoiceAmountDueMinor).toBeGreaterThan(0);
-
-    const subscriptionEventId = `evt_cf_subscription_projection_${Date.now()}`;
-    const projectedSubscription = await callCf(handler, {
+    const purchaseEventId = `evt_cf_purchase_projection_${Date.now()}`;
+    const projectedPurchase = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
         'x-console-stripe-webhook-secret': secret,
       },
       body: {
-        eventId: subscriptionEventId,
-        eventType: 'customer.subscription.updated',
+        eventId: purchaseEventId,
+        eventType: 'checkout.session.completed',
         orgId: 'org-1',
-        providerSubscriptionRef,
+        checkoutSessionId,
         providerCustomerRef,
-        subscriptionStatus: 'PAST_DUE',
-        cancelAtPeriodEnd: true,
+        providerRef: checkoutSessionId,
       },
     });
-    expect(projectedSubscription.status).toBe(200);
-    expect(projectedSubscription.json?.accepted).toBe(true);
-    expect(getPath(projectedSubscription.json, 'subscription', 'status')).toBe('PAST_DUE');
-    expect(getPath(projectedSubscription.json, 'subscription', 'cancelAtPeriodEnd')).toBe(true);
+    expect(projectedPurchase.status).toBe(200);
+    expect(projectedPurchase.json?.accepted).toBe(true);
+    expect(getPath(projectedPurchase.json, 'purchase', 'status')).toBe('SETTLED');
+    expect(getPath(projectedPurchase.json, 'purchase', 'creditPackId')).toBe('usd_200');
+    const receiptInvoiceId = String(getPath(projectedPurchase.json, 'invoice', 'id') || '');
+    expect(receiptInvoiceId).toContain('receipt_');
 
-    const projectedSubscriptionDuplicate = await callCf(handler, {
+    const projectedPurchaseDuplicate = await callCf(handler, {
       method: 'POST',
       path: '/console/billing/stripe/webhook',
       headers: {
         'x-console-stripe-webhook-secret': secret,
       },
       body: {
-        eventId: subscriptionEventId,
-        eventType: 'customer.subscription.updated',
+        eventId: purchaseEventId,
+        eventType: 'checkout.session.completed',
         orgId: 'org-1',
-        providerSubscriptionRef,
+        checkoutSessionId,
         providerCustomerRef,
-        subscriptionStatus: 'PAST_DUE',
-        cancelAtPeriodEnd: true,
+        providerRef: checkoutSessionId,
       },
     });
-    expect(projectedSubscriptionDuplicate.status).toBe(200);
-    expect(projectedSubscriptionDuplicate.json?.accepted).toBe(false);
+    expect(projectedPurchaseDuplicate.status).toBe(200);
+    expect(projectedPurchaseDuplicate.json?.accepted).toBe(false);
+    expect(getPath(projectedPurchaseDuplicate.json, 'purchase', 'status')).toBe('SETTLED');
 
-    const projectedInvoice = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/webhook',
-      headers: {
-        'x-console-stripe-webhook-secret': secret,
-      },
-      body: {
-        eventId: `evt_cf_invoice_projection_${Date.now()}`,
-        eventType: 'invoice.paid',
-        orgId: 'org-1',
-        invoiceId,
-        invoiceStatus: 'PAID',
-        invoiceAmountPaidMinor: invoiceAmountDueMinor,
-      },
-    });
-    expect(projectedInvoice.status).toBe(200);
-    expect(projectedInvoice.json?.accepted).toBe(true);
-    expect(getPath(projectedInvoice.json, 'invoice', 'status')).toBe('PAID');
-
-    const subscriptionAfter = await callCf(handler, {
+    const overviewAfter = await callCf(handler, {
       method: 'GET',
-      path: '/console/billing/subscription',
+      path: '/console/billing/overview',
     });
-    expect(subscriptionAfter.status).toBe(200);
-    expect(getPath(subscriptionAfter.json, 'subscription', 'status')).toBe('PAST_DUE');
-
-    const invoiceAfter = await callCf(handler, {
-      method: 'GET',
-      path: `/console/billing/invoices/${encodeURIComponent(invoiceId)}`,
-    });
-    expect(invoiceAfter.status).toBe(200);
-    expect(getPath(invoiceAfter.json, 'invoice', 'status')).toBe('PAID');
+    expect(overviewAfter.status).toBe(200);
+    expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(20000);
   });
 
   test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
@@ -8771,12 +8247,12 @@ test.describe('console router (cloudflare)', () => {
     expect(pdf.status).toBe(200);
     expect(String(pdf.headers.get('content-type') || '')).toContain('application/pdf');
     expect(String(pdf.headers.get('content-disposition') || '')).toContain(
-      `invoice_${periodMonthUtc}_${invoiceId}.pdf`,
+      `statement_${periodMonthUtc}_${invoiceId}.pdf`,
     );
     expect(pdf.text.startsWith('%PDF-1.4')).toBe(true);
-    expect(pdf.text).toContain('Billing invoice');
+    expect(pdf.text).toContain('Usage statement');
     expect(pdf.text).toContain(`Organization: org-1`);
-    expect(pdf.text).toContain(`Invoice ID: ${invoiceId}`);
+    expect(pdf.text).toContain(`Document ID: ${invoiceId}`);
 
     const auditEvents = await audit.listEvents({
       orgId: 'org-1',
@@ -8806,21 +8282,44 @@ test.describe('console router (cloudflare)', () => {
       actorUserId: 'admin-activity-user-cf',
       roles: ['admin'],
     };
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_january_1_cf',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_january_1_cf',
+      occurredAt: '2026-01-09T00:00:00.000Z',
+    });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-01' });
     current = new Date('2026-02-20T00:00:00.000Z');
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_february_1_cf',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_february_1_cf',
+      occurredAt: '2026-02-11T00:00:00.000Z',
+    });
     await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-02' });
     current = new Date('2026-03-20T00:00:00.000Z');
+    await billing.recordUsageEvent(billingCtx, {
+      walletId: 'wallet_march_1_cf',
+      action: 'transfer',
+      succeeded: true,
+      sourceEventId: 'usage_march_1_cf',
+      occurredAt: '2026-03-15T00:00:00.000Z',
+    });
     const march = await billing.generateMonthlyInvoice(billingCtx, { periodMonthUtc: '2026-03' });
-    const paymentIntent = await billing.createStripePaymentIntent(billingCtx, {
-      invoiceId: march.invoice.id,
+    const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, {
+      successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+      cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+      creditPackId: 'usd_200',
     });
-    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
-      providerStatus: 'PENDING',
-    });
-    await billing.reconcileStripePaymentIntent(billingCtx, paymentIntent.id, {
-      providerStatus: 'SUCCEEDED',
-      settledAmountMinor: paymentIntent.amountMinor,
-      sourceEventId: 'evt_billing_activity_settled_cf',
+    await billing.processStripeWebhookEvent({
+      eventId: 'evt_billing_purchase_settled_cf',
+      eventType: 'checkout.session.completed',
+      orgId: billingCtx.orgId,
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
 
     const handler = createCloudflareConsoleRouter({
@@ -8835,8 +8334,10 @@ test.describe('console router (cloudflare)', () => {
     expect(firstPage.status).toBe(200);
     expect(Array.isArray(firstPage.json?.invoices)).toBe(true);
     expect((firstPage.json?.invoices as unknown[]).length).toBe(1);
-    expect(Number(firstPage.json?.totalCount || 0)).toBe(3);
+    expect(Number(firstPage.json?.totalCount || 0)).toBe(4);
     expect(String(firstPage.json?.nextCursor || '')).toBeTruthy();
+    expect(Number(getPath(firstPage.json, 'summary', 'receiptCount') || 0)).toBe(1);
+    expect(Number(getPath(firstPage.json, 'summary', 'statementCount') || 0)).toBe(3);
 
     const secondPage = await callCf(handler, {
       method: 'GET',
@@ -8848,29 +8349,43 @@ test.describe('console router (cloudflare)', () => {
       getPath(secondPage.json, 'invoices', 0, 'id'),
     );
 
-    const overdue = await callCf(handler, {
+    const paid = await callCf(handler, {
       method: 'GET',
-      path: '/console/billing/invoices?status=OVERDUE',
+      path: '/console/billing/invoices?status=PAID',
     });
-    expect(overdue.status).toBe(200);
-    expect(Number(overdue.json?.totalCount || 0)).toBe(2);
-    expect(Number(getPath(overdue.json, 'summary', 'overdueCount') || 0)).toBe(2);
+    expect(paid.status).toBe(200);
+    expect(Number(paid.json?.totalCount || 0)).toBe(4);
+    expect(Number(getPath(paid.json, 'summary', 'paidCount') || 0)).toBe(4);
+
+    const receipts = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices?documentType=PURCHASE_RECEIPT',
+    });
+    expect(receipts.status).toBe(200);
+    expect(Number(receipts.json?.totalCount || 0)).toBe(1);
+    expect(getPath(receipts.json, 'invoices', 0, 'documentType')).toBe('PURCHASE_RECEIPT');
+
+    const february = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices?documentType=USAGE_STATEMENT&periodMonthUtc=2026-02',
+    });
+    expect(february.status).toBe(200);
+    expect(Number(february.json?.totalCount || 0)).toBe(1);
+    expect(getPath(february.json, 'invoices', 0, 'periodMonthUtc')).toBe('2026-02');
+    expect(getPath(february.json, 'invoices', 0, 'documentType')).toBe('USAGE_STATEMENT');
 
     const activity = await callCf(handler, {
       method: 'GET',
       path: `/console/billing/invoices/${encodeURIComponent(march.invoice.id)}/activity`,
     });
     expect(activity.status).toBe(200);
-    expect(getPath(activity.json, 'activity', 'latestPaymentState')).toBe('SETTLED');
-    expect(getPath(activity.json, 'activity', 'latestPaymentRail')).toBe('CARD');
     const entries = Array.isArray(getPath(activity.json, 'activity', 'entries'))
       ? (getPath(activity.json, 'activity', 'entries') as Array<Record<string, unknown>>)
       : [];
     expect(
       entries.some(
         (entry) =>
-          String(entry.paymentId || '') === paymentIntent.id &&
-          String(entry.toState || '') === 'SETTLED',
+          String(entry.type || '') === 'LEDGER' && String(entry.toState || '') === 'USAGE_DEBIT',
       ),
     ).toBe(true);
   });
@@ -8949,7 +8464,7 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(usage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(2);
   });
 
-  test('invoice generation endpoint returns deterministic line items', async () => {
+  test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {
     const billing = createInMemoryConsoleBillingService();
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -8987,9 +8502,9 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     expect(generated.status).toBe(200);
-    expect(getPath(generated.json, 'generation', 'generated')).toBe(true);
+    expect(getPath(generated.json, 'generation', 'generated')).toBe(false);
     expect(Number(getPath(generated.json, 'generation', 'invoice', 'amountDueMinor') || 0)).toBe(
-      2500,
+      600,
     );
     const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
     expect(invoiceId).toBeTruthy();
@@ -9000,211 +8515,11 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(lineItems.status).toBe(200);
     const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
-    expect(items.length).toBe(2);
-    expect(JSON.stringify(items)).toContain('"itemType":"PLAN_BASE_FEE"');
-    expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE"');
+    expect(items.length).toBe(1);
+    expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
   });
 
-  test('POST /console/billing/stablecoins/payment-intents/:id/reconcile requires admin or ops role', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents/scpi_fake/reconcile',
-      body: {
-        observedAmountMinor: 1,
-        observedConfirmations: 1,
-      },
-    });
-    expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('forbidden');
-  });
-
-  test('stablecoin reconcile timeout moves intent to failed', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const quote = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId,
-        asset: 'USDT',
-        chain: 'Base',
-      },
-    });
-    expect(quote.status).toBe(201);
-    const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-    expect(quoteId).toBeTruthy();
-
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: {
-        invoiceId,
-        quoteId,
-      },
-    });
-    expect(created.status).toBe(201);
-    const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-    expect(paymentIntentId).toBeTruthy();
-
-    const reconciled = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
-      body: {
-        observedAmountMinor: 0,
-        observedConfirmations: 0,
-        confirmationTimedOut: true,
-      },
-    });
-    expect(reconciled.status).toBe(200);
-    expect(getPath(reconciled.json, 'paymentIntent', 'state')).toBe('FAILED');
-  });
-
-  test('stablecoin reconcile after intent expiry returns EXPIRED and leaves invoice open', async () => {
-    let current = new Date('2026-03-01T00:00:00.000Z');
-    const billing = createInMemoryConsoleBillingService({
-      now: () => current,
-    });
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['ops']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const quote = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId,
-        asset: 'USDC',
-        chain: 'Ethereum',
-      },
-    });
-    expect(quote.status).toBe(201);
-    const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-    expect(quoteId).toBeTruthy();
-
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: {
-        invoiceId,
-        quoteId,
-      },
-    });
-    expect(created.status).toBe(201);
-    const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-    const expectedAmountMinor = Number(
-      getPath(created.json, 'paymentIntent', 'expectedAmountMinor') || 0,
-    );
-    const requiredConfirmations = Number(
-      getPath(created.json, 'paymentIntent', 'requiredConfirmations') || 0,
-    );
-    expect(paymentIntentId).toBeTruthy();
-    expect(requiredConfirmations).toBeGreaterThan(0);
-
-    current = new Date(current.getTime() + 16 * 60 * 1000);
-
-    const reconciled = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
-      body: {
-        observedAmountMinor: expectedAmountMinor,
-        observedConfirmations: requiredConfirmations,
-      },
-    });
-    expect(reconciled.status).toBe(200);
-    expect(getPath(reconciled.json, 'paymentIntent', 'state')).toBe('EXPIRED');
-
-    const invoice = await callCf(handler, {
-      method: 'GET',
-      path: `/console/billing/invoices/${encodeURIComponent(invoiceId)}`,
-    });
-    expect(invoice.status).toBe(200);
-    expect(getPath(invoice.json, 'invoice', 'status')).toBe('OPEN');
-    expect(Number(getPath(invoice.json, 'invoice', 'amountPaidMinor') || 0)).toBe(0);
-  });
-
-  test('stripe reconcile settles payment intent', async () => {
-    const billing = createInMemoryConsoleBillingService();
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing,
-    });
-
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId },
-    });
-    expect(created.status).toBe(201);
-    const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-    expect(getPath(created.json, 'paymentIntent', 'state')).toBe('CREATED');
-    const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-    expect(paymentIntentId).toBeTruthy();
-    expect(amountMinor).toBeGreaterThan(0);
-
-    const pending = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
-      body: {
-        providerStatus: 'PENDING',
-        sourceEventId: `evt_${Date.now()}_cf_pending`,
-      },
-    });
-    expect(pending.status).toBe(200);
-    expect(getPath(pending.json, 'paymentIntent', 'state')).toBe('PENDING');
-
-    const settled = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
-      body: {
-        providerStatus: 'SUCCEEDED',
-        settledAmountMinor: amountMinor,
-        sourceEventId: `evt_${Date.now()}_cf_succeeded`,
-      },
-    });
-    expect(settled.status).toBe(200);
-    expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
-  });
-
-  test('cloudflare billing transitions emit billing webhook events', async () => {
+  test('cloudflare billing invoice generation emits webhook events', async () => {
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
       dispatcher: {
@@ -9226,62 +8541,34 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/cloudflare-billing-events',
-        subscriptions: ['billing'],
+        eventCategories: ['billing'],
       },
     });
     expect(endpointCreated.status).toBe(201);
     const endpointId = String(getPath(endpointCreated.json, 'endpoint', 'id') || '');
     expect(endpointId).toBeTruthy();
 
-    const invoices = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(invoices.status).toBe(200);
-    const invoiceId = Array.isArray(invoices.json?.invoices)
-      ? (invoices.json?.invoices?.[0] as any)?.id
-      : '';
-    expect(invoiceId).toBeTruthy();
-
-    const created = await callCf(handler, {
+    const usage = await callCf(handler, {
       method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId },
-    });
-    expect(created.status).toBe(201);
-    const paymentIntentId = String(getPath(created.json, 'paymentIntent', 'id') || '');
-    const amountMinor = Number(getPath(created.json, 'paymentIntent', 'amountMinor') || 0);
-    expect(paymentIntentId).toBeTruthy();
-    expect(amountMinor).toBeGreaterThan(0);
-
-    const actionRequired = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
+      path: '/console/billing/usage/events',
       body: {
-        providerStatus: 'ACTION_REQUIRED',
+        walletId: 'wallet_cf_webhook_invoice_generated',
+        action: 'transfer',
+        succeeded: true,
+        sourceEventId: 'usage_evt_cf_webhook_invoice_generated',
       },
     });
-    expect(actionRequired.status).toBe(200);
+    expect(usage.status).toBe(200);
 
-    const pending = await callCf(handler, {
+    const generated = await callCf(handler, {
       method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
+      path: '/console/billing/invoices/generate',
       body: {
-        providerStatus: 'PENDING',
+        periodMonthUtc: '2026-03',
       },
     });
-    expect(pending.status).toBe(200);
-
-    const settled = await callCf(handler, {
-      method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(paymentIntentId)}/reconcile`,
-      body: {
-        providerStatus: 'SUCCEEDED',
-        settledAmountMinor: amountMinor,
-      },
-    });
-    expect(settled.status).toBe(200);
-    expect(getPath(settled.json, 'paymentIntent', 'state')).toBe('SETTLED');
+    expect(generated.status).toBe(200);
+    expect(String(getPath(generated.json, 'generation', 'invoice', 'id') || '')).toBeTruthy();
 
     const deliveries = await callCf(handler, {
       method: 'GET',
@@ -9290,9 +8577,8 @@ test.describe('console router (cloudflare)', () => {
     expect(deliveries.status).toBe(200);
     const rows = Array.isArray(deliveries.json?.deliveries) ? deliveries.json?.deliveries : [];
     const eventTypes = rows.map((row: any) => String(row?.eventType || ''));
-    expect(eventTypes).toContain('billing.payment_intent.created');
-    expect(eventTypes).toContain('billing.payment_intent.updated');
-    expect(eventTypes).toContain('billing.invoice.paid');
+    expect(eventTypes).toContain('billing.invoice.generated');
+    expect(rows.length).toBeGreaterThanOrEqual(1);
 
     const pageOne = await callCf(handler, {
       method: 'GET',
@@ -9300,17 +8586,7 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(pageOne.status).toBe(200);
     const pageOneRows = Array.isArray(pageOne.json?.deliveries) ? pageOne.json?.deliveries : [];
-    expect(pageOneRows.length).toBe(2);
-    const pageOneCursor = String(pageOne.json?.nextCursor || '');
-    expect(pageOneCursor).toBeTruthy();
-
-    const pageTwo = await callCf(handler, {
-      method: 'GET',
-      path: `/console/webhooks/${encodeURIComponent(endpointId)}/deliveries?limit=2&cursor=${encodeURIComponent(pageOneCursor)}`,
-    });
-    expect(pageTwo.status).toBe(200);
-    const pageTwoRows = Array.isArray(pageTwo.json?.deliveries) ? pageTwo.json?.deliveries : [];
-    expect(pageTwoRows.length).toBeGreaterThanOrEqual(1);
+    expect(pageOneRows.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -10328,6 +9604,122 @@ test.describe('console router (postgres wallets)', () => {
   });
 });
 
+test('express policy routes expose published policy versions newest-first', async () => {
+  const orgId = 'org-router-policy-versions';
+  const policyId = `${orgId}:managed-policy`;
+  const router = createConsoleRouter({
+    auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-policy-versions'),
+    policies: createInMemoryConsolePolicyService(),
+  });
+  const srv = await startExpressRouter(router);
+  try {
+    const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: policyId,
+        name: 'Policy Versions Test',
+      }),
+    });
+    expect(created.status).toBe(201);
+
+    const firstUpdate = await fetchJson(
+      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rules: {
+            blockedActions: ['delete_key'],
+            allowedChains: ['Ethereum', 'NEAR'],
+            maxAmountMinor: 250000,
+          },
+        }),
+      },
+    );
+    expect(firstUpdate.status).toBe(200);
+
+    const firstPublish = await fetchJson(
+      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+      { method: 'POST' },
+    );
+    expect(firstPublish.status).toBe(200);
+
+    const secondUpdate = await fetchJson(
+      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rules: {
+            blockedActions: ['export_key'],
+            allowedChains: ['Ethereum'],
+            maxAmountMinor: 500000,
+          },
+        }),
+      },
+    );
+    expect(secondUpdate.status).toBe(200);
+
+    const secondPublish = await fetchJson(
+      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+      { method: 'POST' },
+    );
+    expect(secondPublish.status).toBe(200);
+
+    const versions = await fetchJson(
+      `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/versions`,
+      { method: 'GET' },
+    );
+    expect(versions.status).toBe(200);
+    const rows = Array.isArray(versions.json?.versions) ? versions.json.versions : [];
+    expect(rows).toHaveLength(2);
+    expect(Number(getPath(rows[0], 'version') || 0)).toBe(2);
+    expect(String(getPath(rows[0], 'status') || '')).toBe('PUBLISHED');
+    expect(getPath(rows[0], 'rules', 'blockedActions', 0)).toBe('export_key');
+    expect(getPath(rows[0], 'rules', 'allowedChains', 0)).toBe('Ethereum');
+    expect(Number(getPath(rows[0], 'rules', 'maxAmountMinor') || 0)).toBe(500000);
+    expect(Number(getPath(rows[1], 'version') || 0)).toBe(1);
+    expect(getPath(rows[1], 'rules', 'blockedActions', 0)).toBe('delete_key');
+    expect(getPath(rows[1], 'rules', 'allowedChains', 0)).toBe('Ethereum');
+    expect(getPath(rows[1], 'rules', 'allowedChains', 1)).toBe('NEAR');
+    expect(Number(getPath(rows[1], 'rules', 'maxAmountMinor') || 0)).toBe(250000);
+  } finally {
+    await srv.close();
+  }
+});
+
+test('express policy routes reject invalid contract-call policy rules', async () => {
+  const orgId = 'org-router-policy-validation';
+  const router = createConsoleRouter({
+    auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-policy-validation'),
+    policies: createInMemoryConsolePolicyService(),
+  });
+  const srv = await startExpressRouter(router);
+  try {
+    const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: `${orgId}:invalid-contract-policy`,
+        name: 'Invalid Contract Policy',
+        rules: {
+          allowedContractCalls: [
+            {
+              contractAddress: '0xabc123',
+              functions: ['approve('],
+            },
+          ],
+        },
+      }),
+    });
+    expect(created.status).toBe(400);
+    expect(created.json?.code).toBe('invalid_body');
+  } finally {
+    await srv.close();
+  }
+});
+
 test.describe('console router (postgres policies)', () => {
   const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
   const enabled = Boolean(postgresUrl);
@@ -11192,7 +10584,7 @@ test.describe('console router (postgres webhooks)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/postgres-router-bad-attempt-cursor-express',
-          subscriptions: ['billing'],
+          eventCategories: ['billing'],
         }),
       });
       expect(created.status).toBe(201);
@@ -11234,7 +10626,7 @@ test.describe('console router (postgres webhooks)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/postgres-router-bad-attempt-cursor-cloudflare',
-        subscriptions: ['billing'],
+        eventCategories: ['billing'],
       },
     });
     expect(created.status).toBe(201);
@@ -11275,7 +10667,7 @@ test.describe('console router (postgres webhooks)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: 'https://example.com/postgres-router-org-isolation-express-owner',
-          subscriptions: ['billing'],
+          eventCategories: ['billing'],
         }),
       });
       expect(created.status).toBe(201);
@@ -11341,7 +10733,7 @@ test.describe('console router (postgres webhooks)', () => {
       path: '/console/webhooks',
       body: {
         url: 'https://example.com/postgres-router-org-isolation-cloudflare-owner',
-        subscriptions: ['billing'],
+        eventCategories: ['billing'],
       },
     });
     expect(created.status).toBe(201);
@@ -11408,24 +10800,22 @@ test.describe('console router (postgres billing)', () => {
         await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
           namespace,
         ]);
-        await q.query('DELETE FROM console_stablecoin_payment_intents WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_stablecoin_quotes WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_stripe_payment_intents WHERE namespace = $1', [
-          namespace,
-        ]);
         await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
           namespace,
         ]);
         await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
+        await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
+          namespace,
+        ]);
+        await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
+          namespace,
+        ]);
         await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
       });
     }
-    await pool.query('DELETE FROM console_stripe_provider_refs WHERE namespace = $1', [namespace]);
   });
 
   test('express billing routes enforce org isolation', async () => {
@@ -11485,32 +10875,6 @@ test.describe('console router (postgres billing)', () => {
       );
       expect(getPdf.status).toBe(404);
       expect(getPdf.json?.code).toBe('invoice_not_found');
-
-      const stripeIntent = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stripe/payment-intent`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId: ownerInvoiceId }),
-        },
-      );
-      expect(stripeIntent.status).toBe(404);
-      expect(stripeIntent.json?.code).toBe('invoice_not_found');
-
-      const quote = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stablecoins/quotes`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            invoiceId: ownerInvoiceId,
-            asset: 'USDC',
-            chain: 'Ethereum',
-          }),
-        },
-      );
-      expect(quote.status).toBe(404);
-      expect(quote.json?.code).toBe('invoice_not_found');
     } finally {
       await attackerServer.close();
     }
@@ -11567,269 +10931,6 @@ test.describe('console router (postgres billing)', () => {
     });
     expect(getPdf.status).toBe(404);
     expect(getPdf.json?.code).toBe('invoice_not_found');
-
-    const stripeIntent = await callCf(attackerHandler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId: ownerInvoiceId },
-    });
-    expect(stripeIntent.status).toBe(404);
-    expect(stripeIntent.json?.code).toBe('invoice_not_found');
-
-    const quote = await callCf(attackerHandler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId: ownerInvoiceId,
-        asset: 'USDC',
-        chain: 'Ethereum',
-      },
-    });
-    expect(quote.status).toBe(404);
-    expect(quote.json?.code).toBe('invoice_not_found');
-  });
-
-  test('express billing payment-intent routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerCardOrgId = `${authOrgId}:owner-card`;
-    const ownerStableOrgId = `${authOrgId}:owner-stable`;
-    const attackerOrgId = `${authOrgId}:attacker-intents`;
-
-    let stripeIntentId = '';
-    const ownerCardRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerCardOrgId, 'owner-card-user'),
-      billing: billing!,
-    });
-    const ownerCardServer = await startExpressRouter(ownerCardRouter);
-    try {
-      const invoices = await fetchJson(`${ownerCardServer.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
-      expect(invoiceId).toBeTruthy();
-
-      const stripeIntent = await fetchJson(
-        `${ownerCardServer.baseUrl}/console/billing/stripe/payment-intent`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ invoiceId }),
-        },
-      );
-      expect(stripeIntent.status).toBe(201);
-      stripeIntentId = String(getPath(stripeIntent.json, 'paymentIntent', 'id') || '');
-      expect(stripeIntentId).toBeTruthy();
-    } finally {
-      await ownerCardServer.close();
-    }
-
-    let stableIntentId = '';
-    const ownerStableRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerStableOrgId, 'owner-stable-user'),
-      billing: billing!,
-    });
-    const ownerStableServer = await startExpressRouter(ownerStableRouter);
-    try {
-      const invoices = await fetchJson(`${ownerStableServer.baseUrl}/console/billing/invoices`, {
-        method: 'GET',
-      });
-      expect(invoices.status).toBe(200);
-      const invoiceId = String(getPath(invoices.json, 'invoices', 0, 'id') || '');
-      expect(invoiceId).toBeTruthy();
-
-      const quote = await fetchJson(
-        `${ownerStableServer.baseUrl}/console/billing/stablecoins/quotes`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            invoiceId,
-            asset: 'USDC',
-            chain: 'Ethereum',
-          }),
-        },
-      );
-      expect(quote.status).toBe(201);
-      const quoteId = String(getPath(quote.json, 'quote', 'id') || '');
-      expect(quoteId).toBeTruthy();
-
-      const stableIntent = await fetchJson(
-        `${ownerStableServer.baseUrl}/console/billing/stablecoins/payment-intents`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            invoiceId,
-            quoteId,
-          }),
-        },
-      );
-      expect(stableIntent.status).toBe(201);
-      stableIntentId = String(getPath(stableIntent.json, 'paymentIntent', 'id') || '');
-      expect(stableIntentId).toBeTruthy();
-    } finally {
-      await ownerStableServer.close();
-    }
-
-    const attackerRouter = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-intents-user'),
-      billing: billing!,
-    });
-    const attackerServer = await startExpressRouter(attackerRouter);
-    try {
-      const stripeReconcile = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stripe/payment-intents/${encodeURIComponent(stripeIntentId)}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ providerStatus: 'PENDING' }),
-        },
-      );
-      expect(stripeReconcile.status).toBe(404);
-      expect(stripeReconcile.json?.code).toBe('payment_intent_not_found');
-
-      const stableGet = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}`,
-        { method: 'GET' },
-      );
-      expect(stableGet.status).toBe(404);
-      expect(stableGet.json?.code).toBe('payment_intent_not_found');
-
-      const stableCancel = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}/cancel`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        },
-      );
-      expect(stableCancel.status).toBe(404);
-      expect(stableCancel.json?.code).toBe('payment_intent_not_found');
-
-      const stableReconcile = await fetchJson(
-        `${attackerServer.baseUrl}/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            observedAmountMinor: 0,
-            observedConfirmations: 0,
-          }),
-        },
-      );
-      expect(stableReconcile.status).toBe(404);
-      expect(stableReconcile.json?.code).toBe('payment_intent_not_found');
-    } finally {
-      await attackerServer.close();
-    }
-  });
-
-  test('cloudflare billing payment-intent routes enforce org isolation', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ownerCardOrgId = `${authOrgId}:owner-card-cf`;
-    const ownerStableOrgId = `${authOrgId}:owner-stable-cf`;
-    const attackerOrgId = `${authOrgId}:attacker-intents-cf`;
-
-    const ownerCardHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerCardOrgId, 'owner-card-user-cf'),
-      billing: billing!,
-    });
-    const ownerCardInvoices = await callCf(ownerCardHandler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(ownerCardInvoices.status).toBe(200);
-    const ownerCardInvoiceId = String(getPath(ownerCardInvoices.json, 'invoices', 0, 'id') || '');
-    expect(ownerCardInvoiceId).toBeTruthy();
-
-    const ownerStripeIntent = await callCf(ownerCardHandler, {
-      method: 'POST',
-      path: '/console/billing/stripe/payment-intent',
-      body: { invoiceId: ownerCardInvoiceId },
-    });
-    expect(ownerStripeIntent.status).toBe(201);
-    const stripeIntentId = String(getPath(ownerStripeIntent.json, 'paymentIntent', 'id') || '');
-    expect(stripeIntentId).toBeTruthy();
-
-    const ownerStableHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], ownerStableOrgId, 'owner-stable-user-cf'),
-      billing: billing!,
-    });
-    const ownerStableInvoices = await callCf(ownerStableHandler, {
-      method: 'GET',
-      path: '/console/billing/invoices',
-    });
-    expect(ownerStableInvoices.status).toBe(200);
-    const ownerStableInvoiceId = String(
-      getPath(ownerStableInvoices.json, 'invoices', 0, 'id') || '',
-    );
-    expect(ownerStableInvoiceId).toBeTruthy();
-
-    const ownerQuote = await callCf(ownerStableHandler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/quotes',
-      body: {
-        invoiceId: ownerStableInvoiceId,
-        asset: 'USDC',
-        chain: 'Ethereum',
-      },
-    });
-    expect(ownerQuote.status).toBe(201);
-    const quoteId = String(getPath(ownerQuote.json, 'quote', 'id') || '');
-    expect(quoteId).toBeTruthy();
-
-    const ownerStableIntent = await callCf(ownerStableHandler, {
-      method: 'POST',
-      path: '/console/billing/stablecoins/payment-intents',
-      body: {
-        invoiceId: ownerStableInvoiceId,
-        quoteId,
-      },
-    });
-    expect(ownerStableIntent.status).toBe(201);
-    const stableIntentId = String(getPath(ownerStableIntent.json, 'paymentIntent', 'id') || '');
-    expect(stableIntentId).toBeTruthy();
-
-    const attackerHandler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-intents-user-cf'),
-      billing: billing!,
-    });
-    const stripeReconcile = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/billing/stripe/payment-intents/${encodeURIComponent(stripeIntentId)}/reconcile`,
-      body: {
-        providerStatus: 'PENDING',
-      },
-    });
-    expect(stripeReconcile.status).toBe(404);
-    expect(stripeReconcile.json?.code).toBe('payment_intent_not_found');
-
-    const stableGet = await callCf(attackerHandler, {
-      method: 'GET',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}`,
-    });
-    expect(stableGet.status).toBe(404);
-    expect(stableGet.json?.code).toBe('payment_intent_not_found');
-
-    const stableCancel = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}/cancel`,
-      body: {},
-    });
-    expect(stableCancel.status).toBe(404);
-    expect(stableCancel.json?.code).toBe('payment_intent_not_found');
-
-    const stableReconcile = await callCf(attackerHandler, {
-      method: 'POST',
-      path: `/console/billing/stablecoins/payment-intents/${encodeURIComponent(stableIntentId)}/reconcile`,
-      body: {
-        observedAmountMinor: 0,
-        observedConfirmations: 0,
-      },
-    });
-    expect(stableReconcile.status).toBe(404);
-    expect(stableReconcile.json?.code).toBe('payment_intent_not_found');
   });
 
   test('express billing overview and MAW usage routes enforce org isolation', async () => {

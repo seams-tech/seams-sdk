@@ -1,43 +1,62 @@
-import type { PaymentState } from './paymentStateMachine';
-import type {
-  ChainFinalityPolicy,
-  StablecoinAssetSymbol,
-  StablecoinSettlementChain,
-} from './stablecoinAssets';
-
 export type BillingUsageMetricVersion = 'maw_v1';
+export type BillingDocumentType = 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
 export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
-export type InvoicePaymentRail = 'CARD' | 'STABLECOIN';
-export type BillingInvoiceLineItemType = 'PLAN_BASE_FEE' | 'MAW_USAGE';
-export type BillingSubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
+export type BillingInvoiceLineItemType = 'CREDIT_TOP_UP' | 'MAW_USAGE_DEBIT' | 'MANUAL_ADJUSTMENT';
+export type BillingCreditPackId = 'usd_50' | 'usd_200' | 'usd_500' | 'usd_1000';
+export type BillingCreditPurchaseStatus = 'PENDING' | 'SETTLED' | 'CANCELED';
+export type BillingLedgerEntryType =
+  | 'CREDIT_PURCHASE'
+  | 'USAGE_DEBIT'
+  | 'MANUAL_ADJUSTMENT'
+  | 'REFUND'
+  | 'REVERSAL';
+
+export interface BillingCreditPack {
+  id: BillingCreditPackId;
+  label: string;
+  description: string;
+  amountMinor: number;
+}
 
 export interface BillingOverview {
-  planId: string;
-  planName: string;
   usageMetricVersion: BillingUsageMetricVersion;
   currentMonthUtc: string;
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
-  upcomingChargeEstimateMinor: number;
-  openInvoiceCount: number;
+  lowBalanceThresholdMinor: number;
+  recentUsageDebitMinor: number;
+  recentCreditPurchasedMinor: number;
+  documentCount: number;
 }
 
-export interface BillingSubscription {
+export interface BillingCreditPurchase {
   id: string;
   orgId: string;
+  creditPackId: BillingCreditPackId;
+  status: BillingCreditPurchaseStatus;
+  amountMinor: number;
+  currency: 'USD';
   provider: 'stripe';
+  providerCheckoutSessionRef: string;
   providerCustomerRef: string | null;
-  providerSubscriptionRef: string | null;
-  planId: string;
-  planName: string;
-  status: BillingSubscriptionStatus;
-  cancelAtPeriodEnd: boolean;
-  currentPeriodStart: string;
-  currentPeriodEnd: string;
-  cancelAt: string | null;
-  canceledAt: string | null;
+  relatedInvoiceId: string | null;
+  settledAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BillingLedgerEntry {
+  id: string;
+  orgId: string;
+  type: BillingLedgerEntryType;
+  amountMinor: number;
+  currency: 'USD';
+  description: string;
+  monthUtc: string | null;
+  relatedInvoiceId: string | null;
+  relatedPurchaseId: string | null;
+  sourceEventId: string | null;
+  createdAt: string;
 }
 
 export type BillingUsageAction =
@@ -62,6 +81,9 @@ export interface BillingUsageEventResult {
   counted: boolean;
   monthUtc: string;
   monthlyActiveWallets: number;
+  debitAppliedMinor: number;
+  creditBalanceMinor: number;
+  statementId: string | null;
 }
 
 export interface BillingMonthlyActiveWallets {
@@ -73,11 +95,11 @@ export interface BillingMonthlyActiveWallets {
 export interface BillingInvoice {
   id: string;
   orgId: string;
+  documentType: BillingDocumentType;
   status: InvoiceStatus;
   currency: 'USD';
   amountDueMinor: number;
   amountPaidMinor: number;
-  railLock: InvoicePaymentRail | null;
   periodMonthUtc: string;
   createdAt: string;
   dueAt: string | null;
@@ -87,6 +109,7 @@ export interface BillingInvoiceListRequest {
   status?: InvoiceStatus;
   overdueOnly?: boolean;
   periodMonthUtc?: string;
+  documentType?: BillingDocumentType;
   limit?: number;
   cursor?: string;
 }
@@ -98,6 +121,8 @@ export interface BillingInvoiceListSummary {
   paidCount: number;
   outstandingAmountMinor: number;
   latestPeriodMonthUtc: string | null;
+  receiptCount: number;
+  statementCount: number;
 }
 
 export interface BillingInvoiceListResult {
@@ -130,7 +155,6 @@ export interface GenerateMonthlyInvoiceResult {
   lineItems: BillingInvoiceLineItem[];
   monthlyActiveWallets: number;
   pricing: {
-    baseFeeMinor: number;
     mawUnitPriceMinor: number;
   };
 }
@@ -149,15 +173,13 @@ export interface BillingPaymentMethod {
   createdAt: string;
 }
 
-export type BillingInvoiceActivityEntryType = 'INVOICE' | 'PAYMENT';
+export type BillingInvoiceActivityEntryType = 'DOCUMENT' | 'LEDGER';
 export type BillingInvoiceActivityActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
 
 export interface BillingInvoiceActivityEntry {
   id: string;
   type: BillingInvoiceActivityEntryType;
   invoiceId: string;
-  paymentId: string | null;
-  rail: InvoicePaymentRail | null;
   fromState: string | null;
   toState: string;
   occurredAt: string;
@@ -170,8 +192,6 @@ export interface BillingInvoiceActivityEntry {
 
 export interface BillingInvoiceActivity {
   invoice: BillingInvoice;
-  latestPaymentState: string | null;
-  latestPaymentRail: InvoicePaymentRail | null;
   entries: BillingInvoiceActivityEntry[];
 }
 
@@ -197,13 +217,15 @@ export interface StripeSetupIntent {
 export interface StripeCheckoutSessionRequest {
   successUrl: string;
   cancelUrl: string;
-  planId?: string;
+  creditPackId: BillingCreditPackId;
 }
 
 export interface StripeCheckoutSession {
   id: string;
   url: string;
   customerRef: string;
+  creditPackId: BillingCreditPackId;
+  amountMinor: number;
   expiresAt: string;
 }
 
@@ -218,123 +240,18 @@ export interface StripeCustomerPortalSession {
   expiresAt: string;
 }
 
-export interface StripePaymentIntentRequest {
-  invoiceId: string;
-  paymentMethodId?: string;
-}
-
 export interface StripeWebhookEventRequest {
   eventId: string;
-  eventType?: string;
-  providerRef?: string;
-  providerStatus?: StripePaymentIntentReconcileStatus;
-  settledAmountMinor?: number;
+  eventType?: 'checkout.session.completed';
   orgId?: string;
   providerCustomerRef?: string;
-  providerSubscriptionRef?: string;
-  planId?: string;
-  planName?: string;
-  subscriptionStatus?: BillingSubscriptionStatus;
-  cancelAtPeriodEnd?: boolean;
-  currentPeriodStart?: string;
-  currentPeriodEnd?: string;
-  cancelAt?: string | null;
-  canceledAt?: string | null;
-  invoiceId?: string;
-  invoiceStatus?: InvoiceStatus;
-  invoiceAmountDueMinor?: number;
-  invoiceAmountPaidMinor?: number;
+  checkoutSessionId?: string;
+  providerRef?: string;
 }
 
 export interface StripeWebhookEventResult {
   accepted: boolean;
-  paymentIntent: StripePaymentIntent | null;
-  subscription: BillingSubscription | null;
+  purchase: BillingCreditPurchase | null;
   invoice: BillingInvoice | null;
   orgId: string | null;
-}
-
-export type StripePaymentIntentReconcileStatus =
-  | 'ACTION_REQUIRED'
-  | 'PENDING'
-  | 'SUCCEEDED'
-  | 'FAILED'
-  | 'CANCELED';
-
-export interface StripePaymentIntentReconcileRequest {
-  providerStatus: StripePaymentIntentReconcileStatus;
-  settledAmountMinor?: number;
-  sourceEventId?: string;
-}
-
-export interface StripePaymentIntent {
-  id: string;
-  providerRef: string;
-  invoiceId: string;
-  amountMinor: number;
-  currency: 'USD';
-  paymentMethodId: string | null;
-  state: PaymentState;
-  clientSecret: string;
-  createdAt: string;
-  rail: 'CARD';
-}
-
-export interface StablecoinQuoteRequest {
-  invoiceId: string;
-  asset: StablecoinAssetSymbol;
-  chain: StablecoinSettlementChain;
-}
-
-export interface StablecoinPaymentQuote {
-  id: string;
-  orgId: string;
-  invoiceId: string;
-  asset: StablecoinAssetSymbol;
-  chain: StablecoinSettlementChain;
-  amountMinor: number;
-  createdAt: string;
-  expiresAt: string;
-  state: 'OPEN' | 'EXPIRED';
-}
-
-export interface StablecoinPaymentIntentRequest {
-  invoiceId: string;
-  quoteId: string;
-}
-
-export interface StablecoinPaymentIntentReconcileRequest {
-  observedAmountMinor: number;
-  observedConfirmations: number;
-  confirmationTimedOut?: boolean;
-  sourceEventId?: string;
-}
-
-export interface StablecoinPaymentIntent {
-  id: string;
-  orgId: string;
-  invoiceId: string;
-  quoteId: string;
-  asset: StablecoinAssetSymbol;
-  chain: StablecoinSettlementChain;
-  expectedAmountMinor: number;
-  destinationAddress: string;
-  state: PaymentState;
-  rail: 'STABLECOIN';
-  requiredConfirmations: number;
-  confirmationTimeoutMinutes: number;
-  reorgRiskWindowHours: number;
-  settledAt: string | null;
-  reorgRiskWindowEndsAt: string | null;
-  withinReorgRiskWindow: boolean;
-  createdAt: string;
-  expiresAt: string;
-}
-
-export interface StablecoinAssetCatalogResponse {
-  version: string;
-  assets: Array<{
-    asset: StablecoinAssetSymbol;
-    chains: ChainFinalityPolicy[];
-  }>;
 }

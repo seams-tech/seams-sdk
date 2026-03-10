@@ -2,22 +2,15 @@ import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
-  CHAIN_FINALITY_POLICY_VERSION,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
   ensureBillingReadyForLiveEnvironment,
   isBillingReadyForLiveEnvironment,
   isConsoleBillingError,
-  listStablecoinAssetSupport,
   parseBillingInvoiceListRequest,
   parseAddCardPaymentMethodRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
-  parseStablecoinPaymentIntentReconcileRequest,
-  parseStablecoinPaymentIntentRequest,
-  parseStablecoinQuoteRequest,
-  parseStripePaymentIntentReconcileRequest,
-  parseStripePaymentIntentRequest,
   parseStripeWebhookEventRequest,
   parseStripeCustomerPortalSessionRequest,
   parseStripeCheckoutSessionRequest,
@@ -139,6 +132,14 @@ import {
   type ConsoleOnboardingService,
 } from '../../console/onboarding';
 import {
+  isConsoleAccountError,
+  parseCreateConsoleAccountOrganizationRequest,
+  parsePatchConsoleAccountProfileRequest,
+  parseTransferConsoleAccountOrganizationOwnerRequest,
+  parseUpdateConsoleAccountOrganizationRequest,
+  type ConsoleAccountService,
+} from '../../console/account';
+import {
   buildApprovalFailureObservabilityEvent,
   buildBillingFailureObservabilityEvent,
   buildRouterTimingObservabilityEvent,
@@ -148,6 +149,10 @@ import {
 } from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import {
+  buildConsoleContextSwitchSessionClaims,
+  parseConsoleSessionForContextSwitch,
+} from '../consoleSessionContext';
 import {
   buildConsoleExportGovernanceView,
   buildConsoleGasReadinessView,
@@ -188,6 +193,7 @@ export interface CloudflareConsoleContext {
   auditExports: ConsoleAuditExportsService | null;
   enterpriseIsolation: ConsoleEnterpriseIsolationService | null;
   onboarding: ConsoleOnboardingService | null;
+  account: ConsoleAccountService | null;
   observability: ConsoleObservabilityService | null;
   observabilityIngestion: ConsoleObservabilityIngestionService | null;
   authClaims?: ConsoleAuthClaims;
@@ -289,7 +295,7 @@ async function emitBillingFailureObservabilityEvent(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   input: {
-    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    operation: 'INVOICE_FINALIZATION';
     invoiceId?: string;
     providerRef?: string;
     error: unknown;
@@ -767,6 +773,28 @@ function sendObservabilityError(error: unknown): Response {
   );
 }
 
+function sendAccountError(error: unknown): Response {
+  if (isConsoleAccountError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      },
+      { status: error.status },
+    );
+  }
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
 async function requireConsoleAuth(
   ctx: CloudflareConsoleContext,
 ): Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }> {
@@ -989,6 +1017,30 @@ function requireOnboardingService(
   );
 }
 
+function requireAccountService(ctx: CloudflareConsoleContext): ConsoleAccountService | Response {
+  if (ctx.account) return ctx.account;
+  return json(
+    {
+      ok: false,
+      code: 'account_not_configured',
+      message: 'Account service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+function requireSessionAdapter(ctx: CloudflareConsoleContext): NonNullable<ConsoleRouterOptions['session']> | Response {
+  if (ctx.opts.session) return ctx.opts.session;
+  return json(
+    {
+      ok: false,
+      code: 'session_not_configured',
+      message: 'Session adapter is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
 function requireObservabilityService(
   ctx: CloudflareConsoleContext,
 ): ConsoleObservabilityService | Response {
@@ -1143,6 +1195,28 @@ function toOnboardingContext(claims: ConsoleAuthClaims): {
   };
 }
 
+function toAccountContext(claims: ConsoleAuthClaims): {
+  userId: string;
+  orgId: string;
+  roles: string[];
+  email?: string;
+  name?: string;
+  projectId?: string;
+  environmentId?: string;
+} {
+  return {
+    userId: claims.userId,
+    orgId: claims.orgId,
+    roles: claims.roles,
+    ...(typeof claims.email === 'string' && claims.email.trim()
+      ? { email: claims.email.trim().toLowerCase() }
+      : {}),
+    ...(typeof claims.name === 'string' && claims.name.trim() ? { name: claims.name.trim() } : {}),
+    ...(claims.projectId ? { projectId: claims.projectId } : {}),
+    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  };
+}
+
 function readApprovalIdFromBody(body: unknown): string {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
   return String((body as Record<string, unknown>).approvalId || '').trim();
@@ -1272,18 +1346,6 @@ function requireAdminRoleForCardActions(claims: ConsoleAuthClaims): Response | n
       ok: false,
       code: 'forbidden',
       message: 'Only admin can add, remove, or set default card payment methods',
-    },
-    { status: 403 },
-  );
-}
-
-function requirePaymentReconcileRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin or ops can reconcile payment intents',
     },
     { status: 403 },
   );
@@ -1453,8 +1515,6 @@ function requireKeyExportApprovalRole(claims: ConsoleAuthClaims): Response | nul
   );
 }
 
-const BILLING_TERMINAL_SETTLEMENT_STATES = new Set(['SETTLED', 'PARTIALLY_SETTLED', 'OVERPAID']);
-
 async function requireActiveApiKeyEnvironmentForCreate(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
@@ -1603,52 +1663,6 @@ async function emitConsoleAuditEvent(
   }
 }
 
-async function emitInvoicePaidWebhookIfApplicable(
-  ctx: CloudflareConsoleContext,
-  billing: ConsoleBillingService,
-  input: {
-    orgId: string;
-    actorUserId: string;
-    roles: string[];
-    invoiceId: string;
-    paymentIntentId: string;
-    rail: 'CARD' | 'STABLECOIN';
-  },
-): Promise<void> {
-  try {
-    const invoice = await billing.getInvoice(
-      {
-        orgId: input.orgId,
-        actorUserId: input.actorUserId,
-        roles: input.roles,
-      },
-      input.invoiceId,
-    );
-    if (!invoice || invoice.status !== 'PAID') return;
-
-    await emitBillingWebhookEvent(ctx, {
-      orgId: input.orgId,
-      actorUserId: input.actorUserId,
-      eventType: 'billing.invoice.paid',
-      payload: {
-        invoiceId: invoice.id,
-        status: invoice.status,
-        amountDueMinor: invoice.amountDueMinor,
-        amountPaidMinor: invoice.amountPaidMinor,
-        railLock: invoice.railLock,
-        paymentIntentId: input.paymentIntentId,
-        paymentRail: input.rail,
-      },
-    });
-  } catch (error: unknown) {
-    ctx.logger.warn('[console][webhooks] failed to inspect invoice after payment update', {
-      invoiceId: input.invoiceId,
-      orgId: input.orgId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
 function decodePathPart(part: string): string {
   try {
     return decodeURIComponent(part);
@@ -1707,6 +1721,145 @@ async function handleConsoleSession(ctx: CloudflareConsoleContext): Promise<Resp
     },
     { status: 200 },
   );
+}
+
+async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Response | null> {
+  if (!isConsoleAccountPath(ctx.pathname)) return null;
+
+  const auth = await requireConsoleAuth(ctx);
+  if (!auth.ok) return auth.response;
+
+  const accountOrResponse = requireAccountService(ctx);
+  if (accountOrResponse instanceof Response) return accountOrResponse;
+  const account = accountOrResponse;
+
+  try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/account/profile') {
+      const profile = await account.getProfile(toAccountContext(auth.claims));
+      return json({ ok: true, profile }, { status: 200 });
+    }
+
+    if (ctx.method === 'PATCH' && ctx.pathname === '/console/account/profile') {
+      const request = parsePatchConsoleAccountProfileRequest(await readJson(ctx.request));
+      const profile = await account.updateProfile(toAccountContext(auth.claims), request);
+      return json({ ok: true, profile }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/account/organizations') {
+      const organizations = await account.listOrganizations(toAccountContext(auth.claims));
+      return json({ ok: true, organizations }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/account/organizations') {
+      const request = parseCreateConsoleAccountOrganizationRequest(await readJson(ctx.request));
+      const organization = await account.createOrganization(toAccountContext(auth.claims), request);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.create',
+        summary: `Created organization ${organization.id} from account settings`,
+        metadata: {
+          organizationId: organization.id,
+          organizationName: organization.name,
+          organizationSlug: organization.slug,
+          source: 'account_settings',
+        },
+      });
+      return json({ ok: true, organization }, { status: 201 });
+    }
+
+    const orgMatch = ctx.pathname.match(
+      /^\/console\/account\/organizations\/([^/]+?)(?:\/(transfer-owner|switch-context))?$/,
+    );
+    const orgId = orgMatch?.[1] ? decodePathPart(orgMatch[1]) : '';
+    const action = String(orgMatch?.[2] || '').trim();
+
+    if (!orgId) {
+      return new Response('Not Found', { status: 404 });
+    }
+
+    if (ctx.method === 'PATCH' && !action) {
+      const request = parseUpdateConsoleAccountOrganizationRequest(await readJson(ctx.request));
+      const organization = await account.updateOrganization(
+        toAccountContext(auth.claims),
+        orgId,
+        request,
+      );
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.update',
+        summary: `Updated organization ${organization.id} from account settings`,
+        metadata: {
+          organizationId: organization.id,
+          organizationName: organization.name,
+          organizationSlug: organization.slug,
+          source: 'account_settings',
+        },
+      });
+      return json({ ok: true, organization }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && action === 'transfer-owner') {
+      const request = parseTransferConsoleAccountOrganizationOwnerRequest(
+        await readJson(ctx.request),
+      );
+      const transfer = await account.transferOrganizationOwner(
+        toAccountContext(auth.claims),
+        orgId,
+        request,
+      );
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'TEAM',
+        action: 'member.owner.transfer',
+        summary: `Transferred organization ${transfer.organization.id} ownership to ${transfer.nextOwner.userId}`,
+        metadata: {
+          organizationId: transfer.organization.id,
+          previousOwnerUserId: transfer.previousOwner.userId,
+          nextOwnerUserId: transfer.nextOwner.userId,
+          source: 'account_settings',
+        },
+      });
+      return json({ ok: true, transfer }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && action === 'switch-context') {
+      const sessionOrResponse = requireSessionAdapter(ctx);
+      if (sessionOrResponse instanceof Response) return sessionOrResponse;
+      const session = sessionOrResponse;
+      const nextContext = await account.switchOrganizationContext(
+        toAccountContext(auth.claims),
+        orgId,
+      );
+      const parsedSession = await parseConsoleSessionForContextSwitch(
+        session,
+        headersToRecord(ctx.request.headers),
+      );
+      if (!parsedSession) {
+        return json(
+          {
+            ok: false,
+            code: 'unauthorized',
+            message: 'A valid app session is required to switch organization context',
+          },
+          { status: 401 },
+        );
+      }
+      const jwt = await session.signJwt(
+        parsedSession.userId,
+        buildConsoleContextSwitchSessionClaims(parsedSession.claims, nextContext),
+      );
+      return json(
+        { ok: true, context: nextContext },
+        {
+          status: 200,
+          headers: { 'Set-Cookie': session.buildSetCookie(jwt) },
+        },
+      );
+    }
+  } catch (error: unknown) {
+    return sendAccountError(error);
+  }
+
+  return new Response('Not Found', { status: 404 });
 }
 
 async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<Response | null> {
@@ -1866,6 +2019,10 @@ async function handleConsoleObservability(ctx: CloudflareConsoleContext): Promis
 
 function isConsoleBillingPath(pathname: string): boolean {
   return pathname.startsWith('/console/billing/');
+}
+
+function isConsoleAccountPath(pathname: string): boolean {
+  return pathname === '/console/account/profile' || pathname.startsWith('/console/account/organizations');
 }
 
 function isConsoleOnboardingPath(pathname: string): boolean {
@@ -3534,6 +3691,27 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
 async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Response | null> {
   if (!isConsoleBillingPath(ctx.pathname)) return null;
 
+  if (
+    ctx.pathname === '/console/billing/subscription' ||
+    ctx.pathname === '/console/billing/subscription/cancel' ||
+    ctx.pathname === '/console/billing/subscription/resume'
+  ) {
+    return new Response('Not Found', { status: 404 });
+  }
+
+  if (
+    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/payment-intent') ||
+    (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') ||
+    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/quotes') ||
+    (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/payment-intents') ||
+    /^\/console\/billing\/stripe\/payment-intents\/[^/]+\/reconcile$/.test(ctx.pathname) ||
+    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+$/.test(ctx.pathname) ||
+    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+\/cancel$/.test(ctx.pathname) ||
+    /^\/console\/billing\/stablecoins\/payment-intents\/[^/]+\/reconcile$/.test(ctx.pathname)
+  ) {
+    return new Response('Not Found', { status: 404 });
+  }
+
   if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/webhook') {
     const secretRequired = requireStripeWebhookSecret(ctx);
     if (secretRequired) return secretRequired;
@@ -3542,18 +3720,17 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     try {
       const request = parseStripeWebhookEventRequest(await readJson(ctx.request));
       const result = await billingOrResponse.processStripeWebhookEvent(request);
-      if (result.accepted && result.paymentIntent && result.orgId) {
+      if (result.accepted && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
           orgId: result.orgId,
           actorUserId: 'system-stripe-webhook',
-          eventType: 'billing.payment_intent.updated',
+          eventType: 'billing.credit_purchase.settled',
           eventId: request.eventId,
           payload: {
-            paymentIntentId: result.paymentIntent.id,
-            invoiceId: result.paymentIntent.invoiceId,
-            providerRef: result.paymentIntent.providerRef,
-            state: result.paymentIntent.state,
-            rail: result.paymentIntent.rail,
+            purchaseId: result.purchase.id,
+            creditPackId: result.purchase.creditPackId,
+            amountMinor: result.purchase.amountMinor,
+            receiptId: result.invoice?.id || null,
             source: 'stripe_webhook',
           },
         });
@@ -3579,36 +3756,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   const paymentMethodDefaultMatch = ctx.pathname.match(
     /^\/console\/billing\/payment-methods\/([^/]+)\/default$/,
   );
-  const stripeIntentReconcileMatch = ctx.pathname.match(
-    /^\/console\/billing\/stripe\/payment-intents\/([^/]+)\/reconcile$/,
-  );
-  const stablecoinIntentMatch = ctx.pathname.match(
-    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)$/,
-  );
-  const stablecoinIntentCancelMatch = ctx.pathname.match(
-    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/cancel$/,
-  );
-  const stablecoinIntentReconcileMatch = ctx.pathname.match(
-    /^\/console\/billing\/stablecoins\/payment-intents\/([^/]+)\/reconcile$/,
-  );
   let billingFailureEvent: {
-    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
+    operation: 'INVOICE_FINALIZATION';
     invoiceId?: string;
-    providerRef?: string;
   } | null = null;
 
   try {
-    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/stablecoins/assets') {
-      return json(
-        {
-          ok: true,
-          version: CHAIN_FINALITY_POLICY_VERSION,
-          assets: listStablecoinAssetSupport(),
-        },
-        { status: 200 },
-      );
-    }
-
     const billingOrResponse = requireBillingService(ctx);
     if (billingOrResponse instanceof Response) return billingOrResponse;
     const billing = billingOrResponse;
@@ -3834,209 +3987,11 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const portalSession = await billing.createStripeCustomerPortalSession(billingCtx, request);
       return json({ ok: true, portalSession }, { status: 201 });
     }
-
-    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/subscription') {
-      const subscription = await billing.getSubscription(billingCtx);
-      return json({ ok: true, subscription }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/subscription/cancel') {
-      const subscription = await billing.cancelSubscription(billingCtx);
-      return json({ ok: true, subscription }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/subscription/resume') {
-      const subscription = await billing.resumeSubscription(billingCtx);
-      return json({ ok: true, subscription }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/payment-intent') {
-      const request = parseStripePaymentIntentRequest(await readJson(ctx.request));
-      const paymentIntent = await billing.createStripePaymentIntent(billingCtx, request);
-      await emitBillingWebhookEvent(ctx, {
-        orgId: auth.claims.orgId,
-        actorUserId: auth.claims.userId,
-        eventType: 'billing.payment_intent.created',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          rail: paymentIntent.rail,
-          state: paymentIntent.state,
-          amountMinor: paymentIntent.amountMinor,
-        },
-      });
-      return json({ ok: true, paymentIntent }, { status: 201 });
-    }
-
-    if (ctx.method === 'POST' && stripeIntentReconcileMatch) {
-      const roleRequired = requirePaymentReconcileRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const paymentIntentId = decodePathPart(stripeIntentReconcileMatch[1]);
-      const request = parseStripePaymentIntentReconcileRequest(await readJson(ctx.request));
-      billingFailureEvent = {
-        operation: 'PAYMENT_RECONCILE',
-        invoiceId: `payment_intent:${paymentIntentId}`,
-      };
-      const paymentIntent = await billing.reconcileStripePaymentIntent(
-        billingCtx,
-        paymentIntentId,
-        request,
-      );
-      if (!paymentIntent) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stripe payment intent ${paymentIntentId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      await emitBillingWebhookEvent(ctx, {
-        orgId: auth.claims.orgId,
-        actorUserId: auth.claims.userId,
-        eventType: 'billing.payment_intent.updated',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          providerRef: paymentIntent.providerRef,
-          state: paymentIntent.state,
-          rail: paymentIntent.rail,
-          source: 'manual_reconcile',
-        },
-      });
-      if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-        await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
-          orgId: auth.claims.orgId,
-          actorUserId: auth.claims.userId,
-          roles: auth.claims.roles,
-          invoiceId: paymentIntent.invoiceId,
-          paymentIntentId: paymentIntent.id,
-          rail: 'CARD',
-        });
-      }
-      return json({ ok: true, paymentIntent }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/quotes') {
-      const request = parseStablecoinQuoteRequest(await readJson(ctx.request));
-      const quote = await billing.createStablecoinQuote(billingCtx, request);
-      return json({ ok: true, quote }, { status: 201 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stablecoins/payment-intents') {
-      const request = parseStablecoinPaymentIntentRequest(await readJson(ctx.request));
-      const paymentIntent = await billing.createStablecoinPaymentIntent(billingCtx, request);
-      await emitBillingWebhookEvent(ctx, {
-        orgId: auth.claims.orgId,
-        actorUserId: auth.claims.userId,
-        eventType: 'billing.payment_intent.created',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          rail: paymentIntent.rail,
-          state: paymentIntent.state,
-          expectedAmountMinor: paymentIntent.expectedAmountMinor,
-          asset: paymentIntent.asset,
-          chain: paymentIntent.chain,
-        },
-      });
-      return json({ ok: true, paymentIntent }, { status: 201 });
-    }
-
-    if (ctx.method === 'GET' && stablecoinIntentMatch) {
-      const paymentIntentId = decodePathPart(stablecoinIntentMatch[1]);
-      const paymentIntent = await billing.getStablecoinPaymentIntent(billingCtx, paymentIntentId);
-      if (!paymentIntent) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, paymentIntent }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && stablecoinIntentCancelMatch) {
-      const paymentIntentId = decodePathPart(stablecoinIntentCancelMatch[1]);
-      const paymentIntent = await billing.cancelStablecoinPaymentIntent(
-        billingCtx,
-        paymentIntentId,
-      );
-      if (!paymentIntent) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, paymentIntent }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && stablecoinIntentReconcileMatch) {
-      const roleRequired = requirePaymentReconcileRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const paymentIntentId = decodePathPart(stablecoinIntentReconcileMatch[1]);
-      const request = parseStablecoinPaymentIntentReconcileRequest(await readJson(ctx.request));
-      billingFailureEvent = {
-        operation: 'PAYMENT_RECONCILE',
-        invoiceId: `payment_intent:${paymentIntentId}`,
-      };
-      const paymentIntent = await billing.reconcileStablecoinPaymentIntent(
-        billingCtx,
-        paymentIntentId,
-        request,
-      );
-      if (!paymentIntent) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_intent_not_found',
-            message: `Stablecoin payment intent ${paymentIntentId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      await emitBillingWebhookEvent(ctx, {
-        orgId: auth.claims.orgId,
-        actorUserId: auth.claims.userId,
-        eventType: 'billing.payment_intent.updated',
-        payload: {
-          paymentIntentId: paymentIntent.id,
-          invoiceId: paymentIntent.invoiceId,
-          state: paymentIntent.state,
-          rail: paymentIntent.rail,
-          asset: paymentIntent.asset,
-          chain: paymentIntent.chain,
-          source: 'manual_reconcile',
-        },
-      });
-      if (BILLING_TERMINAL_SETTLEMENT_STATES.has(paymentIntent.state)) {
-        await emitInvoicePaidWebhookIfApplicable(ctx, billing, {
-          orgId: auth.claims.orgId,
-          actorUserId: auth.claims.userId,
-          roles: auth.claims.roles,
-          invoiceId: paymentIntent.invoiceId,
-          paymentIntentId: paymentIntent.id,
-          rail: 'STABLECOIN',
-        });
-      }
-      return json({ ok: true, paymentIntent }, { status: 200 });
-    }
   } catch (error: unknown) {
     if (billingFailureEvent) {
       await emitBillingFailureObservabilityEvent(ctx, auth.claims, {
         operation: billingFailureEvent.operation,
         ...(billingFailureEvent.invoiceId ? { invoiceId: billingFailureEvent.invoiceId } : {}),
-        ...(billingFailureEvent.providerRef
-          ? { providerRef: billingFailureEvent.providerRef }
-          : {}),
         error,
       });
     }
@@ -4057,7 +4012,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
   const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
   const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
-  const settings = opts.settings === undefined ? null : opts.settings;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
   const teamRbac = opts.teamRbac === undefined ? null : opts.teamRbac;
@@ -4067,6 +4021,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const enterpriseIsolation =
     opts.enterpriseIsolation === undefined ? null : opts.enterpriseIsolation;
   const onboarding = opts.onboarding === undefined ? null : opts.onboarding;
+  const account = opts.account === undefined ? null : opts.account;
   const observability = opts.observability === undefined ? null : opts.observability;
   const observabilityIngestion =
     opts.observabilityIngestion === undefined ? null : opts.observabilityIngestion;
@@ -4075,6 +4030,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleHealth,
     handleConsoleReady,
     handleConsoleSession,
+    handleConsoleAccount,
     handleConsoleOnboarding,
     handleConsoleOpsCockpit,
     handleConsoleObservability,
@@ -4129,7 +4085,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       webhooks,
       gasSponsorship,
       smartWallets,
-      settings,
       keyExports,
       runtimeSnapshots,
       teamRbac,
@@ -4138,6 +4093,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       auditExports,
       enterpriseIsolation,
       onboarding,
+      account,
       observability,
       observabilityIngestion,
     };

@@ -169,6 +169,26 @@ export type {
   InMemoryConsoleOnboardingServiceOptions,
 } from '../console/onboarding';
 export type {
+  ConsoleAccountBackupEmailStatus,
+  ConsoleAccountBackupEmail,
+  ConsoleAccountProfile,
+  PatchConsoleAccountProfileRequest,
+  ConsoleAccountOrganizationAdminCandidate,
+  ConsoleAccountOrganization,
+  CreateConsoleAccountOrganizationRequest,
+  UpdateConsoleAccountOrganizationRequest,
+  TransferConsoleAccountOrganizationOwnerRequest,
+  TransferConsoleAccountOrganizationOwnerResult,
+  SwitchConsoleAccountOrganizationContextResult,
+} from '../console/account';
+export type {
+  ConsoleAccountContext,
+  ConsoleAccountService,
+  InMemoryConsoleAccountServiceOptions,
+  PostgresConsoleAccountSchemaOptions,
+  PostgresConsoleAccountServiceOptions,
+} from '../console/account';
+export type {
   ConsoleWalletChain,
   ConsoleWalletType,
   ConsoleWalletStatus,
@@ -191,6 +211,7 @@ export type {
   ConsolePolicyDecision,
   ConsolePolicyAssignmentScopeType,
   ConsolePolicy,
+  ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   UpdateConsolePolicyRequest,
   SimulateConsolePolicyRequest,
@@ -260,18 +281,13 @@ export type {
   StripeCheckoutSessionProviderOutput,
   StripeCustomerPortalSessionProviderInput,
   StripeCustomerPortalSessionProviderOutput,
-  StripePaymentIntentProviderInput,
-  StripePaymentIntentProviderOutput,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
-  StablecoinDestinationProviderInput,
-  StablecoinDestinationProviderOutput,
   StripeBillingProviderAdapter,
-  StablecoinBillingProviderAdapter,
   BillingProviderAdapters,
 } from '../console/billing';
 export type {
-  ConsoleWebhookSubscription,
+  ConsoleWebhookEventCategory,
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookDeliveryStatus,
   ConsoleWebhookEndpoint,
@@ -301,15 +317,18 @@ export type {
 } from '../console/webhooks';
 export type {
   ConsoleGasSponsorshipScopeType,
-  ConsoleGasSponsorshipBudgetPeriod,
-  ConsoleGasSponsorshipPaymasterMode,
-  ConsoleGasSponsorshipFallbackBehavior,
-  ConsoleGasSponsorshipChainBudget,
+  ConsoleGasSponsorshipNetworkClass,
+  ConsoleGasSponsorshipSpendCapMode,
+  ConsoleGasSponsorshipSpendCapPeriod,
+  ConsoleGasSponsorshipSpendCapChain,
+  ConsoleGasSponsorshipSpendCap,
+  ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipTelemetry,
   ConsoleGasSponsorshipConfig,
   ListConsoleGasSponsorshipRequest,
   CreateConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
+  ResolvedSponsoredCallPolicy,
 } from '../console/gasSponsorship';
 export type {
   ConsoleGasSponsorshipContext,
@@ -318,6 +337,25 @@ export type {
   PostgresConsoleGasSponsorshipSchemaOptions,
   PostgresConsoleGasSponsorshipServiceOptions,
 } from '../console/gasSponsorship';
+export type {
+  ConsoleSponsorshipSpendCapMode,
+  ConsoleSponsorshipSpendCapPeriod,
+  ConsoleSponsorshipSpendCapReservationStatus,
+  ConsoleSponsorshipSpendCapReservation,
+  ConsoleSponsorshipSpendCapWindowUsage,
+  ReserveConsoleSponsorshipSpendCapRequest,
+  SettleConsoleSponsorshipSpendCapRequest,
+  ReleaseConsoleSponsorshipSpendCapRequest,
+  GetConsoleSponsorshipSpendCapWindowUsageRequest,
+  ConsoleSponsorshipSpendCapReservationOutcome,
+} from '../console/sponsorshipSpendCaps';
+export type {
+  ConsoleSponsorshipSpendCapContext,
+  ConsoleSponsorshipSpendCapService,
+  InMemoryConsoleSponsorshipSpendCapServiceOptions,
+  PostgresConsoleSponsorshipSpendCapSchemaOptions,
+  PostgresConsoleSponsorshipSpendCapServiceOptions,
+} from '../console/sponsorshipSpendCaps';
 export type {
   ConsoleSmartWalletScopeType,
   ConsoleSmartWalletMode,
@@ -468,19 +506,29 @@ export {
   ConsoleOnboardingError,
 } from '../console/onboarding';
 export {
+  createInMemoryConsoleAccountService,
+  ensureConsoleAccountPostgresSchema,
+  createPostgresConsoleAccountService,
+  parsePatchConsoleAccountProfileRequest,
+  parseCreateConsoleAccountOrganizationRequest,
+  parseUpdateConsoleAccountOrganizationRequest,
+  parseTransferConsoleAccountOrganizationOwnerRequest,
+  isConsoleAccountError,
+  ConsoleAccountError,
+} from '../console/account';
+export {
   createInMemoryConsoleWalletService,
   ensureConsoleWalletsPostgresSchema,
   createPostgresConsoleWalletService,
   isConsoleWalletError,
   ConsoleWalletError,
 } from '../console/wallets';
+export { createInMemoryConsolePolicyService } from '../console/policies/service';
 export {
-  createInMemoryConsolePolicyService,
   ensureConsolePoliciesPostgresSchema,
   createPostgresConsolePolicyService,
-  isConsolePolicyError,
-  ConsolePolicyError,
-} from '../console/policies';
+} from '../console/policies/postgres';
+export { isConsolePolicyError, ConsolePolicyError } from '../console/policies/errors';
 export {
   createInMemoryConsoleApiKeyService,
   ensureConsoleApiKeysPostgresSchema,
@@ -516,6 +564,13 @@ export {
   isConsoleGasSponsorshipError,
   ConsoleGasSponsorshipError,
 } from '../console/gasSponsorship';
+export {
+  createInMemoryConsoleSponsorshipSpendCapService,
+  ensureConsoleSponsorshipSpendCapPostgresSchema,
+  createPostgresConsoleSponsorshipSpendCapService,
+  isConsoleSponsorshipSpendCapError,
+  ConsoleSponsorshipSpendCapError,
+} from '../console/sponsorshipSpendCaps';
 export {
   createInMemoryConsoleSmartWalletService,
   ensureConsoleSmartWalletsPostgresSchema,

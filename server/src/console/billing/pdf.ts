@@ -125,12 +125,15 @@ function buildInvoicePdfLines(input: {
     (sum, lineItem) => sum + Number(lineItem.amountMinor || 0),
     0,
   );
+  const title =
+    invoice.documentType === 'PURCHASE_RECEIPT' ? 'Purchase receipt' : 'Usage statement';
   const lines: PdfLine[] = [
-    { text: 'Billing invoice', size: 20 },
+    { text: title, size: 20 },
     { text: `Exported ${formatUtcTimestamp((exportedAt || new Date()).toISOString())}`, size: 10 },
     { text: '', size: 8 },
     { text: `Organization: ${orgId}`, size: 11 },
-    { text: `Invoice ID: ${invoice.id}`, size: 11 },
+    { text: `Document ID: ${invoice.id}`, size: 11 },
+    { text: `Document type: ${title}`, size: 11 },
     { text: `Status: ${formatInvoiceStatusLabel(invoice.status)}`, size: 11 },
     { text: `Billing period: ${invoice.periodMonthUtc || '-'}`, size: 11 },
     { text: `Issued: ${formatUtcTimestamp(invoice.createdAt)}`, size: 11 },
@@ -142,7 +145,6 @@ function buildInvoicePdfLines(input: {
     { text: `Total due: ${formatUsdMinor(invoice.amountDueMinor)}`, size: 11 },
     { text: `Amount paid: ${formatUsdMinor(invoice.amountPaidMinor)}`, size: 11 },
     { text: `Outstanding balance: ${formatUsdMinor(outstandingMinor)}`, size: 11 },
-    { text: `Rail lock: ${invoice.railLock || '-'}`, size: 11 },
     { text: '', size: 8 },
     { text: 'Line items', size: 13 },
   ];
@@ -166,12 +168,12 @@ function buildInvoicePdfLines(input: {
   lines.push({
     text:
       outstandingMinor > 0
-        ? 'This invoice still has an outstanding balance.'
-        : 'This invoice balance is fully settled.',
+        ? 'This document still has an outstanding balance.'
+        : 'This document balance is fully settled.',
     size: 11,
   });
   lines.push({
-    text: `Invoice status at export: ${formatInvoiceStatusLabel(invoice.status)}`,
+    text: `Document status at export: ${formatInvoiceStatusLabel(invoice.status)}`,
     size: 11,
   });
 
@@ -226,7 +228,8 @@ export function buildConsoleBillingInvoicePdfFilename(invoice: BillingInvoice): 
   const invoiceId = String(invoice.id || 'invoice')
     .trim()
     .replace(/[^a-zA-Z0-9_-]+/g, '_');
-  return `invoice_${period}_${invoiceId}.pdf`;
+  const prefix = invoice.documentType === 'PURCHASE_RECEIPT' ? 'receipt' : 'statement';
+  return `${prefix}_${period}_${invoiceId}.pdf`;
 }
 
 export function buildConsoleBillingInvoicePdf(input: {

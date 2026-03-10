@@ -1,9 +1,10 @@
-import { canTransitionPaymentState, type PaymentState } from './paymentStateMachine';
 import { ConsoleBillingError } from './errors';
-import { getChainFinalityPolicy } from './stablecoinAssets';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
 import type {
   AddCardPaymentMethodRequest,
+  BillingCreditPack,
+  BillingCreditPackId,
+  BillingCreditPurchase,
   BillingInvoiceActivity,
   BillingInvoiceActivityEntry,
   BillingInvoice,
@@ -12,24 +13,15 @@ import type {
   BillingInvoiceListRequest,
   BillingInvoiceListResult,
   BillingInvoiceListSummary,
+  BillingLedgerEntry,
   BillingMonthlyActiveWallets,
   BillingOverview,
-  BillingSubscription,
   BillingPaymentMethod,
   BillingUsageAction,
   BillingUsageEventRequest,
   BillingUsageEventResult,
   GenerateMonthlyInvoiceRequest,
   GenerateMonthlyInvoiceResult,
-  InvoicePaymentRail,
-  StablecoinPaymentIntent,
-  StablecoinPaymentIntentReconcileRequest,
-  StablecoinPaymentIntentRequest,
-  StablecoinPaymentQuote,
-  StablecoinQuoteRequest,
-  StripePaymentIntent,
-  StripePaymentIntentReconcileRequest,
-  StripePaymentIntentRequest,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
   StripeCustomerPortalSession,
@@ -48,9 +40,6 @@ export interface ConsoleBillingContext {
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
-  getSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
-  cancelSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
-  resumeSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription>;
   getMonthlyActiveWallets(
     ctx: ConsoleBillingContext,
     monthUtc?: string,
@@ -104,65 +93,19 @@ export interface ConsoleBillingService {
     ctx: ConsoleBillingContext,
     request: StripeCustomerPortalSessionRequest,
   ): Promise<StripeCustomerPortalSession>;
-  createStripePaymentIntent(
-    ctx: ConsoleBillingContext,
-    request: StripePaymentIntentRequest,
-  ): Promise<StripePaymentIntent>;
-  reconcileStripePaymentIntent(
-    ctx: ConsoleBillingContext,
-    paymentIntentId: string,
-    request: StripePaymentIntentReconcileRequest,
-  ): Promise<StripePaymentIntent | null>;
   processStripeWebhookEvent(request: StripeWebhookEventRequest): Promise<StripeWebhookEventResult>;
-
-  createStablecoinQuote(
-    ctx: ConsoleBillingContext,
-    request: StablecoinQuoteRequest,
-  ): Promise<StablecoinPaymentQuote>;
-  createStablecoinPaymentIntent(
-    ctx: ConsoleBillingContext,
-    request: StablecoinPaymentIntentRequest,
-  ): Promise<StablecoinPaymentIntent>;
-  getStablecoinPaymentIntent(
-    ctx: ConsoleBillingContext,
-    paymentIntentId: string,
-  ): Promise<StablecoinPaymentIntent | null>;
-  cancelStablecoinPaymentIntent(
-    ctx: ConsoleBillingContext,
-    paymentIntentId: string,
-  ): Promise<StablecoinPaymentIntent | null>;
-  reconcileStablecoinPaymentIntent(
-    ctx: ConsoleBillingContext,
-    paymentIntentId: string,
-    request: StablecoinPaymentIntentReconcileRequest,
-  ): Promise<StablecoinPaymentIntent | null>;
 }
 
 interface OrgBillingStore {
-  planId: string;
-  planName: string;
-  subscription: BillingSubscription;
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
+  lowBalanceThresholdMinor: number;
+  purchases: Map<string, BillingCreditPurchase>;
+  ledgerEntries: BillingLedgerEntry[];
   invoices: Map<string, BillingInvoice>;
   invoiceLineItems: Map<string, BillingInvoiceLineItem[]>;
   paymentMethods: Map<string, BillingPaymentMethod>;
-  stripePaymentIntents: Map<string, StripePaymentIntent>;
   stripeWebhookEventIds: Set<string>;
-  stablecoinQuotes: Map<string, StablecoinPaymentQuote>;
-  stablecoinPaymentIntents: Map<string, StablecoinPaymentIntent>;
-  paymentStateTransitions: Map<
-    string,
-    Array<{
-      fromState: PaymentState | null;
-      toState: PaymentState;
-      changedAt: string;
-      actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
-      actorUserId: string | null;
-      sourceEventId: string | null;
-      reason: string | null;
-    }>
-  >;
   usageEventSourceIds: Set<string>;
   monthlyActiveWalletsByMonth: Map<string, Set<string>>;
 }
@@ -172,31 +115,14 @@ export interface InMemoryConsoleBillingServiceOptions {
   providers?: Partial<BillingProviderAdapters>;
 }
 
-const TERMINAL_PAYMENT_STATES = new Set<PaymentState>([
-  'SETTLED',
-  'PARTIALLY_SETTLED',
-  'OVERPAID',
-  'FAILED',
-  'CANCELED',
-  'EXPIRED',
-  'REFUNDED',
-  'DISPUTED',
-]);
-
-const SETTLEMENT_OUTCOME_STATES = new Set<PaymentState>([
-  'SETTLED',
-  'PARTIALLY_SETTLED',
-  'OVERPAID',
-]);
 const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
   'transfer',
   'swap',
   'approve',
   'contract_call',
 ]);
-const DEFAULT_MONTHLY_PLAN_AMOUNT_MINOR = 4900;
-const PLAN_BASE_FEE_MINOR = 1900;
-const PLAN_MAW_UNIT_PRICE_MINOR = 300;
+const MAW_USAGE_DEBIT_MINOR = 300;
+const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
 
@@ -240,60 +166,54 @@ function makeStripeCustomerRef(orgId: string): string {
   return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
 }
 
-function makeStripeSubscriptionRef(orgId: string): string {
-  return `sub_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
+const BILLING_CREDIT_PACKS: BillingCreditPack[] = [
+  {
+    id: 'usd_50',
+    label: '$50 credit pack',
+    description: 'Prepaid credits for smaller teams or initial testing.',
+    amountMinor: 5000,
+  },
+  {
+    id: 'usd_200',
+    label: '$200 credit pack',
+    description: 'Prepaid credits for growing production usage.',
+    amountMinor: 20000,
+  },
+  {
+    id: 'usd_500',
+    label: '$500 credit pack',
+    description: 'Prepaid credits for sustained production throughput.',
+    amountMinor: 50000,
+  },
+  {
+    id: 'usd_1000',
+    label: '$1,000 credit pack',
+    description: 'Prepaid credits for larger teams and higher spend.',
+    amountMinor: 100000,
+  },
+];
+
+function getCreditPackOrThrow(creditPackId: BillingCreditPackId): BillingCreditPack {
+  const pack = BILLING_CREDIT_PACKS.find((entry) => entry.id === creditPackId) || null;
+  if (!pack) {
+    throw new ConsoleBillingError(
+      'invalid_credit_pack',
+      400,
+      `Unsupported credit pack: ${creditPackId}`,
+    );
+  }
+  return pack;
 }
 
-function makeInitialSubscription(
-  orgId: string,
-  planId: string,
-  planName: string,
-  now: Date,
-): BillingSubscription {
-  const currentPeriodStart = coerceIsoDate(now);
-  const currentPeriodEnd = coerceIsoDate(new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000));
-  return {
-    id: makeId('sub', now),
-    orgId,
-    provider: 'stripe',
-    providerCustomerRef: makeStripeCustomerRef(orgId),
-    providerSubscriptionRef: makeStripeSubscriptionRef(orgId),
-    planId,
-    planName,
-    status: 'ACTIVE',
-    cancelAtPeriodEnd: false,
-    currentPeriodStart,
-    currentPeriodEnd,
-    cancelAt: null,
-    canceledAt: null,
-    createdAt: currentPeriodStart,
-    updatedAt: currentPeriodStart,
-  };
-}
-
-function refreshSubscriptionLifecycle(subscription: BillingSubscription, now: Date): void {
-  if (subscription.status === 'CANCELED') return;
-  if (!subscription.cancelAtPeriodEnd) return;
-  const currentPeriodEndMs = Date.parse(subscription.currentPeriodEnd);
-  if (!Number.isFinite(currentPeriodEndMs)) return;
-  if (now.getTime() < currentPeriodEndMs) return;
-  const canceledAtIso = coerceIsoDate(new Date(currentPeriodEndMs));
-  subscription.status = 'CANCELED';
-  subscription.cancelAtPeriodEnd = false;
-  subscription.cancelAt = canceledAtIso;
-  subscription.canceledAt = canceledAtIso;
-  subscription.updatedAt = coerceIsoDate(now);
-}
-
-function makeMonthlyInvoice(orgId: string, monthUtc: string, now: Date): BillingInvoice {
+function makeUsageStatement(orgId: string, monthUtc: string, now: Date): BillingInvoice {
   return {
     id: `inv_${monthUtc.replace('-', '')}_001`,
     orgId,
+    documentType: 'USAGE_STATEMENT',
     status: 'OPEN',
     currency: 'USD',
-    amountDueMinor: DEFAULT_MONTHLY_PLAN_AMOUNT_MINOR,
+    amountDueMinor: 0,
     amountPaidMinor: 0,
-    railLock: null,
     periodMonthUtc: monthUtc,
     createdAt: coerceIsoDate(now),
     dueAt: coerceIsoDate(new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)),
@@ -336,20 +256,10 @@ function buildInvoiceLineItems(input: {
       orgId: input.orgId,
       invoiceId: input.invoiceId,
       periodMonthUtc: input.periodMonthUtc,
-      itemType: 'PLAN_BASE_FEE',
-      description: `Base platform fee (${input.periodMonthUtc})`,
-      quantity: 1,
-      unitAmountMinor: PLAN_BASE_FEE_MINOR,
-      createdAt: input.createdAt,
-    }),
-    makeInvoiceLineItem({
-      orgId: input.orgId,
-      invoiceId: input.invoiceId,
-      periodMonthUtc: input.periodMonthUtc,
-      itemType: 'MAW_USAGE',
+      itemType: 'MAW_USAGE_DEBIT',
       description: `Monthly Active Wallets (${input.periodMonthUtc})`,
       quantity: input.monthlyActiveWallets,
-      unitAmountMinor: PLAN_MAW_UNIT_PRICE_MINOR,
+      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
       createdAt: input.createdAt,
     }),
   ];
@@ -411,10 +321,12 @@ function filterInvoicesForList(
 ): BillingInvoice[] {
   const status = request?.status;
   const periodMonthUtc = String(request?.periodMonthUtc || '').trim();
+  const documentType = request?.documentType;
   return invoices.filter((invoice) => {
     if (status && invoice.status !== status) return false;
     if (request?.overdueOnly && !isInvoiceOverdueAt(invoice, now)) return false;
     if (periodMonthUtc && invoice.periodMonthUtc !== periodMonthUtc) return false;
+    if (documentType && invoice.documentType !== documentType) return false;
     return true;
   });
 }
@@ -426,6 +338,12 @@ function buildInvoiceListSummary(invoices: BillingInvoice[], now: Date): Billing
   const totalOutstandingAmountMinor = invoices.reduce((total, invoice) => {
     return total + Math.max(0, outstandingAmountMinor(invoice));
   }, 0);
+  const receiptCount = invoices.filter(
+    (invoice) => invoice.documentType === 'PURCHASE_RECEIPT',
+  ).length;
+  const statementCount = invoices.filter(
+    (invoice) => invoice.documentType === 'USAGE_STATEMENT',
+  ).length;
   return {
     totalCount: invoices.length,
     openCount,
@@ -433,24 +351,9 @@ function buildInvoiceListSummary(invoices: BillingInvoice[], now: Date): Billing
     paidCount,
     outstandingAmountMinor: totalOutstandingAmountMinor,
     latestPeriodMonthUtc: invoices[0]?.periodMonthUtc || null,
+    receiptCount,
+    statementCount,
   };
-}
-
-function buildPaymentTransitionSummary(
-  rail: InvoicePaymentRail,
-  toState: PaymentState,
-  paymentId: string,
-  reason: string | null,
-): string {
-  const railLabel = rail === 'CARD' ? 'Card payment' : 'Stablecoin payment';
-  const stateLabel = String(toState || '')
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, ' ');
-  const reasonText = reason
-    ? ` Reason: ${String(reason).trim().toLowerCase().replace(/_/g, ' ')}.`
-    : '';
-  return `${railLabel} ${paymentId} moved to ${stateLabel}.${reasonText}`;
 }
 
 function sumLineItemAmounts(lineItems: BillingInvoiceLineItem[]): number {
@@ -499,104 +402,6 @@ function requireAdminForCardActions(ctx: ConsoleBillingContext): void {
   );
 }
 
-function isTerminalPaymentState(state: PaymentState): boolean {
-  return TERMINAL_PAYMENT_STATES.has(state);
-}
-
-function isActivePaymentState(state: PaymentState): boolean {
-  return !isTerminalPaymentState(state);
-}
-
-function computeStablecoinReorgRiskWindowEndsAt(
-  settledAt: string | null,
-  reorgRiskWindowHours: number,
-): string | null {
-  if (!settledAt) return null;
-  const settledAtMs = Date.parse(settledAt);
-  if (!Number.isFinite(settledAtMs)) return null;
-  return coerceIsoDate(new Date(settledAtMs + reorgRiskWindowHours * 60 * 60 * 1000));
-}
-
-function refreshStablecoinRiskWindowState(intent: StablecoinPaymentIntent, now: Date): void {
-  intent.reorgRiskWindowEndsAt = computeStablecoinReorgRiskWindowEndsAt(
-    intent.settledAt,
-    intent.reorgRiskWindowHours,
-  );
-  if (!intent.reorgRiskWindowEndsAt) {
-    intent.withinReorgRiskWindow = false;
-    return;
-  }
-  const riskWindowEndsAtMs = Date.parse(intent.reorgRiskWindowEndsAt);
-  intent.withinReorgRiskWindow =
-    Number.isFinite(riskWindowEndsAtMs) && now.getTime() < riskWindowEndsAtMs;
-}
-
-function decideStablecoinReconcileTransition(input: {
-  currentState: PaymentState;
-  expectedAmountMinor: number;
-  observedAmountMinor: number;
-  observedConfirmations: number;
-  requiredConfirmations: number;
-  confirmationTimedOut: boolean;
-}): { targetState: PaymentState | null; reason: string | null } {
-  if (input.confirmationTimedOut) {
-    return { targetState: 'FAILED', reason: 'CONFIRMATION_TIMEOUT' };
-  }
-
-  const confirmationsMet = input.observedConfirmations >= input.requiredConfirmations;
-  if (!confirmationsMet) {
-    if (input.currentState === 'CONFIRMING') {
-      return { targetState: null, reason: null };
-    }
-    return { targetState: 'CONFIRMING', reason: 'confirmations_pending' };
-  }
-
-  if (input.observedAmountMinor <= 0) {
-    return { targetState: 'FAILED', reason: 'INVALID_OBSERVED_AMOUNT' };
-  }
-  if (input.observedAmountMinor < input.expectedAmountMinor) {
-    return { targetState: 'PARTIALLY_SETTLED', reason: 'underpaid' };
-  }
-  if (input.observedAmountMinor > input.expectedAmountMinor) {
-    return { targetState: 'OVERPAID', reason: 'overpaid' };
-  }
-  return { targetState: 'SETTLED', reason: 'amount_matched' };
-}
-
-function decideStripeReconcileTransition(input: {
-  currentState: PaymentState;
-  providerStatus: StripePaymentIntentReconcileRequest['providerStatus'];
-  expectedAmountMinor: number;
-  settledAmountMinor: number;
-}): { targetState: PaymentState | null; reason: string | null } {
-  if (input.providerStatus === 'ACTION_REQUIRED') {
-    if (input.currentState === 'ACTION_REQUIRED') return { targetState: null, reason: null };
-    return { targetState: 'ACTION_REQUIRED', reason: 'provider_action_required' };
-  }
-  if (input.providerStatus === 'PENDING') {
-    if (input.currentState === 'PENDING') return { targetState: null, reason: null };
-    return { targetState: 'PENDING', reason: 'provider_pending' };
-  }
-  if (input.providerStatus === 'FAILED') {
-    if (input.currentState === 'FAILED') return { targetState: null, reason: null };
-    return { targetState: 'FAILED', reason: 'provider_failed' };
-  }
-  if (input.providerStatus === 'CANCELED') {
-    if (input.currentState === 'CANCELED') return { targetState: null, reason: null };
-    return { targetState: 'CANCELED', reason: 'provider_canceled' };
-  }
-  if (input.settledAmountMinor <= 0) {
-    return { targetState: 'FAILED', reason: 'INVALID_SETTLED_AMOUNT' };
-  }
-  if (input.settledAmountMinor < input.expectedAmountMinor) {
-    return { targetState: 'PARTIALLY_SETTLED', reason: 'underpaid' };
-  }
-  if (input.settledAmountMinor > input.expectedAmountMinor) {
-    return { targetState: 'OVERPAID', reason: 'overpaid' };
-  }
-  return { targetState: 'SETTLED', reason: 'amount_matched' };
-}
-
 export function createInMemoryConsoleBillingService(
   options: InMemoryConsoleBillingServiceOptions = {},
 ): ConsoleBillingService {
@@ -607,10 +412,13 @@ export function createInMemoryConsoleBillingService(
   function ensureCurrentPeriodInvoice(store: OrgBillingStore, orgId: string, now: Date): void {
     const periodMonthUtc = formatCurrentMonthUtc(now);
     const exists = Array.from(store.invoices.values()).some(
-      (invoice) => invoice.periodMonthUtc === periodMonthUtc,
+      (invoice) =>
+        invoice.documentType === 'USAGE_STATEMENT' && invoice.periodMonthUtc === periodMonthUtc,
     );
     if (exists) return;
-    const invoice = makeMonthlyInvoice(orgId, periodMonthUtc, now);
+    const invoice = makeUsageStatement(orgId, periodMonthUtc, now);
+    invoice.status = 'PAID';
+    invoice.dueAt = null;
     store.invoices.set(invoice.id, invoice);
   }
 
@@ -622,19 +430,15 @@ export function createInMemoryConsoleBillingService(
     }
 
     const store: OrgBillingStore = {
-      planId: 'pro_maw_v1',
-      planName: 'Pro MAW',
-      subscription: makeInitialSubscription(orgId, 'pro_maw_v1', 'Pro MAW', nowFn()),
       monthlyActiveWallets: 0,
       creditBalanceMinor: 0,
+      lowBalanceThresholdMinor: DEFAULT_LOW_BALANCE_THRESHOLD_MINOR,
+      purchases: new Map(),
+      ledgerEntries: [],
       invoices: new Map(),
       invoiceLineItems: new Map(),
       paymentMethods: new Map(),
-      stripePaymentIntents: new Map(),
       stripeWebhookEventIds: new Set(),
-      stablecoinQuotes: new Map(),
-      stablecoinPaymentIntents: new Map(),
-      paymentStateTransitions: new Map(),
       usageEventSourceIds: new Set(),
       monthlyActiveWalletsByMonth: new Map(),
     };
@@ -643,49 +447,171 @@ export function createInMemoryConsoleBillingService(
     return store;
   }
 
-  function lockInvoiceRail(invoice: BillingInvoice, requestedRail: InvoicePaymentRail): void {
-    if (invoice.railLock && invoice.railLock !== requestedRail) {
-      throw new ConsoleBillingError(
-        'invoice_rail_locked',
-        409,
-        `Invoice ${invoice.id} is locked to ${invoice.railLock} and cannot use ${requestedRail}`,
-      );
-    }
-    invoice.railLock = requestedRail;
-  }
-
-  function ensureInvoiceOpen(invoice: BillingInvoice): void {
-    if (invoice.status !== 'OPEN') {
-      throw new ConsoleBillingError('invoice_not_open', 409, `Invoice ${invoice.id} is not open`);
-    }
-    if (outstandingAmountMinor(invoice) <= 0) {
-      throw new ConsoleBillingError(
-        'invoice_already_paid',
-        409,
-        `Invoice ${invoice.id} is already fully paid`,
-      );
-    }
-  }
-
-  function appendPaymentStateTransition(
+  function appendLedgerEntry(
     store: OrgBillingStore,
-    paymentId: string,
-    input: {
-      fromState: PaymentState | null;
-      toState: PaymentState;
-      changedAt: string;
-      actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
-      actorUserId: string | null;
-      sourceEventId?: string | null;
-      reason: string | null;
-    },
-  ): void {
-    const existing = store.paymentStateTransitions.get(paymentId) || [];
-    existing.push({
-      ...input,
-      sourceEventId: input.sourceEventId || null,
+    input: Omit<BillingLedgerEntry, 'id' | 'createdAt'> & { now: Date },
+  ): BillingLedgerEntry {
+    const entry: BillingLedgerEntry = {
+      id: makeId('ble', input.now),
+      orgId: input.orgId,
+      type: input.type,
+      amountMinor: input.amountMinor,
+      currency: 'USD',
+      description: input.description,
+      monthUtc: input.monthUtc,
+      relatedInvoiceId: input.relatedInvoiceId,
+      relatedPurchaseId: input.relatedPurchaseId,
+      sourceEventId: input.sourceEventId,
+      createdAt: coerceIsoDate(input.now),
+    };
+    store.ledgerEntries.push(entry);
+    return entry;
+  }
+
+  function getCurrentMonthUsageDebitMinor(store: OrgBillingStore, monthUtc: string): number {
+    return Math.abs(
+      store.ledgerEntries
+        .filter((entry) => entry.type === 'USAGE_DEBIT' && entry.monthUtc === monthUtc)
+        .reduce((total, entry) => total + entry.amountMinor, 0),
+    );
+  }
+
+  function getCurrentMonthPurchasedMinor(store: OrgBillingStore, monthUtc: string): number {
+    return store.ledgerEntries
+      .filter((entry) => entry.type === 'CREDIT_PURCHASE' && entry.monthUtc === monthUtc)
+      .reduce((total, entry) => total + entry.amountMinor, 0);
+  }
+
+  function ensureUsageStatement(
+    store: OrgBillingStore,
+    orgId: string,
+    monthUtc: string,
+    now: Date,
+  ): BillingInvoice {
+    const existing =
+      Array.from(store.invoices.values()).find(
+        (invoice) =>
+          invoice.documentType === 'USAGE_STATEMENT' && invoice.periodMonthUtc === monthUtc,
+      ) || null;
+    if (existing) return existing;
+    const created = makeUsageStatement(orgId, monthUtc, now);
+    created.status = 'PAID';
+    created.dueAt = null;
+    store.invoices.set(created.id, created);
+    return created;
+  }
+
+  function syncUsageStatement(
+    store: OrgBillingStore,
+    orgId: string,
+    monthUtc: string,
+    now: Date,
+  ): BillingInvoice {
+    const monthlyActiveWallets = getMonthlyActiveWalletCount(store, monthUtc);
+    const invoice = ensureUsageStatement(store, orgId, monthUtc, now);
+    const nextLineItems = buildInvoiceLineItems({
+      orgId,
+      invoiceId: invoice.id,
+      periodMonthUtc: monthUtc,
+      monthlyActiveWallets,
+      createdAt: coerceIsoDate(now),
     });
-    store.paymentStateTransitions.set(paymentId, existing);
+    const amountMinor = sumLineItemAmounts(nextLineItems);
+    invoice.amountDueMinor = amountMinor;
+    invoice.amountPaidMinor = amountMinor;
+    invoice.status = 'PAID';
+    invoice.dueAt = null;
+    store.invoices.set(invoice.id, invoice);
+    store.invoiceLineItems.set(invoice.id, nextLineItems);
+    return invoice;
+  }
+
+  function makePurchaseReceipt(
+    store: OrgBillingStore,
+    input: {
+      orgId: string;
+      purchaseId: string;
+      amountMinor: number;
+      creditPackId: BillingCreditPackId;
+      now: Date;
+    },
+  ): BillingInvoice {
+    const createdAt = coerceIsoDate(input.now);
+    const periodMonthUtc = formatCurrentMonthUtc(input.now);
+    const invoice: BillingInvoice = {
+      id: `receipt_${input.purchaseId}`,
+      orgId: input.orgId,
+      documentType: 'PURCHASE_RECEIPT',
+      status: 'PAID',
+      currency: 'USD',
+      amountDueMinor: input.amountMinor,
+      amountPaidMinor: input.amountMinor,
+      periodMonthUtc,
+      createdAt,
+      dueAt: null,
+    };
+    store.invoices.set(invoice.id, invoice);
+    store.invoiceLineItems.set(invoice.id, [
+      makeInvoiceLineItem({
+        orgId: input.orgId,
+        invoiceId: invoice.id,
+        periodMonthUtc,
+        itemType: 'CREDIT_TOP_UP',
+        description: `Prepaid credit top-up (${input.creditPackId})`,
+        quantity: 1,
+        unitAmountMinor: input.amountMinor,
+        createdAt,
+      }),
+    ]);
+    return invoice;
+  }
+
+  function settleCreditPurchase(
+    store: OrgBillingStore,
+    input: {
+      orgId: string;
+      purchaseId: string;
+      now: Date;
+    },
+  ): BillingCreditPurchase {
+    const purchase = store.purchases.get(input.purchaseId);
+    if (!purchase) {
+      throw new ConsoleBillingError(
+        'purchase_not_found',
+        404,
+        `Credit purchase ${input.purchaseId} was not found`,
+      );
+    }
+    if (purchase.status === 'SETTLED') return purchase;
+    const monthUtc = formatCurrentMonthUtc(input.now);
+    const receipt = makePurchaseReceipt(store, {
+      orgId: input.orgId,
+      purchaseId: purchase.id,
+      amountMinor: purchase.amountMinor,
+      creditPackId: purchase.creditPackId,
+      now: input.now,
+    });
+    appendLedgerEntry(store, {
+      now: input.now,
+      orgId: input.orgId,
+      type: 'CREDIT_PURCHASE',
+      amountMinor: purchase.amountMinor,
+      description: `Credit pack ${purchase.creditPackId} settled`,
+      monthUtc,
+      relatedInvoiceId: receipt.id,
+      relatedPurchaseId: purchase.id,
+      sourceEventId: purchase.providerCheckoutSessionRef,
+      currency: 'USD',
+    });
+    purchase.status = 'SETTLED';
+    purchase.relatedInvoiceId = receipt.id;
+    purchase.providerCustomerRef =
+      purchase.providerCustomerRef || makeStripeCustomerRef(input.orgId);
+    purchase.settledAt = coerceIsoDate(input.now);
+    purchase.updatedAt = coerceIsoDate(input.now);
+    store.creditBalanceMinor += purchase.amountMinor;
+    store.purchases.set(purchase.id, purchase);
+    return purchase;
   }
 
   function ensureMonthlyWalletSet(store: OrgBillingStore, monthUtc: string): Set<string> {
@@ -700,102 +626,74 @@ export function createInMemoryConsoleBillingService(
     return ensureMonthlyWalletSet(store, monthUtc).size;
   }
 
-  function markStablecoinIntentExpiredIfNeeded(
-    store: OrgBillingStore,
-    intent: StablecoinPaymentIntent,
-    now: Date,
-  ): void {
-    if (intent.state === 'EXPIRED') return;
-    const expiresAt = new Date(intent.expiresAt).getTime();
-    if (!Number.isFinite(expiresAt) || now.getTime() <= expiresAt) return;
-    const fromState = intent.state;
-    const transition = canTransitionPaymentState({
-      from: fromState,
-      to: 'EXPIRED',
-    });
-    if (transition.ok) {
-      intent.state = 'EXPIRED';
-      appendPaymentStateTransition(store, intent.id, {
-        fromState,
-        toState: 'EXPIRED',
-        changedAt: coerceIsoDate(now),
-        actorType: 'SYSTEM',
-        actorUserId: null,
-        reason: 'payment_intent_expired',
-      });
+  function resolveWebhookStore(request: StripeWebhookEventRequest): {
+    orgId: string;
+    store: OrgBillingStore;
+    purchase: BillingCreditPurchase | null;
+  } | null {
+    const requestedOrgId = String(request.orgId || '').trim();
+    const checkoutSessionRef = String(
+      request.checkoutSessionId || request.providerRef || '',
+    ).trim();
+    const providerCustomerRef = String(request.providerCustomerRef || '').trim();
+
+    if (requestedOrgId) {
+      const store = orgStores.get(requestedOrgId);
+      if (!store) return null;
+      const purchase =
+        Array.from(store.purchases.values()).find(
+          (entry) =>
+            (checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef) ||
+            (providerCustomerRef && entry.providerCustomerRef === providerCustomerRef),
+        ) || null;
+      return {
+        orgId: requestedOrgId,
+        store,
+        purchase,
+      };
     }
+
+    let match: {
+      orgId: string;
+      store: OrgBillingStore;
+      purchase: BillingCreditPurchase | null;
+    } | null = null;
+    for (const [orgId, store] of Array.from(orgStores.entries())) {
+      const purchase =
+        Array.from(store.purchases.values()).find(
+          (entry) =>
+            (checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef) ||
+            (providerCustomerRef && entry.providerCustomerRef === providerCustomerRef),
+        ) || null;
+      if (!purchase) continue;
+      if (match) {
+        throw new ConsoleBillingError(
+          'duplicate_provider_reference',
+          409,
+          `Stripe webhook event ${request.eventId} maps to multiple organizations`,
+        );
+      }
+      match = { orgId, store, purchase };
+    }
+    return match;
   }
 
   return {
-    async getSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      refreshSubscriptionLifecycle(store.subscription, now);
-      return store.subscription;
-    },
-
-    async cancelSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      refreshSubscriptionLifecycle(store.subscription, now);
-      if (store.subscription.status === 'CANCELED') {
-        throw new ConsoleBillingError(
-          'subscription_already_canceled',
-          409,
-          'Subscription is already canceled',
-        );
-      }
-      if (store.subscription.cancelAtPeriodEnd) {
-        return store.subscription;
-      }
-      store.subscription.cancelAtPeriodEnd = true;
-      store.subscription.cancelAt = store.subscription.currentPeriodEnd;
-      store.subscription.updatedAt = coerceIsoDate(now);
-      return store.subscription;
-    },
-
-    async resumeSubscription(ctx: ConsoleBillingContext): Promise<BillingSubscription> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      refreshSubscriptionLifecycle(store.subscription, now);
-      if (store.subscription.status === 'CANCELED') {
-        throw new ConsoleBillingError(
-          'subscription_not_resumable',
-          409,
-          'Subscription is already canceled and cannot be resumed',
-        );
-      }
-      if (!store.subscription.cancelAtPeriodEnd) {
-        return store.subscription;
-      }
-      store.subscription.cancelAtPeriodEnd = false;
-      store.subscription.cancelAt = null;
-      store.subscription.updatedAt = coerceIsoDate(now);
-      return store.subscription;
-    },
-
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
       const currentMonthUtc = formatCurrentMonthUtc(now);
       store.monthlyActiveWallets = getMonthlyActiveWalletCount(store, currentMonthUtc);
-      const openInvoices = Array.from(store.invoices.values()).filter(
-        (inv) => inv.status === 'OPEN',
-      );
-      const upcomingChargeEstimateMinor = openInvoices.reduce(
-        (acc, inv) => acc + outstandingAmountMinor(inv),
-        0,
-      );
 
       return {
-        planId: store.planId,
-        planName: store.planName,
         usageMetricVersion: 'maw_v1',
         currentMonthUtc,
         monthlyActiveWallets: store.monthlyActiveWallets,
         creditBalanceMinor: store.creditBalanceMinor,
-        upcomingChargeEstimateMinor,
-        openInvoiceCount: openInvoices.length,
+        lowBalanceThresholdMinor: store.lowBalanceThresholdMinor,
+        recentUsageDebitMinor: getCurrentMonthUsageDebitMinor(store, currentMonthUtc),
+        recentCreditPurchasedMinor: getCurrentMonthPurchasedMinor(store, currentMonthUtc),
+        documentCount: store.invoices.size,
       };
     },
 
@@ -832,6 +730,13 @@ export function createInMemoryConsoleBillingService(
           counted: false,
           monthUtc,
           monthlyActiveWallets: getMonthlyActiveWalletCount(store, monthUtc),
+          debitAppliedMinor: 0,
+          creditBalanceMinor: store.creditBalanceMinor,
+          statementId:
+            Array.from(store.invoices.values()).find(
+              (entry) =>
+                entry.documentType === 'USAGE_STATEMENT' && entry.periodMonthUtc === monthUtc,
+            )?.id || null,
         };
       }
 
@@ -848,11 +753,40 @@ export function createInMemoryConsoleBillingService(
       if (request.sourceEventId) {
         store.usageEventSourceIds.add(request.sourceEventId);
       }
+      let debitAppliedMinor = 0;
       if (counted) {
-        ensureMonthlyWalletSet(store, monthUtc).add(request.walletId);
+        const monthSet = ensureMonthlyWalletSet(store, monthUtc);
+        const alreadyCounted = monthSet.has(request.walletId);
+        monthSet.add(request.walletId);
+        if (!alreadyCounted) {
+          debitAppliedMinor = MAW_USAGE_DEBIT_MINOR;
+          store.creditBalanceMinor -= debitAppliedMinor;
+          appendLedgerEntry(store, {
+            now: new Date(occurredAtMs),
+            orgId: ctx.orgId,
+            type: 'USAGE_DEBIT',
+            amountMinor: -debitAppliedMinor,
+            currency: 'USD',
+            description: `MAW usage debit for wallet ${request.walletId}`,
+            monthUtc,
+            relatedInvoiceId: null,
+            relatedPurchaseId: null,
+            sourceEventId: request.sourceEventId || null,
+          });
+        }
       }
 
       const monthlyActiveWallets = getMonthlyActiveWalletCount(store, monthUtc);
+      const statement = syncUsageStatement(store, ctx.orgId, monthUtc, new Date(occurredAtMs));
+      for (const entry of store.ledgerEntries) {
+        if (
+          entry.type === 'USAGE_DEBIT' &&
+          entry.monthUtc === monthUtc &&
+          entry.relatedInvoiceId == null
+        ) {
+          entry.relatedInvoiceId = statement.id;
+        }
+      }
       if (monthUtc === formatCurrentMonthUtc(nowFn())) {
         store.monthlyActiveWallets = monthlyActiveWallets;
       }
@@ -861,6 +795,9 @@ export function createInMemoryConsoleBillingService(
         counted,
         monthUtc,
         monthlyActiveWallets,
+        debitAppliedMinor,
+        creditBalanceMinor: store.creditBalanceMinor,
+        statementId: statement.id,
       };
     },
 
@@ -921,70 +858,47 @@ export function createInMemoryConsoleBillingService(
       const entries: BillingInvoiceActivityEntry[] = [
         {
           id: `${invoice.id}:issued`,
-          type: 'INVOICE',
+          type: 'DOCUMENT',
           invoiceId: invoice.id,
-          paymentId: null,
-          rail: invoice.railLock,
           fromState: null,
-          toState: 'OPEN',
+          toState: invoice.status,
           occurredAt: invoice.createdAt,
           actorType: 'SYSTEM',
           actorUserId: null,
-          reason: 'invoice_created',
+          reason: 'document_created',
           sourceEventId: null,
-          summary: `Invoice ${invoice.id} issued for billing period ${invoice.periodMonthUtc}.`,
+          summary:
+            invoice.documentType === 'PURCHASE_RECEIPT'
+              ? `Receipt ${invoice.id} recorded for prepaid credit purchase.`
+              : `Usage statement ${invoice.id} recorded for billing period ${invoice.periodMonthUtc}.`,
         },
       ];
 
-      const paymentIntents: Array<{
-        id: string;
-        rail: InvoicePaymentRail;
-      }> = [
-        ...Array.from(store.stripePaymentIntents.values())
-          .filter((intent) => intent.invoiceId === invoice.id)
-          .map((intent) => ({ id: intent.id, rail: intent.rail })),
-        ...Array.from(store.stablecoinPaymentIntents.values())
-          .filter((intent) => intent.invoiceId === invoice.id)
-          .map((intent) => ({ id: intent.id, rail: intent.rail })),
-      ];
-
-      for (const payment of paymentIntents) {
-        const transitions = store.paymentStateTransitions.get(payment.id) || [];
-        transitions.forEach((transition, index) => {
+      store.ledgerEntries
+        .filter((entry) => entry.relatedInvoiceId === invoice.id)
+        .forEach((entry) => {
           entries.push({
-            id: `${payment.id}:${index}:${transition.toState}`,
-            type: 'PAYMENT',
+            id: `${entry.id}:${entry.type}`,
+            type: 'LEDGER',
             invoiceId: invoice.id,
-            paymentId: payment.id,
-            rail: payment.rail,
-            fromState: transition.fromState,
-            toState: transition.toState,
-            occurredAt: transition.changedAt,
-            actorType: transition.actorType,
-            actorUserId: transition.actorUserId,
-            reason: transition.reason,
-            sourceEventId: transition.sourceEventId,
-            summary: buildPaymentTransitionSummary(
-              payment.rail,
-              transition.toState,
-              payment.id,
-              transition.reason,
-            ),
+            fromState: null,
+            toState: entry.type,
+            occurredAt: entry.createdAt,
+            actorType: 'SYSTEM',
+            actorUserId: null,
+            reason: entry.type.toLowerCase(),
+            sourceEventId: entry.sourceEventId,
+            summary: entry.description,
           });
         });
-      }
 
-      const sortedEntries = [...entries].sort((left, right) => {
-        const tsDiff = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
-        if (tsDiff !== 0) return tsDiff;
-        return right.id.localeCompare(left.id);
-      });
-      const latestPaymentEntry = sortedEntries.find((entry) => entry.type === 'PAYMENT') || null;
       return {
         invoice,
-        latestPaymentState: latestPaymentEntry?.toState || null,
-        latestPaymentRail: latestPaymentEntry?.rail || null,
-        entries: sortedEntries,
+        entries: [...entries].sort((left, right) => {
+          const tsDiff = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
+          if (tsDiff !== 0) return tsDiff;
+          return right.id.localeCompare(left.id);
+        }),
       };
     },
 
@@ -1010,11 +924,12 @@ export function createInMemoryConsoleBillingService(
 
       let invoice =
         Array.from(store.invoices.values()).find(
-          (item) => item.periodMonthUtc === periodMonthUtc,
+          (item) =>
+            item.documentType === 'USAGE_STATEMENT' && item.periodMonthUtc === periodMonthUtc,
         ) || null;
       const created = !invoice;
       if (!invoice) {
-        invoice = makeMonthlyInvoice(ctx.orgId, periodMonthUtc, now);
+        invoice = makeUsageStatement(ctx.orgId, periodMonthUtc, now);
       }
       if (invoice.status === 'VOID' || invoice.status === 'UNCOLLECTIBLE') {
         throw new ConsoleBillingError(
@@ -1040,7 +955,9 @@ export function createInMemoryConsoleBillingService(
         lineItemsEquivalent(previousLineItems, nextLineItems);
 
       invoice.amountDueMinor = nextAmountDueMinor;
-      invoice.status = invoice.amountPaidMinor >= invoice.amountDueMinor ? 'PAID' : 'OPEN';
+      invoice.amountPaidMinor = nextAmountDueMinor;
+      invoice.status = 'PAID';
+      invoice.dueAt = null;
       store.invoices.set(invoice.id, invoice);
       store.invoiceLineItems.set(invoice.id, nextLineItems);
 
@@ -1050,8 +967,7 @@ export function createInMemoryConsoleBillingService(
         lineItems: sortLineItems(nextLineItems),
         monthlyActiveWallets,
         pricing: {
-          baseFeeMinor: PLAN_BASE_FEE_MINOR,
-          mawUnitPriceMinor: PLAN_MAW_UNIT_PRICE_MINOR,
+          mawUnitPriceMinor: MAW_USAGE_DEBIT_MINOR,
         },
       };
     },
@@ -1163,12 +1079,14 @@ export function createInMemoryConsoleBillingService(
       request: StripeCheckoutSessionRequest,
     ): Promise<StripeCheckoutSession> {
       const now = nowFn();
-      ensureOrgStore(ctx.orgId);
+      const store = ensureOrgStore(ctx.orgId);
+      const pack = getCreditPackOrThrow(request.creditPackId);
       const providerCheckoutSession = await providers.stripe.createCheckoutSession({
         orgId: ctx.orgId,
         successUrl: request.successUrl,
         cancelUrl: request.cancelUrl,
-        planId: request.planId,
+        creditPackId: request.creditPackId,
+        amountMinor: pack.amountMinor,
         now,
       });
       const id = String(providerCheckoutSession.id || '').trim();
@@ -1182,10 +1100,28 @@ export function createInMemoryConsoleBillingService(
           'Stripe checkout-session provider returned invalid payload',
         );
       }
+      const purchase: BillingCreditPurchase = {
+        id: makeId('bcp', now),
+        orgId: ctx.orgId,
+        creditPackId: request.creditPackId,
+        status: 'PENDING',
+        amountMinor: pack.amountMinor,
+        currency: 'USD',
+        provider: 'stripe',
+        providerCheckoutSessionRef: id,
+        providerCustomerRef: customerRef,
+        relatedInvoiceId: null,
+        settledAt: null,
+        createdAt: coerceIsoDate(now),
+        updatedAt: coerceIsoDate(now),
+      };
+      store.purchases.set(purchase.id, purchase);
       return {
         id,
         url,
         customerRef,
+        creditPackId: request.creditPackId,
+        amountMinor: pack.amountMinor,
         expiresAt,
       };
     },
@@ -1220,704 +1156,77 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
-    async createStripePaymentIntent(
-      ctx: ConsoleBillingContext,
-      request: StripePaymentIntentRequest,
-    ): Promise<StripePaymentIntent> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      const invoice = store.invoices.get(request.invoiceId);
-      if (!invoice) {
-        throw new ConsoleBillingError(
-          'invoice_not_found',
-          404,
-          `Invoice ${request.invoiceId} was not found`,
-        );
-      }
-
-      ensureInvoiceOpen(invoice);
-      lockInvoiceRail(invoice, 'CARD');
-      const activeIntent = Array.from(store.stripePaymentIntents.values()).find(
-        (intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state),
-      );
-      if (activeIntent) {
-        throw new ConsoleBillingError(
-          'active_payment_intent_exists',
-          409,
-          `Invoice ${invoice.id} already has an active card payment intent (${activeIntent.id})`,
-        );
-      }
-
-      const paymentMethod = request.paymentMethodId
-        ? store.paymentMethods.get(request.paymentMethodId)
-        : Array.from(store.paymentMethods.values()).find((method) => method.isDefault) || null;
-
-      if (request.paymentMethodId && !paymentMethod) {
-        throw new ConsoleBillingError(
-          'payment_method_not_found',
-          404,
-          `Payment method ${request.paymentMethodId} was not found`,
-        );
-      }
-
-      const id = makeId('pi', now);
-      const amountMinor = outstandingAmountMinor(invoice);
-      const providerPaymentIntent = await providers.stripe.createPaymentIntent({
-        orgId: ctx.orgId,
-        invoiceId: invoice.id,
-        amountMinor,
-        currency: 'USD',
-        paymentMethodProviderRef: paymentMethod?.providerRef || null,
-        now,
-      });
-      const providerRef = String(providerPaymentIntent.providerRef || '').trim();
-      const clientSecret = String(providerPaymentIntent.clientSecret || '').trim();
-      if (!providerRef || !clientSecret) {
-        throw new ConsoleBillingError(
-          'payment_provider_error',
-          500,
-          'Stripe payment-intent provider returned invalid payload',
-        );
-      }
-      const intent: StripePaymentIntent = {
-        id,
-        providerRef,
-        invoiceId: invoice.id,
-        amountMinor,
-        currency: 'USD',
-        paymentMethodId: paymentMethod?.id || null,
-        state: 'CREATED',
-        clientSecret,
-        createdAt: coerceIsoDate(now),
-        rail: 'CARD',
-      };
-      store.stripePaymentIntents.set(intent.id, intent);
-      appendPaymentStateTransition(store, intent.id, {
-        fromState: null,
-        toState: intent.state,
-        changedAt: coerceIsoDate(now),
-        actorType: 'USER',
-        actorUserId: ctx.actorUserId,
-        reason: 'payment_intent_created',
-      });
-      store.invoices.set(invoice.id, invoice);
-      return intent;
-    },
-
-    async reconcileStripePaymentIntent(
-      ctx: ConsoleBillingContext,
-      paymentIntentId: string,
-      request: StripePaymentIntentReconcileRequest,
-    ): Promise<StripePaymentIntent | null> {
-      const store = ensureOrgStore(ctx.orgId);
-      const intent = store.stripePaymentIntents.get(paymentIntentId);
-      if (!intent) return null;
-      if (isTerminalPaymentState(intent.state)) return intent;
-
-      const settledAmountMinor = request.settledAmountMinor ?? intent.amountMinor;
-      if (settledAmountMinor < 0) {
-        throw new ConsoleBillingError(
-          'invalid_reconciliation_request',
-          400,
-          'settledAmountMinor must be >= 0',
-        );
-      }
-
-      const decision = decideStripeReconcileTransition({
-        currentState: intent.state,
-        providerStatus: request.providerStatus,
-        expectedAmountMinor: intent.amountMinor,
-        settledAmountMinor,
-      });
-      if (!decision.targetState) return intent;
-
-      let effectiveFromState = intent.state;
-      if (effectiveFromState === 'CREATED' && SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
-        const toPending = canTransitionPaymentState({
-          from: effectiveFromState,
-          to: 'PENDING',
-        });
-        if (!toPending.ok) {
-          throw new ConsoleBillingError('invalid_payment_state', 409, toPending.message, {
-            fromState: effectiveFromState,
-            toState: 'PENDING',
-          });
-        }
-        intent.state = 'PENDING';
-        store.stripePaymentIntents.set(intent.id, intent);
-        appendPaymentStateTransition(store, intent.id, {
-          fromState: effectiveFromState,
-          toState: 'PENDING',
-          changedAt: coerceIsoDate(nowFn()),
-          actorType: 'PROVIDER',
-          actorUserId: null,
-          sourceEventId: request.sourceEventId || null,
-          reason: 'provider_pending_implied',
-        });
-        effectiveFromState = 'PENDING';
-      }
-
-      const transition = canTransitionPaymentState({
-        from: effectiveFromState,
-        to: decision.targetState,
-      });
-      if (!transition.ok) {
-        throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
-          fromState: effectiveFromState,
-          toState: decision.targetState,
-        });
-      }
-
-      const fromState = effectiveFromState;
-      intent.state = decision.targetState;
-      store.stripePaymentIntents.set(intent.id, intent);
-      appendPaymentStateTransition(store, intent.id, {
-        fromState,
-        toState: decision.targetState,
-        changedAt: coerceIsoDate(nowFn()),
-        actorType: 'PROVIDER',
-        actorUserId: null,
-        sourceEventId: request.sourceEventId || null,
-        reason: decision.reason,
-      });
-
-      if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
-        const invoice = store.invoices.get(intent.invoiceId);
-        if (invoice) {
-          invoice.amountPaidMinor += settledAmountMinor;
-          if (invoice.amountPaidMinor >= invoice.amountDueMinor) {
-            invoice.status = 'PAID';
-          }
-          store.invoices.set(invoice.id, invoice);
-        }
-      }
-
-      return intent;
-    },
-
     async processStripeWebhookEvent(
       request: StripeWebhookEventRequest,
     ): Promise<StripeWebhookEventResult> {
-      const now = nowFn();
-      const eventType = String(request.eventType || '')
-        .trim()
-        .toLowerCase();
-      const paymentIntentProjection = !eventType || eventType.startsWith('payment_intent.');
-
-      let matchedOrgId: string | null = null;
-      let matchedStore: OrgBillingStore | null = null;
-      let matchedIntent: StripePaymentIntent | null = null;
-
-      if (paymentIntentProjection) {
-        const providerRef = String(request.providerRef || '').trim();
-        for (const [orgId, store] of Array.from(orgStores.entries())) {
-          const candidate = Array.from(store.stripePaymentIntents.values()).find(
-            (intent) => intent.providerRef === providerRef,
-          );
-          if (!candidate) continue;
-          if (matchedIntent) {
-            throw new ConsoleBillingError(
-              'duplicate_provider_reference',
-              409,
-              `Stripe provider reference ${providerRef} matches multiple payment intents`,
-            );
-          }
-          matchedOrgId = orgId;
-          matchedStore = store;
-          matchedIntent = candidate;
-        }
-      } else {
-        const resolverMatches: Array<{ orgId: string; store: OrgBillingStore }> = [];
-        const byOrgId = String(request.orgId || '').trim();
-        if (byOrgId) {
-          const store = orgStores.get(byOrgId);
-          if (store) resolverMatches.push({ orgId: byOrgId, store });
-        }
-
-        const bySubscriptionRef = String(request.providerSubscriptionRef || '').trim();
-        const byCustomerRef = String(request.providerCustomerRef || '').trim();
-        const byInvoiceId = String(request.invoiceId || '').trim();
-        const byProviderRef = String(request.providerRef || '').trim();
-
-        for (const [orgId, store] of Array.from(orgStores.entries())) {
-          if (resolverMatches.some((entry) => entry.orgId === orgId)) continue;
-          const subscription = store.subscription;
-          const subscriptionMatch =
-            (bySubscriptionRef && subscription.providerSubscriptionRef === bySubscriptionRef) ||
-            (byCustomerRef && subscription.providerCustomerRef === byCustomerRef) ||
-            (byProviderRef &&
-              (subscription.providerSubscriptionRef === byProviderRef ||
-                subscription.providerCustomerRef === byProviderRef));
-          const invoiceMatch = byInvoiceId ? store.invoices.has(byInvoiceId) : false;
-          if (subscriptionMatch || invoiceMatch) {
-            resolverMatches.push({ orgId, store });
-          }
-        }
-
-        if (resolverMatches.length > 1) {
-          throw new ConsoleBillingError(
-            'duplicate_provider_reference',
-            409,
-            `Stripe webhook event ${request.eventId} maps to multiple organizations`,
-          );
-        }
-        if (resolverMatches.length === 1) {
-          matchedOrgId = resolverMatches[0].orgId;
-          matchedStore = resolverMatches[0].store;
-        }
-      }
-
-      if (!matchedOrgId || !matchedStore) {
+      const eventType = String(request.eventType || 'checkout.session.completed').trim();
+      if (eventType !== 'checkout.session.completed') {
         return {
           accepted: true,
-          paymentIntent: null,
-          subscription: null,
+          purchase: null,
           invoice: null,
           orgId: null,
         };
       }
 
-      refreshSubscriptionLifecycle(matchedStore.subscription, now);
-
-      if (matchedStore.stripeWebhookEventIds.has(request.eventId)) {
+      const now = nowFn();
+      const resolved = resolveWebhookStore(request);
+      if (!resolved) {
         return {
-          accepted: false,
-          paymentIntent: matchedIntent,
-          subscription: matchedStore.subscription,
-          invoice: request.invoiceId ? matchedStore.invoices.get(request.invoiceId) || null : null,
-          orgId: matchedOrgId,
+          accepted: true,
+          purchase: null,
+          invoice: null,
+          orgId: null,
         };
       }
 
-      let reconciled: StripePaymentIntent | null = matchedIntent;
-      let projectedSubscription: BillingSubscription | null = matchedStore.subscription;
-      let projectedInvoice: BillingInvoice | null = request.invoiceId
-        ? matchedStore.invoices.get(request.invoiceId) || null
+      const { orgId, store } = resolved;
+      const checkoutSessionRef = String(
+        request.checkoutSessionId || request.providerRef || '',
+      ).trim();
+      const providerCustomerRef = String(request.providerCustomerRef || '').trim();
+      const matchedPurchase =
+        resolved.purchase ||
+        Array.from(store.purchases.values()).find(
+          (entry) =>
+            (checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef) ||
+            (providerCustomerRef && entry.providerCustomerRef === providerCustomerRef),
+        ) ||
+        null;
+
+      const projectedInvoice = matchedPurchase?.relatedInvoiceId
+        ? store.invoices.get(matchedPurchase.relatedInvoiceId) || null
         : null;
 
-      if (paymentIntentProjection) {
-        if (!matchedIntent || !request.providerStatus) {
-          return {
-            accepted: true,
-            paymentIntent: null,
-            subscription: projectedSubscription,
-            invoice: projectedInvoice,
-            orgId: matchedOrgId,
-          };
-        }
-        reconciled = await this.reconcileStripePaymentIntent(
-          {
-            orgId: matchedOrgId,
-            actorUserId: 'system-stripe-webhook',
-            roles: ['ops'],
-          },
-          matchedIntent.id,
-          {
-            providerStatus: request.providerStatus,
-            settledAmountMinor: request.settledAmountMinor,
-            sourceEventId: request.eventId,
-          },
-        );
-      } else {
-        if (
-          eventType === 'checkout.session.completed' ||
-          eventType.startsWith('customer.subscription.')
-        ) {
-          if (request.providerCustomerRef !== undefined) {
-            matchedStore.subscription.providerCustomerRef = request.providerCustomerRef || null;
-          }
-          if (request.providerSubscriptionRef !== undefined) {
-            matchedStore.subscription.providerSubscriptionRef =
-              request.providerSubscriptionRef || null;
-          }
-          if (request.planId) matchedStore.subscription.planId = request.planId;
-          if (request.planName) matchedStore.subscription.planName = request.planName;
-          if (request.currentPeriodStart) {
-            matchedStore.subscription.currentPeriodStart = request.currentPeriodStart;
-          }
-          if (request.currentPeriodEnd) {
-            matchedStore.subscription.currentPeriodEnd = request.currentPeriodEnd;
-          }
-          if (request.subscriptionStatus) {
-            matchedStore.subscription.status = request.subscriptionStatus;
-          } else if (eventType === 'checkout.session.completed') {
-            matchedStore.subscription.status = 'ACTIVE';
-          }
-          if (request.cancelAtPeriodEnd !== undefined) {
-            matchedStore.subscription.cancelAtPeriodEnd = request.cancelAtPeriodEnd;
-          }
-          if (request.cancelAt !== undefined) {
-            matchedStore.subscription.cancelAt = request.cancelAt;
-          } else if (!matchedStore.subscription.cancelAtPeriodEnd) {
-            matchedStore.subscription.cancelAt = null;
-          }
-          if (request.canceledAt !== undefined) {
-            matchedStore.subscription.canceledAt = request.canceledAt;
-          }
-          if (
-            matchedStore.subscription.status === 'CANCELED' &&
-            !matchedStore.subscription.canceledAt
-          ) {
-            matchedStore.subscription.canceledAt = coerceIsoDate(now);
-          }
-          matchedStore.subscription.updatedAt = coerceIsoDate(now);
-          projectedSubscription = matchedStore.subscription;
-        }
-
-        if (eventType.startsWith('invoice.') && request.invoiceId) {
-          const invoice = matchedStore.invoices.get(request.invoiceId) || null;
-          if (invoice) {
-            if (request.invoiceAmountDueMinor !== undefined) {
-              invoice.amountDueMinor = request.invoiceAmountDueMinor;
-            }
-            if (request.invoiceAmountPaidMinor !== undefined) {
-              invoice.amountPaidMinor = request.invoiceAmountPaidMinor;
-            }
-            if (request.invoiceStatus) {
-              invoice.status = request.invoiceStatus;
-            } else if (invoice.amountPaidMinor >= invoice.amountDueMinor) {
-              invoice.status = 'PAID';
-            }
-            matchedStore.invoices.set(invoice.id, invoice);
-            projectedInvoice = invoice;
-          } else {
-            projectedInvoice = null;
-          }
-        }
+      if (store.stripeWebhookEventIds.has(request.eventId)) {
+        return {
+          accepted: false,
+          purchase: matchedPurchase,
+          invoice: projectedInvoice,
+          orgId,
+        };
       }
 
-      matchedStore.stripeWebhookEventIds.add(request.eventId);
+      let purchase: BillingCreditPurchase | null = matchedPurchase;
+      let invoice = projectedInvoice;
+      if (matchedPurchase) {
+        purchase = settleCreditPurchase(store, {
+          orgId,
+          purchaseId: matchedPurchase.id,
+          now,
+        });
+        invoice = purchase.relatedInvoiceId
+          ? store.invoices.get(purchase.relatedInvoiceId) || null
+          : null;
+      }
+
+      store.stripeWebhookEventIds.add(request.eventId);
       return {
         accepted: true,
-        paymentIntent: reconciled,
-        subscription: projectedSubscription,
-        invoice: projectedInvoice,
-        orgId: matchedOrgId,
+        purchase,
+        invoice,
+        orgId,
       };
-    },
-
-    async createStablecoinQuote(
-      ctx: ConsoleBillingContext,
-      request: StablecoinQuoteRequest,
-    ): Promise<StablecoinPaymentQuote> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      const invoice = store.invoices.get(request.invoiceId);
-      if (!invoice) {
-        throw new ConsoleBillingError(
-          'invoice_not_found',
-          404,
-          `Invoice ${request.invoiceId} was not found`,
-        );
-      }
-      ensureInvoiceOpen(invoice);
-
-      const quote: StablecoinPaymentQuote = {
-        id: makeId('scq', now),
-        orgId: ctx.orgId,
-        invoiceId: invoice.id,
-        asset: request.asset,
-        chain: request.chain,
-        amountMinor: outstandingAmountMinor(invoice),
-        createdAt: coerceIsoDate(now),
-        expiresAt: coerceIsoDate(new Date(now.getTime() + 15 * 60 * 1000)),
-        state: 'OPEN',
-      };
-      store.stablecoinQuotes.set(quote.id, quote);
-      return quote;
-    },
-
-    async createStablecoinPaymentIntent(
-      ctx: ConsoleBillingContext,
-      request: StablecoinPaymentIntentRequest,
-    ): Promise<StablecoinPaymentIntent> {
-      const now = nowFn();
-      const store = ensureOrgStore(ctx.orgId);
-      const invoice = store.invoices.get(request.invoiceId);
-      if (!invoice) {
-        throw new ConsoleBillingError(
-          'invoice_not_found',
-          404,
-          `Invoice ${request.invoiceId} was not found`,
-        );
-      }
-      ensureInvoiceOpen(invoice);
-
-      const quote = store.stablecoinQuotes.get(request.quoteId);
-      if (!quote || quote.orgId !== ctx.orgId) {
-        throw new ConsoleBillingError(
-          'quote_not_found',
-          404,
-          `Stablecoin quote ${request.quoteId} was not found`,
-        );
-      }
-      if (quote.invoiceId !== invoice.id) {
-        throw new ConsoleBillingError(
-          'quote_invoice_mismatch',
-          409,
-          'Quote does not belong to the specified invoice',
-        );
-      }
-
-      for (const existingIntent of Array.from(store.stablecoinPaymentIntents.values())) {
-        if (existingIntent.invoiceId !== invoice.id) continue;
-        markStablecoinIntentExpiredIfNeeded(store, existingIntent, now);
-        refreshStablecoinRiskWindowState(existingIntent, now);
-        store.stablecoinPaymentIntents.set(existingIntent.id, existingIntent);
-      }
-      const activeIntent = Array.from(store.stablecoinPaymentIntents.values()).find(
-        (intent) => intent.invoiceId === invoice.id && isActivePaymentState(intent.state),
-      );
-      if (activeIntent) {
-        throw new ConsoleBillingError(
-          'active_payment_intent_exists',
-          409,
-          `Invoice ${invoice.id} already has an active stablecoin payment intent (${activeIntent.id})`,
-        );
-      }
-      const consumedIntent = Array.from(store.stablecoinPaymentIntents.values()).find(
-        (intent) => intent.quoteId === quote.id,
-      );
-      if (consumedIntent) {
-        throw new ConsoleBillingError(
-          'quote_already_consumed',
-          409,
-          `Stablecoin quote ${quote.id} has already been used by payment intent ${consumedIntent.id}`,
-        );
-      }
-
-      const quoteExpires = new Date(quote.expiresAt).getTime();
-      if (!Number.isFinite(quoteExpires) || now.getTime() > quoteExpires) {
-        quote.state = 'EXPIRED';
-        store.stablecoinQuotes.set(quote.id, quote);
-        throw new ConsoleBillingError(
-          'quote_expired',
-          409,
-          `Stablecoin quote ${quote.id} has expired`,
-        );
-      }
-      const outstandingMinor = outstandingAmountMinor(invoice);
-      if (quote.amountMinor !== outstandingMinor) {
-        throw new ConsoleBillingError(
-          'quote_amount_mismatch',
-          409,
-          `Stablecoin quote ${quote.id} amount no longer matches invoice ${invoice.id} outstanding balance`,
-          {
-            quoteAmountMinor: quote.amountMinor,
-            outstandingAmountMinor: outstandingMinor,
-          },
-        );
-      }
-
-      lockInvoiceRail(invoice, 'STABLECOIN');
-
-      const policy = getChainFinalityPolicy(quote.chain);
-      if (!policy) {
-        throw new ConsoleBillingError(
-          'unsupported_chain',
-          400,
-          `Unsupported stablecoin settlement chain: ${quote.chain}`,
-        );
-      }
-
-      const intent: StablecoinPaymentIntent = {
-        id: makeId('scpi', now),
-        orgId: ctx.orgId,
-        invoiceId: invoice.id,
-        quoteId: quote.id,
-        asset: quote.asset,
-        chain: quote.chain,
-        expectedAmountMinor: quote.amountMinor,
-        destinationAddress: '',
-        state: 'PENDING',
-        rail: 'STABLECOIN',
-        requiredConfirmations: policy.requiredConfirmations,
-        confirmationTimeoutMinutes: policy.confirmationTimeoutMinutes,
-        reorgRiskWindowHours: policy.reorgRiskWindowHours,
-        settledAt: null,
-        reorgRiskWindowEndsAt: null,
-        withinReorgRiskWindow: false,
-        createdAt: coerceIsoDate(now),
-        expiresAt: quote.expiresAt,
-      };
-      const destination = await providers.stablecoin.allocateDestination({
-        orgId: ctx.orgId,
-        chain: quote.chain,
-        asset: quote.asset,
-        now,
-      });
-      intent.destinationAddress = String(destination.destinationAddress || '').trim();
-      if (!intent.destinationAddress) {
-        throw new ConsoleBillingError(
-          'payment_provider_error',
-          500,
-          'Stablecoin destination provider returned invalid payload',
-        );
-      }
-
-      store.stablecoinPaymentIntents.set(intent.id, intent);
-      appendPaymentStateTransition(store, intent.id, {
-        fromState: null,
-        toState: intent.state,
-        changedAt: coerceIsoDate(now),
-        actorType: 'USER',
-        actorUserId: ctx.actorUserId,
-        reason: 'payment_intent_created',
-      });
-      store.invoices.set(invoice.id, invoice);
-      return intent;
-    },
-
-    async getStablecoinPaymentIntent(
-      ctx: ConsoleBillingContext,
-      paymentIntentId: string,
-    ): Promise<StablecoinPaymentIntent | null> {
-      const store = ensureOrgStore(ctx.orgId);
-      const intent = store.stablecoinPaymentIntents.get(paymentIntentId);
-      if (!intent) return null;
-
-      const now = nowFn();
-      markStablecoinIntentExpiredIfNeeded(store, intent, now);
-      refreshStablecoinRiskWindowState(intent, now);
-      store.stablecoinPaymentIntents.set(intent.id, intent);
-      return intent;
-    },
-
-    async cancelStablecoinPaymentIntent(
-      ctx: ConsoleBillingContext,
-      paymentIntentId: string,
-    ): Promise<StablecoinPaymentIntent | null> {
-      const store = ensureOrgStore(ctx.orgId);
-      const intent = store.stablecoinPaymentIntents.get(paymentIntentId);
-      if (!intent) return null;
-      const now = nowFn();
-      markStablecoinIntentExpiredIfNeeded(store, intent, now);
-      refreshStablecoinRiskWindowState(intent, now);
-      if (intent.state === 'EXPIRED') {
-        store.stablecoinPaymentIntents.set(intent.id, intent);
-        return intent;
-      }
-
-      const transition = canTransitionPaymentState({
-        from: intent.state,
-        to: 'CANCELED',
-      });
-      if (!transition.ok) {
-        throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
-          fromState: intent.state,
-          toState: 'CANCELED',
-        });
-      }
-
-      const fromState = intent.state;
-      intent.state = 'CANCELED';
-      store.stablecoinPaymentIntents.set(intent.id, intent);
-      appendPaymentStateTransition(store, intent.id, {
-        fromState,
-        toState: 'CANCELED',
-        changedAt: coerceIsoDate(now),
-        actorType: 'USER',
-        actorUserId: ctx.actorUserId,
-        reason: 'payment_intent_canceled',
-      });
-      refreshStablecoinRiskWindowState(intent, now);
-      return intent;
-    },
-
-    async reconcileStablecoinPaymentIntent(
-      ctx: ConsoleBillingContext,
-      paymentIntentId: string,
-      request: StablecoinPaymentIntentReconcileRequest,
-    ): Promise<StablecoinPaymentIntent | null> {
-      if (request.observedAmountMinor < 0 || request.observedConfirmations < 0) {
-        throw new ConsoleBillingError(
-          'invalid_reconciliation_request',
-          400,
-          'Observed amount and confirmations must be non-negative',
-        );
-      }
-      const store = ensureOrgStore(ctx.orgId);
-      const intent = store.stablecoinPaymentIntents.get(paymentIntentId);
-      if (!intent) return null;
-      const now = nowFn();
-      markStablecoinIntentExpiredIfNeeded(store, intent, now);
-      refreshStablecoinRiskWindowState(intent, now);
-      if (intent.state === 'EXPIRED') {
-        store.stablecoinPaymentIntents.set(intent.id, intent);
-        return intent;
-      }
-
-      if (isTerminalPaymentState(intent.state)) return intent;
-
-      const decision = decideStablecoinReconcileTransition({
-        currentState: intent.state,
-        expectedAmountMinor: intent.expectedAmountMinor,
-        observedAmountMinor: request.observedAmountMinor,
-        observedConfirmations: request.observedConfirmations,
-        requiredConfirmations: intent.requiredConfirmations,
-        confirmationTimedOut: Boolean(request.confirmationTimedOut),
-      });
-      if (!decision.targetState) return intent;
-
-      if (
-        SETTLEMENT_OUTCOME_STATES.has(decision.targetState) &&
-        request.observedConfirmations < intent.requiredConfirmations
-      ) {
-        throw new ConsoleBillingError(
-          'invalid_payment_state',
-          409,
-          'Cannot settle payment before chain confirmation threshold is met',
-          {
-            fromState: intent.state,
-            toState: decision.targetState,
-          },
-        );
-      }
-
-      const transition = canTransitionPaymentState({
-        from: intent.state,
-        to: decision.targetState,
-        observedConfirmations: request.observedConfirmations,
-        requiredConfirmations: intent.requiredConfirmations,
-        confirmationTimedOut: Boolean(request.confirmationTimedOut),
-      });
-      if (!transition.ok) {
-        throw new ConsoleBillingError('invalid_payment_state', 409, transition.message, {
-          fromState: intent.state,
-          toState: decision.targetState,
-        });
-      }
-
-      const fromState = intent.state;
-      intent.state = decision.targetState;
-      if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState) && !intent.settledAt) {
-        intent.settledAt = coerceIsoDate(now);
-      }
-      refreshStablecoinRiskWindowState(intent, now);
-      store.stablecoinPaymentIntents.set(intent.id, intent);
-      appendPaymentStateTransition(store, intent.id, {
-        fromState,
-        toState: decision.targetState,
-        changedAt: coerceIsoDate(now),
-        actorType: 'SYSTEM',
-        actorUserId: null,
-        sourceEventId: request.sourceEventId || null,
-        reason: decision.reason,
-      });
-
-      if (SETTLEMENT_OUTCOME_STATES.has(decision.targetState)) {
-        const invoice = store.invoices.get(intent.invoiceId);
-        if (invoice) {
-          invoice.amountPaidMinor += request.observedAmountMinor;
-          if (invoice.amountPaidMinor >= invoice.amountDueMinor) {
-            invoice.status = 'PAID';
-          }
-          store.invoices.set(invoice.id, invoice);
-        }
-      }
-
-      refreshStablecoinRiskWindowState(intent, now);
-      return intent;
     },
   };
 }

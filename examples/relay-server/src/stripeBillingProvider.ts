@@ -22,7 +22,6 @@ interface StripeBillingProviderOptions {
   secretKey: string;
   apiBaseUrl?: string;
   requestTimeoutMs?: number;
-  defaultCheckoutPriceId?: string;
 }
 
 function normalizeString(value: unknown): string {
@@ -36,7 +35,11 @@ function toPositiveInteger(value: unknown, fallback: number): number {
   return intValue > 0 ? intValue : fallback;
 }
 
-function resolveExpiresAt(input: { now: Date; stripeUnixSeconds?: unknown; fallbackMinutes: number }): string {
+function resolveExpiresAt(input: {
+  now: Date;
+  stripeUnixSeconds?: unknown;
+  fallbackMinutes: number;
+}): string {
   const unixSeconds = Number(input.stripeUnixSeconds);
   if (Number.isFinite(unixSeconds) && unixSeconds > 0) {
     return new Date(unixSeconds * 1000).toISOString();
@@ -62,10 +65,14 @@ function toStripeApiErrorMessage(status: number, payload: unknown): string {
   return `Stripe API request failed (${status})`;
 }
 
-function buildDefaultPlanName(input: StripeCheckoutSessionProviderInput): string {
-  const planId = normalizeString(input.planId);
-  if (!planId) return 'Tatchi Pro MAW';
-  return `Tatchi ${planId}`;
+function buildCreditPackName(input: StripeCheckoutSessionProviderInput): string {
+  const checkoutInput = input as StripeCheckoutSessionProviderInput & {
+    creditPackId?: string;
+  };
+  const label = String(checkoutInput.creditPackId || '')
+    .trim()
+    .replace(/^usd_/, '$');
+  return label ? `Tatchi prepaid credit pack ${label}` : 'Tatchi prepaid credit pack';
 }
 
 export function createStripeBillingProviderAdapter(
@@ -79,10 +86,12 @@ export function createStripeBillingProviderAdapter(
   const apiBaseUrl =
     normalizeString(options.apiBaseUrl).replace(/\/+$/, '') || 'https://api.stripe.com';
   const requestTimeoutMs = toPositiveInteger(options.requestTimeoutMs, 15_000);
-  const defaultCheckoutPriceId = normalizeString(options.defaultCheckoutPriceId);
   const customerByOrg = new Map<string, string>();
 
-  async function postForm(pathname: string, form: URLSearchParams): Promise<Record<string, unknown>> {
+  async function postForm(
+    pathname: string,
+    form: URLSearchParams,
+  ): Promise<Record<string, unknown>> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
@@ -158,30 +167,26 @@ export function createStripeBillingProviderAdapter(
     async createCheckoutSession(
       input: StripeCheckoutSessionProviderInput,
     ): Promise<StripeCheckoutSessionProviderOutput> {
+      const checkoutInput = input as StripeCheckoutSessionProviderInput & {
+        creditPackId?: string;
+        amountMinor?: number;
+      };
       const customerRef = await ensureCustomer(input.orgId);
       const form = new URLSearchParams();
-      setFormField(form, 'mode', 'subscription');
+      setFormField(form, 'mode', 'payment');
       setFormField(form, 'customer', customerRef);
       setFormField(form, 'success_url', input.successUrl);
       setFormField(form, 'cancel_url', input.cancelUrl);
       setFormField(form, 'client_reference_id', input.orgId);
       setFormField(form, 'metadata[org_id]', input.orgId);
-
-      const requestedPlanId = normalizeString(input.planId);
-      const effectivePriceId =
-        requestedPlanId.startsWith('price_') ? requestedPlanId : defaultCheckoutPriceId;
-      if (effectivePriceId) {
-        setFormField(form, 'line_items[0][price]', effectivePriceId);
-      } else {
-        setFormField(form, 'line_items[0][price_data][currency]', 'usd');
-        setFormField(form, 'line_items[0][price_data][unit_amount]', '1000');
-        setFormField(form, 'line_items[0][price_data][recurring][interval]', 'month');
-        setFormField(
-          form,
-          'line_items[0][price_data][product_data][name]',
-          buildDefaultPlanName(input),
-        );
-      }
+      setFormField(form, 'metadata[credit_pack_id]', checkoutInput.creditPackId);
+      setFormField(form, 'line_items[0][price_data][currency]', 'usd');
+      setFormField(form, 'line_items[0][price_data][unit_amount]', checkoutInput.amountMinor);
+      setFormField(
+        form,
+        'line_items[0][price_data][product_data][name]',
+        buildCreditPackName(checkoutInput),
+      );
       setFormField(form, 'line_items[0][quantity]', '1');
 
       const payload = await postForm('/v1/checkout/sessions', form);

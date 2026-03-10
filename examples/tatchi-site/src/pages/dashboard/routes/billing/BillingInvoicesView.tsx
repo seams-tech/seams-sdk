@@ -4,7 +4,6 @@ import {
   DashboardTableActionButton,
   DashboardTableActionGroup,
   DashboardTableCell,
-  DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableIntro,
@@ -213,10 +212,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
                 </DashboardTableCell>
               </DashboardTableRow>
             ))}
-            <DashboardTableFooter>
-              Showing {invoices.length} loaded document{invoices.length === 1 ? '' : 's'} of{' '}
-              {totalInvoices}.
-            </DashboardTableFooter>
           </>
         )}
       </DashboardTable>
