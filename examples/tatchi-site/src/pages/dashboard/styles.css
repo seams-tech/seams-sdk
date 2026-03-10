@@ -1855,7 +1855,7 @@
 }
 
 .dashboard-team-members-filters {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 250px) minmax(240px, 300px);
   align-items: end;
 }
 
@@ -1866,11 +1866,13 @@
   border-color: color-mix(in srgb, var(--dashboard-active-border) 72%, var(--dashboard-border) 28%);
 }
 
-.dashboard-team-members-status-filter {
+.dashboard-team-members-status-filter,
+.dashboard-team-members-permission-filter {
   min-width: 0;
 }
 
-.dashboard-team-members-status-filter .dashboard-input {
+.dashboard-team-members-status-filter .dashboard-input,
+.dashboard-team-members-permission-filter .dashboard-input {
   background-color: color-mix(in srgb, var(--dashboard-active) 48%, var(--dashboard-surface) 52%);
   border-color: color-mix(in srgb, var(--dashboard-active-border) 72%, var(--dashboard-border) 28%);
   background-image:
@@ -2341,6 +2343,19 @@
 
 .dashboard-billing-meta-card {
   gap: 12px;
+}
+
+.dashboard-billing-top-up-grid {
+  align-items: stretch;
+}
+
+.dashboard-billing-top-up-card {
+  gap: 14px;
+  padding: 22px 24px;
+}
+
+.dashboard-billing-top-up-card .dashboard-form-actions {
+  margin-top: auto;
 }
 
 .dashboard-billing-meta-list {

@@ -5013,7 +5013,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('button:has-text("Approve request")')).toHaveCount(0);
   });
 
-  test('team-members page wires invite, role update, remove, and status filter flows', async ({
+  test('team-members page wires invite, role update, remove, status, and permission filter flows', async ({
     page,
     baseURL,
   }) => {
@@ -5252,8 +5252,16 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(table).toContainText('new-member@example.com');
     await expect(table).not.toContainText('existing-admin@example.com');
     await filterSection.locator('input[aria-label="Search team members"]').fill('');
+    await filterSection
+      .locator('select[aria-label="Filter team members by permission"]')
+      .selectOption('MANAGE_MEMBERS');
+    await expect(table).toContainText('new-member@example.com');
+    await expect(table).not.toContainText('existing-admin@example.com');
+    await filterSection
+      .locator('select[aria-label="Filter team members by permission"]')
+      .selectOption('ALL');
 
-    const newMemberRow = table.locator('.dashboard-table-row', {
+    const newMemberRow = table.locator('.dashboard-data-table__row', {
       hasText: 'new-member@example.com',
     });
     await newMemberRow.locator('button:has-text("Edit")').click();

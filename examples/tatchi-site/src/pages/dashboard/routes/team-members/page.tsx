@@ -29,6 +29,13 @@ import {
 } from './consoleTeamRbacApi';
 
 type TeamMemberListStatusFilter = DashboardConsoleTeamMembershipStatus | 'ALL';
+type TeamMemberPermissionFilter =
+  | 'ALL'
+  | 'OWNER'
+  | 'ADMIN'
+  | 'MANAGE_ADMINS'
+  | 'MANAGE_MEMBERS'
+  | DashboardConsoleTeamPermissionCategory;
 type TeamPermissionAccessLevel = 'NONE' | 'READ' | 'WRITE';
 type TeamCategoryAccessMap = Record<
   DashboardConsoleTeamPermissionCategory,
@@ -47,6 +54,11 @@ interface TeamPermissionCategoryConfig {
   label: string;
   readRole: DashboardConsoleTeamRole;
   writeRole: DashboardConsoleTeamRole;
+}
+
+interface TeamPermissionFilterOption {
+  value: TeamMemberPermissionFilter;
+  label: string;
 }
 
 interface TeamPermissionEditorProps extends TeamPermissionEditorState {
@@ -101,6 +113,17 @@ const DEFAULT_CATEGORY_ACCESS: TeamCategoryAccessMap = {
   integrations: 'NONE',
   billing: 'NONE',
 };
+const TEAM_PERMISSION_FILTER_OPTIONS: TeamPermissionFilterOption[] = [
+  { value: 'ALL', label: 'Permission: All' },
+  { value: 'OWNER', label: 'Permission: Owner' },
+  { value: 'ADMIN', label: 'Permission: Admin' },
+  { value: 'MANAGE_ADMINS', label: 'Permission: Manage admins' },
+  { value: 'MANAGE_MEMBERS', label: 'Permission: Manage team members' },
+  ...TEAM_PERMISSION_CATEGORIES.map((category) => ({
+    value: category.category,
+    label: `Permission: ${category.label}`,
+  })),
+];
 const TEAM_MEMBERS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.8, 1.5, 0.85, 1.2);
 
 function makeDefaultCategoryAccess(): TeamCategoryAccessMap {
@@ -286,6 +309,27 @@ function matchesMemberQuery(
   );
 }
 
+function matchesMemberPermissionFilter(
+  member: DashboardConsoleTeamMember,
+  filter: TeamMemberPermissionFilter,
+): boolean {
+  if (filter === 'ALL') return true;
+  const state = resolvePermissionEditorState(member.roles);
+  const roles = roleSetFromAssignments(member.roles);
+  switch (filter) {
+    case 'OWNER':
+      return roles.has('owner');
+    case 'ADMIN':
+      return state.isAdmin;
+    case 'MANAGE_ADMINS':
+      return state.canManageAdmins;
+    case 'MANAGE_MEMBERS':
+      return state.canManageMembers;
+    default:
+      return state.categoryAccess[filter] !== 'NONE';
+  }
+}
+
 function formatMemberPrimaryIdentity(
   member: DashboardConsoleTeamMember,
   sessionClaims?: DashboardConsoleSessionClaims | null,
@@ -467,6 +511,8 @@ export function TeamMembersPage(): React.JSX.Element {
   const [mutationError, setMutationError] = React.useState<string>('');
   const [memberQuery, setMemberQuery] = React.useState<string>('');
   const [statusFilter, setStatusFilter] = React.useState<TeamMemberListStatusFilter>('ALL');
+  const [permissionFilter, setPermissionFilter] =
+    React.useState<TeamMemberPermissionFilter>('ALL');
   const [busyMemberId, setBusyMemberId] = React.useState<string>('');
   const [activeModal, setActiveModal] = React.useState<'invite' | 'update' | null>(null);
   const [inviting, setInviting] = React.useState<boolean>(false);
@@ -540,14 +586,19 @@ export function TeamMembersPage(): React.JSX.Element {
 
   const visibleMembers = React.useMemo(
     () =>
-      orderedMembers.filter((member) => matchesMemberQuery(member, memberQuery, session.claims)),
-    [memberQuery, orderedMembers, session.claims],
+      orderedMembers.filter(
+        (member) =>
+          matchesMemberQuery(member, memberQuery, session.claims) &&
+          matchesMemberPermissionFilter(member, permissionFilter),
+      ),
+    [memberQuery, orderedMembers, permissionFilter, session.claims],
   );
   const membersPagination = useDashboardTablePagination(visibleMembers, {
     disabled: session.loading || loading,
     itemLabel: 'member',
     itemLabelPlural: 'members',
   });
+  const hasClientSideFilters = memberQuery.trim().length > 0 || permissionFilter !== 'ALL';
 
   const selectedMember = React.useMemo(
     () => members.find((entry) => entry.id === editingMemberId) || null,
@@ -1038,6 +1089,22 @@ export function TeamMembersPage(): React.JSX.Element {
               <option value="REMOVED">Status: Removed</option>
             </select>
           </label>
+          <label className="dashboard-form-field dashboard-team-members-permission-filter">
+            <select
+              className="dashboard-input"
+              aria-label="Filter team members by permission"
+              value={permissionFilter}
+              onChange={(event) =>
+                setPermissionFilter(event.target.value as TeamMemberPermissionFilter)
+              }
+            >
+              {TEAM_PERMISSION_FILTER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -1066,7 +1133,9 @@ export function TeamMembersPage(): React.JSX.Element {
           <DashboardTableState>
             {orderedMembers.length === 0
               ? 'No members found for the selected filter.'
-              : 'No members matched the current search.'}
+              : hasClientSideFilters
+                ? 'No members matched the current filters.'
+                : 'No members matched the selected filter.'}
           </DashboardTableState>
         ) : (
           <>
