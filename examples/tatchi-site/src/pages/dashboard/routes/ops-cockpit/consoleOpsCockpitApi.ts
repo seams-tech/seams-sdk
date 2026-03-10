@@ -16,7 +16,10 @@ export interface DashboardOpsCockpitSectionStatus {
 export interface DashboardOpsCockpitPendingApproval {
   id: string;
   operationType: string;
+  reason: string;
   requestedByUserId: string;
+  requiredApprovals: number;
+  requireMfa: boolean;
   resourceType: string | null;
   resourceId: string | null;
   createdAt: string;
@@ -143,7 +146,10 @@ function decodePendingApproval(raw: unknown): DashboardOpsCockpitPendingApproval
   return {
     id,
     operationType: toTrimmedString(row.operationType),
+    reason: toTrimmedString(row.reason),
     requestedByUserId: toTrimmedString(row.requestedByUserId),
+    requiredApprovals: Math.max(1, Math.floor(toFiniteNumber(row.requiredApprovals, 1))),
+    requireMfa: row.requireMfa === true,
     resourceType: toTrimmedString(row.resourceType) || null,
     resourceId: toTrimmedString(row.resourceId) || null,
     createdAt: toTrimmedString(row.createdAt),

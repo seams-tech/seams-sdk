@@ -884,6 +884,882 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
   });
 
+  test('account settings create, rename, transfer, and open flows rehydrate switched context', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let sessionRequestCount = 0;
+    const accountProfile = {
+      userId: 'user_account_settings_flow',
+      displayName: 'Account Flow User',
+      primaryEmail: 'account-flow@example.com',
+      canEditPrimaryEmail: true,
+      backupEmails: [],
+      createdAt: iso('2026-01-01T00:00:00.000Z'),
+      updatedAt: iso('2026-01-01T00:00:00.000Z'),
+    };
+    const organizations = new Map<string, Record<string, unknown>>([
+      [
+        'org_current',
+        {
+          id: 'org_current',
+          name: 'Current Org',
+          slug: 'current-org',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-01T00:00:00.000Z'),
+          updatedAt: iso('2026-01-02T00:00:00.000Z'),
+          actorRoles: ['owner', 'admin'],
+          actorIsOwner: true,
+          actorIsAdmin: true,
+          onboardingComplete: true,
+          selectedProjectId: 'proj_current',
+          selectedEnvironmentId: 'env_current',
+          adminCandidates: [
+            {
+              memberId: 'member_current_admin',
+              userId: 'user_current_admin',
+              email: 'current-admin@example.com',
+              displayName: 'Current Admin',
+              isOwner: false,
+            },
+          ],
+        },
+      ],
+      [
+        'org_target',
+        {
+          id: 'org_target',
+          name: 'Target Org',
+          slug: 'target-org',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-03T00:00:00.000Z'),
+          updatedAt: iso('2026-01-04T00:00:00.000Z'),
+          actorRoles: ['owner', 'admin'],
+          actorIsOwner: true,
+          actorIsAdmin: true,
+          onboardingComplete: true,
+          selectedProjectId: 'proj_target',
+          selectedEnvironmentId: 'env_target',
+          adminCandidates: [
+            {
+              memberId: 'member_target_admin',
+              userId: 'user_target_admin',
+              email: 'target-admin@example.com',
+              displayName: 'Target Admin',
+              isOwner: false,
+            },
+          ],
+        },
+      ],
+    ]);
+    const orgDetails = new Map<string, Record<string, unknown>>([
+      [
+        'org_current',
+        {
+          id: 'org_current',
+          name: 'Current Org',
+          slug: 'current-org',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-01T00:00:00.000Z'),
+          updatedAt: iso('2026-01-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'org_target',
+        {
+          id: 'org_target',
+          name: 'Target Org',
+          slug: 'target-org',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-03T00:00:00.000Z'),
+          updatedAt: iso('2026-01-04T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const projectByOrg = new Map<string, Record<string, unknown>>([
+      [
+        'org_current',
+        {
+          id: 'proj_current',
+          name: 'Current Project',
+          slug: 'current-project',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-01-01T00:00:00.000Z'),
+          updatedAt: iso('2026-01-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'org_target',
+        {
+          id: 'proj_target',
+          name: 'Target Project',
+          slug: 'target-project',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-01-03T00:00:00.000Z'),
+          updatedAt: iso('2026-01-04T00:00:00.000Z'),
+        },
+      ],
+      [
+        'org_created',
+        {
+          id: 'proj_created',
+          name: 'Created Project',
+          slug: 'created-project',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-01-05T00:00:00.000Z'),
+          updatedAt: iso('2026-01-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const environmentByProject = new Map<string, Record<string, unknown>>([
+      [
+        'proj_current',
+        {
+          id: 'env_current',
+          projectId: 'proj_current',
+          key: 'prod',
+          name: 'Current Environment',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-01T00:00:00.000Z'),
+          updatedAt: iso('2026-01-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'proj_target',
+        {
+          id: 'env_target',
+          projectId: 'proj_target',
+          key: 'prod',
+          name: 'Target Environment',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-03T00:00:00.000Z'),
+          updatedAt: iso('2026-01-04T00:00:00.000Z'),
+        },
+      ],
+      [
+        'proj_created',
+        {
+          id: 'env_created',
+          projectId: 'proj_created',
+          key: 'prod',
+          name: 'Created Environment',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-05T00:00:00.000Z'),
+          updatedAt: iso('2026-01-05T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    let activeOrgId = 'org_current';
+    let sessionClaims: Record<string, unknown> = {
+      userId: 'user_account_settings_flow',
+      orgId: 'org_current',
+      roles: ['owner', 'admin'],
+      projectId: 'proj_current',
+      environmentId: 'env_current',
+      provider: 'passkey',
+    };
+    const createBodies: Record<string, unknown>[] = [];
+    const renameBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+    const transferBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+    const switchBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+
+    const readOrganizations = (): Record<string, unknown>[] =>
+      Array.from(organizations.values()).map((organization) => {
+        const id = String(organization.id || '').trim();
+        return {
+          ...organization,
+          isCurrentOrg: id === activeOrgId,
+          selectedProjectId:
+            id === activeOrgId
+              ? String(sessionClaims.projectId || '').trim() || null
+              : organization.selectedProjectId || null,
+          selectedEnvironmentId:
+            id === activeOrgId
+              ? String(sessionClaims.environmentId || '').trim() || null
+              : organization.selectedEnvironmentId || null,
+        };
+      });
+
+    const readOnboardingState = (): Record<string, unknown> => {
+      const org = orgDetails.get(activeOrgId) || null;
+      const project = projectByOrg.get(activeOrgId) || null;
+      const environment = project
+        ? environmentByProject.get(String(project.id || '').trim())
+        : null;
+      return {
+        orgId: activeOrgId,
+        organization: org,
+        activeProjectCount: project ? 1 : 0,
+        activeEnvironmentCount: environment ? 1 : 0,
+        activeApiKeyCount: 1,
+        hasOrganization: true,
+        hasProject: Boolean(project),
+        hasEnvironment: Boolean(environment),
+        hasApiKey: true,
+        accountReady: true,
+        organizationReady: true,
+        billingReady: true,
+        projectReady: Boolean(project),
+        onboardingComplete: Boolean(project && environment),
+        currentStep: project && environment ? 'complete' : 'project',
+        complete: Boolean(project && environment),
+        selectedProjectId: project ? String(project.id || '').trim() : null,
+        selectedEnvironmentId: environment ? String(environment.id || '').trim() : null,
+      };
+    };
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            overview: true,
+            administration: true,
+            operationsSecurity: true,
+            integrations: true,
+            billing: true,
+          },
+          selectedContext: {
+            organization: 'org_current',
+            project: 'proj_current',
+            environment: 'env_current',
+            accountSettings: 'Account Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        sessionRequestCount += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: sessionClaims,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: readOnboardingState(),
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: orgDetails.get(activeOrgId),
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        const project = projectByOrg.get(activeOrgId);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: project ? [project] : [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        const projectId = String(url.searchParams.get('projectId') || '').trim();
+        const environment = environmentByProject.get(projectId);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: environment ? [environment] : [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: accountProfile,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: readOrganizations(),
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        createBodies.push(body);
+        const createdOrganization = {
+          id: 'org_created',
+          name: String(body.name || '').trim() || 'Created Org',
+          slug: String(body.slug || '').trim() || 'created-org',
+          status: 'ACTIVE',
+          createdAt: iso('2026-01-05T00:00:00.000Z'),
+          updatedAt: iso('2026-01-05T00:00:00.000Z'),
+          actorRoles: ['owner', 'admin'],
+          actorIsOwner: true,
+          actorIsAdmin: true,
+          onboardingComplete: true,
+          selectedProjectId: 'proj_created',
+          selectedEnvironmentId: 'env_created',
+          adminCandidates: [],
+        };
+        organizations.set('org_created', createdOrganization);
+        orgDetails.set('org_created', {
+          id: 'org_created',
+          name: createdOrganization.name,
+          slug: createdOrganization.slug,
+          status: 'ACTIVE',
+          createdAt: createdOrganization.createdAt,
+          updatedAt: createdOrganization.updatedAt,
+        });
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organization: {
+              ...createdOrganization,
+              isCurrentOrg: false,
+            },
+          }),
+        });
+        return;
+      }
+
+      const accountOrgMatch = pathname.match(
+        /^\/console\/account\/organizations\/([^/]+?)(?:\/(transfer-owner|switch-context))?$/,
+      );
+      const orgId = accountOrgMatch?.[1] ? decodeURIComponent(accountOrgMatch[1]) : '';
+      const action = String(accountOrgMatch?.[2] || '').trim();
+      if (orgId && method === 'PATCH' && !action) {
+        const body = parseJsonBody(req.postData());
+        renameBodies.push({ orgId, body });
+        const organization = organizations.get(orgId);
+        if (organization) {
+          const nextName = String(body.name || organization.name || '').trim();
+          const updatedOrganization = {
+            ...organization,
+            ...(nextName ? { name: nextName } : {}),
+            updatedAt: iso('2026-01-06T00:00:00.000Z'),
+          };
+          organizations.set(orgId, updatedOrganization);
+          const details = orgDetails.get(orgId);
+          if (details) {
+            orgDetails.set(orgId, {
+              ...details,
+              ...(nextName ? { name: nextName } : {}),
+              updatedAt: iso('2026-01-06T00:00:00.000Z'),
+            });
+          }
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organization: {
+              ...(organizations.get(orgId) || {}),
+              isCurrentOrg: orgId === activeOrgId,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (orgId && method === 'POST' && action === 'transfer-owner') {
+        const body = parseJsonBody(req.postData());
+        transferBodies.push({ orgId, body });
+        const organization = organizations.get(orgId);
+        if (organization) {
+          organizations.set(orgId, {
+            ...organization,
+            actorRoles: ['admin'],
+            actorIsOwner: false,
+            actorIsAdmin: true,
+            updatedAt: iso('2026-01-07T00:00:00.000Z'),
+          });
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            transfer: {
+              organization: {
+                ...(organizations.get(orgId) || {}),
+                isCurrentOrg: orgId === activeOrgId,
+              },
+              previousOwner: {
+                memberId: 'member_actor',
+                userId: 'user_account_settings_flow',
+                email: 'account-flow@example.com',
+                displayName: 'Account Flow User',
+                isOwner: false,
+              },
+              nextOwner: {
+                memberId: 'member_target_admin',
+                userId: 'user_target_admin',
+                email: 'target-admin@example.com',
+                displayName: 'Target Admin',
+                isOwner: true,
+              },
+            },
+          }),
+        });
+        return;
+      }
+
+      if (orgId && method === 'POST' && action === 'switch-context') {
+        const body = parseJsonBody(req.postData());
+        switchBodies.push({ orgId, body });
+        activeOrgId = orgId;
+        sessionClaims = {
+          userId: 'user_account_settings_flow',
+          orgId: 'org_target',
+          roles: ['admin'],
+          projectId: 'proj_target',
+          environmentId: 'env_target',
+          provider: 'passkey',
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            context: {
+              orgId: 'org_target',
+              projectId: 'proj_target',
+              environmentId: 'env_target',
+              actorRoles: ['admin'],
+              onboardingComplete: true,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/overview' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              usageMetricVersion: 'v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 4,
+              creditBalanceMinor: 150000,
+              lowBalanceThresholdMinor: 10000,
+              recentUsageDebitMinor: 2400,
+              recentCreditPurchasedMinor: 25000,
+              documentCount: 1,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/payment-methods' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            paymentMethods: [
+              {
+                id: 'pm_default',
+                provider: 'stripe',
+                type: 'card',
+                brand: 'visa',
+                last4: '4242',
+                expMonth: 12,
+                expYear: 2030,
+                isDefault: true,
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+
+    await page.getByLabel('Organization name').fill('Created Org');
+    await page.getByLabel('Slug').fill('created-org');
+    await page.getByRole('button', { name: 'Create organization' }).click();
+    await expect.poll(() => createBodies.length).toBe(1);
+    expect(createBodies[0]).toMatchObject({
+      name: 'Created Org',
+      slug: 'created-org',
+    });
+    await expect(page.getByRole('status')).toContainText(/organization created/i);
+
+    const targetCardBeforeTransfer = page
+      .locator('.dashboard-account-org-card')
+      .filter({ hasText: 'Target Org' });
+    await targetCardBeforeTransfer.getByLabel('Rename organization').fill('Target Org Renamed');
+    await targetCardBeforeTransfer.getByRole('button', { name: 'Rename' }).click();
+    await expect.poll(() => renameBodies.length).toBe(1);
+    expect(renameBodies[0]).toMatchObject({
+      orgId: 'org_target',
+      body: {
+        name: 'Target Org Renamed',
+      },
+    });
+
+    const targetCard = page
+      .locator('.dashboard-account-org-card')
+      .filter({ hasText: 'Target Org Renamed' });
+    await expect(targetCard).toBeVisible();
+
+    await targetCard.locator('select').selectOption('member_target_admin');
+    await targetCard.getByRole('button', { name: 'Transfer owner' }).click();
+    await expect.poll(() => transferBodies.length).toBe(1);
+    expect(transferBodies[0]).toMatchObject({
+      orgId: 'org_target',
+      body: {
+        targetMemberId: 'member_target_admin',
+      },
+    });
+
+    const targetCardAfterTransfer = page
+      .locator('.dashboard-account-org-card')
+      .filter({ hasText: 'Target Org Renamed' });
+    await targetCardAfterTransfer.getByRole('button', { name: 'Open organization' }).click();
+    await expect.poll(() => switchBodies.length).toBe(1);
+    expect(switchBodies[0]).toMatchObject({
+      orgId: 'org_target',
+    });
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard');
+    await expect.poll(() => sessionRequestCount).toBeGreaterThan(1);
+
+    const topbarContext = page.locator('header[aria-label="Workspace context"]');
+    await expect(topbarContext.locator('button:has-text("Project")')).toContainText(
+      'Target Project',
+    );
+    await expect(topbarContext.locator('button:has-text("Environment")')).toContainText(
+      'Target Environment',
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = window.localStorage.getItem('tatchi-dashboard-ui-state-v1');
+          const parsed = raw ? JSON.parse(raw) : null;
+          return String(parsed?.selectedContext?.project || '');
+        }),
+      )
+      .toBe('proj_target');
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = window.localStorage.getItem('tatchi-dashboard-ui-state-v1');
+          const parsed = raw ? JSON.parse(raw) : null;
+          return String(parsed?.selectedContext?.environment || '');
+        }),
+      )
+      .toBe('env_target');
+  });
+
+  test('account settings omits primary email updates when provider marks it read-only', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let profileUpdateBody: Record<string, unknown> | null = null;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_account_settings_read_only',
+              orgId: 'org_account_settings_read_only',
+              roles: ['owner', 'admin'],
+              projectId: 'proj_account_settings_read_only',
+              environmentId: 'env_account_settings_read_only',
+              provider: 'oidc',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_account_settings_read_only',
+              organization: {
+                id: 'org_account_settings_read_only',
+                name: 'Read Only Org',
+                slug: 'read-only-org',
+                status: 'ACTIVE',
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+                updatedAt: iso('2026-01-01T00:00:00.000Z'),
+              },
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_account_settings_read_only',
+              selectedEnvironmentId: 'env_account_settings_read_only',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: {
+              id: 'org_account_settings_read_only',
+              name: 'Read Only Org',
+              slug: 'read-only-org',
+              status: 'ACTIVE',
+              createdAt: iso('2026-01-01T00:00:00.000Z'),
+              updatedAt: iso('2026-01-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: [
+              {
+                id: 'proj_account_settings_read_only',
+                name: 'Read Only Project',
+                slug: 'read-only-project',
+                status: 'ACTIVE',
+                environmentCount: 1,
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+                updatedAt: iso('2026-01-01T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [
+              {
+                id: 'env_account_settings_read_only',
+                projectId: 'proj_account_settings_read_only',
+                key: 'prod',
+                name: 'Read Only Environment',
+                status: 'ACTIVE',
+                createdAt: iso('2026-01-01T00:00:00.000Z'),
+                updatedAt: iso('2026-01-01T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_account_settings_read_only',
+              displayName: 'OIDC User',
+              primaryEmail: 'oidc-user@example.com',
+              canEditPrimaryEmail: false,
+              backupEmails: [],
+              createdAt: iso('2026-01-01T00:00:00.000Z'),
+              updatedAt: iso('2026-01-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'PATCH') {
+        profileUpdateBody = parseJsonBody(req.postData());
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_account_settings_read_only',
+              displayName: String(profileUpdateBody.displayName || '').trim() || 'OIDC User',
+              primaryEmail: 'oidc-user@example.com',
+              canEditPrimaryEmail: false,
+              backupEmails: [],
+              createdAt: iso('2026-01-01T00:00:00.000Z'),
+              updatedAt: iso('2026-01-02T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/overview' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              usageMetricVersion: 'v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 1,
+              creditBalanceMinor: 0,
+              lowBalanceThresholdMinor: 10000,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/payment-methods' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, paymentMethods: [] }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+    await expect(
+      page.getByText(/primary email is managed by your identity provider/i),
+    ).toBeVisible();
+    await expect(page.getByLabel('Primary email')).toBeDisabled();
+
+    await page.getByLabel('Display name').fill('OIDC User Renamed');
+    await page.getByRole('button', { name: 'Save profile' }).click();
+    await expect.poll(() => profileUpdateBody).not.toBeNull();
+    expect(profileUpdateBody).toMatchObject({
+      displayName: 'OIDC User Renamed',
+    });
+    expect(Object.prototype.hasOwnProperty.call(profileUpdateBody || {}, 'primaryEmail')).toBe(
+      false,
+    );
+  });
+
   test('account settings menu toggles dark and light theme', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
@@ -1962,17 +2838,24 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => sidebar.locator('a.dashboard-nav-item').count()).toBeGreaterThan(0);
     await expect
       .poll(() =>
-        sidebar
-          .locator('a.dashboard-nav-item')
-          .evaluateAll(
-            (items) =>
-              items.length > 0 &&
-              items.every(
-                (entry) =>
-                  entry.getAttribute('aria-disabled') === 'true' &&
-                  entry.getAttribute('tabindex') === '-1',
-              ),
-          ),
+        sidebar.locator('a.dashboard-nav-item').evaluateAll(
+          (items) =>
+            items.length > 0 &&
+            items.every((entry) => {
+              const href = String(entry.getAttribute('href') || '');
+              const isAccountSettings = href.endsWith('/dashboard/account-settings');
+              if (isAccountSettings) {
+                return (
+                  entry.getAttribute('aria-disabled') !== 'true' &&
+                  entry.getAttribute('tabindex') !== '-1'
+                );
+              }
+              return (
+                entry.getAttribute('aria-disabled') === 'true' &&
+                entry.getAttribute('tabindex') === '-1'
+              );
+            }),
+        ),
       )
       .toBe(true);
     const onboardingForm = page
@@ -2983,16 +3866,18 @@ test.describe('dashboard console config page api wiring', () => {
     );
     await expect(developmentTargetHeader).toContainText('Testnet');
     await expect(developmentTargetHeader).not.toContainText('Mainnet');
-    await expect(gasCreateModalAfterRefresh.getByRole('group', { name: 'Tempo Mainnet' })).toHaveCount(0);
-    await expect(gasCreateModalAfterRefresh.getByRole('button', { name: 'All mainnets' })).toHaveCount(0);
+    await expect(
+      gasCreateModalAfterRefresh.getByRole('group', { name: 'Tempo Mainnet' }),
+    ).toHaveCount(0);
+    await expect(
+      gasCreateModalAfterRefresh.getByRole('button', { name: 'All mainnets' }),
+    ).toHaveCount(0);
     await gasCreateModalAfterRefresh
       .getByRole('group', { name: 'Tempo Testnet' })
       .getByRole('button', { name: 'On' })
       .click();
     await gasCreateModalAfterRefresh.getByRole('button', { name: 'Per chain total' }).click();
-    await gasCreateModalAfterRefresh
-      .getByLabel('Tempo Testnet spend cap')
-      .fill('50000');
+    await gasCreateModalAfterRefresh.getByLabel('Tempo Testnet spend cap').fill('50000');
     await gasCreateModalAfterRefresh.getByRole('button', { name: 'Allowlist' }).click();
     await gasCreateModalAfterRefresh.getByRole('button', { name: 'Add contract' }).click();
     await gasCreateModalAfterRefresh
@@ -3012,9 +3897,9 @@ test.describe('dashboard console config page api wiring', () => {
       .click();
 
     await expect.poll(() => String(lastGasCreateBody?.scopeType || '')).toBe('ENVIRONMENT');
-    await expect.poll(() => String(lastGasCreateBody?.environmentId || '')).toBe(
-      developmentEnvironment.id,
-    );
+    await expect
+      .poll(() => String(lastGasCreateBody?.environmentId || ''))
+      .toBe(developmentEnvironment.id);
     await expect.poll(() => String(lastGasCreateBody?.networkClass || '')).toBe('TESTNET');
     await expect.poll(() => String(lastGasCreateBody?.callMode || '')).toBe('ALLOWLIST');
     await expect
@@ -3758,9 +4643,9 @@ test.describe('dashboard console config page api wiring', () => {
     await policySetupSection.locator('button:has-text("Create policy")').click();
 
     const createPolicyModal = page.locator('section[aria-label="Create policy modal"]');
-    await createPolicyModal.locator('label:has-text("Policy name") input').fill(
-      'Contract allowlist policy',
-    );
+    await createPolicyModal
+      .locator('label:has-text("Policy name") input')
+      .fill('Contract allowlist policy');
     await createPolicyModal.locator('button:has-text("Allowlist")').click();
     await createPolicyModal.locator('button:has-text("Add contract")').click();
 
@@ -3800,9 +4685,9 @@ test.describe('dashboard console config page api wiring', () => {
     await createdPolicyRow.locator('button:has-text("Simulate")').click();
 
     const simulatePolicyModal = page.locator('section[aria-label="Simulate policy modal"]');
-    await simulatePolicyModal.locator('label:has-text("Action") select').selectOption(
-      'contract_call',
-    );
+    await simulatePolicyModal
+      .locator('label:has-text("Action") select')
+      .selectOption('contract_call');
     await simulatePolicyModal
       .locator('label:has-text("Contract address") input')
       .fill('0x1111111111111111111111111111111111111111');
@@ -3990,7 +4875,9 @@ test.describe('dashboard console config page api wiring', () => {
     });
 
     await page.goto('/dashboard/policy-engine');
-    await page.locator('section[aria-label="Policy setup"] button:has-text("Create policy")').click();
+    await page
+      .locator('section[aria-label="Policy setup"] button:has-text("Create policy")')
+      .click();
 
     const createPolicyModal = page.locator('section[aria-label="Create policy modal"]');
     await createPolicyModal
@@ -4405,7 +5292,9 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => lastRemovedMemberId).toContain('member_');
     await expect(newMemberRow).toContainText('REMOVED');
 
-    await filterSection.locator('select[aria-label="Filter team members by status"]').selectOption('REMOVED');
+    await filterSection
+      .locator('select[aria-label="Filter team members by status"]')
+      .selectOption('REMOVED');
     await expect.poll(() => lastListStatus).toBe('REMOVED');
     await expect(page.locator('section[aria-label="Team members table"]')).toContainText(
       'new-member@example.com',
@@ -6362,9 +7251,7 @@ test.describe('dashboard console config page api wiring', () => {
       .poll(() => String(lastApproveBody?.reason || ''))
       .toBe('Approved from Ops Cockpit');
     await expect.poll(() => lastApproveBody?.mfaVerified === true).toBe(false);
-    await expect(pendingApprovalsSummary).toContainText(
-      'Approval request apr_1 is now APPROVED.',
-    );
+    await expect(pendingApprovalsSummary).toContainText('Approval request apr_1 is now APPROVED.');
 
     const keyExportApprovalRow = pendingApprovalsSummary
       .locator('li')
@@ -6372,12 +7259,8 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(keyExportApprovalRow.locator('button:has-text("Approve")')).toHaveCount(0);
     await keyExportApprovalRow.locator('button:has-text("Reject")').click();
     await expect.poll(() => rejectRequestCount).toBe(1);
-    await expect
-      .poll(() => String(lastRejectBody?.reason || ''))
-      .toBe('Rejected from Ops Cockpit');
-    await expect(pendingApprovalsSummary).toContainText(
-      'Approval request apr_2 is now REJECTED.',
-    );
+    await expect.poll(() => String(lastRejectBody?.reason || '')).toBe('Rejected from Ops Cockpit');
+    await expect(pendingApprovalsSummary).toContainText('Approval request apr_2 is now REJECTED.');
 
     const failedWebhookSummary = page.locator('section[aria-label="Failed webhook summary"]');
     await failedWebhookSummary.locator('button:has-text("Replay")').click();

@@ -19,6 +19,7 @@ type DashboardSearchModel = {
 type CardDashboardRoute = Exclude<
   DashboardRoute,
   | '/dashboard/onboarding'
+  | '/dashboard/account-settings'
   | '/dashboard/wallets-list'
   | '/dashboard/billing/account'
   | '/dashboard/invoices'

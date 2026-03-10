@@ -13,10 +13,6 @@ import {
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
 import {
-  DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT,
-  consumeOpenSelfMemberSettingsRequest,
-} from '../../accountSettingsIntents';
-import {
   useDashboardConsoleSession,
   type DashboardConsoleSessionClaims,
 } from '../../consoleSession';
@@ -85,16 +81,16 @@ const TEAM_PERMISSION_CATEGORIES: TeamPermissionCategoryConfig[] = [
     writeRole: 'wallet_operations_write',
   },
   {
-    category: 'integrations',
-    label: 'Integrations',
-    readRole: 'integrations_read',
-    writeRole: 'integrations_write',
-  },
-  {
     category: 'billing',
     label: 'Billing',
     readRole: 'billing_read',
     writeRole: 'billing_write',
+  },
+  {
+    category: 'integrations',
+    label: 'Integrations',
+    readRole: 'integrations_read',
+    writeRole: 'integrations_write',
   },
 ];
 
@@ -459,7 +455,6 @@ export function TeamMembersPage(): React.JSX.Element {
   const [statusFilter, setStatusFilter] = React.useState<TeamMemberListStatusFilter>('ALL');
   const [busyMemberId, setBusyMemberId] = React.useState<string>('');
   const [activeModal, setActiveModal] = React.useState<'invite' | 'update' | null>(null);
-  const [openSelfSettingsRequested, setOpenSelfSettingsRequested] = React.useState<boolean>(false);
   const [inviting, setInviting] = React.useState<boolean>(false);
   const [updating, setUpdating] = React.useState<boolean>(false);
   const [detailMemberId, setDetailMemberId] = React.useState<string>('');
@@ -524,29 +519,6 @@ export function TeamMembersPage(): React.JSX.Element {
     setModalHost(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
   }, []);
 
-  const requestOpenSelfSettings = React.useCallback(() => {
-    if (statusFilter !== 'ALL') {
-      setLoading(true);
-      setStatusFilter('ALL');
-    }
-    setMemberQuery('');
-    setOpenSelfSettingsRequested(true);
-  }, [statusFilter]);
-
-  React.useEffect(() => {
-    if (consumeOpenSelfMemberSettingsRequest()) {
-      requestOpenSelfSettings();
-    }
-    const onOpenSelfSettings = () => {
-      requestOpenSelfSettings();
-      consumeOpenSelfMemberSettingsRequest();
-    };
-    window.addEventListener(DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT, onOpenSelfSettings);
-    return () => {
-      window.removeEventListener(DASHBOARD_OPEN_SELF_MEMBER_SETTINGS_EVENT, onOpenSelfSettings);
-    };
-  }, [requestOpenSelfSettings]);
-
   const orderedMembers = React.useMemo(
     () => [...members].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [members],
@@ -608,44 +580,6 @@ export function TeamMembersPage(): React.JSX.Element {
     setMutationError('');
     setActiveModal('update');
   }, []);
-
-  React.useEffect(() => {
-    if (!openSelfSettingsRequested) return;
-    if (statusFilter !== 'ALL') return;
-    if (session.loading || loading) return;
-    if (!session.claims) {
-      setMutationError(session.errorMessage || 'Console session is unavailable');
-      setOpenSelfSettingsRequested(false);
-      return;
-    }
-
-    const sessionUserId = String(session.claims.userId || '').trim();
-    if (!sessionUserId) {
-      setMutationError('Current session is missing a user ID.');
-      setOpenSelfSettingsRequested(false);
-      return;
-    }
-
-    const currentMember =
-      members.find((entry) => String(entry.userId || '').trim() === sessionUserId) || null;
-    if (!currentMember) {
-      setMutationError('Current user was not found in team members.');
-      setOpenSelfSettingsRequested(false);
-      return;
-    }
-
-    onOpenUpdateModal(currentMember);
-    setOpenSelfSettingsRequested(false);
-  }, [
-    loading,
-    members,
-    onOpenUpdateModal,
-    openSelfSettingsRequested,
-    session.claims,
-    session.errorMessage,
-    session.loading,
-    statusFilter,
-  ]);
 
   const onOpenDetailModal = React.useCallback((member: DashboardConsoleTeamMember) => {
     setDetailMemberId(member.id);

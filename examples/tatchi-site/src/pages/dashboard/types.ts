@@ -8,6 +8,7 @@ export type SidebarGroupKey =
   | 'billing';
 
 export type DashboardRoute =
+  | '/dashboard/account-settings'
   | '/dashboard/onboarding'
   | '/dashboard/wallets-list'
   | '/dashboard/policy-engine'

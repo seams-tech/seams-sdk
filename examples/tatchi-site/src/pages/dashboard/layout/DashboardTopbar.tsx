@@ -2,6 +2,7 @@ import React from 'react';
 import { MoonIcon, SunIcon } from '@tatchi-xyz/sdk/react';
 import CopyButton from '@/components/CopyButton';
 import TatchiLogo from '@/components/icons/TatchiLogo';
+import DashboardSidebarToggleIcon from '../icons/DashboardSidebarToggleIcon';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';
 
 type HomeLinkProps = {
@@ -67,6 +68,7 @@ export function DashboardTopbar({
       compact: boolean = false,
     ): React.JSX.Element => {
       const isOpen = activeTopbarMenu === menu;
+      const isActionMenu = menu === 'accountSettings';
       const currentValue = selectedContext[menu];
       const currentLabel =
         options.find((option) => option.value === currentValue)?.label ||
@@ -74,7 +76,7 @@ export function DashboardTopbar({
         options[0]?.label ||
         '';
       return (
-        <div className="dashboard-context-dropdown">
+        <div className={`dashboard-context-dropdown dashboard-context-dropdown--${menu}`}>
           <button
             type="button"
             className={`dashboard-context-card${optionsAreHighlighted ? ' dashboard-context-card--highlight' : ''}${compact ? ' dashboard-context-card--compact' : ''}`}
@@ -92,12 +94,12 @@ export function DashboardTopbar({
 
           {isOpen ? (
             <div
-              className={`dashboard-context-menu${optionsAreHighlighted ? ' dashboard-context-menu--highlight' : ''}`}
+              className={`dashboard-context-menu${optionsAreHighlighted ? ' dashboard-context-menu--highlight' : ''}${isActionMenu ? ' dashboard-context-menu--actions' : ''}`}
               role="menu"
               aria-label={`${label} options`}
             >
               {options.map((option) => {
-                const isSelected = option.value === currentValue;
+                const isSelected = !isActionMenu && option.value === currentValue;
                 const isDisabled = option.disabled === true;
                 const icon =
                   option.icon === 'sun' ? (
@@ -110,8 +112,8 @@ export function DashboardTopbar({
                     key={option.value}
                     type="button"
                     className={`dashboard-context-menu__item${isSelected ? ' is-active' : ''}${isDisabled ? ' is-disabled' : ''}`}
-                    role="menuitemradio"
-                    aria-checked={isSelected}
+                    role={isActionMenu ? 'menuitem' : 'menuitemradio'}
+                    aria-checked={isActionMenu ? undefined : isSelected}
                     onClick={() => {
                       onSelectContext(menu, option.value);
                       if (option.keepMenuOpen !== true) {
@@ -188,9 +190,7 @@ export function DashboardTopbar({
           aria-expanded={isSidebarExpanded}
           onClick={onToggleSidebar}
         >
-          <span />
-          <span />
-          <span />
+          <DashboardSidebarToggleIcon />
         </button>
         <a
           className="navbar-static__brand dashboard-home-link"

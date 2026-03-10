@@ -72,6 +72,7 @@
 }
 
 .dashboard-topbar__brand {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -112,10 +113,14 @@
 }
 
 .dashboard-sidebar-toggle {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  border: 1px solid var(--dashboard-border);
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 0;
   background: transparent;
   display: inline-grid;
   place-items: center;
@@ -123,7 +128,7 @@
   color: var(--dashboard-ink-soft);
   transition:
     background-color 160ms ease,
-    border-color 160ms ease;
+    color 160ms ease;
 }
 
 .dashboard-sidebar-toggle__icon {
@@ -131,57 +136,20 @@
   width: 18px;
   height: 18px;
   overflow: visible;
-}
-
-.dashboard-sidebar-toggle__rail {
-  fill: currentColor;
-  opacity: 0.22;
-  transition:
-    opacity var(--dashboard-motion-fast) ease,
-    transform var(--dashboard-motion-item) var(--dashboard-ease-reveal);
-}
-
-.dashboard-sidebar-toggle__content,
-.dashboard-sidebar-toggle__arrow {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.dashboard-sidebar-toggle__content {
-  stroke-width: 1.65;
-  opacity: 0.34;
   transition: opacity var(--dashboard-motion-fast) ease;
 }
 
-.dashboard-sidebar-toggle__arrow {
-  stroke-width: 2;
-  transform-origin: 14.25px 12px;
-  transition: transform var(--dashboard-motion-item) var(--dashboard-ease-reveal);
-}
-
-.dashboard-sidebar-toggle--collapsed .dashboard-sidebar-toggle__arrow {
-  transform: rotate(180deg);
-}
-
 .dashboard-sidebar-toggle:hover {
-  background: var(--dashboard-muted);
-  border-color: var(--dashboard-active-border);
-}
-
-.dashboard-sidebar-toggle:hover .dashboard-sidebar-toggle__rail,
-.dashboard-sidebar-toggle:focus-visible .dashboard-sidebar-toggle__rail {
-  opacity: 0.3;
-}
-
-.dashboard-sidebar-toggle:hover .dashboard-sidebar-toggle__content,
-.dashboard-sidebar-toggle:focus-visible .dashboard-sidebar-toggle__content {
-  opacity: 0.46;
+  background: color-mix(in srgb, var(--dashboard-muted) 72%, transparent);
+  color: var(--dashboard-active-ink);
 }
 
 .dashboard-home-link {
   min-width: 0;
+}
+
+.dashboard-topbar__brand:not(.dashboard-topbar__brand--focused) .dashboard-home-link {
+  margin-left: 44px;
 }
 
 .dashboard-context-dropdown {
@@ -2208,6 +2176,12 @@
   color: var(--dashboard-ink);
 }
 
+.dashboard-pagination-button--danger {
+  border-color: color-mix(in srgb, #c84949 28%, var(--dashboard-border));
+  background: color-mix(in srgb, #c84949 12%, var(--dashboard-surface));
+  color: #8f2424;
+}
+
 .dashboard-pagination-note {
   font-size: 0.88rem;
   color: var(--dashboard-ink-soft);
@@ -2966,14 +2940,18 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 }
 
 .dashboard-inline-modal-backdrop {
+  --dashboard-modal-overscroll-bleed: 36vh;
   position: absolute;
-  inset: 0;
+  inset: calc(-1 * var(--dashboard-modal-overscroll-bleed)) 0;
   background: color-mix(in srgb, #0a1128 14%, transparent);
   backdrop-filter: blur(12px);
   display: grid;
   align-content: start;
   justify-items: center;
-  padding: 18px 18px 32vh;
+  padding:
+    calc(18px + var(--dashboard-modal-overscroll-bleed))
+    18px
+    calc(32vh + var(--dashboard-modal-overscroll-bleed));
   z-index: 40;
   overflow: auto;
 }
@@ -3392,10 +3370,6 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   gap: 10px;
 }
 
-.dashboard-shell--sidebar-collapsed .dashboard-topbar__brand {
-  justify-content: center;
-}
-
 .dashboard-shell--sidebar-collapsed .dashboard-group-toggle {
   max-height: 30px;
   opacity: 0;
@@ -3623,7 +3597,11 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 
   .dashboard-inline-modal-backdrop {
-    padding: 12px 12px 28vh;
+    --dashboard-modal-overscroll-bleed: 28vh;
+    padding:
+      calc(12px + var(--dashboard-modal-overscroll-bleed))
+      12px
+      calc(28vh + var(--dashboard-modal-overscroll-bleed));
   }
 
   .dashboard-topbar {
@@ -3825,9 +3803,7 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   .dashboard-group-toggle,
   .dashboard-sidebar-group__title,
   .dashboard-sidebar-toggle,
-  .dashboard-sidebar-toggle__rail,
-  .dashboard-sidebar-toggle__content,
-  .dashboard-sidebar-toggle__arrow,
+  .dashboard-sidebar-toggle__icon,
   .dashboard-nav-item,
   .dashboard-nav-label,
   .dashboard-nav-icon,
@@ -3865,6 +3841,16 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
     ),
     var(--dashboard-surface);
   box-shadow: 0 20px 36px color-mix(in srgb, #0d1b34 8%, transparent);
+}
+
+.dashboard-account-panel--organizations {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--dashboard-surface-2) 62%, transparent),
+      transparent 26%
+    ),
+    color-mix(in srgb, var(--dashboard-surface) 90%, white);
 }
 
 .dashboard-account-grid {

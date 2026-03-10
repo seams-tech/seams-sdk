@@ -12,7 +12,6 @@ import {
   getViewForRoute,
   SIDEBAR_GROUPS,
 } from './dashboardConfig';
-import { requestOpenSelfMemberSettings } from './accountSettingsIntents';
 import type { DashboardRoute, TopbarContextState, TopbarMenuKey, TopbarOption } from './types';
 import {
   DashboardConsoleSessionProvider,
@@ -43,9 +42,11 @@ type DashboardPageProps = {
 };
 
 const DASHBOARD_ONBOARDING_ROUTE: DashboardRoute = '/dashboard/onboarding';
+const DASHBOARD_ACCOUNT_SETTINGS_ROUTE: DashboardRoute = '/dashboard/account-settings';
 const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
 const DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
 const LOCKED_PRODUCTION_OPTION_PREFIX = '__production_locked__:';
+const SIDEBAR_COLLAPSE_SETTLE_MS = 280;
 
 function isSelectableOption(option: TopbarOption): boolean {
   return option.disabled !== true;
@@ -199,7 +200,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (consoleSession.loading || onboardingLoading) return;
     if (!onboardingGateEnabled || !onboardingState) return;
     const isOnboardingRoute = pathname === DASHBOARD_ONBOARDING_ROUTE;
-    if (!onboardingComplete && !isOnboardingRoute) {
+    const isAccountSettingsRoute = pathname === DASHBOARD_ACCOUNT_SETTINGS_ROUTE;
+    if (!onboardingComplete && !isOnboardingRoute && !isAccountSettingsRoute) {
       go(DASHBOARD_ONBOARDING_ROUTE);
     }
   }, [
@@ -407,7 +409,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     billingReady,
   ]);
 
-  const dropdownOptions = React.useMemo(
+  const dropdownOptions = React.useMemo<Record<TopbarMenuKey, TopbarOption[]>>(
     () => ({
       organization: dedupeOptions(
         organizationOption
@@ -447,21 +449,20 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
                 : []),
             ]),
       ),
-      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.map((entry) => ({
-        value: entry,
-        label:
-          entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION
-            ? resolvedTheme === 'dark'
-              ? 'Switch to light mode'
-              : 'Switch to dark mode'
-            : entry,
-        ...(entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION
-          ? {
-              keepMenuOpen: true,
-              icon: resolvedTheme === 'dark' ? 'sun' : 'moon',
-            }
-          : {}),
-      })),
+      accountSettings: DASHBOARD_ACCOUNT_SETTINGS_OPTIONS.map((entry): TopbarOption => {
+        if (entry === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION) {
+          return {
+            value: entry,
+            label: 'Toggle Theme',
+            keepMenuOpen: true,
+            icon: resolvedTheme === 'dark' ? 'sun' : 'moon',
+          };
+        }
+        return {
+          value: entry,
+          label: entry,
+        };
+      }),
     }),
     [
       consoleSession.claims,
@@ -525,6 +526,32 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     defaultContext: defaultTopbarContext,
   });
 
+  const selectedContextDisplay = React.useMemo<TopbarContextState>(
+    () => ({
+      organization:
+        dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
+          ?.label ||
+        selectedContext.organization ||
+        '',
+      project:
+        dropdownOptions.project.find((entry) => entry.value === selectedContext.project)?.label ||
+        selectedContext.project ||
+        '',
+      environment:
+        dropdownOptions.environment.find((entry) => entry.value === selectedContext.environment)
+          ?.label ||
+        selectedContext.environment ||
+        '',
+      accountSettings:
+        dropdownOptions.accountSettings.find(
+          (entry) => entry.value === selectedContext.accountSettings,
+        )?.label ||
+        selectedContext.accountSettings ||
+        '',
+    }),
+    [dropdownOptions, selectedContext],
+  );
+
   React.useEffect(() => {
     const project = String(selectedContext.project || '').trim();
     if (!project || project === selectedProjectId) return;
@@ -534,9 +561,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const onSelectContext = React.useCallback(
     (menu: TopbarMenuKey, value: string) => {
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION) {
-        onSelectContextRaw(menu, value);
-        requestOpenSelfMemberSettings();
-        go('/dashboard/team-members');
+        go(DASHBOARD_ACCOUNT_SETTINGS_ROUTE);
         return;
       }
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_THEME_TOGGLE_OPTION) {
@@ -626,8 +651,38 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const ActiveViewComponent = activeView.component;
   const onboardingRouteActive = activeRoute === DASHBOARD_ONBOARDING_ROUTE;
   const focusedOnboardingMode = onboardingRouteActive;
+  const isSidebarCollapsed = !focusedOnboardingMode && !isSidebarExpanded;
+  const [isSidebarCollapsedSettled, setIsSidebarCollapsedSettled] = React.useState<boolean>(
+    isSidebarCollapsed,
+  );
+  const wasSidebarCollapsedRef = React.useRef<boolean>(isSidebarCollapsed);
+
+  React.useEffect(() => {
+    const wasSidebarCollapsed = wasSidebarCollapsedRef.current;
+    wasSidebarCollapsedRef.current = isSidebarCollapsed;
+
+    if (!isSidebarCollapsed) {
+      setIsSidebarCollapsedSettled(false);
+      return;
+    }
+    if (wasSidebarCollapsed) {
+      setIsSidebarCollapsedSettled(true);
+      return;
+    }
+
+    setIsSidebarCollapsedSettled(false);
+    const timeoutId = window.setTimeout(() => {
+      setIsSidebarCollapsedSettled(true);
+    }, SIDEBAR_COLLAPSE_SETTLE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [isSidebarCollapsed]);
+
   const sidebarExpanded = focusedOnboardingMode ? true : isSidebarExpanded;
-  const shellClassName = `dashboard-shell${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${!focusedOnboardingMode && !isSidebarExpanded ? ' dashboard-shell--sidebar-collapsed' : ''}`;
+  const shellClassName = `dashboard-shell${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}${isSidebarCollapsedSettled ? ' dashboard-shell--sidebar-collapsed-settled' : ''}`;
+  const navigationLockExemptPaths = React.useMemo<ReadonlySet<DashboardRoute>>(
+    () => new Set<DashboardRoute>([DASHBOARD_ACCOUNT_SETTINGS_ROUTE]),
+    [],
+  );
 
   return (
     <main className={shellClassName} aria-label="Dashboard workspace">
@@ -647,6 +702,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         expandedGroups={expandedGroups}
         activeRoute={activeRoute}
         disableNavigationItems={isSidebarNavigationLocked}
+        enabledWhenLockedPaths={navigationLockExemptPaths}
         onToggleGroup={toggleGroup}
         linkProps={linkProps}
       />
@@ -671,7 +727,10 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           </p>
         ) : null}
 
-        <DashboardSelectedContextProvider value={selectedContext}>
+        <DashboardSelectedContextProvider
+          value={selectedContext}
+          displayValue={selectedContextDisplay}
+        >
           <ActiveViewComponent />
         </DashboardSelectedContextProvider>
       </section>

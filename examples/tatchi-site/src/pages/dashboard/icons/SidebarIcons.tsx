@@ -135,12 +135,20 @@ export const WebhookIcon: React.FC<SidebarIconProps> = (props) => (
   </SidebarIconBase>
 );
 
-export const ReceiptTextIcon: React.FC<SidebarIconProps> = (props) => (
-  <SidebarIconBase iconName="receipt-text" {...props}>
-    <path d="M13 16H8" />
-    <path d="M14 8H8" />
-    <path d="M16 12H8" />
-    <path d="M4 3a1 1 0 0 1 1-1 1.3 1.3 0 0 1 .7.2l.933.6a1.3 1.3 0 0 0 1.4 0l.934-.6a1.3 1.3 0 0 1 1.4 0l.933.6a1.3 1.3 0 0 0 1.4 0l.933-.6a1.3 1.3 0 0 1 1.4 0l.934.6a1.3 1.3 0 0 0 1.4 0l.933-.6A1.3 1.3 0 0 1 19 2a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1 1.3 1.3 0 0 1-.7-.2l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.934.6a1.3 1.3 0 0 1-1.4 0l-.933-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-1.4 0l-.934-.6a1.3 1.3 0 0 0-1.4 0l-.933.6a1.3 1.3 0 0 1-.7.2 1 1 0 0 1-1-1z" />
+export const CreditCardIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="credit-card" {...props}>
+    <rect width="20" height="14" x="2" y="5" rx="2" />
+    <line x1="2" x2="22" y1="10" y2="10" />
+  </SidebarIconBase>
+);
+
+export const FileTextIcon: React.FC<SidebarIconProps> = (props) => (
+  <SidebarIconBase iconName="file-text" {...props}>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    <path d="M10 9H8" />
+    <path d="M16 13H8" />
+    <path d="M16 17H8" />
   </SidebarIconBase>
 );
 

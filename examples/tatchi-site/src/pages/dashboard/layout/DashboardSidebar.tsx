@@ -18,6 +18,7 @@ type DashboardSidebarProps = {
   expandedGroups: ExpandedSidebarGroupsState;
   activeRoute: DashboardRoute;
   disableNavigationItems?: boolean;
+  enabledWhenLockedPaths?: ReadonlySet<DashboardRoute>;
   onToggleGroup: (group: SidebarGroupKey) => void;
   linkProps: LinkPropsFactory;
 };
@@ -28,6 +29,7 @@ export function DashboardSidebar({
   expandedGroups,
   activeRoute,
   disableNavigationItems = false,
+  enabledWhenLockedPaths,
   onToggleGroup,
   linkProps,
 }: DashboardSidebarProps): React.JSX.Element {
@@ -64,7 +66,8 @@ export function DashboardSidebar({
                     const ItemIcon = item.icon;
                     const navProps = linkProps(item.path);
                     const isActive = item.path === activeRoute;
-                    const isDisabled = disableNavigationItems;
+                    const isDisabled =
+                      disableNavigationItems && !enabledWhenLockedPaths?.has(item.path);
                     return (
                       <li key={item.key}>
                         <a

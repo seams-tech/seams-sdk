@@ -1,5 +1,6 @@
 import { ApiKeyManagementPage } from './routes/api-keys/page';
 import { BillingAccountPage } from './routes/billing/page';
+import { AccountSettingsPage } from './routes/account-settings/page';
 import { AuditLogsPage } from './routes/audit/page';
 import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipPage } from './routes/gas-sponsorship/page';
@@ -15,10 +16,11 @@ import { WebhooksPage } from './routes/webhooks/page';
 import { FRONTEND_CONFIG } from '@/config';
 import {
   ActivityIcon,
+  CreditCardIcon,
+  FileTextIcon,
   FuelIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
-  ReceiptTextIcon,
   ScaleIcon,
   ScrollTextIcon,
   ServerCogIcon,
@@ -104,6 +106,13 @@ const sidebarGroups: SidebarGroup[] = [
     label: 'Administration',
     items: [
       {
+        key: 'account-settings',
+        label: 'Account settings',
+        path: '/dashboard/account-settings',
+        icon: UserCogIcon,
+        component: AccountSettingsPage,
+      },
+      {
         key: 'team-members',
         label: 'Team members and roles',
         path: '/dashboard/team-members',
@@ -125,26 +134,6 @@ const sidebarGroups: SidebarGroup[] = [
     items: operationsSecurityItems,
   },
   {
-    key: 'integrations',
-    label: 'Integrations',
-    items: [
-      {
-        key: 'self-hosting',
-        label: 'Self Hosting',
-        path: '/dashboard/integrations/self-hosting',
-        icon: ServerCogIcon,
-        component: SelfHostingPage,
-      },
-      {
-        key: 'webhooks',
-        label: 'Webhooks',
-        path: '/dashboard/webhooks',
-        icon: WebhookIcon,
-        component: WebhooksPage,
-      },
-    ],
-  },
-  {
     key: 'billing',
     label: 'Billing',
     items: [
@@ -152,15 +141,35 @@ const sidebarGroups: SidebarGroup[] = [
         key: 'billing-account',
         label: 'Billing account',
         path: '/dashboard/billing/account',
-        icon: ReceiptTextIcon,
+        icon: CreditCardIcon,
         component: BillingAccountPage,
       },
       {
         key: 'invoices',
         label: 'Invoices',
         path: '/dashboard/invoices',
-        icon: ReceiptTextIcon,
+        icon: FileTextIcon,
         component: InvoicesPage,
+      },
+    ],
+  },
+  {
+    key: 'integrations',
+    label: 'Integrations',
+    items: [
+      {
+        key: 'webhooks',
+        label: 'Webhooks',
+        path: '/dashboard/webhooks',
+        icon: WebhookIcon,
+        component: WebhooksPage,
+      },
+      {
+        key: 'self-hosting',
+        label: 'Self Hosting',
+        path: '/dashboard/integrations/self-hosting',
+        icon: ServerCogIcon,
+        component: SelfHostingPage,
       },
     ],
   },
@@ -183,8 +192,8 @@ export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
   overview: true,
   administration: true,
   operationsSecurity: true,
-  integrations: true,
   billing: true,
+  integrations: true,
 };
 
 export const SIDEBAR_GROUP_KEYS = Object.keys(DEFAULT_EXPANDED_SIDEBAR_GROUPS) as Array<

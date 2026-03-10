@@ -20,12 +20,28 @@ type OpsCockpitData = {
   warnings: string[];
 };
 
+const OPS_COCKPIT_APPROVE_REASON = 'Approved from Ops Cockpit';
+const OPS_COCKPIT_REJECT_REASON = 'Rejected from Ops Cockpit';
+
 function formatTimestamp(value: string | null | undefined): string {
   const normalized = String(value || '').trim();
   if (!normalized) return '-';
   const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString();
+}
+
+function formatApprovalLabel(value: string | null | undefined): string {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'KEY_EXPORT') return 'Key export';
+  if (normalized === 'POLICY_PUBLISH') return 'Policy publish';
+  if (!normalized) return 'Approval';
+  return normalized
+    .toLowerCase()
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function toErrorMessage(error: unknown): string {
@@ -81,10 +97,6 @@ export function OpsCockpitPage(): React.JSX.Element {
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
-  const [approvalActionReason, setApprovalActionReason] = React.useState<string>(
-    'Processed from Ops Cockpit',
-  );
-  const [approvalActionMfaVerified, setApprovalActionMfaVerified] = React.useState<boolean>(true);
   const [approvingApprovalId, setApprovingApprovalId] = React.useState<string>('');
   const [rejectingApprovalId, setRejectingApprovalId] = React.useState<string>('');
   const [approvalMutationErrorMessage, setApprovalMutationErrorMessage] =
@@ -195,26 +207,27 @@ export function OpsCockpitPage(): React.JSX.Element {
         setApprovalMutationErrorMessage(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      const approvalId = String(entry.id || '').trim();
-      const reason = String(approvalActionReason || '').trim();
-      if (!approvalId) {
-        setApprovalMutationErrorMessage('Approval id is required.');
+      if (entry.requireMfa) {
+        setApprovalMutationErrorMessage(
+          'Approve unavailable in overview: this request requires MFA verification.',
+        );
         return;
       }
-      if (!reason) {
-        setApprovalMutationErrorMessage('Approval action reason is required.');
+      const approvalId = String(entry.id || '').trim();
+      if (!approvalId) {
+        setApprovalMutationErrorMessage('Approval id is required.');
         return;
       }
       setApprovingApprovalId(approvalId);
       setApprovalMutationErrorMessage('');
       setApprovalMutationNotice('');
       try {
-        await approveDashboardApproval({
+        const updated = await approveDashboardApproval({
           approvalId,
-          reason,
-          mfaVerified: approvalActionMfaVerified,
+          reason: OPS_COCKPIT_APPROVE_REASON,
+          mfaVerified: false,
         });
-        setApprovalMutationNotice(`Approved request ${approvalId}.`);
+        setApprovalMutationNotice(`Approval request ${approvalId} is now ${updated.status}.`);
         loadOpsCockpit();
       } catch (error: unknown) {
         setApprovalMutationErrorMessage(toErrorMessage(error));
@@ -222,13 +235,7 @@ export function OpsCockpitPage(): React.JSX.Element {
         setApprovingApprovalId('');
       }
     },
-    [
-      approvalActionMfaVerified,
-      approvalActionReason,
-      loadOpsCockpit,
-      session.claims,
-      session.errorMessage,
-    ],
+    [loadOpsCockpit, session.claims, session.errorMessage],
   );
 
   const onRejectPendingApproval = React.useCallback(
@@ -238,24 +245,19 @@ export function OpsCockpitPage(): React.JSX.Element {
         return;
       }
       const approvalId = String(entry.id || '').trim();
-      const reason = String(approvalActionReason || '').trim();
       if (!approvalId) {
         setApprovalMutationErrorMessage('Approval id is required.');
-        return;
-      }
-      if (!reason) {
-        setApprovalMutationErrorMessage('Approval action reason is required.');
         return;
       }
       setRejectingApprovalId(approvalId);
       setApprovalMutationErrorMessage('');
       setApprovalMutationNotice('');
       try {
-        await rejectDashboardApproval({
+        const updated = await rejectDashboardApproval({
           approvalId,
-          reason,
+          reason: OPS_COCKPIT_REJECT_REASON,
         });
-        setApprovalMutationNotice(`Rejected request ${approvalId}.`);
+        setApprovalMutationNotice(`Approval request ${approvalId} is now ${updated.status}.`);
         loadOpsCockpit();
       } catch (error: unknown) {
         setApprovalMutationErrorMessage(toErrorMessage(error));
@@ -263,7 +265,7 @@ export function OpsCockpitPage(): React.JSX.Element {
         setRejectingApprovalId('');
       }
     },
-    [approvalActionReason, loadOpsCockpit, session.claims, session.errorMessage],
+    [loadOpsCockpit, session.claims, session.errorMessage],
   );
 
   const onRequeueAuditExport = React.useCallback(
@@ -417,56 +419,6 @@ export function OpsCockpitPage(): React.JSX.Element {
         aria-label="Pending approvals summary"
       >
         <h2>Pending approvals</h2>
-        <div className="dashboard-view-grid dashboard-view-grid--two">
-          <label className="dashboard-form-field">
-            <span>Approval action reason</span>
-            <input
-              className="dashboard-input"
-              value={approvalActionReason}
-              onChange={(event) => setApprovalActionReason(event.target.value)}
-              placeholder="Processed from Ops Cockpit"
-            />
-          </label>
-          <div className="dashboard-form-field">
-            <span>MFA verified (approve)</span>
-            <div
-              className="dashboard-team-members-access-segmented dashboard-team-members-access-segmented--two"
-              role="group"
-              aria-label="MFA verified (approve)"
-            >
-              <button
-                type="button"
-                className={[
-                  'dashboard-team-members-access-segmented__button',
-                  approvalActionMfaVerified
-                    ? 'dashboard-team-members-access-segmented__button--active'
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                aria-pressed={approvalActionMfaVerified}
-                onClick={() => setApprovalActionMfaVerified(true)}
-              >
-                Verified
-              </button>
-              <button
-                type="button"
-                className={[
-                  'dashboard-team-members-access-segmented__button',
-                  !approvalActionMfaVerified
-                    ? 'dashboard-team-members-access-segmented__button--active'
-                    : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                aria-pressed={!approvalActionMfaVerified}
-                onClick={() => setApprovalActionMfaVerified(false)}
-              >
-                Not verified
-              </button>
-            </div>
-          </div>
-        </div>
         {approvalMutationNotice ? (
           <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
         ) : null}
@@ -479,33 +431,50 @@ export function OpsCockpitPage(): React.JSX.Element {
           <ul className="dashboard-view-list">
             {pendingApprovals.slice(0, 6).map((row) => (
               <li key={row.id}>
-                <strong>{row.operationType}</strong> for {row.resourceType || 'resource'}{' '}
-                <code>{row.resourceId || row.id}</code> by <code>{row.requestedByUserId}</code> at{' '}
-                {formatTimestamp(row.createdAt)}{' '}
-                <button
-                  type="button"
-                  className="dashboard-inline-link"
-                  onClick={() => onApprovePendingApproval(row)}
-                  disabled={
-                    approvingApprovalId === row.id ||
-                    rejectingApprovalId === row.id ||
-                    !String(approvalActionReason || '').trim()
-                  }
-                >
-                  {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
-                </button>{' '}
-                <button
-                  type="button"
-                  className="dashboard-inline-link dashboard-inline-link--danger"
-                  onClick={() => onRejectPendingApproval(row)}
-                  disabled={
-                    approvingApprovalId === row.id ||
-                    rejectingApprovalId === row.id ||
-                    !String(approvalActionReason || '').trim()
-                  }
-                >
-                  {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
-                </button>
+                <p>
+                  <strong>{formatApprovalLabel(row.operationType)}</strong> for{' '}
+                  {formatApprovalLabel(row.resourceType || 'resource').toLowerCase()}{' '}
+                  <code>{row.resourceId || row.id}</code> by <code>{row.requestedByUserId}</code> at{' '}
+                  {formatTimestamp(row.createdAt)}
+                </p>
+                {row.reason ? (
+                  <p className="dashboard-pagination-note">Requested reason: {row.reason}</p>
+                ) : null}
+                <p className="dashboard-pagination-note">
+                  {row.requiredApprovals === 1
+                    ? '1 approval required.'
+                    : `${row.requiredApprovals} approvals required.`}{' '}
+                  {row.requireMfa ? 'MFA verification is required to approve.' : ''}
+                </p>
+                {row.requireMfa ? (
+                  <p className="dashboard-pagination-note">
+                    Approve unavailable in overview: this request requires MFA verification.
+                  </p>
+                ) : null}
+                <p>
+                  {!row.requireMfa ? (
+                    <>
+                      <button
+                        type="button"
+                        className="dashboard-inline-link"
+                        onClick={() => onApprovePendingApproval(row)}
+                        disabled={
+                          approvingApprovalId === row.id || rejectingApprovalId === row.id
+                        }
+                      >
+                        {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
+                      </button>{' '}
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="dashboard-inline-link dashboard-inline-link--danger"
+                    onClick={() => onRejectPendingApproval(row)}
+                    disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
+                  >
+                    {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
+                  </button>
+                </p>
               </li>
             ))}
           </ul>
@@ -593,8 +562,8 @@ export function OpsCockpitPage(): React.JSX.Element {
               <ul className="dashboard-view-list">
                 {queuedAuditExports.slice(0, 6).map((row) => (
                   <li key={row.id}>
-                    Export <code>{row.id}</code> is <strong>{row.status}</strong> ({row.format}) since{' '}
-                    {formatTimestamp(row.createdAt)}{' '}
+                    Export <code>{row.id}</code> is <strong>{row.status}</strong> ({row.format})
+                    since {formatTimestamp(row.createdAt)}{' '}
                     <button
                       type="button"
                       className="dashboard-inline-link"
@@ -658,7 +627,9 @@ export function OpsCockpitPage(): React.JSX.Element {
             <p className="dashboard-pagination-note">
               Onboarding telemetry window:{' '}
               <strong>
-                {summary?.onboardingTelemetry ? `${summary.onboardingTelemetry.windowMinutes}m` : '-'}
+                {summary?.onboardingTelemetry
+                  ? `${summary.onboardingTelemetry.windowMinutes}m`
+                  : '-'}
               </strong>
             </p>
             {onboardingAlerts.length === 0 ? (
@@ -667,8 +638,8 @@ export function OpsCockpitPage(): React.JSX.Element {
               <ul className="dashboard-view-list">
                 {onboardingAlerts.map((alert, index) => (
                   <li key={`${alert.code}:${alert.operation}:${index}`}>
-                    <strong>{alert.severity}</strong> {alert.code} on <code>{alert.operation}</code>:{' '}
-                    {alert.message}
+                    <strong>{alert.severity}</strong> {alert.code} on <code>{alert.operation}</code>
+                    : {alert.message}
                   </li>
                 ))}
               </ul>

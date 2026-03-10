@@ -10,8 +10,19 @@ export interface DashboardGasSponsorshipAllowedCall {
   chainId: number;
   to: string;
   selector: string;
-  maxGasLimit: string;
-  maxValueWei: string;
+}
+
+export type DashboardGasSponsorshipCallMode = 'ALLOW_ALL' | 'ALLOWLIST';
+export type DashboardGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
+export type DashboardGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
+
+export interface DashboardGasSponsorshipSpendCap {
+  mode: DashboardGasSponsorshipSpendCapMode;
+  period: DashboardGasSponsorshipSpendCapPeriod;
+  capsByChain: Array<{
+    chainId: number;
+    capMinor: number;
+  }>;
 }
 
 export interface DashboardGasSponsorshipConfig {
@@ -24,16 +35,10 @@ export interface DashboardGasSponsorshipConfig {
   policyName: string;
   templateId: string | null;
   networkClass: string;
-  executor: string;
   enabled: boolean;
-  paymasterMode: string;
-  fallbackBehavior: string;
-  chainBudgets: Array<{
-    chain: string;
-    period: string;
-    budgetMinor: number;
-    quotaTransactions: number;
-  }>;
+  allowedChainIds: number[];
+  callMode: DashboardGasSponsorshipCallMode;
+  spendCap: DashboardGasSponsorshipSpendCap;
   allowedCalls: DashboardGasSponsorshipAllowedCall[];
   updatedAt: string;
 }
@@ -64,11 +69,71 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
         chainId,
         to,
         selector,
-        maxGasLimit: String(row.maxGasLimit || '0').trim() || '0',
-        maxValueWei: String(row.maxValueWei || '0').trim() || '0',
       };
     })
     .filter((entry): entry is DashboardGasSponsorshipAllowedCall => entry !== null);
+}
+
+function decodeAllowedChainIds(
+  raw: unknown,
+  allowedCalls: readonly DashboardGasSponsorshipAllowedCall[],
+): number[] {
+  const fromField = Array.isArray(raw)
+    ? raw
+        .map((entry) => Number(entry || 0))
+        .filter((entry) => Number.isFinite(entry) && entry > 0)
+        .map((entry) => Math.floor(entry))
+    : [];
+  const fallback = fromField.length > 0 ? fromField : allowedCalls.map((entry) => entry.chainId);
+  return Array.from(new Set(fallback));
+}
+
+function decodeSpendCap(raw: unknown): DashboardGasSponsorshipSpendCap {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {
+      mode: 'NONE',
+      period: 'MONTHLY',
+      capsByChain: [],
+    };
+  }
+  const row = raw as Record<string, unknown>;
+  const modeRaw = String(row.mode || '')
+    .trim()
+    .toUpperCase();
+  const periodRaw = String(row.period || '')
+    .trim()
+    .toUpperCase();
+  const capsByChainRaw = Array.isArray(row.capsByChain) ? row.capsByChain : [];
+  const mode =
+    modeRaw === 'CHAIN_TOTAL' || modeRaw === 'WALLET_CHAIN_TOTAL'
+      ? (modeRaw as DashboardGasSponsorshipSpendCapMode)
+      : 'NONE';
+  return {
+    mode,
+    period: periodRaw === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY',
+    capsByChain: mode === 'NONE' ? [] : Array.from(
+      new Map(
+        capsByChainRaw
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+            const cap = entry as Record<string, unknown>;
+            const chainId = Number(cap.chainId || 0);
+            const capMinor = Number(cap.capMinor || 0);
+            if (!Number.isFinite(chainId) || chainId <= 0) return null;
+            if (!Number.isFinite(capMinor) || capMinor < 0) return null;
+            return [Math.floor(chainId), { chainId: Math.floor(chainId), capMinor: Math.floor(capMinor) }] as const;
+          })
+          .filter(
+            (
+              entry,
+            ): entry is readonly [
+              number,
+              DashboardGasSponsorshipSpendCap['capsByChain'][number],
+            ] => entry !== null,
+          ),
+      ).values(),
+    ),
+  };
 }
 
 function decodeGasSponsorshipConfig(raw: unknown): DashboardGasSponsorshipConfig | null {
@@ -76,7 +141,10 @@ function decodeGasSponsorshipConfig(raw: unknown): DashboardGasSponsorshipConfig
   const row = raw as Record<string, unknown>;
   const id = String(row.id || '').trim();
   if (!id) return null;
-  const chainBudgetsRaw = Array.isArray(row.chainBudgets) ? row.chainBudgets : [];
+  const allowedCalls = decodeAllowedCalls(row.allowedCalls);
+  const callModeRaw = String(row.callMode || '')
+    .trim()
+    .toUpperCase();
   return {
     id,
     scopeType: String(row.scopeType || '').trim() || 'ENVIRONMENT',
@@ -87,27 +155,16 @@ function decodeGasSponsorshipConfig(raw: unknown): DashboardGasSponsorshipConfig
     policyName: String(row.policyName || '').trim() || 'Gas Sponsorship Policy',
     templateId: row.templateId == null ? null : String(row.templateId || '').trim() || null,
     networkClass: String(row.networkClass || '').trim() || 'ANY',
-    executor: String(row.executor || '').trim() || 'RELAY_EOA',
     enabled: row.enabled !== false,
-    paymasterMode: String(row.paymasterMode || '').trim() || 'AUTO',
-    fallbackBehavior: String(row.fallbackBehavior || '').trim() || 'ALLOW_UNSPONSORED',
-    chainBudgets: chainBudgetsRaw
-      .map((entry) => {
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-        const budget = entry as Record<string, unknown>;
-        const chain = String(budget.chain || '').trim();
-        if (!chain) return null;
-        return {
-          chain,
-          period: String(budget.period || '').trim() || 'MONTHLY',
-          budgetMinor: Number(budget.budgetMinor || 0),
-          quotaTransactions: Number(budget.quotaTransactions || 0),
-        };
-      })
-      .filter(
-        (entry): entry is DashboardGasSponsorshipConfig['chainBudgets'][number] => entry !== null,
-      ),
-    allowedCalls: decodeAllowedCalls(row.allowedCalls),
+    allowedChainIds: decodeAllowedChainIds(row.allowedChainIds, allowedCalls),
+    callMode:
+      callModeRaw === 'ALLOWLIST' || callModeRaw === 'ALLOW_ALL'
+        ? (callModeRaw as DashboardGasSponsorshipCallMode)
+        : allowedCalls.length > 0
+          ? 'ALLOWLIST'
+          : 'ALLOW_ALL',
+    spendCap: decodeSpendCap(row.spendCap),
+    allowedCalls,
     updatedAt: String(row.updatedAt || '').trim(),
   };
 }
