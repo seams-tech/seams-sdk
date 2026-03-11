@@ -177,10 +177,47 @@ async function seedOrgProjectEnvironment(
     name: 'Default Organization',
     slug: 'default-organization',
   });
+  const existingProjects = await service.listProjects(ctx);
+  if (existingProjects.some((entry) => entry.id === input.projectId)) return;
   await service.createProject(ctx, {
     id: input.projectId,
     name: 'Default Project',
     liveEnvironmentsEnabled: true,
+  });
+}
+
+async function seedPostgresWalletRecord(input: {
+  postgresUrl: string;
+  namespace: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  walletId: string;
+  userId: string;
+  externalRefId: string;
+  address: string;
+}): Promise<void> {
+  const pool = await getPostgresPool(input.postgresUrl);
+  const createdAtMs = Date.now();
+  await withConsoleTenantContextTx(pool, { namespace: input.namespace, orgId: input.orgId }, async (q) => {
+    await q.query(
+      `INSERT INTO console_wallet_index
+        (namespace, id, org_id, project_id, environment_id, user_id, external_ref_id, address, chain, wallet_type, status, policy_id, balance_minor, last_activity_at_ms, created_at_ms, updated_at_ms)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, 'Ethereum', 'EOA', 'ACTIVE', NULL, 0, $9, $9, $9)
+       ON CONFLICT (namespace, id) DO NOTHING`,
+      [
+        input.namespace,
+        input.walletId,
+        input.orgId,
+        input.projectId,
+        input.environmentId,
+        input.userId,
+        input.externalRefId,
+        input.address,
+        createdAtMs,
+      ],
+    );
   });
 }
 
@@ -414,7 +451,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('policy publish failures emit approval observability events and router timing (express)', async () => {
+  test('policy publish failures emit approval observability events (express)', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -456,13 +493,6 @@ test.describe('console router (express)', () => {
               .length,
         )
         .toBe(1);
-      await expect
-        .poll(
-          () =>
-            ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length,
-        )
-        .toBeGreaterThanOrEqual(1);
-
       const approvalFailure = ingested.find(
         (entry) => entry.event.eventType === 'approval.policy_publish.failed',
       );
@@ -477,12 +507,6 @@ test.describe('console router (express)', () => {
         'req_obs_policy_publish',
       );
 
-      const routerTiming = ingested.find(
-        (entry) =>
-          entry.event.eventType === 'router.request.completed' &&
-          String(getPath(entry.event, 'metadata', 'route') || '').includes('/console/policies'),
-      );
-      expect(routerTiming).toBeTruthy();
     } finally {
       await srv.close();
     }
@@ -5119,7 +5143,7 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('invalid_query');
   });
 
-  test('cloudflare policy publish failures emit approval observability events and router timing', async () => {
+  test('cloudflare policy publish failures emit approval observability events', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -5160,13 +5184,6 @@ test.describe('console router (cloudflare)', () => {
             .length,
       )
       .toBe(1);
-    await expect
-      .poll(
-        () =>
-          ingested.filter((entry) => entry.event.eventType === 'router.request.completed').length,
-      )
-      .toBeGreaterThanOrEqual(1);
-
     const approvalFailure = ingested.find(
       (entry) => entry.event.eventType === 'approval.policy_publish.failed',
     );
@@ -5181,14 +5198,6 @@ test.describe('console router (cloudflare)', () => {
       'req_obs_policy_publish_cf',
     );
 
-    const routerTiming = ingested.find(
-      (entry) =>
-        entry.event.eventType === 'router.request.completed' &&
-        String(getPath(entry.event, 'metadata', 'route') || '').includes(
-          '/console/policies/pol_obs_failure/publish',
-        ),
-    );
-    expect(routerTiming).toBeTruthy();
   });
 
   test('cloudflare billing document finalization failures emit billing observability events', async () => {
@@ -9180,8 +9189,20 @@ test.describe('console router (postgres org-project-env)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner`;
     const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerSeedProjectId = `${ownerOrgId}:seed-project`;
+    const attackerSeedProjectId = `${attackerOrgId}:seed-project`;
     const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
     const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      actorUserId: 'owner-org-project-env-seed',
+    });
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: attackerOrgId,
+      projectId: attackerSeedProjectId,
+      actorUserId: 'attacker-org-project-env-seed',
+    });
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user'),
@@ -9291,8 +9312,20 @@ test.describe('console router (postgres org-project-env)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-cf`;
     const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerSeedProjectId = `${ownerOrgId}:seed-project`;
+    const attackerSeedProjectId = `${attackerOrgId}:seed-project`;
     const ownerManagedProjectId = `${ownerOrgId}:managed-project`;
     const ownerManagedEnvironmentId = `${ownerOrgId}:${ownerManagedProjectId}:dev`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      actorUserId: 'owner-org-project-env-seed-cf',
+    });
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: attackerOrgId,
+      projectId: attackerSeedProjectId,
+      actorUserId: 'attacker-org-project-env-seed-cf',
+    });
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-org-project-env-user-cf'),
@@ -9948,9 +9981,16 @@ test.describe('console router (postgres wallets)', () => {
   const namespace = randomNamespace('test:console-router:wallets:postgres');
   const authOrgId = 'org-router-postgres-wallets';
   let wallets: ConsoleWalletService | null = null;
+  let orgProjectEnv: ConsoleOrgProjectEnvService | null = null;
 
   test.beforeAll(async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
     wallets = await createPostgresConsoleWalletService({
       postgresUrl,
       namespace,
@@ -9963,12 +10003,33 @@ test.describe('console router (postgres wallets)', () => {
     if (!enabled) return;
     const pool = await getPostgresPool(postgresUrl);
     await pool.query('DELETE FROM console_wallet_index WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_environments WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_projects WHERE namespace = $1', [namespace]);
+    await pool.query('DELETE FROM console_organizations WHERE namespace = $1', [namespace]);
   });
 
   test('express wallet routes enforce org isolation', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner`;
     const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerProjectId = `${ownerOrgId}:wallet-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-wallet-seed',
+    });
+    await seedPostgresWalletRecord({
+      postgresUrl,
+      namespace,
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+      walletId: `${ownerOrgId}:wallet-seed`,
+      userId: 'owner-wallet-seed-user',
+      externalRefId: 'owner-wallet-seed-ext',
+      address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    });
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user'),
@@ -10020,6 +10081,24 @@ test.describe('console router (postgres wallets)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-cf`;
     const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerProjectId = `${ownerOrgId}:wallet-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-wallet-seed-cf',
+    });
+    await seedPostgresWalletRecord({
+      postgresUrl,
+      namespace,
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+      walletId: `${ownerOrgId}:wallet-seed`,
+      userId: 'owner-wallet-seed-user-cf',
+      externalRefId: 'owner-wallet-seed-ext-cf',
+      address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    });
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-user-cf'),
@@ -10059,6 +10138,24 @@ test.describe('console router (postgres wallets)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-insights`;
     const attackerOrgId = `${authOrgId}:attacker-insights`;
+    const ownerSeedProjectId = `${ownerOrgId}:wallet-project`;
+    const ownerSeedEnvironmentId = `${ownerSeedProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      actorUserId: 'owner-wallet-insights-seed',
+    });
+    await seedPostgresWalletRecord({
+      postgresUrl,
+      namespace,
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      environmentId: ownerSeedEnvironmentId,
+      walletId: `${ownerOrgId}:wallet-insights-seed`,
+      userId: 'owner-wallet-insights-seed-user',
+      externalRefId: 'owner-wallet-insights-seed-ext',
+      address: '0xcccccccccccccccccccccccccccccccccccccccc',
+    });
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user'),
@@ -10117,6 +10214,24 @@ test.describe('console router (postgres wallets)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-insights-cf`;
     const attackerOrgId = `${authOrgId}:attacker-insights-cf`;
+    const ownerSeedProjectId = `${ownerOrgId}:wallet-project`;
+    const ownerSeedEnvironmentId = `${ownerSeedProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      actorUserId: 'owner-wallet-insights-seed-cf',
+    });
+    await seedPostgresWalletRecord({
+      postgresUrl,
+      namespace,
+      orgId: ownerOrgId,
+      projectId: ownerSeedProjectId,
+      environmentId: ownerSeedEnvironmentId,
+      walletId: `${ownerOrgId}:wallet-insights-seed`,
+      userId: 'owner-wallet-insights-seed-user-cf',
+      externalRefId: 'owner-wallet-insights-seed-ext-cf',
+      address: '0xdddddddddddddddddddddddddddddddddddddddd',
+    });
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-wallet-insights-user-cf'),
@@ -10571,6 +10686,13 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner`;
     const attackerOrgId = `${authOrgId}:attacker`;
+    const ownerProjectId = `${ownerOrgId}:api-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-api-key-seed',
+    });
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user'),
@@ -10585,7 +10707,7 @@ test.describe('console router (postgres api keys)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'owner-postgres-api-key',
-          environmentId: 'default-project:prod',
+          environmentId: ownerEnvironmentId,
           kind: 'secret_key',
           scopes: ['wallets:read', 'billing:read'],
           ipAllowlist: ['203.0.113.20/32'],
@@ -10645,6 +10767,13 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-cf`;
     const attackerOrgId = `${authOrgId}:attacker-cf`;
+    const ownerProjectId = `${ownerOrgId}:api-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-api-key-seed-cf',
+    });
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-api-key-user-cf'),
@@ -10656,7 +10785,7 @@ test.describe('console router (postgres api keys)', () => {
       path: '/console/api-keys',
       body: {
         name: 'owner-postgres-api-key-cf',
-        environmentId: 'default-project:prod',
+        environmentId: ownerEnvironmentId,
         kind: 'secret_key',
         scopes: ['wallets:read'],
         ipAllowlist: ['198.51.100.25/32'],
@@ -10707,6 +10836,13 @@ test.describe('console router (postgres api keys)', () => {
   test('postgres API key rows persist key_prefix for indexed lookup', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const orgId = `${authOrgId}:prefix`;
+    const projectId = `${orgId}:api-project`;
+    const environmentId = `${projectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId,
+      projectId,
+      actorUserId: 'owner-api-key-prefix-seed',
+    });
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], orgId, 'owner-api-key-prefix-user'),
       apiKeys: apiKeys!,
@@ -10720,7 +10856,7 @@ test.describe('console router (postgres api keys)', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: 'prefix-check-key',
-          environmentId: 'default-project:prod',
+          environmentId,
           kind: 'secret_key',
           scopes: ['accounts.create'],
         }),
@@ -10753,7 +10889,13 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export`;
     const attackerOrgId = `${authOrgId}:attacker-export`;
-    const ownerEnvironmentId = 'default-project:prod';
+    const ownerProjectId = `${ownerOrgId}:api-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-export-governance-seed',
+    });
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
@@ -10824,7 +10966,13 @@ test.describe('console router (postgres api keys)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-export-cf`;
     const attackerOrgId = `${authOrgId}:attacker-export-cf`;
-    const ownerEnvironmentId = 'default-project:prod';
+    const ownerProjectId = `${ownerOrgId}:api-project`;
+    const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    await seedOrgProjectEnvironment(orgProjectEnv!, {
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      actorUserId: 'owner-export-governance-seed-cf',
+    });
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),

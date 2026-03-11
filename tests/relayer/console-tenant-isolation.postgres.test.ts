@@ -22,6 +22,82 @@ function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
+async function currentRoleBypassesRls(postgresUrl: string): Promise<boolean> {
+  const pool = await getPostgresPool(postgresUrl);
+  const row = await pool.query(
+    `SELECT (r.rolsuper OR r.rolbypassrls) AS bypasses_rls
+       FROM pg_roles r
+      WHERE r.rolname = current_user
+      LIMIT 1`,
+  );
+  const value = (row.rows[0] as Record<string, unknown> | undefined)?.bypasses_rls;
+  return value === true || String(value || '').toLowerCase() === 't';
+}
+
+async function seedTenantOrgProject(
+  service: ConsoleOrgProjectEnvService,
+  input: {
+    orgId: string;
+    actorUserId: string;
+    projectId: string;
+    organizationName: string;
+    organizationSlug: string;
+    projectName: string;
+  },
+): Promise<void> {
+  const ctx = {
+    orgId: input.orgId,
+    actorUserId: input.actorUserId,
+    roles: ['admin'],
+  };
+  await service.upsertOrganization(ctx, {
+    name: input.organizationName,
+    slug: input.organizationSlug,
+  });
+  const existing = await service.listProjects(ctx);
+  if (existing.some((entry) => entry.id === input.projectId)) return;
+  await service.createProject(ctx, {
+    id: input.projectId,
+    name: input.projectName,
+    liveEnvironmentsEnabled: true,
+  });
+}
+
+async function seedTenantWallet(input: {
+  postgresUrl: string;
+  namespace: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+  walletId: string;
+  userId: string;
+  externalRefId: string;
+  address: string;
+}): Promise<void> {
+  const pool = await getPostgresPool(input.postgresUrl);
+  const createdAtMs = Date.now();
+  await withConsoleTenantContextTx(pool, { namespace: input.namespace, orgId: input.orgId }, async (q) => {
+    await q.query(
+      `INSERT INTO console_wallet_index
+        (namespace, id, org_id, project_id, environment_id, user_id, external_ref_id, address, chain, wallet_type, status, policy_id, balance_minor, last_activity_at_ms, created_at_ms, updated_at_ms)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, 'Ethereum', 'EOA', 'ACTIVE', NULL, 0, $9, $9, $9)
+       ON CONFLICT (namespace, id) DO NOTHING`,
+      [
+        input.namespace,
+        input.walletId,
+        input.orgId,
+        input.projectId,
+        input.environmentId,
+        input.userId,
+        input.externalRefId,
+        input.address,
+        createdAtMs,
+      ],
+    );
+  });
+}
+
 async function expectConsoleError(fn: () => Promise<unknown>, code: string): Promise<void> {
   let caught: any;
   try {
@@ -45,6 +121,7 @@ test.describe('console postgres tenant-isolation harness', () => {
   let policies: ConsolePolicyService | null = null;
   let webhooks: ConsoleWebhookService | null = null;
   let billing: ConsoleBillingService | null = null;
+  let roleBypassesRls = false;
 
   const ownerOrgId = 'org-tenant-owner';
   const ownerProjectId = 'owner-project-main';
@@ -56,6 +133,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test.beforeAll(async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    roleBypassesRls = await currentRoleBypassesRls(postgresUrl);
     orgProjectEnv = await createPostgresConsoleOrgProjectEnvService({
       postgresUrl,
       namespace,
@@ -97,6 +175,45 @@ test.describe('console postgres tenant-isolation harness', () => {
       namespace,
       logger: console as any,
       ensureSchema: true,
+    });
+
+    await seedTenantOrgProject(orgProjectEnv, {
+      orgId: ownerOrgId,
+      actorUserId: 'owner-seed-admin',
+      projectId: ownerProjectId,
+      organizationName: 'Owner Organization',
+      organizationSlug: 'owner-organization',
+      projectName: 'Owner Project',
+    });
+    await seedTenantOrgProject(orgProjectEnv, {
+      orgId: attackerOrgId,
+      actorUserId: 'attacker-seed-admin',
+      projectId: attackerProjectId,
+      organizationName: 'Attacker Organization',
+      organizationSlug: 'attacker-organization',
+      projectName: 'Attacker Project',
+    });
+    await seedTenantWallet({
+      postgresUrl,
+      namespace,
+      orgId: ownerOrgId,
+      projectId: ownerProjectId,
+      environmentId: ownerEnvironmentId,
+      walletId: 'wallet_seed_owner_main',
+      userId: 'wallet-seed-owner-user',
+      externalRefId: 'wallet-seed-owner-ext',
+      address: '0x1111111111111111111111111111111111111111',
+    });
+    await seedTenantWallet({
+      postgresUrl,
+      namespace,
+      orgId: attackerOrgId,
+      projectId: attackerProjectId,
+      environmentId: attackerEnvironmentId,
+      walletId: 'wallet_seed_attacker_main',
+      userId: 'wallet-seed-attacker-user',
+      externalRefId: 'wallet-seed-attacker-ext',
+      address: '0x2222222222222222222222222222222222222222',
     });
   });
 
@@ -194,6 +311,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('org/project/environment tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -550,6 +668,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('wallet table enforces DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -692,6 +811,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('audit tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -848,6 +968,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('policy tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -904,6 +1025,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('api key table enforces DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -1017,6 +1139,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('webhook tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -1154,6 +1277,7 @@ test.describe('console postgres tenant-isolation harness', () => {
 
   test('billing prepaid tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
     const pool = await getPostgresPool(postgresUrl);
     const ownerCtx = {
       orgId: ownerOrgId,
