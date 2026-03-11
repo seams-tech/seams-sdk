@@ -18,6 +18,11 @@ const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   '../wasm/near_signer/pkg/wasm_signer_worker.js',
 );
 const NEAR_SIGNER_WASM_JS_OUT = 'wasm/near_signer/pkg/wasm_signer_worker.js';
+const NEAR_SIGNER_WORKER_ENUM_EXPORTS = [
+  'ConfirmationBehavior',
+  'ConfirmationUIMode',
+  'UserVerificationPolicy',
+] as const;
 
 const toPosixPath = (p: string): string => p.split(path.sep).join('/');
 const stripExt = (p: string): string => p.replace(/\.[^/.]+$/, '');
@@ -33,6 +38,26 @@ const preservedModuleOut = (opts: { facadeModuleId: string; rootAbs: string; pre
   const rel = toPosixPath(path.relative(opts.rootAbs, facadeAbs));
   const relNoExt = stripExt(stripLeadingDotDots(rel));
   return `${opts.prefix}/${relNoExt}.js`;
+};
+
+const ensureNearSignerWorkerEnumExports = (code: string): string => {
+  const exportLinePattern = /export \{([^}]+)\};/;
+  const exportLineMatch = code.match(exportLinePattern);
+  if (!exportLineMatch) return code;
+
+  const exportedBindings = exportLineMatch[1]
+    .split(',')
+    .map((binding) => binding.trim())
+    .filter(Boolean);
+
+  const missingBindings = NEAR_SIGNER_WORKER_ENUM_EXPORTS.filter((binding) => {
+    if (!code.includes(`const ${binding} = Object.freeze(`)) return false;
+    return !exportedBindings.some((exportedBinding) => exportedBinding === binding);
+  });
+  if (missingBindings.length === 0) return code;
+
+  const mergedBindings = [...exportedBindings, ...missingBindings].join(', ');
+  return code.replace(exportLinePattern, `export { ${mergedBindings} };`);
 };
 
 // Lightweight define plugin to replace process.env.NODE_ENV with 'production' for
@@ -590,7 +615,11 @@ const configs = [
     plugins: [
       {
         name: 'emit-near-signer-wasm',
-        generateBundle() {
+        generateBundle(_options, bundle) {
+          for (const output of Object.values(bundle)) {
+            if (output.type !== 'chunk' || output.fileName !== NEAR_SIGNER_WASM_JS_OUT) continue;
+            output.code = ensureNearSignerWorkerEnumExports(output.code);
+          }
           try {
             const source = fs.readFileSync(
               path.join(SDK_ROOT_ABS, '../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm'),

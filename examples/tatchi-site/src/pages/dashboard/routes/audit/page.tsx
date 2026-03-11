@@ -37,7 +37,6 @@ import {
 } from './consoleAuditApi';
 import { listDashboardApprovals, type DashboardConsoleApprovalRequest } from '../approvals/consoleApprovalsApi';
 import { listDashboardTeamMembers } from '../team-members/consoleTeamRbacApi';
-import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
 import {
   resolveDashboardIdentityPrimaryLabel,
   type DashboardIdentitySource,
@@ -246,7 +245,6 @@ export function AuditLogsPage(): React.JSX.Element {
   );
   const [projectDirectory, setProjectDirectory] = React.useState<Record<string, string>>({});
   const [environmentDirectory, setEnvironmentDirectory] = React.useState<Record<string, string>>({});
-  const [policyDirectory, setPolicyDirectory] = React.useState<Record<string, string>>({});
   const [approvalDirectory, setApprovalDirectory] = React.useState<
     Record<string, DashboardConsoleApprovalRequest>
   >({});
@@ -364,7 +362,6 @@ export function AuditLogsPage(): React.JSX.Element {
     Promise.allSettled([
       listDashboardProjects(),
       listDashboardEnvironments(selectedProjectId ? { projectId: selectedProjectId } : {}),
-      listDashboardPolicies(),
     ])
       .then((results) => {
         if (cancelled) return;
@@ -372,8 +369,6 @@ export function AuditLogsPage(): React.JSX.Element {
           results[0]?.status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
         const environments =
           results[1]?.status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
-        const policies =
-          results[2]?.status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : [];
         const nextProjects: Record<string, string> = {};
         for (const project of projects) {
           const projectId = readText(project.id);
@@ -386,15 +381,8 @@ export function AuditLogsPage(): React.JSX.Element {
           if (!environmentId) continue;
           nextEnvironments[environmentId] = readText(environment.name) || environmentId;
         }
-        const nextPolicies: Record<string, string> = {};
-        for (const policy of policies) {
-          const policyId = readText(policy.id);
-          if (!policyId) continue;
-          nextPolicies[policyId] = readText(policy.name) || policyId;
-        }
         setProjectDirectory(nextProjects);
         setEnvironmentDirectory(nextEnvironments);
-        setPolicyDirectory(nextPolicies);
       })
       .catch(() => {
         if (cancelled) return;
@@ -606,18 +594,11 @@ export function AuditLogsPage(): React.JSX.Element {
               });
               const approvalId = readText(row.metadata?.approvalId);
               const approval = approvalId ? approvalDirectory[approvalId] : null;
-              const linkedPolicyId =
-                readText(row.metadata?.policyId) ||
-                (readText(row.metadata?.resourceType).toUpperCase() === 'POLICY'
-                  ? readText(row.metadata?.resourceId)
-                  : '') ||
-                (approval &&
-                readText(approval.resourceType).toUpperCase() === 'POLICY'
-                  ? readText(approval.resourceId)
-                  : '');
-              const linkedPolicyLabel = linkedPolicyId
-                ? policyDirectory[linkedPolicyId] || linkedPolicyId
-                : '';
+              const linkedPolicyId = readText(row.policyId) || (approval ? readText(approval.policyId) : '');
+              const linkedPolicyLabel =
+                readText(row.policyName) ||
+                (approval ? readText(approval.policyName) : '') ||
+                linkedPolicyId;
               const policyLink = linkedPolicyId
                 ? linkProps(`/dashboard/policy-engine?policyId=${encodeURIComponent(linkedPolicyId)}`)
                 : null;

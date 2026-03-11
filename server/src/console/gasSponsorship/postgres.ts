@@ -249,8 +249,9 @@ function parseConfigRow(row: PgRow): ConsoleGasSponsorshipConfig {
     projectId: toNullableString(row.project_id),
     environmentId: toNullableString(row.environment_id),
     policyId: toNullableString(row.policy_id),
+    policyName: null,
     walletSegmentId: toNullableString(row.wallet_segment_id),
-    policyName: String(row.policy_name || 'Gas Sponsorship Policy'),
+    name: String(row.name || 'Gas Sponsorship Policy'),
     templateId: toNullableString(row.template_id),
     networkClass: normalizeNetworkClass(row.network_class),
     enabled: row.enabled !== false,
@@ -335,6 +336,22 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
+async function findPolicyName(
+  q: Queryable,
+  input: { namespace: string; orgId: string; policyId: string | null },
+): Promise<string | null> {
+  if (!input.policyId) return null;
+  const row = await queryOne(
+    q,
+    `SELECT name
+       FROM console_policies
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, input.policyId],
+  );
+  if (!row) return null;
+  return String(row.name || '').trim() || input.policyId;
+}
+
 export interface PostgresConsoleGasSponsorshipSchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -356,7 +373,7 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
         environment_id TEXT,
         policy_id TEXT,
         wallet_segment_id TEXT,
-        policy_name TEXT NOT NULL,
+        name TEXT NOT NULL,
         template_id TEXT,
         network_class TEXT NOT NULL,
         enabled BOOLEAN NOT NULL,
@@ -380,7 +397,23 @@ export async function ensureConsoleGasSponsorshipPostgresSchema(
 
     await pool.query(`
       ALTER TABLE console_gas_sponsorship_configs
-      ADD COLUMN IF NOT EXISTS policy_name TEXT NOT NULL DEFAULT 'Gas Sponsorship Policy'
+      ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT 'Gas Sponsorship Policy'
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_gas_sponsorship_configs'
+             AND column_name = 'policy_name'
+        ) THEN
+          UPDATE console_gas_sponsorship_configs
+             SET name = COALESCE(NULLIF(name, ''), NULLIF(policy_name, ''), 'Gas Sponsorship Policy');
+          ALTER TABLE console_gas_sponsorship_configs
+          DROP COLUMN policy_name;
+        END IF;
+      END $$;
     `);
     await pool.query(`
       ALTER TABLE console_gas_sponsorship_configs
@@ -516,6 +549,42 @@ export async function createPostgresConsoleGasSponsorshipService(
     return row ? parseConfigRow(row) : null;
   }
 
+  async function requirePolicyName(
+    q: Queryable,
+    ctx: ConsoleGasSponsorshipContext,
+    policyId: string | null,
+  ): Promise<string | null> {
+    if (!policyId) return null;
+    const policyName = await findPolicyName(q, { namespace, orgId: ctx.orgId, policyId });
+    if (!policyName) {
+      throw new ConsoleGasSponsorshipError(
+        'policy_not_found',
+        404,
+        `Policy ${policyId} was not found`,
+      );
+    }
+    return policyName;
+  }
+
+  async function projectConfig(
+    q: Queryable,
+    ctx: ConsoleGasSponsorshipContext,
+    config: ConsoleGasSponsorshipConfig,
+  ): Promise<ConsoleGasSponsorshipConfig> {
+  return {
+      ...config,
+      allowedChainIds: [...config.allowedChainIds],
+      spendCap: {
+        mode: config.spendCap.mode,
+        period: config.spendCap.period,
+        capsByChain: config.spendCap.capsByChain.map((entry) => ({ ...entry })),
+      },
+      allowedCalls: config.allowedCalls.map((entry) => ({ ...entry })),
+      telemetry: { ...config.telemetry },
+      policyName: await findPolicyName(q, { namespace, orgId: ctx.orgId, policyId: config.policyId }),
+    };
+  }
+
   return {
     async listConfigs(ctx, request = {}) {
       return withTenantTx(ctx, async (q) => {
@@ -542,7 +611,9 @@ export async function createPostgresConsoleGasSponsorshipService(
             request.templateId || null,
           ],
         );
-        return out.rows.map((row) => parseConfigRow(row as PgRow));
+        return await Promise.all(
+          out.rows.map(async (row) => await projectConfig(q, ctx, parseConfigRow(row as PgRow))),
+        );
       });
     },
 
@@ -560,8 +631,9 @@ export async function createPostgresConsoleGasSponsorshipService(
           projectId: toNullableString(request.projectId),
           environmentId: toNullableString(request.environmentId),
           policyId: toNullableString(request.policyId),
+          policyName: null,
           walletSegmentId: toNullableString(request.walletSegmentId),
-          policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
+          name: String(request.name || '').trim() || 'Gas Sponsorship Policy',
           templateId: toNullableString(request.templateId),
           networkClass: normalizeNetworkClass(request.networkClass),
           enabled: request.enabled ?? true,
@@ -579,13 +651,14 @@ export async function createPostgresConsoleGasSponsorshipService(
           updatedAt: now.toISOString(),
         };
         validateScope(config);
+        config.policyName = await requirePolicyName(q, ctx, config.policyId);
         validatePolicyRules(config);
         const createdAtMs = nowMs(now);
         try {
           const row = await queryOne(
             q,
             `INSERT INTO console_gas_sponsorship_configs
-              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, policy_name, template_id, network_class, enabled, allowed_chain_ids, call_mode, spend_cap, allowed_calls, telemetry, created_at_ms, updated_at_ms)
+              (namespace, org_id, id, scope_type, project_id, environment_id, policy_id, wallet_segment_id, name, template_id, network_class, enabled, allowed_chain_ids, call_mode, spend_cap, allowed_calls, telemetry, created_at_ms, updated_at_ms)
              VALUES
               ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17::jsonb, $18, $18)
              RETURNING *`,
@@ -598,7 +671,7 @@ export async function createPostgresConsoleGasSponsorshipService(
               config.environmentId,
               config.policyId,
               config.walletSegmentId,
-              config.policyName,
+              config.name,
               config.templateId,
               config.networkClass,
               config.enabled,
@@ -613,7 +686,7 @@ export async function createPostgresConsoleGasSponsorshipService(
           if (!row) {
             throw new ConsoleGasSponsorshipError('internal', 500, 'Failed to create gas sponsorship config');
           }
-          return parseConfigRow(row);
+          return await projectConfig(q, ctx, parseConfigRow(row));
         } catch (error: unknown) {
           if (isUniqueViolation(error)) {
             throw new ConsoleGasSponsorshipError(
@@ -642,14 +715,12 @@ export async function createPostgresConsoleGasSponsorshipService(
               ? current.environmentId
               : toNullableString(request.environmentId),
           policyId: request.policyId === undefined ? current.policyId : toNullableString(request.policyId),
+          policyName: current.policyName,
           walletSegmentId:
             request.walletSegmentId === undefined
               ? current.walletSegmentId
               : toNullableString(request.walletSegmentId),
-          policyName:
-            request.policyName === undefined
-              ? current.policyName
-              : String(request.policyName || '').trim() || current.policyName,
+          name: request.name === undefined ? current.name : String(request.name || '').trim() || current.name,
           templateId:
             request.templateId === undefined ? current.templateId : toNullableString(request.templateId),
           networkClass:
@@ -676,6 +747,7 @@ export async function createPostgresConsoleGasSponsorshipService(
           updatedAt: nowFn().toISOString(),
         };
         validateScope(next);
+        next.policyName = await requirePolicyName(q, ctx, next.policyId);
         next.allowedCalls = next.callMode === 'ALLOW_ALL' ? [] : next.allowedCalls;
         validatePolicyRules(next);
 
@@ -688,7 +760,7 @@ export async function createPostgresConsoleGasSponsorshipService(
                   environment_id = $6,
                   policy_id = $7,
                   wallet_segment_id = $8,
-                  policy_name = $9,
+                  name = $9,
                   template_id = $10,
                   network_class = $11,
                   enabled = $12,
@@ -710,7 +782,7 @@ export async function createPostgresConsoleGasSponsorshipService(
             next.environmentId,
             next.policyId,
             next.walletSegmentId,
-            next.policyName,
+            next.name,
             next.templateId,
             next.networkClass,
             next.enabled,
@@ -721,7 +793,7 @@ export async function createPostgresConsoleGasSponsorshipService(
             updatedAtMs,
           ],
         );
-        return row ? parseConfigRow(row) : null;
+        return row ? await projectConfig(q, ctx, parseConfigRow(row)) : null;
       });
     },
   };

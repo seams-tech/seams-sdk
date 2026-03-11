@@ -32,6 +32,7 @@ export interface ConsolePoliciesContext {
 
 export interface ConsolePolicyService {
   listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]>;
+  getPolicy(ctx: ConsolePoliciesContext, policyId: string): Promise<ConsolePolicy | null>;
   listPolicyVersions(
     ctx: ConsolePoliciesContext,
     policyId: string,
@@ -232,6 +233,12 @@ export function createInMemoryConsolePolicyService(
       return Array.from(store.policies.values())
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((policy) => clonePolicy(policy));
+    },
+
+    async getPolicy(ctx, policyId): Promise<ConsolePolicy | null> {
+      const store = ensureOrgStore(ctx);
+      const policy = store.policies.get(policyId);
+      return policy ? clonePolicy(policy) : null;
     },
 
     async listPolicyVersions(ctx, policyId): Promise<ConsolePolicyVersion[] | null> {

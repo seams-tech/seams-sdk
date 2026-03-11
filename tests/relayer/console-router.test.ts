@@ -400,6 +400,38 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('GET /console/observability/* does not emit durable observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['support'],
+        'org-observability-express-read-noise',
+        'user-observability-express-read-noise',
+      ),
+      observability: createInMemoryConsoleObservabilityService(),
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const paths = [
+        '/console/observability/summary',
+        '/console/observability/events?limit=5',
+        '/console/observability/timeseries?bucketMinutes=5',
+        '/console/observability/services?limit=10',
+      ];
+      for (const path of paths) {
+        const res = await fetchJson(`${srv.baseUrl}${path}`, { method: 'GET' });
+        expect(res.status).toBe(200);
+      }
+      expect(ingested).toEqual([]);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('GET /console/observability/* requires observability read role', async () => {
     const observability = createInMemoryConsoleObservabilityService();
     const router = createConsoleRouter({
@@ -5099,6 +5131,33 @@ test.describe('console router (cloudflare)', () => {
     expect(services.status).toBe(200);
     expect(getPath(services.json, 'status', 'state')).toBe('not_configured');
     expect(Array.isArray(services.json?.services)).toBe(true);
+  });
+
+  test('cloudflare GET /console/observability/* does not emit durable observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['support'],
+        'org-observability-cf-read-noise',
+        'user-observability-cf-read-noise',
+      ),
+      observability: createInMemoryConsoleObservabilityService(),
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+    const paths = [
+      '/console/observability/summary',
+      '/console/observability/events?limit=5',
+      '/console/observability/timeseries?bucketMinutes=5',
+      '/console/observability/services?limit=10',
+    ];
+    for (const path of paths) {
+      const res = await callCf(handler, { method: 'GET', path });
+      expect(res.status).toBe(200);
+    }
+    expect(ingested).toEqual([]);
   });
 
   test('cloudflare GET /console/observability/* requires observability read role', async () => {

@@ -41,8 +41,9 @@ export interface ConsoleGasSponsorshipConfig {
   projectId: string | null;
   environmentId: string | null;
   policyId: string | null;
+  policyName: string | null;
   walletSegmentId: string | null;
-  policyName: string;
+  name: string;
   templateId: string | null;
   networkClass: ConsoleGasSponsorshipNetworkClass;
   enabled: boolean;
@@ -71,7 +72,7 @@ export interface CreateConsoleGasSponsorshipRequest {
   environmentId?: string;
   policyId?: string;
   walletSegmentId?: string;
-  policyName?: string;
+  name?: string;
   templateId?: string;
   networkClass?: ConsoleGasSponsorshipNetworkClass;
   enabled?: boolean;
@@ -87,7 +88,7 @@ export interface UpdateConsoleGasSponsorshipRequest {
   environmentId?: string;
   policyId?: string;
   walletSegmentId?: string;
-  policyName?: string;
+  name?: string;
   templateId?: string;
   networkClass?: ConsoleGasSponsorshipNetworkClass;
   enabled?: boolean;

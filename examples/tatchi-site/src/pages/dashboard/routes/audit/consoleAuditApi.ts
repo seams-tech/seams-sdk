@@ -33,6 +33,8 @@ export interface DashboardConsoleAuditEvent {
   orgId: string;
   projectId?: string;
   environmentId?: string;
+  policyId: string | null;
+  policyName: string | null;
   actorUserId: string;
   actorType: 'USER' | 'SYSTEM';
   category: DashboardConsoleAuditCategory;
@@ -138,6 +140,8 @@ function decodeAuditEvent(raw: unknown): DashboardConsoleAuditEvent | null {
     orgId,
     ...(row.projectId ? { projectId: String(row.projectId || '').trim() } : {}),
     ...(row.environmentId ? { environmentId: String(row.environmentId || '').trim() } : {}),
+    policyId: String(row.policyId || '').trim() || null,
+    policyName: String(row.policyName || '').trim() || null,
     actorUserId,
     actorType: actorType === 'SYSTEM' ? 'SYSTEM' : 'USER',
     category,

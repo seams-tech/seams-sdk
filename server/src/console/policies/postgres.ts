@@ -918,6 +918,13 @@ export async function createPostgresConsolePolicyService(
       });
     },
 
+    async getPolicy(ctx: ConsolePoliciesContext, policyId: string): Promise<ConsolePolicy | null> {
+      return withTenantTx(ctx, async (q) => {
+        await ensureDefaultPolicy(q, ctx);
+        return await findPolicy(q, { orgId: ctx.orgId, policyId });
+      });
+    },
+
     async listPolicyVersions(
       ctx: ConsolePoliciesContext,
       policyId: string,

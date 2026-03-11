@@ -16,7 +16,8 @@ export interface ConsoleSponsoredCallRecord {
   apiKeyId: string;
   apiKeyKind: ConsoleSponsoredCallApiKeyKind;
   route: string;
-  policyId: string;
+  sponsorshipConfigId: string;
+  sponsorshipConfigNameAtEvent: string | null;
   chainFamily: ConsoleSponsoredCallChainFamily;
   intentKind: ConsoleSponsoredCallIntentKind;
   accountRef: string;
@@ -40,7 +41,8 @@ export interface CreateConsoleSponsoredCallRecordRequest {
   apiKeyId: string;
   apiKeyKind: ConsoleSponsoredCallApiKeyKind;
   route: string;
-  policyId: string;
+  sponsorshipConfigId: string;
+  sponsorshipConfigNameAtEvent?: string | null;
   chainFamily: ConsoleSponsoredCallChainFamily;
   intentKind: ConsoleSponsoredCallIntentKind;
   accountRef: string;

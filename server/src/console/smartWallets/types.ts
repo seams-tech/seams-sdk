@@ -24,6 +24,7 @@ export interface ConsoleSmartWalletConfig {
   projectId: string | null;
   environmentId: string | null;
   policyId: string | null;
+  policyName: string | null;
   walletSegmentId: string | null;
   enabled: boolean;
   mode: ConsoleSmartWalletMode;

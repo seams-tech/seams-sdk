@@ -45,7 +45,9 @@ export interface DashboardAccountOrganization {
   actorIsAdmin: boolean;
   onboardingComplete: boolean;
   selectedProjectId: string | null;
+  selectedProjectName: string | null;
   selectedEnvironmentId: string | null;
+  selectedEnvironmentName: string | null;
   adminCandidates: DashboardAccountOrganizationAdminCandidate[];
 }
 
@@ -156,7 +158,9 @@ function parseOrganization(raw: unknown): DashboardAccountOrganization | null {
     actorIsAdmin: readBoolean(raw.actorIsAdmin),
     onboardingComplete: readBoolean(raw.onboardingComplete),
     selectedProjectId: readString(raw.selectedProjectId) || null,
+    selectedProjectName: readString(raw.selectedProjectName) || null,
     selectedEnvironmentId: readString(raw.selectedEnvironmentId) || null,
+    selectedEnvironmentName: readString(raw.selectedEnvironmentName) || null,
     adminCandidates: Array.isArray(raw.adminCandidates)
       ? raw.adminCandidates
           .map((entry) => parseAdminCandidate(entry))

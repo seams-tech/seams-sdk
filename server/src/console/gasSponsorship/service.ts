@@ -1,4 +1,5 @@
 import { ConsoleGasSponsorshipError } from './errors';
+import type { ConsolePolicyService } from '../policies/service';
 import type {
   ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipCallMode,
@@ -21,6 +22,7 @@ export interface ConsoleGasSponsorshipContext {
 
 export interface InMemoryConsoleGasSponsorshipServiceOptions {
   now?: () => Date;
+  policies?: ConsolePolicyService | null;
 }
 
 export interface ConsoleGasSponsorshipService {
@@ -173,6 +175,18 @@ function cloneConfig(config: ConsoleGasSponsorshipConfig): ConsoleGasSponsorship
   };
 }
 
+function toPolicyContext(ctx: ConsoleGasSponsorshipContext): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+} {
+  return {
+    orgId: ctx.orgId,
+    actorUserId: ctx.actorUserId,
+    roles: ctx.roles,
+  };
+}
+
 function validatePolicyRules(input: {
   allowedChainIds: number[];
   callMode: ConsoleGasSponsorshipCallMode;
@@ -265,6 +279,7 @@ export function createInMemoryConsoleGasSponsorshipService(
   opts: InMemoryConsoleGasSponsorshipServiceOptions = {},
 ): ConsoleGasSponsorshipService {
   const now = opts.now || (() => new Date());
+  const policies = opts.policies || null;
   const stores = new Map<string, Map<string, ConsoleGasSponsorshipConfig>>();
 
   function requireOrgStore(orgId: string): Map<string, ConsoleGasSponsorshipConfig> {
@@ -276,12 +291,46 @@ export function createInMemoryConsoleGasSponsorshipService(
     return store;
   }
 
+  async function requirePolicyName(
+    ctx: ConsoleGasSponsorshipContext,
+    policyId: string | null,
+  ): Promise<string | null> {
+    if (!policyId) return null;
+    if (!policies) {
+      throw new ConsoleGasSponsorshipError(
+        'internal',
+        500,
+        'Policy service is required for policy-scoped gas sponsorship configs',
+      );
+    }
+    const policy = await policies.getPolicy(toPolicyContext(ctx), policyId);
+    if (!policy) {
+      throw new ConsoleGasSponsorshipError(
+        'policy_not_found',
+        404,
+        `Policy ${policyId} was not found`,
+      );
+    }
+    return policy.name || policy.id;
+  }
+
+  async function projectConfig(
+    ctx: ConsoleGasSponsorshipContext,
+    config: ConsoleGasSponsorshipConfig,
+  ): Promise<ConsoleGasSponsorshipConfig> {
+    return {
+      ...cloneConfig(config),
+      policyName: await requirePolicyName(ctx, config.policyId),
+    };
+  }
+
   return {
     async listConfigs(ctx, request = {}): Promise<ConsoleGasSponsorshipConfig[]> {
       const store = requireOrgStore(ctx.orgId);
       const rows = sortConfigs(Array.from(store.values()));
-      return rows
-        .filter((row) => {
+      return await Promise.all(
+        rows
+          .filter((row) => {
           if (request.scopeType && row.scopeType !== request.scopeType) return false;
           if (request.projectId && row.projectId !== request.projectId) return false;
           if (request.environmentId && row.environmentId !== request.environmentId) return false;
@@ -290,7 +339,8 @@ export function createInMemoryConsoleGasSponsorshipService(
           if (request.templateId && row.templateId !== request.templateId) return false;
           return true;
         })
-        .map(cloneConfig);
+          .map(async (row) => await projectConfig(ctx, row)),
+      );
     },
 
     async createConfig(ctx, request): Promise<ConsoleGasSponsorshipConfig> {
@@ -302,6 +352,7 @@ export function createInMemoryConsoleGasSponsorshipService(
       const policyId = normalizeString(request.policyId);
       const walletSegmentId = normalizeString(request.walletSegmentId);
       validateScope({ scopeType, projectId, environmentId, policyId, walletSegmentId });
+      const policyName = await requirePolicyName(ctx, policyId);
 
       const config: ConsoleGasSponsorshipConfig = {
         id: normalizeString(request.id) || makeId('gs', createdAt),
@@ -310,8 +361,9 @@ export function createInMemoryConsoleGasSponsorshipService(
         projectId,
         environmentId,
         policyId,
+        policyName,
         walletSegmentId,
-        policyName: String(request.policyName || '').trim() || 'Gas Sponsorship Policy',
+        name: String(request.name || '').trim() || 'Gas Sponsorship Policy',
         templateId: normalizeString(request.templateId),
         networkClass: normalizeNetworkClass(request.networkClass),
         enabled: request.enabled ?? true,
@@ -340,7 +392,7 @@ export function createInMemoryConsoleGasSponsorshipService(
         );
       }
       store.set(config.id, config);
-      return cloneConfig(config);
+      return await projectConfig(ctx, config);
     },
 
     async updateConfig(ctx, configId, request): Promise<ConsoleGasSponsorshipConfig | null> {
@@ -361,10 +413,7 @@ export function createInMemoryConsoleGasSponsorshipService(
           request.walletSegmentId === undefined
             ? current.walletSegmentId
             : normalizeString(request.walletSegmentId),
-        policyName:
-          request.policyName === undefined
-            ? current.policyName
-            : String(request.policyName || '').trim() || current.policyName,
+        name: request.name === undefined ? current.name : String(request.name || '').trim() || current.name,
         templateId:
           request.templateId === undefined ? current.templateId : normalizeString(request.templateId),
         networkClass:
@@ -398,11 +447,12 @@ export function createInMemoryConsoleGasSponsorshipService(
         policyId: next.policyId,
         walletSegmentId: next.walletSegmentId,
       });
+      next.policyName = await requirePolicyName(ctx, next.policyId);
       next.allowedCalls = next.callMode === 'ALLOW_ALL' ? [] : next.allowedCalls;
       validatePolicyRules(next);
 
       store.set(configId, next);
-      return cloneConfig(next);
+      return await projectConfig(ctx, next);
     },
   };
 }

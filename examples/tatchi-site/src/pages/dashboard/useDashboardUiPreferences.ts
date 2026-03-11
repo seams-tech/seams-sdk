@@ -84,6 +84,18 @@ function sanitizeSelectedContext(
   };
 }
 
+function areSelectedContextsEqual(
+  left: TopbarContextState,
+  right: TopbarContextState,
+): boolean {
+  return (
+    left.organization === right.organization &&
+    left.project === right.project &&
+    left.environment === right.environment &&
+    left.accountSettings === right.accountSettings
+  );
+}
+
 function sanitizeExpandedGroups(
   input: Partial<ExpandedSidebarGroupsState> | undefined,
 ): ExpandedSidebarGroupsState {
@@ -388,15 +400,7 @@ export function useDashboardUiPreferences(
   React.useEffect(() => {
     setSelectedContext((current) => {
       const sanitized = sanitizeSelectedContext(current, dropdownOptions, defaultContext);
-      if (
-        sanitized.organization === current.organization &&
-        sanitized.project === current.project &&
-        sanitized.environment === current.environment &&
-        sanitized.accountSettings === current.accountSettings
-      ) {
-        return current;
-      }
-      return sanitized;
+      return areSelectedContextsEqual(current, sanitized) ? current : sanitized;
     });
   }, [defaultContext, dropdownOptions]);
 

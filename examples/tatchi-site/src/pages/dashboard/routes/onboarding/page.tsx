@@ -24,6 +24,7 @@ type OnboardingDraft = {
   orgNameInput: string;
   orgSlugInput: string;
   orgNameConfirmed: boolean;
+  orgNameExplicitlySelected: boolean;
   projectNameInput: string;
   projectIdInput: string;
   environmentIdInput: string;
@@ -56,19 +57,26 @@ function buildDefaultState(orgId: string): DashboardOnboardingState {
   };
 }
 
-function hasConfiguredOrganizationName(state: DashboardOnboardingState | null): boolean {
+function hasConfiguredOrganizationName(
+  state: DashboardOnboardingState | null,
+  orgNameExplicitlySelected: boolean,
+): boolean {
   if (!state) return false;
   const organizationName = String(state.organization?.name || '').trim();
   if (!organizationName) return false;
-  return organizationName !== String(state.orgId || '').trim();
+  return organizationName !== String(state.orgId || '').trim() || orgNameExplicitlySelected;
 }
 
-function resolveCurrentStep(state: DashboardOnboardingState | null): DashboardOnboardingStep {
+function resolveCurrentStep(
+  state: DashboardOnboardingState | null,
+  orgNameExplicitlySelected: boolean,
+): DashboardOnboardingStep {
   if (!state) return 'organization';
   const onboardingComplete =
     state.onboardingComplete === undefined ? state.complete === true : state.onboardingComplete;
   if (onboardingComplete) return 'complete';
-  if (!state.organizationReady || !hasConfiguredOrganizationName(state)) return 'organization';
+  if (!state.organizationReady || !hasConfiguredOrganizationName(state, orgNameExplicitlySelected))
+    return 'organization';
   return 'project';
 }
 
@@ -85,6 +93,7 @@ function readOnboardingDraft(storageKey: string): OnboardingDraft | null {
       orgNameInput: String(row.orgNameInput || '').trim(),
       orgSlugInput: String(row.orgSlugInput || '').trim(),
       orgNameConfirmed: row.orgNameConfirmed === true,
+      orgNameExplicitlySelected: row.orgNameExplicitlySelected === true,
       projectNameInput: String(row.projectNameInput || '').trim(),
       projectIdInput: String(row.projectIdInput || '').trim(),
       environmentIdInput: String(row.environmentIdInput || '').trim(),
@@ -207,6 +216,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const [orgNameInput, setOrgNameInput] = React.useState<string>('');
   const [orgSlugInput, setOrgSlugInput] = React.useState<string>('');
   const [orgNameConfirmed, setOrgNameConfirmed] = React.useState<boolean>(false);
+  const [orgNameExplicitlySelected, setOrgNameExplicitlySelected] = React.useState<boolean>(false);
   const [projectIdInput, setProjectIdInput] = React.useState<string>('');
   const [projectNameInput, setProjectNameInput] = React.useState<string>('');
   const [environmentIdInput, setEnvironmentIdInput] = React.useState<string>('');
@@ -275,6 +285,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setOrgNameInput(draft.orgNameInput);
       setOrgSlugInput(draft.orgSlugInput);
       setOrgNameConfirmed(draft.orgNameConfirmed);
+      setOrgNameExplicitlySelected(draft.orgNameExplicitlySelected);
       setProjectNameInput(draft.projectNameInput);
       setProjectIdInput(draft.projectIdInput);
       setEnvironmentIdInput(draft.environmentIdInput);
@@ -317,6 +328,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setOrganizationResult(next);
       setProjectResult(null);
       setLastFailedAction(null);
+      setOrgNameExplicitlySelected(true);
       setState(next.state);
       publishOnboardingStateUpdate(next.state);
       loadState();
@@ -441,6 +453,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       orgNameInput: String(orgNameInput || '').trim(),
       orgSlugInput: String(orgSlugInput || '').trim(),
       orgNameConfirmed,
+      orgNameExplicitlySelected,
       projectNameInput: String(projectNameInput || '').trim(),
       projectIdInput: String(projectIdInput || '').trim(),
       environmentIdInput: String(environmentIdInput || '').trim(),
@@ -453,6 +466,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     loadedDraftStorageKey,
     onboardingComplete,
     orgNameConfirmed,
+    orgNameExplicitlySelected,
     orgNameInput,
     orgSlugInput,
     projectIdInput,
@@ -461,9 +475,10 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     showProjectOptionalFields,
   ]);
 
-  const currentStep = resolveCurrentStep(state);
+  const currentStep = resolveCurrentStep(state, orgNameExplicitlySelected);
   const organizationProfileReady =
-    state?.organizationReady === true && hasConfiguredOrganizationName(state);
+    state?.organizationReady === true &&
+    hasConfiguredOrganizationName(state, orgNameExplicitlySelected);
   const projectProfileReady = state?.projectReady === true;
   const completionProjectId = String(
     state?.selectedProjectId || projectResult?.project.id || '',
@@ -611,6 +626,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                     onChange={(event) => {
                       setOrgNameInput(event.target.value);
                       setOrgNameConfirmed(false);
+                      setOrgNameExplicitlySelected(false);
                     }}
                     placeholder="Acme Wallets"
                     aria-invalid={Boolean(orgNameValidationMessage)}

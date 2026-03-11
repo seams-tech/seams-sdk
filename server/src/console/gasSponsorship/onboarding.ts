@@ -17,9 +17,11 @@ export const TEMPO_DRIP_SELECTOR = '0x428dc451';
 export const DEFAULT_TEMPO_ONBOARDING_CONTRACT =
   '0xbb85080E6953f25197ec68798360667140EbAf4b' as `0x${string}`;
 
-export interface ResolvedSponsoredCallPolicy {
-  policyId: string;
-  policyName: string;
+export interface ResolvedSponsoredCallConfig {
+  sponsorshipConfigId: string;
+  sponsorshipConfigName: string;
+  policyId: string | null;
+  policyName: string | null;
   templateId: string | null;
   networkClass: 'ANY' | 'TESTNET' | 'MAINNET';
   allowedChainIds: number[];
@@ -40,7 +42,7 @@ export function createTempoTestnetOnboardingGasSponsorshipRequest(input: {
     scopeType: 'ENVIRONMENT',
     ...(input.projectId ? { projectId: input.projectId } : {}),
     environmentId: input.environmentId,
-    policyName: TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
+    name: TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
     templateId: TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
     networkClass: 'TESTNET',
     enabled: true,
@@ -85,9 +87,9 @@ export async function ensureTempoTestnetOnboardingPolicyForEnvironment(input: {
   );
 }
 
-export function resolveSponsoredCallPoliciesFromConfigs(
+export function resolveSponsoredCallConfigsFromConfigs(
   configs: readonly ConsoleGasSponsorshipConfig[],
-): ResolvedSponsoredCallPolicy[] {
+): ResolvedSponsoredCallConfig[] {
   return configs
     .filter((config) => {
       if (!config.enabled) return false;
@@ -96,7 +98,9 @@ export function resolveSponsoredCallPoliciesFromConfigs(
       return Array.isArray(config.allowedCalls) && config.allowedCalls.length > 0;
     })
     .map((config) => ({
-      policyId: config.id,
+      sponsorshipConfigId: config.id,
+      sponsorshipConfigName: config.name,
+      policyId: config.policyId,
       policyName: config.policyName,
       templateId: config.templateId,
       networkClass: config.networkClass,

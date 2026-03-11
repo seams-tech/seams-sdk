@@ -56,7 +56,9 @@ Semantics:
 - `CHAIN_TOTAL`: one shared cap per chain for the whole policy/environment
 - `WALLET_CHAIN_TOTAL`: one separate cap per initiating wallet per chain
 - blank chain amount means no cap for that chain
-- the cap is enforced against billable sponsorship spend in minor currency units
+- the operator edits the cap as a billable currency amount for that chain
+- the UI shows the chain currency code and exactly 2 decimal places
+- the backend persists and enforces the cap in minor currency units
 
 `quotaTransactions` should be deleted from this feature. If count-based limits are still needed later, they should come back as a separate rule type, not be bundled into spend caps.
 
@@ -65,10 +67,7 @@ Semantics:
 Replace the current legacy budget shape with this:
 
 ```ts
-export type ConsoleGasSponsorshipSpendCapMode =
-  | 'NONE'
-  | 'CHAIN_TOTAL'
-  | 'WALLET_CHAIN_TOTAL';
+export type ConsoleGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
 
 export type ConsoleGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
 
@@ -93,7 +92,7 @@ Delete:
 - `quotaTransactions`
 - freeform chain-name budget rows
 
-Use `chainId` as the canonical budget key. UI labels should always be derived from the current chain registry, not stored as freeform strings.
+Use `chainId` as the canonical budget key. UI labels and spend-cap currency metadata should always be derived from the current chain registry, not stored as freeform strings.
 
 ## Runtime model
 
@@ -188,7 +187,9 @@ Replace the current single budget input block with:
 3. a chain table for the currently selected environment network only
    - one row per selected chain
    - chain label
-   - spend-cap input in minor units
+   - spend-cap amount input in the chain's billed currency
+   - explicit currency code beside the input
+   - exactly 2 decimal places in the UI
    - blank means no cap
 
 UI rules:
@@ -197,8 +198,8 @@ UI rules:
 - when a chain is toggled off, remove its cap row from form state
 - when switching environments between development and production, remap the visible chain rows to that environment network
 - view mode should summarize caps as:
-  - `Tempo Testnet weekly cap $500 total`
-  - `Tempo Testnet monthly cap $25 per wallet`
+  - `Tempo Testnet weekly cap 500.00 AlphaUSD total`
+  - `Arc Circle Mainnet monthly cap 25.00 USDC per wallet`
 
 ## Phased todo list
 
@@ -208,7 +209,7 @@ UI rules:
 - [x] Confirm only one cap mode is allowed per policy
 - [x] Confirm `WEEKLY | MONTHLY` are the only supported windows for this feature
 - [x] Confirm `prod => mainnet` and all other current environment keys => testnet for gas sponsorship
-- [x] Confirm spend caps apply to billable spend in minor currency units
+- [x] Confirm spend caps apply to billable spend amounts, stored as minor currency units
 - [x] Confirm `quotaTransactions` is removed from this feature
 
 ## Phase 1: Replace console config schema

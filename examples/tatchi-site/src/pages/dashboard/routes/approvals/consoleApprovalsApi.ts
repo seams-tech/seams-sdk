@@ -34,6 +34,8 @@ export interface DashboardConsoleApprovalRequest {
   environmentId: string | null;
   resourceType: string | null;
   resourceId: string | null;
+  policyId: string | null;
+  policyName: string | null;
   metadata: Record<string, unknown>;
   decisions: DashboardConsoleApprovalDecisionRecord[];
   createdAt: string;
@@ -130,6 +132,8 @@ function decodeApproval(raw: unknown): DashboardConsoleApprovalRequest | null {
     environmentId: normalizeString(row.environmentId) || null,
     resourceType: normalizeString(row.resourceType) || null,
     resourceId: normalizeString(row.resourceId) || null,
+    policyId: normalizeString(row.policyId) || null,
+    policyName: normalizeString(row.policyName) || null,
     metadata,
     decisions: decisionsRaw
       .map((entry) => decodeDecision(entry))

@@ -292,9 +292,7 @@ export function parseCreateConsoleGasSponsorshipRequest(
     ...(readOptionalString(obj, 'walletSegmentId')
       ? { walletSegmentId: readOptionalString(obj, 'walletSegmentId') }
       : {}),
-    ...(readOptionalString(obj, 'policyName')
-      ? { policyName: readOptionalString(obj, 'policyName') }
-      : {}),
+    ...(readOptionalString(obj, 'name') ? { name: readOptionalString(obj, 'name') } : {}),
     ...(readOptionalString(obj, 'templateId')
       ? { templateId: readOptionalString(obj, 'templateId') }
       : {}),
@@ -328,9 +326,7 @@ export function parseUpdateConsoleGasSponsorshipRequest(
     ...(readOptionalString(obj, 'walletSegmentId')
       ? { walletSegmentId: readOptionalString(obj, 'walletSegmentId') }
       : {}),
-    ...(readOptionalString(obj, 'policyName')
-      ? { policyName: readOptionalString(obj, 'policyName') }
-      : {}),
+    ...(readOptionalString(obj, 'name') ? { name: readOptionalString(obj, 'name') } : {}),
     ...(readOptionalString(obj, 'templateId')
       ? { templateId: readOptionalString(obj, 'templateId') }
       : {}),

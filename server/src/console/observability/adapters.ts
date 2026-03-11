@@ -2,7 +2,6 @@ import type {
   ConsoleObservabilityApprovalFailureInput,
   ConsoleObservabilityBillingFailureInput,
   ConsoleObservabilityEventEnvelope,
-  ConsoleObservabilityRouterTimingInput,
   ConsoleObservabilityWebhookDeadLetterInput,
 } from './types';
 
@@ -165,38 +164,6 @@ export function buildApprovalFailureObservabilityEvent(
       ...(approvalId ? { approvalId } : {}),
       ...(normalizeString(input.resourceType) ? { resourceType: normalizeString(input.resourceType) } : {}),
       ...(normalizeString(input.resourceId) ? { resourceId: normalizeString(input.resourceId) } : {}),
-    },
-  });
-}
-
-export function buildRouterTimingObservabilityEvent(
-  input: ConsoleObservabilityRouterTimingInput,
-): ConsoleObservabilityEventEnvelope {
-  const statusCode = Math.max(0, Math.floor(normalizeNumber(input.statusCode, 0)));
-  const latencyMs = Math.max(0, normalizeNumber(input.latencyMs, 0));
-  const level: ConsoleObservabilityEventEnvelope['level'] =
-    statusCode >= 500 ? 'ERROR' : statusCode >= 400 ? 'WARN' : 'INFO';
-  return baseEnvelope({
-    eventIdPrefix: 'obs_router_timing',
-    orgId: input.orgId,
-    projectId: input.projectId,
-    environmentId: input.environmentId,
-    requestId: input.requestId,
-    traceId: input.traceId,
-    timestamp: input.timestamp,
-    schemaVersion: input.schemaVersion,
-    redactionVersion: input.redactionVersion,
-    source: 'ROUTER',
-    service: 'console-router',
-    component: normalizeString(input.method).toUpperCase(),
-    level,
-    eventType: 'router.request.completed',
-    message: `${normalizeString(input.method).toUpperCase()} ${normalizeString(input.route)} -> ${statusCode} in ${Math.round(latencyMs)}ms`,
-    metadata: {
-      route: normalizeString(input.route),
-      method: normalizeString(input.method).toUpperCase(),
-      statusCode,
-      latencyMs,
     },
   });
 }

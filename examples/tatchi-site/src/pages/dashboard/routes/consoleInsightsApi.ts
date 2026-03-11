@@ -8,6 +8,7 @@ import {
 
 export interface DashboardPolicyCoveragePolicy {
   policyId: string;
+  policyName: string | null;
   walletCount: number;
   activeWalletCount: number;
   archivedWalletCount: number;
@@ -22,6 +23,7 @@ export interface DashboardPolicyCoverageWalletSample {
   status: string;
   balanceMinor: number;
   policyId: string | null;
+  policyName: string | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -56,6 +58,7 @@ export interface DashboardGasReadinessWalletSample {
   status: string;
   balanceMinor: number;
   policyId: string | null;
+  policyName: string | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -148,6 +151,7 @@ function decodePolicyCoverage(raw: unknown): DashboardPolicyCoverage | null {
     const policy = entry as Record<string, unknown>;
     policies.push({
       policyId: String(policy.policyId || '').trim() || 'unassigned',
+      policyName: policy.policyName == null ? null : String(policy.policyName || '').trim() || null,
       walletCount: Number(policy.walletCount || 0),
       activeWalletCount: Number(policy.activeWalletCount || 0),
       archivedWalletCount: Number(policy.archivedWalletCount || 0),
@@ -168,6 +172,7 @@ function decodePolicyCoverage(raw: unknown): DashboardPolicyCoverage | null {
       status: String(wallet.status || '').trim(),
       balanceMinor: Number(wallet.balanceMinor || 0),
       policyId: wallet.policyId == null ? null : String(wallet.policyId || '').trim() || null,
+      policyName: wallet.policyName == null ? null : String(wallet.policyName || '').trim() || null,
       userId: String(wallet.userId || '').trim(),
       lastActivityAt: wallet.lastActivityAt == null ? null : String(wallet.lastActivityAt || '').trim() || null,
       updatedAt: String(wallet.updatedAt || '').trim(),
@@ -232,6 +237,7 @@ function decodeGasReadiness(raw: unknown): DashboardGasReadiness | null {
       status: String(wallet.status || '').trim(),
       balanceMinor: Number(wallet.balanceMinor || 0),
       policyId: wallet.policyId == null ? null : String(wallet.policyId || '').trim() || null,
+      policyName: wallet.policyName == null ? null : String(wallet.policyName || '').trim() || null,
       userId: String(wallet.userId || '').trim(),
       lastActivityAt: wallet.lastActivityAt == null ? null : String(wallet.lastActivityAt || '').trim() || null,
       updatedAt: String(wallet.updatedAt || '').trim(),

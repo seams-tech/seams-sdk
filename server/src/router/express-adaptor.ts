@@ -418,7 +418,6 @@ export type {
   ConsoleObservabilityWebhookDeadLetterInput,
   ConsoleObservabilityBillingFailureInput,
   ConsoleObservabilityApprovalFailureInput,
-  ConsoleObservabilityRouterTimingInput,
 } from '../console/observability';
 export type {
   ConsoleObservabilityContext,
@@ -599,7 +598,6 @@ export {
   buildWebhookDeadLetterObservabilityEvent,
   buildBillingFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
-  buildRouterTimingObservabilityEvent,
   parseGetConsoleObservabilitySummaryRequest,
   parseListConsoleObservabilityEventsRequest,
   parseGetConsoleObservabilityTimeseriesRequest,

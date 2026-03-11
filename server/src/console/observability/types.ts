@@ -7,7 +7,7 @@ export interface ConsoleObservabilityModuleStatus {
 }
 
 export type ConsoleObservabilityLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
-export type ConsoleObservabilitySource = 'WEBHOOK' | 'BILLING' | 'APPROVAL' | 'ROUTER' | 'SYSTEM';
+export type ConsoleObservabilitySource = 'WEBHOOK' | 'BILLING' | 'APPROVAL' | 'SYSTEM';
 
 export interface ConsoleObservabilitySummary {
   generatedAt: string;
@@ -114,7 +114,6 @@ export interface GetConsoleObservabilityTimeseriesRequest {
   from?: string;
   to?: string;
   service?: string;
-  eventType?: string;
   projectId?: string;
   environmentId?: string;
   bucketMinutes?: number;
@@ -137,6 +136,17 @@ export interface ConsoleObservabilityIngestionContext {
   orgId: string;
   actorUserId: string;
   roles: string[];
+}
+
+export interface ConsoleObservabilityRequestMetricInput {
+  orgId: string;
+  projectId?: string;
+  environmentId?: string;
+  route: string;
+  method: string;
+  statusCode: number;
+  latencyMs: number;
+  timestamp?: string;
 }
 
 export interface ConsoleObservabilityMetadataRedactionPolicy {
@@ -192,21 +202,6 @@ export interface ConsoleObservabilityApprovalFailureInput {
   resourceId?: string;
   failureCode: string;
   failureMessage: string;
-  requestId?: string;
-  traceId?: string;
-  timestamp?: string;
-  schemaVersion?: number;
-  redactionVersion?: number;
-}
-
-export interface ConsoleObservabilityRouterTimingInput {
-  orgId: string;
-  projectId?: string;
-  environmentId?: string;
-  route: string;
-  method: string;
-  statusCode: number;
-  latencyMs: number;
   requestId?: string;
   traceId?: string;
   timestamp?: string;

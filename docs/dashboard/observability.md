@@ -14,7 +14,7 @@ Implemented today:
 - Observability ingestion wiring in Express + Cloudflare console routers for:
   - billing finalization/reconcile failures,
   - policy publish failures,
-  - router request timing completion events.
+  - request metric observation into rollups (no durable router completion events).
 - Monolith-to-split Postgres migration script and command for local/dev data moves:
   - `pnpm -C examples/relay-server run postgres:migrate:split-from-monolith`
   - envs: `MONOLITH_POSTGRES_URL`, `POSTGRES_MIGRATION_URL`, `CONSOLE_POSTGRES_MIGRATION_URL`.
@@ -72,7 +72,8 @@ Give developers one place to monitor:
 - [x] Add append-only `console_observability_events` schema and indexes.
 - [x] Partition observability events storage by month (with automatic adjacent partition creation).
 - [x] Add idempotent ingestion key (`org_id`, `event_id`).
-- [x] Add ingestion adapters from webhooks, billing, approvals/policy publish, and router timing/error hooks.
+- [x] Add ingestion adapters from webhooks, billing, and approvals/policy publish.
+- [x] Add request metric observation from console routers into request rollups.
 - [x] Enforce metadata redaction before persistence.
 - [x] Add retention policy and cleanup workflow for observability data.
 - [x] Add ingest backpressure controls (max batch + per-org per-minute budget).
@@ -199,10 +200,10 @@ Give developers one place to monitor:
   - [x] webhook delivery failures and retries (adapter builders)
   - [x] billing finalization/job failures (adapter builders)
   - [x] approval/policy publish failures (adapter builders)
-  - [x] router request timing/error hooks (adapter builders)
+  - [x] request metric observation hooks
   - [x] wire billing failure adapter emits in Express + Cloudflare billing routes.
   - [x] wire approval failure adapter emits in Express + Cloudflare policy publish routes.
-  - [x] wire router timing adapter emits in Express + Cloudflare console request pipelines.
+  - [x] wire request metric observation in Express + Cloudflare console request pipelines.
 - [x] Apply redaction before writes for all ingestion adapters (no raw sensitive metadata at rest).
 - [x] Add retention controls for observability events (default shorter than audit retention).
 

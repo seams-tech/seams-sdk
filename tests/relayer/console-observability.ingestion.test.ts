@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
   buildBillingFailureObservabilityEvent,
-  buildRouterTimingObservabilityEvent,
   buildWebhookDeadLetterObservabilityEvent,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
@@ -87,6 +86,9 @@ test.describe('console observability postgres ingestion service', () => {
       await q.query('DELETE FROM console_observability_events WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_observability_event_dedup WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_observability_ingest_windows WHERE namespace = $1', [namespace]);
+      await q.query('DELETE FROM console_observability_request_rollups_minute WHERE namespace = $1', [
+        namespace,
+      ]);
     });
   });
 
@@ -100,12 +102,11 @@ test.describe('console observability postgres ingestion service', () => {
       ensureSchema: true,
     });
 
-    const event = buildRouterTimingObservabilityEvent({
+    const event = buildBillingFailureObservabilityEvent({
       orgId,
-      route: '/console/observability/events',
-      method: 'GET',
-      statusCode: 503,
-      latencyMs: 37,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'invoice_finalize_failed',
+      failureMessage: 'finalization failed',
       requestId: 'req_obs_ingest_1',
     });
     event.eventId = 'evt_obs_ingest_1';
@@ -161,12 +162,11 @@ test.describe('console observability postgres ingestion service', () => {
       ensureSchema: false,
     });
 
-    const event = buildRouterTimingObservabilityEvent({
+    const event = buildBillingFailureObservabilityEvent({
       orgId: 'org-observability-other',
-      route: '/console/observability/events',
-      method: 'GET',
-      statusCode: 200,
-      latencyMs: 12,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'invoice_finalize_failed',
+      failureMessage: 'finalization failed',
     });
 
     let caught: any;
@@ -187,6 +187,43 @@ test.describe('console observability postgres ingestion service', () => {
     expect(String(caught?.code || '')).toBe('invalid_body');
   });
 
+  test('appendEvent rejects legacy router.request.completed events', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const service = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+    });
+
+    const event = buildBillingFailureObservabilityEvent({
+      orgId,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'legacy_router_event',
+      failureMessage: 'legacy router events should be rejected',
+    });
+    event.eventType = 'router.request.completed';
+
+    let caught: any;
+    try {
+      await service.appendEvent(
+        {
+          orgId,
+          actorUserId: 'ops-observability',
+          roles: ['ops'],
+        },
+        event,
+      );
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeTruthy();
+    expect(String(caught?.code || '')).toBe('invalid_body');
+    expect(String(caught?.message || '')).toContain('no longer accepted');
+  });
+
   test('postgres observability service lists events with deterministic cursor ordering', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
 
@@ -204,18 +241,17 @@ test.describe('console observability postgres ingestion service', () => {
     });
 
     const seedEvents = [
-      { eventId: 'evt_obs_cursor_c', ingestedAtMs: 1_700_000_000_000, statusCode: 500 },
-      { eventId: 'evt_obs_cursor_b', ingestedAtMs: 1_700_000_000_000, statusCode: 503 },
-      { eventId: 'evt_obs_cursor_a', ingestedAtMs: 1_700_000_000_000, statusCode: 404 },
-      { eventId: 'evt_obs_cursor_older', ingestedAtMs: 1_699_999_999_000, statusCode: 200 },
+      { eventId: 'evt_obs_cursor_c', ingestedAtMs: 1_700_000_000_000, failureCode: 'failed_c' },
+      { eventId: 'evt_obs_cursor_b', ingestedAtMs: 1_700_000_000_000, failureCode: 'failed_b' },
+      { eventId: 'evt_obs_cursor_a', ingestedAtMs: 1_700_000_000_000, failureCode: 'failed_a' },
+      { eventId: 'evt_obs_cursor_older', ingestedAtMs: 1_699_999_999_000, failureCode: 'failed_old' },
     ];
     for (const seed of seedEvents) {
-      const event = buildRouterTimingObservabilityEvent({
+      const event = buildBillingFailureObservabilityEvent({
         orgId,
-        route: '/console/observability/events',
-        method: 'GET',
-        statusCode: seed.statusCode,
-        latencyMs: 10,
+        operation: 'INVOICE_FINALIZATION',
+        failureCode: seed.failureCode,
+        failureMessage: `billing failed ${seed.failureCode}`,
       });
       event.eventId = seed.eventId;
       event.ingestedAtMs = seed.ingestedAtMs;
@@ -318,23 +354,21 @@ test.describe('console observability postgres ingestion service', () => {
       queryMaxWindowMs: 1000 * 60 * 60 * 24 * 7,
     });
 
-    const oldEvent = buildRouterTimingObservabilityEvent({
+    const oldEvent = buildBillingFailureObservabilityEvent({
       orgId,
-      route: '/console/observability/events',
-      method: 'GET',
-      statusCode: 500,
-      latencyMs: 11,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'old_outside_window',
+      failureMessage: 'outside default window',
     });
     oldEvent.eventId = 'evt_obs_default_window_old';
     oldEvent.ingestedAtMs = fixedNowMs - 1000 * 60 * 60 * 24 * 10;
     oldEvent.timestamp = new Date(oldEvent.ingestedAtMs).toISOString();
 
-    const inWindowEvent = buildRouterTimingObservabilityEvent({
+    const inWindowEvent = buildBillingFailureObservabilityEvent({
       orgId,
-      route: '/console/observability/events',
-      method: 'GET',
-      statusCode: 200,
-      latencyMs: 9,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'in_default_window',
+      failureMessage: 'inside default window',
     });
     inWindowEvent.eventId = 'evt_obs_default_window_in';
     inWindowEvent.ingestedAtMs = fixedNowMs - 1000 * 60 * 60 * 24;
@@ -384,12 +418,11 @@ test.describe('console observability postgres ingestion service', () => {
     });
 
     const mkEvent = (eventId: string) => {
-      const event = buildRouterTimingObservabilityEvent({
+      const event = buildBillingFailureObservabilityEvent({
         orgId,
-        route: '/console/observability/events',
-        method: 'GET',
-        statusCode: 200,
-        latencyMs: 10,
+        operation: 'INVOICE_FINALIZATION',
+        failureCode: `bp_${eventId}`,
+        failureMessage: 'backpressure validation',
       });
       event.eventId = eventId;
       return event;
@@ -444,32 +477,6 @@ test.describe('console observability postgres ingestion service', () => {
       queryMaxWindowMs: 1000 * 60 * 60 * 24 * 7,
     });
 
-    const routerOk = buildRouterTimingObservabilityEvent({
-      orgId,
-      projectId: 'proj-agg',
-      environmentId: 'env-agg',
-      route: '/console/observability/summary',
-      method: 'GET',
-      statusCode: 200,
-      latencyMs: 40,
-      timestamp: new Date(fixedNowMs - 1000 * 60 * 2).toISOString(),
-    });
-    routerOk.eventId = 'evt_obs_agg_router_ok';
-    routerOk.ingestedAtMs = fixedNowMs - 1000 * 60 * 2;
-
-    const routerErr = buildRouterTimingObservabilityEvent({
-      orgId,
-      projectId: 'proj-agg',
-      environmentId: 'env-agg',
-      route: '/console/observability/summary',
-      method: 'GET',
-      statusCode: 500,
-      latencyMs: 140,
-      timestamp: new Date(fixedNowMs - 1000 * 60).toISOString(),
-    });
-    routerErr.eventId = 'evt_obs_agg_router_err';
-    routerErr.ingestedAtMs = fixedNowMs - 1000 * 60;
-
     const billingErr = buildBillingFailureObservabilityEvent({
       orgId,
       projectId: 'proj-agg',
@@ -502,7 +509,28 @@ test.describe('console observability postgres ingestion service', () => {
       actorUserId: 'ops-observability',
       roles: ['ops'],
     };
-    await ingestService.appendEvents(ingestCtx, [routerOk, routerErr, billingErr, deadLetter]);
+    expect(typeof ingestService.observeRequestMetric).toBe('function');
+    await ingestService.observeRequestMetric?.(ingestCtx, {
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      route: '/console/policies/pol_agg/publish',
+      method: 'POST',
+      statusCode: 200,
+      latencyMs: 40,
+      timestamp: new Date(fixedNowMs - 1000 * 60 * 2).toISOString(),
+    });
+    await ingestService.observeRequestMetric?.(ingestCtx, {
+      orgId,
+      projectId: 'proj-agg',
+      environmentId: 'env-agg',
+      route: '/console/policies/pol_agg/publish',
+      method: 'POST',
+      statusCode: 500,
+      latencyMs: 140,
+      timestamp: new Date(fixedNowMs - 1000 * 60).toISOString(),
+    });
+    await ingestService.appendEvents(ingestCtx, [billingErr, deadLetter]);
 
     const summary = await queryService.getSummary(
       {
@@ -536,7 +564,7 @@ test.describe('console observability postgres ingestion service', () => {
         bucketMinutes: 5,
         projectId: 'proj-agg',
         environmentId: 'env-agg',
-        service: 'console-router',
+        service: 'policies',
       },
     );
     expect(timeseries.status.state).toBe('ok');
@@ -562,7 +590,7 @@ test.describe('console observability postgres ingestion service', () => {
     );
     expect(services.status.state).toBe('ok');
     const byService = new Map(services.services.map((entry) => [entry.service, entry]));
-    expect(byService.get('console-router')?.recentFailureCount).toBe(1);
+    expect(byService.get('policies')?.recentFailureCount).toBe(1);
     expect(byService.get('billing')?.recentFailureCount).toBe(1);
     expect(byService.get('webhooks')?.recentFailureCount).toBe(1);
   });

@@ -36,7 +36,7 @@ export {
   parseUpdateConsoleGasSponsorshipRequest,
 } from './requests';
 
-export type { ResolvedSponsoredCallPolicy } from './onboarding';
+export type { ResolvedSponsoredCallConfig } from './onboarding';
 export {
   TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
@@ -45,7 +45,7 @@ export {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   createTempoTestnetOnboardingGasSponsorshipRequest,
   ensureTempoTestnetOnboardingPolicyForEnvironment,
-  resolveSponsoredCallPoliciesFromConfigs,
+  resolveSponsoredCallConfigsFromConfigs,
 } from './onboarding';
 export {
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,

@@ -23,6 +23,7 @@ import type {
   ConsoleObservabilityIngestionContext,
   ConsoleObservabilityLevel,
   ConsoleObservabilityMetadataRedactionPolicy,
+  ConsoleObservabilityRequestMetricInput,
   ConsoleObservabilitySource,
   ConsoleObservabilityTimeseries,
   ConsoleObservabilityTimeseriesBucket,
@@ -50,6 +51,27 @@ const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
 const DEFAULT_RETENTION_BATCH_SIZE = 1_000;
 const PRECREATE_PARTITION_MONTHS_BEHIND = 1;
 const PRECREATE_PARTITION_MONTHS_AHEAD = 2;
+const REQUEST_ROLLUP_WINDOW_MS = 60_000;
+const REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS = [50, 100, 250, 500, 1000, 2000, 5000] as const;
+const REQUEST_ROLLUP_BUCKET_COLUMN_NAMES = [
+  'latency_bucket_le_50',
+  'latency_bucket_le_100',
+  'latency_bucket_le_250',
+  'latency_bucket_le_500',
+  'latency_bucket_le_1000',
+  'latency_bucket_le_2000',
+  'latency_bucket_le_5000',
+] as const;
+const REQUEST_ROLLUP_SKIPPED_ROUTE_FAMILIES = new Set<string>([
+  '/console/observability/*',
+  '/console/session/*',
+  '/console/org/*',
+  '/console/projects/*',
+  '/console/environments/*',
+  '/console/healthz/*',
+  '/console/readyz/*',
+]);
+const LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE = 'router.request.completed';
 
 const OBSERVABILITY_LEVELS = new Set<ConsoleObservabilityLevel>([
   'DEBUG',
@@ -62,21 +84,8 @@ const OBSERVABILITY_SOURCES = new Set<ConsoleObservabilitySource>([
   'WEBHOOK',
   'BILLING',
   'APPROVAL',
-  'ROUTER',
   'SYSTEM',
 ]);
-const LATENCY_MS_SQL = `CASE
-  WHEN metadata ? 'latencyMs'
-   AND (
-     jsonb_typeof(metadata->'latencyMs') = 'number'
-     OR (
-       jsonb_typeof(metadata->'latencyMs') = 'string'
-       AND (metadata->>'latencyMs') ~ '^-?[0-9]+(\\\\.[0-9]+)?$'
-     )
-   )
-  THEN (metadata->>'latencyMs')::double precision
-  ELSE NULL
-END`;
 
 interface EventsCursor {
   sortMs: number;
@@ -103,11 +112,26 @@ interface NormalizedInsertEvent {
   redactionApplied: boolean;
 }
 
+interface NormalizedRequestMetric {
+  timestampMs: number;
+  projectId: string;
+  environmentId: string;
+  service: string;
+  routeFamily: string;
+  method: string;
+  statusCode: number;
+  statusClass: string;
+  latencyMs: number;
+  errorCount: number;
+  histogramCounts: number[];
+}
+
 export interface PostgresConsoleObservabilityRetentionCleanupResult {
   cutoffMs: number;
   deletedEvents: number;
   deletedDedup: number;
   deletedIngestWindows: number;
+  deletedRequestRollups: number;
 }
 
 export interface PostgresConsoleObservabilitySchemaOptions {
@@ -546,6 +570,117 @@ function appendProjectEnvironmentFilters(
   return valueIndex;
 }
 
+function appendRollupProjectEnvironmentFilters(
+  where: string[],
+  values: unknown[],
+  valueIndex: number,
+  request: { projectId?: unknown; environmentId?: unknown },
+): number {
+  const projectId = normalizeString(request.projectId);
+  if (projectId) {
+    valueIndex += 1;
+    values.push(projectId);
+    where.push(`project_id = $${valueIndex}`);
+  }
+  const environmentId = normalizeString(request.environmentId);
+  if (environmentId) {
+    valueIndex += 1;
+    values.push(environmentId);
+    where.push(`environment_id = $${valueIndex}`);
+  }
+  return valueIndex;
+}
+
+function toStatusClass(statusCode: number): string {
+  if (statusCode >= 500) return '5xx';
+  if (statusCode >= 400) return '4xx';
+  if (statusCode >= 300) return '3xx';
+  if (statusCode >= 200) return '2xx';
+  if (statusCode >= 100) return '1xx';
+  return '0xx';
+}
+
+function toRouteFamily(route: string): string {
+  const path = normalizeString(route).split('?')[0] || '/';
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const parts = normalizedPath.split('/').filter(Boolean);
+  if (parts.length === 0) return '/';
+  if (parts[0] !== 'console') return '/other/*';
+  if (parts.length === 1) return '/console/*';
+  return `/console/${parts[1]}/*`;
+}
+
+function toMetricService(routeFamily: string): string {
+  const parts = routeFamily.split('/').filter(Boolean);
+  if (parts.length < 2 || parts[0] !== 'console') return 'console-router';
+  return parts[1];
+}
+
+function shouldCaptureRequestMetric(input: {
+  routeFamily: string;
+  method: string;
+  statusCode: number;
+}): boolean {
+  const method = normalizeString(input.method).toUpperCase();
+  if (!method || method === 'OPTIONS') return false;
+  if ((method === 'GET' || method === 'HEAD') && input.statusCode < 400) return false;
+  if (REQUEST_ROLLUP_SKIPPED_ROUTE_FAMILIES.has(input.routeFamily)) return false;
+  return true;
+}
+
+function buildLatencyHistogramCounts(latencyMs: number): number[] {
+  const counts = REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS.map(() => 0);
+  for (let idx = 0; idx < REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS.length; idx += 1) {
+    if (latencyMs <= REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS[idx]) {
+      counts[idx] = 1;
+      return counts;
+    }
+  }
+  counts[counts.length - 1] = 1;
+  return counts;
+}
+
+function percentileFromHistogram(counts: number[], quantile: number): number {
+  const total = counts.reduce((sum, value) => sum + Math.max(0, Math.floor(value)), 0);
+  if (total <= 0) return 0;
+  const threshold = Math.max(1, Math.ceil(total * quantile));
+  let cumulative = 0;
+  for (let idx = 0; idx < REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS.length; idx += 1) {
+    cumulative += Math.max(0, Math.floor(counts[idx] || 0));
+    if (cumulative >= threshold) {
+      return REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS[idx];
+    }
+  }
+  return REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS[REQUEST_ROLLUP_BUCKET_UPPER_BOUNDS_MS.length - 1];
+}
+
+function normalizeRequestMetricForInsert(
+  input: ConsoleObservabilityRequestMetricInput,
+): NormalizedRequestMetric | null {
+  const route = normalizeString(input.route);
+  const method = normalizeString(input.method).toUpperCase();
+  const statusCode = Math.max(0, Math.floor(Number(input.statusCode || 0)));
+  const latencyMs = Math.max(0, Number(input.latencyMs || 0));
+  const timestampMs = parseIsoToMs(input.timestamp) ?? nowMs(new Date());
+  const routeFamily = toRouteFamily(route);
+  if (!shouldCaptureRequestMetric({ routeFamily, method, statusCode })) {
+    return null;
+  }
+  return {
+    timestampMs,
+    projectId: normalizeString(input.projectId),
+    environmentId: normalizeString(input.environmentId),
+    service: toMetricService(routeFamily),
+    routeFamily,
+    method,
+    statusCode,
+    statusClass: toStatusClass(statusCode),
+    latencyMs,
+    errorCount: statusCode >= 500 ? 1 : 0,
+    histogramCounts: buildLatencyHistogramCounts(latencyMs),
+  };
+}
+
 async function reserveIngestBudget(input: {
   q: Queryable;
   namespace: string;
@@ -648,11 +783,20 @@ async function pruneRetentionForTenant(
     [input.namespace, input.orgId, input.cutoffMs],
   );
 
+  const deleteRequestRollups = await q.query(
+    `DELETE FROM console_observability_request_rollups_minute
+      WHERE namespace = $1
+        AND org_id = $2
+        AND window_start_ms < $3`,
+    [input.namespace, input.orgId, input.cutoffMs],
+  );
+
   return {
     cutoffMs: input.cutoffMs,
     deletedEvents: Number(deleteEvents.rowCount || 0),
     deletedDedup: Number(deleteDedup.rowCount || 0),
     deletedIngestWindows: Number(deleteIngestWindows.rowCount || 0),
+    deletedRequestRollups: Number(deleteRequestRollups.rowCount || 0),
   };
 }
 
@@ -688,7 +832,7 @@ export async function ensureConsoleObservabilityPostgresSchema(
         created_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, org_id, created_at_ms, event_id),
         CHECK (schema_version >= 1),
-        CHECK (source IN ('WEBHOOK', 'BILLING', 'APPROVAL', 'ROUTER', 'SYSTEM')),
+        CHECK (source IN ('WEBHOOK', 'BILLING', 'APPROVAL', 'SYSTEM')),
         CHECK (level IN ('DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL')),
         CHECK (jsonb_typeof(metadata) = 'object'),
         CHECK (redaction_version >= 1)
@@ -719,6 +863,47 @@ export async function ensureConsoleObservabilityPostgresSchema(
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS console_observability_request_rollups_minute (
+        namespace TEXT NOT NULL,
+        org_id TEXT NOT NULL,
+        window_start_ms BIGINT NOT NULL,
+        project_id TEXT NOT NULL DEFAULT '',
+        environment_id TEXT NOT NULL DEFAULT '',
+        service TEXT NOT NULL,
+        route_family TEXT NOT NULL,
+        method TEXT NOT NULL,
+        status_class TEXT NOT NULL,
+        request_count INTEGER NOT NULL,
+        error_count INTEGER NOT NULL,
+        latency_sum_ms DOUBLE PRECISION NOT NULL,
+        latency_max_ms DOUBLE PRECISION NOT NULL,
+        latency_bucket_le_50 INTEGER NOT NULL,
+        latency_bucket_le_100 INTEGER NOT NULL,
+        latency_bucket_le_250 INTEGER NOT NULL,
+        latency_bucket_le_500 INTEGER NOT NULL,
+        latency_bucket_le_1000 INTEGER NOT NULL,
+        latency_bucket_le_2000 INTEGER NOT NULL,
+        latency_bucket_le_5000 INTEGER NOT NULL,
+        PRIMARY KEY (
+          namespace,
+          org_id,
+          window_start_ms,
+          project_id,
+          environment_id,
+          service,
+          route_family,
+          method,
+          status_class
+        ),
+        CHECK (request_count >= 0),
+        CHECK (error_count >= 0),
+        CHECK (latency_sum_ms >= 0),
+        CHECK (latency_max_ms >= 0),
+        CHECK (error_count <= request_count)
+      )
+    `);
+
+    await pool.query(`
       CREATE INDEX IF NOT EXISTS console_observability_events_org_created_idx_v2
       ON console_observability_events (namespace, org_id, created_at_ms DESC, event_id DESC)
     `);
@@ -742,6 +927,18 @@ export async function ensureConsoleObservabilityPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_observability_ingest_windows_window_idx_v2
       ON console_observability_ingest_windows (namespace, org_id, window_start_ms)
     `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_window_idx_v1
+      ON console_observability_request_rollups_minute (namespace, org_id, window_start_ms DESC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_service_window_idx_v1
+      ON console_observability_request_rollups_minute (namespace, org_id, service, window_start_ms DESC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_observability_request_rollups_org_route_window_idx_v1
+      ON console_observability_request_rollups_minute (namespace, org_id, route_family, window_start_ms DESC)
+    `);
 
     await ensureConsoleTenantRlsPolicies({
       q: pool,
@@ -757,6 +954,11 @@ export async function ensureConsoleObservabilityPostgresSchema(
       q: pool,
       table: 'console_observability_ingest_windows',
       policyName: 'console_observability_ingest_windows_tenant_rls',
+    });
+    await ensureConsoleTenantRlsPolicies({
+      q: pool,
+      table: 'console_observability_request_rollups_minute',
+      policyName: 'console_observability_request_rollups_minute_tenant_rls',
     });
 
     const nowValue = nowMs(new Date());
@@ -817,49 +1019,102 @@ export async function createPostgresConsoleObservabilityService(
     request: GetConsoleObservabilitySummaryRequest = {},
   ): Promise<ConsoleObservabilitySummary> {
     const orgId = ensureRequiredString('ctx.orgId', ctx.orgId);
-    const where: string[] = ['namespace = $1', 'org_id = $2'];
-    const values: unknown[] = [namespace, orgId];
-    let valueIndex = values.length;
+    const eventWhere: string[] = ['namespace = $1', 'org_id = $2'];
+    const eventValues: unknown[] = [namespace, orgId];
+    let eventValueIndex = eventValues.length;
+    const rollupWhere: string[] = ['namespace = $1', 'org_id = $2'];
+    const rollupValues: unknown[] = [namespace, orgId];
+    let rollupValueIndex = rollupValues.length;
 
     const window = resolveBoundedQueryWindow(request, now(), queryMaxWindowMs);
-    valueIndex += 1;
-    values.push(window.fromMs);
-    where.push(`created_at_ms >= $${valueIndex}`);
-    valueIndex += 1;
-    values.push(window.toMs);
-    where.push(`created_at_ms <= $${valueIndex}`);
-    valueIndex = appendProjectEnvironmentFilters(where, values, valueIndex, request);
+    eventValueIndex += 1;
+    eventValues.push(window.fromMs);
+    eventWhere.push(`created_at_ms >= $${eventValueIndex}`);
+    eventValueIndex += 1;
+    eventValues.push(window.toMs);
+    eventWhere.push(`created_at_ms <= $${eventValueIndex}`);
+    eventValueIndex = appendProjectEnvironmentFilters(
+      eventWhere,
+      eventValues,
+      eventValueIndex,
+      request,
+    );
+
+    rollupValueIndex += 1;
+    rollupValues.push(window.fromMs);
+    rollupWhere.push(`window_start_ms >= $${rollupValueIndex}`);
+    rollupValueIndex += 1;
+    rollupValues.push(window.toMs);
+    rollupWhere.push(`window_start_ms <= $${rollupValueIndex}`);
+    rollupValueIndex = appendRollupProjectEnvironmentFilters(
+      rollupWhere,
+      rollupValues,
+      rollupValueIndex,
+      request,
+    );
+
+    const rollupBucketSelect = REQUEST_ROLLUP_BUCKET_COLUMN_NAMES.map(
+      (column) => `COALESCE(SUM(${column}), 0)::bigint AS ${column}`,
+    ).join(',\n             ');
 
     return withTenantTx(orgId, async (q) => {
-      const out = await q.query(
-        `WITH base AS (
-           SELECT service, level, event_type, ${LATENCY_MS_SQL} AS latency_ms
-             FROM console_observability_events
-            WHERE ${where.join(' AND ')}
-         )
-         SELECT
-           COUNT(*) FILTER (WHERE event_type = 'router.request.completed')::double precision AS request_count,
-           COUNT(*) FILTER (
-             WHERE event_type = 'router.request.completed' AND level IN ('ERROR', 'FATAL')
-           )::double precision AS request_error_count,
-           COUNT(DISTINCT service) FILTER (WHERE level IN ('ERROR', 'FATAL'))::integer AS failing_services,
-           COUNT(*) FILTER (WHERE event_type = 'webhook.delivery.dead_letter')::integer AS dead_letter_count,
-           percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)
-             FILTER (WHERE latency_ms IS NOT NULL) AS p95_latency_ms
-           FROM base`,
-        values,
+      const requestAgg = await q.query(
+        `SELECT
+           COALESCE(SUM(request_count), 0)::double precision AS request_count,
+           COALESCE(SUM(error_count), 0)::double precision AS request_error_count,
+           ${rollupBucketSelect}
+           FROM console_observability_request_rollups_minute
+          WHERE ${rollupWhere.join(' AND ')}`,
+        rollupValues,
       );
-      const row = (out.rows?.[0] || {}) as PgRow;
-      const requestCount = Math.max(0, toNumber(row.request_count, 0));
-      const requestErrorCount = Math.max(0, toNumber(row.request_error_count, 0));
+      const requestRow = (requestAgg.rows?.[0] || {}) as PgRow;
+      const requestCount = Math.max(0, toNumber(requestRow.request_count, 0));
+      const requestErrorCount = Math.max(0, toNumber(requestRow.request_error_count, 0));
+      const histogramCounts = REQUEST_ROLLUP_BUCKET_COLUMN_NAMES.map((column) =>
+        Math.max(0, Math.floor(toNumber(requestRow[column], 0))),
+      );
+
+      const deadLetterAgg = await q.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE event_type = 'webhook.delivery.dead_letter')::bigint AS dead_letter_count
+           FROM console_observability_events
+          WHERE ${eventWhere.join(' AND ')}`,
+        eventValues,
+      );
+      const deadLetterRow = (deadLetterAgg.rows?.[0] || {}) as PgRow;
+
+      const requestFailureServices = await q.query(
+        `SELECT DISTINCT service
+           FROM console_observability_request_rollups_minute
+          WHERE ${rollupWhere.join(' AND ')}
+            AND error_count > 0`,
+        rollupValues,
+      );
+      const incidentFailureServices = await q.query(
+        `SELECT DISTINCT service
+           FROM console_observability_events
+          WHERE ${eventWhere.join(' AND ')}
+            AND level IN ('ERROR', 'FATAL')`,
+        eventValues,
+      );
+      const failingServiceSet = new Set<string>();
+      for (const row of requestFailureServices.rows as PgRow[]) {
+        const service = normalizeString(row.service);
+        if (service) failingServiceSet.add(service);
+      }
+      for (const row of incidentFailureServices.rows as PgRow[]) {
+        const service = normalizeString(row.service);
+        if (service) failingServiceSet.add(service);
+      }
+
       const errorRate = requestCount > 0 ? requestErrorCount / requestCount : 0;
       return {
         generatedAt: now().toISOString(),
         status: { state: 'ok' },
         errorRate,
-        p95LatencyMs: Math.max(0, toNumber(row.p95_latency_ms, 0)),
-        failingServices: Math.max(0, Math.floor(toNumber(row.failing_services, 0))),
-        deadLetterCount: Math.max(0, Math.floor(toNumber(row.dead_letter_count, 0))),
+        p95LatencyMs: percentileFromHistogram(histogramCounts, 0.95),
+        failingServices: failingServiceSet.size,
+        deadLetterCount: Math.max(0, Math.floor(toNumber(deadLetterRow.dead_letter_count, 0))),
       };
     });
   }
@@ -973,12 +1228,12 @@ export async function createPostgresConsoleObservabilityService(
     valueIndex += 1;
     values.push(window.fromMs);
     const fromParam = valueIndex;
-    where.push(`created_at_ms >= $${valueIndex}`);
+    where.push(`window_start_ms >= $${valueIndex}`);
     valueIndex += 1;
     values.push(window.toMs);
     const toParam = valueIndex;
-    where.push(`created_at_ms <= $${valueIndex}`);
-    valueIndex = appendProjectEnvironmentFilters(where, values, valueIndex, request);
+    where.push(`window_start_ms <= $${valueIndex}`);
+    valueIndex = appendRollupProjectEnvironmentFilters(where, values, valueIndex, request);
 
     const service = normalizeString(request.service);
     if (service) {
@@ -986,13 +1241,6 @@ export async function createPostgresConsoleObservabilityService(
       values.push(service);
       where.push(`service = $${valueIndex}`);
     }
-    const eventType = normalizeString(request.eventType);
-    if (eventType) {
-      valueIndex += 1;
-      values.push(eventType);
-      where.push(`event_type = $${valueIndex}`);
-    }
-
     const bucketMinutes = normalizeBucketMinutes(request.bucketMinutes);
     const bucketMs = bucketMinutes * 60 * 1000;
     values.push(bucketMs);
@@ -1001,29 +1249,48 @@ export async function createPostgresConsoleObservabilityService(
     return withTenantTx(orgId, async (q) => {
       const out = await q.query(
         `WITH filtered AS (
-           SELECT created_at_ms, level, event_type, ${LATENCY_MS_SQL} AS latency_ms
-             FROM console_observability_events
+           SELECT
+             window_start_ms,
+             request_count,
+             error_count,
+             latency_bucket_le_50,
+             latency_bucket_le_100,
+             latency_bucket_le_250,
+             latency_bucket_le_500,
+             latency_bucket_le_1000,
+             latency_bucket_le_2000,
+             latency_bucket_le_5000
+             FROM console_observability_request_rollups_minute
             WHERE ${where.join(' AND ')}
          ),
          bucketed AS (
            SELECT
              $${fromParam}::bigint
-             + ((created_at_ms - $${fromParam}::bigint) / $${bucketParam}::bigint) * $${bucketParam}::bigint
+             + ((window_start_ms - $${fromParam}::bigint) / $${bucketParam}::bigint) * $${bucketParam}::bigint
              AS bucket_start_ms,
-             level,
-             event_type,
-             latency_ms
+             request_count,
+             error_count,
+             latency_bucket_le_50,
+             latency_bucket_le_100,
+             latency_bucket_le_250,
+             latency_bucket_le_500,
+             latency_bucket_le_1000,
+             latency_bucket_le_2000,
+             latency_bucket_le_5000
              FROM filtered
          ),
          agg AS (
            SELECT
              bucket_start_ms,
-             COUNT(*) FILTER (WHERE level IN ('ERROR', 'FATAL'))::bigint AS error_count,
-             COUNT(*) FILTER (WHERE event_type = 'router.request.completed')::bigint AS request_count,
-             percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)
-               FILTER (WHERE latency_ms IS NOT NULL) AS p50_latency_ms,
-             percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms)
-               FILTER (WHERE latency_ms IS NOT NULL) AS p95_latency_ms
+             COALESCE(SUM(error_count), 0)::bigint AS error_count,
+             COALESCE(SUM(request_count), 0)::bigint AS request_count,
+             COALESCE(SUM(latency_bucket_le_50), 0)::bigint AS latency_bucket_le_50,
+             COALESCE(SUM(latency_bucket_le_100), 0)::bigint AS latency_bucket_le_100,
+             COALESCE(SUM(latency_bucket_le_250), 0)::bigint AS latency_bucket_le_250,
+             COALESCE(SUM(latency_bucket_le_500), 0)::bigint AS latency_bucket_le_500,
+             COALESCE(SUM(latency_bucket_le_1000), 0)::bigint AS latency_bucket_le_1000,
+             COALESCE(SUM(latency_bucket_le_2000), 0)::bigint AS latency_bucket_le_2000,
+             COALESCE(SUM(latency_bucket_le_5000), 0)::bigint AS latency_bucket_le_5000
              FROM bucketed
             GROUP BY bucket_start_ms
          ),
@@ -1038,8 +1305,13 @@ export async function createPostgresConsoleObservabilityService(
            series.bucket_start_ms,
            COALESCE(agg.error_count, 0) AS error_count,
            COALESCE(agg.request_count, 0) AS request_count,
-           COALESCE(agg.p50_latency_ms, 0) AS p50_latency_ms,
-           COALESCE(agg.p95_latency_ms, 0) AS p95_latency_ms
+           COALESCE(agg.latency_bucket_le_50, 0) AS latency_bucket_le_50,
+           COALESCE(agg.latency_bucket_le_100, 0) AS latency_bucket_le_100,
+           COALESCE(agg.latency_bucket_le_250, 0) AS latency_bucket_le_250,
+           COALESCE(agg.latency_bucket_le_500, 0) AS latency_bucket_le_500,
+           COALESCE(agg.latency_bucket_le_1000, 0) AS latency_bucket_le_1000,
+           COALESCE(agg.latency_bucket_le_2000, 0) AS latency_bucket_le_2000,
+           COALESCE(agg.latency_bucket_le_5000, 0) AS latency_bucket_le_5000
            FROM series
            LEFT JOIN agg ON agg.bucket_start_ms = series.bucket_start_ms
           ORDER BY series.bucket_start_ms ASC`,
@@ -1048,13 +1320,16 @@ export async function createPostgresConsoleObservabilityService(
       const buckets: ConsoleObservabilityTimeseriesBucket[] = (out.rows as PgRow[]).map((row) => {
         const bucketStartMs = Math.max(window.fromMs, Math.floor(toNumber(row.bucket_start_ms, 0)));
         const bucketEndMs = Math.min(window.toMs, bucketStartMs + bucketMs - 1);
+        const histogramCounts = REQUEST_ROLLUP_BUCKET_COLUMN_NAMES.map((column) =>
+          Math.max(0, Math.floor(toNumber(row[column], 0))),
+        );
         return {
           start: toIso(bucketStartMs),
           end: toIso(Math.max(bucketStartMs, bucketEndMs)),
           errorCount: Math.max(0, Math.floor(toNumber(row.error_count, 0))),
           requestCount: Math.max(0, Math.floor(toNumber(row.request_count, 0))),
-          p50LatencyMs: Math.max(0, toNumber(row.p50_latency_ms, 0)),
-          p95LatencyMs: Math.max(0, toNumber(row.p95_latency_ms, 0)),
+          p50LatencyMs: percentileFromHistogram(histogramCounts, 0.5),
+          p95LatencyMs: percentileFromHistogram(histogramCounts, 0.95),
         };
       });
 
@@ -1070,54 +1345,114 @@ export async function createPostgresConsoleObservabilityService(
     request: ListConsoleObservabilityServicesRequest = {},
   ): Promise<ConsoleObservabilityServicesView> {
     const orgId = ensureRequiredString('ctx.orgId', ctx.orgId);
-    const where: string[] = ['namespace = $1', 'org_id = $2'];
-    const values: unknown[] = [namespace, orgId];
-    let valueIndex = values.length;
+    const eventWhere: string[] = ['namespace = $1', 'org_id = $2'];
+    const eventValues: unknown[] = [namespace, orgId];
+    let eventValueIndex = eventValues.length;
+    const rollupWhere: string[] = ['namespace = $1', 'org_id = $2'];
+    const rollupValues: unknown[] = [namespace, orgId];
+    let rollupValueIndex = rollupValues.length;
 
     const window = resolveBoundedQueryWindow(request, now(), queryMaxWindowMs);
-    valueIndex += 1;
-    values.push(window.fromMs);
-    where.push(`created_at_ms >= $${valueIndex}`);
-    valueIndex += 1;
-    values.push(window.toMs);
-    where.push(`created_at_ms <= $${valueIndex}`);
-    valueIndex = appendProjectEnvironmentFilters(where, values, valueIndex, request);
+    eventValueIndex += 1;
+    eventValues.push(window.fromMs);
+    eventWhere.push(`created_at_ms >= $${eventValueIndex}`);
+    eventValueIndex += 1;
+    eventValues.push(window.toMs);
+    eventWhere.push(`created_at_ms <= $${eventValueIndex}`);
+    eventValueIndex = appendProjectEnvironmentFilters(
+      eventWhere,
+      eventValues,
+      eventValueIndex,
+      request,
+    );
+
+    rollupValueIndex += 1;
+    rollupValues.push(window.fromMs);
+    rollupWhere.push(`window_start_ms >= $${rollupValueIndex}`);
+    rollupValueIndex += 1;
+    rollupValues.push(window.toMs);
+    rollupWhere.push(`window_start_ms <= $${rollupValueIndex}`);
+    rollupValueIndex = appendRollupProjectEnvironmentFilters(
+      rollupWhere,
+      rollupValues,
+      rollupValueIndex,
+      request,
+    );
 
     const limit = normalizeLimit(request.limit);
-    values.push(limit);
+    eventValues.push(limit);
+    rollupValues.push(limit);
 
     return withTenantTx(orgId, async (q) => {
-      const out = await q.query(
-        `WITH base AS (
-           SELECT service, level, created_at_ms
-             FROM console_observability_events
-            WHERE ${where.join(' AND ')}
-         ),
-         agg AS (
-           SELECT
-             service,
-             COUNT(*) FILTER (WHERE level IN ('ERROR', 'FATAL'))::integer AS recent_failure_count,
-             MAX(created_at_ms) FILTER (WHERE level IN ('ERROR', 'FATAL')) AS latest_incident_ms
-             FROM base
-            GROUP BY service
-         )
-         SELECT service, recent_failure_count, latest_incident_ms
-           FROM agg
+      const maxRowLimit = Math.max(limit * 2, limit);
+      const requestFailureRows = await q.query(
+        `SELECT
+           service,
+           COALESCE(SUM(error_count), 0)::bigint AS recent_failure_count,
+           MAX(CASE WHEN error_count > 0 THEN window_start_ms ELSE NULL END) AS latest_incident_ms
+           FROM console_observability_request_rollups_minute
+          WHERE ${rollupWhere.join(' AND ')}
+          GROUP BY service
           ORDER BY recent_failure_count DESC, latest_incident_ms DESC NULLS LAST, service ASC
-          LIMIT $${values.length}`,
-        values,
+          LIMIT $${rollupValues.length}`,
+        rollupValues,
       );
 
-      const services: ConsoleObservabilityServiceHealth[] = (out.rows as PgRow[]).map((row) => {
-        const recentFailureCount = Math.max(0, Math.floor(toNumber(row.recent_failure_count, 0)));
-        const latestIncidentMs = Number(row.latest_incident_ms);
-        return {
-          service: normalizeString(row.service),
-          status: toServiceHealthStatus(recentFailureCount),
-          recentFailureCount,
-          ...(Number.isFinite(latestIncidentMs) ? { latestIncidentAt: toIso(latestIncidentMs) } : {}),
-        };
-      });
+      const eventFailureRows = await q.query(
+        `SELECT
+           service,
+           COUNT(*) FILTER (WHERE level IN ('ERROR', 'FATAL'))::bigint AS recent_failure_count,
+           MAX(created_at_ms) FILTER (WHERE level IN ('ERROR', 'FATAL')) AS latest_incident_ms
+           FROM console_observability_events
+          WHERE ${eventWhere.join(' AND ')}
+          GROUP BY service
+          ORDER BY recent_failure_count DESC, latest_incident_ms DESC NULLS LAST, service ASC
+          LIMIT $${eventValues.length}`,
+        eventValues,
+      );
+
+      const merged = new Map<
+        string,
+        {
+          recentFailureCount: number;
+          latestIncidentMs: number;
+        }
+      >();
+      for (const row of requestFailureRows.rows as PgRow[]) {
+        const service = normalizeString(row.service);
+        if (!service) continue;
+        merged.set(service, {
+          recentFailureCount: Math.max(0, Math.floor(toNumber(row.recent_failure_count, 0))),
+          latestIncidentMs: Math.max(0, Math.floor(toNumber(row.latest_incident_ms, 0))),
+        });
+      }
+      for (const row of eventFailureRows.rows as PgRow[]) {
+        const service = normalizeString(row.service);
+        if (!service) continue;
+        const entry = merged.get(service) || { recentFailureCount: 0, latestIncidentMs: 0 };
+        entry.recentFailureCount += Math.max(0, Math.floor(toNumber(row.recent_failure_count, 0)));
+        entry.latestIncidentMs = Math.max(
+          entry.latestIncidentMs,
+          Math.max(0, Math.floor(toNumber(row.latest_incident_ms, 0))),
+        );
+        merged.set(service, entry);
+      }
+
+      const sorted = [...merged.entries()]
+        .sort((a, b) => {
+          const failureDelta = b[1].recentFailureCount - a[1].recentFailureCount;
+          if (failureDelta !== 0) return failureDelta;
+          const incidentDelta = b[1].latestIncidentMs - a[1].latestIncidentMs;
+          if (incidentDelta !== 0) return incidentDelta;
+          return a[0].localeCompare(b[0]);
+        })
+        .slice(0, maxRowLimit);
+      const services: ConsoleObservabilityServiceHealth[] = sorted.slice(0, limit).map(([service, row]) => ({
+        service,
+        status: toServiceHealthStatus(row.recentFailureCount),
+        recentFailureCount: row.recentFailureCount,
+        ...(row.latestIncidentMs > 0 ? { latestIncidentAt: toIso(row.latestIncidentMs) } : {}),
+      }));
 
       return {
         status: { state: 'ok' },
@@ -1143,6 +1478,10 @@ export interface ConsoleObservabilityIngestionService {
     ctx: ConsoleObservabilityIngestionContext,
     events: ConsoleObservabilityEventEnvelope[],
   ): Promise<ConsoleObservabilityEventIngestResult>;
+  observeRequestMetric?(
+    ctx: ConsoleObservabilityIngestionContext,
+    metric: ConsoleObservabilityRequestMetricInput,
+  ): Promise<void>;
 }
 
 export interface PostgresConsoleObservabilityIngestionServiceOptions
@@ -1235,6 +1574,93 @@ export async function createPostgresConsoleObservabilityIngestionService(
     fn: (q: Queryable) => Promise<T>,
   ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId }, fn);
 
+  async function observeRequestMetricInTx(
+    q: Queryable,
+    orgId: string,
+    metric: ConsoleObservabilityRequestMetricInput,
+  ): Promise<void> {
+    const normalized = normalizeRequestMetricForInsert(metric);
+    if (!normalized) return;
+    const windowStartMs =
+      normalized.timestampMs - (normalized.timestampMs % REQUEST_ROLLUP_WINDOW_MS);
+    const [b50, b100, b250, b500, b1000, b2000, b5000] = normalized.histogramCounts;
+    await q.query(
+      `INSERT INTO console_observability_request_rollups_minute
+        (namespace, org_id, window_start_ms, project_id, environment_id, service, route_family, method, status_class,
+         request_count, error_count, latency_sum_ms, latency_max_ms,
+         latency_bucket_le_50, latency_bucket_le_100, latency_bucket_le_250, latency_bucket_le_500,
+         latency_bucket_le_1000, latency_bucket_le_2000, latency_bucket_le_5000)
+       VALUES
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+         $10, $11, $12, $13,
+         $14, $15, $16, $17,
+         $18, $19, $20)
+       ON CONFLICT (
+         namespace, org_id, window_start_ms, project_id, environment_id, service, route_family, method, status_class
+       )
+       DO UPDATE SET
+         request_count = console_observability_request_rollups_minute.request_count + EXCLUDED.request_count,
+         error_count = console_observability_request_rollups_minute.error_count + EXCLUDED.error_count,
+         latency_sum_ms = console_observability_request_rollups_minute.latency_sum_ms + EXCLUDED.latency_sum_ms,
+         latency_max_ms = GREATEST(
+           console_observability_request_rollups_minute.latency_max_ms,
+           EXCLUDED.latency_max_ms
+         ),
+         latency_bucket_le_50 =
+           console_observability_request_rollups_minute.latency_bucket_le_50
+           + EXCLUDED.latency_bucket_le_50,
+         latency_bucket_le_100 =
+           console_observability_request_rollups_minute.latency_bucket_le_100
+           + EXCLUDED.latency_bucket_le_100,
+         latency_bucket_le_250 =
+           console_observability_request_rollups_minute.latency_bucket_le_250
+           + EXCLUDED.latency_bucket_le_250,
+         latency_bucket_le_500 =
+           console_observability_request_rollups_minute.latency_bucket_le_500
+           + EXCLUDED.latency_bucket_le_500,
+         latency_bucket_le_1000 =
+           console_observability_request_rollups_minute.latency_bucket_le_1000
+           + EXCLUDED.latency_bucket_le_1000,
+         latency_bucket_le_2000 =
+           console_observability_request_rollups_minute.latency_bucket_le_2000
+           + EXCLUDED.latency_bucket_le_2000,
+         latency_bucket_le_5000 =
+           console_observability_request_rollups_minute.latency_bucket_le_5000
+           + EXCLUDED.latency_bucket_le_5000`,
+      [
+        namespace,
+        orgId,
+        windowStartMs,
+        normalized.projectId,
+        normalized.environmentId,
+        normalized.service,
+        normalized.routeFamily,
+        normalized.method,
+        normalized.statusClass,
+        1,
+        normalized.errorCount,
+        normalized.latencyMs,
+        normalized.latencyMs,
+        b50,
+        b100,
+        b250,
+        b500,
+        b1000,
+        b2000,
+        b5000,
+      ],
+    );
+  }
+
+  function ensureNotLegacyRouterTimingEvent(event: ConsoleObservabilityEventEnvelope): void {
+    if (normalizeString(event.eventType) !== LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE) return;
+    throw new ConsoleObservabilityError(
+      'invalid_body',
+      400,
+      `Event type ${LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE} is no longer accepted`,
+    );
+  }
+
   async function appendEvents(
     ctx: ConsoleObservabilityIngestionContext,
     events: ConsoleObservabilityEventEnvelope[],
@@ -1261,20 +1687,23 @@ export async function createPostgresConsoleObservabilityIngestionService(
           'Event orgId must match ingestion context orgId',
         );
       }
+      ensureNotLegacyRouterTimingEvent(event);
       normalizedEvents.push(normalizeEnvelopeForInsert(event, redactionPolicy));
     }
 
     return withTenantTx(orgId, async (q) => {
       const nowValueMs = nowMs(now());
 
-      await reserveIngestBudget({
-        q,
-        namespace,
-        orgId,
-        requestedCount: normalizedEvents.length,
-        nowValueMs,
-        maxEventsPerMinute,
-      });
+      if (normalizedEvents.length > 0) {
+        await reserveIngestBudget({
+          q,
+          namespace,
+          orgId,
+          requestedCount: normalizedEvents.length,
+          nowValueMs,
+          maxEventsPerMinute,
+        });
+      }
 
       const partitionMonthsToEnsure = new Set<number>();
       for (const normalized of normalizedEvents) {
@@ -1369,8 +1798,40 @@ export async function createPostgresConsoleObservabilityIngestionService(
     return appendEvents(ctx, [event]);
   }
 
+  async function observeRequestMetric(
+    ctx: ConsoleObservabilityIngestionContext,
+    metric: ConsoleObservabilityRequestMetricInput,
+  ): Promise<void> {
+    const orgId = ensureRequiredString('ctx.orgId', ctx.orgId);
+    const metricOrgId = ensureRequiredString('metric.orgId', metric.orgId);
+    if (orgId !== metricOrgId) {
+      throw new ConsoleObservabilityError(
+        'invalid_body',
+        400,
+        'Request metric orgId must match ingestion context orgId',
+      );
+    }
+    await withTenantTx(orgId, async (q) => {
+      const nowValueMs = nowMs(now());
+      await observeRequestMetricInTx(q, orgId, metric);
+      if (retentionTtlMs > 0) {
+        const nextRunAt = Number(nextRetentionRunAtByOrg.get(orgId) || 0);
+        if (nowValueMs >= nextRunAt) {
+          await pruneRetentionForTenant(q, {
+            namespace,
+            orgId,
+            cutoffMs: Math.max(0, nowValueMs - retentionTtlMs),
+            batchSize: retentionBatchSize,
+          });
+          nextRetentionRunAtByOrg.set(orgId, nowValueMs + retentionPruneIntervalMs);
+        }
+      }
+    });
+  }
+
   return {
     appendEvent,
     appendEvents,
+    observeRequestMetric,
   };
 }

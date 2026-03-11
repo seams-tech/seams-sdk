@@ -23,6 +23,7 @@ import {
 } from './consoleObservabilityApi';
 
 const OBSERVABILITY_EVENTS_FETCH_LIMIT = 100;
+const DEFAULT_OBSERVABILITY_WINDOW_MS = 1000 * 60 * 60 * 24;
 const OBSERVABILITY_SERVICE_TABLE_COLUMNS = dashboardTableColumns(
   1,
   0.8,
@@ -68,6 +69,15 @@ function metadataSummary(metadata: Record<string, unknown>): string {
   return keys.length > 3 ? `${first}, +${keys.length - 3} more` : first;
 }
 
+function buildDefaultObservabilityScopeWindow(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date(to.getTime() - DEFAULT_OBSERVABILITY_WINDOW_MS);
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  };
+}
+
 function toStatusWarning(
   label: string,
   status: DashboardConsoleObservabilityModuleStatus,
@@ -98,6 +108,8 @@ export function ObservabilityPage(): React.JSX.Element {
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [warnings, setWarnings] = React.useState<string[]>([]);
   const [data, setData] = React.useState<DashboardConsoleObservabilitySnapshot | null>(null);
+  const [loadingMoreEvents, setLoadingMoreEvents] = React.useState<boolean>(false);
+  const [loadMoreEventsError, setLoadMoreEventsError] = React.useState<string>('');
   const [eventsQueryInput, setEventsQueryInput] = React.useState<string>('');
   const [eventsLevelFilter, setEventsLevelFilter] = React.useState<
     DashboardConsoleObservabilityLevel | ''
@@ -108,8 +120,10 @@ export function ObservabilityPage(): React.JSX.Element {
   const deferredEventsServiceFilter = React.useDeferredValue(eventsServiceFilter);
   const deferredEventsEventTypeFilter = React.useDeferredValue(eventsEventTypeFilter);
 
+  const defaultScopeWindow = React.useMemo(() => buildDefaultObservabilityScopeWindow(), []);
   const scope = React.useMemo(
     () => ({
+      ...defaultScopeWindow,
       ...(String(selectedContext.project || '').trim()
         ? { projectId: String(selectedContext.project || '').trim() }
         : {}),
@@ -117,7 +131,7 @@ export function ObservabilityPage(): React.JSX.Element {
         ? { environmentId: String(selectedContext.environment || '').trim() }
         : {}),
     }),
-    [selectedContext.environment, selectedContext.project],
+    [defaultScopeWindow, selectedContext.environment, selectedContext.project],
   );
   const normalizedEventsQuery = React.useMemo(
     () => String(deferredEventsQueryInput || '').trim(),
@@ -142,6 +156,8 @@ export function ObservabilityPage(): React.JSX.Element {
       setLoading(false);
       setData(null);
       setWarnings([]);
+      setLoadingMoreEvents(false);
+      setLoadMoreEventsError('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
@@ -149,44 +165,22 @@ export function ObservabilityPage(): React.JSX.Element {
     let cancelled = false;
     setLoading(true);
     setErrorMessage('');
+    setLoadingMoreEvents(false);
+    setLoadMoreEventsError('');
 
     Promise.all([
       getDashboardObservabilitySummary(scope),
       listDashboardObservabilityServices({ ...scope, limit: 25 }),
-      (async () => {
-        const firstPage = await listDashboardObservabilityEvents({
-          ...scope,
-          ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
-          ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
-          ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
-          ...(normalizedEventsEventTypeFilter
-            ? { eventType: normalizedEventsEventTypeFilter }
-            : {}),
-          limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
-        });
-        const events = [...firstPage.events];
-        let nextCursor = String(firstPage.nextCursor || '').trim();
-        while (nextCursor) {
-          const nextPage = await listDashboardObservabilityEvents({
-            ...scope,
-            ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
-            ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
-            ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
-            ...(normalizedEventsEventTypeFilter
-              ? { eventType: normalizedEventsEventTypeFilter }
-              : {}),
-            cursor: nextCursor,
-            limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
-          });
-          events.push(...nextPage.events);
-          nextCursor = String(nextPage.nextCursor || '').trim();
-        }
-        return {
-          ...firstPage,
-          events,
-          nextCursor: undefined,
-        };
-      })(),
+      listDashboardObservabilityEvents({
+        ...scope,
+        ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
+        ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
+        ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
+        ...(normalizedEventsEventTypeFilter
+          ? { eventType: normalizedEventsEventTypeFilter }
+          : {}),
+        limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
+      }),
     ])
       .then(([summary, services, events]) => {
         if (cancelled) return;
@@ -229,6 +223,10 @@ export function ObservabilityPage(): React.JSX.Element {
 
   const summary = data?.summary || null;
   const events = data?.events.events || [];
+  const eventsNextCursor = React.useMemo(
+    () => String(data?.events.nextCursor || '').trim(),
+    [data?.events.nextCursor],
+  );
   const services = data?.services.services || [];
   const hasEventsFilters =
     Boolean(normalizedEventsQuery) ||
@@ -245,6 +243,59 @@ export function ObservabilityPage(): React.JSX.Element {
     itemLabel: 'event',
     itemLabelPlural: 'events',
   });
+  const handleLoadMoreEvents = React.useCallback(async () => {
+    if (!session.claims) return;
+    if (!eventsNextCursor) return;
+    if (loading || loadingMoreEvents) return;
+
+    setLoadingMoreEvents(true);
+    setLoadMoreEventsError('');
+    try {
+      const nextPage = await listDashboardObservabilityEvents({
+        ...scope,
+        ...(normalizedEventsQuery ? { query: normalizedEventsQuery } : {}),
+        ...(eventsLevelFilter ? { level: eventsLevelFilter } : {}),
+        ...(normalizedEventsServiceFilter ? { service: normalizedEventsServiceFilter } : {}),
+        ...(normalizedEventsEventTypeFilter
+          ? { eventType: normalizedEventsEventTypeFilter }
+          : {}),
+        cursor: eventsNextCursor,
+        limit: OBSERVABILITY_EVENTS_FETCH_LIMIT,
+      });
+      setData((current) => {
+        if (!current) return current;
+        const seen = new Set<string>(current.events.events.map((entry) => entry.id));
+        const mergedEvents = [...current.events.events];
+        for (const next of nextPage.events) {
+          if (seen.has(next.id)) continue;
+          seen.add(next.id);
+          mergedEvents.push(next);
+        }
+        return {
+          ...current,
+          events: {
+            ...nextPage,
+            events: mergedEvents,
+            totalPages: Math.max(current.events.totalPages, nextPage.totalPages),
+          },
+        };
+      });
+    } catch (error: unknown) {
+      setLoadMoreEventsError(toErrorMessage(error));
+    } finally {
+      setLoadingMoreEvents(false);
+    }
+  }, [
+    eventsLevelFilter,
+    eventsNextCursor,
+    loading,
+    loadingMoreEvents,
+    normalizedEventsEventTypeFilter,
+    normalizedEventsQuery,
+    normalizedEventsServiceFilter,
+    scope,
+    session.claims,
+  ]);
 
   return (
     <div className="dashboard-view" aria-label="Observability page">
@@ -341,6 +392,7 @@ export function ObservabilityPage(): React.JSX.Element {
         aria-label="Observability events table"
       >
         <h2>Recent events</h2>
+        <p className="dashboard-pagination-note">Default window: last 24 hours.</p>
         <div
           className="dashboard-filters dashboard-observability-filters"
           aria-label="Observability event filters"
@@ -437,6 +489,25 @@ export function ObservabilityPage(): React.JSX.Element {
             ))
           )}
         </DashboardTable>
+        {loadMoreEventsError ? (
+          <p className="dashboard-pagination-note" role="alert">
+            {loadMoreEventsError}
+          </p>
+        ) : null}
+        {eventsNextCursor ? (
+          <p>
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={() => {
+                void handleLoadMoreEvents();
+              }}
+              disabled={loading || loadingMoreEvents}
+            >
+              {loadingMoreEvents ? 'Loading more events...' : 'Load more events'}
+            </button>
+          </p>
+        ) : null}
       </section>
     </div>
   );

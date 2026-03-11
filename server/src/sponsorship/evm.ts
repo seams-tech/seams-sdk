@@ -23,9 +23,11 @@ export type ResolvedSponsoredEvmCallSpendCap = {
   }>;
 };
 
-export type ResolvedSponsoredEvmCallPolicy = {
-  policyId: string;
-  policyName: string;
+export type ResolvedSponsoredEvmCallConfig = {
+  sponsorshipConfigId: string;
+  sponsorshipConfigName: string;
+  policyId: string | null;
+  policyName: string | null;
   templateId: string | null;
   networkClass: 'ANY' | 'TESTNET' | 'MAINNET';
   allowedChainIds: number[];
@@ -91,9 +93,7 @@ export function parseRequiredUnsignedBigInt(value: unknown, field: string): bigi
   }
 }
 
-function parseResolvedSponsoredEvmCallSpendCap(
-  raw: unknown,
-): ResolvedSponsoredEvmCallSpendCap {
+function parseResolvedSponsoredEvmCallSpendCap(raw: unknown): ResolvedSponsoredEvmCallSpendCap {
   const row =
     raw && typeof raw === 'object' && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
@@ -160,29 +160,28 @@ export function createSponsoredEvmSourceEventId(
   ].join(':');
 }
 
-export function parseResolvedSponsoredEvmCallPolicies(
-  snapshot: unknown,
-): ResolvedSponsoredEvmCallPolicy[] {
+export function parseResolvedSponsoredEvmCallConfigs(snapshot: unknown): ResolvedSponsoredEvmCallConfig[] {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return [];
   const payload = snapshot as Record<string, unknown>;
   const gasSponsorship = payload.gasSponsorship;
   if (!gasSponsorship || typeof gasSponsorship !== 'object' || Array.isArray(gasSponsorship)) {
     return [];
   }
-  const policiesRaw = (gasSponsorship as Record<string, unknown>).sponsoredCallPolicies;
-  if (!Array.isArray(policiesRaw)) return [];
-  const out: ResolvedSponsoredEvmCallPolicy[] = [];
-  for (const entry of policiesRaw) {
+  const configsRaw = (gasSponsorship as Record<string, unknown>).sponsoredCallConfigs;
+  if (!Array.isArray(configsRaw)) return [];
+  const out: ResolvedSponsoredEvmCallConfig[] = [];
+  for (const entry of configsRaw) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     const row = entry as Record<string, unknown>;
-    const policyId = String(row.policyId || '').trim();
-    const policyName = String(row.policyName || '').trim() || policyId;
+    const sponsorshipConfigId = String(row.sponsorshipConfigId || '').trim();
+    const sponsorshipConfigName =
+      String(row.sponsorshipConfigName || '').trim() || sponsorshipConfigId;
     const networkClass = String(row.networkClass || 'ANY').trim().toUpperCase();
     const callModeRaw = String(row.callMode || '').trim().toUpperCase();
     const allowedCallsRaw = Array.isArray(row.allowedCalls) ? row.allowedCalls : [];
-    if (!policyId) continue;
+    if (!sponsorshipConfigId) continue;
     const allowedCalls = allowedCallsRaw
-      .map((call): ResolvedSponsoredEvmCallPolicy['allowedCalls'][number] | null => {
+      .map((call): ResolvedSponsoredEvmCallConfig['allowedCalls'][number] | null => {
         if (!call || typeof call !== 'object' || Array.isArray(call)) return null;
         const callRow = call as Record<string, unknown>;
         const chainId = parseOptionalPositiveInteger(callRow.chainId);
@@ -195,7 +194,7 @@ export function parseResolvedSponsoredEvmCallPolicies(
           selector,
         };
       })
-      .filter((call): call is ResolvedSponsoredEvmCallPolicy['allowedCalls'][number] => Boolean(call));
+      .filter((call): call is ResolvedSponsoredEvmCallConfig['allowedCalls'][number] => Boolean(call));
     const allowedChainIdsRaw = Array.isArray(row.allowedChainIds) ? row.allowedChainIds : [];
     const allowedChainIds = Array.from(
       new Set(
@@ -220,8 +219,10 @@ export function parseResolvedSponsoredEvmCallPolicies(
     if (allowedChainIds.length === 0) continue;
     if (callMode === 'ALLOWLIST' && allowedCalls.length === 0) continue;
     out.push({
-      policyId,
-      policyName,
+      sponsorshipConfigId,
+      sponsorshipConfigName,
+      policyId: String(row.policyId || '').trim() || null,
+      policyName: String(row.policyName || '').trim() || null,
       templateId: String(row.templateId || '').trim() || null,
       networkClass:
         networkClass === 'TESTNET' || networkClass === 'MAINNET'
@@ -239,24 +240,24 @@ export function parseResolvedSponsoredEvmCallPolicies(
   return out;
 }
 
-export function matchResolvedSponsoredEvmCallPolicy(input: {
-  policies: readonly ResolvedSponsoredEvmCallPolicy[];
+export function matchResolvedSponsoredEvmCallConfig(input: {
+  configs: readonly ResolvedSponsoredEvmCallConfig[];
   chainId: number;
   call: SponsoredEvmCall;
-}): { policy: ResolvedSponsoredEvmCallPolicy; selector: `0x${string}` } | null {
+}): { config: ResolvedSponsoredEvmCallConfig; selector: `0x${string}` } | null {
   const selector = extractEvmFunctionSelector(input.call.data);
   if (!selector) return null;
   const targetAddress = input.call.to.toLowerCase();
-  for (const policy of input.policies) {
-    if (!policy.allowedChainIds.includes(input.chainId)) continue;
-    if (policy.callMode === 'ALLOW_ALL') {
-      return { policy, selector };
+  for (const config of input.configs) {
+    if (!config.allowedChainIds.includes(input.chainId)) continue;
+    if (config.callMode === 'ALLOW_ALL') {
+      return { config, selector };
     }
-    for (const allowedCall of policy.allowedCalls) {
+    for (const allowedCall of config.allowedCalls) {
       if (allowedCall.chainId !== input.chainId) continue;
       if (allowedCall.to.toLowerCase() !== targetAddress) continue;
       if (allowedCall.selector.toLowerCase() !== selector.toLowerCase()) continue;
-      return { policy, selector };
+      return { config, selector };
     }
   }
   return null;

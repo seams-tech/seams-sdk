@@ -64,6 +64,7 @@ function parseConfigRow(row: PgRow): ConsoleSmartWalletConfig {
     projectId: toNullableString(row.project_id),
     environmentId: toNullableString(row.environment_id),
     policyId: toNullableString(row.policy_id),
+    policyName: null,
     walletSegmentId: toNullableString(row.wallet_segment_id),
     enabled: row.enabled !== false,
     mode: String(row.mode || 'OPTIONAL') as ConsoleSmartWalletConfig['mode'],
@@ -123,6 +124,22 @@ function isUniqueViolation(error: unknown): boolean {
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
   const out = await q.query(text, values);
   return (out.rows[0] as PgRow) || null;
+}
+
+async function findPolicyName(
+  q: Queryable,
+  input: { namespace: string; orgId: string; policyId: string | null },
+): Promise<string | null> {
+  if (!input.policyId) return null;
+  const row = await queryOne(
+    q,
+    `SELECT name
+       FROM console_policies
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, input.policyId],
+  );
+  if (!row) return null;
+  return String(row.name || '').trim() || input.policyId;
 }
 
 export interface PostgresConsoleSmartWalletSchemaOptions {
@@ -236,6 +253,35 @@ export async function createPostgresConsoleSmartWalletService(
     return row ? parseConfigRow(row) : null;
   }
 
+  async function requirePolicyName(
+    q: Queryable,
+    ctx: ConsoleSmartWalletContext,
+    policyId: string | null,
+  ): Promise<string | null> {
+    if (!policyId) return null;
+    const policyName = await findPolicyName(q, { namespace, orgId: ctx.orgId, policyId });
+    if (!policyName) {
+      throw new ConsoleSmartWalletError(
+        'policy_not_found',
+        404,
+        `Policy ${policyId} was not found`,
+      );
+    }
+    return policyName;
+  }
+
+  async function projectConfig(
+    q: Queryable,
+    ctx: ConsoleSmartWalletContext,
+    config: ConsoleSmartWalletConfig,
+  ): Promise<ConsoleSmartWalletConfig> {
+    return {
+      ...config,
+      bundler: config.bundler ? { ...config.bundler } : null,
+      policyName: await findPolicyName(q, { namespace, orgId: ctx.orgId, policyId: config.policyId }),
+    };
+  }
+
   return {
     async listConfigs(ctx, request = {}) {
       return withTenantTx(ctx, async (q) => {
@@ -260,7 +306,9 @@ export async function createPostgresConsoleSmartWalletService(
             request.walletSegmentId || null,
           ],
         );
-        return out.rows.map((row) => parseConfigRow(row as PgRow));
+        return await Promise.all(
+          out.rows.map(async (row) => await projectConfig(q, ctx, parseConfigRow(row as PgRow))),
+        );
       });
     },
 
@@ -274,6 +322,7 @@ export async function createPostgresConsoleSmartWalletService(
           projectId: toNullableString(request.projectId),
           environmentId: toNullableString(request.environmentId),
           policyId: toNullableString(request.policyId),
+          policyName: null,
           walletSegmentId: toNullableString(request.walletSegmentId),
           enabled: request.enabled ?? true,
           mode: request.mode || 'OPTIONAL',
@@ -285,6 +334,7 @@ export async function createPostgresConsoleSmartWalletService(
           updatedAt: now.toISOString(),
         };
         validateScope(config);
+        config.policyName = await requirePolicyName(q, ctx, config.policyId);
         const createdAtMs = nowMs(now);
 
         try {
@@ -316,7 +366,7 @@ export async function createPostgresConsoleSmartWalletService(
           if (!row) {
             throw new ConsoleSmartWalletError('internal', 500, 'Failed to create smart wallet config');
           }
-          return parseConfigRow(row);
+          return await projectConfig(q, ctx, parseConfigRow(row));
         } catch (error: unknown) {
           if (isUniqueViolation(error)) {
             throw new ConsoleSmartWalletError(
@@ -359,6 +409,7 @@ export async function createPostgresConsoleSmartWalletService(
           updatedAt: nowFn().toISOString(),
         };
         validateScope(next);
+        next.policyName = await requirePolicyName(q, ctx, next.policyId);
 
         const updatedAtMs = nowMs(new Date(next.updatedAt));
         const row = await queryOne(
@@ -398,7 +449,7 @@ export async function createPostgresConsoleSmartWalletService(
             updatedAtMs,
           ],
         );
-        return row ? parseConfigRow(row) : null;
+        return row ? await projectConfig(q, ctx, parseConfigRow(row)) : null;
       });
     },
   };

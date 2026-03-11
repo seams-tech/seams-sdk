@@ -79,7 +79,7 @@ function parseReservation(row: PgRow): ConsoleSponsorshipSpendCapReservation {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
     environmentId: String(row.environment_id || ''),
-    policyId: String(row.policy_id || ''),
+    sponsorshipConfigId: String(row.sponsorship_config_id || ''),
     accountRef: fromStoredAccountRef(mode, row.account_ref),
     chainId: Math.max(0, toNumber(row.chain_id)),
     mode,
@@ -104,7 +104,7 @@ function parseUsage(row: PgRow): ConsoleSponsorshipSpendCapWindowUsage {
   return buildConsoleSponsorshipSpendCapWindowUsage({
     orgId: String(row.org_id || ''),
     environmentId: String(row.environment_id || ''),
-    policyId: String(row.policy_id || ''),
+    sponsorshipConfigId: String(row.sponsorship_config_id || ''),
     accountRef: fromStoredAccountRef(mode, row.account_ref),
     chainId: Math.max(0, toNumber(row.chain_id)),
     mode,
@@ -142,7 +142,7 @@ async function loadUsageForReservation(
       WHERE namespace = $1
         AND org_id = $2
         AND environment_id = $3
-        AND policy_id = $4
+        AND sponsorship_config_id = $4
         AND account_ref = $5
         AND chain_id = $6
         AND mode = $7
@@ -154,7 +154,7 @@ async function loadUsageForReservation(
       input.namespace,
       input.orgId,
       input.reservation.environmentId,
-      input.reservation.policyId,
+      input.reservation.sponsorshipConfigId,
       input.reservation.mode === 'CHAIN_TOTAL' ? '' : input.reservation.accountRef || '',
       input.reservation.chainId,
       input.reservation.mode,
@@ -168,7 +168,7 @@ async function loadUsageForReservation(
     return buildConsoleSponsorshipSpendCapWindowUsage({
       orgId: input.reservation.orgId,
       environmentId: input.reservation.environmentId,
-      policyId: input.reservation.policyId,
+      sponsorshipConfigId: input.reservation.sponsorshipConfigId,
       accountRef: input.reservation.accountRef,
       chainId: input.reservation.chainId,
       mode: input.reservation.mode,
@@ -203,7 +203,7 @@ export async function ensureConsoleSponsorshipSpendCapPostgresSchema(
         namespace TEXT NOT NULL,
         org_id TEXT NOT NULL,
         environment_id TEXT NOT NULL,
-        policy_id TEXT NOT NULL,
+        sponsorship_config_id TEXT NOT NULL,
         account_ref TEXT NOT NULL DEFAULT '',
         chain_id INTEGER NOT NULL,
         mode TEXT NOT NULL,
@@ -219,7 +219,7 @@ export async function ensureConsoleSponsorshipSpendCapPostgresSchema(
           namespace,
           org_id,
           environment_id,
-          policy_id,
+          sponsorship_config_id,
           account_ref,
           chain_id,
           mode,
@@ -241,7 +241,7 @@ export async function ensureConsoleSponsorshipSpendCapPostgresSchema(
         org_id TEXT NOT NULL,
         id TEXT NOT NULL,
         environment_id TEXT NOT NULL,
-        policy_id TEXT NOT NULL,
+        sponsorship_config_id TEXT NOT NULL,
         account_ref TEXT NOT NULL DEFAULT '',
         chain_id INTEGER NOT NULL,
         mode TEXT NOT NULL,
@@ -267,6 +267,39 @@ export async function ensureConsoleSponsorshipSpendCapPostgresSchema(
         CHECK (settled_minor >= 0),
         CHECK (released_minor >= 0)
       )
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsorship_spend_cap_windows'
+             AND column_name = 'policy_id'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsorship_spend_cap_windows'
+             AND column_name = 'sponsorship_config_id'
+        ) THEN
+          ALTER TABLE console_sponsorship_spend_cap_windows
+          RENAME COLUMN policy_id TO sponsorship_config_id;
+        END IF;
+        IF EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsorship_spend_cap_reservations'
+             AND column_name = 'policy_id'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsorship_spend_cap_reservations'
+             AND column_name = 'sponsorship_config_id'
+        ) THEN
+          ALTER TABLE console_sponsorship_spend_cap_reservations
+          RENAME COLUMN policy_id TO sponsorship_config_id;
+        END IF;
+      END $$;
     `);
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS console_sponsorship_spend_cap_source_event_idx
@@ -354,7 +387,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             WHERE namespace = $1
               AND org_id = $2
               AND environment_id = $3
-              AND policy_id = $4
+              AND sponsorship_config_id = $4
               AND account_ref = $5
               AND chain_id = $6
               AND mode = $7
@@ -366,7 +399,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             namespace,
             ctx.orgId,
             normalized.environmentId,
-            normalized.policyId,
+            normalized.sponsorshipConfigId,
             normalized.storedAccountRef,
             normalized.chainId,
             normalized.mode,
@@ -391,7 +424,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
               org_id,
               id,
               environment_id,
-              policy_id,
+              sponsorship_config_id,
               account_ref,
               chain_id,
               mode,
@@ -419,7 +452,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             ctx.orgId,
             makeId('sscr', createdAt),
             normalized.environmentId,
-            normalized.policyId,
+            normalized.sponsorshipConfigId,
             normalized.storedAccountRef,
             normalized.chainId,
             normalized.mode,
@@ -460,7 +493,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
               namespace,
               org_id,
               environment_id,
-              policy_id,
+              sponsorship_config_id,
               account_ref,
               chain_id,
               mode,
@@ -480,7 +513,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
               namespace,
               org_id,
               environment_id,
-              policy_id,
+              sponsorship_config_id,
               account_ref,
               chain_id,
               mode,
@@ -503,7 +536,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             namespace,
             ctx.orgId,
             normalized.environmentId,
-            normalized.policyId,
+            normalized.sponsorshipConfigId,
             normalized.storedAccountRef,
             normalized.chainId,
             normalized.mode,
@@ -578,7 +611,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
              WHERE namespace = $4
                AND org_id = $5
                AND environment_id = $6
-               AND policy_id = $7
+               AND sponsorship_config_id = $7
                AND account_ref = $8
                AND chain_id = $9
                AND mode = $10
@@ -595,7 +628,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             namespace,
             ctx.orgId,
             reservation.environmentId,
-            reservation.policyId,
+            reservation.sponsorshipConfigId,
             reservation.mode === 'CHAIN_TOTAL' ? '' : reservation.accountRef || '',
             reservation.chainId,
             reservation.mode,
@@ -677,7 +710,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
              WHERE namespace = $3
                AND org_id = $4
                AND environment_id = $5
-               AND policy_id = $6
+               AND sponsorship_config_id = $6
                AND account_ref = $7
                AND chain_id = $8
                AND mode = $9
@@ -692,7 +725,7 @@ export async function createPostgresConsoleSponsorshipSpendCapService(
             namespace,
             ctx.orgId,
             reservation.environmentId,
-            reservation.policyId,
+            reservation.sponsorshipConfigId,
             reservation.mode === 'CHAIN_TOTAL' ? '' : reservation.accountRef || '',
             reservation.chainId,
             reservation.mode,

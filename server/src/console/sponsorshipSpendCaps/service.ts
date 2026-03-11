@@ -103,7 +103,7 @@ function requireUsageForReservation(
   return buildConsoleSponsorshipSpendCapWindowUsage({
     orgId: reservation.orgId,
     environmentId: reservation.environmentId,
-    policyId: reservation.policyId,
+    sponsorshipConfigId: reservation.sponsorshipConfigId,
     accountRef: reservation.accountRef,
     chainId: reservation.chainId,
     mode: reservation.mode,
@@ -170,7 +170,7 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
         buildConsoleSponsorshipSpendCapWindowUsage({
           orgId: ctx.orgId,
           environmentId: normalized.environmentId,
-          policyId: normalized.policyId,
+          sponsorshipConfigId: normalized.sponsorshipConfigId,
           accountRef: normalized.accountRef,
           chainId: normalized.chainId,
           mode: normalized.mode,
@@ -207,7 +207,7 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
         id: makeId('sscr', createdAt),
         orgId: ctx.orgId,
         environmentId: normalized.environmentId,
-        policyId: normalized.policyId,
+        sponsorshipConfigId: normalized.sponsorshipConfigId,
         accountRef: normalized.accountRef,
         chainId: normalized.chainId,
         mode: normalized.mode,

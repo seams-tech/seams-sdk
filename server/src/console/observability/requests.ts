@@ -159,9 +159,6 @@ export function parseGetConsoleObservabilityTimeseriesRequest(
     ...(readOptionalQueryString(obj, 'service')
       ? { service: readOptionalQueryString(obj, 'service') }
       : {}),
-    ...(readOptionalQueryString(obj, 'eventType')
-      ? { eventType: readOptionalQueryString(obj, 'eventType') }
-      : {}),
     ...(readOptionalQueryString(obj, 'projectId')
       ? { projectId: readOptionalQueryString(obj, 'projectId') }
       : {}),

@@ -1,6 +1,6 @@
 import {
   type ConsoleGasSponsorshipService,
-  resolveSponsoredCallPoliciesFromConfigs,
+  resolveSponsoredCallConfigsFromConfigs,
 } from '../console/gasSponsorship';
 import type { ConsolePolicy, ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
@@ -116,7 +116,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
         status: 'not_configured',
         configCount: 0,
         configs: [] as unknown[],
-        sponsoredCallPolicies: [] as unknown[],
+        sponsoredCallConfigs: [] as unknown[],
       };
     }
     const configs = await input.gasSponsorship.listConfigs(ctx, {
@@ -127,7 +127,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
       status: 'resolved',
       configCount: configs.length,
       configs,
-      sponsoredCallPolicies: resolveSponsoredCallPoliciesFromConfigs(configs),
+      sponsoredCallConfigs: resolveSponsoredCallConfigsFromConfigs(configs),
     };
   })();
 

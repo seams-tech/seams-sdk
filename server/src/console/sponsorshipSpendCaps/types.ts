@@ -14,7 +14,7 @@ export interface ConsoleSponsorshipSpendCapReservation {
   id: string;
   orgId: string;
   environmentId: string;
-  policyId: string;
+  sponsorshipConfigId: string;
   accountRef: string | null;
   chainId: number;
   mode: ConsoleSponsorshipSpendCapMode;
@@ -34,7 +34,7 @@ export interface ConsoleSponsorshipSpendCapReservation {
 export interface ConsoleSponsorshipSpendCapWindowUsage {
   orgId: string;
   environmentId: string;
-  policyId: string;
+  sponsorshipConfigId: string;
   accountRef: string | null;
   chainId: number;
   mode: ConsoleSponsorshipSpendCapMode;
@@ -52,7 +52,7 @@ export interface ConsoleSponsorshipSpendCapWindowUsage {
 export interface ReserveConsoleSponsorshipSpendCapRequest {
   sourceEventId: string;
   environmentId: string;
-  policyId: string;
+  sponsorshipConfigId: string;
   accountRef?: string | null;
   chainId: number;
   mode: ConsoleSponsorshipSpendCapMode;
@@ -72,7 +72,7 @@ export interface ReleaseConsoleSponsorshipSpendCapRequest {
 
 export interface GetConsoleSponsorshipSpendCapWindowUsageRequest {
   environmentId: string;
-  policyId: string;
+  sponsorshipConfigId: string;
   accountRef?: string | null;
   chainId: number;
   mode: ConsoleSponsorshipSpendCapMode;

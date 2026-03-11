@@ -18,11 +18,11 @@ export type {
   ListConsoleObservabilityServicesRequest,
   ConsoleObservabilityEventIngestResult,
   ConsoleObservabilityIngestionContext,
+  ConsoleObservabilityRequestMetricInput,
   ConsoleObservabilityMetadataRedactionPolicy,
   ConsoleObservabilityWebhookDeadLetterInput,
   ConsoleObservabilityBillingFailureInput,
   ConsoleObservabilityApprovalFailureInput,
-  ConsoleObservabilityRouterTimingInput,
 } from './types';
 
 export type {
@@ -54,7 +54,6 @@ export {
   buildWebhookDeadLetterObservabilityEvent,
   buildBillingFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
-  buildRouterTimingObservabilityEvent,
 } from './adapters';
 
 export {

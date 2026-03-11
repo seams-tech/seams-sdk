@@ -91,7 +91,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     [pathname],
   );
   const persistedProjectId = String(persistedSelectedContext.project || '').trim();
-  const persistedEnvironmentId = String(persistedSelectedContext.environment || '').trim();
   const [onboardingLoading, setOnboardingLoading] = React.useState<boolean>(false);
   const [onboardingState, setOnboardingState] = React.useState<DashboardOnboardingState | null>(
     null,
@@ -230,8 +229,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     Promise.all([getDashboardOrganization(), listDashboardProjects({ status: 'ACTIVE' })])
       .then(([organization, projects]) => {
         if (cancelled) return;
-        const persisted = readPersistedDashboardSelectedContext();
-        const preferredProjectId = String(persisted.project || '').trim();
         setOrganizationOption({
           value: organization.id,
           label: organization.name || organization.id,
@@ -242,28 +239,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
             label: entry.name || entry.id,
           })),
         );
-        if (
-          preferredProjectId &&
-          !nextProjectOptions.some((entry) => entry.value === preferredProjectId)
-        ) {
-          nextProjectOptions.unshift({
-            value: preferredProjectId,
-            label: preferredProjectId,
-          });
-        }
-        if (
-          onboardingSelectedProjectId &&
-          !nextProjectOptions.some((entry) => entry.value === onboardingSelectedProjectId)
-        ) {
-          nextProjectOptions.unshift({
-            value: onboardingSelectedProjectId,
-            label: onboardingSelectedProjectId,
-          });
-        }
         setProjectOptions(nextProjectOptions);
         const nextSelectedProjectId =
-          (preferredProjectId &&
-            nextProjectOptions.find((entry) => entry.value === preferredProjectId)?.value) ||
           (onboardingSelectedProjectId &&
             nextProjectOptions.find((entry) => entry.value === onboardingSelectedProjectId)
               ?.value) ||
@@ -310,8 +287,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     listDashboardEnvironments({ projectId })
       .then((environments) => {
         if (cancelled) return;
-        const persisted = readPersistedDashboardSelectedContext();
-        const preferredEnvironmentId = String(persisted.environment || '').trim();
         const visibleEnvironmentRows = environments
           .filter((entry) => {
             const status = String(entry.status || '')
@@ -362,25 +337,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
               ]
             : []),
         ]);
-        if (
-          preferredEnvironmentId &&
-          !nextEnvironmentOptions.some((entry) => entry.value === preferredEnvironmentId)
-        ) {
-          nextEnvironmentOptions.unshift({
-            value: preferredEnvironmentId,
-            label: preferredEnvironmentId,
-          });
-        }
-        if (
-          onboardingSelectedProjectId === projectId &&
-          onboardingSelectedEnvironmentId &&
-          !nextEnvironmentOptions.some((entry) => entry.value === onboardingSelectedEnvironmentId)
-        ) {
-          nextEnvironmentOptions.unshift({
-            value: onboardingSelectedEnvironmentId,
-            label: onboardingSelectedEnvironmentId,
-          });
-        }
         setEnvironmentOptions(nextEnvironmentOptions);
       })
       .catch(() => {
@@ -422,9 +378,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         projectOptions.length > 0
           ? projectOptions
           : dedupeOptions([
-              ...(persistedProjectId
-                ? [{ value: persistedProjectId, label: persistedProjectId }]
-                : []),
               ...(onboardingSelectedProjectId
                 ? [{ value: onboardingSelectedProjectId, label: onboardingSelectedProjectId }]
                 : []),
@@ -434,9 +387,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         environmentOptions.length > 0
           ? environmentOptions
           : dedupeOptions([
-              ...(persistedEnvironmentId
-                ? [{ value: persistedEnvironmentId, label: persistedEnvironmentId }]
-                : []),
               ...(onboardingSelectedEnvironmentId &&
               selectedProjectId &&
               onboardingSelectedProjectId === selectedProjectId
@@ -470,7 +420,6 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       onboardingSelectedEnvironmentId,
       onboardingSelectedProjectId,
       organizationOption,
-      persistedEnvironmentId,
       persistedProjectId,
       projectOptions,
       resolvedTheme,

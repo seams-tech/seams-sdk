@@ -31,8 +31,9 @@ export interface DashboardGasSponsorshipConfig {
   projectId: string | null;
   environmentId: string | null;
   policyId: string | null;
+  policyName: string | null;
   walletSegmentId: string | null;
-  policyName: string;
+  name: string;
   templateId: string | null;
   networkClass: string;
   enabled: boolean;
@@ -151,8 +152,9 @@ function decodeGasSponsorshipConfig(raw: unknown): DashboardGasSponsorshipConfig
     projectId: row.projectId == null ? null : String(row.projectId || '').trim() || null,
     environmentId: row.environmentId == null ? null : String(row.environmentId || '').trim() || null,
     policyId: row.policyId == null ? null : String(row.policyId || '').trim() || null,
+    policyName: row.policyName == null ? null : String(row.policyName || '').trim() || null,
     walletSegmentId: row.walletSegmentId == null ? null : String(row.walletSegmentId || '').trim() || null,
-    policyName: String(row.policyName || '').trim() || 'Gas Sponsorship Policy',
+    name: String(row.name || '').trim() || 'Gas Sponsorship Policy',
     templateId: row.templateId == null ? null : String(row.templateId || '').trim() || null,
     networkClass: String(row.networkClass || '').trim() || 'ANY',
     enabled: row.enabled !== false,

@@ -1,4 +1,5 @@
 import { ConsoleSmartWalletError } from './errors';
+import type { ConsolePolicyService } from '../policies/service';
 import type {
   ConsoleSmartWalletConfig,
   ConsoleSmartWalletScopeType,
@@ -15,6 +16,7 @@ export interface ConsoleSmartWalletContext {
 
 export interface InMemoryConsoleSmartWalletServiceOptions {
   now?: () => Date;
+  policies?: ConsolePolicyService | null;
 }
 
 export interface ConsoleSmartWalletService {
@@ -55,6 +57,18 @@ function cloneConfig(config: ConsoleSmartWalletConfig): ConsoleSmartWalletConfig
   };
 }
 
+function toPolicyContext(ctx: ConsoleSmartWalletContext): {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+} {
+  return {
+    orgId: ctx.orgId,
+    actorUserId: ctx.actorUserId,
+    roles: ctx.roles,
+  };
+}
+
 function validateScope(input: {
   scopeType: ConsoleSmartWalletScopeType;
   projectId: string | null;
@@ -86,6 +100,7 @@ export function createInMemoryConsoleSmartWalletService(
   opts: InMemoryConsoleSmartWalletServiceOptions = {},
 ): ConsoleSmartWalletService {
   const now = opts.now || (() => new Date());
+  const policies = opts.policies || null;
   const stores = new Map<string, Map<string, ConsoleSmartWalletConfig>>();
 
   function requireOrgStore(orgId: string): Map<string, ConsoleSmartWalletConfig> {
@@ -97,20 +112,53 @@ export function createInMemoryConsoleSmartWalletService(
     return store;
   }
 
+  async function requirePolicyName(
+    ctx: ConsoleSmartWalletContext,
+    policyId: string | null,
+  ): Promise<string | null> {
+    if (!policyId) return null;
+    if (!policies) {
+      throw new ConsoleSmartWalletError(
+        'internal',
+        500,
+        'Policy service is required for policy-scoped smart wallet configs',
+      );
+    }
+    const policy = await policies.getPolicy(toPolicyContext(ctx), policyId);
+    if (!policy) {
+      throw new ConsoleSmartWalletError(
+        'policy_not_found',
+        404,
+        `Policy ${policyId} was not found`,
+      );
+    }
+    return policy.name || policy.id;
+  }
+
+  async function projectConfig(
+    ctx: ConsoleSmartWalletContext,
+    config: ConsoleSmartWalletConfig,
+  ): Promise<ConsoleSmartWalletConfig> {
+    return {
+      ...cloneConfig(config),
+      policyName: await requirePolicyName(ctx, config.policyId),
+    };
+  }
+
   return {
     async listConfigs(ctx, request = {}): Promise<ConsoleSmartWalletConfig[]> {
       const store = requireOrgStore(ctx.orgId);
       const rows = sortConfigs(Array.from(store.values()));
-      return rows
-        .filter((row) => {
+      return await Promise.all(
+        rows.filter((row) => {
           if (request.scopeType && row.scopeType !== request.scopeType) return false;
           if (request.projectId && row.projectId !== request.projectId) return false;
           if (request.environmentId && row.environmentId !== request.environmentId) return false;
           if (request.policyId && row.policyId !== request.policyId) return false;
           if (request.walletSegmentId && row.walletSegmentId !== request.walletSegmentId) return false;
           return true;
-        })
-        .map(cloneConfig);
+        }).map(async (row) => await projectConfig(ctx, row)),
+      );
     },
 
     async createConfig(ctx, request): Promise<ConsoleSmartWalletConfig> {
@@ -122,6 +170,7 @@ export function createInMemoryConsoleSmartWalletService(
       const policyId = normalizeString(request.policyId);
       const walletSegmentId = normalizeString(request.walletSegmentId);
       validateScope({ scopeType, projectId, environmentId, policyId, walletSegmentId });
+      const policyName = await requirePolicyName(ctx, policyId);
 
       const config: ConsoleSmartWalletConfig = {
         id: normalizeString(request.id) || makeId('sw', createdAt),
@@ -130,6 +179,7 @@ export function createInMemoryConsoleSmartWalletService(
         projectId,
         environmentId,
         policyId,
+        policyName,
         walletSegmentId,
         enabled: request.enabled ?? true,
         mode: request.mode || 'OPTIONAL',
@@ -150,7 +200,7 @@ export function createInMemoryConsoleSmartWalletService(
         );
       }
       store.set(config.id, config);
-      return cloneConfig(config);
+      return await projectConfig(ctx, config);
     },
 
     async updateConfig(ctx, configId, request): Promise<ConsoleSmartWalletConfig | null> {
@@ -190,9 +240,10 @@ export function createInMemoryConsoleSmartWalletService(
         policyId: next.policyId,
         walletSegmentId: next.walletSegmentId,
       });
+      next.policyName = await requirePolicyName(ctx, next.policyId);
 
       store.set(configId, next);
-      return cloneConfig(next);
+      return await projectConfig(ctx, next);
     },
   };
 }

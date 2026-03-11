@@ -157,6 +157,180 @@ function readConsoleSsoDisplayNameClaim(claims: Record<string, unknown>): string
   return full || undefined;
 }
 
+function readEnvironmentKeyCandidate(environmentId: string): 'dev' | 'staging' | 'prod' | null {
+  const candidate = String(environmentId || '')
+    .trim()
+    .split(':')
+    .pop()
+    ?.toLowerCase();
+  if (candidate === 'dev' || candidate === 'staging' || candidate === 'prod') {
+    return candidate;
+  }
+  return null;
+}
+
+function createConsoleScopeReadContext(input: {
+  orgId: string;
+  userId: string;
+  claims: Record<string, unknown>;
+}) {
+  return {
+    orgId: input.orgId,
+    actorUserId: input.userId,
+    roles: [],
+    ...(readConsoleSsoEmailClaim(input.claims)
+      ? { actorEmail: readConsoleSsoEmailClaim(input.claims) }
+      : {}),
+    ...(readConsoleSsoDisplayNameClaim(input.claims)
+      ? { actorDisplayName: readConsoleSsoDisplayNameClaim(input.claims) }
+      : {}),
+  };
+}
+
+async function reconcileConsoleScopeClaims(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  userId: string;
+  claims: Record<string, unknown>;
+  defaultOrgId: string;
+  orgId: string;
+  projectId: string;
+  environmentId: string;
+}): Promise<{ orgId: string; projectId: string; environmentId: string }> {
+  if (!input.orgProjectEnv) {
+    return {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+    };
+  }
+
+  try {
+    let orgId = String(input.orgId || '').trim();
+    if (orgId) {
+      try {
+        await input.orgProjectEnv.getOrganization(
+          createConsoleScopeReadContext({
+            orgId,
+            userId: input.userId,
+            claims: input.claims,
+          }),
+        );
+      } catch (error: unknown) {
+        if (!hasConsoleErrorCode(error, 'organization_not_found')) {
+          throw error;
+        }
+        orgId = '';
+      }
+    }
+
+    if (!orgId) {
+      const resolvedOrganization = await input.orgProjectEnv.findOrganizationForScope({
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        ...(input.environmentId ? { environmentId: input.environmentId } : {}),
+      });
+      orgId = String(resolvedOrganization?.id || '').trim();
+    }
+
+    if (!orgId) {
+      const fallbackOrgId = String(input.defaultOrgId || '').trim();
+      if (fallbackOrgId) {
+        try {
+          await input.orgProjectEnv.getOrganization(
+            createConsoleScopeReadContext({
+              orgId: fallbackOrgId,
+              userId: input.userId,
+              claims: input.claims,
+            }),
+          );
+          orgId = fallbackOrgId;
+        } catch (error: unknown) {
+          if (!hasConsoleErrorCode(error, 'organization_not_found')) {
+            throw error;
+          }
+        }
+      }
+    }
+
+    if (!orgId) {
+      return {
+        orgId: input.orgId,
+        projectId: input.projectId,
+        environmentId: input.environmentId,
+      };
+    }
+
+    const readCtx = createConsoleScopeReadContext({
+      orgId,
+      userId: input.userId,
+      claims: input.claims,
+    });
+    const [projects, environments] = await Promise.all([
+      input.orgProjectEnv.listProjects(readCtx, { status: 'ACTIVE' }),
+      input.orgProjectEnv.listEnvironments(readCtx, { status: 'ACTIVE' }),
+    ]);
+    if (!projects.length && !environments.length) {
+      return {
+        orgId,
+        projectId: input.projectId,
+        environmentId: input.environmentId,
+      };
+    }
+
+    let projectId = input.projectId;
+    let environmentId = input.environmentId;
+    let environment =
+      environments.find((entry) => entry.id === environmentId) || null;
+    const project =
+      projectId && projects.find((entry) => entry.id === projectId)
+        ? projects.find((entry) => entry.id === projectId) || null
+        : null;
+
+    if (environment) {
+      projectId = environment.projectId;
+      environmentId = environment.id;
+    } else {
+      const keyCandidate = readEnvironmentKeyCandidate(environmentId);
+      environment =
+        (projectId && keyCandidate
+          ? environments.find(
+              (entry) => entry.projectId === projectId && entry.key === keyCandidate,
+            ) || null
+          : null) ||
+        (projectId
+          ? environments.find((entry) => entry.projectId === projectId) || null
+          : null) ||
+        (keyCandidate
+          ? environments.find((entry) => entry.key === keyCandidate) || null
+          : null) ||
+        environments[0] ||
+        null;
+      if (environment) {
+        projectId = environment.projectId;
+        environmentId = environment.id;
+      }
+    }
+
+    if (!projectId || !project) {
+      projectId =
+        (environment && environment.projectId) ||
+        projects[0]?.id ||
+        '';
+    }
+
+    return {
+      orgId,
+      projectId,
+      environmentId,
+    };
+  } catch {
+    return {
+      orgId: input.orgId,
+      projectId: input.projectId,
+      environmentId: input.environmentId,
+    };
+  }
+}
+
 const consoleSsoProvisioningLocks = new Map<string, Promise<ConsoleOrgScopedTeamRole[]>>();
 
 async function runConsoleSsoProvisioningWithLock(
@@ -340,9 +514,18 @@ export function createAppSessionConsoleAuthAdapter(
         };
       }
 
-      const orgId = String(claims.orgId || '').trim() || defaultOrgId;
-      const projectId = String(claims.projectId || '').trim() || defaultProjectId;
-      const environmentId = String(claims.environmentId || '').trim() || defaultEnvironmentId;
+      const scopedClaims = await reconcileConsoleScopeClaims({
+        orgProjectEnv: provisioning?.orgProjectEnv || null,
+        userId,
+        claims,
+        defaultOrgId,
+        orgId: String(claims.orgId || '').trim() || defaultOrgId,
+        projectId: String(claims.projectId || '').trim() || defaultProjectId,
+        environmentId: String(claims.environmentId || '').trim() || defaultEnvironmentId,
+      });
+      const orgId = scopedClaims.orgId;
+      const projectId = scopedClaims.projectId;
+      const environmentId = scopedClaims.environmentId;
 
       let roles = [...fallbackRoles];
       if (provisioning?.teamRbac) {

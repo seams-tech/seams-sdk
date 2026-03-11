@@ -49,7 +49,7 @@ test.describe('console gas sponsorship seeding', () => {
 
     expect(configs).toHaveLength(1);
     expect(configs[0]).toMatchObject({
-      policyName: TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
+      name: TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
       templateId: TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
       networkClass: 'TESTNET',
       scopeType: 'ENVIRONMENT',

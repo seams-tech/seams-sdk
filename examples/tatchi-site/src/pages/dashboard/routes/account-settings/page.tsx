@@ -17,6 +17,10 @@ import {
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
+  getDashboardEnvironmentLabel,
+  getDashboardProjectLabel,
+} from '../../utils/scopeLabels';
+import {
   clearDashboardUiState,
   persistDashboardSelectedContext,
 } from '../../useDashboardUiPreferences';
@@ -44,7 +48,15 @@ function toErrorMessage(error: unknown): string {
   return String(error || 'Unknown error');
 }
 
-const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(1.75, 0.85, 1.15, 1.15, 0.95);
+const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(
+  1.35,
+  1.05,
+  0.95,
+  0.8,
+  1.05,
+  1.15,
+  0.95,
+);
 
 export function AccountSettingsPage(): React.JSX.Element {
   const { go } = useSiteRouter();
@@ -69,10 +81,16 @@ export function AccountSettingsPage(): React.JSX.Element {
   const [addingBackupEmail, setAddingBackupEmail] = React.useState<boolean>(false);
   const [removingBackupEmail, setRemovingBackupEmail] = React.useState<string>('');
   const [creatingOrganization, setCreatingOrganization] = React.useState<boolean>(false);
+  const [createOrganizationModalOpen, setCreateOrganizationModalOpen] =
+    React.useState<boolean>(false);
+  const [createOrganizationModalErrorMessage, setCreateOrganizationModalErrorMessage] =
+    React.useState<string>('');
   const [renamingOrganizationId, setRenamingOrganizationId] = React.useState<string>('');
   const [transferringOrganizationId, setTransferringOrganizationId] = React.useState<string>('');
   const [switchingOrganizationId, setSwitchingOrganizationId] = React.useState<string>('');
   const [deletingOrganizationId, setDeletingOrganizationId] = React.useState<string>('');
+  const [profileModalOpen, setProfileModalOpen] = React.useState<boolean>(false);
+  const [profileModalErrorMessage, setProfileModalErrorMessage] = React.useState<string>('');
   const [renameModalOrganizationId, setRenameModalOrganizationId] = React.useState<string>('');
   const [modalHost, setModalHost] = React.useState<HTMLElement | null>(null);
 
@@ -157,7 +175,7 @@ export function AccountSettingsPage(): React.JSX.Element {
 
   const onSaveProfile = React.useCallback(async () => {
     setSavingProfile(true);
-    setActionErrorMessage('');
+    setProfileModalErrorMessage('');
     setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
@@ -165,17 +183,33 @@ export function AccountSettingsPage(): React.JSX.Element {
         ...(profile?.canEditPrimaryEmail !== false ? { primaryEmail: primaryEmailDraft } : {}),
       });
       setProfile(nextProfile);
+      setProfileModalOpen(false);
       toast.success('Profile updated.');
     } catch (error: unknown) {
-      setActionErrorMessage(toErrorMessage(error));
+      setProfileModalErrorMessage(toErrorMessage(error));
     } finally {
       setSavingProfile(false);
     }
   }, [displayNameDraft, primaryEmailDraft, profile?.canEditPrimaryEmail]);
 
+  const onOpenProfileModal = React.useCallback(() => {
+    setDisplayNameDraft(profile?.displayName || '');
+    setPrimaryEmailDraft(profile?.primaryEmail || '');
+    setNewBackupEmail('');
+    setProfileModalErrorMessage('');
+    setProfileModalOpen(true);
+  }, [profile?.displayName, profile?.primaryEmail]);
+
+  const onCloseProfileModal = React.useCallback(() => {
+    if (savingProfile || addingBackupEmail || Boolean(removingBackupEmail)) return;
+    setNewBackupEmail('');
+    setProfileModalErrorMessage('');
+    setProfileModalOpen(false);
+  }, [addingBackupEmail, removingBackupEmail, savingProfile]);
+
   const onAddBackupEmail = React.useCallback(async () => {
     setAddingBackupEmail(true);
-    setActionErrorMessage('');
+    setProfileModalErrorMessage('');
     setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
@@ -183,9 +217,9 @@ export function AccountSettingsPage(): React.JSX.Element {
       });
       setProfile(nextProfile);
       setNewBackupEmail('');
-      setNoticeMessage('Backup email added.');
+      toast.success('Backup email added.');
     } catch (error: unknown) {
-      setActionErrorMessage(toErrorMessage(error));
+      setProfileModalErrorMessage(toErrorMessage(error));
     } finally {
       setAddingBackupEmail(false);
     }
@@ -193,16 +227,16 @@ export function AccountSettingsPage(): React.JSX.Element {
 
   const onRemoveBackupEmail = React.useCallback(async (email: string) => {
     setRemovingBackupEmail(email);
-    setActionErrorMessage('');
+    setProfileModalErrorMessage('');
     setNoticeMessage('');
     try {
       const nextProfile = await updateDashboardAccountProfile({
         removeBackupEmail: email,
       });
       setProfile(nextProfile);
-      setNoticeMessage('Backup email removed.');
+      toast.success('Backup email removed.');
     } catch (error: unknown) {
-      setActionErrorMessage(toErrorMessage(error));
+      setProfileModalErrorMessage(toErrorMessage(error));
     } finally {
       setRemovingBackupEmail('');
     }
@@ -210,6 +244,7 @@ export function AccountSettingsPage(): React.JSX.Element {
 
   const onCreateOrganization = React.useCallback(async () => {
     setCreatingOrganization(true);
+    setCreateOrganizationModalErrorMessage('');
     setActionErrorMessage('');
     setNoticeMessage('');
     try {
@@ -219,14 +254,28 @@ export function AccountSettingsPage(): React.JSX.Element {
       });
       setCreateNameDraft('');
       setCreateSlugDraft('');
+      setCreateOrganizationModalOpen(false);
       await reloadAccountSettings();
       setNoticeMessage('Organization created.');
     } catch (error: unknown) {
-      setActionErrorMessage(toErrorMessage(error));
+      setCreateOrganizationModalErrorMessage(toErrorMessage(error));
     } finally {
       setCreatingOrganization(false);
     }
   }, [createNameDraft, createSlugDraft, reloadAccountSettings]);
+
+  const onOpenCreateOrganizationModal = React.useCallback(() => {
+    setCreateNameDraft('');
+    setCreateSlugDraft('');
+    setCreateOrganizationModalErrorMessage('');
+    setCreateOrganizationModalOpen(true);
+  }, []);
+
+  const onCloseCreateOrganizationModal = React.useCallback(() => {
+    if (creatingOrganization) return;
+    setCreateOrganizationModalErrorMessage('');
+    setCreateOrganizationModalOpen(false);
+  }, [creatingOrganization]);
 
   const onRenameOrganization = React.useCallback(
     async (organization: DashboardAccountOrganization) => {
@@ -416,34 +465,21 @@ export function AccountSettingsPage(): React.JSX.Element {
       </DashboardInlineModal>
     ) : null;
 
-  return (
-    <div ref={viewRef} className="dashboard-account-settings" aria-label="Account settings page">
-      {noticeMessage ? (
-        <p className="dashboard-form-alert dashboard-account-alert--success" role="status">
-          {noticeMessage}
-        </p>
-      ) : null}
-      {actionErrorMessage ? (
-        <p className="dashboard-form-alert" role="alert">
-          {actionErrorMessage}
-        </p>
-      ) : null}
-
-      <section className="dashboard-account-panel dashboard-account-panel--profile">
-        <div className="dashboard-account-profile-card">
-          <div className="dashboard-section-toolbar dashboard-account-section-header">
-            <div className="dashboard-section-toolbar__copy">
-              <h2>Profile</h2>
-            </div>
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={() => void onSaveProfile()}
-              disabled={savingProfile}
-            >
-              {savingProfile ? 'Saving...' : 'Save'}
-            </button>
-          </div>
+  const profileModal = profileModalOpen ? (
+    <DashboardInlineModal
+      isOpen
+      ariaLabel="Edit profile modal"
+      onRequestClose={onCloseProfileModal}
+      className="dashboard-account-profile-modal"
+      >
+        <h2>Edit profile</h2>
+        <form
+          className="dashboard-view-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onSaveProfile();
+          }}
+        >
           <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
             <label className="dashboard-form-field">
               <span>Display name</span>
@@ -452,6 +488,7 @@ export function AccountSettingsPage(): React.JSX.Element {
                 value={displayNameDraft}
                 onChange={(event) => setDisplayNameDraft(event.target.value)}
                 placeholder="Display name"
+                autoFocus
               />
             </label>
             <label className="dashboard-form-field">
@@ -517,11 +554,162 @@ export function AccountSettingsPage(): React.JSX.Element {
               </button>
             </div>
           </div>
+          {profileModalErrorMessage ? (
+            <p className="dashboard-form-alert" role="alert">
+              {profileModalErrorMessage}
+            </p>
+          ) : null}
+          <div className="dashboard-form-actions">
+            <button
+              type="button"
+              className="dashboard-pagination-button dashboard-pagination-button--secondary"
+              onClick={onCloseProfileModal}
+              disabled={savingProfile || addingBackupEmail || Boolean(removingBackupEmail)}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="dashboard-pagination-button" disabled={savingProfile}>
+              {savingProfile ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </form>
+    </DashboardInlineModal>
+  ) : null;
+
+  const createOrganizationModal = createOrganizationModalOpen ? (
+    <DashboardInlineModal
+      isOpen
+      ariaLabel="Create organization modal"
+      onRequestClose={onCloseCreateOrganizationModal}
+      className="dashboard-account-organization-modal"
+    >
+      <h2>Create organization</h2>
+      <form
+        className="dashboard-view-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void onCreateOrganization();
+        }}
+      >
+        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
+          <label className="dashboard-form-field">
+            <span>Organization name</span>
+            <input
+              className="dashboard-input"
+              value={createNameDraft}
+              onChange={(event) => setCreateNameDraft(event.target.value)}
+              placeholder="Northwind Labs"
+              autoFocus
+            />
+          </label>
+          <label className="dashboard-form-field">
+            <span>Slug</span>
+            <input
+              className="dashboard-input"
+              value={createSlugDraft}
+              onChange={(event) => setCreateSlugDraft(event.target.value)}
+              placeholder="northwind-labs"
+            />
+          </label>
+        </div>
+        {createOrganizationModalErrorMessage ? (
+          <p className="dashboard-form-alert" role="alert">
+            {createOrganizationModalErrorMessage}
+          </p>
+        ) : null}
+        <div className="dashboard-form-actions">
+          <button
+            type="button"
+            className="dashboard-pagination-button dashboard-pagination-button--secondary"
+            onClick={onCloseCreateOrganizationModal}
+            disabled={creatingOrganization}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="dashboard-pagination-button"
+            disabled={creatingOrganization || !createNameDraft.trim()}
+          >
+            {creatingOrganization ? 'Creating...' : 'Create organization'}
+          </button>
+        </div>
+      </form>
+    </DashboardInlineModal>
+  ) : null;
+
+  return (
+    <div ref={viewRef} className="dashboard-account-settings" aria-label="Account settings page">
+      {noticeMessage ? (
+        <p className="dashboard-form-alert dashboard-account-alert--success" role="status">
+          {noticeMessage}
+        </p>
+      ) : null}
+      {actionErrorMessage ? (
+        <p className="dashboard-form-alert" role="alert">
+          {actionErrorMessage}
+        </p>
+      ) : null}
+
+      <section className="dashboard-account-panel dashboard-account-panel--profile">
+        <div className="dashboard-account-profile-card">
+          <div className="dashboard-section-toolbar dashboard-account-section-header">
+            <div className="dashboard-section-toolbar__copy">
+              <h2>Profile</h2>
+            </div>
+            <button
+              type="button"
+              className="dashboard-pagination-button"
+              onClick={onOpenProfileModal}
+            >
+              Edit
+            </button>
+          </div>
+          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
+            <div className="dashboard-account-static-field">
+              <span>Display name</span>
+              <div className="dashboard-account-static-value">
+                {profile?.displayName || 'Not set'}
+              </div>
+            </div>
+            <div className="dashboard-account-static-field">
+              <span>Primary email</span>
+              <div className="dashboard-account-static-value">
+                {profile?.primaryEmail || 'Not set'}
+              </div>
+            </div>
+          </div>
+          <div className="dashboard-account-subsection dashboard-account-subsection--compact">
+            <div className="dashboard-section-toolbar dashboard-account-subsection-header">
+              <div className="dashboard-section-toolbar__copy">
+                <h3>Backup Emails</h3>
+              </div>
+            </div>
+            {profile?.backupEmails.length ? (
+              <div className="dashboard-account-backup-list">
+                {profile.backupEmails.map((backupEmail) => (
+                  <article
+                    className="dashboard-account-backup-item dashboard-account-backup-item--readonly"
+                    key={backupEmail.email}
+                  >
+                    <div className="dashboard-account-backup-item__content">
+                      <strong>{backupEmail.email}</strong>
+                      <p className="dashboard-pagination-note">
+                        {backupEmail.status} • added {formatTimestamp(backupEmail.createdAt)}
+                      </p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="dashboard-pagination-note">No backup emails configured.</p>
+            )}
+          </div>
         </div>
       </section>
 
       <section className="dashboard-account-panel dashboard-account-panel--organizations">
-        <div className="dashboard-section-toolbar dashboard-account-section-header">
+        <div className="dashboard-section-toolbar dashboard-account-section-header dashboard-account-section-header--actions-left">
           <div className="dashboard-section-toolbar__copy">
             <h2>My Organisations</h2>
             <p className="dashboard-pagination-note">
@@ -529,38 +717,13 @@ export function AccountSettingsPage(): React.JSX.Element {
               ownership.
             </p>
           </div>
-        </div>
-        <div className="dashboard-account-org-create">
-          <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
-            <label className="dashboard-form-field">
-              <span>Organization name</span>
-              <input
-                className="dashboard-input"
-                value={createNameDraft}
-                onChange={(event) => setCreateNameDraft(event.target.value)}
-                placeholder="Northwind Labs"
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Slug</span>
-              <input
-                className="dashboard-input"
-                value={createSlugDraft}
-                onChange={(event) => setCreateSlugDraft(event.target.value)}
-                placeholder="northwind-labs"
-              />
-            </label>
-            <div className="dashboard-form-actions">
-              <button
-                type="button"
-                className="dashboard-pagination-button"
-                onClick={() => void onCreateOrganization()}
-                disabled={creatingOrganization}
-              >
-                {creatingOrganization ? 'Creating...' : 'Create organization'}
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            className="dashboard-pagination-button"
+            onClick={onOpenCreateOrganizationModal}
+          >
+            Create organization
+          </button>
         </div>
 
         <DashboardTable
@@ -570,6 +733,8 @@ export function AccountSettingsPage(): React.JSX.Element {
         >
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Organization</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Activity</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Scope</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Rename</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Transfer</DashboardTableHeaderCell>
@@ -587,12 +752,26 @@ export function AccountSettingsPage(): React.JSX.Element {
                     <span className="dashboard-pagination-note">
                       {organization.slug || organization.id}
                     </span>
+                  </DashboardTableCell>
+                  <DashboardTableCell className="dashboard-account-org-table__activity">
                     <div className="dashboard-account-org-meta">
                       <span>Created {formatTimestamp(organization.createdAt)}</span>
                       <span>Updated {formatTimestamp(organization.updatedAt)}</span>
-                      <span>
-                        Scope {organization.selectedProjectId || 'No project'} /{' '}
-                        {organization.selectedEnvironmentId || 'No environment'}
+                    </div>
+                  </DashboardTableCell>
+                  <DashboardTableCell className="dashboard-account-org-table__scope">
+                    <div className="dashboard-account-org-scope">
+                      <strong>
+                        {getDashboardProjectLabel({
+                          projectId: organization.selectedProjectId,
+                          projectName: organization.selectedProjectName,
+                        })}
+                      </strong>
+                      <span className="dashboard-pagination-note">
+                        {getDashboardEnvironmentLabel({
+                          environmentId: organization.selectedEnvironmentId,
+                          environmentName: organization.selectedEnvironmentName,
+                        })}
                       </span>
                     </div>
                   </DashboardTableCell>
@@ -702,6 +881,12 @@ export function AccountSettingsPage(): React.JSX.Element {
           )}
         </DashboardTable>
       </section>
+      {profileModal ? (modalHost ? createPortal(profileModal, modalHost) : profileModal) : null}
+      {createOrganizationModal
+        ? modalHost
+          ? createPortal(createOrganizationModal, modalHost)
+          : createOrganizationModal
+        : null}
       {renameModal ? (modalHost ? createPortal(renameModal, modalHost) : renameModal) : null}
     </div>
   );
