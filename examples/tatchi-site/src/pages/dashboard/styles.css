@@ -1383,6 +1383,29 @@
   transform: translateY(0);
 }
 
+.dashboard-audit-events__copy-value {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  width: fit-content;
+  color: var(--dashboard-ink);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-audit-events__copy-value:hover {
+  text-decoration: underline;
+}
+
+.dashboard-audit-events__copy-value:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--fe-primary, #4d73ff) 65%, white 35%);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .dashboard-data-table__details-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

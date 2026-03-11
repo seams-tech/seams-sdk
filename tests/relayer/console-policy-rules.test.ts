@@ -154,6 +154,28 @@ test.describe('console policy rules parser and evaluator', () => {
     });
   });
 
+  test('in-memory service bootstraps a protected default policy with a generated id', async () => {
+    const service = createInMemoryConsolePolicyService();
+    const ctx = {
+      orgId: 'org-policy-default-1',
+      actorUserId: 'user-policy-default-1',
+      roles: ['admin'],
+    };
+
+    const policies = await service.listPolicies(ctx);
+    const defaultPolicy = policies.find((entry) => entry.isSystemDefault) || null;
+    expect(defaultPolicy).toBeTruthy();
+    expect(defaultPolicy?.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+    expect(defaultPolicy?.name).toBe('Default Policy');
+
+    await expectPolicyError(
+      async () => {
+        await service.deletePolicy(ctx, String(defaultPolicy?.id || ''));
+      },
+      'default_policy_protected',
+    );
+  });
+
   test('contract_call allowlists enforce contract and function restrictions', async () => {
     const allowedContractAddress = '0x1111111111111111111111111111111111111111';
     const deniedContractAddress = '0x2222222222222222222222222222222222222222';

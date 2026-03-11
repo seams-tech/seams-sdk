@@ -10,6 +10,7 @@ import {
 export interface DashboardConsolePolicy {
   id: string;
   orgId: string;
+  isSystemDefault: boolean;
   name: string;
   description: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
@@ -155,6 +156,7 @@ function decodePolicy(raw: unknown): DashboardConsolePolicy | null {
   return {
     id,
     orgId,
+    isSystemDefault: row.isSystemDefault === true,
     name: String(row.name || '').trim(),
     description: row.description == null ? null : String(row.description || '').trim() || null,
     status,

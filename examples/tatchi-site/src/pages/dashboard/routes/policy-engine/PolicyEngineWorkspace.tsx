@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from 'sonner';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -397,6 +398,11 @@ export function PolicyEnginePage(): React.JSX.Element {
   const viewRef = React.useRef<HTMLDivElement | null>(null);
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
+  const { go } = useSiteRouter();
+  const [requestedPolicyId, setRequestedPolicyId] = React.useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    return String(new URLSearchParams(window.location.search).get('policyId') || '').trim();
+  });
 
   const orgScopeId =
     String(selectedContext.organization || session.claims?.orgId || '').trim() ||
@@ -465,6 +471,19 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [mutationBusy, setMutationBusy] = React.useState<string>('');
   const [mutationErrorMessage, setMutationErrorMessage] = React.useState<string>('');
   const [mutationNotice, setMutationNotice] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncRequestedPolicyId = () => {
+      setRequestedPolicyId(String(new URLSearchParams(window.location.search).get('policyId') || '').trim());
+    };
+    window.addEventListener('popstate', syncRequestedPolicyId);
+    window.addEventListener('site:navigate', syncRequestedPolicyId as EventListener);
+    return () => {
+      window.removeEventListener('popstate', syncRequestedPolicyId);
+      window.removeEventListener('site:navigate', syncRequestedPolicyId as EventListener);
+    };
+  }, []);
 
   const currentContextScopeType = React.useMemo<PolicyScopeType>(() => {
     if (environmentScopeId) return 'ENVIRONMENT';
@@ -804,6 +823,12 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   React.useEffect(() => {
     if (creatingNewPolicy) return;
+    if (requestedPolicyId && policies.some((entry) => entry.id === requestedPolicyId)) {
+      if (selectedPolicyId !== requestedPolicyId) {
+        setSelectedPolicyId(requestedPolicyId);
+      }
+      return;
+    }
     if (selectedPolicyId && policies.some((entry) => entry.id === selectedPolicyId)) return;
     const nextPolicyId =
       directAssignment?.policyId ||
@@ -812,7 +837,14 @@ export function PolicyEnginePage(): React.JSX.Element {
       policies[0]?.id ||
       '';
     setSelectedPolicyId(nextPolicyId);
-  }, [creatingNewPolicy, directAssignment, effectiveAssignment, policies, selectedPolicyId]);
+  }, [
+    creatingNewPolicy,
+    directAssignment,
+    effectiveAssignment,
+    policies,
+    requestedPolicyId,
+    selectedPolicyId,
+  ]);
 
   React.useEffect(() => {
     if (!selectedPolicyId) {
@@ -859,7 +891,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     setActiveModal({ kind: 'create' });
   }, [environmentScopeId, orgScopeId, projectScopeId]);
 
-  const openPolicyModal = React.useCallback(
+  const setPolicyModalState = React.useCallback(
     (kind: Exclude<PolicyModalKind, 'create'>, policyId: string) => {
       setCreatingNewPolicy(false);
       setPolicyCreateMode('STANDARD');
@@ -888,7 +920,26 @@ export function PolicyEnginePage(): React.JSX.Element {
     [environmentScopeId, orgScopeId, policyById, projectScopeId],
   );
 
-  const closePolicyModal = React.useCallback(() => {
+  const openPolicyModal = React.useCallback(
+    (kind: Exclude<PolicyModalKind, 'create'>, policyId: string) => {
+      if (kind !== 'view') {
+        setPolicyModalState(kind, policyId);
+        return;
+      }
+      const activeQueryPolicyId =
+        typeof window === 'undefined'
+          ? ''
+          : String(new URLSearchParams(window.location.search).get('policyId') || '').trim();
+      if (activeQueryPolicyId === policyId) {
+        setPolicyModalState(kind, policyId);
+        return;
+      }
+      go(`/dashboard/policy-engine?policyId=${encodeURIComponent(policyId)}`);
+    },
+    [go, setPolicyModalState],
+  );
+
+  const clearPolicyModalState = React.useCallback(() => {
     setActiveModal(null);
     setSimulationErrorMessage('');
     setSimulationResult(null);
@@ -896,6 +947,31 @@ export function PolicyEnginePage(): React.JSX.Element {
       setCreatingNewPolicy(false);
     }
   }, [creatingNewPolicy]);
+
+  const closePolicyModal = React.useCallback(() => {
+    const clearRequestedPolicy = activeModal?.kind === 'view' && Boolean(requestedPolicyId);
+    clearPolicyModalState();
+    if (clearRequestedPolicy) {
+      go('/dashboard/policy-engine');
+    }
+  }, [activeModal?.kind, clearPolicyModalState, go, requestedPolicyId]);
+
+  React.useEffect(() => {
+    if (!requestedPolicyId) {
+      if (activeModal?.kind === 'view') {
+        clearPolicyModalState();
+      }
+      return;
+    }
+    if (activeModal?.kind === 'view' && activeModal.policyId === requestedPolicyId) return;
+    setPolicyModalState('view', requestedPolicyId);
+  }, [
+    activeModal?.kind,
+    activeModal?.policyId,
+    clearPolicyModalState,
+    requestedPolicyId,
+    setPolicyModalState,
+  ]);
 
   const selectedContextScopeKey = `${orgScopeId}:${projectScopeId}:${environmentScopeId}`;
   const previousSelectedContextScopeKeyRef = React.useRef<string>(selectedContextScopeKey);
@@ -1328,7 +1404,6 @@ export function PolicyEnginePage(): React.JSX.Element {
     if (activeModalPolicy.status === 'PUBLISHED') return activeModalPolicy.version;
     return latestPublishedVersion ? latestPublishedVersion.version + 1 : 1;
   }, [activeModalPolicy, latestPublishedVersion]);
-  const defaultPolicyId = orgScopeId ? `${orgScopeId}:policy:default` : '';
   const policyActionToggleOptions = POLICY_ACTIONS.filter((entry) => entry !== 'contract_call');
   const addContractCallRule = React.useCallback(() => {
     setPolicyEditorForm((current) => ({
@@ -1604,7 +1679,7 @@ export function PolicyEnginePage(): React.JSX.Element {
           ) : (
             <>
               {policiesPagination.rows.map((policy) => {
-                const isDefaultPolicy = policy.id === defaultPolicyId;
+                const isDefaultPolicy = policy.isSystemDefault;
                 const coverageEntry = coverageByPolicyId.get(policy.id) || null;
                 return (
                   <DashboardTableRow className="dashboard-policy-table__row" key={policy.id}>
@@ -2015,7 +2090,9 @@ export function PolicyEnginePage(): React.JSX.Element {
             ) : null}
 
             {activeModal.kind === 'view' ? (
-              activeModalPolicy ? (
+              policiesLoading && !activeModalPolicy ? (
+                <p className="dashboard-pagination-note">Loading policy details...</p>
+              ) : activeModalPolicy ? (
                 <>
                   <h2>Policy details</h2>
                   <p className="dashboard-pagination-note">
@@ -2087,7 +2164,16 @@ export function PolicyEnginePage(): React.JSX.Element {
                   </div>
                 </>
               ) : (
-                <p className="dashboard-pagination-note">Policy details are unavailable.</p>
+                <p className="dashboard-pagination-note">
+                  Policy details are unavailable
+                  {activeModal.policyId ? (
+                    <>
+                      {' '}
+                      for <code>{activeModal.policyId}</code>
+                    </>
+                  ) : null}
+                  .
+                </p>
               )
             ) : null}
 
@@ -2200,7 +2286,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                     Delete <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> and
                     remove it from the registry. This does not delete wallet activity history.
                   </p>
-                  {activeModalPolicy.id === defaultPolicyId ? (
+                  {activeModalPolicy.isSystemDefault ? (
                     <p className="dashboard-pagination-note">
                       The organization default policy is protected and cannot be deleted.
                     </p>
@@ -2221,7 +2307,7 @@ export function PolicyEnginePage(): React.JSX.Element {
                       disabled={
                         !canMutatePolicies ||
                         mutationBusy === 'delete' ||
-                        activeModalPolicy.id === defaultPolicyId
+                        activeModalPolicy.isSystemDefault
                       }
                     >
                       {mutationBusy === 'delete' ? 'Deleting...' : 'Delete policy'}

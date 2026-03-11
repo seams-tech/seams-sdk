@@ -37,6 +37,7 @@ export interface ConsolePolicyRules {
 export interface ConsolePolicy {
   id: string;
   orgId: string;
+  isSystemDefault: boolean;
   name: string;
   description: string | null;
   status: ConsolePolicyStatus;

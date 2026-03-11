@@ -84,6 +84,9 @@ interface OrgPolicyStore {
   assignmentsByScope: Map<string, string>;
 }
 
+const DEFAULT_POLICY_NAME = 'Default Policy';
+const DEFAULT_POLICY_DESCRIPTION = 'Default policy profile for this organization';
+
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
   const rand = Math.random().toString(36).slice(2, 10);
@@ -129,11 +132,13 @@ export function createInMemoryConsolePolicyService(
     if (!store) {
       const now = nowFn();
       const createdAt = toIso(now);
+      const defaultPolicyId = makeId('policy', now);
       const defaultPolicy: ConsolePolicy = {
-        id: `${ctx.orgId}:policy:default`,
+        id: defaultPolicyId,
         orgId: ctx.orgId,
-        name: 'Default Policy',
-        description: 'Default policy profile for this organization',
+        isSystemDefault: true,
+        name: DEFAULT_POLICY_NAME,
+        description: DEFAULT_POLICY_DESCRIPTION,
         status: 'PUBLISHED',
         version: 1,
         rules: createDefaultConsolePolicyRules(),
@@ -142,7 +147,7 @@ export function createInMemoryConsolePolicyService(
         publishedAt: createdAt,
       };
       const defaultAssignment: ConsolePolicyAssignment = {
-        id: `${ctx.orgId}:policy-assignment:org-default`,
+        id: makeId('policy_assignment', now),
         orgId: ctx.orgId,
         scopeType: 'ORG',
         scopeId: ctx.orgId,
@@ -240,6 +245,7 @@ export function createInMemoryConsolePolicyService(
       const policy: ConsolePolicy = {
         id: policyId,
         orgId: ctx.orgId,
+        isSystemDefault: false,
         name: request.name,
         description: request.description || null,
         status: 'DRAFT',
@@ -322,7 +328,7 @@ export function createInMemoryConsolePolicyService(
       if (!current) {
         return { removed: false, policy: null };
       }
-      if (policyId === `${ctx.orgId}:policy:default`) {
+      if (current.isSystemDefault) {
         throw new ConsolePolicyError(
           'default_policy_protected',
           409,

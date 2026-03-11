@@ -16,14 +16,32 @@ import {
   useDashboardTablePagination,
   type DashboardTableTone,
 } from '../../components/DashboardTable';
-import { useDashboardConsoleSession } from '../../consoleSession';
-import { useDashboardSelectedContext } from '../../selectedContext';
+import {
+  useDashboardConsoleSession,
+  type DashboardConsoleSessionClaims,
+} from '../../consoleSession';
+import {
+  useDashboardSelectedContext,
+  useDashboardSelectedContextDisplay,
+} from '../../selectedContext';
+import {
+  listDashboardEnvironments,
+  listDashboardProjects,
+} from '../../consoleContextApi';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   listDashboardAuditEvents,
   type DashboardConsoleAuditCategory,
   type DashboardConsoleAuditEvent,
   type DashboardConsoleAuditOutcome,
 } from './consoleAuditApi';
+import { listDashboardApprovals, type DashboardConsoleApprovalRequest } from '../approvals/consoleApprovalsApi';
+import { listDashboardTeamMembers } from '../team-members/consoleTeamRbacApi';
+import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
+import {
+  resolveDashboardIdentityPrimaryLabel,
+  type DashboardIdentitySource,
+} from '../../utils/userIdentity';
 
 const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
   'POLICY',
@@ -56,23 +74,79 @@ function toIsoTimestamp(value: string): string | undefined {
   return date.toISOString();
 }
 
-function metadataSummary(metadata: Record<string, unknown>): string {
-  const keys = Object.keys(metadata || {});
-  if (keys.length === 0) return '-';
-  const preview = keys
-    .slice(0, 3)
-    .map((key) => `${key}=${String(metadata[key])}`)
-    .join(', ');
-  return keys.length > 3 ? `${preview}, +${keys.length - 3} more` : preview;
+function readText(value: unknown): string {
+  return String(value || '').trim();
 }
 
-function scopeSummary(row: DashboardConsoleAuditEvent): string {
-  const project = String(row.projectId || '').trim();
-  const environment = String(row.environmentId || '').trim();
-  if (project && environment) return `${project} / ${environment}`;
-  if (project) return project;
-  if (environment) return environment;
-  return 'Organization';
+function humanizeMachineLabel(value: string): string {
+  const tokens = readText(value)
+    .split(/[._\-\s]+/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const normalized = entry.toLowerCase();
+      if (normalized === 'api' || normalized === 'id' || normalized === 'mfa') {
+        return normalized.toUpperCase();
+      }
+      return normalized;
+    });
+  if (tokens.length === 0) return '';
+  const [first, ...rest] = tokens;
+  const firstWord = first === first.toUpperCase() ? first : `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
+  return [firstWord, ...rest].join(' ');
+}
+
+function formatAuditEventTitle(row: DashboardConsoleAuditEvent): {
+  title: string;
+  detailParts: string[];
+} {
+  const action = readText(row.action).toLowerCase();
+  const approvalId = readText(row.metadata?.approvalId);
+  const operationType = readText(row.metadata?.operationType);
+  if (action.startsWith('approval.request.')) {
+    const verb =
+      action === 'approval.request.create'
+        ? 'Created'
+        : action === 'approval.request.approve'
+          ? 'Approved'
+          : action === 'approval.request.reject'
+            ? 'Rejected'
+            : 'Updated';
+    return {
+      title: `${verb} approval request`,
+      detailParts: [humanizeMachineLabel(operationType), approvalId].filter(Boolean),
+    };
+  }
+
+  const title = readText(row.summary) || humanizeMachineLabel(row.action) || row.id;
+  const detail = humanizeMachineLabel(row.action);
+  return {
+    title,
+    detailParts: detail && detail.toLowerCase() !== title.toLowerCase() ? [detail] : [],
+  };
+}
+
+function formatAuditActor(
+  row: DashboardConsoleAuditEvent,
+  memberDirectory: Record<string, DashboardIdentitySource>,
+  sessionClaims: DashboardConsoleSessionClaims | null,
+): {
+  primary: string;
+  secondary: string;
+} {
+  const userId = readText(row.actorUserId);
+  const identity = memberDirectory[userId] || { userId };
+  const primary = resolveDashboardIdentityPrimaryLabel(identity, sessionClaims);
+  if (row.actorType === 'SYSTEM') {
+    return {
+      primary,
+      secondary: 'System',
+    };
+  }
+  return {
+    primary,
+    secondary: userId && userId !== primary ? userId : '',
+  };
 }
 
 function outcomeTone(outcome: DashboardConsoleAuditOutcome): DashboardTableTone {
@@ -81,11 +155,81 @@ function outcomeTone(outcome: DashboardConsoleAuditOutcome): DashboardTableTone 
   return 'warning';
 }
 
+function resolveAuditProjectLabel(input: {
+  projectId: string;
+  projectDirectory: Record<string, string>;
+  selectedProjectId: string;
+  selectedProjectLabel: string;
+}): string {
+  if (!input.projectId) return '-';
+  if (input.projectDirectory[input.projectId]) return input.projectDirectory[input.projectId]!;
+  if (input.selectedProjectId === input.projectId && input.selectedProjectLabel) {
+    return input.selectedProjectLabel;
+  }
+  return input.projectId;
+}
+
+function resolveAuditEnvironmentLabel(input: {
+  environmentId: string;
+  environmentDirectory: Record<string, string>;
+  selectedEnvironmentId: string;
+  selectedEnvironmentLabel: string;
+}): string {
+  if (!input.environmentId) return '-';
+  if (input.environmentDirectory[input.environmentId]) {
+    return input.environmentDirectory[input.environmentId]!;
+  }
+  if (input.selectedEnvironmentId === input.environmentId && input.selectedEnvironmentLabel) {
+    return input.selectedEnvironmentLabel;
+  }
+  return input.environmentId;
+}
+
+function resolveAuditScopeLabels(input: {
+  row: DashboardConsoleAuditEvent;
+  projectDirectory: Record<string, string>;
+  environmentDirectory: Record<string, string>;
+  selectedProjectId: string;
+  selectedProjectLabel: string;
+  selectedEnvironmentId: string;
+  selectedEnvironmentLabel: string;
+}): {
+  projectLabel: string;
+  environmentLabel: string;
+} {
+  const projectId = readText(input.row.projectId);
+  const environmentId = readText(input.row.environmentId);
+  const projectLabel = projectId
+    ? resolveAuditProjectLabel({
+        projectId,
+        projectDirectory: input.projectDirectory,
+        selectedProjectId: input.selectedProjectId,
+        selectedProjectLabel: input.selectedProjectLabel,
+      })
+    : '';
+  const environmentLabel = environmentId
+    ? resolveAuditEnvironmentLabel({
+        environmentId,
+        environmentDirectory: input.environmentDirectory,
+        selectedEnvironmentId: input.selectedEnvironmentId,
+        selectedEnvironmentLabel: input.selectedEnvironmentLabel,
+      })
+    : '';
+  return {
+    projectLabel,
+    environmentLabel,
+  };
+}
+
 export function AuditLogsPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
+  const selectedContextDisplay = useDashboardSelectedContextDisplay();
+  const { linkProps } = useSiteRouter();
   const selectedProjectId = String(selectedContext.project || '').trim();
   const selectedEnvironmentId = String(selectedContext.environment || '').trim();
+  const selectedProjectLabel = String(selectedContextDisplay.project || '').trim();
+  const selectedEnvironmentLabel = String(selectedContextDisplay.environment || '').trim();
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -97,6 +241,16 @@ export function AuditLogsPage(): React.JSX.Element {
   const [fromInput, setFromInput] = React.useState<string>('');
   const [toInput, setToInput] = React.useState<string>('');
   const [expandedEventId, setExpandedEventId] = React.useState<string>('');
+  const [memberDirectory, setMemberDirectory] = React.useState<Record<string, DashboardIdentitySource>>(
+    {},
+  );
+  const [projectDirectory, setProjectDirectory] = React.useState<Record<string, string>>({});
+  const [environmentDirectory, setEnvironmentDirectory] = React.useState<Record<string, string>>({});
+  const [policyDirectory, setPolicyDirectory] = React.useState<Record<string, string>>({});
+  const [approvalDirectory, setApprovalDirectory] = React.useState<
+    Record<string, DashboardConsoleApprovalRequest>
+  >({});
+  const [copyNotice, setCopyNotice] = React.useState<string>('');
   const eventsPagination = useDashboardTablePagination(events, {
     disabled: loading,
     initialRowsPerPage: 10,
@@ -127,6 +281,142 @@ export function AuditLogsPage(): React.JSX.Element {
       window.clearTimeout(timeoutId);
     };
   }, [searchInput]);
+
+  React.useEffect(() => {
+    if (!copyNotice) return;
+    const timeoutId = window.setTimeout(() => {
+      setCopyNotice('');
+    }, 1800);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [copyNotice]);
+
+  React.useEffect(() => {
+    if (session.loading) return;
+    if (!session.claims) {
+      setMemberDirectory({});
+      return;
+    }
+    let cancelled = false;
+    listDashboardTeamMembers()
+      .then((members) => {
+        if (cancelled) return;
+        const nextDirectory: Record<string, DashboardIdentitySource> = {};
+        for (const member of members) {
+          const userId = readText(member.userId);
+          if (!userId) continue;
+          nextDirectory[userId] = {
+            userId,
+            email: readText(member.email),
+            displayName: readText(member.displayName),
+          };
+        }
+        setMemberDirectory(nextDirectory);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMemberDirectory({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.claims?.orgId, session.loading]);
+
+  React.useEffect(() => {
+    if (session.loading) return;
+    if (!session.claims) {
+      setApprovalDirectory({});
+      return;
+    }
+    let cancelled = false;
+    listDashboardApprovals({
+      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+      ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
+    })
+      .then((approvals) => {
+        if (cancelled) return;
+        const nextDirectory: Record<string, DashboardConsoleApprovalRequest> = {};
+        for (const approval of approvals) {
+          const approvalId = readText(approval.id);
+          if (!approvalId) continue;
+          nextDirectory[approvalId] = approval;
+        }
+        setApprovalDirectory(nextDirectory);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setApprovalDirectory({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEnvironmentId, selectedProjectId, session.claims?.orgId, session.loading]);
+
+  React.useEffect(() => {
+    if (session.loading) return;
+    if (!session.claims) {
+      setProjectDirectory({});
+      setEnvironmentDirectory({});
+      return;
+    }
+    let cancelled = false;
+    Promise.allSettled([
+      listDashboardProjects(),
+      listDashboardEnvironments(selectedProjectId ? { projectId: selectedProjectId } : {}),
+      listDashboardPolicies(),
+    ])
+      .then((results) => {
+        if (cancelled) return;
+        const projects =
+          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+        const environments =
+          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+        const policies =
+          results[2]?.status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : [];
+        const nextProjects: Record<string, string> = {};
+        for (const project of projects) {
+          const projectId = readText(project.id);
+          if (!projectId) continue;
+          nextProjects[projectId] = readText(project.name) || projectId;
+        }
+        const nextEnvironments: Record<string, string> = {};
+        for (const environment of environments) {
+          const environmentId = readText(environment.id);
+          if (!environmentId) continue;
+          nextEnvironments[environmentId] = readText(environment.name) || environmentId;
+        }
+        const nextPolicies: Record<string, string> = {};
+        for (const policy of policies) {
+          const policyId = readText(policy.id);
+          if (!policyId) continue;
+          nextPolicies[policyId] = readText(policy.name) || policyId;
+        }
+        setProjectDirectory(nextProjects);
+        setEnvironmentDirectory(nextEnvironments);
+        setPolicyDirectory(nextPolicies);
+      })
+      .catch(() => {
+        if (cancelled) return;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId, session.claims?.orgId, session.loading]);
+
+  const copyAuditScopeValue = React.useCallback(async (value: string, label: 'Project' | 'Environment') => {
+    const normalized = readText(value);
+    if (!normalized) return;
+    try {
+      if (!window.navigator?.clipboard?.writeText) {
+        throw new Error('clipboard_unavailable');
+      }
+      await window.navigator.clipboard.writeText(normalized);
+      setCopyNotice(`${label} ID copied.`);
+    } catch {
+      setCopyNotice(`Clipboard copy failed. Copy ${label.toLowerCase()} ID manually.`);
+    }
+  }, []);
 
   const loadAuditEvents = React.useCallback(() => {
     if (!session.claims) {
@@ -289,7 +579,7 @@ export function AuditLogsPage(): React.JSX.Element {
           <DashboardTableHeader>
             <DashboardTableHeaderCell>Timestamp</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Event</DashboardTableHeaderCell>
-            <DashboardTableHeaderCell>Actor</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>User</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Scope</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Outcome</DashboardTableHeaderCell>
             <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
@@ -303,6 +593,34 @@ export function AuditLogsPage(): React.JSX.Element {
           ) : (
             eventsPagination.rows.map((row) => {
               const isExpanded = expandedEventId === row.id;
+              const eventDisplay = formatAuditEventTitle(row);
+              const actorDisplay = formatAuditActor(row, memberDirectory, session.claims);
+              const scopeDisplay = resolveAuditScopeLabels({
+                row,
+                projectDirectory,
+                environmentDirectory,
+                selectedProjectId,
+                selectedProjectLabel,
+                selectedEnvironmentId,
+                selectedEnvironmentLabel,
+              });
+              const approvalId = readText(row.metadata?.approvalId);
+              const approval = approvalId ? approvalDirectory[approvalId] : null;
+              const linkedPolicyId =
+                readText(row.metadata?.policyId) ||
+                (readText(row.metadata?.resourceType).toUpperCase() === 'POLICY'
+                  ? readText(row.metadata?.resourceId)
+                  : '') ||
+                (approval &&
+                readText(approval.resourceType).toUpperCase() === 'POLICY'
+                  ? readText(approval.resourceId)
+                  : '');
+              const linkedPolicyLabel = linkedPolicyId
+                ? policyDirectory[linkedPolicyId] || linkedPolicyId
+                : '';
+              const policyLink = linkedPolicyId
+                ? linkProps(`/dashboard/policy-engine?policyId=${encodeURIComponent(linkedPolicyId)}`)
+                : null;
               return (
                 <React.Fragment key={row.id}>
                   <DashboardTableRow
@@ -317,27 +635,37 @@ export function AuditLogsPage(): React.JSX.Element {
                     </DashboardTableCell>
                     <DashboardTableCell className="dashboard-data-table__cell--event">
                       <strong className="dashboard-data-table__summary">
-                        {row.summary || row.action || row.id}
+                        {eventDisplay.title}
                       </strong>
                       <span className="dashboard-data-table__subline">
                         <DashboardTableBadge>{row.category}</DashboardTableBadge>
-                        <span>{row.action || '-'}</span>
-                      </span>
-                      <span
-                        className="dashboard-data-table__subline dashboard-data-table__subline--muted"
-                        title={JSON.stringify(row.metadata)}
-                      >
-                        Metadata: {metadataSummary(row.metadata)}
+                        {eventDisplay.detailParts.map((detail, index) => (
+                          <span key={`${detail}-${index}`}>{detail}</span>
+                        ))}
                       </span>
                     </DashboardTableCell>
                     <DashboardTableCell>
-                      <span>{row.actorUserId}</span>
-                      <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
-                        {row.actorType}
-                      </span>
+                      <strong className="dashboard-data-table__summary">{actorDisplay.primary}</strong>
+                      {actorDisplay.secondary ? (
+                        <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
+                          {actorDisplay.secondary}
+                        </span>
+                      ) : null}
                     </DashboardTableCell>
                     <DashboardTableCell>
-                      <span>{scopeSummary(row)}</span>
+                      {scopeDisplay.projectLabel ? (
+                        <span>
+                          <strong>Project:</strong> {scopeDisplay.projectLabel}
+                        </span>
+                      ) : null}
+                      {scopeDisplay.environmentLabel ? (
+                        <span>
+                          <strong>Env:</strong> {scopeDisplay.environmentLabel}
+                        </span>
+                      ) : null}
+                      {!scopeDisplay.projectLabel && !scopeDisplay.environmentLabel ? (
+                        <span>Organization</span>
+                      ) : null}
                     </DashboardTableCell>
                     <DashboardTableCell>
                       <DashboardTableStatus tone={outcomeTone(row.outcome)}>
@@ -375,13 +703,66 @@ export function AuditLogsPage(): React.JSX.Element {
                         <DashboardTableDetailsItem label="Action">
                           <span>{row.action || '-'}</span>
                         </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Policy">
+                          {linkedPolicyId && policyLink ? (
+                            <a
+                              className="dashboard-inline-link"
+                              href={policyLink.href}
+                              onClick={policyLink.onClick}
+                              title={linkedPolicyId}
+                            >
+                              {linkedPolicyLabel}
+                            </a>
+                          ) : (
+                            <span>-</span>
+                          )}
+                        </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Project">
-                          <span>{row.projectId || '-'}</span>
+                          {row.projectId ? (
+                            <button
+                              type="button"
+                              className="dashboard-audit-events__copy-value"
+                              title={row.projectId}
+                              onClick={() => void copyAuditScopeValue(row.projectId || '', 'Project')}
+                            >
+                              {resolveAuditProjectLabel({
+                                projectId: readText(row.projectId),
+                                projectDirectory,
+                                selectedProjectId,
+                                selectedProjectLabel,
+                              })}
+                            </button>
+                          ) : (
+                            <span>-</span>
+                          )}
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Environment">
-                          <span>{row.environmentId || '-'}</span>
+                          {row.environmentId ? (
+                            <button
+                              type="button"
+                              className="dashboard-audit-events__copy-value"
+                              title={row.environmentId}
+                              onClick={() =>
+                                void copyAuditScopeValue(row.environmentId || '', 'Environment')
+                              }
+                            >
+                              {resolveAuditEnvironmentLabel({
+                                environmentId: readText(row.environmentId),
+                                environmentDirectory,
+                                selectedEnvironmentId,
+                                selectedEnvironmentLabel,
+                              })}
+                            </button>
+                          ) : (
+                            <span>-</span>
+                          )}
                         </DashboardTableDetailsItem>
                       </DashboardTableDetailsGrid>
+                      {copyNotice ? (
+                        <p className="dashboard-pagination-note" aria-live="polite">
+                          {copyNotice}
+                        </p>
+                      ) : null}
                       <pre className="dashboard-data-table__metadata-json">
                         {JSON.stringify(row.metadata, null, 2)}
                       </pre>

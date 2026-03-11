@@ -2955,6 +2955,13 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
           status: row.status,
           requiredApprovals: row.requiredApprovals,
           requireMfa: row.requireMfa,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       return json({ ok: true, approval: row }, { status: 201 });
@@ -3006,6 +3013,13 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
           status: row.status,
           approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
           decisionsCount: row.decisions.length,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       return json({ ok: true, approval: row }, { status: 200 });
@@ -3054,6 +3068,13 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
           operationType: row.operationType,
           status: row.status,
           decisionsCount: row.decisions.length,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       return json({ ok: true, approval: row }, { status: 200 });

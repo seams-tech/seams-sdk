@@ -18,6 +18,12 @@ import {
   type DashboardConsoleSessionClaims,
 } from '../../consoleSession';
 import {
+  buildDashboardIdentityProfile as buildMemberProfile,
+  isConsoleLocalEmail,
+  resolveDashboardIdentityDisplayName as resolveMemberDisplayName,
+  resolveDashboardIdentityEmail as resolveMemberEmail,
+} from '../../utils/userIdentity';
+import {
   inviteDashboardTeamMember,
   listDashboardTeamMembers,
   removeDashboardTeamMember,
@@ -246,45 +252,6 @@ function canMutateTeamFromRoles(rolesRaw: unknown): boolean {
   });
 }
 
-function isConsoleLocalEmail(value: string): boolean {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .endsWith('@console.local');
-}
-
-function resolveMemberEmail(
-  member: DashboardConsoleTeamMember,
-  sessionClaims?: DashboardConsoleSessionClaims | null,
-): string {
-  const email = String(member.email || '').trim();
-  const sessionUserId = String(sessionClaims?.userId || '').trim();
-  const sessionEmail = String(sessionClaims?.email || '').trim();
-  if (
-    sessionUserId &&
-    sessionEmail &&
-    String(member.userId || '').trim() === sessionUserId &&
-    isConsoleLocalEmail(email)
-  ) {
-    return sessionEmail;
-  }
-  return email;
-}
-
-function resolveMemberDisplayName(
-  member: DashboardConsoleTeamMember,
-  sessionClaims?: DashboardConsoleSessionClaims | null,
-): string {
-  const displayName = String(member.displayName || '').trim();
-  if (displayName) return displayName;
-  const sessionUserId = String(sessionClaims?.userId || '').trim();
-  const sessionName = String(sessionClaims?.name || '').trim();
-  if (sessionUserId && sessionName && String(member.userId || '').trim() === sessionUserId) {
-    return sessionName;
-  }
-  return '';
-}
-
 function matchesMemberQuery(
   member: DashboardConsoleTeamMember,
   queryRaw: string,
@@ -349,52 +316,6 @@ function formatMemberPrimaryIdentity(
     return userId;
   }
   return email;
-}
-
-function buildMemberProfile(
-  member: DashboardConsoleTeamMember,
-  sessionClaims?: DashboardConsoleSessionClaims | null,
-): {
-  title: string;
-  subtitle: string;
-  detail: string;
-} {
-  const displayName = resolveMemberDisplayName(member, sessionClaims);
-  const email = resolveMemberEmail(member, sessionClaims);
-  const userId = String(member.userId || '').trim();
-  const normalizedDisplayName = displayName.toLowerCase();
-  const normalizedEmail = email.toLowerCase();
-  const normalizedUserId = userId.toLowerCase();
-  const title = displayName || email || userId || '-';
-
-  if (!displayName) {
-    const nextLine =
-      email && email !== title ? email : userId && normalizedUserId !== title.toLowerCase() ? userId : '';
-    return {
-      title,
-      detail: nextLine,
-      subtitle: '',
-    };
-  }
-
-  const detail =
-    email && normalizedEmail !== normalizedDisplayName
-      ? email
-      : userId && normalizedUserId !== normalizedDisplayName
-        ? userId
-        : '';
-  const subtitle =
-    userId &&
-    normalizedUserId !== normalizedDisplayName &&
-    normalizedUserId !== normalizedEmail &&
-    userId !== detail
-      ? userId
-      : '';
-  return {
-    title,
-    detail,
-    subtitle,
-  };
 }
 
 function generateInviteUserId(emailRaw: string): string {

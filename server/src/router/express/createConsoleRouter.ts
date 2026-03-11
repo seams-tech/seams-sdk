@@ -2365,6 +2365,13 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
           status: row.status,
           requiredApprovals: row.requiredApprovals,
           requireMfa: row.requireMfa,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       res.status(201).json({ ok: true, approval: row });
@@ -2428,6 +2435,13 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
           status: row.status,
           approvalsCount: row.decisions.filter((entry) => entry.decision === 'APPROVE').length,
           decisionsCount: row.decisions.length,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       res.status(200).json({ ok: true, approval: row });
@@ -2488,6 +2502,13 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
           operationType: row.operationType,
           status: row.status,
           decisionsCount: row.decisions.length,
+          ...(row.resourceType ? { resourceType: row.resourceType } : {}),
+          ...(row.resourceId ? { resourceId: row.resourceId } : {}),
+          ...(String(row.resourceType || '')
+            .trim()
+            .toUpperCase() === 'POLICY' && row.resourceId
+            ? { policyId: row.resourceId }
+            : {}),
         },
       });
       res.status(200).json({ ok: true, approval: row });

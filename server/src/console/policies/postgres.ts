@@ -42,6 +42,8 @@ type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
 const CONSOLE_POLICIES_MIGRATION_LOCK_ID = 9452360123583;
+const DEFAULT_POLICY_NAME = 'Default Policy';
+const DEFAULT_POLICY_DESCRIPTION = 'Default policy profile for this organization';
 
 function nowMs(now: Date): number {
   return now.getTime();
@@ -70,10 +72,19 @@ function parseRules(raw: unknown): Record<string, unknown> {
   return {};
 }
 
+function parseBoolean(raw: unknown): boolean {
+  if (typeof raw === 'boolean') return raw;
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  return value === 'true' || value === 't' || value === '1';
+}
+
 function parsePolicyRow(row: PgRow): ConsolePolicy {
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
+    isSystemDefault: parseBoolean(row.is_system_default),
     name: String(row.name || ''),
     description: row.description == null ? null : String(row.description || '') || null,
     status: String(row.status || 'DRAFT') as ConsolePolicy['status'],
@@ -152,6 +163,15 @@ export async function ensureConsolePoliciesPostgresSchema(
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_policies_org_status_idx
       ON console_policies (namespace, org_id, status)
+    `);
+    await pool.query(`
+      ALTER TABLE console_policies
+      ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS console_policies_org_system_default_uidx
+      ON console_policies (namespace, org_id)
+      WHERE is_system_default = TRUE
     `);
 
     await pool.query(`
@@ -261,24 +281,188 @@ export async function createPostgresConsolePolicyService(
     fn: (q: Queryable) => Promise<T>,
   ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
+  async function tableExists(q: Queryable, tableName: string): Promise<boolean> {
+    const row = await queryOne(q, 'SELECT to_regclass($1) AS regclass', [tableName]);
+    return row?.regclass != null;
+  }
+
+  async function findSystemDefaultPolicy(
+    q: Queryable,
+    ctx: ConsolePoliciesContext,
+  ): Promise<ConsolePolicy | null> {
+    const row = await queryOne(
+      q,
+      `SELECT *
+         FROM console_policies
+        WHERE namespace = $1 AND org_id = $2 AND is_system_default = TRUE
+        ORDER BY created_at_ms ASC
+        LIMIT 1`,
+      [namespace, ctx.orgId],
+    );
+    return row ? parsePolicyRow(row) : null;
+  }
+
+  async function generatePolicyId(q: Queryable, ctx: ConsolePoliciesContext, now: Date): Promise<string> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = makeId('policy', now);
+      const existing = await findPolicy(q, { orgId: ctx.orgId, policyId: candidate });
+      if (!existing) return candidate;
+    }
+    throw new ConsolePolicyError('internal', 500, 'Failed to generate a unique policy id');
+  }
+
+  async function migrateLegacyDefaultPolicy(q: Queryable, ctx: ConsolePoliciesContext): Promise<void> {
+    const legacyPolicyId = `${ctx.orgId}:policy:default`;
+    const legacy = await findPolicy(q, { orgId: ctx.orgId, policyId: legacyPolicyId });
+    if (!legacy) return;
+
+    const existingDefault = await findSystemDefaultPolicy(q, ctx);
+    const migratedPolicyId = existingDefault?.id || (await generatePolicyId(q, ctx, nowFn()));
+    const now = nowMs(nowFn());
+
+    if (!existingDefault) {
+      await q.query(
+        `INSERT INTO console_policies
+          (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+         SELECT namespace, org_id, $4, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, TRUE
+           FROM console_policies
+          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
+      );
+
+      await q.query(
+        `INSERT INTO console_policy_versions
+          (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
+         SELECT namespace, org_id, $4, version, status, rules, published_at_ms, created_at_ms, actor_user_id
+           FROM console_policy_versions
+          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
+      );
+    }
+
+    await q.query(
+      `UPDATE console_policy_assignments
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
+    );
+
+    if (await tableExists(q, 'console_wallet_index')) {
+      await q.query(
+        `UPDATE console_wallet_index
+            SET policy_id = $4,
+                updated_at_ms = GREATEST(updated_at_ms, $5)
+          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
+      );
+    }
+
+    if (await tableExists(q, 'console_smart_wallet_configs')) {
+      await q.query(
+        `UPDATE console_smart_wallet_configs
+            SET policy_id = $4,
+                updated_at_ms = GREATEST(updated_at_ms, $5)
+          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
+      );
+    }
+
+    if (await tableExists(q, 'console_gas_sponsorship_configs')) {
+      await q.query(
+        `UPDATE console_gas_sponsorship_configs
+            SET policy_id = $4,
+                updated_at_ms = GREATEST(updated_at_ms, $5)
+          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
+      );
+    }
+
+    if (await tableExists(q, 'console_approvals')) {
+      await q.query(
+        `UPDATE console_approvals
+            SET resource_id = CASE
+                  WHEN resource_type = 'policy' AND resource_id = $3 THEN $4
+                  ELSE resource_id
+                END,
+                metadata = CASE
+                  WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
+                    THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
+                  WHEN COALESCE(metadata->>'policyId', '') = $3
+                    THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
+                  WHEN COALESCE(metadata->>'resourceId', '') = $3
+                    THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
+                  ELSE metadata
+                END,
+                updated_at_ms = GREATEST(updated_at_ms, $5)
+          WHERE namespace = $1
+            AND org_id = $2
+            AND (
+              (resource_type = 'policy' AND resource_id = $3)
+              OR COALESCE(metadata->>'policyId', '') = $3
+              OR COALESCE(metadata->>'resourceId', '') = $3
+            )`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
+      );
+    }
+
+    if (await tableExists(q, 'console_audit_events')) {
+      await q.query(
+        `UPDATE console_audit_events
+            SET metadata = CASE
+                  WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
+                    THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
+                  WHEN COALESCE(metadata->>'policyId', '') = $3
+                    THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
+                  WHEN COALESCE(metadata->>'resourceId', '') = $3
+                    THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
+                  ELSE metadata
+                END,
+                summary = CASE
+                  WHEN POSITION($3 IN summary) > 0 THEN replace(summary, $3, $4)
+                  ELSE summary
+                END,
+                created_at_ms = created_at_ms
+          WHERE namespace = $1
+            AND org_id = $2
+            AND (
+              COALESCE(metadata->>'policyId', '') = $3
+              OR COALESCE(metadata->>'resourceId', '') = $3
+              OR POSITION($3 IN summary) > 0
+            )`,
+        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
+      );
+    }
+
+    await q.query(
+      `DELETE FROM console_policies
+        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+      [namespace, ctx.orgId, legacyPolicyId],
+    );
+  }
+
   async function ensureDefaultPolicy(q: Queryable, ctx: ConsolePoliciesContext): Promise<void> {
+    await migrateLegacyDefaultPolicy(q, ctx);
+    const existingDefault = await findSystemDefaultPolicy(q, ctx);
+    if (existingDefault) return;
+
     const now = nowFn();
     const createdAtMs = nowMs(now);
-    const defaultPolicyId = `${ctx.orgId}:policy:default`;
+    const defaultPolicyId = await generatePolicyId(q, ctx, now);
     const defaultRules = createDefaultConsolePolicyRules();
 
     await q.query(
       `INSERT INTO console_policies
-        (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms)
+        (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
        VALUES
-        ($1, $2, $3, $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7)
+        ($1, $2, $3, $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7, TRUE)
        ON CONFLICT (namespace, org_id, id) DO NOTHING`,
       [
         namespace,
         ctx.orgId,
         defaultPolicyId,
-        'Default Policy',
-        'Default policy profile for this organization',
+        DEFAULT_POLICY_NAME,
+        DEFAULT_POLICY_DESCRIPTION,
         JSON.stringify(serializeConsolePolicyRules(defaultRules)),
         createdAtMs,
       ],
@@ -308,7 +492,7 @@ export async function createPostgresConsolePolicyService(
       [
         namespace,
         ctx.orgId,
-        `${ctx.orgId}:policy-assignment:org-default`,
+        makeId('policy_assignment', now),
         defaultPolicyId,
         createdAtMs,
       ],
@@ -420,9 +604,9 @@ export async function createPostgresConsolePolicyService(
           const inserted = await queryOne(
             q,
             `INSERT INTO console_policies
-              (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms)
+              (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
              VALUES
-              ($1, $2, $3, $4, $5, 'DRAFT', 0, $6::jsonb, $7, $7, NULL)
+              ($1, $2, $3, $4, $5, 'DRAFT', 0, $6::jsonb, $7, $7, NULL, FALSE)
              RETURNING *`,
             [
               namespace,
@@ -567,16 +751,16 @@ export async function createPostgresConsolePolicyService(
     ): Promise<DeleteConsolePolicyResult> {
       return withTenantTx(ctx, async (q) => {
         await ensureDefaultPolicy(q, ctx);
-        if (policyId === `${ctx.orgId}:policy:default`) {
+        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
+        if (!current) {
+          return { removed: false, policy: null };
+        }
+        if (current.isSystemDefault) {
           throw new ConsolePolicyError(
             'default_policy_protected',
             409,
             `Policy ${policyId} is the organization default and cannot be deleted`,
           );
-        }
-        const current = await findPolicy(q, { orgId: ctx.orgId, policyId });
-        if (!current) {
-          return { removed: false, policy: null };
         }
         await q.query(
           `DELETE FROM console_policies

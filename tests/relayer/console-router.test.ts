@@ -1392,6 +1392,8 @@ test.describe('console router (express)', () => {
       expect(String(getPath(triggerIsolation.json, 'isolation', 'status') || '')).toBe('REQUESTED');
       expect(String(getPath(triggerIsolation.json, 'isolation', 'mode') || '')).toBe('DEDICATED');
     } finally {
+      expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_live_1');
+      expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_live_1');
       await srv.close();
     }
   });
@@ -3067,6 +3069,11 @@ test.describe('console router (express)', () => {
 
       const published = await fetchJson(
         `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/publish`,
+      const defaultPolicyBefore = policiesBefore.find(
+        (entry) => getPath(entry, 'isSystemDefault') === true,
+      );
+      expect(defaultPolicyBefore).toBeTruthy();
+      expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
         {
           method: 'POST',
         },
@@ -3389,7 +3396,7 @@ test.describe('console router (express)', () => {
           body: JSON.stringify({
             scopeType: 'ORG',
             scopeId: 'org-policy-assign-express',
-            policyId: 'org-policy-assign-express:policy:default',
+            policyId: 'policy_forbidden_org_assignment_express',
           }),
         },
       );
@@ -5902,6 +5909,8 @@ test.describe('console router (cloudflare)', () => {
 
     const missingMfa = await callCf(adminHandler, {
       method: 'POST',
+    expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_cf_live_1');
+    expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_cf_live_1');
       path: '/console/approvals/apr_key_export_cf_1/approve',
       body: {
         reason: 'approve without mfa',
@@ -7425,6 +7434,9 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
+    const defaultPolicyBefore = policiesBefore.find((entry) => getPath(entry, 'isSystemDefault') === true);
+    expect(defaultPolicyBefore).toBeTruthy();
+    expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
         id: 'policy-wallet-cloudflare-1',
         name: 'Wallet Policy Cloudflare',
       },
@@ -7545,7 +7557,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         scopeType: 'ORG',
         scopeId: 'org-policy-assign-cloudflare',
-        policyId: 'org-policy-assign-cloudflare:policy:default',
+        policyId: 'policy_forbidden_org_assignment_cloudflare',
       },
     });
     expect(forbiddenAssignment.status).toBe(403);
@@ -10107,6 +10119,9 @@ test.describe('console router (postgres api keys)', () => {
     try {
       const list = await fetchJson(`${attackerServer.baseUrl}/console/api-keys`, {
         method: 'GET',
+      const ownerDefaultPolicy = ownerPolicies.find((entry: any) => entry?.isSystemDefault === true);
+      expect(ownerDefaultPolicy).toBeTruthy();
+      expect(String(ownerDefaultPolicy?.id || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
       });
       expect(list.status).toBe(200);
       const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
