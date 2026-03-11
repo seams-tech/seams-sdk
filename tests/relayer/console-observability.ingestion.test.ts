@@ -232,6 +232,7 @@ test.describe('console observability postgres ingestion service', () => {
       namespace,
       logger: console as any,
       ensureSchema: false,
+      now: () => new Date('2023-11-15T00:00:00.000Z'),
     });
     const queryService = await createPostgresConsoleObservabilityService({
       postgresUrl,
@@ -414,7 +415,7 @@ test.describe('console observability postgres ingestion service', () => {
       ensureSchema: false,
       maxBatchSize: 2,
       maxEventsPerMinute: 2,
-      now: () => new Date('2026-03-05T12:00:00.000Z'),
+      now: () => new Date('2026-03-05T13:00:00.000Z'),
     });
 
     const mkEvent = (eventId: string) => {
@@ -452,6 +453,71 @@ test.describe('console observability postgres ingestion service', () => {
     }
     expect(caught).toBeTruthy();
     expect(String(caught?.code || '')).toBe('rate_limited');
+  });
+
+  test('postgres observability ingestion captures only allowlisted route families', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const fixedNowMs = Date.parse('2026-03-05T14:00:00.000Z');
+    const projectId = 'proj-allowlist';
+    const environmentId = 'env-allowlist';
+    const service = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date(fixedNowMs),
+    });
+    expect(typeof service.observeRequestMetric).toBe('function');
+
+    const ctx = {
+      orgId,
+      actorUserId: 'ops-observability',
+      roles: ['ops'],
+    };
+
+    await service.observeRequestMetric?.(ctx, {
+      orgId,
+      projectId,
+      environmentId,
+      route: '/console/account/profile',
+      method: 'POST',
+      statusCode: 500,
+      latencyMs: 31,
+      timestamp: new Date(fixedNowMs).toISOString(),
+    });
+
+    await service.observeRequestMetric?.(ctx, {
+      orgId,
+      projectId,
+      environmentId,
+      route: '/console/policies/pol_allow/publish',
+      method: 'POST',
+      statusCode: 500,
+      latencyMs: 41,
+      timestamp: new Date(fixedNowMs + 5_000).toISOString(),
+    });
+
+    const pool = await getPostgresPool(postgresUrl);
+    const rows = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) =>
+      q.query(
+        `SELECT route_family, COUNT(*)::int AS count
+           FROM console_observability_request_rollups_minute
+          WHERE namespace = $1
+            AND org_id = $2
+            AND project_id = $3
+            AND environment_id = $4
+            AND route_family IN ($5, $6)
+          GROUP BY route_family`,
+        [namespace, orgId, projectId, environmentId, '/console/account/*', '/console/policies/*'],
+      ),
+    );
+    const byRouteFamily = new Map<string, number>();
+    for (const row of rows.rows as Array<Record<string, unknown>>) {
+      byRouteFamily.set(String(row.route_family || ''), Number(row.count || 0));
+    }
+    expect(byRouteFamily.get('/console/account/*') || 0).toBe(0);
+    expect(byRouteFamily.get('/console/policies/*') || 0).toBe(1);
   });
 
   test('postgres observability service computes summary, timeseries, and services aggregates', async () => {

@@ -62,16 +62,24 @@ const REQUEST_ROLLUP_BUCKET_COLUMN_NAMES = [
   'latency_bucket_le_2000',
   'latency_bucket_le_5000',
 ] as const;
-const REQUEST_ROLLUP_SKIPPED_ROUTE_FAMILIES = new Set<string>([
-  '/console/observability/*',
-  '/console/session/*',
-  '/console/org/*',
-  '/console/projects/*',
-  '/console/environments/*',
-  '/console/healthz/*',
-  '/console/readyz/*',
+const REQUEST_ROLLUP_ALLOWED_ROUTE_FAMILIES = new Set<string>([
+  '/console/approvals/*',
+  '/console/billing/*',
+  '/console/webhooks/*',
+  '/console/policies/*',
+  '/console/policy/*',
+  '/console/onboarding/*',
+  '/console/gas-sponsorship/*',
+  '/console/wallets/*',
+  '/console/api-keys/*',
+  '/console/runtime-snapshots/*',
+  '/console/key-exports/*',
+  '/console/sponsored-calls/*',
+  '/console/sponsorship-spend-caps/*',
+  '/console/isolation/*',
 ]);
 const LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE = 'router.request.completed';
+const LEGACY_ROUTER_SOURCE = 'ROUTER';
 
 const OBSERVABILITY_LEVELS = new Set<ConsoleObservabilityLevel>([
   'DEBUG',
@@ -429,23 +437,29 @@ async function migrateLegacyRowsIntoPartitionedEvents(
     await ensureEventsPartitionsForRange(q, minCreatedAtMs, maxCreatedAtMs);
   }
 
-  const dedupeCopy = await q.query(`
-    INSERT INTO console_observability_event_dedup (namespace, org_id, event_id, created_at_ms)
-    SELECT namespace, org_id, event_id, created_at_ms
-      FROM console_observability_events_legacy
-    ON CONFLICT (namespace, org_id, event_id) DO NOTHING
-  `);
-  const eventsCopy = await q.query(`
-    INSERT INTO console_observability_events
+  const dedupeCopy = await q.query(
+    `INSERT INTO console_observability_event_dedup (namespace, org_id, event_id, created_at_ms)
+     SELECT namespace, org_id, event_id, created_at_ms
+       FROM console_observability_events_legacy
+      WHERE COALESCE(event_type, '') <> $1
+        AND COALESCE(source, '') <> $2
+     ON CONFLICT (namespace, org_id, event_id) DO NOTHING`,
+    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
+  );
+  const eventsCopy = await q.query(
+    `INSERT INTO console_observability_events
       (namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
        project_id, environment_id, service, component, level, event_type, message,
        request_id, trace_id, metadata, redaction_version, redaction_applied, created_at_ms)
-    SELECT namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
-           project_id, environment_id, service, component, level, event_type, message,
-           request_id, trace_id, metadata, redaction_version, redaction_applied, created_at_ms
-      FROM console_observability_events_legacy
-    ON CONFLICT (namespace, org_id, created_at_ms, event_id) DO NOTHING
-  `);
+     SELECT namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
+            project_id, environment_id, service, component, level, event_type, message,
+            request_id, trace_id, metadata, redaction_version, redaction_applied, created_at_ms
+       FROM console_observability_events_legacy
+      WHERE COALESCE(event_type, '') <> $1
+        AND COALESCE(source, '') <> $2
+     ON CONFLICT (namespace, org_id, created_at_ms, event_id) DO NOTHING`,
+    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
+  );
 
   await q.query('DROP TABLE IF EXISTS console_observability_events_legacy');
   logger.info(
@@ -453,6 +467,36 @@ async function migrateLegacyRowsIntoPartitionedEvents(
       dedupeCopy.rowCount || 0,
     )} events=${Number(eventsCopy.rowCount || 0)}`,
   );
+}
+
+async function deleteLegacyRouterObservabilityEvents(q: Queryable): Promise<number> {
+  const out = await q.query(
+    `DELETE FROM console_observability_events
+      WHERE event_type = $1
+         OR source = $2`,
+    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
+  );
+  return Number(out.rowCount || 0);
+}
+
+async function ensureObservabilityEventsSourceConstraint(q: Queryable): Promise<void> {
+  await q.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+          FROM pg_constraint
+         WHERE conrelid = 'console_observability_events'::regclass
+           AND conname = 'console_observability_events_source_check'
+      ) THEN
+        ALTER TABLE console_observability_events
+          DROP CONSTRAINT console_observability_events_source_check;
+      END IF;
+      ALTER TABLE console_observability_events
+        ADD CONSTRAINT console_observability_events_source_check
+        CHECK (source IN ('WEBHOOK', 'BILLING', 'APPROVAL', 'SYSTEM'));
+    END $$;
+  `);
 }
 
 function normalizeEnvelopeForInsert(
@@ -624,7 +668,7 @@ function shouldCaptureRequestMetric(input: {
   const method = normalizeString(input.method).toUpperCase();
   if (!method || method === 'OPTIONS') return false;
   if ((method === 'GET' || method === 'HEAD') && input.statusCode < 400) return false;
-  if (REQUEST_ROLLUP_SKIPPED_ROUTE_FAMILIES.has(input.routeFamily)) return false;
+  if (!REQUEST_ROLLUP_ALLOWED_ROUTE_FAMILIES.has(input.routeFamily)) return false;
   return true;
 }
 
@@ -968,6 +1012,13 @@ export async function ensureConsoleObservabilityPostgresSchema(
       addUtcMonths(monthStartUtcMs(nowValue), PRECREATE_PARTITION_MONTHS_AHEAD),
     );
     await migrateLegacyRowsIntoPartitionedEvents(pool, options.logger);
+    const deletedLegacyRouterRows = await deleteLegacyRouterObservabilityEvents(pool);
+    await ensureObservabilityEventsSourceConstraint(pool);
+    if (deletedLegacyRouterRows > 0) {
+      options.logger.info(
+        `[console-observability][postgres] removed ${deletedLegacyRouterRows} legacy router.request.completed rows`,
+      );
+    }
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_OBSERVABILITY_MIGRATION_LOCK_ID]);

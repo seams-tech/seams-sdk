@@ -204,8 +204,19 @@ Because we are in development, we should clean this up as if the old approach ne
 - remove router event builders that are no longer used
 - delete tests that assert durable `router.request.completed` writes
 - replace them with rollup aggregation tests
-- delete existing `router.request.completed` rows from local and dev datasets if they interfere with operator confidence
+- delete existing `router.request.completed` rows from local and dev datasets:
+  - `DELETE FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
 - do not add compatibility shims or dormant code paths
+
+## Progress snapshot (2026-03-11)
+
+- [x] Phase 1 complete: durable event contract reset to incidents/transitions only; legacy `router.request.completed` ingest is rejected with `invalid_body`.
+- [x] Phase 2 complete: per-minute request rollup storage and upsert aggregation are live, including latency histogram buckets.
+- [x] Phase 3 complete: durable router timing writes removed from Express and Cloudflare; routers emit request metrics plus incident-specific durable events only.
+- [x] Phase 4 complete: request metric capture is now explicit allowlist-based (approvals, billing, webhooks, policy, onboarding, and other operator-relevant domains) and still skips successful `GET`/`HEAD` plus `OPTIONS`.
+- [x] Phase 5 complete: `summary`, `timeseries`, and `services` read traffic/error/latency from rollups and incident counts from durable events.
+- [x] Phase 6 complete: dashboard now defaults to last 24 hours, fetches first events page only, and loads more via explicit cursor pagination.
+- [x] Phase 7 complete in code and schema migration: legacy router builders/tests were removed/replaced, legacy rows are deleted during schema ensure, and source constraint is enforced as (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`).
 
 ## File-level execution map
 
@@ -237,14 +248,23 @@ Because we are in development, we should clean this up as if the old approach ne
 - keep the cutover short and direct
 - do not backfill historical router events into the new model unless a specific debugging need appears
 - once rollups are live and validated, remove router event writes and clean old noisy rows
+- enforce the strict durable-event source constraint (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`) for pre-existing schemas during migration
 
-## Suggested order of execution
+## Next steps
 
-1. Add rollup schema and ingestion helpers.
-2. Rewrite summary, timeseries, and services to consume rollups.
-3. Update dashboard pagination and default window.
-4. Remove durable router timing event writes.
-5. Delete old tests, docs, and stale event rows.
+1. [x] Local schema ensure executed on 2026-03-11 via `examples/relay-server/scripts/postgres-migrate-console.mjs`.
+2. [x] Local cleanup verification executed on 2026-03-11:
+   - `SELECT COUNT(*) FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
+   - result: `0`.
+3. [x] Validation rerun completed on 2026-03-11:
+   - `pnpm -s type-check:relay-server` passed.
+   - relayer observability suites passed (`console-observability.ingestion`, `console-router`) after test isolation fixes.
+   - dashboard observability API wiring e2e subset passed.
+4. [ ] Run schema ensure + legacy-row verification in shared dev/staging databases (not just local).
+   - requires shared DB credentials/environment access not present in this workspace.
+   - run: `pnpm -C examples/relay-server exec node scripts/postgres-migrate-console.mjs`
+   - verify: `SELECT COUNT(*) FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';` (expect `0`)
+5. [x] Route-family allowlist capture landed on 2026-03-11 (skip-list removed from capture path).
 
 ## Success metric
 
