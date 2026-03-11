@@ -430,20 +430,20 @@ export function AccountSettingsPage(): React.JSX.Element {
       ) : null}
 
       <section className="dashboard-account-panel dashboard-account-panel--profile">
-        <div className="dashboard-section-toolbar dashboard-account-section-header">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Profile</h2>
-          </div>
-          <button
-            type="button"
-            className="dashboard-pagination-button"
-            onClick={() => void onSaveProfile()}
-            disabled={savingProfile}
-          >
-            {savingProfile ? 'Saving...' : 'Save'}
-          </button>
-        </div>
         <div className="dashboard-account-profile-card">
+          <div className="dashboard-section-toolbar dashboard-account-section-header">
+            <div className="dashboard-section-toolbar__copy">
+              <h2>Profile</h2>
+            </div>
+            <button
+              type="button"
+              className="dashboard-pagination-button"
+              onClick={() => void onSaveProfile()}
+              disabled={savingProfile}
+            >
+              {savingProfile ? 'Saving...' : 'Save'}
+            </button>
+          </div>
           <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
             <label className="dashboard-form-field">
               <span>Display name</span>
@@ -487,7 +487,7 @@ export function AccountSettingsPage(): React.JSX.Element {
                     </div>
                     <button
                       type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary dashboard-account-backup-item__action"
+                      className="dashboard-pagination-button dashboard-pagination-button--danger dashboard-account-backup-item__action"
                       onClick={() => void onRemoveBackupEmail(backupEmail.email)}
                       disabled={removingBackupEmail === backupEmail.email}
                     >
