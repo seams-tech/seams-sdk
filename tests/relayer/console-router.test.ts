@@ -708,7 +708,7 @@ test.describe('console router (express)', () => {
       });
       expect(res.status).toBe(200);
       expect(getPath(res.json, 'summary', 'approvals', 'pendingCount')).toBe(1);
-      expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(1);
+      expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(0);
       expect(getPath(res.json, 'summary', 'webhooks', 'deadLetterCount')).toBe(1);
       expect(getPath(res.json, 'summary', 'auditExports', 'queuedExportCount')).toBe(1);
       expect(getPath(res.json, 'summary', 'enterpriseIsolation', 'activeRequestCount')).toBe(1);
@@ -1116,18 +1116,27 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const paymentMethod = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerRef: 'pm_project_live_ready_1',
-          brand: 'visa',
-          last4: '4242',
-          expMonth: 12,
-          expYear: 2030,
-        }),
+      const checkoutSession = await billing.createStripeCheckoutSession(
+        {
+          orgId: 'org-project-live-billing-ready',
+          actorUserId: 'user-project-live-billing-ready',
+          roles: ['admin'],
+        },
+        {
+          successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+          cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+          creditPackId: 'usd_25',
+        },
+      );
+      const settle = await billing.processStripeWebhookEvent({
+        eventId: `evt_project_live_ready_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        eventType: 'checkout.session.completed',
+        orgId: 'org-project-live-billing-ready',
+        checkoutSessionId: checkoutSession.id,
+        providerCustomerRef: checkoutSession.customerRef,
+        providerRef: checkoutSession.id,
       });
-      expect(paymentMethod.status).toBe(201);
+      expect(settle.accepted).toBe(true);
 
       const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
         method: 'POST',
@@ -1208,6 +1217,92 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('POST /console/projects enables live environments when billing bypass is explicitly enabled', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-bypass',
+        actorUserId: 'user-env-billing-bypass',
+        roles: ['admin'],
+      },
+      { name: 'Billing Bypass Org', slug: 'billing-bypass-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-env-billing-bypass', 'user-env-billing-bypass'),
+      orgProjectEnv,
+      allowLiveEnvironmentBillingBypass: true,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'proj_env_billing_bypass',
+          name: 'Billing Bypass Project',
+        }),
+      });
+      expect(created.status).toBe(201);
+      expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent('proj_env_billing_bypass')}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+      expect(rows.length).toBe(3);
+      const statusByKey = new Map<string, string>(
+        rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+      );
+      expect(statusByKey.get('dev')).toBe('ACTIVE');
+      expect(statusByKey.get('staging')).toBe('ACTIVE');
+      expect(statusByKey.get('prod')).toBe('ACTIVE');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/environments skips billing gate when bypass is explicitly enabled', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-bypass-gate',
+        actorUserId: 'user-env-billing-bypass-gate',
+        roles: ['admin'],
+      },
+      { name: 'Billing Bypass Gate Org', slug: 'billing-bypass-gate-org' },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-billing-bypass-gate',
+        'user-env-billing-bypass-gate',
+      ),
+      orgProjectEnv,
+      allowLiveEnvironmentBillingBypass: true,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const response = await fetchJson(`${srv.baseUrl}/console/environments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'env_billing_bypass_staging',
+          projectId: 'project_missing_for_bypass_gate_test',
+          key: 'staging',
+          name: 'Staging',
+        }),
+      });
+      expect(response.status).toBe(404);
+      expect(response.json?.code).toBe('project_not_found');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /console/environments blocks staging/prod when billing service is not configured', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await orgProjectEnv.upsertOrganization(
@@ -1240,6 +1335,64 @@ test.describe('console router (express)', () => {
       });
       expect(blockedStaging.status).toBe(409);
       expect(blockedStaging.json?.code).toBe('billing_required_live_environment');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/projects keeps live environments enabled when prepaid balance is low but positive', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const claims = {
+      orgId: 'org-env-low-balance-live-enabled',
+      actorUserId: 'user-env-low-balance-live-enabled',
+      roles: ['admin'],
+    };
+    await orgProjectEnv.upsertOrganization(claims, {
+      name: 'Low Balance Live Enabled Org',
+      slug: 'low-balance-live-enabled-org',
+    });
+    await billing.grantManualSupportCredit(claims, {
+      amountMinor: 1500,
+      reasonCode: 'bootstrap_credit',
+      note: 'Seed low but positive prepaid balance',
+      idempotencyKey: 'router-live-enabled-low-balance',
+    });
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-low-balance-live-enabled',
+        'user-env-low-balance-live-enabled',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'proj_env_low_balance_live_enabled',
+          name: 'Low Balance Project',
+        }),
+      });
+      expect(created.status).toBe(201);
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/console/environments?projectId=${encodeURIComponent('proj_env_low_balance_live_enabled')}`,
+        {
+          method: 'GET',
+        },
+      );
+      expect(listed.status).toBe(200);
+      const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+      const statusByKey = new Map<string, string>(
+        rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+      );
+      expect(statusByKey.get('staging')).toBe('ACTIVE');
+      expect(statusByKey.get('prod')).toBe('ACTIVE');
     } finally {
       await srv.close();
     }
@@ -1325,6 +1478,8 @@ test.describe('console router (express)', () => {
       );
       expect(createdEvent).toBeTruthy();
       expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_live_1');
+      expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_live_1');
+      expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_live_1');
     } finally {
       await srv.close();
     }
@@ -1392,8 +1547,6 @@ test.describe('console router (express)', () => {
       expect(String(getPath(triggerIsolation.json, 'isolation', 'status') || '')).toBe('REQUESTED');
       expect(String(getPath(triggerIsolation.json, 'isolation', 'mode') || '')).toBe('DEDICATED');
     } finally {
-      expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_live_1');
-      expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_live_1');
       await srv.close();
     }
   });
@@ -1660,16 +1813,16 @@ test.describe('console router (express)', () => {
     });
     const server = await startExpressRouter(router);
     try {
-      const policyId = 'policy_sensitive_1';
       const createPolicy = await fetchJson(`${server.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: policyId,
           name: 'Sensitive Policy',
         }),
       });
       expect(createPolicy.status).toBe(201);
+      const policyId = String(getPath(createPolicy.json, 'policy', 'id') || '');
+      expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const publishWithoutApproval = await fetchJson(
         `${server.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
@@ -2414,12 +2567,10 @@ test.describe('console router (express)', () => {
     const srv = await startExpressRouter(router);
     try {
       const environmentId = 'env-runtime-policy-express-1';
-      const policyId = 'policy-runtime-live-express-1';
       const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: policyId,
           name: 'Runtime policy express',
           assignment: {
             scopeType: 'ENVIRONMENT',
@@ -2432,6 +2583,8 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(created.status).toBe(201);
+      const policyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const published = await fetchJson(
         `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
@@ -2894,7 +3047,7 @@ test.describe('console router (express)', () => {
   test('policy/gas/export insight routes return aggregated views', async () => {
     const orgId = 'org-insights-express-1';
     const projectId = 'default-project';
-    const environmentId = `${orgId}:${projectId}:prod`;
+    const environmentId = `${projectId}:prod`;
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [
         makeSeedWallet({
@@ -3002,12 +3155,18 @@ test.describe('console router (express)', () => {
       expect(listed.status).toBe(200);
       const policiesBefore = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
       expect(policiesBefore.length).toBeGreaterThanOrEqual(1);
+      const defaultPolicyBefore = policiesBefore.find(
+        (entry) => getPath(entry, 'isSystemDefault') === true,
+      );
+      expect(defaultPolicyBefore).toBeTruthy();
+      expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(
+        /^policy_[a-z0-9]+_[a-z0-9]+$/,
+      );
 
       const created = await fetchJson(`${adminServer.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'policy-express-lifecycle-1',
           name: 'Policy Express Lifecycle',
           rules: {
             blockedActions: [],
@@ -3017,12 +3176,13 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(created.status).toBe(201);
-      expect(getPath(created.json, 'policy', 'id')).toBe('policy-express-lifecycle-1');
+      const lifecyclePolicyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(lifecyclePolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
       expect(getPath(created.json, 'policy', 'status')).toBe('DRAFT');
       expect(Number(getPath(created.json, 'policy', 'version') || 0)).toBe(0);
 
       const allowedSimulation = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/simulate`,
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(lifecyclePolicyId)}/simulate`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3037,7 +3197,7 @@ test.describe('console router (express)', () => {
       expect(getPath(allowedSimulation.json, 'simulation', 'decision')).toBe('ALLOW');
 
       const patched = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1`,
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(lifecyclePolicyId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -3053,7 +3213,7 @@ test.describe('console router (express)', () => {
       expect(getPath(patched.json, 'policy', 'status')).toBe('DRAFT');
 
       const deniedSimulation = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/simulate`,
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(lifecyclePolicyId)}/simulate`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -3068,12 +3228,7 @@ test.describe('console router (express)', () => {
       expect(getPath(deniedSimulation.json, 'simulation', 'decision')).toBe('DENY');
 
       const published = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/policy-express-lifecycle-1/publish`,
-      const defaultPolicyBefore = policiesBefore.find(
-        (entry) => getPath(entry, 'isSystemDefault') === true,
-      );
-      expect(defaultPolicyBefore).toBeTruthy();
-      expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(lifecyclePolicyId)}/publish`,
         {
           method: 'POST',
         },
@@ -3096,7 +3251,6 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'policy-express-forbidden-1',
           name: 'Forbidden policy',
         }),
       });
@@ -3114,17 +3268,18 @@ test.describe('console router (express)', () => {
       policies,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
-    const ownerPolicyId = 'policy-owner-express-isolation-1';
+    let ownerPolicyId = '';
     try {
       const created = await fetchJson(`${ownerServer.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: ownerPolicyId,
           name: 'Owner Policy',
         }),
       });
       expect(created.status).toBe(201);
+      ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
     } finally {
       await ownerServer.close();
     }
@@ -3174,6 +3329,29 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('policy create rejects client-supplied ids', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin'], 'org-policy-create-id-validation', 'user-policy-id'),
+      policies,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'policy_user_supplied',
+          name: 'Should fail',
+        }),
+      });
+      expect(created.status).toBe(400);
+      expect(created.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('policy creation can attach a draft to scope in one request', async () => {
     const policies = createInMemoryConsolePolicyService();
     const adminRouter = createConsoleRouter({
@@ -3191,7 +3369,6 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'policy-create-attach-express-1',
           name: 'Attached draft express',
           assignment: {
             scopeType: 'ENVIRONMENT',
@@ -3200,7 +3377,8 @@ test.describe('console router (express)', () => {
         }),
       });
       expect(created.status).toBe(201);
-      expect(getPath(created.json, 'policy', 'id')).toBe('policy-create-attach-express-1');
+      const createdPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(createdPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const listedAssignments = await fetchJson(
         `${adminServer.baseUrl}/console/policies/assignments?scopeType=ENVIRONMENT&scopeId=${encodeURIComponent(environmentScopeId)}`,
@@ -3212,7 +3390,7 @@ test.describe('console router (express)', () => {
         : [];
       expect(assignmentRows.length).toBe(1);
       expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
-        'policy-create-attach-express-1',
+        createdPolicyId,
       );
     } finally {
       await adminServer.close();
@@ -3255,13 +3433,14 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'policy-project-express-1',
           name: 'Project Policy Express',
         }),
       });
       expect(createProjectPolicy.status).toBe(201);
+      const projectPolicyId = String(getPath(createProjectPolicy.json, 'policy', 'id') || '');
+      expect(projectPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
       const publishProjectPolicy = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/${encodeURIComponent('policy-project-express-1')}/publish`,
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(projectPolicyId)}/publish`,
         { method: 'POST' },
       );
       expect(publishProjectPolicy.status).toBe(200);
@@ -3269,11 +3448,12 @@ test.describe('console router (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'policy-wallet-express-1',
           name: 'Wallet Policy Express',
         }),
       });
       expect(createWalletPolicy.status).toBe(201);
+      const walletPolicyId = String(getPath(createWalletPolicy.json, 'policy', 'id') || '');
+      expect(walletPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const projectAssignment = await fetchJson(
         `${adminServer.baseUrl}/console/policies/assignments`,
@@ -3283,7 +3463,7 @@ test.describe('console router (express)', () => {
           body: JSON.stringify({
             scopeType: 'PROJECT',
             scopeId: projectId,
-            policyId: 'policy-project-express-1',
+            policyId: projectPolicyId,
           }),
         },
       );
@@ -3297,7 +3477,7 @@ test.describe('console router (express)', () => {
           body: JSON.stringify({
             scopeType: 'WALLET',
             scopeId: walletId,
-            policyId: 'policy-wallet-express-1',
+            policyId: walletPolicyId,
           }),
         },
       );
@@ -3315,7 +3495,7 @@ test.describe('console router (express)', () => {
         : [];
       expect(assignmentRows.length).toBe(1);
       expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
-        'policy-wallet-express-1',
+        walletPolicyId,
       );
 
       const walletCoverage = await fetchJson(
@@ -3327,14 +3507,14 @@ test.describe('console router (express)', () => {
         ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
         : [];
       expect(
-        policyRows.some((entry) => String(entry?.policyId || '') === 'policy-project-express-1'),
+        policyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId),
       ).toBe(true);
       expect(
-        policyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1'),
+        policyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId),
       ).toBe(false);
 
       const publishWalletPolicy = await fetchJson(
-        `${adminServer.baseUrl}/console/policies/${encodeURIComponent('policy-wallet-express-1')}/publish`,
+        `${adminServer.baseUrl}/console/policies/${encodeURIComponent(walletPolicyId)}/publish`,
         { method: 'POST' },
       );
       expect(publishWalletPolicy.status).toBe(200);
@@ -3348,7 +3528,7 @@ test.describe('console router (express)', () => {
         ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
         : [];
       expect(
-        livePolicyRows.some((entry) => String(entry?.policyId || '') === 'policy-wallet-express-1'),
+        livePolicyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId),
       ).toBe(true);
 
       const removedWalletAssignment = await fetchJson(
@@ -3370,7 +3550,7 @@ test.describe('console router (express)', () => {
         : [];
       expect(
         projectPolicyRows.some(
-          (entry) => String(entry?.policyId || '') === 'policy-project-express-1',
+          (entry) => String(entry?.policyId || '') === projectPolicyId,
         ),
       ).toBe(true);
     } finally {
@@ -3901,38 +4081,6 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/billing/payment-methods requires admin role', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['billing_admin']) });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('forbidden');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('POST /console/billing/payment-methods returns billing_not_configured without billing service', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('billing_not_configured');
-    } finally {
-      await srv.close();
-    }
-  });
-
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
@@ -4032,65 +4180,6 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/customer-portal-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          returnUrl: 'https://app.example.com/dashboard/billing',
-        }),
-      });
-      expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('billing_not_configured');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const created = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            returnUrl: 'https://app.example.com/dashboard/billing',
-          }),
-        },
-      );
-      expect(created.status).toBe(201);
-      const sessionId = String(getPath(created.json, 'portalSession', 'id') || '');
-      const sessionUrl = String(getPath(created.json, 'portalSession', 'url') || '');
-      expect(sessionId).toBeTruthy();
-      expect(sessionUrl).toContain('https://billing.stripe.com/p/session/');
-      expect(String(getPath(created.json, 'portalSession', 'customerRef') || '')).toContain('cus_');
-
-      const invalid = await fetchJson(
-        `${srv.baseUrl}/console/billing/stripe/customer-portal-session`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            returnUrl: '/dashboard/billing',
-          }),
-        },
-      );
-      expect(invalid.status).toBe(400);
-      expect(invalid.json?.code).toBe('invalid_body');
-    } finally {
-      await srv.close();
-    }
-  });
-
   test('legacy billing subscription route is removed', async () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
@@ -4120,6 +4209,158 @@ test.describe('console router (express)', () => {
         method: 'POST',
       });
       expect(resumed.status).toBe(404);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/billing/adjustments/support-credit requires admin role', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['ops']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/adjustments/support-credit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountMinor: 100,
+          reasonCode: 'incident_credit',
+          note: 'Should be rejected',
+          idempotencyKey: 'manual-credit-express-forbidden',
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/billing/adjustments/admin-debit requires owner role for large debit amounts', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/adjustments/admin-debit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountMinor: 50000,
+          reasonCode: 'large_debit_correction',
+          note: 'Should require owner role',
+          idempotencyKey: 'manual-debit-express-large-owner-required',
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
+      expect(String(res.json?.message || '')).toContain('require owner role');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('manual billing adjustment routes append audited support credits and admin debits (express)', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const supportCredit = await fetchJson(
+        `${srv.baseUrl}/console/billing/adjustments/support-credit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: 1200,
+            reasonCode: 'incident_credit',
+            note: 'Applied support credit after incident review',
+            idempotencyKey: 'manual-credit-express-1',
+          }),
+        },
+      );
+      expect(supportCredit.status).toBe(201);
+      expect(getPath(supportCredit.json, 'result', 'created')).toBe(true);
+      expect(Number(getPath(supportCredit.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(
+        1200,
+      );
+
+      const duplicateCredit = await fetchJson(
+        `${srv.baseUrl}/console/billing/adjustments/support-credit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: 1200,
+            reasonCode: 'incident_credit',
+            note: 'Applied support credit after incident review',
+            idempotencyKey: 'manual-credit-express-1',
+          }),
+        },
+      );
+      expect(duplicateCredit.status).toBe(200);
+      expect(getPath(duplicateCredit.json, 'result', 'created')).toBe(false);
+      expect(getPath(duplicateCredit.json, 'result', 'adjustment', 'id')).toBe(
+        getPath(supportCredit.json, 'result', 'adjustment', 'id'),
+      );
+
+      const adminDebit = await fetchJson(`${srv.baseUrl}/console/billing/adjustments/admin-debit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountMinor: 200,
+          reasonCode: 'duplicate_credit_correction',
+          note: 'Corrected duplicate support credit',
+          idempotencyKey: 'manual-debit-express-1',
+        }),
+      });
+      expect(adminDebit.status).toBe(201);
+      expect(getPath(adminDebit.json, 'result', 'created')).toBe(true);
+      expect(Number(getPath(adminDebit.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(
+        -200,
+      );
+
+      const overview = await fetchJson(`${srv.baseUrl}/console/billing/overview`, {
+        method: 'GET',
+      });
+      expect(overview.status).toBe(200);
+      expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(1000);
+
+      const activity = await fetchJson(`${srv.baseUrl}/console/billing/account/activity?limit=5`, {
+        method: 'GET',
+      });
+      expect(activity.status).toBe(200);
+      expect(
+        (Array.isArray(getPath(activity.json, 'activity', 'entries'))
+          ? (getPath(activity.json, 'activity', 'entries') as unknown[])
+          : []
+        ).map((entry) => Number(getPath(entry, 'amountMinor') || 0)),
+      ).toEqual([-200, 1200]);
+
+      const auditEvents = await audit.listEvents(
+        { orgId: 'org-1', actorUserId: 'user-1', roles: ['admin'] },
+        { limit: 20 },
+      );
+      expect(
+        auditEvents
+          .filter((event) =>
+            ['billing.adjustment.support_credit', 'billing.adjustment.admin_debit'].includes(
+              String(event.action || ''),
+            ),
+          )
+          .map((event) => String(event.action || '')),
+      ).toEqual([
+        'billing.adjustment.admin_debit',
+        'billing.adjustment.support_credit',
+        'billing.adjustment.support_credit',
+      ]);
     } finally {
       await srv.close();
     }
@@ -4231,9 +4472,7 @@ test.describe('console router (express)', () => {
         method: 'GET',
       });
       expect(overviewAfter.status).toBe(200);
-      expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(
-        2500,
-      );
+      expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
     } finally {
       await srv.close();
     }
@@ -4273,6 +4512,9 @@ test.describe('console router (express)', () => {
       expect(pdf.text).toContain('Usage statement');
       expect(pdf.text).toContain(`Organization: org-1`);
       expect(pdf.text).toContain(`Document ID: ${invoiceId}`);
+      expect(pdf.text).toContain(
+        'Visibility: Customer-facing export \\(internal ledger adjustments excluded\\).',
+      );
 
       const auditEvents = await audit.listEvents({
         orgId: 'org-1',
@@ -4282,8 +4524,13 @@ test.describe('console router (express)', () => {
       expect(auditEvents.length).toBe(1);
       expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
       expect(auditEvents[0]?.category).toBe('BILLING');
+      expect(
+        String((auditEvents[0]?.metadata as Record<string, unknown>)?.exportPolicy || ''),
+      ).toBe('CUSTOMER_FACING_EXCLUDES_INTERNAL_ACTIVITY');
       expect(getPath(auditEvents[0], 'metadata', 'invoiceId')).toBe(invoiceId);
-      expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe('ALL_INVOICE_STATES');
+      expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe(
+        'CUSTOMER_FACING_EXCLUDES_INTERNAL_ACTIVITY',
+      );
 
       const missing = await fetchJson(`${srv.baseUrl}/console/billing/invoices/inv_missing/pdf`, {
         method: 'GET',
@@ -5150,7 +5397,7 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(200);
     expect(getPath(res.json, 'summary', 'approvals', 'pendingCount')).toBe(1);
-    expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(1);
+    expect(getPath(res.json, 'summary', 'billing', 'failedInvoiceCount')).toBe(0);
     expect(getPath(res.json, 'summary', 'webhooks', 'deadLetterCount')).toBe(1);
     expect(getPath(res.json, 'summary', 'auditExports', 'queuedExportCount')).toBe(1);
     expect(getPath(res.json, 'summary', 'enterpriseIsolation', 'activeRequestCount')).toBe(1);
@@ -5538,18 +5785,27 @@ test.describe('console router (cloudflare)', () => {
       billing,
     });
 
-    const paymentMethod = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/payment-methods',
-      body: {
-        providerRef: 'pm_project_live_ready_cf_1',
-        brand: 'visa',
-        last4: '4242',
-        expMonth: 12,
-        expYear: 2030,
+    const checkoutSession = await billing.createStripeCheckoutSession(
+      {
+        orgId: 'org-project-live-billing-ready-cf',
+        actorUserId: 'user-project-live-billing-ready-cf',
+        roles: ['admin'],
       },
+      {
+        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+        cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+        creditPackId: 'usd_25',
+      },
+    );
+    const settle = await billing.processStripeWebhookEvent({
+      eventId: `evt_project_live_ready_cf_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      eventType: 'checkout.session.completed',
+      orgId: 'org-project-live-billing-ready-cf',
+      checkoutSessionId: checkoutSession.id,
+      providerCustomerRef: checkoutSession.customerRef,
+      providerRef: checkoutSession.id,
     });
-    expect(paymentMethod.status).toBe(201);
+    expect(settle.accepted).toBe(true);
 
     const created = await callCf(handler, {
       method: 'POST',
@@ -5616,6 +5872,83 @@ test.describe('console router (cloudflare)', () => {
     expect(statusByKey.get('prod')).toBe('DISABLED');
   });
 
+  test('cloudflare POST /console/projects enables live environments when billing bypass is explicitly enabled', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-bypass-cf',
+        actorUserId: 'user-env-billing-bypass-cf',
+        roles: ['admin'],
+      },
+      { name: 'Billing Bypass Org CF', slug: 'billing-bypass-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-billing-bypass-cf',
+        'user-env-billing-bypass-cf',
+      ),
+      orgProjectEnv,
+      allowLiveEnvironmentBillingBypass: true,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: { id: 'proj_env_billing_bypass_cf', name: 'Billing Bypass Project CF' },
+    });
+    expect(created.status).toBe(201);
+    expect(Number(getPath(created.json, 'project', 'environmentCount') || 0)).toBe(3);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('proj_env_billing_bypass_cf')}`,
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+    expect(rows.length).toBe(3);
+    const statusByKey = new Map<string, string>(
+      rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+    );
+    expect(statusByKey.get('dev')).toBe('ACTIVE');
+    expect(statusByKey.get('staging')).toBe('ACTIVE');
+    expect(statusByKey.get('prod')).toBe('ACTIVE');
+  });
+
+  test('cloudflare POST /console/environments skips billing gate when bypass is explicitly enabled', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-env-billing-bypass-gate-cf',
+        actorUserId: 'user-env-billing-bypass-gate-cf',
+        roles: ['admin'],
+      },
+      { name: 'Billing Bypass Gate Org CF', slug: 'billing-bypass-gate-org-cf' },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-billing-bypass-gate-cf',
+        'user-env-billing-bypass-gate-cf',
+      ),
+      orgProjectEnv,
+      allowLiveEnvironmentBillingBypass: true,
+    });
+
+    const response = await callCf(handler, {
+      method: 'POST',
+      path: '/console/environments',
+      body: {
+        id: 'env_billing_bypass_staging_cf',
+        projectId: 'project_missing_for_bypass_gate_test_cf',
+        key: 'staging',
+        name: 'Staging',
+      },
+    });
+    expect(response.status).toBe(404);
+    expect(response.json?.code).toBe('project_not_found');
+  });
+
   test('cloudflare POST /console/environments blocks staging/prod when billing service is not configured', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await orgProjectEnv.upsertOrganization(
@@ -5647,6 +5980,58 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(blockedStaging.status).toBe(409);
     expect(blockedStaging.json?.code).toBe('billing_required_live_environment');
+  });
+
+  test('cloudflare POST /console/projects keeps live environments enabled when prepaid balance is low but positive', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const claims = {
+      orgId: 'org-env-low-balance-live-enabled-cf',
+      actorUserId: 'user-env-low-balance-live-enabled-cf',
+      roles: ['admin'],
+    };
+    await orgProjectEnv.upsertOrganization(claims, {
+      name: 'Low Balance Live Enabled Org CF',
+      slug: 'low-balance-live-enabled-org-cf',
+    });
+    await billing.grantManualSupportCredit(claims, {
+      amountMinor: 1500,
+      reasonCode: 'bootstrap_credit',
+      note: 'Seed low but positive prepaid balance',
+      idempotencyKey: 'router-live-enabled-low-balance-cf',
+    });
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-env-low-balance-live-enabled-cf',
+        'user-env-low-balance-live-enabled-cf',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        id: 'proj_env_low_balance_live_enabled_cf',
+        name: 'Low Balance Project CF',
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: `/console/environments?projectId=${encodeURIComponent('proj_env_low_balance_live_enabled_cf')}`,
+    });
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.json?.environments) ? listed.json?.environments : [];
+    const statusByKey = new Map<string, string>(
+      rows.map((entry: any) => [String(entry?.key || ''), String(entry?.status || '')]),
+    );
+    expect(statusByKey.get('staging')).toBe('ACTIVE');
+    expect(statusByKey.get('prod')).toBe('ACTIVE');
   });
 
   test('cloudflare audit routes return seeded timeline and evidence rows', async () => {
@@ -5722,6 +6107,8 @@ test.describe('console router (cloudflare)', () => {
     );
     expect(createdEvent).toBeTruthy();
     expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_cf_live_1');
+    expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_cf_live_1');
+    expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_cf_live_1');
   });
 
   test('cloudflare audit export and enterprise isolation routes support scaffold flows', async () => {
@@ -5909,8 +6296,6 @@ test.describe('console router (cloudflare)', () => {
 
     const missingMfa = await callCf(adminHandler, {
       method: 'POST',
-    expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_cf_live_1');
-    expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_cf_live_1');
       path: '/console/approvals/apr_key_export_cf_1/approve',
       body: {
         reason: 'approve without mfa',
@@ -6019,16 +6404,16 @@ test.describe('console router (cloudflare)', () => {
       keyExports,
     });
 
-    const policyId = 'policy_sensitive_cf_1';
     const createPolicy = await callCf(handler, {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: policyId,
         name: 'Sensitive Policy CF',
       },
     });
     expect(createPolicy.status).toBe(201);
+    const policyId = String(getPath(createPolicy.json, 'policy', 'id') || '');
+    expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const publishWithoutApproval = await callCf(handler, {
       method: 'POST',
@@ -6716,12 +7101,10 @@ test.describe('console router (cloudflare)', () => {
     });
 
     const environmentId = 'env-runtime-policy-cf-1';
-    const policyId = 'policy-runtime-live-cf-1';
     const created = await callCf(handler, {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: policyId,
         name: 'Runtime policy cloudflare',
         assignment: {
           scopeType: 'ENVIRONMENT',
@@ -6734,6 +7117,8 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const published = await callCf(handler, {
       method: 'POST',
@@ -7137,7 +7522,7 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare policy/gas/export insight routes return aggregated views', async () => {
     const orgId = 'org-insights-cloudflare-1';
     const projectId = 'default-project';
-    const environmentId = `${orgId}:${projectId}:prod`;
+    const environmentId = `${projectId}:prod`;
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [
         makeSeedWallet({
@@ -7247,12 +7632,18 @@ test.describe('console router (cloudflare)', () => {
     expect(listed.status).toBe(200);
     const policiesBefore = Array.isArray(listed.json?.policies) ? listed.json?.policies : [];
     expect(policiesBefore.length).toBeGreaterThanOrEqual(1);
+    const defaultPolicyBefore = policiesBefore.find(
+      (entry) => getPath(entry, 'isSystemDefault') === true,
+    );
+    expect(defaultPolicyBefore).toBeTruthy();
+    expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(
+      /^policy_[a-z0-9]+_[a-z0-9]+$/,
+    );
 
     const created = await callCf(adminHandler, {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: 'policy-cf-lifecycle-1',
         name: 'Policy Cloudflare Lifecycle',
         rules: {
           blockedActions: [],
@@ -7262,13 +7653,14 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     expect(created.status).toBe(201);
-    expect(getPath(created.json, 'policy', 'id')).toBe('policy-cf-lifecycle-1');
+    const lifecyclePolicyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(lifecyclePolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
     expect(getPath(created.json, 'policy', 'status')).toBe('DRAFT');
     expect(Number(getPath(created.json, 'policy', 'version') || 0)).toBe(0);
 
     const allowedSimulation = await callCf(adminHandler, {
       method: 'POST',
-      path: '/console/policies/policy-cf-lifecycle-1/simulate',
+      path: `/console/policies/${encodeURIComponent(lifecyclePolicyId)}/simulate`,
       body: {
         action: 'transfer',
         chain: 'ethereum',
@@ -7280,7 +7672,7 @@ test.describe('console router (cloudflare)', () => {
 
     const patched = await callCf(adminHandler, {
       method: 'PATCH',
-      path: '/console/policies/policy-cf-lifecycle-1',
+      path: `/console/policies/${encodeURIComponent(lifecyclePolicyId)}`,
       body: {
         rules: {
           blockedActions: ['transfer'],
@@ -7293,7 +7685,7 @@ test.describe('console router (cloudflare)', () => {
 
     const deniedSimulation = await callCf(adminHandler, {
       method: 'POST',
-      path: '/console/policies/policy-cf-lifecycle-1/simulate',
+      path: `/console/policies/${encodeURIComponent(lifecyclePolicyId)}/simulate`,
       body: {
         action: 'transfer',
         chain: 'ethereum',
@@ -7305,7 +7697,7 @@ test.describe('console router (cloudflare)', () => {
 
     const published = await callCf(adminHandler, {
       method: 'POST',
-      path: '/console/policies/policy-cf-lifecycle-1/publish',
+      path: `/console/policies/${encodeURIComponent(lifecyclePolicyId)}/publish`,
     });
     expect(published.status).toBe(200);
     expect(getPath(published.json, 'result', 'published')).toBe(true);
@@ -7320,7 +7712,6 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: 'policy-cf-forbidden-1',
         name: 'Forbidden policy',
       },
     });
@@ -7330,7 +7721,7 @@ test.describe('console router (cloudflare)', () => {
 
   test('cloudflare policy routes enforce org isolation', async () => {
     const policies = createInMemoryConsolePolicyService();
-    const ownerPolicyId = 'policy-owner-cf-isolation-1';
+    let ownerPolicyId = '';
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-policy-owner-cf', 'owner-policy-user-cf'),
@@ -7340,11 +7731,12 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: ownerPolicyId,
         name: 'Owner Policy CF',
       },
     });
     expect(created.status).toBe(201);
+    ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-policy-attacker-cf', 'attacker-policy-user-cf'),
@@ -7379,6 +7771,28 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(simulated.status).toBe(404);
     expect(simulated.json?.code).toBe('policy_not_found');
+  });
+
+  test('cloudflare policy create rejects client-supplied ids', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-create-id-validation-cf',
+        'user-policy-id-cf',
+      ),
+      policies,
+    });
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        id: 'policy_user_supplied_cf',
+        name: 'Should fail CF',
+      },
+    });
+    expect(created.status).toBe(400);
+    expect(created.json?.code).toBe('invalid_body');
   });
 
   test('cloudflare policy assignments support precedence and drive policy coverage', async () => {
@@ -7419,14 +7833,15 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: 'policy-project-cloudflare-1',
         name: 'Project Policy Cloudflare',
       },
     });
     expect(createProjectPolicy.status).toBe(201);
+    const projectPolicyId = String(getPath(createProjectPolicy.json, 'policy', 'id') || '');
+    expect(projectPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
     const publishProjectPolicy = await callCf(adminHandler, {
       method: 'POST',
-      path: `/console/policies/${encodeURIComponent('policy-project-cloudflare-1')}/publish`,
+      path: `/console/policies/${encodeURIComponent(projectPolicyId)}/publish`,
     });
     expect(publishProjectPolicy.status).toBe(200);
 
@@ -7434,14 +7849,12 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-    const defaultPolicyBefore = policiesBefore.find((entry) => getPath(entry, 'isSystemDefault') === true);
-    expect(defaultPolicyBefore).toBeTruthy();
-    expect(String(getPath(defaultPolicyBefore, 'id') || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
-        id: 'policy-wallet-cloudflare-1',
         name: 'Wallet Policy Cloudflare',
       },
     });
     expect(createWalletPolicy.status).toBe(201);
+    const walletPolicyId = String(getPath(createWalletPolicy.json, 'policy', 'id') || '');
+    expect(walletPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const projectAssignment = await callCf(adminHandler, {
       method: 'PUT',
@@ -7449,7 +7862,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         scopeType: 'PROJECT',
         scopeId: projectId,
-        policyId: 'policy-project-cloudflare-1',
+        policyId: projectPolicyId,
       },
     });
     expect(projectAssignment.status).toBe(200);
@@ -7460,7 +7873,7 @@ test.describe('console router (cloudflare)', () => {
       body: {
         scopeType: 'WALLET',
         scopeId: walletId,
-        policyId: 'policy-wallet-cloudflare-1',
+        policyId: walletPolicyId,
       },
     });
     expect(walletAssignment.status).toBe(200);
@@ -7477,7 +7890,7 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(assignmentRows.length).toBe(1);
     expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
-      'policy-wallet-cloudflare-1',
+      walletPolicyId,
     );
 
     const walletCoverage = await callCf(adminHandler, {
@@ -7490,18 +7903,18 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(
       walletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1',
+        (entry) => String(entry?.policyId || '') === projectPolicyId,
       ),
     ).toBe(true);
     expect(
       walletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1',
+        (entry) => String(entry?.policyId || '') === walletPolicyId,
       ),
     ).toBe(false);
 
     const publishWalletPolicy = await callCf(adminHandler, {
       method: 'POST',
-      path: `/console/policies/${encodeURIComponent('policy-wallet-cloudflare-1')}/publish`,
+      path: `/console/policies/${encodeURIComponent(walletPolicyId)}/publish`,
     });
     expect(publishWalletPolicy.status).toBe(200);
 
@@ -7517,7 +7930,7 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(
       liveWalletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === 'policy-wallet-cloudflare-1',
+        (entry) => String(entry?.policyId || '') === walletPolicyId,
       ),
     ).toBe(true);
 
@@ -7538,7 +7951,7 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(
       projectPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === 'policy-project-cloudflare-1',
+        (entry) => String(entry?.policyId || '') === projectPolicyId,
       ),
     ).toBe(true);
 
@@ -7580,7 +7993,6 @@ test.describe('console router (cloudflare)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: 'policy-create-attach-cloudflare-1',
         name: 'Attached draft cloudflare',
         assignment: {
           scopeType: 'ENVIRONMENT',
@@ -7589,7 +8001,8 @@ test.describe('console router (cloudflare)', () => {
       },
     });
     expect(created.status).toBe(201);
-    expect(getPath(created.json, 'policy', 'id')).toBe('policy-create-attach-cloudflare-1');
+    const createdPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(createdPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const listedAssignments = await callCf(adminHandler, {
       method: 'GET',
@@ -7601,7 +8014,7 @@ test.describe('console router (cloudflare)', () => {
       : [];
     expect(assignmentRows.length).toBe(1);
     expect(String(getPath(listedAssignments.json, 'assignments', 0, 'policyId') || '')).toBe(
-      'policy-create-attach-cloudflare-1',
+      createdPolicyId,
     );
   });
 
@@ -8017,20 +8430,6 @@ test.describe('console router (cloudflare)', () => {
     }
   });
 
-  test('POST /console/billing/payment-methods requires admin role', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['billing_admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/payment-methods',
-      body: {},
-    });
-    expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('forbidden');
-  });
-
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -8085,9 +8484,7 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(customCreated.status).toBe(201);
     expect(getPath(customCreated.json, 'checkoutSession', 'creditPackId')).toBe('usd_custom');
-    expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(
-      12345,
-    );
+    expect(Number(getPath(customCreated.json, 'checkoutSession', 'amountMinor') || 0)).toBe(12345);
 
     const invalid = await callCf(handler, {
       method: 'POST',
@@ -8112,52 +8509,6 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(missingCustomAmount.status).toBe(400);
     expect(missingCustomAmount.json?.code).toBe('invalid_body');
-  });
-
-  test('POST /console/billing/stripe/customer-portal-session returns billing_not_configured without billing service', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-    });
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/customer-portal-session',
-      body: {
-        returnUrl: 'https://app.example.com/dashboard/billing',
-      },
-    });
-    expect(res.status).toBe(501);
-    expect(res.json?.code).toBe('billing_not_configured');
-  });
-
-  test('POST /console/billing/stripe/customer-portal-session creates portal session', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-
-    const created = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/customer-portal-session',
-      body: {
-        returnUrl: 'https://app.example.com/dashboard/billing',
-      },
-    });
-    expect(created.status).toBe(201);
-    const sessionId = String(getPath(created.json, 'portalSession', 'id') || '');
-    const sessionUrl = String(getPath(created.json, 'portalSession', 'url') || '');
-    expect(sessionId).toBeTruthy();
-    expect(sessionUrl).toContain('https://billing.stripe.com/p/session/');
-    expect(String(getPath(created.json, 'portalSession', 'customerRef') || '')).toContain('cus_');
-
-    const invalid = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/stripe/customer-portal-session',
-      body: {
-        returnUrl: '/dashboard/billing',
-      },
-    });
-    expect(invalid.status).toBe(400);
-    expect(invalid.json?.code).toBe('invalid_body');
   });
 
   test('legacy billing subscription route is removed', async () => {
@@ -8222,6 +8573,139 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(403);
     expect(res.json?.code).toBe('forbidden');
+  });
+
+  test('POST /console/billing/adjustments/support-credit requires admin role (cloudflare)', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['ops']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 100,
+        reasonCode: 'incident_credit',
+        note: 'Should be rejected',
+        idempotencyKey: 'manual-credit-cloudflare-forbidden',
+      },
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('forbidden');
+  });
+
+  test('POST /console/billing/adjustments/admin-debit requires owner role for large debit amounts (cloudflare)', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/admin-debit',
+      body: {
+        amountMinor: 50000,
+        reasonCode: 'large_debit_correction',
+        note: 'Should require owner role',
+        idempotencyKey: 'manual-debit-cloudflare-large-owner-required',
+      },
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('forbidden');
+    expect(String(res.json?.message || '')).toContain('require owner role');
+  });
+
+  test('manual billing adjustment routes append audited support credits and admin debits (cloudflare)', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing,
+      audit,
+    });
+
+    const supportCredit = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 1200,
+        reasonCode: 'incident_credit',
+        note: 'Applied support credit after incident review',
+        idempotencyKey: 'manual-credit-cloudflare-1',
+      },
+    });
+    expect(supportCredit.status).toBe(201);
+    expect(getPath(supportCredit.json, 'result', 'created')).toBe(true);
+    expect(Number(getPath(supportCredit.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(
+      1200,
+    );
+
+    const duplicateCredit = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 1200,
+        reasonCode: 'incident_credit',
+        note: 'Applied support credit after incident review',
+        idempotencyKey: 'manual-credit-cloudflare-1',
+      },
+    });
+    expect(duplicateCredit.status).toBe(200);
+    expect(getPath(duplicateCredit.json, 'result', 'created')).toBe(false);
+    expect(getPath(duplicateCredit.json, 'result', 'adjustment', 'id')).toBe(
+      getPath(supportCredit.json, 'result', 'adjustment', 'id'),
+    );
+
+    const adminDebit = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/admin-debit',
+      body: {
+        amountMinor: 200,
+        reasonCode: 'duplicate_credit_correction',
+        note: 'Corrected duplicate support credit',
+        idempotencyKey: 'manual-debit-cloudflare-1',
+      },
+    });
+    expect(adminDebit.status).toBe(201);
+    expect(getPath(adminDebit.json, 'result', 'created')).toBe(true);
+    expect(Number(getPath(adminDebit.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(-200);
+
+    const overview = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/overview',
+    });
+    expect(overview.status).toBe(200);
+    expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(1000);
+
+    const activity = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/account/activity?limit=5',
+    });
+    expect(activity.status).toBe(200);
+    expect(
+      (Array.isArray(getPath(activity.json, 'activity', 'entries'))
+        ? (getPath(activity.json, 'activity', 'entries') as unknown[])
+        : []
+      ).map((entry) => Number(getPath(entry, 'amountMinor') || 0)),
+    ).toEqual([-200, 1200]);
+
+    const auditEvents = await audit.listEvents(
+      { orgId: 'org-1', actorUserId: 'user-1', roles: ['admin'] },
+      { limit: 20 },
+    );
+    expect(
+      auditEvents
+        .filter((event) =>
+          ['billing.adjustment.support_credit', 'billing.adjustment.admin_debit'].includes(
+            String(event.action || ''),
+          ),
+        )
+        .map((event) => String(event.action || ''))
+        .sort(),
+    ).toEqual([
+      'billing.adjustment.admin_debit',
+      'billing.adjustment.support_credit',
+      'billing.adjustment.support_credit',
+    ]);
   });
 
   test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {
@@ -8332,6 +8816,9 @@ test.describe('console router (cloudflare)', () => {
     expect(pdf.text).toContain('Usage statement');
     expect(pdf.text).toContain(`Organization: org-1`);
     expect(pdf.text).toContain(`Document ID: ${invoiceId}`);
+    expect(pdf.text).toContain(
+      'Visibility: Customer-facing export \\(internal ledger adjustments excluded\\).',
+    );
 
     const auditEvents = await audit.listEvents({
       orgId: 'org-1',
@@ -8340,8 +8827,13 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(auditEvents.length).toBe(1);
     expect(auditEvents[0]?.action).toBe('billing.invoice.pdf_export');
+    expect(String((auditEvents[0]?.metadata as Record<string, unknown>)?.exportPolicy || '')).toBe(
+      'CUSTOMER_FACING_EXCLUDES_INTERNAL_ACTIVITY',
+    );
     expect(getPath(auditEvents[0], 'metadata', 'invoiceId')).toBe(invoiceId);
-    expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe('ALL_INVOICE_STATES');
+    expect(getPath(auditEvents[0], 'metadata', 'exportPolicy')).toBe(
+      'CUSTOMER_FACING_EXCLUDES_INTERNAL_ACTIVITY',
+    );
 
     const missing = await callCf(handler, {
       method: 'GET',
@@ -9685,7 +10177,6 @@ test.describe('console router (postgres wallets)', () => {
 
 test('express policy routes expose published policy versions newest-first', async () => {
   const orgId = 'org-router-policy-versions';
-  const policyId = `${orgId}:managed-policy`;
   const router = createConsoleRouter({
     auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-policy-versions'),
     policies: createInMemoryConsolePolicyService(),
@@ -9696,11 +10187,12 @@ test('express policy routes expose published policy versions newest-first', asyn
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        id: policyId,
         name: 'Policy Versions Test',
       }),
     });
     expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const firstUpdate = await fetchJson(
       `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
@@ -9780,7 +10272,6 @@ test('express policy routes reject invalid contract-call policy rules', async ()
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        id: `${orgId}:invalid-contract-policy`,
         name: 'Invalid Contract Policy',
         rules: {
           allowedContractCalls: [
@@ -9828,7 +10319,7 @@ test.describe('console router (postgres policies)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner`;
     const attackerOrgId = `${authOrgId}:attacker`;
-    const ownerPolicyId = `${ownerOrgId}:managed-policy`;
+    let ownerPolicyId = '';
     let ownerAssignmentId = '';
 
     const ownerRouter = createConsoleRouter({
@@ -9841,11 +10332,12 @@ test.describe('console router (postgres policies)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: ownerPolicyId,
           name: 'Owner Managed Policy',
         }),
       });
       expect(created.status).toBe(201);
+      ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const published = await fetchJson(
         `${ownerServer.baseUrl}/console/policies/${encodeURIComponent(ownerPolicyId)}/publish`,
@@ -9861,6 +10353,11 @@ test.describe('console router (postgres policies)', () => {
       expect(ownerPolicies.some((entry: any) => String(entry?.id || '') === ownerPolicyId)).toBe(
         true,
       );
+      const ownerDefaultPolicy = ownerPolicies.find(
+        (entry: any) => entry?.isSystemDefault === true,
+      );
+      expect(ownerDefaultPolicy).toBeTruthy();
+      expect(String(ownerDefaultPolicy?.id || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
       const upsertedAssignment = await fetchJson(
         `${ownerServer.baseUrl}/console/policies/assignments`,
@@ -9950,7 +10447,7 @@ test.describe('console router (postgres policies)', () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerOrgId = `${authOrgId}:owner-cf`;
     const attackerOrgId = `${authOrgId}:attacker-cf`;
-    const ownerPolicyId = `${ownerOrgId}:managed-policy`;
+    let ownerPolicyId = '';
     let ownerAssignmentId = '';
 
     const ownerHandler = createCloudflareConsoleRouter({
@@ -9961,11 +10458,12 @@ test.describe('console router (postgres policies)', () => {
       method: 'POST',
       path: '/console/policies',
       body: {
-        id: ownerPolicyId,
         name: 'Owner Managed Policy CF',
       },
     });
     expect(created.status).toBe(201);
+    ownerPolicyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(ownerPolicyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const ownerPublished = await callCf(ownerHandler, {
       method: 'POST',
@@ -10119,9 +10617,6 @@ test.describe('console router (postgres api keys)', () => {
     try {
       const list = await fetchJson(`${attackerServer.baseUrl}/console/api-keys`, {
         method: 'GET',
-      const ownerDefaultPolicy = ownerPolicies.find((entry: any) => entry?.isSystemDefault === true);
-      expect(ownerDefaultPolicy).toBeTruthy();
-      expect(String(ownerDefaultPolicy?.id || '')).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
       });
       expect(list.status).toBe(200);
       const attackerKeys = Array.isArray(list.json?.apiKeys) ? list.json?.apiKeys : [];
@@ -10882,7 +11377,6 @@ test.describe('console router (postgres billing)', () => {
         await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
           namespace,
         ]);
-        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
           namespace,

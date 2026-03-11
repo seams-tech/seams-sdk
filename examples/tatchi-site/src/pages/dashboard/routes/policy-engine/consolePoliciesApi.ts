@@ -331,7 +331,6 @@ export async function listDashboardPolicyVersions(
 }
 
 export async function createDashboardPolicy(input: {
-  id?: string;
   name: string;
   description?: string;
   rules?: Record<string, unknown>;

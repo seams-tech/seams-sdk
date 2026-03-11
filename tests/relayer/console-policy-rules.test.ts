@@ -57,6 +57,15 @@ test.describe('console policy rules parser and evaluator', () => {
         }),
       'invalid_body',
     );
+
+    await expectPolicyError(
+      async () =>
+        parseCreateConsolePolicyRequest({
+          id: 'policy_user_supplied',
+          name: 'Should fail',
+        }),
+      'invalid_body',
+    );
   });
 
   test('stored-rule parsing drops stale keys and shared evaluator returns specific reasons', async () => {
@@ -105,7 +114,6 @@ test.describe('console policy rules parser and evaluator', () => {
     };
 
     const policy = await service.createPolicy(ctx, {
-      id: 'policy-rules-1',
       name: 'Policy Rules 1',
       rules: {
         blockedActions: ['export_key'],
@@ -113,6 +121,7 @@ test.describe('console policy rules parser and evaluator', () => {
         maxAmountMinor: 100,
       },
     });
+    expect(policy.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const allowed = await service.simulatePolicy(ctx, policy.id, {
       action: 'transfer',

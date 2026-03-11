@@ -24,19 +24,6 @@ function createParseError(code: string, status: number, message: string): Consol
   return new ConsolePolicyError(code, status, message);
 }
 
-function readOptionalResourceId(body: Record<string, unknown>, key: string): string | undefined {
-  const value = readOptionalString(body, key);
-  if (!value) return undefined;
-  if (!RESOURCE_ID_PATTERN.test(value)) {
-    throw new ConsolePolicyError(
-      'invalid_body',
-      400,
-      `Field ${key} may only contain letters, numbers, colon, underscore, and hyphen`,
-    );
-  }
-  return value;
-}
-
 function readOptionalRules(
   body: Record<string, unknown>,
   key: string,
@@ -94,13 +81,18 @@ function readOptionalInteger(
 
 export function parseCreateConsolePolicyRequest(body: unknown): CreateConsolePolicyRequest {
   const obj = requireObject(body, createParseError);
-  const id = readOptionalResourceId(obj, 'id');
+  if (Object.prototype.hasOwnProperty.call(obj, 'id')) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field id is not allowed when creating a policy',
+    );
+  }
   const name = readRequiredString(obj, 'name', createParseError);
   const description = readOptionalString(obj, 'description');
   const rules = readOptionalRules(obj, 'rules');
   const assignment = readOptionalAssignment(obj);
   return {
-    ...(id ? { id } : {}),
     name,
     ...(description ? { description } : {}),
     ...(rules ? { rules } : {}),

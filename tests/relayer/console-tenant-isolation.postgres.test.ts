@@ -108,7 +108,6 @@ test.describe('console postgres tenant-isolation harness', () => {
         await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
           namespace,
         ]);
-        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
           namespace,
@@ -862,21 +861,19 @@ test.describe('console postgres tenant-isolation harness', () => {
     };
 
     const ownerPolicy = await policies!.createPolicy(ownerCtx, {
-      id: 'policy-owner-rls',
       name: 'Owner Policy',
       rules: {
         blockedActions: [],
       },
     });
     const attackerPolicy = await policies!.createPolicy(attackerCtx, {
-      id: 'policy-attacker-rls',
       name: 'Attacker Policy',
       rules: {
         blockedActions: ['export'],
       },
     });
-    expect(ownerPolicy.id).toBe('policy-owner-rls');
-    expect(attackerPolicy.id).toBe('policy-attacker-rls');
+    expect(ownerPolicy.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+    expect(attackerPolicy.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
 
     const ownerRows = await withConsoleTenantContextTx(
       pool,
@@ -1108,7 +1105,7 @@ test.describe('console postgres tenant-isolation harness', () => {
     };
   }
 
-  test('billing service denies cross-org invoice, activity, and payment-method access', async () => {
+  test('billing service denies cross-org invoice and activity access', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerCtx = {
       orgId: ownerOrgId,
@@ -1132,13 +1129,6 @@ test.describe('console postgres tenant-isolation harness', () => {
       periodMonthUtc: '2026-12',
     });
     const attackerReceipt = await settleCreditPurchaseForTenant(attackerCtx);
-    const attackerPaymentMethod = await billing!.addCardPaymentMethod(attackerCtx, {
-      providerRef: `pm_attacker_cross_org_${Date.now()}`,
-      brand: 'visa',
-      last4: '4242',
-      expMonth: 12,
-      expYear: 2031,
-    });
 
     const ownerGetAttackerStatement = await billing!.getInvoice(
       ownerCtx,
@@ -1160,18 +1150,6 @@ test.describe('console postgres tenant-isolation harness', () => {
       attackerStatement.invoice.id,
     );
     expect(ownerAttackerStatementActivity).toBeNull();
-
-    const ownerRemoveAttackerPaymentMethod = await billing!.removeCardPaymentMethod(
-      ownerCtx,
-      attackerPaymentMethod.id,
-    );
-    expect(ownerRemoveAttackerPaymentMethod.removed).toBe(false);
-
-    const ownerSetDefaultAttackerPaymentMethod = await billing!.setDefaultCardPaymentMethod(
-      ownerCtx,
-      attackerPaymentMethod.id,
-    );
-    expect(ownerSetDefaultAttackerPaymentMethod).toBeNull();
   });
 
   test('billing prepaid tables enforce DB-level tenant RLS policies', async () => {
@@ -1210,20 +1188,6 @@ test.describe('console postgres tenant-isolation harness', () => {
     });
     const attackerGeneration = await billing!.generateMonthlyInvoice(attackerCtx, {
       periodMonthUtc,
-    });
-    const ownerPaymentMethod = await billing!.addCardPaymentMethod(ownerCtx, {
-      providerRef: `pm_owner_core_rls_${Date.now()}`,
-      brand: 'visa',
-      last4: '4242',
-      expMonth: 12,
-      expYear: 2030,
-    });
-    const attackerPaymentMethod = await billing!.addCardPaymentMethod(attackerCtx, {
-      providerRef: `pm_attacker_core_rls_${Date.now()}`,
-      brand: 'mastercard',
-      last4: '4444',
-      expMonth: 11,
-      expYear: 2031,
     });
     const ownerReceipt = await settleCreditPurchaseForTenant(ownerCtx);
     const attackerReceipt = await settleCreditPurchaseForTenant(attackerCtx);
@@ -1335,23 +1299,6 @@ test.describe('console postgres tenant-isolation harness', () => {
         (row) =>
           String((row as Record<string, unknown>).invoice_id || '') ===
           attackerGeneration.invoice.id,
-      ),
-    ).toBe(false);
-
-    const ownerPaymentRows = await queryRows(
-      ownerOrgId,
-      `SELECT org_id, id
-         FROM console_payment_methods
-        WHERE namespace = $1`,
-    );
-    expect(
-      ownerPaymentRows.rows.some(
-        (row) => String((row as Record<string, unknown>).id || '') === ownerPaymentMethod.id,
-      ),
-    ).toBe(true);
-    expect(
-      ownerPaymentRows.rows.some(
-        (row) => String((row as Record<string, unknown>).id || '') === attackerPaymentMethod.id,
       ),
     ).toBe(false);
 
@@ -1613,14 +1560,6 @@ test.describe('console postgres tenant-isolation harness', () => {
       [namespace],
     );
     expect(noTenantLineItemRows.rows.length).toBe(0);
-
-    const noTenantPaymentRows = await pool.query(
-      `SELECT org_id, id
-         FROM console_payment_methods
-        WHERE namespace = $1`,
-      [namespace],
-    );
-    expect(noTenantPaymentRows.rows.length).toBe(0);
 
     const noTenantPurchaseRows = await pool.query(
       `SELECT org_id, id

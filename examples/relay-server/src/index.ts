@@ -67,6 +67,7 @@ import {
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
   type ConsoleOrgProjectEnvService,
+  type ConsolePolicy,
   type ConsolePolicyService,
   type ConsoleRuntimeSnapshotService,
   type ConsoleTeamRbacService,
@@ -472,30 +473,33 @@ async function ensureDemoPolicyExists(input: {
   policies: ConsolePolicyService;
   orgId: string;
   actorUserId: string;
-  id: string;
   name: string;
   description?: string;
   rules?: Record<string, unknown>;
   publish?: boolean;
-}): Promise<void> {
+}): Promise<ConsolePolicy> {
   const ctx = {
     orgId: input.orgId,
     actorUserId: input.actorUserId,
     roles: ['owner', 'admin'],
   };
-  try {
-    await input.policies.createPolicy(ctx, {
-      id: input.id,
+
+  const existing =
+    (await input.policies.listPolicies(ctx)).find((policy) => policy.name === input.name) || null;
+  const policy =
+    existing ||
+    (await input.policies.createPolicy(ctx, {
       name: input.name,
       ...(input.description ? { description: input.description } : {}),
       ...(input.rules ? { rules: input.rules } : {}),
-    });
-    if (input.publish) {
-      await input.policies.publishPolicy(ctx, input.id);
-    }
-  } catch (error: unknown) {
-    if (!hasConsoleErrorCode(error, 'policy_already_exists')) throw error;
+    }));
+
+  if (!input.publish || policy.status === 'PUBLISHED') {
+    return policy;
   }
+
+  const published = await input.policies.publishPolicy(ctx, policy.id);
+  return published?.policy || policy;
 }
 
 async function ensureDemoAssignmentExists(input: {
@@ -587,11 +591,10 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
   logger: Pick<Console, 'log'>;
 }): Promise<void> {
   const walletOverrideId = input.walletIds[0];
-  await ensureDemoPolicyExists({
+  const projectPolicy = await ensureDemoPolicyExists({
     policies: input.policies,
     orgId: input.orgId,
     actorUserId: 'console-seed-owner',
-    id: 'policy_console_project_default',
     name: 'Project signing policy',
     description: 'Default project guardrails for managed signing wallets.',
     rules: {
@@ -601,11 +604,10 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     },
     publish: true,
   });
-  await ensureDemoPolicyExists({
+  const environmentPolicy = await ensureDemoPolicyExists({
     policies: input.policies,
     orgId: input.orgId,
     actorUserId: 'console-seed-owner',
-    id: 'policy_console_environment_prod',
     name: 'Production environment policy',
     description: 'Tighter production limits for the active environment.',
     rules: {
@@ -615,11 +617,10 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     },
     publish: true,
   });
-  await ensureDemoPolicyExists({
+  const walletOverridePolicy = await ensureDemoPolicyExists({
     policies: input.policies,
     orgId: input.orgId,
     actorUserId: 'console-seed-owner',
-    id: 'policy_console_wallet_override',
     name: 'Wallet override policy',
     description: 'Single-wallet override for sensitive NEAR activity.',
     rules: {
@@ -629,11 +630,10 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     },
     publish: true,
   });
-  await ensureDemoPolicyExists({
+  const publishCandidatePolicy = await ensureDemoPolicyExists({
     policies: input.policies,
     orgId: input.orgId,
     actorUserId: 'console-seed-owner',
-    id: 'policy_console_publish_candidate',
     name: 'Draft publish candidate',
     description: 'Draft policy intended for approval-backed publish testing.',
     rules: {
@@ -650,7 +650,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     actorUserId: 'console-seed-owner',
     scopeType: 'PROJECT',
     scopeId: input.projectId,
-    policyId: 'policy_console_project_default',
+    policyId: projectPolicy.id,
   });
   await ensureDemoAssignmentExists({
     policies: input.policies,
@@ -658,7 +658,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     actorUserId: 'console-seed-owner',
     scopeType: 'ENVIRONMENT',
     scopeId: input.environmentId,
-    policyId: 'policy_console_environment_prod',
+    policyId: environmentPolicy.id,
   });
   if (walletOverrideId) {
     await ensureDemoAssignmentExists({
@@ -667,7 +667,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
       actorUserId: 'console-seed-owner',
       scopeType: 'WALLET',
       scopeId: walletOverrideId,
-      policyId: 'policy_console_wallet_override',
+      policyId: walletOverridePolicy.id,
     });
   }
 
@@ -679,7 +679,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     id: 'apr_policy_publish_pending_demo',
     reason: 'Review the draft publish candidate for production rollout.',
     resourceType: 'policy',
-    resourceId: 'policy_console_publish_candidate',
+    resourceId: publishCandidatePolicy.id,
   });
   await ensureDemoApprovalRequest({
     approvals: input.approvals,
@@ -689,7 +689,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
     id: 'apr_policy_publish_approved_demo',
     reason: 'Approved seed request for policy publish testing.',
     resourceType: 'policy',
-    resourceId: 'policy_console_publish_candidate',
+    resourceId: publishCandidatePolicy.id,
     approved: true,
   });
 

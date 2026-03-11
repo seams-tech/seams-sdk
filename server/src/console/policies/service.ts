@@ -121,6 +121,14 @@ function hasPublishedPolicyVersion(policy: ConsolePolicy | null | undefined): bo
   return Boolean(policy && String(policy.publishedAt || '').trim() && Number(policy.version || 0) > 0);
 }
 
+function generateUniquePolicyId(store: OrgPolicyStore, now: Date): string {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = makeId('policy', now);
+    if (!store.policies.has(candidate)) return candidate;
+  }
+  throw new ConsolePolicyError('internal', 500, 'Failed to generate a unique policy id');
+}
+
 export function createInMemoryConsolePolicyService(
   opts: InMemoryConsolePolicyServiceOptions = {},
 ): ConsolePolicyService {
@@ -237,10 +245,7 @@ export function createInMemoryConsolePolicyService(
     async createPolicy(ctx, request): Promise<ConsolePolicy> {
       const store = ensureOrgStore(ctx);
       const now = nowFn();
-      const policyId = String(request.id || makeId('policy', now)).trim();
-      if (store.policies.has(policyId)) {
-        throw new ConsolePolicyError('policy_already_exists', 409, `Policy ${policyId} already exists`);
-      }
+      const policyId = generateUniquePolicyId(store, now);
       const ts = toIso(now);
       const policy: ConsolePolicy = {
         id: policyId,

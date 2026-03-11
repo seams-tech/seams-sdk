@@ -64,7 +64,6 @@ export interface CreateConsolePolicyAssignmentInput {
 }
 
 export interface CreateConsolePolicyRequest {
-  id?: string;
   name: string;
   description?: string;
   rules?: ConsolePolicyRulesInput;

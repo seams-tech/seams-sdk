@@ -44,6 +44,8 @@ type PgRow = Record<string, unknown>;
 const CONSOLE_POLICIES_MIGRATION_LOCK_ID = 9452360123583;
 const DEFAULT_POLICY_NAME = 'Default Policy';
 const DEFAULT_POLICY_DESCRIPTION = 'Default policy profile for this organization';
+const CANONICAL_POLICY_ID_PATTERN = /^policy_([0-9a-z]+)_([0-9a-z]{8})$/;
+const CANONICAL_POLICY_ID_TIMESTAMP_DRIFT_MS = 1000 * 60 * 60 * 24 * 30;
 
 function nowMs(now: Date): number {
   return now.getTime();
@@ -125,6 +127,459 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
+function isUniqueViolation(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === '23505');
+}
+
+function isCanonicalPolicyId(policyId: string, createdAtMs: number): boolean {
+  const match = CANONICAL_POLICY_ID_PATTERN.exec(String(policyId || '').trim());
+  if (!match) return false;
+  const encodedCreatedAtMs = parseInt(match[1] || '', 36);
+  if (!Number.isFinite(encodedCreatedAtMs) || encodedCreatedAtMs <= 0) return false;
+  if (createdAtMs <= 0) return true;
+  return Math.abs(encodedCreatedAtMs - createdAtMs) <= CANONICAL_POLICY_ID_TIMESTAMP_DRIFT_MS;
+}
+
+async function tableExists(q: Queryable, tableName: string): Promise<boolean> {
+  const row = await queryOne(q, 'SELECT to_regclass($1) AS regclass', [tableName]);
+  return row?.regclass != null;
+}
+
+interface PolicyReferenceTables {
+  approvals: boolean;
+  auditEvents: boolean;
+  gasSponsorshipConfigs: boolean;
+  smartWalletConfigs: boolean;
+  sponsoredCallRecords: boolean;
+  sponsorshipSpendCapReservations: boolean;
+  sponsorshipSpendCapWindows: boolean;
+  walletIndex: boolean;
+}
+
+interface ExistingPolicyRow {
+  createdAtMs: number;
+  id: string;
+  isSystemDefault: boolean;
+  namespace: string;
+  namespaceIdRank: number;
+  orgId: string;
+}
+
+interface PolicyIdMigrationPlan {
+  forceSystemDefault: boolean;
+  namespace: string;
+  orgId: string;
+  sourcePolicyId: string;
+  targetPolicyId: string;
+}
+
+async function detectPolicyReferenceTables(q: Queryable): Promise<PolicyReferenceTables> {
+  const [
+    approvals,
+    auditEvents,
+    gasSponsorshipConfigs,
+    smartWalletConfigs,
+    sponsoredCallRecords,
+    sponsorshipSpendCapReservations,
+    sponsorshipSpendCapWindows,
+    walletIndex,
+  ] = await Promise.all([
+    tableExists(q, 'console_approvals'),
+    tableExists(q, 'console_audit_events'),
+    tableExists(q, 'console_gas_sponsorship_configs'),
+    tableExists(q, 'console_smart_wallet_configs'),
+    tableExists(q, 'console_sponsored_call_records'),
+    tableExists(q, 'console_sponsorship_spend_cap_reservations'),
+    tableExists(q, 'console_sponsorship_spend_cap_windows'),
+    tableExists(q, 'console_wallet_index'),
+  ]);
+  return {
+    approvals,
+    auditEvents,
+    gasSponsorshipConfigs,
+    smartWalletConfigs,
+    sponsoredCallRecords,
+    sponsorshipSpendCapReservations,
+    sponsorshipSpendCapWindows,
+    walletIndex,
+  };
+}
+
+function buildOrgKey(namespace: string, orgId: string): string {
+  return `${namespace}\n${orgId}`;
+}
+
+function allocateCanonicalPolicyId(input: {
+  createdAtMs: number;
+  reservedIds: Set<string>;
+}): string {
+  const seedMs = input.createdAtMs > 0 ? input.createdAtMs : Date.now();
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const candidate = makeId('policy', new Date(seedMs + attempt));
+    if (input.reservedIds.has(candidate)) continue;
+    input.reservedIds.add(candidate);
+    return candidate;
+  }
+  throw new Error('Failed to allocate canonical policy id');
+}
+
+async function planPolicyIdMigrations(q: Queryable): Promise<PolicyIdMigrationPlan[]> {
+  const out = await q.query(
+    `SELECT namespace,
+            org_id,
+            id,
+            created_at_ms,
+            is_system_default,
+            ROW_NUMBER() OVER (
+              PARTITION BY namespace, id
+              ORDER BY created_at_ms ASC, org_id ASC, id ASC
+            ) AS namespace_id_rank
+       FROM console_policies
+      ORDER BY namespace ASC, org_id ASC, created_at_ms ASC, id ASC`,
+    [],
+  );
+  const rows = out.rows.map((row) => ({
+    createdAtMs: Math.max(0, toNumber((row as PgRow).created_at_ms)),
+    id: String((row as PgRow).id || ''),
+    isSystemDefault: parseBoolean((row as PgRow).is_system_default),
+    namespace: String((row as PgRow).namespace || ''),
+    namespaceIdRank: Math.max(1, toNumber((row as PgRow).namespace_id_rank)),
+    orgId: String((row as PgRow).org_id || ''),
+  }));
+  const reservedIdsByNamespace = new Map<string, Set<string>>();
+  const rowsByOrg = new Map<string, ExistingPolicyRow[]>();
+  for (const row of rows) {
+    if (!reservedIdsByNamespace.has(row.namespace)) {
+      reservedIdsByNamespace.set(row.namespace, new Set<string>());
+    }
+    reservedIdsByNamespace.get(row.namespace)!.add(row.id);
+    const orgKey = buildOrgKey(row.namespace, row.orgId);
+    if (!rowsByOrg.has(orgKey)) rowsByOrg.set(orgKey, []);
+    rowsByOrg.get(orgKey)!.push(row);
+  }
+
+  const plans: PolicyIdMigrationPlan[] = [];
+  for (const orgRows of rowsByOrg.values()) {
+    const namespace = orgRows[0]?.namespace || '';
+    const orgId = orgRows[0]?.orgId || '';
+    const legacyDefaultPolicyId = `${orgId}:policy:default`;
+    const reservedIds = reservedIdsByNamespace.get(namespace);
+    if (!namespace || !orgId || !reservedIds) continue;
+
+    const legacyDefaultRow = orgRows.find((row) => row.id === legacyDefaultPolicyId) || null;
+    const systemDefaultRow = orgRows.find((row) => row.isSystemDefault) || null;
+    const defaultSource = systemDefaultRow || legacyDefaultRow;
+    const handledSourceIds = new Set<string>();
+
+    if (defaultSource) {
+      const defaultNeedsRewrite =
+        !isCanonicalPolicyId(defaultSource.id, defaultSource.createdAtMs) ||
+        defaultSource.namespaceIdRank > 1;
+      const finalDefaultId = defaultNeedsRewrite
+        ? allocateCanonicalPolicyId({
+            createdAtMs: defaultSource.createdAtMs,
+            reservedIds,
+          })
+        : defaultSource.id;
+      if (defaultSource.id !== finalDefaultId) {
+        plans.push({
+          forceSystemDefault: true,
+          namespace,
+          orgId,
+          sourcePolicyId: defaultSource.id,
+          targetPolicyId: finalDefaultId,
+        });
+      }
+      handledSourceIds.add(defaultSource.id);
+
+      if (legacyDefaultRow && legacyDefaultRow.id !== defaultSource.id) {
+        plans.push({
+          forceSystemDefault: false,
+          namespace,
+          orgId,
+          sourcePolicyId: legacyDefaultRow.id,
+          targetPolicyId: finalDefaultId,
+        });
+        handledSourceIds.add(legacyDefaultRow.id);
+      }
+    }
+
+    for (const row of orgRows) {
+      if (handledSourceIds.has(row.id)) continue;
+      const needsRewrite =
+        !isCanonicalPolicyId(row.id, row.createdAtMs) || row.namespaceIdRank > 1;
+      if (!needsRewrite) continue;
+      plans.push({
+        forceSystemDefault: row.isSystemDefault,
+        namespace,
+        orgId,
+        sourcePolicyId: row.id,
+        targetPolicyId: allocateCanonicalPolicyId({
+          createdAtMs: row.createdAtMs,
+          reservedIds,
+        }),
+      });
+    }
+  }
+
+  return plans;
+}
+
+async function rewritePolicyIdReferences(
+  q: Queryable,
+  input: {
+    migratedAtMs: number;
+    namespace: string;
+    orgId: string;
+    sourcePolicyId: string;
+    targetPolicyId: string;
+    tables: PolicyReferenceTables;
+  },
+): Promise<void> {
+  const { migratedAtMs, namespace, orgId, sourcePolicyId, targetPolicyId, tables } = input;
+
+  await q.query(
+    `UPDATE console_policy_assignments
+        SET policy_id = $4,
+            updated_at_ms = GREATEST(updated_at_ms, $5)
+      WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+    [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+  );
+
+  if (tables.walletIndex) {
+    await q.query(
+      `UPDATE console_wallet_index
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.smartWalletConfigs) {
+    await q.query(
+      `UPDATE console_smart_wallet_configs
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.gasSponsorshipConfigs) {
+    await q.query(
+      `UPDATE console_gas_sponsorship_configs
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.sponsorshipSpendCapWindows) {
+    await q.query(
+      `UPDATE console_sponsorship_spend_cap_windows
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.sponsorshipSpendCapReservations) {
+    await q.query(
+      `UPDATE console_sponsorship_spend_cap_reservations
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.sponsoredCallRecords) {
+    await q.query(
+      `UPDATE console_sponsored_call_records
+          SET policy_id = $4,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.approvals) {
+    await q.query(
+      `UPDATE console_approvals
+          SET resource_id = CASE
+                WHEN resource_type = 'policy' AND resource_id = $3 THEN $4
+                ELSE resource_id
+              END,
+              metadata = CASE
+                WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
+                  THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
+                WHEN COALESCE(metadata->>'policyId', '') = $3
+                  THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
+                WHEN COALESCE(metadata->>'resourceId', '') = $3
+                  THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
+                ELSE metadata
+              END,
+              updated_at_ms = GREATEST(updated_at_ms, $5)
+        WHERE namespace = $1
+          AND org_id = $2
+          AND (
+            (resource_type = 'policy' AND resource_id = $3)
+            OR COALESCE(metadata->>'policyId', '') = $3
+            OR COALESCE(metadata->>'resourceId', '') = $3
+          )`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
+    );
+  }
+
+  if (tables.auditEvents) {
+    await q.query(
+      `UPDATE console_audit_events
+          SET metadata = CASE
+                WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
+                  THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
+                WHEN COALESCE(metadata->>'policyId', '') = $3
+                  THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
+                WHEN COALESCE(metadata->>'resourceId', '') = $3
+                  THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
+                ELSE metadata
+              END,
+              summary = CASE
+                WHEN POSITION($3 IN summary) > 0 THEN replace(summary, $3, $4)
+                ELSE summary
+              END,
+              created_at_ms = created_at_ms
+        WHERE namespace = $1
+          AND org_id = $2
+          AND (
+            COALESCE(metadata->>'policyId', '') = $3
+            OR COALESCE(metadata->>'resourceId', '') = $3
+            OR POSITION($3 IN summary) > 0
+          )`,
+      [namespace, orgId, sourcePolicyId, targetPolicyId],
+    );
+  }
+}
+
+async function migrateStoredPolicyId(
+  q: Queryable,
+  input: PolicyIdMigrationPlan & {
+    migratedAtMs: number;
+    tables: PolicyReferenceTables;
+  },
+): Promise<void> {
+  if (input.sourcePolicyId === input.targetPolicyId) return;
+
+  const source = await queryOne(
+    q,
+    `SELECT *
+       FROM console_policies
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, input.sourcePolicyId],
+  );
+  if (!source) return;
+
+  const sourceIsSystemDefault = parseBoolean(source.is_system_default);
+  const target = await queryOne(
+    q,
+    `SELECT *
+       FROM console_policies
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, input.targetPolicyId],
+  );
+
+  if (!target && (sourceIsSystemDefault || input.forceSystemDefault)) {
+    await q.query(
+      `UPDATE console_policies
+          SET is_system_default = FALSE
+        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+      [input.namespace, input.orgId, input.sourcePolicyId],
+    );
+  }
+
+  if (!target) {
+    await q.query(
+      `INSERT INTO console_policies
+        (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+       SELECT namespace,
+              org_id,
+              $4,
+              name,
+              description,
+              status,
+              version,
+              rules,
+              created_at_ms,
+              updated_at_ms,
+              published_at_ms,
+              $5
+         FROM console_policies
+        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+      [
+        input.namespace,
+        input.orgId,
+        input.sourcePolicyId,
+        input.targetPolicyId,
+        sourceIsSystemDefault || input.forceSystemDefault,
+      ],
+    );
+  } else if (input.forceSystemDefault) {
+    await q.query(
+      `UPDATE console_policies
+          SET is_system_default = TRUE
+        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+      [input.namespace, input.orgId, input.targetPolicyId],
+    );
+  }
+
+  await q.query(
+    `INSERT INTO console_policy_versions
+      (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
+     SELECT namespace, org_id, $4, version, status, rules, published_at_ms, created_at_ms, actor_user_id
+       FROM console_policy_versions
+      WHERE namespace = $1 AND org_id = $2 AND policy_id = $3
+     ON CONFLICT (namespace, org_id, policy_id, version) DO NOTHING`,
+    [input.namespace, input.orgId, input.sourcePolicyId, input.targetPolicyId],
+  );
+
+  await rewritePolicyIdReferences(q, input);
+
+  await q.query(
+    `DELETE FROM console_policies
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, input.sourcePolicyId],
+  );
+}
+
+async function normalizeStoredPolicyIds(pool: PgPool): Promise<void> {
+  const plans = await planPolicyIdMigrations(pool);
+  if (plans.length === 0) return;
+
+  const tables = await detectPolicyReferenceTables(pool);
+  const plansByOrg = new Map<string, PolicyIdMigrationPlan[]>();
+  for (const plan of plans) {
+    const orgKey = buildOrgKey(plan.namespace, plan.orgId);
+    if (!plansByOrg.has(orgKey)) plansByOrg.set(orgKey, []);
+    plansByOrg.get(orgKey)!.push(plan);
+  }
+
+  for (const [orgKey, orgPlans] of plansByOrg.entries()) {
+    const [namespace, orgId] = orgKey.split('\n');
+    await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+      const migratedAtMs = Date.now();
+      for (const plan of orgPlans) {
+        await migrateStoredPolicyId(q, {
+          ...plan,
+          migratedAtMs,
+          tables,
+        });
+      }
+    });
+  }
+}
+
 export interface PostgresConsolePolicySchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -167,11 +622,6 @@ export async function ensureConsolePoliciesPostgresSchema(
     await pool.query(`
       ALTER TABLE console_policies
       ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE
-    `);
-    await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS console_policies_org_system_default_uidx
-      ON console_policies (namespace, org_id)
-      WHERE is_system_default = TRUE
     `);
 
     await pool.query(`
@@ -226,21 +676,36 @@ export async function ensureConsolePoliciesPostgresSchema(
       ON console_policy_assignments (namespace, org_id, scope_type, scope_id)
     `);
 
-    await ensureConsoleTenantRlsPolicies({
-      q: pool,
-      table: 'console_policies',
-      policyName: 'console_policies_tenant_rls',
-    });
-    await ensureConsoleTenantRlsPolicies({
-      q: pool,
-      table: 'console_policy_versions',
-      policyName: 'console_policy_versions_tenant_rls',
-    });
-    await ensureConsoleTenantRlsPolicies({
-      q: pool,
-      table: 'console_policy_assignments',
-      policyName: 'console_policy_assignments_tenant_rls',
-    });
+    await pool.query(`ALTER TABLE console_policies DISABLE ROW LEVEL SECURITY`);
+    try {
+      await normalizeStoredPolicyIds(pool);
+
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS console_policies_org_system_default_uidx
+        ON console_policies (namespace, org_id)
+        WHERE is_system_default = TRUE
+      `);
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS console_policies_namespace_id_uidx
+        ON console_policies (namespace, id)
+      `);
+    } finally {
+      await ensureConsoleTenantRlsPolicies({
+        q: pool,
+        table: 'console_policies',
+        policyName: 'console_policies_tenant_rls',
+      });
+      await ensureConsoleTenantRlsPolicies({
+        q: pool,
+        table: 'console_policy_versions',
+        policyName: 'console_policy_versions_tenant_rls',
+      });
+      await ensureConsoleTenantRlsPolicies({
+        q: pool,
+        table: 'console_policy_assignments',
+        policyName: 'console_policy_assignments_tenant_rls',
+      });
+    }
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_POLICIES_MIGRATION_LOCK_ID]);
@@ -281,11 +746,6 @@ export async function createPostgresConsolePolicyService(
     fn: (q: Queryable) => Promise<T>,
   ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
-  async function tableExists(q: Queryable, tableName: string): Promise<boolean> {
-    const row = await queryOne(q, 'SELECT to_regclass($1) AS regclass', [tableName]);
-    return row?.regclass != null;
-  }
-
   async function findSystemDefaultPolicy(
     q: Queryable,
     ctx: ConsolePoliciesContext,
@@ -311,162 +771,49 @@ export async function createPostgresConsolePolicyService(
     throw new ConsolePolicyError('internal', 500, 'Failed to generate a unique policy id');
   }
 
-  async function migrateLegacyDefaultPolicy(q: Queryable, ctx: ConsolePoliciesContext): Promise<void> {
-    const legacyPolicyId = `${ctx.orgId}:policy:default`;
-    const legacy = await findPolicy(q, { orgId: ctx.orgId, policyId: legacyPolicyId });
-    if (!legacy) return;
-
-    const existingDefault = await findSystemDefaultPolicy(q, ctx);
-    const migratedPolicyId = existingDefault?.id || (await generatePolicyId(q, ctx, nowFn()));
-    const now = nowMs(nowFn());
-
-    if (!existingDefault) {
-      await q.query(
-        `INSERT INTO console_policies
-          (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
-         SELECT namespace, org_id, $4, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, TRUE
-           FROM console_policies
-          WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
-      );
-
-      await q.query(
-        `INSERT INTO console_policy_versions
-          (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
-         SELECT namespace, org_id, $4, version, status, rules, published_at_ms, created_at_ms, actor_user_id
-           FROM console_policy_versions
-          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
-      );
-    }
-
-    await q.query(
-      `UPDATE console_policy_assignments
-          SET policy_id = $4,
-              updated_at_ms = GREATEST(updated_at_ms, $5)
-        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-      [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
-    );
-
-    if (await tableExists(q, 'console_wallet_index')) {
-      await q.query(
-        `UPDATE console_wallet_index
-            SET policy_id = $4,
-                updated_at_ms = GREATEST(updated_at_ms, $5)
-          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
-      );
-    }
-
-    if (await tableExists(q, 'console_smart_wallet_configs')) {
-      await q.query(
-        `UPDATE console_smart_wallet_configs
-            SET policy_id = $4,
-                updated_at_ms = GREATEST(updated_at_ms, $5)
-          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
-      );
-    }
-
-    if (await tableExists(q, 'console_gas_sponsorship_configs')) {
-      await q.query(
-        `UPDATE console_gas_sponsorship_configs
-            SET policy_id = $4,
-                updated_at_ms = GREATEST(updated_at_ms, $5)
-          WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
-      );
-    }
-
-    if (await tableExists(q, 'console_approvals')) {
-      await q.query(
-        `UPDATE console_approvals
-            SET resource_id = CASE
-                  WHEN resource_type = 'policy' AND resource_id = $3 THEN $4
-                  ELSE resource_id
-                END,
-                metadata = CASE
-                  WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
-                    THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
-                  WHEN COALESCE(metadata->>'policyId', '') = $3
-                    THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
-                  WHEN COALESCE(metadata->>'resourceId', '') = $3
-                    THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
-                  ELSE metadata
-                END,
-                updated_at_ms = GREATEST(updated_at_ms, $5)
-          WHERE namespace = $1
-            AND org_id = $2
-            AND (
-              (resource_type = 'policy' AND resource_id = $3)
-              OR COALESCE(metadata->>'policyId', '') = $3
-              OR COALESCE(metadata->>'resourceId', '') = $3
-            )`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId, now],
-      );
-    }
-
-    if (await tableExists(q, 'console_audit_events')) {
-      await q.query(
-        `UPDATE console_audit_events
-            SET metadata = CASE
-                  WHEN COALESCE(metadata->>'policyId', '') = $3 AND COALESCE(metadata->>'resourceId', '') = $3
-                    THEN jsonb_set(jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true), '{resourceId}', to_jsonb($4::text), true)
-                  WHEN COALESCE(metadata->>'policyId', '') = $3
-                    THEN jsonb_set(metadata, '{policyId}', to_jsonb($4::text), true)
-                  WHEN COALESCE(metadata->>'resourceId', '') = $3
-                    THEN jsonb_set(metadata, '{resourceId}', to_jsonb($4::text), true)
-                  ELSE metadata
-                END,
-                summary = CASE
-                  WHEN POSITION($3 IN summary) > 0 THEN replace(summary, $3, $4)
-                  ELSE summary
-                END,
-                created_at_ms = created_at_ms
-          WHERE namespace = $1
-            AND org_id = $2
-            AND (
-              COALESCE(metadata->>'policyId', '') = $3
-              OR COALESCE(metadata->>'resourceId', '') = $3
-              OR POSITION($3 IN summary) > 0
-            )`,
-        [namespace, ctx.orgId, legacyPolicyId, migratedPolicyId],
-      );
-    }
-
-    await q.query(
-      `DELETE FROM console_policies
-        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-      [namespace, ctx.orgId, legacyPolicyId],
-    );
-  }
-
   async function ensureDefaultPolicy(q: Queryable, ctx: ConsolePoliciesContext): Promise<void> {
-    await migrateLegacyDefaultPolicy(q, ctx);
     const existingDefault = await findSystemDefaultPolicy(q, ctx);
     if (existingDefault) return;
 
     const now = nowFn();
     const createdAtMs = nowMs(now);
-    const defaultPolicyId = await generatePolicyId(q, ctx, now);
     const defaultRules = createDefaultConsolePolicyRules();
-
-    await q.query(
-      `INSERT INTO console_policies
-        (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
-       VALUES
-        ($1, $2, $3, $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7, TRUE)
-       ON CONFLICT (namespace, org_id, id) DO NOTHING`,
-      [
-        namespace,
-        ctx.orgId,
-        defaultPolicyId,
-        DEFAULT_POLICY_NAME,
-        DEFAULT_POLICY_DESCRIPTION,
-        JSON.stringify(serializeConsolePolicyRules(defaultRules)),
-        createdAtMs,
-      ],
-    );
+    let defaultPolicyId = '';
+    let inserted = false;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      defaultPolicyId = await generatePolicyId(q, ctx, now);
+      try {
+        await q.query(
+          `INSERT INTO console_policies
+            (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+           VALUES
+            ($1, $2, $3, $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7, TRUE)`,
+          [
+            namespace,
+            ctx.orgId,
+            defaultPolicyId,
+            DEFAULT_POLICY_NAME,
+            DEFAULT_POLICY_DESCRIPTION,
+            JSON.stringify(serializeConsolePolicyRules(defaultRules)),
+            createdAtMs,
+          ],
+        );
+        inserted = true;
+        break;
+      } catch (error: unknown) {
+        if (isUniqueViolation(error)) {
+          const concurrentDefault = await findSystemDefaultPolicy(q, ctx);
+          if (concurrentDefault) return;
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (!inserted) {
+      const concurrentDefault = await findSystemDefaultPolicy(q, ctx);
+      if (concurrentDefault) return;
+      throw new ConsolePolicyError('internal', 500, 'Failed to create default policy');
+    }
 
     await q.query(
       `INSERT INTO console_policy_versions
@@ -598,53 +945,50 @@ export async function createPostgresConsolePolicyService(
         await ensureDefaultPolicy(q, ctx);
         const now = nowFn();
         const createdAtMs = nowMs(now);
-        const policyId = String(request.id || makeId('policy', now)).trim();
         const rules = parseConsolePolicyRulesInput(request.rules);
-        try {
-          const inserted = await queryOne(
-            q,
-            `INSERT INTO console_policies
-              (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
-             VALUES
-              ($1, $2, $3, $4, $5, 'DRAFT', 0, $6::jsonb, $7, $7, NULL, FALSE)
-             RETURNING *`,
-            [
-              namespace,
-              ctx.orgId,
-              policyId,
-              request.name,
-              request.description || null,
-              JSON.stringify(serializeConsolePolicyRules(rules)),
-              createdAtMs,
-            ],
-          );
-          if (!inserted) {
-            throw new ConsolePolicyError('internal', 500, 'Failed to create policy');
-          }
-          const policy = parsePolicyRow(inserted);
-          if (request.assignment) {
-            await upsertPolicyAssignmentRow(
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const policyId = await generatePolicyId(q, ctx, now);
+          try {
+            const inserted = await queryOne(
               q,
-              ctx,
-              {
-                scopeType: request.assignment.scopeType,
-                scopeId: request.assignment.scopeId,
-                policyId: policy.id,
-              },
-              now,
+              `INSERT INTO console_policies
+                (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+               VALUES
+                ($1, $2, $3, $4, $5, 'DRAFT', 0, $6::jsonb, $7, $7, NULL, FALSE)
+               RETURNING *`,
+              [
+                namespace,
+                ctx.orgId,
+                policyId,
+                request.name,
+                request.description || null,
+                JSON.stringify(serializeConsolePolicyRules(rules)),
+                createdAtMs,
+              ],
             );
+            if (!inserted) {
+              throw new ConsolePolicyError('internal', 500, 'Failed to create policy');
+            }
+            const policy = parsePolicyRow(inserted);
+            if (request.assignment) {
+              await upsertPolicyAssignmentRow(
+                q,
+                ctx,
+                {
+                  scopeType: request.assignment.scopeType,
+                  scopeId: request.assignment.scopeId,
+                  policyId: policy.id,
+                },
+                now,
+              );
+            }
+            return policy;
+          } catch (error: unknown) {
+            if (isUniqueViolation(error)) continue;
+            throw error;
           }
-          return policy;
-        } catch (error: unknown) {
-          if (typeof error === 'object' && error && (error as any).code === '23505') {
-            throw new ConsolePolicyError(
-              'policy_already_exists',
-              409,
-              `Policy ${policyId} already exists`,
-            );
-          }
-          throw error;
         }
+        throw new ConsolePolicyError('internal', 500, 'Failed to generate a unique policy id');
       });
     },
 
