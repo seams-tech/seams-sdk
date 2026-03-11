@@ -5,7 +5,11 @@ import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableBadge,
   DashboardTableCell,
+  DashboardTableDetailsGrid,
+  DashboardTableDetailsItem,
+  DashboardTableDetailsPanel,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
@@ -48,7 +52,7 @@ import {
 
 type PolicyScopeType = 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
 type PolicyCreateMode = 'STANDARD' | 'WALLET_OVERRIDE';
-type PolicyModalKind = 'create' | 'view' | 'edit' | 'delete' | 'simulate' | 'publish';
+type PolicyModalKind = 'create' | 'edit' | 'delete' | 'simulate' | 'publish';
 type PolicyStatusFilter = 'ALL' | 'DRAFT' | 'PUBLISHED';
 type PolicyImpactFilter = 'ALL' | 'USED' | 'UNUSED';
 const POLICY_TABLE_COLUMNS = dashboardTableColumns(1.2, 0.8, 1.2, 0.75, 0.85, 1.3);
@@ -93,6 +97,11 @@ interface PolicyRuleReviewRow {
   changed: boolean;
 }
 
+interface PolicyReviewTableRow {
+  label: string;
+  value: React.ReactNode;
+}
+
 const POLICY_ACTIONS = [
   'transfer',
   'contract_call',
@@ -121,6 +130,34 @@ function formatTimestamp(value: string | null | undefined): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return date.toLocaleString();
+}
+
+function formatPolicyStatusLabel(status: DashboardConsolePolicy['status']): string {
+  switch (status) {
+    case 'PUBLISHED':
+      return 'Published';
+    case 'DRAFT':
+      return 'Draft';
+    case 'ARCHIVED':
+      return 'Archived';
+    default:
+      return status;
+  }
+}
+
+function policyStatusBadgeTone(
+  status: DashboardConsolePolicy['status'],
+): 'success' | 'warning' | 'danger' | 'neutral' {
+  switch (status) {
+    case 'PUBLISHED':
+      return 'success';
+    case 'DRAFT':
+      return 'warning';
+    case 'ARCHIVED':
+      return 'danger';
+    default:
+      return 'neutral';
+  }
 }
 
 function defaultPolicyName(createMode: PolicyCreateMode): string {
@@ -367,6 +404,69 @@ function buildPolicyRuleReviewRows(
   ];
 }
 
+function PolicyReviewTable(props: {
+  ariaLabel: string;
+  rows: PolicyReviewTableRow[];
+}): React.JSX.Element {
+  return (
+    <div className="dashboard-policy-go-live__table-wrap">
+      <table className="dashboard-policy-go-live__table" aria-label={props.ariaLabel}>
+        <tbody>
+          {props.rows.map((row) => (
+            <tr key={row.label}>
+              <th scope="row">{row.label}</th>
+              <td>{row.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PolicyRuleComparisonTable(props: {
+  ariaLabel: string;
+  rows: PolicyRuleReviewRow[];
+  nextColumnLabel: string;
+  showLiveColumn: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="dashboard-policy-go-live__table-wrap">
+      <table
+        className="dashboard-policy-go-live__table dashboard-policy-go-live__table--comparison"
+        aria-label={props.ariaLabel}
+      >
+        <thead>
+          <tr>
+            <th scope="col">Rule</th>
+            {props.showLiveColumn ? <th scope="col">Live now</th> : null}
+            <th scope="col">{props.nextColumnLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {props.rows.map((entry) => (
+            <tr
+              key={entry.label}
+              className={entry.changed ? 'dashboard-policy-go-live__comparison-row--changed' : ''}
+            >
+              <th scope="row">
+                <div className="dashboard-policy-go-live__comparison-label">
+                  <span>{entry.label}</span>
+                  <DashboardTableBadge tone={entry.changed ? 'warning' : 'neutral'}>
+                    {entry.changed ? 'Changed' : 'Current'}
+                  </DashboardTableBadge>
+                </div>
+              </th>
+              {props.showLiveColumn ? <td>{entry.live}</td> : null}
+              <td>{entry.next}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function simulationSummary(result: DashboardConsolePolicySimulation): string {
   const chainLabel = result.normalizedRequest.chain || 'any-chain';
   const amountLabel =
@@ -392,6 +492,19 @@ function simulationSummary(result: DashboardConsolePolicySimulation): string {
 function policyCoverageSummary(entry: DashboardPolicyCoverage['policies'][number] | null): string {
   if (!entry) return 'Not currently covering wallets in this scope.';
   return `${entry.walletCount} wallet${entry.walletCount === 1 ? '' : 's'}, total balance ${formatWalletBalanceMinor(entry.totalBalanceMinor)}, last activity ${formatTimestamp(entry.lastActivityAt)}`;
+}
+
+function describePolicyDraftComparison(input: {
+  policy: DashboardConsolePolicy;
+  latestPublishedVersion: DashboardConsolePolicyVersion | null;
+  changedRows: PolicyRuleReviewRow[];
+}): string {
+  if (input.policy.status === 'PUBLISHED') return 'This policy is already live.';
+  if (!input.latestPublishedVersion) return 'This draft has not been published yet.';
+  if (input.changedRows.length === 0) return 'This draft matches the current live rules.';
+  return `This draft changes ${input.changedRows.length} rule section${
+    input.changedRows.length === 1 ? '' : 's'
+  } from the live version.`;
 }
 
 export function PolicyEnginePage(): React.JSX.Element {
@@ -443,6 +556,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [creatingNewPolicy, setCreatingNewPolicy] = React.useState<boolean>(false);
   const [policyCreateMode, setPolicyCreateMode] = React.useState<PolicyCreateMode>('STANDARD');
   const [selectedPolicyId, setSelectedPolicyId] = React.useState<string>('');
+  const [expandedPolicyId, setExpandedPolicyId] = React.useState<string>('');
   const [policyQuery, setPolicyQuery] = React.useState<string>('');
   const [statusFilter, setStatusFilter] = React.useState<PolicyStatusFilter>('ALL');
   const [impactFilter, setImpactFilter] = React.useState<PolicyImpactFilter>('ALL');
@@ -508,6 +622,10 @@ export function PolicyEnginePage(): React.JSX.Element {
   const selectedPolicy = React.useMemo(
     () => policies.find((entry) => entry.id === selectedPolicyId) || null,
     [policies, selectedPolicyId],
+  );
+  const expandedPolicy = React.useMemo(
+    () => policies.find((entry) => entry.id === expandedPolicyId) || null,
+    [expandedPolicyId, policies],
   );
 
   const policyById = React.useMemo(() => {
@@ -582,12 +700,14 @@ export function PolicyEnginePage(): React.JSX.Element {
     for (const entry of coverage?.policies || []) {
       if (entry.policyId) scopedPolicyIds.add(entry.policyId);
     }
+    if (requestedPolicyId) scopedPolicyIds.add(requestedPolicyId);
+    if (expandedPolicyId) scopedPolicyIds.add(expandedPolicyId);
     for (const policy of policies) {
       if (policy.status === 'DRAFT') scopedPolicyIds.add(policy.id);
     }
     const rows = policies.filter((policy) => scopedPolicyIds.has(policy.id));
     return rows.length > 0 ? rows : policies;
-  }, [assignmentsByScope, coverage, policies]);
+  }, [assignmentsByScope, coverage, expandedPolicyId, policies, requestedPolicyId]);
 
   const relevantApprovals = React.useMemo(() => {
     if (!selectedPolicyId) return [];
@@ -629,13 +749,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [policyEditorModalOpen]);
 
   React.useEffect(() => {
-    if (activeModal?.kind !== 'view' && activeModal?.kind !== 'publish') {
-      setPolicyVersionsLoading(false);
-      setPolicyVersionsErrorMessage('');
-      setActivePolicyVersions([]);
-      return;
-    }
-    const policyId = String(activeModal.policyId || '').trim();
+    const policyId = String(expandedPolicyId || '').trim();
     if (!policyId) {
       setPolicyVersionsLoading(false);
       setPolicyVersionsErrorMessage('');
@@ -663,7 +777,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [activeModal]);
+  }, [expandedPolicyId]);
 
   React.useEffect(() => {
     const scrollHost = viewRef.current?.closest('.dashboard-main');
@@ -857,6 +971,15 @@ export function PolicyEnginePage(): React.JSX.Element {
     setSelectedApprovalId(approvedApprovals[0]?.id || '');
   }, [approvedApprovals, relevantApprovals, selectedApprovalId, selectedPolicyId]);
 
+  React.useEffect(() => {
+    if (!requestedPolicyId) return;
+    setPolicyQuery((current) => (current === requestedPolicyId ? current : requestedPolicyId));
+    setStatusFilter('ALL');
+    setImpactFilter('ALL');
+    setExpandedPolicyId((current) => (current === requestedPolicyId ? current : requestedPolicyId));
+    setSelectedPolicyId((current) => (current === requestedPolicyId ? current : requestedPolicyId));
+  }, [requestedPolicyId]);
+
   const openCreatePolicyModal = React.useCallback(() => {
     setCreatingNewPolicy(true);
     setPolicyCreateMode('STANDARD');
@@ -896,6 +1019,7 @@ export function PolicyEnginePage(): React.JSX.Element {
       setCreatingNewPolicy(false);
       setPolicyCreateMode('STANDARD');
       setSelectedPolicyId(policyId);
+      setExpandedPolicyId(policyId);
       if (kind === 'edit') {
         setPolicyDraftScope({
           orgId: orgScopeId,
@@ -920,25 +1044,6 @@ export function PolicyEnginePage(): React.JSX.Element {
     [environmentScopeId, orgScopeId, policyById, projectScopeId],
   );
 
-  const openPolicyModal = React.useCallback(
-    (kind: Exclude<PolicyModalKind, 'create'>, policyId: string) => {
-      if (kind !== 'view') {
-        setPolicyModalState(kind, policyId);
-        return;
-      }
-      const activeQueryPolicyId =
-        typeof window === 'undefined'
-          ? ''
-          : String(new URLSearchParams(window.location.search).get('policyId') || '').trim();
-      if (activeQueryPolicyId === policyId) {
-        setPolicyModalState(kind, policyId);
-        return;
-      }
-      go(`/dashboard/policy-engine?policyId=${encodeURIComponent(policyId)}`);
-    },
-    [go, setPolicyModalState],
-  );
-
   const clearPolicyModalState = React.useCallback(() => {
     setActiveModal(null);
     setSimulationErrorMessage('');
@@ -949,29 +1054,22 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [creatingNewPolicy]);
 
   const closePolicyModal = React.useCallback(() => {
-    const clearRequestedPolicy = activeModal?.kind === 'view' && Boolean(requestedPolicyId);
     clearPolicyModalState();
-    if (clearRequestedPolicy) {
-      go('/dashboard/policy-engine');
-    }
-  }, [activeModal?.kind, clearPolicyModalState, go, requestedPolicyId]);
+  }, [clearPolicyModalState]);
 
-  React.useEffect(() => {
-    if (!requestedPolicyId) {
-      if (activeModal?.kind === 'view') {
-        clearPolicyModalState();
+  const toggleExpandedPolicy = React.useCallback(
+    (policyId: string) => {
+      setSelectedPolicyId(policyId);
+      setExpandedPolicyId((current) => {
+        const nextExpandedPolicyId = current === policyId ? '' : policyId;
+        return nextExpandedPolicyId;
+      });
+      if (requestedPolicyId) {
+        go('/dashboard/policy-engine');
       }
-      return;
-    }
-    if (activeModal?.kind === 'view' && activeModal.policyId === requestedPolicyId) return;
-    setPolicyModalState('view', requestedPolicyId);
-  }, [
-    activeModal?.kind,
-    activeModal?.policyId,
-    clearPolicyModalState,
-    requestedPolicyId,
-    setPolicyModalState,
-  ]);
+    },
+    [go, requestedPolicyId],
+  );
 
   const selectedContextScopeKey = `${orgScopeId}:${projectScopeId}:${environmentScopeId}`;
   const previousSelectedContextScopeKeyRef = React.useRef<string>(selectedContextScopeKey);
@@ -1391,6 +1489,17 @@ export function PolicyEnginePage(): React.JSX.Element {
     () => activeModalRuleReviewRows.filter((entry) => entry.changed),
     [activeModalRuleReviewRows],
   );
+  const activeModalDraftComparisonSummary = React.useMemo(
+    () =>
+      activeModalPolicy
+        ? describePolicyDraftComparison({
+            policy: activeModalPolicy,
+            latestPublishedVersion,
+            changedRows: changedActiveModalRuleReviewRows,
+          })
+        : '',
+    [activeModalPolicy, changedActiveModalRuleReviewRows, latestPublishedVersion],
+  );
   const activeModalScopeUsageLabels = React.useMemo(
     () => (activeModalPolicy ? policyScopeUsageLabels(activeModalPolicy) : []),
     [activeModalPolicy, policyScopeUsageLabels],
@@ -1404,6 +1513,98 @@ export function PolicyEnginePage(): React.JSX.Element {
     if (activeModalPolicy.status === 'PUBLISHED') return activeModalPolicy.version;
     return latestPublishedVersion ? latestPublishedVersion.version + 1 : 1;
   }, [activeModalPolicy, latestPublishedVersion]);
+  const activeModalReviewRows = React.useMemo<PolicyReviewTableRow[]>(
+    () =>
+      activeModalPolicy
+        ? [
+            {
+              label: 'Policy',
+              value: (
+                <span className="dashboard-policy-go-live__value-stack">
+                  <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong>
+                  <code>{activeModalPolicy.id}</code>
+                </span>
+              ),
+            },
+            {
+              label: 'Current live version',
+              value: policyVersionsLoading
+                ? 'Loading current live version...'
+                : policyVersionsErrorMessage
+                  ? `Unavailable: ${policyVersionsErrorMessage}`
+                  : latestPublishedVersion
+                    ? `v${latestPublishedVersion.version} published ${formatTimestamp(
+                        latestPublishedVersion.publishedAt,
+                      )}`
+                    : 'Not live yet',
+            },
+            {
+              label: 'Next live version',
+              value: `v${nextLiveVersion}`,
+            },
+            {
+              label: 'Scope affected',
+              value:
+                activeModalScopeUsageLabels.length > 0
+                  ? activeModalScopeUsageLabels.join(', ')
+                  : 'Not attached in the current org, project, and environment selection',
+            },
+            {
+              label: 'Wallet impact',
+              value: coverageLoading
+                ? 'Loading current impact...'
+                : coverageErrorMessage
+                  ? `Unavailable: ${coverageErrorMessage}`
+                  : activeModalCoverageEntry
+                    ? `${activeModalCoverageEntry.walletCount} wallet${
+                        activeModalCoverageEntry.walletCount === 1 ? '' : 's'
+                      } currently use this policy`
+                    : 'Unused in the current scope',
+            },
+          ]
+        : [],
+    [
+      activeModalCoverageEntry,
+      activeModalPolicy,
+      activeModalScopeUsageLabels,
+      coverageErrorMessage,
+      coverageLoading,
+      latestPublishedVersion,
+      nextLiveVersion,
+      policyVersionsErrorMessage,
+      policyVersionsLoading,
+    ],
+  );
+  const expandedPolicyRuleReviewRows = React.useMemo(
+    () =>
+      expandedPolicy
+        ? buildPolicyRuleReviewRows(latestPublishedVersion?.rules || null, expandedPolicy.rules)
+        : [],
+    [expandedPolicy, latestPublishedVersion],
+  );
+  const changedExpandedPolicyRuleReviewRows = React.useMemo(
+    () => expandedPolicyRuleReviewRows.filter((entry) => entry.changed),
+    [expandedPolicyRuleReviewRows],
+  );
+  const expandedPolicyScopeUsageLabels = React.useMemo(
+    () => (expandedPolicy ? policyScopeUsageLabels(expandedPolicy) : []),
+    [expandedPolicy, policyScopeUsageLabels],
+  );
+  const expandedPolicyCoverageEntry = React.useMemo(
+    () => (expandedPolicy ? coverageByPolicyId.get(expandedPolicy.id) || null : null),
+    [coverageByPolicyId, expandedPolicy],
+  );
+  const expandedPolicyDraftComparisonSummary = React.useMemo(
+    () =>
+      expandedPolicy
+        ? describePolicyDraftComparison({
+            policy: expandedPolicy,
+            latestPublishedVersion,
+            changedRows: changedExpandedPolicyRuleReviewRows,
+          })
+        : '',
+    [changedExpandedPolicyRuleReviewRows, expandedPolicy, latestPublishedVersion],
+  );
   const policyActionToggleOptions = POLICY_ACTIONS.filter((entry) => entry !== 'contract_call');
   const addContractCallRule = React.useCallback(() => {
     setPolicyEditorForm((current) => ({
@@ -1681,71 +1882,237 @@ export function PolicyEnginePage(): React.JSX.Element {
               {policiesPagination.rows.map((policy) => {
                 const isDefaultPolicy = policy.isSystemDefault;
                 const coverageEntry = coverageByPolicyId.get(policy.id) || null;
+                const isExpanded = expandedPolicyId === policy.id;
                 return (
-                  <DashboardTableRow className="dashboard-policy-table__row" key={policy.id}>
-                    <DashboardTableCell title={policy.id}>
-                      <div className="dashboard-policy-table__policy">
-                        <strong className="dashboard-data-table__summary">
-                          {policy.name || policy.id}
-                        </strong>
-                        <code className="dashboard-policy-table__policy-id">{policy.id}</code>
+                  <React.Fragment key={policy.id}>
+                    <DashboardTableRow
+                      className={
+                        isExpanded
+                          ? 'dashboard-policy-table__row dashboard-policy-table__row--expanded'
+                          : 'dashboard-policy-table__row'
+                      }
+                    >
+                      <DashboardTableCell title={policy.id}>
+                        <div className="dashboard-policy-table__policy">
+                          <strong className="dashboard-data-table__summary">
+                            {policy.name || policy.id}
+                          </strong>
+                          <code className="dashboard-policy-table__policy-id">{policy.id}</code>
+                        </div>
+                      </DashboardTableCell>
+                      <DashboardTableCell>
+                        <DashboardTableBadge tone={policyStatusBadgeTone(policy.status)}>
+                          {formatPolicyStatusLabel(policy.status)}
+                        </DashboardTableBadge>
+                        <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
+                          v{policy.version}
+                        </span>
+                      </DashboardTableCell>
+                      <DashboardTableCell title={policyContextUsage(policy)}>
+                        {policyContextUsage(policy)}
+                      </DashboardTableCell>
+                      <DashboardTableCell>
+                        {coverageEntry
+                          ? `${coverageEntry.walletCount} wallet${
+                              coverageEntry.walletCount === 1 ? '' : 's'
+                            }`
+                          : 'Unused'}
+                      </DashboardTableCell>
+                      <DashboardTableCell truncate>
+                        {formatTimestamp(policy.updatedAt)}
+                      </DashboardTableCell>
+                      <DashboardTableCell>
+                        <DashboardTableActionGroup>
+                          <DashboardTableActionButton
+                            className="dashboard-policy-table__toggle"
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleExpandedPolicy(policy.id)}
+                          >
+                            {isExpanded ? 'Hide' : 'Details'}
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => setPolicyModalState('edit', policy.id)}
+                            disabled={!canMutatePolicies}
+                          >
+                            Edit
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => setPolicyModalState('simulate', policy.id)}
+                          >
+                            Simulate
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => setPolicyModalState('publish', policy.id)}
+                            disabled={!canMutatePolicies}
+                          >
+                            Go live
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            tone="danger"
+                            onClick={() => setPolicyModalState('delete', policy.id)}
+                            disabled={!canMutatePolicies || isDefaultPolicy}
+                            title={
+                              isDefaultPolicy
+                                ? 'The organization default policy cannot be deleted.'
+                                : ''
+                            }
+                          >
+                            Delete
+                          </DashboardTableActionButton>
+                        </DashboardTableActionGroup>
+                      </DashboardTableCell>
+                    </DashboardTableRow>
+                    <DashboardTableDetailsPanel
+                      className={
+                        isExpanded
+                          ? 'dashboard-policy-table__details-panel is-expanded'
+                          : 'dashboard-policy-table__details-panel'
+                      }
+                      aria-hidden={!isExpanded}
+                    >
+                      <div className="dashboard-policy-table__details-content">
+                        {expandedPolicy?.id === policy.id ? (
+                          <div className="dashboard-policy-view">
+                            <header className="dashboard-policy-view__hero">
+                              <div className="dashboard-policy-view__hero-copy">
+                                <p className="dashboard-policy-view__eyebrow">Policy details</p>
+                                <h3>{expandedPolicy.name || expandedPolicy.id}</h3>
+                                <p className="dashboard-pagination-note">
+                                  {expandedPolicy.description
+                                    ? expandedPolicy.description
+                                    : expandedPolicy.isSystemDefault
+                                      ? 'Default live policy for this organization.'
+                                      : expandedPolicyDraftComparisonSummary}
+                                </p>
+                              </div>
+                              <div className="dashboard-policy-view__badges">
+                                <DashboardTableBadge
+                                  tone={policyStatusBadgeTone(expandedPolicy.status)}
+                                >
+                                  {formatPolicyStatusLabel(expandedPolicy.status)}
+                                </DashboardTableBadge>
+                                <DashboardTableBadge tone="neutral">
+                                  v{expandedPolicy.version}
+                                </DashboardTableBadge>
+                                {expandedPolicy.isSystemDefault ? (
+                                  <DashboardTableBadge tone="neutral">
+                                    System default
+                                  </DashboardTableBadge>
+                                ) : null}
+                              </div>
+                            </header>
+
+                            <DashboardTableDetailsGrid>
+                              <DashboardTableDetailsItem label="Policy ID">
+                                <code>{expandedPolicy.id}</code>
+                              </DashboardTableDetailsItem>
+                              <DashboardTableDetailsItem label="Live version">
+                                <span>
+                                  {policyVersionsLoading
+                                    ? 'Loading...'
+                                    : policyVersionsErrorMessage
+                                      ? `Unavailable: ${policyVersionsErrorMessage}`
+                                      : latestPublishedVersion
+                                        ? `v${latestPublishedVersion.version} published ${formatTimestamp(
+                                            latestPublishedVersion.publishedAt,
+                                          )}`
+                                        : 'Not live yet'}
+                                </span>
+                              </DashboardTableDetailsItem>
+                              <DashboardTableDetailsItem label="Current scope">
+                                <span>
+                                  {expandedPolicyScopeUsageLabels.length > 0
+                                    ? expandedPolicyScopeUsageLabels.join(', ')
+                                    : 'Draft only'}
+                                </span>
+                              </DashboardTableDetailsItem>
+                              <DashboardTableDetailsItem label="Coverage">
+                                <span>
+                                  {coverageLoading
+                                    ? 'Loading current impact...'
+                                    : coverageErrorMessage
+                                      ? `Unavailable: ${coverageErrorMessage}`
+                                      : policyCoverageSummary(expandedPolicyCoverageEntry)}
+                                </span>
+                              </DashboardTableDetailsItem>
+                              <DashboardTableDetailsItem label="Published">
+                                <span>{formatTimestamp(expandedPolicy.publishedAt)}</span>
+                              </DashboardTableDetailsItem>
+                              <DashboardTableDetailsItem label="Updated">
+                                <span>{formatTimestamp(expandedPolicy.updatedAt)}</span>
+                              </DashboardTableDetailsItem>
+                            </DashboardTableDetailsGrid>
+
+                            <section className="dashboard-view-card dashboard-policy-view__section">
+                              <div className="dashboard-policy-view__section-header">
+                                <div>
+                                  <h3>Rules</h3>
+                                  <p className="dashboard-pagination-note">
+                                    Current policy behavior by rule section.
+                                  </p>
+                                </div>
+                                <p className="dashboard-policy-view__summary">
+                                  {rulesSummary(expandedPolicy)}
+                                </p>
+                              </div>
+                              <div className="dashboard-policy-view__rule-grid">
+                                {expandedPolicyRuleReviewRows.map((entry) => (
+                                  <article
+                                    key={`${expandedPolicy.id}:${entry.label}`}
+                                    className={`dashboard-policy-view__rule-card${
+                                      entry.changed
+                                        ? ' dashboard-policy-view__rule-card--changed'
+                                        : ''
+                                    }`}
+                                  >
+                                    <div className="dashboard-policy-view__rule-card-header">
+                                      <p className="dashboard-policy-view__rule-label">
+                                        {entry.label}
+                                      </p>
+                                      <DashboardTableBadge
+                                        tone={entry.changed ? 'warning' : 'neutral'}
+                                      >
+                                        {entry.changed ? 'Changed' : 'Current'}
+                                      </DashboardTableBadge>
+                                    </div>
+                                    <p className="dashboard-policy-view__rule-value">{entry.next}</p>
+                                    {expandedPolicy.status !== 'PUBLISHED' &&
+                                    latestPublishedVersion ? (
+                                      <p className="dashboard-policy-view__rule-compare">
+                                        Live: {entry.live}
+                                      </p>
+                                    ) : null}
+                                  </article>
+                                ))}
+                              </div>
+                            </section>
+
+                            <section className="dashboard-view-card dashboard-policy-view__section">
+                              <div className="dashboard-policy-view__section-header">
+                                <div>
+                                  <h3>Change summary</h3>
+                                  <p className="dashboard-pagination-note">
+                                    {expandedPolicyDraftComparisonSummary}
+                                  </p>
+                                </div>
+                              </div>
+                              {expandedPolicy.status !== 'PUBLISHED' &&
+                              latestPublishedVersion &&
+                              changedExpandedPolicyRuleReviewRows.length > 0 ? (
+                                <ul className="dashboard-view-list dashboard-policy-view__changes">
+                                  {changedExpandedPolicyRuleReviewRows.map((entry) => (
+                                    <li key={`${expandedPolicy.id}:change:${entry.label}`}>
+                                      <strong>{entry.label}</strong> {entry.live} {'->'} {entry.next}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </section>
+                          </div>
+                        ) : null}
                       </div>
-                    </DashboardTableCell>
-                    <DashboardTableCell>
-                      {policy.status} v{policy.version}
-                    </DashboardTableCell>
-                    <DashboardTableCell title={policyContextUsage(policy)}>
-                      {policyContextUsage(policy)}
-                    </DashboardTableCell>
-                    <DashboardTableCell>
-                      {coverageEntry
-                        ? `${coverageEntry.walletCount} wallet${
-                            coverageEntry.walletCount === 1 ? '' : 's'
-                          }`
-                        : 'Unused'}
-                    </DashboardTableCell>
-                    <DashboardTableCell truncate>
-                      {formatTimestamp(policy.updatedAt)}
-                    </DashboardTableCell>
-                    <DashboardTableCell>
-                      <DashboardTableActionGroup>
-                        <DashboardTableActionButton
-                          onClick={() => openPolicyModal('view', policy.id)}
-                        >
-                          View
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => openPolicyModal('edit', policy.id)}
-                          disabled={!canMutatePolicies}
-                        >
-                          Edit
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => openPolicyModal('simulate', policy.id)}
-                        >
-                          Simulate
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => openPolicyModal('publish', policy.id)}
-                          disabled={!canMutatePolicies}
-                        >
-                          Go live
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          tone="danger"
-                          onClick={() => openPolicyModal('delete', policy.id)}
-                          disabled={!canMutatePolicies || isDefaultPolicy}
-                          title={
-                            isDefaultPolicy
-                              ? 'The organization default policy cannot be deleted.'
-                              : ''
-                          }
-                        >
-                          Delete
-                        </DashboardTableActionButton>
-                      </DashboardTableActionGroup>
-                    </DashboardTableCell>
-                  </DashboardTableRow>
+                    </DashboardTableDetailsPanel>
+                  </React.Fragment>
                 );
               })}
             </>
@@ -1761,15 +2128,13 @@ export function PolicyEnginePage(): React.JSX.Element {
           ariaLabel={
             activeModal.kind === 'create'
               ? 'Create policy modal'
-              : activeModal.kind === 'view'
-                ? 'View policy modal'
-                : activeModal.kind === 'edit'
-                  ? 'Edit policy modal'
-                  : activeModal.kind === 'delete'
-                      ? 'Delete policy modal'
-                      : activeModal.kind === 'simulate'
-                        ? 'Simulate policy modal'
-                        : 'Schedule live policy change modal'
+              : activeModal.kind === 'edit'
+                ? 'Edit policy modal'
+                : activeModal.kind === 'delete'
+                  ? 'Delete policy modal'
+                  : activeModal.kind === 'simulate'
+                    ? 'Simulate policy modal'
+                    : 'Schedule live policy change modal'
           }
         >
             {activeModal.kind === 'create' || activeModal.kind === 'edit' ? (
@@ -2090,94 +2455,6 @@ export function PolicyEnginePage(): React.JSX.Element {
               </>
             ) : null}
 
-            {activeModal.kind === 'view' ? (
-              policiesLoading && !activeModalPolicy ? (
-                <p className="dashboard-pagination-note">Loading policy details...</p>
-              ) : activeModalPolicy ? (
-                <>
-                  <h2>Policy details</h2>
-                  <p className="dashboard-pagination-note">
-                    <code>{activeModalPolicy.id}</code>
-                  </p>
-                  <ul className="dashboard-view-list">
-                    <li>
-                      <strong>Name</strong> {activeModalPolicy.name || activeModalPolicy.id}
-                    </li>
-                    <li>
-                      <strong>Status</strong> {activeModalPolicy.status} v
-                      {activeModalPolicy.version}
-                    </li>
-                    <li>
-                      <strong>Current live version</strong>{' '}
-                      {policyVersionsLoading
-                        ? 'Loading current live version...'
-                        : policyVersionsErrorMessage
-                          ? `Unavailable: ${policyVersionsErrorMessage}`
-                          : latestPublishedVersion
-                            ? `v${latestPublishedVersion.version} published ${formatTimestamp(
-                                latestPublishedVersion.publishedAt,
-                              )}`
-                            : 'Not live yet'}
-                    </li>
-                    <li>
-                      <strong>Current scope usage</strong> {policyContextUsage(activeModalPolicy)}
-                    </li>
-                    <li>
-                      <strong>Draft compared with live</strong>{' '}
-                      {activeModalPolicy.status === 'PUBLISHED'
-                        ? 'This policy is already live.'
-                        : !latestPublishedVersion
-                          ? 'This draft has not been published yet.'
-                          : changedActiveModalRuleReviewRows.length > 0
-                            ? `${changedActiveModalRuleReviewRows.length} rule section${
-                                changedActiveModalRuleReviewRows.length === 1 ? '' : 's'
-                              } differ from live.`
-                            : 'This draft matches the current live rules.'}
-                    </li>
-                    <li>
-                      <strong>Rules</strong> {rulesSummary(activeModalPolicy)}
-                    </li>
-                    <li>
-                      <strong>Published</strong> {formatTimestamp(activeModalPolicy.publishedAt)}
-                    </li>
-                    <li>
-                      <strong>Updated</strong> {formatTimestamp(activeModalPolicy.updatedAt)}
-                    </li>
-                    <li>
-                      <strong>Coverage</strong>{' '}
-                      {coverageLoading
-                        ? 'Loading current impact...'
-                        : coverageErrorMessage
-                          ? `Unavailable: ${coverageErrorMessage}`
-                          : policyCoverageSummary(
-                              coverageByPolicyId.get(activeModalPolicy.id) || null,
-                            )}
-                    </li>
-                  </ul>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                    >
-                      Close
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p className="dashboard-pagination-note">
-                  Policy details are unavailable
-                  {activeModal.policyId ? (
-                    <>
-                      {' '}
-                      for <code>{activeModal.policyId}</code>
-                    </>
-                  ) : null}
-                  .
-                </p>
-              )
-            ) : null}
-
             {activeModal.kind === 'simulate' ? (
               activeModalPolicy ? (
                 <>
@@ -2328,49 +2605,29 @@ export function PolicyEnginePage(): React.JSX.Element {
                     Review what will change for this policy in the current dashboard context before
                     requesting approvals or publishing it live.
                   </p>
-                  <ul className="dashboard-view-list">
-                    <li>
-                      <strong>Policy</strong> {activeModalPolicy.name || activeModalPolicy.id} (
-                      <code>{activeModalPolicy.id}</code>)
-                    </li>
-                    <li>
-                      <strong>Current live version</strong>{' '}
-                      {policyVersionsLoading
-                        ? 'Loading current live version...'
-                        : policyVersionsErrorMessage
-                          ? `Unavailable: ${policyVersionsErrorMessage}`
-                          : latestPublishedVersion
-                            ? `v${latestPublishedVersion.version} published ${formatTimestamp(
-                                latestPublishedVersion.publishedAt,
-                              )}`
-                            : 'Not live yet'}
-                    </li>
-                    <li>
-                      <strong>Next live version</strong> v{nextLiveVersion}
-                    </li>
-                    <li>
-                      <strong>Scope affected</strong>{' '}
-                      {activeModalScopeUsageLabels.length > 0
-                        ? activeModalScopeUsageLabels.join(', ')
-                        : 'Not attached in the current org, project, and environment selection'}
-                    </li>
-                    <li>
-                      <strong>Wallet impact</strong>{' '}
-                      {coverageLoading
-                        ? 'Loading current impact...'
-                        : coverageErrorMessage
-                          ? `Unavailable: ${coverageErrorMessage}`
-                          : activeModalCoverageEntry
-                            ? `${activeModalCoverageEntry.walletCount} wallet${
-                                activeModalCoverageEntry.walletCount === 1 ? '' : 's'
-                              } currently use this policy`
-                            : 'Unused in the current scope'}
-                    </li>
-                  </ul>
+                  <section className="dashboard-policy-view__section dashboard-policy-go-live__section">
+                    <div className="dashboard-policy-view__section-header">
+                      <div>
+                        <h3>Release context</h3>
+                        <p className="dashboard-pagination-note">
+                          The policy, scope, and current live baseline for this publish.
+                        </p>
+                      </div>
+                    </div>
+                    <PolicyReviewTable
+                      ariaLabel="Go live review context"
+                      rows={activeModalReviewRows}
+                    />
+                  </section>
                   <div className="dashboard-modal-divider">
-                    <p className="dashboard-pagination-note">
-                      <strong>Change summary</strong>
-                    </p>
+                    <div className="dashboard-policy-view__section-header">
+                      <div>
+                        <h3>Change summary</h3>
+                        <p className="dashboard-pagination-note">
+                          {activeModalDraftComparisonSummary}
+                        </p>
+                      </div>
+                    </div>
                     {policyVersionsLoading ? (
                       <p className="dashboard-pagination-note">Loading live-rule comparison...</p>
                     ) : policyVersionsErrorMessage ? (
@@ -2379,13 +2636,12 @@ export function PolicyEnginePage(): React.JSX.Element {
                       </p>
                     ) : latestPublishedVersion ? (
                       changedActiveModalRuleReviewRows.length > 0 ? (
-                        <ul className="dashboard-view-list">
-                          {changedActiveModalRuleReviewRows.map((entry) => (
-                            <li key={entry.label}>
-                              <strong>{entry.label}</strong> {entry.live} {'->'} {entry.next}
-                            </li>
-                          ))}
-                        </ul>
+                        <PolicyRuleComparisonTable
+                          ariaLabel="Go live rule changes"
+                          rows={changedActiveModalRuleReviewRows}
+                          nextColumnLabel="Go live"
+                          showLiveColumn
+                        />
                       ) : (
                         <p className="dashboard-pagination-note">
                           This draft matches the current live rule set. Publishing again will not
@@ -2393,13 +2649,12 @@ export function PolicyEnginePage(): React.JSX.Element {
                         </p>
                       )
                     ) : (
-                      <ul className="dashboard-view-list">
-                        {activeModalRuleReviewRows.map((entry) => (
-                          <li key={entry.label}>
-                            <strong>{entry.label}</strong> {entry.next}
-                          </li>
-                        ))}
-                      </ul>
+                      <PolicyRuleComparisonTable
+                        ariaLabel="Initial live rule set"
+                        rows={activeModalRuleReviewRows}
+                        nextColumnLabel="Go live"
+                        showLiveColumn={false}
+                      />
                     )}
                   </div>
                   <div className="dashboard-modal-divider">
