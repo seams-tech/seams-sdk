@@ -18,7 +18,7 @@
     "test:wallet-iframe": "USE_RELAY_SERVER=0 playwright test ./wallet-iframe --reporter=line",
     "test:lit-components": "USE_RELAY_SERVER=0 playwright test ./lit-components --reporter=line",
     "test:relayer": "playwright test -c playwright.relayer.config.ts --reporter=line",
-    "test:relayer:console-postgres": "playwright test -c playwright.relayer.config.ts ./relayer/console-router.test.ts ./relayer/console-tenant-isolation.postgres.test.ts --reporter=line",
+    "test:relayer:console-postgres": "node ./scripts/run-relayer-console-postgres.mjs",
     "test:unit:relay-server-scripts": "playwright test -c playwright.scripts.config.ts --reporter=line",
     "show-report": "playwright show-report"
   },
