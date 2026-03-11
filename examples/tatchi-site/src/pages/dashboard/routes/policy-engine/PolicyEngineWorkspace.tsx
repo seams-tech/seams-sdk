@@ -1684,11 +1684,12 @@ export function PolicyEnginePage(): React.JSX.Element {
                 return (
                   <DashboardTableRow className="dashboard-policy-table__row" key={policy.id}>
                     <DashboardTableCell title={policy.id}>
-                      <strong className="dashboard-data-table__summary">
-                        {policy.name || policy.id}
-                      </strong>
-                      <br />
-                      <code>{policy.id}</code>
+                      <div className="dashboard-policy-table__policy">
+                        <strong className="dashboard-data-table__summary">
+                          {policy.name || policy.id}
+                        </strong>
+                        <code className="dashboard-policy-table__policy-id">{policy.id}</code>
+                      </div>
                     </DashboardTableCell>
                     <DashboardTableCell>
                       {policy.status} v{policy.version}

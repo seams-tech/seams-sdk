@@ -1067,6 +1067,20 @@
   color: var(--dashboard-ink);
 }
 
+.dashboard-policy-table__policy {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.dashboard-policy-table__policy-id {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--dashboard-ink) 82%, var(--dashboard-ink-soft) 18%);
+  overflow-wrap: anywhere;
+}
+
 .dashboard-data-table__subline {
   display: flex;
   flex-wrap: wrap;
