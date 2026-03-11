@@ -488,7 +488,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('billing invoice finalization failures emit billing observability events (express)', async () => {
+  test('billing document finalization failures emit billing observability events (express)', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -3506,12 +3506,12 @@ test.describe('console router (express)', () => {
       const policyRows = Array.isArray(getPath(walletCoverage.json, 'coverage', 'policies'))
         ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
         : [];
-      expect(
-        policyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId),
-      ).toBe(true);
-      expect(
-        policyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId),
-      ).toBe(false);
+      expect(policyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId)).toBe(
+        true,
+      );
+      expect(policyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId)).toBe(
+        false,
+      );
 
       const publishWalletPolicy = await fetchJson(
         `${adminServer.baseUrl}/console/policies/${encodeURIComponent(walletPolicyId)}/publish`,
@@ -3527,9 +3527,9 @@ test.describe('console router (express)', () => {
       const livePolicyRows = Array.isArray(getPath(liveWalletCoverage.json, 'coverage', 'policies'))
         ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
         : [];
-      expect(
-        livePolicyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId),
-      ).toBe(true);
+      expect(livePolicyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId)).toBe(
+        true,
+      );
 
       const removedWalletAssignment = await fetchJson(
         `${adminServer.baseUrl}/console/policies/assignments/${encodeURIComponent(walletAssignmentId)}`,
@@ -3549,9 +3549,7 @@ test.describe('console router (express)', () => {
         ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
         : [];
       expect(
-        projectPolicyRows.some(
-          (entry) => String(entry?.policyId || '') === projectPolicyId,
-        ),
+        projectPolicyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId),
       ).toBe(true);
     } finally {
       await adminServer.close();
@@ -4478,7 +4476,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
+  test('GET /console/billing/invoices/:id/pdf returns billing document PDF export', async () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
@@ -4857,7 +4855,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('billing invoice generation emits webhook events when webhook endpoint is configured', async () => {
+  test('billing document generation emits webhook events when webhook endpoint is configured', async () => {
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
       dispatcher: {
@@ -5193,7 +5191,7 @@ test.describe('console router (cloudflare)', () => {
     expect(routerTiming).toBeTruthy();
   });
 
-  test('cloudflare billing invoice finalization failures emit billing observability events', async () => {
+  test('cloudflare billing document finalization failures emit billing observability events', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
@@ -7902,15 +7900,11 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(walletCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
-      walletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === projectPolicyId,
-      ),
+      walletPolicyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId),
     ).toBe(true);
-    expect(
-      walletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === walletPolicyId,
-      ),
-    ).toBe(false);
+    expect(walletPolicyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId)).toBe(
+      false,
+    );
 
     const publishWalletPolicy = await callCf(adminHandler, {
       method: 'POST',
@@ -7929,9 +7923,7 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(liveWalletCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
-      liveWalletPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === walletPolicyId,
-      ),
+      liveWalletPolicyRows.some((entry) => String(entry?.policyId || '') === walletPolicyId),
     ).toBe(true);
 
     const removedWalletAssignment = await callCf(adminHandler, {
@@ -7950,9 +7942,7 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(projectCoverage.json, 'coverage', 'policies') as any[])
       : [];
     expect(
-      projectPolicyRows.some(
-        (entry) => String(entry?.policyId || '') === projectPolicyId,
-      ),
+      projectPolicyRows.some((entry) => String(entry?.policyId || '') === projectPolicyId),
     ).toBe(true);
 
     const developerHandler = createCloudflareConsoleRouter({
@@ -8784,7 +8774,7 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
   });
 
-  test('GET /console/billing/invoices/:id/pdf returns invoice PDF export', async () => {
+  test('GET /console/billing/invoices/:id/pdf returns billing document PDF export', async () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
@@ -8843,7 +8833,7 @@ test.describe('console router (cloudflare)', () => {
     expect(missing.json?.code).toBe('invoice_not_found');
   });
 
-  test('cloudflare billing invoices support server-side filters, pagination, and activity', async () => {
+  test('cloudflare billing documents support server-side filters, pagination, and activity', async () => {
     let current = new Date('2026-01-20T00:00:00.000Z');
     const billing = createInMemoryConsoleBillingService({
       now: () => current,
@@ -9090,7 +9080,7 @@ test.describe('console router (cloudflare)', () => {
     expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
   });
 
-  test('cloudflare billing invoice generation emits webhook events', async () => {
+  test('cloudflare billing document generation emits webhook events', async () => {
     const billing = createInMemoryConsoleBillingService();
     const webhooks = createInMemoryConsoleWebhookService({
       dispatcher: {

@@ -25,9 +25,10 @@ async function fulfillJson(route: Route, body: unknown, status = 200): Promise<v
 
 async function routeWorkspaceScaffold(
   page: Page,
-  consoleOrigin: string,
+  _consoleOrigin: string,
   input: {
     userId: string;
+    roles?: string[];
     org: Record<string, unknown>;
     project: Record<string, unknown>;
     environment: Record<string, unknown>;
@@ -39,7 +40,7 @@ async function routeWorkspaceScaffold(
     ) => Promise<boolean>;
   },
 ): Promise<void> {
-  await page.route(`${consoleOrigin}/console/**`, async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/console\/.*/i, async (route) => {
     const req = route.request();
     const method = req.method().toUpperCase();
     const url = new URL(req.url());
@@ -51,9 +52,36 @@ async function routeWorkspaceScaffold(
         claims: {
           userId: input.userId,
           orgId: String(input.org.id || ''),
-          roles: ['admin'],
+          roles: Array.isArray(input.roles) && input.roles.length > 0 ? input.roles : ['admin'],
           projectId: String(input.project.id || ''),
           environmentId: String(input.environment.id || ''),
+        },
+      });
+      return;
+    }
+
+    if (pathname === '/console/onboarding/state') {
+      await fulfillJson(route, {
+        ok: true,
+        state: {
+          orgId: String(input.org.id || ''),
+          organization: input.org,
+          activeProjectCount: 1,
+          activeEnvironmentCount: 1,
+          activeApiKeyCount: 1,
+          hasOrganization: true,
+          hasProject: true,
+          hasEnvironment: true,
+          hasApiKey: true,
+          accountReady: true,
+          organizationReady: true,
+          billingReady: true,
+          projectReady: true,
+          onboardingComplete: true,
+          currentStep: 'complete',
+          complete: true,
+          selectedProjectId: String(input.project.id || ''),
+          selectedEnvironmentId: String(input.environment.id || ''),
         },
       });
       return;
@@ -91,10 +119,9 @@ async function routeWorkspaceScaffold(
 }
 
 test.describe('dashboard billing prepaid console api wiring', () => {
-  test('wires prepaid top-up and portal actions', async ({ page, baseURL }) => {
+  test('wires prepaid top-up actions', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const checkoutBodies: Record<string, unknown>[] = [];
-    const portalBodies: Record<string, unknown>[] = [];
 
     const org = {
       id: 'org_dash_billing_prepaid',
@@ -158,6 +185,16 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           return true;
         }
 
+        if (method === 'GET' && pathname === '/console/billing/account/activity') {
+          await fulfillJson(route, {
+            ok: true,
+            activity: {
+              entries: [],
+            },
+          });
+          return true;
+        }
+
         if (method === 'GET' && pathname === '/console/billing/invoices') {
           await fulfillJson(route, {
             ok: true,
@@ -175,29 +212,6 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               statementCount: 0,
             },
           });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/payment-methods') {
-          await fulfillJson(route, { ok: true, paymentMethods: [] });
-          return true;
-        }
-
-        if (method === 'POST' && pathname === '/console/billing/stripe/customer-portal-session') {
-          portalBodies.push(parseJsonBody(route.request().postData()));
-          await fulfillJson(
-            route,
-            {
-              ok: true,
-              portalSession: {
-                id: 'bps_dash_billing_prepaid',
-                url: `${consoleOrigin}/dashboard/billing/account`,
-                customerRef: 'cus_dash_billing_prepaid',
-                expiresAt: iso('2026-03-01T01:00:00.000Z'),
-              },
-            },
-            201,
-          );
           return true;
         }
 
@@ -225,17 +239,14 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       },
     });
 
-    await page.goto('/dashboard/billing');
-    await expect(page).toHaveURL(/\/dashboard\/billing\/account$/);
+    await page.goto('/dashboard/billing/account');
 
     const billingScope = page.locator('section[aria-label="Billing scope and actions"]');
     await expect(billingScope).toContainText(project.name);
     await expect(billingScope).toContainText(environment.name);
     await expect(billingScope).not.toContainText(project.id);
     await expect(billingScope).not.toContainText(environment.id);
-    await expect(page.locator('section[aria-label="Subscription management table"]')).toHaveCount(
-      0,
-    );
+    await expect(page.getByText(/subscription/i)).toHaveCount(0);
 
     const metrics = page.locator('section[aria-label="Billing account summary metrics"]');
     await expect(metrics).toContainText('Balance');
@@ -253,21 +264,283 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       '/dashboard/billing/account?checkout=success',
     );
     await expect(page.locator('.dashboard-info-banner')).toContainText('Top-up checkout completed');
-
-    const paymentMethodsSection = page.locator('section[aria-label="Payment methods table"]');
-    await paymentMethodsSection
-      .getByRole('button', { name: 'Update billing profile in portal' })
-      .click();
-    await expect.poll(() => portalBodies.length).toBe(1);
-    expect(String(portalBodies[0]?.returnUrl || '')).toContain('/dashboard/billing/account');
   });
 
-  test('wires invoice navigation, filters, and PDF export actions', async ({ page, baseURL }) => {
+  test('wires internal manual adjustments with impact preview for admin role', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const manualRequests: Record<string, unknown>[] = [];
+    const activityEntries: Record<string, unknown>[] = [];
+    let creditBalanceMinor = 5000;
+
+    await routeWorkspaceScaffold(page, consoleOrigin, {
+      userId: 'user_dash_billing_adjustments_admin',
+      org: {
+        id: 'org_dash_billing_adjustments',
+        name: 'Dashboard Billing Adjustments Org',
+        slug: 'dashboard-billing-adjustments-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      project: {
+        id: 'proj_dash_billing_adjustments',
+        name: 'Billing Adjustments Project',
+        slug: 'billing-adjustments-project',
+        status: 'ACTIVE',
+        environmentCount: 1,
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      environment: {
+        id: 'env_dash_billing_adjustments',
+        projectId: 'proj_dash_billing_adjustments',
+        key: 'prod',
+        name: 'Production',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      handleBillingRequest: async (route, pathname, method, _url) => {
+        if (method === 'GET' && pathname === '/console/billing/overview') {
+          await fulfillJson(route, {
+            ok: true,
+            overview: {
+              usageMetricVersion: 'maw_v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+              creditBalanceMinor,
+              lowBalanceThresholdMinor: 2000,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: activityEntries.length,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
+          await fulfillJson(route, {
+            ok: true,
+            usage: {
+              usageMetricVersion: 'maw_v1',
+              monthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/account/activity') {
+          await fulfillJson(route, {
+            ok: true,
+            activity: {
+              entries: activityEntries,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/invoices') {
+          await fulfillJson(route, {
+            ok: true,
+            invoices: [],
+            nextCursor: null,
+            totalCount: 0,
+            summary: {
+              totalCount: 0,
+              openCount: 0,
+              overdueCount: 0,
+              paidCount: 0,
+              outstandingAmountMinor: 0,
+              latestPeriodMonthUtc: null,
+              receiptCount: 0,
+              statementCount: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'POST' && pathname === '/console/billing/adjustments/support-credit') {
+          const body = parseJsonBody(route.request().postData());
+          manualRequests.push(body);
+          const amountMinor = Number(body.amountMinor || 0);
+          const relatedInvoiceId = String(body.relatedInvoiceId || '').trim() || null;
+          creditBalanceMinor += amountMinor;
+          activityEntries.unshift({
+            id: `ble_adj_${manualRequests.length}`,
+            orgId: 'org_dash_billing_adjustments',
+            type: 'MANUAL_ADJUSTMENT',
+            amountMinor,
+            currency: 'USD',
+            description: `Manual support credit (${String(body.reasonCode || '').trim()})`,
+            monthUtc: '2026-03',
+            relatedInvoiceId,
+            relatedPurchaseId: null,
+            sourceEventId: null,
+            actorType: 'USER',
+            actorUserId: 'user_dash_billing_adjustments_admin',
+            reasonCode: String(body.reasonCode || '').trim() || null,
+            note: String(body.note || '').trim() || null,
+            idempotencyKey: String(body.idempotencyKey || '').trim() || null,
+            createdAt: iso('2026-03-20T00:00:00.000Z'),
+          });
+          await fulfillJson(
+            route,
+            {
+              ok: true,
+              result: {
+                created: true,
+                adjustment: activityEntries[0],
+                creditBalanceMinor,
+              },
+            },
+            201,
+          );
+          return true;
+        }
+
+        return false;
+      },
+    });
+
+    await page.goto('/dashboard/billing/account');
+
+    const adjustmentSection = page.locator('section[aria-label="Internal billing adjustments"]');
+    await expect(adjustmentSection).toBeVisible();
+
+    await adjustmentSection.getByLabel('Amount (USD)').fill('15.00');
+    await adjustmentSection.getByLabel('Reason code').fill('incident_credit');
+    await adjustmentSection.getByLabel('Related document ID (optional)').fill('inv_202603_001');
+    await adjustmentSection.getByLabel('Operator note').fill('Applied goodwill credit');
+
+    await expect(adjustmentSection).toContainText('Impact preview: $50.00 -> $65.00 (+$15.00).');
+
+    await adjustmentSection.getByRole('button', { name: 'Apply support credit' }).click();
+    await expect.poll(() => manualRequests.length).toBe(1);
+    expect(Number(manualRequests[0]?.amountMinor || 0)).toBe(1500);
+    expect(String(manualRequests[0]?.reasonCode || '')).toBe('incident_credit');
+    expect(String(manualRequests[0]?.relatedInvoiceId || '')).toBe('inv_202603_001');
+
+    await expect(adjustmentSection).toContainText('Manual support credit recorded.');
+    await expect(
+      page.locator('section[aria-label="Billing account summary metrics"]'),
+    ).toContainText('$65.00');
+    await expect(page.locator('section[aria-label="Billing account activity"]')).toContainText(
+      'incident_credit',
+    );
+  });
+
+  test('hides internal manual adjustments for non-admin role', async ({ page, baseURL }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+
+    await routeWorkspaceScaffold(page, consoleOrigin, {
+      userId: 'user_dash_billing_adjustments_ops',
+      roles: ['ops'],
+      org: {
+        id: 'org_dash_billing_adjustments_ops',
+        name: 'Dashboard Billing Ops Org',
+        slug: 'dashboard-billing-ops-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      project: {
+        id: 'proj_dash_billing_adjustments_ops',
+        name: 'Billing Ops Project',
+        slug: 'billing-ops-project',
+        status: 'ACTIVE',
+        environmentCount: 1,
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      environment: {
+        id: 'env_dash_billing_adjustments_ops',
+        projectId: 'proj_dash_billing_adjustments_ops',
+        key: 'prod',
+        name: 'Production',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      handleBillingRequest: async (route, pathname, method, _url) => {
+        if (method === 'GET' && pathname === '/console/billing/overview') {
+          await fulfillJson(route, {
+            ok: true,
+            overview: {
+              usageMetricVersion: 'maw_v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+              creditBalanceMinor: 3000,
+              lowBalanceThresholdMinor: 2000,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
+          await fulfillJson(route, {
+            ok: true,
+            usage: {
+              usageMetricVersion: 'maw_v1',
+              monthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/account/activity') {
+          await fulfillJson(route, {
+            ok: true,
+            activity: {
+              entries: [],
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/invoices') {
+          await fulfillJson(route, {
+            ok: true,
+            invoices: [],
+            nextCursor: null,
+            totalCount: 0,
+            summary: {
+              totalCount: 0,
+              openCount: 0,
+              overdueCount: 0,
+              paidCount: 0,
+              outstandingAmountMinor: 0,
+              latestPeriodMonthUtc: null,
+              receiptCount: 0,
+              statementCount: 0,
+            },
+          });
+          return true;
+        }
+
+        return false;
+      },
+    });
+
+    await page.goto('/dashboard/billing/account');
+    await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
+  });
+
+  test('wires billing document navigation, filters, and PDF export actions', async ({
+    page,
+    baseURL,
+  }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const invoiceListUrls: string[] = [];
     let overviewRequestCount = 0;
     let usageRequestCount = 0;
-    let paymentMethodRequestCount = 0;
     let pdfDownloadCount = 0;
     const documents = [
       {
@@ -306,16 +579,16 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       userId: 'user_dash_billing_invoice',
       org: {
         id: 'org_dash_billing_invoice',
-        name: 'Dashboard Billing Invoice Org',
-        slug: 'dashboard-billing-invoice-org',
+        name: 'Dashboard Billing Documents Org',
+        slug: 'dashboard-billing-documents-org',
         status: 'ACTIVE',
         createdAt: iso('2026-01-01T00:00:00.000Z'),
         updatedAt: iso('2026-01-01T00:00:00.000Z'),
       },
       project: {
         id: 'proj_dash_billing_invoice',
-        name: 'Billing Invoice Project',
-        slug: 'billing-invoice-project',
+        name: 'Billing Documents Project',
+        slug: 'billing-documents-project',
         status: 'ACTIVE',
         environmentCount: 1,
         createdAt: iso('2026-01-01T00:00:00.000Z'),
@@ -358,9 +631,13 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           return true;
         }
 
-        if (method === 'GET' && pathname === '/console/billing/payment-methods') {
-          paymentMethodRequestCount += 1;
-          await fulfillJson(route, { ok: true, paymentMethods: [] });
+        if (method === 'GET' && pathname === '/console/billing/account/activity') {
+          await fulfillJson(route, {
+            ok: true,
+            activity: {
+              entries: [],
+            },
+          });
           return true;
         }
 
@@ -460,6 +737,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   summary: invoiceId.startsWith('receipt_')
                     ? `Purchase receipt ${invoiceId} recorded for 2026-03.`
                     : `Usage statement ${invoiceId} recorded for 2026-03.`,
+                  visibility: 'CUSTOMER',
                 },
                 {
                   id: `${invoiceId}:ledger`,
@@ -477,7 +755,26 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   summary: invoiceId.startsWith('receipt_')
                     ? 'Credit pack usd_25 settled'
                     : 'MAW usage debit for March activity',
+                  visibility: 'CUSTOMER',
                 },
+                ...(invoiceId.startsWith('receipt_')
+                  ? [
+                      {
+                        id: `${invoiceId}:manual-adjustment`,
+                        type: 'LEDGER',
+                        invoiceId,
+                        fromState: null,
+                        toState: 'MANUAL_ADJUSTMENT',
+                        occurredAt: iso('2026-03-07T00:00:00.000Z'),
+                        actorType: 'USER',
+                        actorUserId: 'owner_dash_billing',
+                        reason: 'invoice_correction',
+                        sourceEventId: null,
+                        summary: 'Manual support credit linked to receipt review',
+                        visibility: 'INTERNAL',
+                      },
+                    ]
+                  : []),
               ],
             },
           });
@@ -505,13 +802,12 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.goto('/dashboard/invoices');
 
-    const invoicesTable = page.locator('section[aria-label="Invoices table"]');
+    const invoicesTable = page.locator('section[aria-label="Billing documents table"]');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).toContainText('stmt_dash_billing_1');
     expect(invoiceListUrls.length).toBe(1);
     expect(overviewRequestCount).toBe(0);
     expect(usageRequestCount).toBe(0);
-    expect(paymentMethodRequestCount).toBe(0);
 
     await page.locator('select.dashboard-input').first().selectOption('PURCHASE_RECEIPT');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
@@ -523,290 +819,31 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await invoicesTable.locator('button:has-text("View document")').click();
     await expect(page).toHaveURL(/\/dashboard\/invoices\/receipt_dash_billing_1$/);
-    await expect(page.locator('section[aria-label="Invoice detail header"]')).toContainText(
-      'receipt_dash_billing_1',
+    await expect(
+      page.locator('section[aria-label="Billing document detail header"]'),
+    ).toContainText('receipt_dash_billing_1');
+    await expect(
+      page.locator('section[aria-label="Billing document activity timeline"]'),
+    ).toContainText('Credit pack usd_25 settled');
+    await expect(
+      page.locator('section[aria-label="Billing document activity timeline"]'),
+    ).toContainText(
+      'Internal manual adjustments are visible in this staff timeline only and are excluded from exported PDFs.',
     );
-    await expect(page.locator('section[aria-label="Invoice activity timeline"]')).toContainText(
-      'Credit pack usd_25 settled',
-    );
-    await expect(page.locator('section[aria-label="Invoice line items"]')).toContainText(
+    await expect(
+      page.locator('section[aria-label="Billing document activity timeline"]'),
+    ).toContainText('Internal only');
+    await expect(page.locator('section[aria-label="Billing document line items"]')).toContainText(
       'Prepaid credit top-up (usd_25)',
     );
     await expect(page.locator('section[aria-label="Payment execution table"]')).toHaveCount(0);
     expect(overviewRequestCount).toBe(0);
     expect(usageRequestCount).toBe(0);
-    expect(paymentMethodRequestCount).toBe(0);
 
     await page
-      .locator('section[aria-label="Invoice detail header"]')
+      .locator('section[aria-label="Billing document detail header"]')
       .locator('button:has-text("Download PDF")')
       .click();
     await expect.poll(() => pdfDownloadCount).toBe(2);
-  });
-
-  test('wires payment-method mutation and replacement actions', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const addBodies: Record<string, unknown>[] = [];
-    const setDefaultIds: string[] = [];
-    const removedIds: string[] = [];
-    const setupBodies: Record<string, unknown>[] = [];
-    const portalBodies: Record<string, unknown>[] = [];
-
-    const org = {
-      id: 'org_dash_billing_payment_methods',
-      name: 'Dashboard Billing PM Org',
-      slug: 'dashboard-billing-pm-org',
-      status: 'ACTIVE',
-      createdAt: iso('2026-01-01T00:00:00.000Z'),
-      updatedAt: iso('2026-01-01T00:00:00.000Z'),
-    };
-    const project = {
-      id: 'proj_dash_billing_payment_methods',
-      name: 'Billing PM Project',
-      slug: 'billing-pm-project',
-      status: 'ACTIVE',
-      environmentCount: 1,
-      createdAt: iso('2026-01-01T00:00:00.000Z'),
-      updatedAt: iso('2026-01-01T00:00:00.000Z'),
-    };
-    const environment = {
-      id: 'env_dash_billing_payment_methods',
-      projectId: project.id,
-      key: 'prod',
-      name: 'Production',
-      status: 'ACTIVE',
-      createdAt: iso('2026-01-01T00:00:00.000Z'),
-      updatedAt: iso('2026-01-01T00:00:00.000Z'),
-    };
-
-    let paymentMethods = [
-      {
-        id: 'pm_dash_existing_default',
-        provider: 'stripe',
-        type: 'card',
-        brand: 'visa',
-        last4: '1111',
-        expMonth: 1,
-        expYear: 2030,
-        isDefault: true,
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      {
-        id: 'pm_dash_existing_secondary',
-        provider: 'stripe',
-        type: 'card',
-        brand: 'mastercard',
-        last4: '2222',
-        expMonth: 2,
-        expYear: 2031,
-        isDefault: false,
-        createdAt: iso('2026-01-02T00:00:00.000Z'),
-      },
-    ];
-
-    page.on('dialog', async (dialog) => {
-      await dialog.accept();
-    });
-
-    await routeWorkspaceScaffold(page, consoleOrigin, {
-      userId: 'user_dash_billing_payment_methods',
-      org,
-      project,
-      environment,
-      handleBillingRequest: async (route, pathname, method, _url) => {
-        if (method === 'GET' && pathname === '/console/billing/overview') {
-          await fulfillJson(route, {
-            ok: true,
-            overview: {
-              usageMetricVersion: 'maw_v1',
-              currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 8,
-              creditBalanceMinor: 7400,
-              lowBalanceThresholdMinor: 2000,
-              recentUsageDebitMinor: 2400,
-              recentCreditPurchasedMinor: 10000,
-              documentCount: 2,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
-          await fulfillJson(route, {
-            ok: true,
-            usage: {
-              usageMetricVersion: 'maw_v1',
-              monthUtc: '2026-03',
-              monthlyActiveWallets: 8,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/invoices') {
-          await fulfillJson(route, {
-            ok: true,
-            invoices: [],
-            nextCursor: null,
-            totalCount: 0,
-            summary: {
-              totalCount: 0,
-              openCount: 0,
-              overdueCount: 0,
-              paidCount: 0,
-              outstandingAmountMinor: 0,
-              latestPeriodMonthUtc: null,
-              receiptCount: 0,
-              statementCount: 0,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/payment-methods') {
-          await fulfillJson(route, { ok: true, paymentMethods });
-          return true;
-        }
-
-        if (method === 'POST' && pathname === '/console/billing/payment-methods') {
-          const body = parseJsonBody(route.request().postData());
-          addBodies.push(body);
-          const nextId = `pm_dash_added_${paymentMethods.length + 1}`;
-          paymentMethods = [
-            {
-              id: nextId,
-              provider: 'stripe',
-              type: 'card',
-              brand: String(body.brand || 'visa'),
-              last4: String(body.last4 || '0000'),
-              expMonth: Number(body.expMonth || 1),
-              expYear: Number(body.expYear || 2035),
-              isDefault: false,
-              createdAt: iso('2026-03-05T00:00:00.000Z'),
-            },
-            ...paymentMethods,
-          ];
-          await fulfillJson(route, { ok: true, paymentMethod: paymentMethods[0] }, 201);
-          return true;
-        }
-
-        const paymentMethodDefaultMatch = pathname.match(
-          /^\/console\/billing\/payment-methods\/([^/]+)\/default$/,
-        );
-        if (method === 'POST' && paymentMethodDefaultMatch) {
-          const paymentMethodId = decodeURIComponent(paymentMethodDefaultMatch[1] || '');
-          setDefaultIds.push(paymentMethodId);
-          paymentMethods = paymentMethods.map((method) => ({
-            ...method,
-            isDefault: method.id === paymentMethodId,
-          }));
-          await fulfillJson(route, {
-            ok: true,
-            paymentMethod: paymentMethods.find((method) => method.id === paymentMethodId) || null,
-          });
-          return true;
-        }
-
-        const paymentMethodMatch = pathname.match(/^\/console\/billing\/payment-methods\/([^/]+)$/);
-        if (method === 'DELETE' && paymentMethodMatch) {
-          const paymentMethodId = decodeURIComponent(paymentMethodMatch[1] || '');
-          removedIds.push(paymentMethodId);
-          paymentMethods = paymentMethods.filter((method) => method.id !== paymentMethodId);
-          if (!paymentMethods.some((method) => method.isDefault) && paymentMethods[0]) {
-            paymentMethods = paymentMethods.map((method, index) => ({
-              ...method,
-              isDefault: index === 0,
-            }));
-          }
-          await fulfillJson(route, { ok: true, removed: true });
-          return true;
-        }
-
-        if (method === 'POST' && pathname === '/console/billing/stripe/setup-intent') {
-          setupBodies.push(parseJsonBody(route.request().postData()));
-          await fulfillJson(
-            route,
-            {
-              ok: true,
-              setupIntent: {
-                id: 'seti_dash_billing_payment_methods',
-                clientSecret: 'seti_dash_billing_payment_methods_secret',
-                customerRef: 'cus_dash_billing_payment_methods',
-                expiresAt: iso('2026-03-05T01:00:00.000Z'),
-              },
-            },
-            200,
-          );
-          return true;
-        }
-
-        if (method === 'POST' && pathname === '/console/billing/stripe/customer-portal-session') {
-          portalBodies.push(parseJsonBody(route.request().postData()));
-          await fulfillJson(
-            route,
-            {
-              ok: true,
-              portalSession: {
-                id: 'bps_dash_billing_payment_methods',
-                url: `${consoleOrigin}/dashboard/billing/account`,
-                customerRef: 'cus_dash_billing_payment_methods',
-                expiresAt: iso('2026-03-05T01:00:00.000Z'),
-              },
-            },
-            201,
-          );
-          return true;
-        }
-
-        return false;
-      },
-    });
-
-    await page.goto('/dashboard/billing/account');
-
-    const paymentMethodsSection = page.locator('section[aria-label="Payment methods table"]');
-    await expect(paymentMethodsSection).toContainText('pm_dash_existing_default');
-    await expect(paymentMethodsSection).toContainText('pm_dash_existing_secondary');
-
-    await paymentMethodsSection
-      .getByRole('button', { name: 'Start Stripe card replacement' })
-      .click();
-    await expect.poll(() => setupBodies.length).toBe(1);
-    await expect(paymentMethodsSection).toContainText('seti_dash_billing_payment_methods');
-
-    await paymentMethodsSection
-      .getByRole('textbox', { name: 'Provider reference' })
-      .fill('pm_new_dashboard_card');
-    await paymentMethodsSection.getByRole('textbox', { name: 'Brand' }).fill('amex');
-    await paymentMethodsSection.getByRole('textbox', { name: 'Last4' }).fill('3434');
-    await paymentMethodsSection.getByRole('textbox', { name: 'Expiry month' }).fill('11');
-    await paymentMethodsSection.getByRole('textbox', { name: 'Expiry year' }).fill('2036');
-    await paymentMethodsSection.locator('form').evaluate((form) => {
-      (form as HTMLFormElement).requestSubmit();
-    });
-
-    await expect.poll(() => addBodies.length).toBe(1);
-    expect(String(addBodies[0]?.providerRef || '')).toBe('pm_new_dashboard_card');
-    await expect(paymentMethodsSection).toContainText('pm_dash_added_3');
-
-    await paymentMethodsSection.getByRole('button', { name: 'Set default' }).first().click();
-    await expect.poll(() => setDefaultIds.length).toBe(1);
-    expect(setDefaultIds[0]).toBe('pm_dash_added_3');
-
-    const addedRow = paymentMethodsSection.getByRole('row', {
-      name: /pm_dash_added_3/i,
-    });
-    await expect(addedRow).toContainText('Yes');
-
-    await addedRow.getByRole('button', { name: 'Remove' }).click();
-    await expect.poll(() => removedIds.length).toBe(1);
-    expect(removedIds[0]).toBe('pm_dash_added_3');
-    await expect(paymentMethodsSection).not.toContainText('pm_dash_added_3');
-
-    await paymentMethodsSection
-      .getByRole('button', { name: 'Update billing profile in portal' })
-      .click();
-    await expect.poll(() => portalBodies.length).toBe(1);
-    expect(String(portalBodies[0]?.returnUrl || '')).toContain('/dashboard/billing/account');
   });
 });

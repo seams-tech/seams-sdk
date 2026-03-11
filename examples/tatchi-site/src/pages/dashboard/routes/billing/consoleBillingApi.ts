@@ -12,6 +12,7 @@ export interface DashboardBillingOverview {
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
   lowBalanceThresholdMinor: number;
+  liveEnvironmentState: 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
   recentUsageDebitMinor: number;
   recentCreditPurchasedMinor: number;
   documentCount: number;
@@ -72,18 +73,6 @@ export interface DashboardBillingInvoiceLineItem {
   periodMonthUtc: string;
 }
 
-export interface DashboardBillingPaymentMethod {
-  id: string;
-  provider: string;
-  type: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-  isDefault: boolean;
-  createdAt: string;
-}
-
 export interface DashboardBillingInvoiceActivityEntry {
   id: string;
   type: 'DOCUMENT' | 'LEDGER';
@@ -96,6 +85,7 @@ export interface DashboardBillingInvoiceActivityEntry {
   reason: string | null;
   sourceEventId: string | null;
   summary: string;
+  visibility: 'CUSTOMER' | 'INTERNAL';
 }
 
 export interface DashboardBillingInvoiceActivity {
@@ -103,23 +93,39 @@ export interface DashboardBillingInvoiceActivity {
   entries: DashboardBillingInvoiceActivityEntry[];
 }
 
-export interface DashboardAddCardPaymentMethodRequest {
-  providerRef: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-}
-
-export interface DashboardStripeSetupIntentRequest {
-  returnUrl?: string;
-}
-
-export interface DashboardStripeSetupIntent {
+export interface DashboardBillingAccountActivityEntry {
   id: string;
-  clientSecret: string;
-  customerRef: string;
-  expiresAt: string;
+  orgId: string;
+  type: string;
+  amountMinor: number;
+  currency: 'USD';
+  description: string;
+  monthUtc: string | null;
+  relatedInvoiceId: string | null;
+  relatedPurchaseId: string | null;
+  sourceEventId: string | null;
+  actorType: 'USER' | 'SYSTEM' | 'PROVIDER';
+  actorUserId: string | null;
+  reasonCode: string | null;
+  note: string | null;
+  idempotencyKey: string | null;
+  createdAt: string;
+}
+
+export type DashboardBillingManualAdjustmentKind = 'support_credit' | 'admin_debit';
+
+export interface DashboardBillingManualAdjustmentRequest {
+  amountMinor: number;
+  reasonCode: string;
+  note: string;
+  idempotencyKey: string;
+  relatedInvoiceId?: string;
+}
+
+export interface DashboardBillingManualAdjustmentResult {
+  created: boolean;
+  adjustment: DashboardBillingAccountActivityEntry;
+  creditBalanceMinor: number;
 }
 
 export type DashboardBillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
@@ -137,17 +143,6 @@ export interface DashboardStripeCheckoutSession {
   customerRef: string;
   creditPackId: DashboardBillingCreditPackId;
   amountMinor: number;
-  expiresAt: string;
-}
-
-export interface DashboardStripeCustomerPortalSessionRequest {
-  returnUrl: string;
-}
-
-export interface DashboardStripeCustomerPortalSession {
-  id: string;
-  url: string;
-  customerRef: string;
   expiresAt: string;
 }
 
@@ -190,35 +185,22 @@ interface ConsoleInvoiceActivityResponse {
   activity?: unknown;
 }
 
-interface ConsolePaymentMethodsResponse {
+interface ConsoleAccountActivityResponse {
   ok?: boolean;
   message?: string;
-  paymentMethods?: unknown;
+  activity?: unknown;
 }
 
-interface ConsolePaymentMethodResponse {
+interface ConsoleBillingManualAdjustmentResponse {
   ok?: boolean;
   message?: string;
-  paymentMethod?: unknown;
-  removed?: unknown;
-}
-
-interface ConsoleStripeSetupIntentResponse {
-  ok?: boolean;
-  message?: string;
-  setupIntent?: unknown;
+  result?: unknown;
 }
 
 interface ConsoleStripeCheckoutSessionResponse {
   ok?: boolean;
   message?: string;
   checkoutSession?: unknown;
-}
-
-interface ConsoleStripeCustomerPortalSessionResponse {
-  ok?: boolean;
-  message?: string;
-  portalSession?: unknown;
 }
 
 interface ConsoleBillingErrorBody {
@@ -265,12 +247,25 @@ function decodeOverview(raw: unknown): DashboardBillingOverview | null {
   const row = raw as Record<string, unknown>;
   const currentMonthUtc = String(row.currentMonthUtc || '').trim();
   if (!currentMonthUtc) return null;
+  const creditBalanceMinor = Number(row.creditBalanceMinor || 0);
+  const lowBalanceThresholdMinor = Number(row.lowBalanceThresholdMinor || 0);
+  const liveEnvironmentStateRaw = String(row.liveEnvironmentState || '')
+    .trim()
+    .toUpperCase();
   return {
     usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'maw_v1',
     currentMonthUtc,
     monthlyActiveWallets: Number(row.monthlyActiveWallets || 0),
-    creditBalanceMinor: Number(row.creditBalanceMinor || 0),
-    lowBalanceThresholdMinor: Number(row.lowBalanceThresholdMinor || 0),
+    creditBalanceMinor,
+    lowBalanceThresholdMinor,
+    liveEnvironmentState:
+      liveEnvironmentStateRaw === 'BLOCKED' || liveEnvironmentStateRaw === 'LOW_BALANCE'
+        ? liveEnvironmentStateRaw
+        : creditBalanceMinor <= 0
+          ? 'BLOCKED'
+          : creditBalanceMinor <= lowBalanceThresholdMinor
+            ? 'LOW_BALANCE'
+            : 'HEALTHY',
     recentUsageDebitMinor: Number(row.recentUsageDebitMinor || 0),
     recentCreditPurchasedMinor: Number(row.recentCreditPurchasedMinor || 0),
     documentCount: Number(row.documentCount || 0),
@@ -356,40 +351,6 @@ function decodeInvoiceLineItem(raw: unknown): DashboardBillingInvoiceLineItem | 
   };
 }
 
-function decodePaymentMethod(raw: unknown): DashboardBillingPaymentMethod | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  if (!id) return null;
-  return {
-    id,
-    provider: String(row.provider || '').trim(),
-    type: String(row.type || '').trim(),
-    brand: String(row.brand || '').trim(),
-    last4: String(row.last4 || '').trim(),
-    expMonth: Number(row.expMonth || 0),
-    expYear: Number(row.expYear || 0),
-    isDefault: row.isDefault === true,
-    createdAt: String(row.createdAt || '').trim(),
-  };
-}
-
-function decodeStripeSetupIntent(raw: unknown): DashboardStripeSetupIntent | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const clientSecret = String(row.clientSecret || '').trim();
-  const customerRef = String(row.customerRef || '').trim();
-  const expiresAt = String(row.expiresAt || '').trim();
-  if (!id || !clientSecret || !customerRef || !expiresAt) return null;
-  return {
-    id,
-    clientSecret,
-    customerRef,
-    expiresAt,
-  };
-}
-
 function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSession | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -405,24 +366,6 @@ function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSessi
     customerRef,
     creditPackId: creditPackId as DashboardStripeCheckoutSession['creditPackId'],
     amountMinor: Number(row.amountMinor || 0),
-    expiresAt,
-  };
-}
-
-function decodeStripeCustomerPortalSession(
-  raw: unknown,
-): DashboardStripeCustomerPortalSession | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  const url = String(row.url || '').trim();
-  const customerRef = String(row.customerRef || '').trim();
-  const expiresAt = String(row.expiresAt || '').trim();
-  if (!id || !url || !customerRef || !expiresAt) return null;
-  return {
-    id,
-    url,
-    customerRef,
     expiresAt,
   };
 }
@@ -453,6 +396,12 @@ function decodeInvoiceActivityEntry(raw: unknown): DashboardBillingInvoiceActivi
     sourceEventId:
       row.sourceEventId == null ? null : String(row.sourceEventId || '').trim() || null,
     summary: String(row.summary || '').trim() || toState,
+    visibility:
+      String(row.visibility || '')
+        .trim()
+        .toUpperCase() === 'INTERNAL'
+        ? 'INTERNAL'
+        : 'CUSTOMER',
   };
 }
 
@@ -467,6 +416,66 @@ function decodeInvoiceActivity(raw: unknown): DashboardBillingInvoiceActivity | 
     entries: entriesRaw
       .map((entry) => decodeInvoiceActivityEntry(entry))
       .filter((entry): entry is DashboardBillingInvoiceActivityEntry => entry !== null),
+  };
+}
+
+function decodeAccountActivityEntry(raw: unknown): DashboardBillingAccountActivityEntry | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const orgId = String(row.orgId || '').trim();
+  if (!id || !orgId) return null;
+  const actorType = String(row.actorType || '')
+    .trim()
+    .toUpperCase();
+  return {
+    id,
+    orgId,
+    type: String(row.type || '').trim() || 'MANUAL_ADJUSTMENT',
+    amountMinor: Number(row.amountMinor || 0),
+    currency: 'USD',
+    description: String(row.description || '').trim(),
+    monthUtc: row.monthUtc == null ? null : String(row.monthUtc || '').trim() || null,
+    relatedInvoiceId:
+      row.relatedInvoiceId == null ? null : String(row.relatedInvoiceId || '').trim() || null,
+    relatedPurchaseId:
+      row.relatedPurchaseId == null ? null : String(row.relatedPurchaseId || '').trim() || null,
+    sourceEventId:
+      row.sourceEventId == null ? null : String(row.sourceEventId || '').trim() || null,
+    actorType: actorType === 'USER' || actorType === 'PROVIDER' ? actorType : 'SYSTEM',
+    actorUserId: row.actorUserId == null ? null : String(row.actorUserId || '').trim() || null,
+    reasonCode: row.reasonCode == null ? null : String(row.reasonCode || '').trim() || null,
+    note: row.note == null ? null : String(row.note || '').trim() || null,
+    idempotencyKey:
+      row.idempotencyKey == null ? null : String(row.idempotencyKey || '').trim() || null,
+    createdAt: String(row.createdAt || '').trim(),
+  };
+}
+
+function decodeAccountActivity(
+  raw: unknown,
+): { entries: DashboardBillingAccountActivityEntry[] } | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const entriesRaw = Array.isArray(row.entries) ? row.entries : [];
+  return {
+    entries: entriesRaw
+      .map((entry) => decodeAccountActivityEntry(entry))
+      .filter((entry): entry is DashboardBillingAccountActivityEntry => entry !== null),
+  };
+}
+
+function decodeBillingManualAdjustmentResult(
+  raw: unknown,
+): DashboardBillingManualAdjustmentResult | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const adjustment = decodeAccountActivityEntry(row.adjustment);
+  if (!adjustment) return null;
+  return {
+    created: row.created === true,
+    adjustment,
+    creditBalanceMinor: Number(row.creditBalanceMinor || 0),
   };
 }
 
@@ -527,6 +536,59 @@ export async function getDashboardBillingMonthlyActiveWallets(
   return usage;
 }
 
+export async function listDashboardBillingAccountActivity(
+  limit = 25,
+): Promise<DashboardBillingAccountActivityEntry[]> {
+  const params = new URLSearchParams();
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set('limit', String(Math.floor(limit)));
+  }
+  const suffix = params.toString();
+  const body = (await fetchJson(
+    `/console/billing/account/activity${suffix ? `?${suffix}` : ''}`,
+  )) as ConsoleAccountActivityResponse;
+  const activity = decodeAccountActivity(body.activity);
+  if (!activity) throw new Error('Billing account activity response was invalid');
+  return activity.entries;
+}
+
+async function postBillingManualAdjustment(
+  kind: DashboardBillingManualAdjustmentKind,
+  input: DashboardBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  const base = requireConsoleBaseUrl();
+  const endpoint =
+    kind === 'support_credit'
+      ? '/console/billing/adjustments/support-credit'
+      : '/console/billing/adjustments/admin-debit';
+  const response = await fetch(`${base}${endpoint}`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(input),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleBillingManualAdjustmentResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw buildBillingApiError(response, body, 'Billing manual adjustment request failed');
+  }
+  const result = decodeBillingManualAdjustmentResult(body.result);
+  if (!result) throw new Error('Billing manual adjustment response was invalid');
+  return result;
+}
+
+export async function createDashboardBillingManualSupportCredit(
+  input: DashboardBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  return postBillingManualAdjustment('support_credit', input);
+}
+
+export async function createDashboardBillingManualAdminDebit(
+  input: DashboardBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  return postBillingManualAdjustment('admin_debit', input);
+}
+
 export async function listDashboardBillingInvoices(
   input: DashboardBillingInvoiceListRequest = {},
 ): Promise<DashboardBillingInvoicePage> {
@@ -563,7 +625,7 @@ export async function getDashboardBillingInvoice(
     `/console/billing/invoices/${encodeURIComponent(normalizedInvoiceId)}`,
   )) as ConsoleInvoiceResponse;
   const invoice = decodeInvoice(body.invoice);
-  if (!invoice) throw new Error('Billing invoice response was invalid');
+  if (!invoice) throw new Error('Billing document response was invalid');
   return invoice;
 }
 
@@ -590,7 +652,7 @@ export async function getDashboardBillingInvoiceActivity(
     `/console/billing/invoices/${encodeURIComponent(normalizedInvoiceId)}/activity`,
   )) as ConsoleInvoiceActivityResponse;
   const activity = decodeInvoiceActivity(body.activity);
-  if (!activity) throw new Error('Billing invoice activity response was invalid');
+  if (!activity) throw new Error('Billing document activity response was invalid');
   return activity;
 }
 
@@ -635,103 +697,6 @@ export async function downloadDashboardBillingInvoicePdf(invoiceId: string): Pro
   }
 }
 
-export async function listDashboardBillingPaymentMethods(): Promise<
-  DashboardBillingPaymentMethod[]
-> {
-  const body = (await fetchJson(
-    '/console/billing/payment-methods',
-  )) as ConsolePaymentMethodsResponse;
-  const rows = Array.isArray(body.paymentMethods) ? body.paymentMethods : [];
-  return rows
-    .map((entry) => decodePaymentMethod(entry))
-    .filter((entry): entry is DashboardBillingPaymentMethod => entry !== null);
-}
-
-export async function addDashboardCardPaymentMethod(
-  input: DashboardAddCardPaymentMethodRequest,
-): Promise<DashboardBillingPaymentMethod> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/payment-methods`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Add card payment method request failed');
-  }
-  const paymentMethod = decodePaymentMethod(body.paymentMethod);
-  if (!paymentMethod) throw new Error('Add card payment method response was invalid');
-  return paymentMethod;
-}
-
-export async function removeDashboardCardPaymentMethod(paymentMethodId: string): Promise<boolean> {
-  const normalizedId = String(paymentMethodId || '').trim();
-  if (!normalizedId) throw new Error('Payment method id is required');
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/billing/payment-methods/${encodeURIComponent(normalizedId)}`,
-    {
-      method: 'DELETE',
-      headers: buildConsoleAcceptHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-    },
-  );
-  const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Remove card payment method request failed');
-  }
-  return body?.removed === true;
-}
-
-export async function setDashboardDefaultCardPaymentMethod(
-  paymentMethodId: string,
-): Promise<DashboardBillingPaymentMethod> {
-  const normalizedId = String(paymentMethodId || '').trim();
-  if (!normalizedId) throw new Error('Payment method id is required');
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(
-    `${base}/console/billing/payment-methods/${encodeURIComponent(normalizedId)}/default`,
-    {
-      method: 'POST',
-      headers: buildConsoleJsonHeaders(),
-      credentials: 'include',
-      cache: 'no-store',
-      body: JSON.stringify({}),
-    },
-  );
-  const body = (await parseConsoleJson(response)) as ConsolePaymentMethodResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Set default card payment method request failed');
-  }
-  const paymentMethod = decodePaymentMethod(body.paymentMethod);
-  if (!paymentMethod) throw new Error('Set default card payment method response was invalid');
-  return paymentMethod;
-}
-
-export async function createDashboardStripeSetupIntent(
-  input: DashboardStripeSetupIntentRequest = {},
-): Promise<DashboardStripeSetupIntent> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/stripe/setup-intent`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleStripeSetupIntentResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stripe setup intent request failed');
-  }
-  const setupIntent = decodeStripeSetupIntent(body.setupIntent);
-  if (!setupIntent) throw new Error('Stripe setup intent response was invalid');
-  return setupIntent;
-}
-
 export async function createDashboardStripeCheckoutSession(
   input: DashboardStripeCheckoutSessionRequest,
 ): Promise<DashboardStripeCheckoutSession> {
@@ -750,28 +715,6 @@ export async function createDashboardStripeCheckoutSession(
   const checkoutSession = decodeStripeCheckoutSession(body.checkoutSession);
   if (!checkoutSession) throw new Error('Stripe checkout session response was invalid');
   return checkoutSession;
-}
-
-export async function createDashboardStripeCustomerPortalSession(
-  input: DashboardStripeCustomerPortalSessionRequest,
-): Promise<DashboardStripeCustomerPortalSession> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/billing/stripe/customer-portal-session`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
-  });
-  const body = (await parseConsoleJson(
-    response,
-  )) as ConsoleStripeCustomerPortalSessionResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body, 'Stripe customer portal session request failed');
-  }
-  const portalSession = decodeStripeCustomerPortalSession(body.portalSession);
-  if (!portalSession) throw new Error('Stripe customer portal session response was invalid');
-  return portalSession;
 }
 
 export function formatUsdMinor(amountMinor: number): string {

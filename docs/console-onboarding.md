@@ -8,7 +8,7 @@ Implement a production onboarding flow for the dashboard console in this order:
 
 1. User signs in / creates account (SSO-capable).
 2. User configures organization context.
-3. User adds a billing option.
+3. User funds prepaid billing balance.
 4. User creates the first project.
 5. User lands in wallet management for that project.
 
@@ -24,11 +24,9 @@ Related context:
 - [x] `GET /console/session` auth/session endpoint exists.
 - [x] Dashboard redirects to `/dashboard/onboarding` when onboarding state is incomplete.
 - [x] `GET /console/onboarding/state` exists.
-- [x] Billing payment-method endpoints exist:
-  - [x] `GET/POST/DELETE /console/billing/payment-methods`
-  - [x] `POST /console/billing/payment-methods/:id/default`
-  - [x] `POST /console/billing/stripe/setup-intent`
-- [x] Card mutation RBAC is enforced (`admin` for add/remove/default).
+- [x] Billing top-up endpoint exists:
+  - [x] `POST /console/billing/stripe/checkout-session`
+- [x] Billing readiness is derived from projected prepaid balance state.
 - [x] Read-path auto-bootstrap has been removed from core org/project/environment read routes.
 
 ### Misalignments To Fix
@@ -63,7 +61,7 @@ Auth/tenant constraint (important):
 2. `GET /console/onboarding/state` returns deterministic step.
 3. If onboarding incomplete, frontend redirects to `/dashboard/onboarding`.
 4. Step 1: Organization details.
-5. Step 2: Billing payment method.
+5. Step 2: Prepaid billing top-up.
 6. Step 3: First project creation (auto-create default Production environment).
 7. Redirect with active org/project/environment context:
    - to `/dashboard/api-keys` when no API key exists yet (first-run handoff),
@@ -76,9 +74,8 @@ Existing endpoints retained:
 - `GET /console/session`
 - `GET /console/org`
 - `POST /console/projects` (with billing-ready enforcement)
-- `GET/POST/DELETE /console/billing/payment-methods`
-- `POST /console/billing/payment-methods/:id/default`
-- `POST /console/billing/stripe/setup-intent`
+- `GET /console/billing/overview`
+- `POST /console/billing/stripe/checkout-session`
 
 Onboarding endpoints:
 
@@ -104,7 +101,7 @@ Onboarding endpoints:
 - Tenant isolation and RLS remain enforced.
 - Audit events required for:
   - organization profile set,
-  - billing method add/remove/default,
+  - billing top-up checkout initiation,
   - project create,
   - default environment create.
 - Idempotency behavior must be deterministic for onboarding mutations.
@@ -119,9 +116,9 @@ Onboarding endpoints:
   - [x] `accountReady`
   - [x] `organizationReady`
   - [x] `billingReady`
-  - [x] `projectReady`
-  - [x] `onboardingComplete`
-- [x] Compute billing readiness from billing payment methods.
+- [x] `projectReady`
+- [x] `onboardingComplete`
+- [x] Compute billing readiness from projected prepaid balance.
 - [x] Add route tests (Express + Cloudflare parity) for new state fields.
 
 Exit criteria:
@@ -142,10 +139,10 @@ Exit criteria:
 
 ### Phase 3: Billing Step
 
-- [x] Implement onboarding billing UI on top of existing billing endpoints.
-- [x] Require at least one active payment method before allowing project step.
+- [x] Implement onboarding billing UI on top of prepaid checkout and overview endpoints.
+- [x] Require positive prepaid balance before allowing project step.
 - [x] Add server-side billing-ready helper reused by onboarding/project routes.
-- [x] Add error recovery for Stripe action-required / declined states.
+- [x] Add success/cancel recovery for Stripe Checkout return flow.
 
 Exit criteria:
 
@@ -246,7 +243,7 @@ Exit criteria:
 - [x] Add an Ops Cockpit dashboard route (`/dashboard/overview`) that surfaces onboarding SLO alerts from `GET /console/onboarding/telemetry`.
 - [x] Aggregate operator queues in one place for daily workflow:
   - [x] pending approvals,
-  - [x] failed or overdue billing invoices,
+  - [x] failed or overdue billing documents,
   - [x] webhook dead letters,
   - [x] queued/processing audit exports,
   - [x] active enterprise isolation requests.
@@ -280,6 +277,6 @@ Exit criteria:
 
 - New SSO user can complete onboarding without manual DB seeding.
 - Organization context is explicitly configured and auditable.
-- Billing option is captured before first project.
+- Positive prepaid balance is established before first project.
 - First project creation yields wallet-manageable context immediately.
 - User lands on wallet management with valid org/project/environment selection.

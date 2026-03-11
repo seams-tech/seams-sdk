@@ -7,7 +7,7 @@ Date updated: March 7, 2026
 Build a first-run console flow that is demoable and production-oriented:
 
 1. User creates a console account.
-2. User completes onboarding steps: organization profile -> billing payment method -> first project (+ default Production environment).
+2. User completes onboarding steps: organization profile -> fund prepaid balance -> first project (+ default Production environment).
 3. User provisions an integration credential from the API keys page.
 4. User uses either:
    - a `secret_key` from their backend for server-mediated registration, or
@@ -936,10 +936,10 @@ curl -X POST "https://relay.example.com/registration/bootstrap" \
 
 - [x] Add pricing page CTA wiring to `POST /console/billing/stripe/checkout-session`.
 - [x] Implement success/cancel dashboard return handling.
-- [x] Add subscription status panel in dashboard billing.
-- [x] Wire customer portal entry to `POST /console/billing/stripe/customer-portal-session`.
+- [x] Add prepaid balance / usage visibility in dashboard billing.
+- [x] Keep Stripe billing surface checkout-only.
 - [x] Ensure Stripe webhook idempotency and reconciliation paths are covered.
-- [x] Add e2e flow: pricing -> checkout -> return -> billing status reflected.
+- [x] Add e2e flow: pricing -> checkout -> return -> prepaid balance state reflected.
 
 Exit criteria:
 

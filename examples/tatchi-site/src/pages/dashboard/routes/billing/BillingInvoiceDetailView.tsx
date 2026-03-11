@@ -100,12 +100,15 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
     itemLabel: 'line item',
     itemLabelPlural: 'line items',
   });
+  const hasInternalActivityEntries = Boolean(
+    invoiceActivity?.entries.some((entry) => entry.visibility === 'INTERNAL'),
+  );
 
   return (
     <>
       <section
         className="dashboard-view__section dashboard-billing-invoice-hero"
-        aria-label="Invoice detail header"
+        aria-label="Billing document detail header"
       >
         <div className="dashboard-billing-invoice-hero__actions">
           <button
@@ -138,26 +141,38 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
 
       {invoiceDetailLoading ? (
         <section className="dashboard-view__section">
-          <p>Loading invoice detail...</p>
+          <p>Loading billing document...</p>
         </section>
       ) : invoiceDetailError ? (
         <section className="dashboard-view__section">
-          <p>Invoice detail unavailable: {invoiceDetailError}</p>
+          <p>Billing document unavailable: {invoiceDetailError}</p>
         </section>
       ) : !invoice ? (
         <section className="dashboard-view__section">
-          <p>Invoice {invoiceId} was not found.</p>
+          <p>Billing document {invoiceId} was not found.</p>
         </section>
       ) : (
         <>
-          <BillingMetricsGrid metrics={detailMetrics} ariaLabel="Invoice detail summary metrics" />
+          <BillingMetricsGrid
+            metrics={detailMetrics}
+            ariaLabel="Billing document summary metrics"
+          />
 
-          <section className="dashboard-table-wrapper" aria-label="Invoice activity timeline">
+          <section
+            className="dashboard-table-wrapper"
+            aria-label="Billing document activity timeline"
+          >
             <div className="dashboard-table-limit dashboard-billing-table__intro">
               <h3 className="dashboard-billing-table__title">Document activity</h3>
               <p className="dashboard-billing-table__description">
                 Review document creation and ledger activity in one chronological feed.
               </p>
+              {hasInternalActivityEntries ? (
+                <p className="dashboard-pagination-note">
+                  Internal manual adjustments are visible in this staff timeline only and are
+                  excluded from exported PDFs.
+                </p>
+              ) : null}
               {invoiceActivityError ? (
                 <p className="dashboard-pagination-note">{invoiceActivityError}</p>
               ) : null}
@@ -177,6 +192,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
                     <p className="dashboard-billing-timeline__meta">
                       {formatTimestamp(entry.occurredAt)}
                       {entry.actorUserId ? ` • ${entry.actorUserId}` : ''}
+                      {entry.visibility === 'INTERNAL' ? ' • Internal only' : ''}
                     </p>
                   </article>
                 ))}
@@ -187,7 +203,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
           </section>
 
           <DashboardTable
-            ariaLabel="Invoice line items"
+            ariaLabel="Billing document line items"
             columns={BILLING_INVOICE_LINE_ITEMS_TABLE_COLUMNS}
             pagination={lineItemsPagination.pagination}
           >
@@ -205,7 +221,7 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
               <DashboardTableHeaderCell>Quantity</DashboardTableHeaderCell>
               <DashboardTableHeaderCell>Unit amount</DashboardTableHeaderCell>
               <DashboardTableHeaderCell>Amount</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Invoice</DashboardTableHeaderCell>
+              <DashboardTableHeaderCell>Document</DashboardTableHeaderCell>
             </DashboardTableHeader>
             {lineItemsLoading ? (
               <DashboardTableState>Loading line items...</DashboardTableState>

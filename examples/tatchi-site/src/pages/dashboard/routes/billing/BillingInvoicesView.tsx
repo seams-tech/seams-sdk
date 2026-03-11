@@ -6,7 +6,6 @@ import {
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
-  DashboardTableIntro,
   DashboardTableRow,
   DashboardTableState,
   dashboardTableColumns,
@@ -81,16 +80,16 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
 
   return (
     <>
-      <BillingMetricsGrid metrics={invoiceMetrics} ariaLabel="Invoice summary metrics" />
+      <BillingMetricsGrid metrics={invoiceMetrics} ariaLabel="Billing document summary metrics" />
 
-      <DashboardTable
-        ariaLabel="Invoices table"
-        columns={BILLING_INVOICES_TABLE_COLUMNS}
-        pagination={invoicesPagination.pagination}
-      >
-        <DashboardTableIntro className="dashboard-billing-table__intro">
+      <section className="dashboard-view__section dashboard-billing-filters-panel">
+        <div className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">Receipts and statements</h3>
-          <div className="dashboard-billing-filters" role="group" aria-label="Invoice filters">
+          <div
+            className="dashboard-billing-filters"
+            role="group"
+            aria-label="Billing document filters"
+          >
             <label className="dashboard-form-field">
               <span>Document type</span>
               <select
@@ -119,7 +118,6 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
               </select>
             </label>
             <div className="dashboard-form-field dashboard-form-field--full dashboard-billing-filters__period">
-              <span>Billing period</span>
               <label className="dashboard-form-field dashboard-billing-filters__period-input--start">
                 <span>Start date</span>
                 <input
@@ -147,7 +145,14 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           ) : invoiceListError ? (
             <p className="dashboard-pagination-note">{invoiceListError}</p>
           ) : null}
-        </DashboardTableIntro>
+        </div>
+      </section>
+
+      <DashboardTable
+        ariaLabel="Billing documents table"
+        columns={BILLING_INVOICES_TABLE_COLUMNS}
+        pagination={invoicesPagination.pagination}
+      >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Document ID</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
@@ -159,7 +164,7 @@ export function BillingInvoicesView(props: BillingInvoicesViewProps): React.JSX.
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
         </DashboardTableHeader>
         {invoiceListLoading ? (
-          <DashboardTableState>Loading invoices...</DashboardTableState>
+          <DashboardTableState>Loading billing documents...</DashboardTableState>
         ) : invoices.length === 0 ? (
           <DashboardTableState>
             {hasAnyInvoices

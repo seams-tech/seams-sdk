@@ -4,19 +4,19 @@ import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
+  CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
   ensureBillingReadyForLiveEnvironment,
-  isBillingReadyForLiveEnvironment,
+  getBillingLiveEnvironmentReadiness,
   isConsoleBillingError,
+  parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
-  parseAddCardPaymentMethodRequest,
+  parseBillingManualAdjustmentRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeWebhookEventRequest,
-  parseStripeCustomerPortalSessionRequest,
   parseStripeCheckoutSessionRequest,
-  parseStripeSetupIntentRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
 import {
@@ -1275,22 +1275,22 @@ function readPathParam(req: Request, key: string): string {
   return String((req as any)?.params?.[key] || '').trim();
 }
 
-function requireAdminRoleForCardActions(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin can add, remove, or set default card payment methods',
-  });
-  return false;
-}
-
 function requireInvoiceGenerationRole(claims: ConsoleAuthClaims, res: Response): boolean {
   if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return true;
   res.status(403).json({
     ok: false,
     code: 'forbidden',
     message: 'Only admin or ops can generate monthly invoices',
+  });
+  return false;
+}
+
+function requireBillingAdjustmentRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'admin')) return true;
+  res.status(403).json({
+    ok: false,
+    code: 'forbidden',
+    message: 'Only admin can append manual billing adjustments',
   });
   return false;
 }
@@ -2012,9 +2012,12 @@ function registerConsoleOrgProjectEnvRoutes(
     if (!orgProjectEnv) return;
     try {
       const request = parseCreateConsoleProjectRequest((req as any).body || {});
-      const liveEnvironmentsEnabled = ctx.billing
-        ? await isBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(claims))
-        : false;
+      const liveEnvironmentsEnabled = ctx.opts.allowLiveEnvironmentBillingBypass
+        ? true
+        : ctx.billing
+          ? (await getBillingLiveEnvironmentReadiness(ctx.billing, toBillingContext(claims)))
+              .canUseLiveEnvironments
+          : false;
       const project = await orgProjectEnv.createProject(toOrgProjectEnvContext(claims), {
         ...request,
         liveEnvironmentsEnabled,
@@ -2113,7 +2116,7 @@ function registerConsoleOrgProjectEnvRoutes(
     if (!orgProjectEnv) return;
     try {
       const request = parseCreateConsoleEnvironmentRequest((req as any).body || {});
-      if (request.key !== 'dev') {
+      if (request.key !== 'dev' && !ctx.opts.allowLiveEnvironmentBillingBypass) {
         if (!ctx.billing) {
           sendBillingError(
             res,
@@ -3788,6 +3791,20 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
+  router.get('/console/billing/account/activity', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parseBillingAccountActivityRequest((req as any).query);
+      const activity = await billing.listAccountActivity(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, activity });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
   router.get(
     '/console/billing/usage/monthly-active-wallets',
     async (req: Request, res: Response) => {
@@ -3850,6 +3867,65 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         invoiceId: invoiceScopeId,
         error,
       });
+      sendBillingError(res, error);
+    }
+  });
+
+  router.post(
+    '/console/billing/adjustments/support-credit',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims || !requireBillingAdjustmentRole(claims, res)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseBillingManualAdjustmentRequest((req as any).body);
+        const result = await billing.grantManualSupportCredit(toBillingContext(claims), request);
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'BILLING',
+          action: 'billing.adjustment.support_credit',
+          summary: `Appended manual support credit for org ${claims.orgId}`,
+          metadata: {
+            adjustmentId: result.adjustment.id,
+            amountMinor: result.adjustment.amountMinor,
+            resultingBalanceMinor: result.creditBalanceMinor,
+            reasonCode: result.adjustment.reasonCode,
+            relatedInvoiceId: result.adjustment.relatedInvoiceId,
+            idempotencyKey: result.adjustment.idempotencyKey,
+            created: result.created,
+          },
+        });
+        res.status(result.created ? 201 : 200).json({ ok: true, result });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
+
+  router.post('/console/billing/adjustments/admin-debit', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims || !requireBillingAdjustmentRole(claims, res)) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parseBillingManualAdjustmentRequest((req as any).body);
+      const result = await billing.appendManualAdminDebit(toBillingContext(claims), request);
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'BILLING',
+        action: 'billing.adjustment.admin_debit',
+        summary: `Appended manual admin debit for org ${claims.orgId}`,
+        metadata: {
+          adjustmentId: result.adjustment.id,
+          amountMinor: result.adjustment.amountMinor,
+          resultingBalanceMinor: result.creditBalanceMinor,
+          reasonCode: result.adjustment.reasonCode,
+          relatedInvoiceId: result.adjustment.relatedInvoiceId,
+          idempotencyKey: result.adjustment.idempotencyKey,
+          created: result.created,
+        },
+      });
+      res.status(result.created ? 201 : 200).json({ ok: true, result });
+    } catch (error: unknown) {
       sendBillingError(res, error);
     }
   });
@@ -3924,12 +4000,12 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'BILLING',
         action: 'billing.invoice.pdf_export',
-        summary: `Exported billing invoice PDF for ${invoice.id}`,
+        summary: `Exported billing document PDF for ${invoice.id}`,
         metadata: {
           invoiceId: invoice.id,
           invoiceStatus: invoice.status,
           periodMonthUtc: invoice.periodMonthUtc,
-          exportPolicy: 'ALL_INVOICE_STATES',
+          exportPolicy: CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
         },
       });
       const pdf = buildConsoleBillingInvoicePdf({
@@ -4003,109 +4079,6 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.get('/console/billing/payment-methods', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const paymentMethods = await billing.listPaymentMethods(toBillingContext(claims));
-      res.status(200).json({ ok: true, paymentMethods });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post('/console/billing/payment-methods', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireAdminRoleForCardActions(claims, res)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseAddCardPaymentMethodRequest((req as any).body);
-      const paymentMethod = await billing.addCardPaymentMethod(toBillingContext(claims), request);
-      res.status(201).json({ ok: true, paymentMethod });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.delete('/console/billing/payment-methods/:id', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireAdminRoleForCardActions(claims, res)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    const paymentMethodId = readPathParam(req, 'id');
-    if (!paymentMethodId) {
-      res
-        .status(400)
-        .json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
-      return;
-    }
-    try {
-      const out = await billing.removeCardPaymentMethod(toBillingContext(claims), paymentMethodId);
-      if (!out.removed) {
-        res.status(404).json({
-          ok: false,
-          code: 'payment_method_not_found',
-          message: `Payment method ${paymentMethodId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, removed: true });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
-  router.post(
-    '/console/billing/payment-methods/:id/default',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims || !requireAdminRoleForCardActions(claims, res)) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      const paymentMethodId = readPathParam(req, 'id');
-      if (!paymentMethodId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_path', message: 'Missing payment method id' });
-        return;
-      }
-      try {
-        const paymentMethod = await billing.setDefaultCardPaymentMethod(
-          toBillingContext(claims),
-          paymentMethodId,
-        );
-        if (!paymentMethod) {
-          res.status(404).json({
-            ok: false,
-            code: 'payment_method_not_found',
-            message: `Payment method ${paymentMethodId} was not found`,
-          });
-          return;
-        }
-        res.status(200).json({ ok: true, paymentMethod });
-      } catch (error: unknown) {
-        sendBillingError(res, error);
-      }
-    },
-  );
-
-  router.post('/console/billing/stripe/setup-intent', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseStripeSetupIntentRequest((req as any).body);
-      const setupIntent = await billing.createStripeSetupIntent(toBillingContext(claims), request);
-      res.status(200).json({ ok: true, setupIntent });
-    } catch (error: unknown) {
-      sendBillingError(res, error);
-    }
-  });
-
   router.post('/console/billing/stripe/checkout-session', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
@@ -4122,26 +4095,6 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       sendBillingError(res, error);
     }
   });
-
-  router.post(
-    '/console/billing/stripe/customer-portal-session',
-    async (req: Request, res: Response) => {
-      const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      try {
-        const request = parseStripeCustomerPortalSessionRequest((req as any).body);
-        const portalSession = await billing.createStripeCustomerPortalSession(
-          toBillingContext(claims),
-          request,
-        );
-        res.status(201).json({ ok: true, portalSession });
-      } catch (error: unknown) {
-        sendBillingError(res, error);
-      }
-    },
-  );
 }
 
 export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRouter {

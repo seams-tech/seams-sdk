@@ -1,5 +1,8 @@
 import type { BillingInvoice, BillingInvoiceLineItem } from './types';
 
+export const CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY =
+  'CUSTOMER_FACING_EXCLUDES_INTERNAL_ACTIVITY' as const;
+
 const PDF_PAGE_WIDTH = 612;
 const PDF_PAGE_HEIGHT = 792;
 const PDF_MARGIN_X = 48;
@@ -176,6 +179,10 @@ function buildInvoicePdfLines(input: {
     text: `Document status at export: ${formatInvoiceStatusLabel(invoice.status)}`,
     size: 11,
   });
+  lines.push({
+    text: 'Visibility: Customer-facing export (internal ledger adjustments excluded).',
+    size: 11,
+  });
 
   return lines;
 }
@@ -213,7 +220,7 @@ function renderPages(lines: PdfLine[]): string[] {
   }
 
   flushPage();
-  return pages.length ? pages : ['BT /F1 12 Tf 1 0 0 1 48 744 Tm (Billing invoice) Tj ET'];
+  return pages.length ? pages : ['BT /F1 12 Tf 1 0 0 1 48 744 Tm (Billing document) Tj ET'];
 }
 
 function concatPdf(parts: string[]): Uint8Array {

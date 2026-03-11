@@ -2,19 +2,19 @@ import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
+  CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
   ConsoleBillingError,
   LIVE_ENVIRONMENT_BILLING_REQUIRED_MESSAGE,
   ensureBillingReadyForLiveEnvironment,
-  isBillingReadyForLiveEnvironment,
+  getBillingLiveEnvironmentReadiness,
   isConsoleBillingError,
+  parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
-  parseAddCardPaymentMethodRequest,
+  parseBillingManualAdjustmentRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeWebhookEventRequest,
-  parseStripeCustomerPortalSessionRequest,
   parseStripeCheckoutSessionRequest,
-  parseStripeSetupIntentRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
 import {
@@ -1345,18 +1345,6 @@ async function requireApprovedOperationApproval(
   return null;
 }
 
-function requireAdminRoleForCardActions(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin can add, remove, or set default card payment methods',
-    },
-    { status: 403 },
-  );
-}
-
 function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | null {
   if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
   return json(
@@ -1364,6 +1352,18 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | nul
       ok: false,
       code: 'forbidden',
       message: 'Only admin or ops can generate monthly invoices',
+    },
+    { status: 403 },
+  );
+}
+
+function requireBillingAdjustmentRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'admin')) return null;
+  return json(
+    {
+      ok: false,
+      code: 'forbidden',
+      message: 'Only admin can append manual billing adjustments',
     },
     { status: 403 },
   );
@@ -2684,9 +2684,12 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleProjectRequest(await readJson(ctx.request));
-      const liveEnvironmentsEnabled = ctx.billing
-        ? await isBillingReadyForLiveEnvironment(ctx.billing, toBillingContext(auth.claims))
-        : false;
+      const liveEnvironmentsEnabled = ctx.opts.allowLiveEnvironmentBillingBypass
+        ? true
+        : ctx.billing
+          ? (await getBillingLiveEnvironmentReadiness(ctx.billing, toBillingContext(auth.claims)))
+              .canUseLiveEnvironments
+          : false;
       const project = await orgProjectEnv.createProject(orgProjectEnvCtx, {
         ...request,
         liveEnvironmentsEnabled,
@@ -2735,7 +2738,7 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
       const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseCreateConsoleEnvironmentRequest(await readJson(ctx.request));
-      if (request.key !== 'dev') {
+      if (request.key !== 'dev' && !ctx.opts.allowLiveEnvironmentBillingBypass) {
         if (!ctx.billing) {
           return sendBillingError(
             new ConsoleBillingError(
@@ -3795,10 +3798,6 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   const invoiceLineItemsMatch = ctx.pathname.match(
     /^\/console\/billing\/invoices\/([^/]+)\/line-items$/,
   );
-  const paymentMethodMatch = ctx.pathname.match(/^\/console\/billing\/payment-methods\/([^/]+)$/);
-  const paymentMethodDefaultMatch = ctx.pathname.match(
-    /^\/console\/billing\/payment-methods\/([^/]+)\/default$/,
-  );
   let billingFailureEvent: {
     operation: 'INVOICE_FINALIZATION';
     invoiceId?: string;
@@ -3813,6 +3812,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/overview') {
       const overview = await billing.getOverview(billingCtx);
       return json({ ok: true, overview }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/account/activity') {
+      const request = parseBillingAccountActivityRequest(
+        Object.fromEntries(ctx.url.searchParams.entries()),
+      );
+      const activity = await billing.listAccountActivity(billingCtx, request);
+      return json({ ok: true, activity }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/usage/monthly-active-wallets') {
@@ -3851,6 +3858,50 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         },
       });
       return json({ ok: true, generation }, { status: 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/support-credit') {
+      const forbidden = requireBillingAdjustmentRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const result = await billing.grantManualSupportCredit(billingCtx, request);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'BILLING',
+        action: 'billing.adjustment.support_credit',
+        summary: `Appended manual support credit for org ${auth.claims.orgId}`,
+        metadata: {
+          adjustmentId: result.adjustment.id,
+          amountMinor: result.adjustment.amountMinor,
+          resultingBalanceMinor: result.creditBalanceMinor,
+          reasonCode: result.adjustment.reasonCode,
+          relatedInvoiceId: result.adjustment.relatedInvoiceId,
+          idempotencyKey: result.adjustment.idempotencyKey,
+          created: result.created,
+        },
+      });
+      return json({ ok: true, result }, { status: result.created ? 201 : 200 });
+    }
+
+    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/admin-debit') {
+      const forbidden = requireBillingAdjustmentRole(auth.claims);
+      if (forbidden) return forbidden;
+      const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const result = await billing.appendManualAdminDebit(billingCtx, request);
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'BILLING',
+        action: 'billing.adjustment.admin_debit',
+        summary: `Appended manual admin debit for org ${auth.claims.orgId}`,
+        metadata: {
+          adjustmentId: result.adjustment.id,
+          amountMinor: result.adjustment.amountMinor,
+          resultingBalanceMinor: result.creditBalanceMinor,
+          reasonCode: result.adjustment.reasonCode,
+          relatedInvoiceId: result.adjustment.relatedInvoiceId,
+          idempotencyKey: result.adjustment.idempotencyKey,
+          created: result.created,
+        },
+      });
+      return json({ ok: true, result }, { status: result.created ? 201 : 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/invoices') {
@@ -3903,12 +3954,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'BILLING',
         action: 'billing.invoice.pdf_export',
-        summary: `Exported billing invoice PDF for ${invoice.id}`,
+        summary: `Exported billing document PDF for ${invoice.id}`,
         metadata: {
           invoiceId: invoice.id,
           invoiceStatus: invoice.status,
           periodMonthUtc: invoice.periodMonthUtc,
-          exportPolicy: 'ALL_INVOICE_STATES',
+          exportPolicy: CONSOLE_BILLING_INVOICE_PDF_EXPORT_POLICY,
         },
       });
       const headers = new Headers({
@@ -3961,74 +4012,10 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, lineItems }, { status: 200 });
     }
 
-    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/payment-methods') {
-      const paymentMethods = await billing.listPaymentMethods(billingCtx);
-      return json({ ok: true, paymentMethods }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/payment-methods') {
-      const adminRequired = requireAdminRoleForCardActions(auth.claims);
-      if (adminRequired) return adminRequired;
-      const request = parseAddCardPaymentMethodRequest(await readJson(ctx.request));
-      const paymentMethod = await billing.addCardPaymentMethod(billingCtx, request);
-      return json({ ok: true, paymentMethod }, { status: 201 });
-    }
-
-    if (ctx.method === 'DELETE' && paymentMethodMatch) {
-      const adminRequired = requireAdminRoleForCardActions(auth.claims);
-      if (adminRequired) return adminRequired;
-      const paymentMethodId = decodePathPart(paymentMethodMatch[1]);
-      const out = await billing.removeCardPaymentMethod(billingCtx, paymentMethodId);
-      if (!out.removed) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_method_not_found',
-            message: `Payment method ${paymentMethodId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, removed: true }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && paymentMethodDefaultMatch) {
-      const adminRequired = requireAdminRoleForCardActions(auth.claims);
-      if (adminRequired) return adminRequired;
-      const paymentMethodId = decodePathPart(paymentMethodDefaultMatch[1]);
-      const paymentMethod = await billing.setDefaultCardPaymentMethod(billingCtx, paymentMethodId);
-      if (!paymentMethod) {
-        return json(
-          {
-            ok: false,
-            code: 'payment_method_not_found',
-            message: `Payment method ${paymentMethodId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, paymentMethod }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/setup-intent') {
-      const request = parseStripeSetupIntentRequest(await readJson(ctx.request));
-      const setupIntent = await billing.createStripeSetupIntent(billingCtx, request);
-      return json({ ok: true, setupIntent }, { status: 200 });
-    }
-
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/checkout-session') {
       const request = parseStripeCheckoutSessionRequest(await readJson(ctx.request));
       const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, request);
       return json({ ok: true, checkoutSession }, { status: 201 });
-    }
-
-    if (
-      ctx.method === 'POST' &&
-      ctx.pathname === '/console/billing/stripe/customer-portal-session'
-    ) {
-      const request = parseStripeCustomerPortalSessionRequest(await readJson(ctx.request));
-      const portalSession = await billing.createStripeCustomerPortalSession(billingCtx, request);
-      return json({ ok: true, portalSession }, { status: 201 });
     }
   } catch (error: unknown) {
     if (billingFailureEvent) {

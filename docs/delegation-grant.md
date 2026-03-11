@@ -247,7 +247,7 @@ Delivery requirements:
 - `revokeDelegationGrant`
 - `executeDelegatedIntent`
 
-2. Add backend quickstarts for recurring payments, subscription billing, and bot automation.
+2. Add backend quickstarts for scheduled funded actions, prepaid balance controls, and bot automation.
 3. Remove deprecated or duplicate session/delegate naming in docs and SDK.
 
 ## Testing Plan
@@ -273,7 +273,7 @@ Delivery requirements:
 
 ## Primary Use Cases Unlocked
 
-1. Recurring payments/subscriptions with hard spend caps.
+1. Budgeted recurring operations with hard spend caps.
 2. DCA/rebalancing bots without prompting every trade.
 3. Marketplace actions (list/cancel/update) from backend jobs.
 4. Webhook-driven ops (release escrow, claim rewards, settle invoices).

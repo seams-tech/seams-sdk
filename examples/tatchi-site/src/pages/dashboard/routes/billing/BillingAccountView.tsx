@@ -1,26 +1,13 @@
 import React from 'react';
-import {
-  DashboardTable,
-  DashboardTableActionButton,
-  DashboardTableActionGroup,
-  DashboardTableCell,
-  DashboardTableHeader,
-  DashboardTableHeaderCell,
-  DashboardTableIntro,
-  DashboardTableRow,
-  DashboardTableState,
-  dashboardTableColumns,
-  useDashboardTablePagination,
-} from '../../components/DashboardTable';
 import type { TopbarContextState } from '../../types';
 import type {
+  DashboardBillingAccountActivityEntry,
   DashboardBillingCreditPackId,
-  DashboardBillingPaymentMethod,
+  DashboardBillingManualAdjustmentKind,
   DashboardStripeCheckoutSessionRequest,
-  DashboardStripeSetupIntent,
 } from './consoleBillingApi';
 import { formatUsdMinor } from './consoleBillingApi';
-import { BillingMetricsGrid, formatTimestamp, type BillingMetric } from './billingShared';
+import { BillingMetricsGrid, type BillingMetric } from './billingShared';
 
 const PRESET_CREDIT_PACK_OPTIONS = [
   { id: 'usd_10', label: '$10', detail: 'Quick prepaid top-up for test traffic.' },
@@ -30,6 +17,19 @@ const PRESET_CREDIT_PACK_OPTIONS = [
 const CUSTOM_CREDIT_PACK_ID = 'usd_custom' as const satisfies DashboardBillingCreditPackId;
 const MIN_CUSTOM_CREDIT_PACK_AMOUNT_MINOR = 1000;
 
+function describeAccountActivityType(input: DashboardBillingAccountActivityEntry): string {
+  if (input.type === 'MANUAL_ADJUSTMENT') {
+    return input.amountMinor >= 0 ? 'Manual support credit' : 'Manual admin debit';
+  }
+  if (input.type === 'CREDIT_PURCHASE') return 'Credit purchase settled';
+  if (input.type === 'USAGE_DEBIT') return 'Usage debit recorded';
+  return input.type;
+}
+
+function describeManualAdjustmentKind(input: DashboardBillingManualAdjustmentKind): string {
+  return input === 'support_credit' ? 'Manual support credit' : 'Manual admin debit';
+}
+
 function parseUsdAmountInputToMinor(input: string): number | null {
   const normalized = String(input || '').trim();
   if (!normalized) return null;
@@ -38,48 +38,28 @@ function parseUsdAmountInputToMinor(input: string): number | null {
   return Number.parseInt(whole, 10) * 100 + Number.parseInt(fraction.padEnd(2, '0'), 10);
 }
 
-const BILLING_PAYMENT_METHODS_TABLE_COLUMNS = dashboardTableColumns(
-  1.05,
-  0.85,
-  0.75,
-  0.75,
-  0.65,
-  0.7,
-  0.65,
-  1.1,
-);
-
 export interface BillingAccountViewProps {
   selectedContext: TopbarContextState;
   summaryMetrics: BillingMetric[];
   checkoutActionError: string;
   startingCheckoutPackId: DashboardBillingCreditPackId | '';
-  openingCustomerPortal: boolean;
+  canManageBillingAdjustments: boolean;
+  currentCreditBalanceMinor: number;
+  startingAdjustmentKind: DashboardBillingManualAdjustmentKind | '';
+  adjustmentActionError: string;
+  adjustmentActionMessage: string;
+  accountActivity: DashboardBillingAccountActivityEntry[];
+  accountActivityError: string;
   onStartStripeCheckout: (
     request: Pick<DashboardStripeCheckoutSessionRequest, 'creditPackId' | 'customAmountMinor'>,
   ) => void;
-  onOpenPaymentMethodPortal: () => void;
-  providerRefInput: string;
-  setProviderRefInput: React.Dispatch<React.SetStateAction<string>>;
-  brandInput: string;
-  setBrandInput: React.Dispatch<React.SetStateAction<string>>;
-  last4Input: string;
-  setLast4Input: React.Dispatch<React.SetStateAction<string>>;
-  expMonthInput: string;
-  setExpMonthInput: React.Dispatch<React.SetStateAction<string>>;
-  expYearInput: string;
-  setExpYearInput: React.Dispatch<React.SetStateAction<string>>;
-  isBillingCardAdmin: boolean;
-  addingPaymentMethod: boolean;
-  creatingPaymentMethodSetupIntent: boolean;
-  paymentMutationError: string;
-  paymentMethodSetupIntent: DashboardStripeSetupIntent | null;
-  paymentMethods: DashboardBillingPaymentMethod[];
-  busyPaymentMethodId: string;
-  onAddCardPaymentMethod: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
-  onCreatePaymentMethodSetupIntent: () => void;
-  onSetDefaultPaymentMethod: (paymentMethodId: string) => Promise<void>;
-  onRemovePaymentMethod: (paymentMethodId: string) => Promise<void>;
+  onSubmitManualAdjustment: (input: {
+    kind: DashboardBillingManualAdjustmentKind;
+    amountMinor: number;
+    reasonCode: string;
+    note: string;
+    relatedInvoiceId?: string;
+  }) => Promise<boolean>;
 }
 
 export function BillingAccountView(props: BillingAccountViewProps): React.JSX.Element {
@@ -88,36 +68,23 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
     summaryMetrics,
     checkoutActionError,
     startingCheckoutPackId,
-    openingCustomerPortal,
+    canManageBillingAdjustments,
+    currentCreditBalanceMinor,
+    startingAdjustmentKind,
+    adjustmentActionError,
+    adjustmentActionMessage,
+    accountActivity,
+    accountActivityError,
     onStartStripeCheckout,
-    onOpenPaymentMethodPortal,
-    providerRefInput,
-    setProviderRefInput,
-    brandInput,
-    setBrandInput,
-    last4Input,
-    setLast4Input,
-    expMonthInput,
-    setExpMonthInput,
-    expYearInput,
-    setExpYearInput,
-    isBillingCardAdmin,
-    addingPaymentMethod,
-    creatingPaymentMethodSetupIntent,
-    paymentMutationError,
-    paymentMethodSetupIntent,
-    paymentMethods,
-    busyPaymentMethodId,
-    onAddCardPaymentMethod,
-    onCreatePaymentMethodSetupIntent,
-    onSetDefaultPaymentMethod,
-    onRemovePaymentMethod,
+    onSubmitManualAdjustment,
   } = props;
-  const paymentMethodsPagination = useDashboardTablePagination(paymentMethods, {
-    itemLabel: 'payment method',
-    itemLabelPlural: 'payment methods',
-  });
   const [customAmountInput, setCustomAmountInput] = React.useState<string>('');
+  const [adjustmentKind, setAdjustmentKind] =
+    React.useState<DashboardBillingManualAdjustmentKind>('support_credit');
+  const [adjustmentAmountInput, setAdjustmentAmountInput] = React.useState<string>('');
+  const [adjustmentReasonCode, setAdjustmentReasonCode] = React.useState<string>('');
+  const [adjustmentRelatedInvoiceId, setAdjustmentRelatedInvoiceId] = React.useState<string>('');
+  const [adjustmentNote, setAdjustmentNote] = React.useState<string>('');
   const customAmountMinor = React.useMemo(
     () => parseUsdAmountInputToMinor(customAmountInput),
     [customAmountInput],
@@ -142,6 +109,69 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
     isCustomAmountValid && customAmountMinor != null
       ? `Buy ${formatUsdMinor(customAmountMinor)}`
       : 'Buy custom amount';
+  const adjustmentAmountMinor = React.useMemo(
+    () => parseUsdAmountInputToMinor(adjustmentAmountInput),
+    [adjustmentAmountInput],
+  );
+  const isAdjustmentAmountValid = adjustmentAmountMinor != null && adjustmentAmountMinor > 0;
+  const normalizedAdjustmentReasonCode = String(adjustmentReasonCode || '').trim();
+  const normalizedAdjustmentRelatedInvoiceId = String(adjustmentRelatedInvoiceId || '').trim();
+  const normalizedAdjustmentNote = String(adjustmentNote || '').trim();
+  const adjustmentDeltaMinor = isAdjustmentAmountValid
+    ? adjustmentKind === 'support_credit'
+      ? adjustmentAmountMinor
+      : -adjustmentAmountMinor
+    : 0;
+  const projectedBalanceMinor = currentCreditBalanceMinor + adjustmentDeltaMinor;
+  const adjustmentDeltaLabel =
+    adjustmentDeltaMinor >= 0
+      ? `+${formatUsdMinor(Math.abs(adjustmentDeltaMinor))}`
+      : `-${formatUsdMinor(Math.abs(adjustmentDeltaMinor))}`;
+  const adjustmentPreviewLabel = isAdjustmentAmountValid
+    ? `Impact preview: ${formatUsdMinor(currentCreditBalanceMinor)} -> ${formatUsdMinor(projectedBalanceMinor)} (${adjustmentDeltaLabel}).`
+    : 'Enter a positive amount to preview projected balance impact.';
+  const adjustmentPreviewClassName = `dashboard-form-hint dashboard-billing-adjustment-preview${projectedBalanceMinor < 0 ? ' dashboard-billing-adjustment-preview--warning' : ''}`;
+  const canSubmitManualAdjustment =
+    canManageBillingAdjustments &&
+    isAdjustmentAmountValid &&
+    Boolean(normalizedAdjustmentReasonCode) &&
+    Boolean(normalizedAdjustmentNote) &&
+    !startingAdjustmentKind;
+  const adjustmentButtonLabel =
+    startingAdjustmentKind === adjustmentKind
+      ? 'Applying adjustment...'
+      : adjustmentKind === 'support_credit'
+        ? 'Apply support credit'
+        : 'Apply admin debit';
+  const onAdjustmentSubmit = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!canSubmitManualAdjustment || adjustmentAmountMinor == null) return;
+      const success = await onSubmitManualAdjustment({
+        kind: adjustmentKind,
+        amountMinor: adjustmentAmountMinor,
+        reasonCode: normalizedAdjustmentReasonCode,
+        note: normalizedAdjustmentNote,
+        ...(normalizedAdjustmentRelatedInvoiceId
+          ? { relatedInvoiceId: normalizedAdjustmentRelatedInvoiceId }
+          : {}),
+      });
+      if (!success) return;
+      setAdjustmentAmountInput('');
+      setAdjustmentReasonCode('');
+      setAdjustmentRelatedInvoiceId('');
+      setAdjustmentNote('');
+    },
+    [
+      adjustmentAmountMinor,
+      adjustmentKind,
+      canSubmitManualAdjustment,
+      normalizedAdjustmentNote,
+      normalizedAdjustmentRelatedInvoiceId,
+      normalizedAdjustmentReasonCode,
+      onSubmitManualAdjustment,
+    ],
+  );
 
   return (
     <>
@@ -153,8 +183,8 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
           <div className="dashboard-billing-overview__copy">
             <h2>Billing account</h2>
             <p>
-              Billing is organization-scoped. Use prepaid balance for usage, top up credits with
-              one-time checkout, and manage saved payment methods here.
+              Billing is organization-scoped. Use prepaid balance for usage and top up credits with
+              one-time checkout.
             </p>
           </div>
         </div>
@@ -183,35 +213,37 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
           <h3 className="dashboard-billing-table__title">Top up credits</h3>
           <p className="dashboard-billing-table__description">
             Start a one-time Stripe checkout to add prepaid balance. Settled purchases appear in
-            invoice history as receipts.
+            billing documents as purchase receipts.
           </p>
           {checkoutActionError ? (
             <p className="dashboard-pagination-note">{checkoutActionError}</p>
           ) : null}
         </div>
-        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-billing-top-up-grid">
-          {PRESET_CREDIT_PACK_OPTIONS.map((pack) => (
-            <article
-              className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card"
-              key={pack.id}
-            >
-              <h2>{pack.label}</h2>
-              <p className="dashboard-pagination-note">{pack.detail}</p>
-              <div className="dashboard-form-actions">
-                <button
-                  type="button"
-                  className="dashboard-pagination-button"
-                  onClick={() => onStartStripeCheckout({ creditPackId: pack.id })}
-                  disabled={startingCheckoutPackId === pack.id}
-                >
-                  {startingCheckoutPackId === pack.id
-                    ? 'Starting checkout...'
-                    : `Buy ${pack.label}`}
-                </button>
-              </div>
-            </article>
-          ))}
-          <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card">
+        <div className="dashboard-billing-top-up-grid">
+          <div className="dashboard-billing-top-up-presets">
+            {PRESET_CREDIT_PACK_OPTIONS.map((pack) => (
+              <article
+                className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card"
+                key={pack.id}
+              >
+                <h2>{pack.label}</h2>
+                <p className="dashboard-pagination-note">{pack.detail}</p>
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => onStartStripeCheckout({ creditPackId: pack.id })}
+                    disabled={startingCheckoutPackId === pack.id}
+                  >
+                    {startingCheckoutPackId === pack.id
+                      ? 'Starting checkout...'
+                      : `Buy ${pack.label}`}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+          <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-top-up-card dashboard-billing-top-up-card--custom">
             <h2>Custom</h2>
             <p className="dashboard-pagination-note">
               Choose any prepaid balance top-up starting at $10.00.
@@ -251,177 +283,144 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
         </div>
       </section>
 
-      <DashboardTable
-        ariaLabel="Payment methods table"
-        columns={BILLING_PAYMENT_METHODS_TABLE_COLUMNS}
-        pagination={paymentMethodsPagination.pagination}
-      >
-        <DashboardTableIntro className="dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">Payment methods</h3>
-          <p className="dashboard-billing-table__description">
-            Use Stripe-managed flows for real card replacement and billing profile updates. The
-            manual add form remains available for direct console testing and operator backfills.
-          </p>
-          <div className="dashboard-form-actions dashboard-billing-payment-method-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={onCreatePaymentMethodSetupIntent}
-              disabled={creatingPaymentMethodSetupIntent}
-            >
-              {creatingPaymentMethodSetupIntent
-                ? 'Creating setup intent...'
-                : 'Start Stripe card replacement'}
-            </button>
-            <button
-              type="button"
-              className="dashboard-pagination-button dashboard-pagination-button--secondary"
-              onClick={onOpenPaymentMethodPortal}
-              disabled={openingCustomerPortal}
-            >
-              {openingCustomerPortal ? 'Opening portal...' : 'Update billing profile in portal'}
-            </button>
+      {canManageBillingAdjustments ? (
+        <section className="dashboard-table-wrapper" aria-label="Internal billing adjustments">
+          <div className="dashboard-table-limit dashboard-billing-table__intro">
+            <h3 className="dashboard-billing-table__title">Internal billing adjustments</h3>
+            <p className="dashboard-billing-table__description">
+              Admin-only controls. Adjustments append immutable ledger entries and must include a
+              reason plus operator note.
+            </p>
           </div>
-          <p className="dashboard-pagination-note">
-            Latest setup intent:{' '}
-            {paymentMethodSetupIntent
-              ? `${paymentMethodSetupIntent.id} (expires ${formatTimestamp(paymentMethodSetupIntent.expiresAt)})`
-              : '-'}
+          <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-adjustment-card">
+            <form className="dashboard-billing-adjustment-form" onSubmit={onAdjustmentSubmit}>
+              <div className="dashboard-billing-adjustment-grid">
+                <label className="dashboard-form-field">
+                  <span>Adjustment type</span>
+                  <select
+                    className="dashboard-input"
+                    value={adjustmentKind}
+                    onChange={(event) =>
+                      setAdjustmentKind(
+                        String(event.target.value) === 'admin_debit'
+                          ? 'admin_debit'
+                          : 'support_credit',
+                      )
+                    }
+                  >
+                    <option value="support_credit">Manual support credit</option>
+                    <option value="admin_debit">Manual admin debit</option>
+                  </select>
+                </label>
+                <label className="dashboard-form-field">
+                  <span>Amount (USD)</span>
+                  <input
+                    className="dashboard-input"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={adjustmentAmountInput}
+                    onChange={(event) => setAdjustmentAmountInput(event.target.value)}
+                    placeholder="25.00"
+                  />
+                </label>
+              </div>
+              <label className="dashboard-form-field">
+                <span>Reason code</span>
+                <input
+                  className="dashboard-input"
+                  type="text"
+                  value={adjustmentReasonCode}
+                  onChange={(event) => setAdjustmentReasonCode(event.target.value)}
+                  placeholder="incident_credit"
+                />
+              </label>
+              <label className="dashboard-form-field">
+                <span>Related document ID (optional)</span>
+                <input
+                  className="dashboard-input"
+                  type="text"
+                  value={adjustmentRelatedInvoiceId}
+                  onChange={(event) => setAdjustmentRelatedInvoiceId(event.target.value)}
+                  placeholder="receipt_bcp_xxx or inv_202603_001"
+                />
+              </label>
+              <label className="dashboard-form-field">
+                <span>Operator note</span>
+                <textarea
+                  className="dashboard-input dashboard-textarea"
+                  value={adjustmentNote}
+                  onChange={(event) => setAdjustmentNote(event.target.value)}
+                  placeholder="Describe why this adjustment is required."
+                />
+              </label>
+              <p className={adjustmentPreviewClassName}>{adjustmentPreviewLabel}</p>
+              <p className="dashboard-form-hint">
+                Selected action: {describeManualAdjustmentKind(adjustmentKind)}.
+              </p>
+              <p className="dashboard-form-hint">
+                Link a document ID to surface this adjustment on that document timeline.
+              </p>
+              {adjustmentActionMessage ? (
+                <p className="dashboard-info-banner">{adjustmentActionMessage}</p>
+              ) : null}
+              {adjustmentActionError ? (
+                <p className="dashboard-form-alert">{adjustmentActionError}</p>
+              ) : null}
+              <div className="dashboard-form-actions">
+                <button
+                  type="submit"
+                  className="dashboard-pagination-button"
+                  disabled={!canSubmitManualAdjustment}
+                >
+                  {adjustmentButtonLabel}
+                </button>
+              </div>
+            </form>
+          </article>
+        </section>
+      ) : null}
+
+      <section className="dashboard-table-wrapper" aria-label="Billing account activity">
+        <div className="dashboard-table-limit dashboard-billing-table__intro">
+          <h3 className="dashboard-billing-table__title">Account activity</h3>
+          <p className="dashboard-billing-table__description">
+            Review the latest ledger events, including manual support credits and manual admin
+            debits.
           </p>
-          <form
-            className="dashboard-view-grid dashboard-view-grid--two"
-            onSubmit={(event) => {
-              void onAddCardPaymentMethod(event);
-            }}
-          >
-            <label className="dashboard-form-field">
-              <span>Provider reference</span>
-              <input
-                className="dashboard-input"
-                value={providerRefInput}
-                onChange={(event) => setProviderRefInput(event.target.value)}
-                placeholder="pm_123..."
-                disabled={!isBillingCardAdmin}
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Brand</span>
-              <input
-                className="dashboard-input"
-                value={brandInput}
-                onChange={(event) => setBrandInput(event.target.value)}
-                placeholder="visa"
-                disabled={!isBillingCardAdmin}
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Last4</span>
-              <input
-                className="dashboard-input"
-                value={last4Input}
-                onChange={(event) => setLast4Input(event.target.value)}
-                placeholder="4242"
-                disabled={!isBillingCardAdmin}
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Expiry month</span>
-              <input
-                className="dashboard-input"
-                value={expMonthInput}
-                onChange={(event) => setExpMonthInput(event.target.value)}
-                placeholder="12"
-                disabled={!isBillingCardAdmin}
-              />
-            </label>
-            <label className="dashboard-form-field">
-              <span>Expiry year</span>
-              <input
-                className="dashboard-input"
-                value={expYearInput}
-                onChange={(event) => setExpYearInput(event.target.value)}
-                placeholder="2030"
-                disabled={!isBillingCardAdmin}
-              />
-            </label>
-            <div className="dashboard-form-actions">
-              <button
-                type="submit"
-                className="dashboard-pagination-button"
-                disabled={!isBillingCardAdmin || addingPaymentMethod}
-              >
-                {addingPaymentMethod ? 'Adding card...' : 'Add card'}
-              </button>
-              <span className="dashboard-pagination-note">
-                {isBillingCardAdmin
-                  ? 'Admin role enabled for add/remove/set-default card actions.'
-                  : 'Only admin role can add/remove/set-default cards.'}
-              </span>
-            </div>
-          </form>
-          {paymentMutationError ? (
-            <p className="dashboard-pagination-note">{paymentMutationError}</p>
-          ) : null}
-        </DashboardTableIntro>
-        <DashboardTableHeader>
-          <DashboardTableHeaderCell>Method ID</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Provider</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Brand</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Last4</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Expiry</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Default</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
-        </DashboardTableHeader>
-        {paymentMethods.length === 0 ? (
-          <DashboardTableState>No card payment methods on file.</DashboardTableState>
+        </div>
+        {accountActivityError ? (
+          <p className="dashboard-table-limit">{accountActivityError}</p>
+        ) : accountActivity.length === 0 ? (
+          <p className="dashboard-table-limit">No billing activity has been recorded yet.</p>
         ) : (
-          <>
-            {paymentMethodsPagination.rows.map((method) => (
-              <DashboardTableRow key={method.id}>
-                <DashboardTableCell title={method.id}>{method.id}</DashboardTableCell>
-                <DashboardTableCell>{method.provider || '-'}</DashboardTableCell>
-                <DashboardTableCell>{method.type || '-'}</DashboardTableCell>
-                <DashboardTableCell>{method.brand || '-'}</DashboardTableCell>
-                <DashboardTableCell>{method.last4 || '-'}</DashboardTableCell>
-                <DashboardTableCell>
-                  {method.expMonth > 0 && method.expYear > 0
-                    ? `${String(method.expMonth).padStart(2, '0')}/${method.expYear}`
-                    : '-'}
-                </DashboardTableCell>
-                <DashboardTableCell>{method.isDefault ? 'Yes' : 'No'}</DashboardTableCell>
-                <DashboardTableCell>
-                  <DashboardTableActionGroup>
-                    <DashboardTableActionButton
-                      onClick={() => {
-                        void onSetDefaultPaymentMethod(method.id);
-                      }}
-                      disabled={
-                        busyPaymentMethodId === method.id || method.isDefault || !isBillingCardAdmin
-                      }
-                    >
-                      {busyPaymentMethodId === method.id && !method.isDefault
-                        ? 'Updating...'
-                        : method.isDefault
-                          ? 'Default'
-                          : 'Set default'}
-                    </DashboardTableActionButton>
-                    <DashboardTableActionButton
-                      tone="danger"
-                      onClick={() => {
-                        void onRemovePaymentMethod(method.id);
-                      }}
-                      disabled={busyPaymentMethodId === method.id || !isBillingCardAdmin}
-                    >
-                      {busyPaymentMethodId === method.id ? 'Removing...' : 'Remove'}
-                    </DashboardTableActionButton>
-                  </DashboardTableActionGroup>
-                </DashboardTableCell>
-              </DashboardTableRow>
-            ))}
-          </>
+          <table className="dashboard-table">
+            <thead>
+              <tr>
+                <th scope="col">When (UTC)</th>
+                <th scope="col">Type</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Document</th>
+                <th scope="col">Reason</th>
+                <th scope="col">Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accountActivity.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{entry.createdAt || '-'}</td>
+                  <td>{describeAccountActivityType(entry)}</td>
+                  <td>{formatUsdMinor(entry.amountMinor)}</td>
+                  <td>{entry.relatedInvoiceId || '-'}</td>
+                  <td>{entry.reasonCode || '-'}</td>
+                  <td>{entry.note || entry.description || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
-      </DashboardTable>
+      </section>
     </>
   );
 }

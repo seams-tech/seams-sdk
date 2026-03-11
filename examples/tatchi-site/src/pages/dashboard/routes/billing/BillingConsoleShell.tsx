@@ -6,37 +6,29 @@ import { BillingAccountView } from './BillingAccountView';
 import { BillingInvoiceDetailView } from './BillingInvoiceDetailView';
 import { BillingInvoicesView } from './BillingInvoicesView';
 import {
-  addDashboardCardPaymentMethod,
+  createDashboardBillingManualAdminDebit,
+  createDashboardBillingManualSupportCredit,
   createDashboardStripeCheckoutSession,
-  createDashboardStripeCustomerPortalSession,
-  createDashboardStripeSetupIntent,
   downloadDashboardBillingInvoicePdf,
   formatUsdMinor,
   getDashboardBillingInvoice,
   getDashboardBillingInvoiceActivity,
   getDashboardBillingMonthlyActiveWallets,
   getDashboardBillingOverview,
+  listDashboardBillingAccountActivity,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
-  listDashboardBillingPaymentMethods,
-  removeDashboardCardPaymentMethod,
-  setDashboardDefaultCardPaymentMethod,
+  type DashboardBillingAccountActivityEntry,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceActivity,
   type DashboardBillingInvoiceLineItem,
   type DashboardBillingInvoiceListSummary,
+  type DashboardBillingManualAdjustmentKind,
   type DashboardBillingOverview,
-  type DashboardBillingPaymentMethod,
   type DashboardBillingUsage,
   type DashboardStripeCheckoutSessionRequest,
-  type DashboardStripeSetupIntent,
 } from './consoleBillingApi';
-import {
-  buildInvoicePdfFilename,
-  parseBillingSubview,
-  parsePositiveInteger,
-  type BillingMetric,
-} from './billingShared';
+import { buildInvoicePdfFilename, parseBillingSubview, type BillingMetric } from './billingShared';
 
 export interface BillingConsoleShellProps {
   defaultPath: '/dashboard/billing/account' | '/dashboard/invoices';
@@ -161,7 +153,10 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [overview, setOverview] = React.useState<DashboardBillingOverview | null>(null);
   const [usage, setUsage] = React.useState<DashboardBillingUsage | null>(null);
-  const [paymentMethods, setPaymentMethods] = React.useState<DashboardBillingPaymentMethod[]>([]);
+  const [accountActivity, setAccountActivity] = React.useState<
+    DashboardBillingAccountActivityEntry[]
+  >([]);
+  const [accountActivityError, setAccountActivityError] = React.useState<string>('');
 
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
@@ -171,23 +166,14 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     DashboardStripeCheckoutSessionRequest['creditPackId'] | ''
   >('');
   const [checkoutActionError, setCheckoutActionError] = React.useState<string>('');
-  const [openingCustomerPortal, setOpeningCustomerPortal] = React.useState<boolean>(false);
   const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
+  const [startingAdjustmentKind, setStartingAdjustmentKind] = React.useState<
+    DashboardBillingManualAdjustmentKind | ''
+  >('');
+  const [adjustmentActionError, setAdjustmentActionError] = React.useState<string>('');
+  const [adjustmentActionMessage, setAdjustmentActionMessage] = React.useState<string>('');
   const [billingWarningMessage, setBillingWarningMessage] = React.useState<string>('');
   const [billingWarningDismissed, setBillingWarningDismissed] = React.useState<boolean>(false);
-
-  const [paymentMutationError, setPaymentMutationError] = React.useState<string>('');
-  const [addingPaymentMethod, setAddingPaymentMethod] = React.useState<boolean>(false);
-  const [creatingPaymentMethodSetupIntent, setCreatingPaymentMethodSetupIntent] =
-    React.useState<boolean>(false);
-  const [busyPaymentMethodId, setBusyPaymentMethodId] = React.useState<string>('');
-  const [providerRefInput, setProviderRefInput] = React.useState<string>('');
-  const [brandInput, setBrandInput] = React.useState<string>('');
-  const [last4Input, setLast4Input] = React.useState<string>('');
-  const [expMonthInput, setExpMonthInput] = React.useState<string>('');
-  const [expYearInput, setExpYearInput] = React.useState<string>('');
-  const [paymentMethodSetupIntent, setPaymentMethodSetupIntent] =
-    React.useState<DashboardStripeSetupIntent | null>(null);
 
   const [invoiceDetailLoading, setInvoiceDetailLoading] = React.useState<boolean>(false);
   const [invoiceDetailError, setInvoiceDetailError] = React.useState<string>('');
@@ -212,25 +198,35 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setLoading(false);
       setOverview(null);
       setUsage(null);
-      setPaymentMethods([]);
+      setAccountActivity([]);
+      setAccountActivityError('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
     setLoading(true);
     setErrorMessage('');
+    setAccountActivityError('');
     try {
-      const [nextOverview, nextUsage, nextPaymentMethods] = await Promise.all([
+      const [nextOverview, nextUsage] = await Promise.all([
         getDashboardBillingOverview(),
         getDashboardBillingMonthlyActiveWallets(),
-        listDashboardBillingPaymentMethods(),
       ]);
       setOverview(nextOverview);
       setUsage(nextUsage);
-      setPaymentMethods(nextPaymentMethods);
+      try {
+        const nextAccountActivity = await listDashboardBillingAccountActivity(25);
+        setAccountActivity(nextAccountActivity);
+      } catch (activityError: unknown) {
+        setAccountActivity([]);
+        setAccountActivityError(
+          activityError instanceof Error ? activityError.message : String(activityError),
+        );
+      }
     } catch (error: unknown) {
       setOverview(null);
       setUsage(null);
-      setPaymentMethods([]);
+      setAccountActivity([]);
+      setAccountActivityError('');
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
@@ -324,7 +320,14 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setBillingWarningMessage('');
       return;
     }
-    if (overview.creditBalanceMinor <= overview.lowBalanceThresholdMinor) {
+    if (overview.liveEnvironmentState === 'BLOCKED') {
+      setBillingWarningDismissed(false);
+      setBillingWarningMessage(
+        'Prepaid balance is depleted. Add credits before creating or using staging or production environments.',
+      );
+      return;
+    }
+    if (overview.liveEnvironmentState === 'LOW_BALANCE') {
       setBillingWarningDismissed(false);
       setBillingWarningMessage(
         `Prepaid balance is at or below the warning threshold (${formatUsdMinor(
@@ -392,13 +395,6 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     };
   }, [activeInvoiceId, session.claims, subview.kind]);
 
-  const isBillingCardAdmin = React.useMemo(
-    () =>
-      Array.isArray(session.claims?.roles) &&
-      session.claims.roles.some((role) => String(role || '').toLowerCase() === 'admin'),
-    [session.claims?.roles],
-  );
-
   const filteredInvoices = React.useMemo<DashboardBillingInvoice[]>(() => {
     return filterInvoices({
       invoices,
@@ -440,7 +436,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       {
         label: 'Latest period',
         value: filteredInvoiceSummary.latestPeriodMonthUtc || '-',
-        hint: 'Loaded invoice history',
+        hint: 'Loaded billing documents',
       },
     ];
   }, [filteredInvoiceSummary]);
@@ -450,7 +446,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       {
         label: 'Balance',
         value: formatUsdMinor(overview?.creditBalanceMinor || 0),
-        hint: `Warning at ${formatUsdMinor(overview?.lowBalanceThresholdMinor || 0)}`,
+        hint:
+          overview?.liveEnvironmentState === 'BLOCKED'
+            ? 'Live environments are blocked until balance is positive'
+            : overview?.liveEnvironmentState === 'LOW_BALANCE'
+              ? `Warning at ${formatUsdMinor(overview?.lowBalanceThresholdMinor || 0)}`
+              : 'Live environments enabled',
       },
       {
         label: 'Current MAW',
@@ -481,125 +482,14 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     );
   }, [activeInvoiceId, invoiceActivity?.invoice, invoiceDetail, invoices]);
 
-  const onAddCardPaymentMethod = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!session.claims) {
-        setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!isBillingCardAdmin) {
-        setPaymentMutationError('Only admin role can add card payment methods.');
-        return;
-      }
-      const providerRef = String(providerRefInput || '').trim();
-      const brand = String(brandInput || '').trim();
-      const last4 = String(last4Input || '').trim();
-      const expMonth = parsePositiveInteger(expMonthInput);
-      const expYear = parsePositiveInteger(expYearInput);
-      if (!providerRef || !brand || !last4 || expMonth == null || expYear == null) {
-        setPaymentMutationError(
-          'providerRef, brand, last4, expMonth, and expYear are required for card creation.',
-        );
-        return;
-      }
-      setAddingPaymentMethod(true);
-      setPaymentMutationError('');
-      try {
-        await addDashboardCardPaymentMethod({ providerRef, brand, last4, expMonth, expYear });
-        setProviderRefInput('');
-        setBrandInput('');
-        setLast4Input('');
-        setExpMonthInput('');
-        setExpYearInput('');
-        await refreshBillingShellData();
-      } catch (error: unknown) {
-        setPaymentMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setAddingPaymentMethod(false);
-      }
-    },
-    [
-      brandInput,
-      expMonthInput,
-      expYearInput,
-      isBillingCardAdmin,
-      last4Input,
-      providerRefInput,
-      refreshBillingShellData,
-      session.claims,
-      session.errorMessage,
-    ],
-  );
-
-  const onCreatePaymentMethodSetupIntent = React.useCallback(async () => {
-    if (!session.claims) {
-      setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
-      return;
-    }
-    setCreatingPaymentMethodSetupIntent(true);
-    setPaymentMutationError('');
-    setPaymentMethodSetupIntent(null);
-    try {
-      const setupIntent = await createDashboardStripeSetupIntent({
-        returnUrl: window.location.href,
-      });
-      setPaymentMethodSetupIntent(setupIntent);
-    } catch (error: unknown) {
-      setPaymentMutationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCreatingPaymentMethodSetupIntent(false);
-    }
-  }, [session.claims, session.errorMessage]);
-
-  const onSetDefaultPaymentMethod = React.useCallback(
-    async (paymentMethodId: string) => {
-      if (!session.claims) {
-        setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!isBillingCardAdmin) {
-        setPaymentMutationError('Only admin role can set default card payment methods.');
-        return;
-      }
-      setBusyPaymentMethodId(paymentMethodId);
-      setPaymentMutationError('');
-      try {
-        await setDashboardDefaultCardPaymentMethod(paymentMethodId);
-        await refreshBillingShellData();
-      } catch (error: unknown) {
-        setPaymentMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setBusyPaymentMethodId('');
-      }
-    },
-    [isBillingCardAdmin, refreshBillingShellData, session.claims, session.errorMessage],
-  );
-
-  const onRemovePaymentMethod = React.useCallback(
-    async (paymentMethodId: string) => {
-      if (!session.claims) {
-        setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
-        return;
-      }
-      if (!isBillingCardAdmin) {
-        setPaymentMutationError('Only admin role can remove card payment methods.');
-        return;
-      }
-      if (!window.confirm(`Remove payment method ${paymentMethodId}?`)) return;
-      setBusyPaymentMethodId(paymentMethodId);
-      setPaymentMutationError('');
-      try {
-        await removeDashboardCardPaymentMethod(paymentMethodId);
-        await refreshBillingShellData();
-      } catch (error: unknown) {
-        setPaymentMutationError(error instanceof Error ? error.message : String(error));
-      } finally {
-        setBusyPaymentMethodId('');
-      }
-    },
-    [isBillingCardAdmin, refreshBillingShellData, session.claims, session.errorMessage],
-  );
+  const canManageBillingAdjustments = React.useMemo(() => {
+    return (session.claims?.roles || []).some(
+      (role) =>
+        String(role || '')
+          .trim()
+          .toLowerCase() === 'admin',
+    );
+  }, [session.claims?.roles]);
 
   const onStartStripeCheckout = React.useCallback(
     async ({
@@ -630,24 +520,63 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     [session.claims, session.errorMessage],
   );
 
-  const onOpenPaymentMethodPortal = React.useCallback(async () => {
-    if (!session.claims) {
-      setPaymentMutationError(session.errorMessage || 'Console session is unavailable');
-      return;
-    }
-    setOpeningCustomerPortal(true);
-    setPaymentMutationError('');
-    try {
-      const portalSession = await createDashboardStripeCustomerPortalSession({
-        returnUrl: window.location.href,
-      });
-      window.location.assign(portalSession.url);
-    } catch (error: unknown) {
-      setPaymentMutationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setOpeningCustomerPortal(false);
-    }
-  }, [session.claims, session.errorMessage]);
+  const onSubmitManualAdjustment = React.useCallback(
+    async (input: {
+      kind: DashboardBillingManualAdjustmentKind;
+      amountMinor: number;
+      reasonCode: string;
+      note: string;
+      relatedInvoiceId?: string;
+    }): Promise<boolean> => {
+      if (!session.claims) {
+        setAdjustmentActionError(session.errorMessage || 'Console session is unavailable');
+        return false;
+      }
+      setStartingAdjustmentKind(input.kind);
+      setAdjustmentActionError('');
+      setAdjustmentActionMessage('');
+      const idempotencyKey = [
+        'manual_adjustment',
+        input.kind,
+        String(Date.now()),
+        Math.random().toString(16).slice(2, 10),
+      ].join(':');
+
+      try {
+        const result =
+          input.kind === 'support_credit'
+            ? await createDashboardBillingManualSupportCredit({
+                amountMinor: input.amountMinor,
+                reasonCode: input.reasonCode,
+                note: input.note,
+                idempotencyKey,
+                ...(input.relatedInvoiceId ? { relatedInvoiceId: input.relatedInvoiceId } : {}),
+              })
+            : await createDashboardBillingManualAdminDebit({
+                amountMinor: input.amountMinor,
+                reasonCode: input.reasonCode,
+                note: input.note,
+                idempotencyKey,
+                ...(input.relatedInvoiceId ? { relatedInvoiceId: input.relatedInvoiceId } : {}),
+              });
+        setAdjustmentActionMessage(
+          result.created
+            ? input.kind === 'support_credit'
+              ? 'Manual support credit recorded.'
+              : 'Manual admin debit recorded.'
+            : 'Manual adjustment was already recorded for this idempotency key.',
+        );
+        await refreshBillingShellData();
+        return true;
+      } catch (error: unknown) {
+        setAdjustmentActionError(error instanceof Error ? error.message : String(error));
+        return false;
+      } finally {
+        setStartingAdjustmentKind('');
+      }
+    },
+    [refreshBillingShellData, session.claims, session.errorMessage],
+  );
 
   const onDownloadInvoicePdf = React.useCallback(
     async (invoiceId: string) => {
@@ -711,36 +640,17 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           summaryMetrics={summaryMetrics}
           checkoutActionError={checkoutActionError}
           startingCheckoutPackId={startingCheckoutPackId}
-          openingCustomerPortal={openingCustomerPortal}
+          canManageBillingAdjustments={canManageBillingAdjustments}
+          currentCreditBalanceMinor={overview?.creditBalanceMinor || 0}
+          startingAdjustmentKind={startingAdjustmentKind}
+          adjustmentActionError={adjustmentActionError}
+          adjustmentActionMessage={adjustmentActionMessage}
+          accountActivity={accountActivity}
+          accountActivityError={accountActivityError}
           onStartStripeCheckout={(checkoutRequest) => {
             void onStartStripeCheckout(checkoutRequest);
           }}
-          onOpenPaymentMethodPortal={() => {
-            void onOpenPaymentMethodPortal();
-          }}
-          providerRefInput={providerRefInput}
-          setProviderRefInput={setProviderRefInput}
-          brandInput={brandInput}
-          setBrandInput={setBrandInput}
-          last4Input={last4Input}
-          setLast4Input={setLast4Input}
-          expMonthInput={expMonthInput}
-          setExpMonthInput={setExpMonthInput}
-          expYearInput={expYearInput}
-          setExpYearInput={setExpYearInput}
-          isBillingCardAdmin={isBillingCardAdmin}
-          addingPaymentMethod={addingPaymentMethod}
-          creatingPaymentMethodSetupIntent={creatingPaymentMethodSetupIntent}
-          paymentMutationError={paymentMutationError}
-          paymentMethodSetupIntent={paymentMethodSetupIntent}
-          paymentMethods={paymentMethods}
-          busyPaymentMethodId={busyPaymentMethodId}
-          onAddCardPaymentMethod={onAddCardPaymentMethod}
-          onCreatePaymentMethodSetupIntent={() => {
-            void onCreatePaymentMethodSetupIntent();
-          }}
-          onSetDefaultPaymentMethod={onSetDefaultPaymentMethod}
-          onRemovePaymentMethod={onRemovePaymentMethod}
+          onSubmitManualAdjustment={(request) => onSubmitManualAdjustment(request)}
         />
       ) : subview.kind === 'invoices' ? (
         <BillingInvoicesView
