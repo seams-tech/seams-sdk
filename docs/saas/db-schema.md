@@ -16,7 +16,7 @@ This plan covers:
 - Project and environment modeling.
 - Wallet/user data isolation strategy.
 - Policy engine configuration and versioning.
-- Billing for monthly plans, active-wallet usage, credits, and payment rails.
+- Ledger-first prepaid billing for active-wallet usage, top-ups, receipts, and statements.
 - Additional platform concerns needed for secure multi-tenant operation.
 
 ## Scope Boundary
@@ -37,7 +37,7 @@ This plan covers:
 Use one shared Postgres cluster/instance with separate logical databases per major domain:
 
 - `tatchi_signer` logical DB for threshold signing + relay runtime paths.
-- `tatchi_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, subscriptions, webhooks, API keys).
+- `tatchi_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, webhooks, API keys).
 - Within each logical DB, enforce tenant-aware tables and strict RLS where multi-tenant data exists:
   - every tenant row includes `org_id`,
   - project-scoped rows include `project_id`,
@@ -80,7 +80,7 @@ Reason:
 3. `Environment` belongs to `Project`; scopes runtime settings and secrets.
 4. `Wallet/User runtime data` is project-scoped and tenant-enforced.
 5. `Policy engine` is versioned and assigned at org/project/wallet-segment levels.
-6. `Billing` rolls up usage events into invoices, applies credits from an immutable ledger, and settles through Stripe cards or supported stablecoin assets.
+6. `Billing` records prepaid credit purchases and usage debits in an append-only ledger, then projects receipts, statements, and balance state from that journal.
 
 ## Schema Plan by Domain
 
@@ -110,7 +110,7 @@ Notes:
   - org-scoped roles: `owner`, `admin`, `security_admin`, `billing_admin`
   - project-scoped roles: `developer`, `support`, `ops`
 - Support account states: invited, active, suspended, removed.
-- Billing permissions include explicit actions such as `billing.payment_methods.write` and map `add/remove card` to `admin` only.
+- Billing permissions include explicit internal adjustment actions and keep customer-facing billing mutations limited to prepaid checkout.
 - Current console implementation materializes these as `console_user_profiles`, `console_user_backup_emails`, and `created_by_user_id` on `console_organizations`.
 
 ### 2) Projects and Environments
@@ -167,87 +167,45 @@ Notes:
 Tables:
 
 - `billing_accounts`
-- `subscriptions`
+- `billing_credit_purchases`
+- `billing_ledger_accounts`
+- `billing_ledger_entries`
+- `billing_ledger_postings`
 - `usage_meter_events` (append-only)
 - `usage_rollups_daily`
 - `usage_rollups_monthly`
-- `credit_ledger` (append-only, immutable adjustments)
 - `invoices`
 - `invoice_line_items`
-- `invoice_payment_rail_locks`
-- `payments`
-- `billing_payment_methods`
-- `stripe_customers`
-- `stripe_events`
-- `stablecoin_payment_quotes`
-- `stablecoin_payment_intents`
-- `stablecoin_settlement_events`
-- `stablecoin_deposit_addresses`
-- `chain_finality_policies`
+- `stripe_webhook_events`
 
 Billing support:
 
-- Monthly org subscription: from `subscriptions`.
 - Active-wallet usage: `Monthly Active Wallets (MAW)` definition + monthly rollup.
   - `MAW` is the count of distinct `wallet_id` per organization per calendar month (`UTC`) with at least one successful billable action.
   - Billable actions: `transfer`, `swap`, `approve`, `contract_call`.
   - Exclusions: wallet creation-only activity, simulations, failed transactions, internal retries.
-- Credits billing: consume credits through ledger debits before final charge.
-- Card payments via Stripe:
-  - map organization billing account to Stripe customer,
-  - store external payment method references and default method per billing account,
-  - persist external Stripe payment intent reference per payment attempt for webhook correlation,
-  - persist processed Stripe webhook callback events (event id + provider ref + linked payment intent) for idempotency and auditability,
-  - reconcile invoice/payment status from verified Stripe webhook events.
-  - authorization rule: only `admin` role can create/delete card payment method records and set the default card payment method.
-- Stablecoin settlement for `USDC` and `USDT`:
-  - `USDC` and `USDT` accept funding from any currently supported chain: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
-  - lock quote terms (asset, amount, network, expiry) per invoice payment intent,
-  - allocate destination details per payment intent,
-  - track on-chain confirmations and settlement outcomes.
-  - persist settlement risk metadata (`settled_at_ms`, `reorg_risk_window_ends_at_ms`) and expose `withinReorgRiskWindow` for post-settlement monitoring.
-  - v1 finality policy defaults:
-    - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
-    - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-    - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-    - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-    - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
-- Split-payment policy:
-  - invoices must settle fully on one rail: `CARD` or `STABLECOIN`.
-  - no mixed card + stablecoin settlement for a single invoice.
-  - rail is locked on first payment intent and remains immutable while invoice is open.
-- Payment lifecycle model:
-  - `payments.state` enum values:
-    - `CREATED`
-    - `ACTION_REQUIRED`
-    - `PENDING`
-    - `CONFIRMING`
-    - `SETTLED`
-    - `PARTIALLY_SETTLED`
-    - `OVERPAID`
-    - `FAILED`
-    - `CANCELED`
-    - `EXPIRED`
-    - `REFUNDED`
-    - `DISPUTED`
-  - append-only `payment_state_transitions` audit table:
-    - `payment_id`, `from_state`, `to_state`, `changed_at`, `actor_type`, `source_event_id`, `reason`
-  - enforce allowed transitions with DB trigger + application guardrails:
-    - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
-    - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
-    - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
-    - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
-    - `SETTLED` -> `REFUNDED` | `DISPUTED`
-    - `DISPUTED` -> `SETTLED` | `REFUNDED`
-  - `CONFIRMING` -> `SETTLED` requires `observed_confirmations >= chain_finality_policies.required_confirmations`.
-  - if `chain_finality_policies.confirmation_timeout_minutes` is exceeded before threshold, transition to `FAILED` with `failure_reason = CONFIRMATION_TIMEOUT`.
+- Prepaid top-ups via Stripe Checkout:
+  - map organization billing account to Stripe customer reference as needed for checkout,
+  - persist checkout settlement webhook events for idempotency and auditability,
+  - create prepaid credit purchase entries and purchase receipts from verified checkout settlement.
+- Ledger-first accounting:
+  - customer balance is derived from ledger postings, not edited state,
+  - usage debits, credit purchases, and manual operator adjustments append immutable journal entries,
+  - corrections are compensating entries, not row mutation.
+- Billing documents:
+  - purchase receipts and usage statements are projections built from ledger and purchase state,
+  - line items are regenerated deterministically from those projections,
+  - customer-facing PDF exports exclude internal-only adjustment details.
+- Internal billing operations:
+  - operator support credits and admin debits are append-only ledger entries,
+  - linked manual adjustments may surface on internal invoice timelines,
+  - live-environment readiness is derived from projected prepaid balance state.
 
 Critical rule:
 
 - Canonical active-wallet metric is `MAW` (Monthly Active Wallets) and must be versioned (`maw_v1`) in metering logic.
-- Stablecoin over/underpayment handling must be deterministic and auditable (credit, remaining balance due, or manual review).
-- Payment transition history must be immutable and complete for dispute/compliance evidence.
-- Invoice settlement remains open until full amount is covered by the locked rail; cross-rail top-ups are disallowed.
+- Billing writes must remain append-only and auditable.
+- Projected balance and document views must be reproducible from ledger and purchase state.
 
 ### 6) Integrations and Automation
 
@@ -312,7 +270,7 @@ Logical databases + schemas:
   - `audit`: signer-domain immutable logs.
 - `tatchi_console`:
   - `control`: org, projects, environments, memberships, settings, policy configs.
-  - `billing`: metering, invoices, payments, Stripe/stablecoin integration records.
+  - `billing`: metering, invoices, ledger projections, prepaid purchase records, and Stripe webhook records.
   - `integrations`: api keys, webhook endpoints/deliveries/retries.
   - `audit`: console-domain immutable logs and compliance records.
 - If only one logical DB is available temporarily, keep these schema boundaries unchanged and map separate DB users to schema-scoped privileges.
@@ -336,18 +294,17 @@ Optional at scale:
 - Add policy tables with versioning and assignments.
 - Add API key and webhook tables.
 - Add app/environment settings tables.
-- Add billing account + subscription records.
-- Add Stripe customer linkage + card payment method references.
+- Add billing account + ledger account records.
+- Add Stripe checkout customer linkage and webhook event storage.
 
 ### Phase 2: Usage and Billing
 
 - Add `usage_meter_events` ingestion.
 - Build daily/monthly rollup jobs.
-- Add invoice generation and credit ledger consumption.
+- Add invoice generation and ledger-backed balance projections.
 - Add `MAW` billing metric computation (`maw_v1`) and evidence exports.
-- Add Stripe webhook reconciliation and payment status projection.
-- Add stablecoin quote/intents and on-chain settlement tracking for `USDC` and `USDT`, with funding accepted from `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
-- Seed `chain_finality_policies` with v1 defaults for `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Add Stripe checkout settlement reconciliation and prepaid receipt projection.
+- Add internal adjustment journal flow and auditability.
 - Add invoice rail-lock persistence and mixed-rail rejection constraints.
 
 ### Phase 3: Hardening and Enterprise

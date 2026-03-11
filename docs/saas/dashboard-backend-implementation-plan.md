@@ -30,7 +30,7 @@ This plan assumes:
 - Split runtime signer data and console/billing data into separate logical databases (or at minimum separate schemas with separate app roles).
 - Maintain separate DB users/permissions/migration streams per domain:
   - signer domain: threshold signing + relay runtime tables.
-  - console domain: org/project/environment, dashboard settings, billing, subscriptions, webhooks, API keys.
+  - console domain: org/project/environment, dashboard settings, billing, webhooks, API keys.
 - Local cluster anchor is derived from provided URL:
   - provided: `postgresql://tatchi:tatchi@127.0.0.1/tatchi?statusColor=686B6F&env=local&name=tatchi&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
   - target logical DBs: `tatchi_signer` and `tatchi_console` on the same `127.0.0.1` cluster.
@@ -67,30 +67,26 @@ Completed:
   - cursor pagination contract (`limit`, `cursor`, `nextCursor`) and malformed-cursor validation are implemented and tested.
 - Billing backend slice is implemented:
   - `GET /console/billing/overview`
-  - `POST /console/billing/invoices/generate`
+  - `GET /console/billing/account/activity`
   - `GET /console/billing/usage/monthly-active-wallets`
   - `POST /console/billing/usage/events`
   - `GET /console/billing/invoices`
   - `GET /console/billing/invoices/:id`
   - `GET /console/billing/invoices/:id/line-items`
-  - `GET/POST/DELETE /console/billing/payment-methods`
-  - `POST /console/billing/payment-methods/:id/default`
-  - `POST /console/billing/stripe/setup-intent`
-  - `POST /console/billing/stripe/payment-intent`
-  - `POST /console/billing/stripe/payment-intents/:id/reconcile`
+  - `GET /console/billing/invoices/:id/activity`
+  - `GET /console/billing/invoices/:id/pdf`
+  - `POST /console/billing/invoices/generate`
+  - `POST /console/billing/adjustments/support-credit`
+  - `POST /console/billing/adjustments/admin-debit`
+  - `POST /console/billing/stripe/checkout-session`
   - `POST /console/billing/stripe/webhook`
-  - `GET /console/billing/stablecoins/assets`
-  - `POST /console/billing/stablecoins/quotes`
-  - `POST /console/billing/stablecoins/payment-intents`
-  - `GET /console/billing/stablecoins/payment-intents/:id`
-  - `POST /console/billing/stablecoins/payment-intents/:id/cancel`
-  - `POST /console/billing/stablecoins/payment-intents/:id/reconcile`
-- Payment semantics implemented:
-  - single-rail invoice lock (`CARD` vs `STABLECOIN`),
-  - quote single-use and amount guards,
-  - chain-specific finality thresholds/timeouts/risk windows,
-  - payment state transition validation and append-only transition ledger.
-- Billing provider boundaries are implemented via explicit Stripe/stablecoin adapters.
+- Billing semantics implemented:
+  - ledger-first prepaid balance projection,
+  - append-only journal entries and postings,
+  - receipt and usage-statement projection rebuild,
+  - shared balance readiness states (`HEALTHY`, `LOW_BALANCE`, `BLOCKED`),
+  - internal-only manual adjustment visibility for staff timelines.
+- Billing provider boundaries are implemented via explicit Stripe checkout + webhook adapters.
 - API key backend slice is implemented:
   - `GET/POST/DELETE /console/api-keys`
   - `POST /console/api-keys/:id/rotate`
@@ -208,26 +204,12 @@ Completed:
   - `GET /console/webhooks/:id/deliveries`
   - `POST /console/webhooks/:id/replay`
   - endpoint status toggles, delivery history pagination, and replay actions are wired in UI.
-- Dashboard billing page now consumes live console APIs:
-  - `GET /console/billing/overview`
-  - `GET /console/billing/usage/monthly-active-wallets`
-  - `GET /console/billing/invoices`
-  - `GET /console/billing/invoices/:id/line-items`
-  - `GET /console/billing/payment-methods`
-  - `POST /console/billing/payment-methods`
-  - `POST /console/billing/payment-methods/:id/default`
-  - `DELETE /console/billing/payment-methods/:id`
-  - `GET /console/billing/stablecoins/assets`
-  - `POST /console/billing/stripe/setup-intent`
-  - `POST /console/billing/stripe/payment-intent`
-  - `POST /console/billing/stablecoins/quotes`
-  - `POST /console/billing/stablecoins/payment-intents`
-  - `GET /console/billing/stablecoins/payment-intents/:id`
-  - `POST /console/billing/stablecoins/payment-intents/:id/cancel`
-  - invoices, line-item drilldown, payment methods, payment execution actions, and chain finality policy tables are wired in UI.
-  - single-rail semantics are surfaced in UI via invoice rail-lock and outstanding-balance guidance per payment rail.
-  - card management actions in UI are gated to `admin` role to match backend RBAC.
-  - subscription-management controls are wired in UI (subscription status visibility, cancel/resume actions, Stripe checkout handoff, and customer-portal entry).
+- Dashboard billing routes now consume live console APIs:
+  - `/dashboard/billing/account` uses `GET /console/billing/overview`, `GET /console/billing/account/activity`, and `POST /console/billing/stripe/checkout-session`
+  - `/dashboard/invoices` uses `GET /console/billing/invoices`
+  - `/dashboard/invoices/:id` uses `GET /console/billing/invoices/:id`, `/line-items`, `/activity`, and `/pdf`
+  - admin-only billing adjustments use `POST /console/billing/adjustments/support-credit` and `POST /console/billing/adjustments/admin-debit`
+  - billing account/invoices split, PDF export, low-balance warnings, and internal adjustment visibility are wired in UI.
 - Dashboard account settings page now consumes live console APIs:
   - `GET/PATCH /console/account/profile`
   - `GET/POST /console/account/organizations`
@@ -326,10 +308,9 @@ Completed:
 Recently completed hardening:
 
 - DB-level tenant context primitives are now introduced (`app.console_namespace`, `app.console_org_id`) with transaction-scoped Postgres client wiring across runtime snapshots, org/project/environment, wallets, API keys, policies, webhooks, config modules, and billing operations.
-- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_gas_sponsorship_configs`, `console_smart_wallet_configs`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_subscriptions`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, `console_payment_methods`, `console_stripe_payment_intents`, `console_stripe_webhook_events`, `console_stablecoin_quotes`, `console_stablecoin_payment_intents`, and `console_payment_state_transitions`, with dedicated DB-level policy tests for each completed slice.
+- RLS policy enforcement is now active for `console_runtime_snapshots`, `console_organizations`, `console_projects`, `console_environments`, `console_wallet_index`, `console_api_keys`, `console_gas_sponsorship_configs`, `console_smart_wallet_configs`, `console_environment_settings`, `console_key_exports`, `console_policies`, `console_policy_versions`, `console_policy_assignments`, `console_webhook_endpoints`, `console_webhook_deliveries`, `console_webhook_attempts`, `console_webhook_dead_letters`, `console_billing_accounts`, `console_billing_credit_purchases`, `console_billing_ledger_accounts`, `console_billing_ledger_entries`, `console_billing_ledger_postings`, `console_usage_meter_events`, `console_usage_rollups_monthly`, `console_invoices`, `console_invoice_line_items`, and `console_stripe_webhook_events`, with dedicated DB-level policy tests for each completed slice.
 - Monthly billing finalization now runs with explicit org targets (`orgIds`) to remain compatible with FORCE-RLS billing tables.
-- Stripe provider-ref linkage is now isolated through `console_stripe_provider_refs` for webhook reconciliation while keeping tenant RLS on `console_stripe_payment_intents` and `console_stripe_webhook_events`.
-- Billing exception table: `console_stripe_provider_refs` remains system-scoped so webhook intake can resolve tenant context from `providerRef` before entering tenant-scoped transactions.
+- Stripe webhook reconciliation now resolves prepaid purchase settlement without the removed payment-intent/provider-ref tables.
 - Runtime snapshot publish now writes tenant-scoped outbox events (`console_runtime_snapshot_outbox`) and a cron-dispatch runner exists with org-targeted advisory-lock execution (default runner requires an explicit dispatch callback).
 - Webhook delivery retries now have a dedicated Postgres retry-dispatch runner (`runPostgresConsoleWebhookRetryDispatch`) with configurable attempt caps/backoff windows and Cloudflare cron advisory-lock wiring.
 - Cloudflare relay worker cron enablement is now resolved from a unified feature-flag snapshot, so billing/outbox/webhook cron jobs can run without requiring legacy `ENABLE_ROTATION`.
@@ -340,10 +321,11 @@ Recently completed hardening:
 - Worker deployment config now includes explicit staging/production console cron scaffolding (`BILLING_*`, `RUNTIME_SNAPSHOT_OUTBOX_*`, `WEBHOOK_RETRY_*`) with jobs disabled by default and per-job cron expressions declared for controlled enablement.
 - Worker scheduled path now performs pre-flight cron config validation and emits structured warnings for missing required job config (`postgresUrl` / `orgIds`) with test coverage on warning emission.
 - Worker cron env surface now has explicit defaults for all related vars in staging/production (`ENABLE_ROTATION`, `*_POSTGRES_URL`, `*_ORG_IDS`, `*_CRONS`, limits/backoff, and period override), with safe disabled/no-op defaults.
-- Stripe webhook projection coverage now includes checkout/subscription/invoice event types (`checkout.session.completed`, `customer.subscription.*`, `invoice.*`) with idempotent event processing across in-memory and Postgres billing services and router suites.
+- Stripe webhook projection coverage now includes prepaid checkout settlement (`checkout.session.completed`) with idempotent event processing across in-memory and Postgres billing services and router suites.
 - Browser-level e2e wiring coverage now includes:
   - `/pricing` -> checkout-session API handoff and redirect behavior.
-  - `/dashboard/billing` subscription-management controls (`cancel`, `resume`, `customer-portal`, `checkout`) with API contract assertions.
+  - `/dashboard/billing/account` top-up and internal adjustment controls.
+  - `/dashboard/invoices` list/detail/PDF flows.
 
 ## Route Namespace Convention
 
@@ -397,7 +379,7 @@ Scope:
 - Authn/authz, org/project/environment scoping.
 - CRUD APIs + validation + business rules.
 - Eventing/outbox + audit log + approval workflows (phased).
-- Billing orchestration for Stripe card payments and stablecoin settlement rails.
+- Billing orchestration for prepaid Stripe Checkout, ledger projections, and internal adjustments.
 
 Key outputs:
 
@@ -531,41 +513,31 @@ Key outputs:
 
 - APIs:
   - `GET /console/billing/overview`
-  - `POST /console/billing/invoices/generate`
+  - `GET /console/billing/account/activity`
   - `GET /console/billing/usage/monthly-active-wallets`
   - `POST /console/billing/usage/events`
   - `GET /console/billing/invoices`
   - `GET /console/billing/invoices/:id`
   - `GET /console/billing/invoices/:id/line-items`
-  - `GET/POST/DELETE /console/billing/payment-methods`
-  - `POST /console/billing/payment-methods/:id/default`
-  - `POST /console/billing/stripe/setup-intent`
-  - `POST /console/billing/stripe/payment-intent`
+  - `GET /console/billing/invoices/:id/activity`
+  - `GET /console/billing/invoices/:id/pdf`
+  - `POST /console/billing/invoices/generate`
+  - `POST /console/billing/adjustments/support-credit`
+  - `POST /console/billing/adjustments/admin-debit`
   - `POST /console/billing/stripe/checkout-session`
-  - `POST /console/billing/stripe/customer-portal-session`
-  - `GET /console/billing/subscription`
-  - `POST /console/billing/subscription/cancel`
-  - `POST /console/billing/subscription/resume`
   - `POST /console/billing/stripe/webhook` (provider callback endpoint)
-  - `GET /console/billing/stablecoins/assets`
-  - `POST /console/billing/stablecoins/quotes`
-  - `POST /console/billing/stablecoins/payment-intents`
-  - `GET /console/billing/stablecoins/payment-intents/:id`
 - Data:
   - `billing_accounts`
-  - `subscriptions`
+  - `billing_credit_purchases`
+  - `billing_ledger_accounts`
+  - `billing_ledger_entries`
+  - `billing_ledger_postings`
   - `invoices`
   - `invoice_line_items`
-  - `payments`
-  - `invoice_payment_rail_locks`
-  - `billing_payment_methods`
-  - `stablecoin_payment_quotes`
-  - `stablecoin_payment_intents`
-  - `stablecoin_settlement_events`
+  - `stripe_webhook_events`
 - Jobs:
   - invoice generation + usage rollup jobs
   - Stripe webhook reconciler
-  - stablecoin settlement watcher + confirmation reconciler
 
 ## Milestone Plan
 
@@ -651,13 +623,13 @@ Exit criteria:
 
 - Policies can be drafted, simulated, published, and audited.
 
-### Milestone 3: API Keys + Webhooks + Billing Payments (2-3 weeks)
+### Milestone 3: API Keys + Webhooks + Prepaid Billing (2-3 weeks)
 
 Frontend:
 
 - API key lifecycle flows: create, reveal-once, revoke, rotate.
 - Webhook endpoint management + delivery log views + replay actions.
-- Billing pages for overview, invoices, card payment methods, and stablecoin payment intents.
+- Billing pages for prepaid balance, invoices, receipts/statements, and internal adjustment controls.
 
 Backend:
 
@@ -667,11 +639,10 @@ Status (backend):
 - [x] API key Postgres persistence and cross-org isolation tests are implemented.
 - [x] Webhook CRUD + delivery/replay flows are implemented.
 - [x] Webhook attempts/dead-letter list endpoints with cursor pagination are implemented.
-- [x] Billing overview/invoice/usage/card/stablecoin route set is implemented.
-- [x] Stripe + stablecoin payment intent lifecycle and reconcile endpoints are implemented.
-- [x] Single-rail settlement enforcement is implemented.
-- [x] Billing card mutation RBAC (`admin` only) is implemented.
-- [x] Chain finality defaults and risk-window metadata are implemented.
+- [x] Billing overview/invoice/usage/prepaid route set is implemented.
+- [x] Stripe checkout + webhook settlement flow is implemented.
+- [x] Ledger-first projection rebuild is implemented.
+- [x] Admin-only manual adjustment controls are implemented.
 - [x] Postgres-backed cross-org isolation route tests are implemented for webhook and billing surfaces.
 
 - Implement:
@@ -681,47 +652,33 @@ Status (backend):
   - `GET /console/webhooks/:id/deliveries`
   - `POST /console/webhooks/:id/replay`
   - `GET /console/billing/overview`
+  - `GET /console/billing/account/activity`
   - `GET /console/billing/invoices`
-  - `GET/POST/DELETE /console/billing/payment-methods`
-  - `POST /console/billing/payment-methods/:id/default`
-  - `POST /console/billing/stripe/setup-intent`
-  - `POST /console/billing/stripe/payment-intent`
-  - `GET /console/billing/stablecoins/assets`
-  - `POST /console/billing/stablecoins/quotes`
-  - `POST /console/billing/stablecoins/payment-intents`
+  - `GET /console/billing/invoices/:id/activity`
+  - `GET /console/billing/invoices/:id/pdf`
+  - `POST /console/billing/adjustments/support-credit`
+  - `POST /console/billing/adjustments/admin-debit`
+  - `POST /console/billing/stripe/checkout-session`
+  - `POST /console/billing/stripe/webhook`
 - Add webhook signer and retry worker.
-- Add Stripe integration (setup intents, payment intents, webhook verification).
-- Add Stripe checkout + subscription lifecycle integration:
-  - checkout session create endpoint for pricing CTA handoff,
-  - dashboard return handling (`success`/`cancel`) and invoice/subscription refresh,
-  - customer-portal session endpoint for subscription management actions.
-- Add stablecoin quote/payment-intent lifecycle and on-chain settlement reconciliation for `USDC` and `USDT`.
-- Keep provider boundaries explicit via billing provider adapters (Stripe setup/payment intent creation + stablecoin destination allocation) so billing domain logic remains provider-agnostic.
-- Enforce `USDC`/`USDT` funding support across all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
-- Enforce chain finality defaults for stablecoin settlement:
-  - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
-  - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
-- Enforce single-rail invoice settlement: `Stripe/card` or `stablecoin`; mixed-rail payment application is rejected.
-- Enforce billing RBAC: only `admin` can call `POST/DELETE /console/billing/payment-methods`.
-- Enforce billing RBAC: only `admin` can call `POST /console/billing/payment-methods/:id/default`.
+- Add Stripe integration for checkout-session creation and webhook verification.
+- Add dashboard return handling (`success`/`cancel`) and prepaid balance refresh.
+- Keep provider boundaries explicit via billing provider adapters (Stripe checkout + webhook settlement only).
+- Enforce billing RBAC for internal adjustments and owner escalation for large admin debits.
 
 Data:
 
 - Add key and webhook tables including delivery attempts/dead-letter records.
 - Add usage timestamps and basic anomaly flags.
-- Add billing/payment tables for Stripe payment methods and stablecoin settlement tracking.
+- Add billing ledger, purchase, invoice, and Stripe webhook tables.
 
 Exit criteria:
 
 - API key secrets are never retrievable after creation.
 - Failed webhooks retry with backoff and support replay.
-- Billing accepts card payments via Stripe and stablecoin settlement via `USDC` and `USDT`.
-- Invoice settlement is single-rail only (no card + stablecoin mixing on the same invoice).
-- Non-admin attempts to add/remove card payment methods are denied.
-- Non-admin attempts to set default card payment method are denied.
+- Billing accepts prepaid Stripe Checkout top-ups and projects receipts/statements from ledger state.
+- Internal manual adjustments are append-only and audited.
+- Non-admin users cannot access internal adjustment routes.
 
 ### Milestone 4: Export Keys + Gas Sponsorship + Smart Wallet Controls (2-3 weeks)
 
@@ -794,8 +751,8 @@ Define event envelopes for:
 - webhook delivery status,
 - key export approvals,
 - billing usage and invoice generation,
-- Stripe payment and invoice status changes,
-- stablecoin payment intent and settlement status changes.
+- Stripe checkout settlement and invoice export changes,
+- internal billing adjustment actions.
 
 ### Runtime snapshot contract
 
@@ -811,46 +768,20 @@ Runtime consumers read full versioned environment snapshots:
   - effective policy assignment + limits
   - gas sponsorship + smart-wallet controls
 
-### Payment lifecycle contract
+### Billing journal contract
 
-Define one shared payment attempt lifecycle across Stripe and stablecoin rails:
+Define one append-only billing journal model:
 
-- States:
-  - `CREATED`
-  - `ACTION_REQUIRED`
-  - `PENDING`
-  - `CONFIRMING`
-  - `SETTLED`
-  - `PARTIALLY_SETTLED`
-  - `OVERPAID`
-  - `FAILED`
-  - `CANCELED`
-  - `EXPIRED`
-  - `REFUNDED`
-  - `DISPUTED`
-- Allowed transitions:
-  - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
-  - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
-  - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
-  - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
-  - `SETTLED` -> `REFUNDED` | `DISPUTED`
-  - `DISPUTED` -> `SETTLED` | `REFUNDED`
+- Canonical write objects:
+  - `ledger_account`
+  - `ledger_entry`
+  - `ledger_posting`
 - Contract rule:
-  - illegal transitions are rejected at API and persistence layers, and emitted as auditable validation failures.
-  - each invoice has one locked settlement rail (`CARD` or `STABLECOIN`) and payment events from other rails are rejected.
-  - each invoice allows at most one active payment intent per rail (`CREATED`, `ACTION_REQUIRED`, `PENDING`, `CONFIRMING`).
-  - stablecoin quote is single-use and may be consumed only when quote amount matches current invoice outstanding.
-  - `CONFIRMING` -> `SETTLED` requires chain-specific confirmation threshold; timeout breaches transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
-- Chain finality defaults (stablecoin payments):
-  - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour reorg-risk window.
-  - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour reorg-risk window.
-  - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour reorg-risk window.
-  - stablecoin payment intent responses include post-settlement risk metadata:
-    - `settledAt`
-    - `reorgRiskWindowEndsAt`
-    - `withinReorgRiskWindow`
+  - financial writes append balanced journal postings,
+  - balances are projections, not edited fields,
+  - receipts/statements are regenerated from ledger + purchase state,
+  - manual corrections are compensating entries, not row mutation,
+  - internal-only adjustment details never leak into customer-facing PDF exports.
 
 ### MAW billing metric contract
 
@@ -911,26 +842,17 @@ Compliance:
 5. Performance tests:
    - wallets list/search at target scale.
 6. Billing tests:
-   - Stripe card lifecycle + webhook reconciliation,
-   - stablecoin quote expiry + settlement confirmation paths.
-7. Payment-state tests:
-   - valid transitions accepted,
-   - invalid transitions rejected,
-   - terminal state immutability enforced except listed post-settlement transitions.
-8. Split-payment policy tests:
-   - mixed card + stablecoin settlement attempts are rejected,
-   - invoice rail lock remains immutable while invoice is open.
-9. Billing RBAC tests:
-   - only `admin` can add/remove card payment methods,
-   - non-admin receives authorization denial for `POST/DELETE /console/billing/payment-methods`.
-   - only `admin` can set default card payment method (`POST /console/billing/payment-methods/:id/default`).
-10. Chain-finality tests:
-
-- settlement blocked before threshold and allowed once threshold is met,
-- confirmation timeout transitions to `FAILED` with `CONFIRMATION_TIMEOUT`,
-- post-settlement risk-window flags are emitted per chain policy.
-
-11. MAW billing tests:
+   - Stripe checkout settlement + webhook reconciliation,
+   - receipt/statement projection rebuild,
+   - internal adjustment visibility and PDF export policy.
+7. Billing journal tests:
+   - balanced postings accepted,
+   - malformed or duplicate journal writes rejected,
+   - compensating-entry behavior remains append-only.
+8. Billing RBAC tests:
+   - internal adjustments are restricted to authorized roles,
+   - large admin debits require stronger authorization.
+9. MAW billing tests:
 
 - distinct-wallet counting per org/month is correct,
 - only successful billable actions contribute,
@@ -946,7 +868,7 @@ Compliance:
 - [x] Implement `/console/wallets` list/detail/search APIs.
 - [x] Wire dashboard route behind a feature flag for wallet list/search/detail pages.
 - [x] Land RLS test harness and cross-tenant denial tests in CI (include console Postgres suites).
-- [x] Define payment provider adapter boundaries (Stripe + stablecoin watcher) before endpoint implementation.
+- [x] Define billing provider adapter boundaries (Stripe checkout + webhook settlement) before endpoint implementation.
 - [x] Implement dedicated console insight contracts for policy/gas/export (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`).
 - [x] Wire policy/gas/export dashboard pages to dedicated insight contracts.
 - [x] Extend console router tests to cover insight contracts (express/cloudflare + Postgres org isolation).
@@ -960,10 +882,9 @@ Compliance:
 - [x] Add API contract tests for runtime snapshot endpoints (`/console/runtime-snapshots*`) including publish-current payload-resolver semantics and `not_configured` module markers.
 - [x] Add pricing page -> Stripe Checkout session wiring (CTA calls backend checkout-session endpoint and redirects to hosted checkout).
 - [x] Add Stripe Checkout return route handling in dashboard billing (`success`/`cancel`, status banners, idempotent refresh).
-- [x] Add console billing subscription endpoints (`GET`, `cancel`, `resume`) backed by Stripe subscription state projection.
-- [x] Add console billing Stripe customer-portal session endpoint (`POST /console/billing/stripe/customer-portal-session`).
-- [x] Add dashboard billing subscription-management UI controls (plan status, renewal, cancel/resume, portal entry).
-- [x] Add webhook handling coverage for checkout/subscription events (`checkout.session.completed`, `customer.subscription.*`, `invoice.*`) with idempotent projection.
+- [x] Add dashboard billing split routes (`/dashboard/billing/account`, `/dashboard/invoices`, `/dashboard/invoices/:invoiceId`).
+- [x] Add internal manual adjustment routes and UI controls with projected-balance preview.
+- [x] Add webhook handling coverage for prepaid checkout settlement (`checkout.session.completed`) with idempotent projection.
 - [x] Add e2e/route tests for pricing -> checkout handoff and dashboard post-checkout state.
 - [x] Add Ops Cockpit dashboard route to aggregate pending approvals, failed payments, webhook dead letters, queued audit exports, enterprise isolation requests, and onboarding telemetry alerts.
 - [x] Add backend Ops Cockpit summary endpoint (`GET /console/ops-cockpit/summary`) with Express/Cloudflare parity and per-module degradation states.

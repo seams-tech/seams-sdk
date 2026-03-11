@@ -8,6 +8,8 @@ This document is not the canonical billing architecture spec.
 
 The canonical source of truth for the billing model is [prepaid-billing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/prepaid-billing.md).
 
+This follow-up plan also assumes [billing-cleanup.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/billing-cleanup.md) is authoritative for removing stored payment methods and Stripe billing-management flows. Remaining work in this file must not preserve or reintroduce those deleted paths.
+
 Use this file only for:
 
 - remaining implementation work
@@ -44,16 +46,72 @@ Already done:
 - `/dashboard/invoices` no longer issues account-shell billing fetches that it does not need
 - The Postgres billing overview and MAW read paths now use a consistent lock order to prevent the observed invoice-page deadlock
 - Regression coverage now exists for the invoice-route shell fetch path and the concurrent overview/MAW billing-service path
+- The dashboard billing Playwright harness now mounts `/dashboard/billing/account` and `/dashboard/invoices` again after fixing the SDK worker bundle export mismatch that was crashing the app before render
+- Backend operator adjustment methods and routes now exist for manual support credits and manual admin debits
+- Operator adjustments now append audited `MANUAL_ADJUSTMENT` journal entries without reviving removed payment-method flows
+- `/dashboard/billing/account` now exposes ledger-backed account activity that includes manual credits and debits
+- `/dashboard/billing/account` now includes admin-only adjustment controls with projected-balance impact preview
+- UI coverage now asserts admin-only visibility and preview behavior for manual adjustments
+- Manual adjustment requests now support optional `relatedInvoiceId` linking, and linked adjustments surface on invoice activity timelines
+- Linked manual adjustments are now explicitly marked as internal-only timeline events, and exported PDFs now use a customer-facing policy that excludes internal ledger adjustments
+- Large manual admin debits now require `owner` role when amount is at least $500.00
+- Billing overview now exposes shared `HEALTHY`, `LOW_BALANCE`, and `BLOCKED` readiness state derived from projected balance
+- Project creation, live-environment gating, onboarding readiness, and billing warning UI now share one projected-balance enforcement helper
+- Console routers now support an explicit `allowLiveEnvironmentBillingBypass` escape hatch for local/dev provisioning, with regression coverage for both Express and Cloudflare paths
 
 Still open:
 
-- finish the remaining journal migration for operator adjustments and any future financial write paths
+- finish the remaining journal migration for any future financial write paths
 - prove deterministic projection rebuilding against a real Postgres instance
-- enforce zero-balance and low-balance policy in the real production execution path
-- add internal operator adjustments as append-only journal events
-- choose the final Stripe account-management path and delete the unused one
+- keep the prepaid Stripe surface checkout-only and prevent legacy Stripe-management flows from reappearing
 - validate the final model against a real Postgres instance with `POSTGRES_URL` set
 - validate the deadlock fix against a live Postgres instance
+- confirm there are no unintended runtime entry points that bypass the shared readiness helper outside the explicit `allowLiveEnvironmentBillingBypass` option
+- the current environment still does not expose `POSTGRES_URL`, so live-Postgres validation remains blocked here
+
+## Remaining Steps
+
+1. Real Postgres validation
+   - run the rewritten Postgres suites
+   - validate concurrent overview / MAW reads, operator adjustments, and readiness-state enforcement on live Postgres
+   - confirm projection rebuild and schema bootstrap behavior
+   - unblock by running with `POSTGRES_URL` set
+2. Operator adjustment UI and visibility
+   - keep document-link behavior explicit in customer-facing vs internal surfaces
+   - no separate adjustment-linked immutable snapshots; linked adjustments stay internal timeline events only
+3. Cleanup follow-through
+   - keep the prepaid checkout flow only
+   - prevent any removed Stripe-management surface from reappearing after `billing-cleanup.md`
+   - finish legacy deletion once the ledger-first flow is complete
+
+## Next Steps (2026-03-11)
+
+### Phase A: Operator controls
+
+- [x] Add internal-only adjustment controls on `/dashboard/billing/account`.
+- [x] Add projected-balance impact preview before operator confirmation.
+- [x] Add UI tests for admin-only visibility and preview behavior.
+
+### Phase B: Document-linked visibility
+
+- [x] Surface adjustment activity on relevant document timelines.
+- [x] Decide whether adjustment-linked document snapshots are required.
+- [x] Keep PDF visibility rules explicit for internal vs customer-facing views.
+
+### Phase C: Live Postgres validation
+
+- [ ] Run billing Postgres suites with `POSTGRES_URL` set and record outcomes.
+- [ ] Validate schema bootstrap + projection rebuild on an existing dev database.
+- [ ] Re-run concurrent `getOverview()` / `getMonthlyActiveWallets()` validation on live Postgres.
+
+### Phase D: Enforcement path
+
+- [x] Implement one projected-balance enforcement helper.
+- [x] Define `HEALTHY`, `LOW_BALANCE`, and `BLOCKED`.
+- [x] Wire `HEALTHY`, `LOW_BALANCE`, and `BLOCKED` to real production execution.
+- [x] Add explicit local/dev bypass only if intentionally configured.
+- [x] Expose low-balance / blocked state messaging consistently in the UI.
+- [ ] Validate the shared readiness helper against live Postgres and any remaining runtime entry points.
 
 ## Operator Adjustment Policy
 
@@ -81,6 +139,7 @@ Required guardrails:
    - idempotency key
 3. Every operator adjustment must be append-only.
 4. Large debits should require stronger authorization or secondary approval.
+   - implemented: owner role required for manual admin debits >= $500.00
 5. Every operator adjustment must be audit-logged.
 6. The UI must preview the resulting projected balance before confirmation.
 7. Normal org admins must not see internal adjustment controls.
@@ -112,7 +171,7 @@ Cases that should stay outside generic operator tooling:
 - [x] Add balanced journal writer invariants.
 - [x] Route purchase settlement through journal entries and postings.
 - [x] Route usage debits through journal entries and postings.
-- [ ] Route operator credits and debits through journal entries and postings.
+- [x] Route operator credits and debits through journal entries and postings.
 - [x] Add idempotency enforcement on journal writes.
 
 ### Phase 2: Projection rebuild
@@ -128,28 +187,30 @@ Cases that should stay outside generic operator tooling:
 
 ### Phase 3: Balance enforcement
 
-- [ ] Add a single projected-balance enforcement helper.
-- [ ] Define `HEALTHY`, `LOW_BALANCE`, and `BLOCKED`.
-- [ ] Wire enforcement into the real production execution path.
-- [ ] Add explicit local/dev bypass only if intentionally configured.
-- [ ] Surface low-balance and blocked states in the billing UI.
+- [x] Add a single projected-balance enforcement helper.
+- [x] Define `HEALTHY`, `LOW_BALANCE`, and `BLOCKED`.
+- [x] Wire enforcement into the real production execution path.
+- [x] Add explicit local/dev bypass only if intentionally configured.
+- [x] Surface low-balance and blocked states in the billing UI.
 
 ### Phase 4: Operator adjustments and auditability
 
-- [ ] Add `grantManualSupportCredit`.
-- [ ] Add `appendManualAdminDebit`.
-- [ ] Require positive amount, reason code, note, and idempotency key.
-- [ ] Audit-log every operator adjustment.
-- [ ] Surface operator adjustments in account activity.
-- [ ] Surface document-linked adjustment activity where relevant.
-- [ ] Add stronger authorization or approval for large debits.
+- [x] Add `grantManualSupportCredit`.
+- [x] Add `appendManualAdminDebit`.
+- [x] Require positive amount, reason code, note, and idempotency key.
+- [x] Audit-log every operator adjustment.
+- [x] Surface operator adjustments in account activity.
+- [x] Surface document-linked adjustment activity where relevant.
+- [x] Add stronger authorization or approval for large debits.
 
-### Phase 5: Stripe path decision
+### Phase 5: Stripe prepaid-path cleanup
 
-- [ ] Decide whether customer portal remains supported.
-- [ ] Delete the unused backend route, service, and provider hook.
-- [ ] Delete the unused UI controls and copy.
-- [ ] Update tests and docs to the single supported path.
+- [x] Decide Stripe surface: checkout-session top-ups only.
+- [x] Remove customer-portal route, service, and provider hook.
+- [x] Remove setup-intent route, service, and provider hook.
+- [x] Remove app-owned payment-method CRUD route, service, and storage path.
+- [x] Delete unused UI controls and copy.
+- [x] Update tests and docs to the single supported path.
 
 ### Phase 6: Postgres validation and cleanup
 
@@ -160,6 +221,11 @@ Cases that should stay outside generic operator tooling:
 - [ ] Confirm deleted settlement tables stay gone.
 - [ ] Confirm runtime reads use journal/projection tables only.
 - [ ] Remove stale migration helpers and outdated naming where worth the churn.
+
+### Phase 6.5: Dashboard billing validation cleanup
+
+- [x] Repair the dashboard billing Playwright harness to mount the canonical billing routes again.
+- [x] Re-enable passing browser coverage for top-ups, manual adjustments, and invoice navigation.
 
 ### Phase 7: Legacy removal and hard cleanup
 
@@ -256,29 +322,28 @@ Exit criteria:
 - internal staff can append fully auditable corrective credits and debits
 - adjustments are visible in projections and timelines
 
-### Workstream 5: Stripe path decision
+### Workstream 5: Stripe prepaid-path cleanup
 
 Goal:
 
-Delete one of the remaining account-management paths.
+Keep only prepaid checkout-session top-ups and remove retired account-management surfaces.
 
 Decision:
 
-Choose one:
-
-- keep customer portal only for billing-profile / payment-method management
-- remove customer portal and keep setup-intent plus app-owned payment-method CRUD only
+- remove customer portal
+- remove setup intent
+- remove app-owned payment-method CRUD
+- keep checkout-session top-up flow only
 
 Tasks:
 
-- choose one path
-- delete the unused backend route/service/provider hook
-- delete the unused UI controls and copy
+- remove retired backend routes/service/provider hooks
+- remove retired UI controls and copy
 - update tests and docs
 
 Exit criteria:
 
-- only one Stripe account-management path remains
+- only the checkout-session prepaid top-up path remains
 
 ### Workstream 6: Postgres validation and cleanup
 
@@ -328,7 +393,7 @@ Exit criteria:
 2. Projection rebuild
 3. Operator adjustments and auditability
 4. Balance enforcement
-5. Stripe path decision
+5. Stripe prepaid-path cleanup
 6. Postgres validation and cleanup
 7. Legacy removal and hard cleanup
 
@@ -340,6 +405,6 @@ This follow-up phase is done when:
 - balances and documents are derived projections
 - production balance enforcement works end-to-end
 - operator credits and debits are append-only and fully auditable
-- only one Stripe account-management path remains
+- only the checkout-session prepaid top-up path remains
 - Postgres-backed billing suites pass against a real database
 - no legacy billing code path, data structure, or schema object remains in the active product

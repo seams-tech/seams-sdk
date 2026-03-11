@@ -18,7 +18,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Product admin: configures wallet behavior and app-level settings.
 - Security admin: owns policy, key export controls, and approvals.
 - Developer/platform engineer: manages API keys, webhooks, and environments.
-- Billing admin: manages invoices and card payment method administration.
+- Billing admin: manages invoices, prepaid balance operations, and internal billing adjustments.
 - Support/ops: inspects wallet state, transactions, and delivery failures.
 
 ## Information architecture
@@ -114,71 +114,35 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
     - dead-letters: (`movedToDlqAt`, `id`)
   - Invalid cursor format returns `400` with code `invalid_query`.
 
-### 9) Billing and payments
+### 9) Billing
 
-- Billing overview with current plan, active-wallet usage, credit balance, invoice status, and upcoming charge estimate.
+- Billing is org-scoped and split into:
+  - `/dashboard/billing/account`
+  - `/dashboard/invoices`
+  - `/dashboard/invoices/:invoiceId`
+- Billing is prepaid and ledger-first:
+  - append-only journal entries are the source of truth,
+  - projected balance is derived from ledger postings,
+  - receipts and usage statements are projection views, not mutable source records.
+- Billing overview shows:
+  - projected prepaid balance,
+  - `Monthly Active Wallets (MAW)` usage,
+  - recent usage debits and top-ups,
+  - receipt/statement document counts,
+  - live-environment readiness state (`HEALTHY`, `LOW_BALANCE`, `BLOCKED`).
 - Canonical usage metric is `Monthly Active Wallets (MAW)`:
-  - Count distinct wallet IDs per organization per calendar month (`UTC`) with at least one successful billable action.
-  - Billable actions: `transfer`, `swap`, `approve`, `contract_call`.
-  - Exclusions: wallet creation-only activity, simulations, failed transactions, and internal retries.
-- Card billing via Stripe:
-  - Pricing funnel: pricing page creates Stripe Checkout session and redirects to hosted checkout.
-  - Success/cancel return: Checkout redirects back to dashboard billing routes with status context.
-  - Attach/update/remove card payment method.
-  - RBAC: only `admin` can add/remove card payment methods.
-  - Mark default payment method per organization billing account.
-  - RBAC: only `admin` can set default card payment method.
-  - Subscription management in dashboard: current plan, renewal state, cancellation/update entry points.
-  - Handle SCA-required flows and failed-payment recovery states.
-- Stablecoin payment support for `USDC` and `USDT`:
-  - `USDC` and `USDT` can be funded from any supported chain. Current supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, `NEAR`.
-  - Create payment quote and payment intent for an invoice.
-  - Issue asset/network-specific destination details and quote expiry.
-  - Quote semantics:
-    - quote amount is a snapshot of invoice outstanding at quote creation time.
-    - quote is single-use and cannot back multiple payment intents.
-    - quote consumption requires amount to still match current invoice outstanding; stale quotes are rejected.
-  - Track confirmations and settlement status through completion.
-  - Surface post-settlement risk metadata on payment intents:
-    - `settledAt`
-    - `reorgRiskWindowEndsAt`
-    - `withinReorgRiskWindow`
-  - Finality thresholds and risk windows (v1 defaults):
-    - `Ethereum`: `12` confirmations, `360` minute confirmation timeout, `24` hour post-settlement reorg-risk window.
-    - `Base`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
-    - `Tempo`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
-    - `Arc Circle`: `20` confirmations, `120` minute confirmation timeout, `12` hour post-settlement reorg-risk window.
-    - `NEAR`: `10` confirmations, `60` minute confirmation timeout, `6` hour post-settlement reorg-risk window.
-- Reconciliation and controls:
-  - Invoices are single-rail: fully paid by `Stripe/card` or `stablecoin` rail; mixed-rail settlement is rejected.
-  - Payment rail lock is set on first payment intent for an invoice and cannot change while invoice is open.
-  - At most one active payment intent is allowed per invoice per rail (`CREATED`/`ACTION_REQUIRED`/`PENDING`/`CONFIRMING`).
-  - Detect underpayment/overpayment and apply rules (credit, partial balance due, or manual review).
-  - Immutable payment ledger tying invoices, payment attempts, and settlement evidence.
-  - Webhook events for invoice status changes and payment settlement.
-- Payment state machine (SaaS billing payment attempts):
-  - `CREATED`: payment attempt created with immutable expected amount snapshot.
-  - `ACTION_REQUIRED`: customer interaction required (for example Stripe SCA).
-  - `PENDING`: payment submitted, waiting provider callback or on-chain detection.
-  - `CONFIRMING`: on-chain transaction detected, waiting chain finality threshold.
-  - `SETTLED`: expected amount fully satisfied.
-  - `PARTIALLY_SETTLED`: payment received but below expected amount; shortfall remains on invoice.
-  - `OVERPAID`: payment received above expected amount; excess becomes credit.
-  - `FAILED`: terminal provider or validation failure.
-  - `CANCELED`: terminal user/system cancellation before settlement.
-  - `EXPIRED`: terminal timeout of quote/intent/action window.
-  - `REFUNDED`: settled payment fully or partially refunded.
-  - `DISPUTED`: settled payment under dispute/chargeback.
-- Allowed transitions:
-  - `CREATED` -> `ACTION_REQUIRED` | `PENDING` | `FAILED` | `CANCELED`
-  - `ACTION_REQUIRED` -> `PENDING` | `FAILED` | `CANCELED` | `EXPIRED`
-  - `PENDING` -> `CONFIRMING` | `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED` | `CANCELED` | `EXPIRED`
-  - `CONFIRMING` -> `SETTLED` | `PARTIALLY_SETTLED` | `OVERPAID` | `FAILED`
-  - `SETTLED` -> `REFUNDED` | `DISPUTED`
-  - `DISPUTED` -> `SETTLED` | `REFUNDED`
-- Finality transition rules:
-  - `CONFIRMING` -> `SETTLED` is allowed only when per-chain confirmation threshold is met.
-  - If confirmation timeout elapses before threshold is met, transition to `FAILED` with reason `CONFIRMATION_TIMEOUT`.
+  - count distinct wallet IDs per organization per calendar month (`UTC`) with at least one successful billable action.
+  - billable actions: `transfer`, `swap`, `approve`, `contract_call`.
+  - exclusions: wallet creation-only activity, simulations, failed transactions, and internal retries.
+- Stripe billing surface is checkout-only:
+  - pricing funnel creates Stripe Checkout session and redirects to hosted checkout,
+  - success/cancel returns route back to dashboard billing surfaces with status context,
+  - verified webhook settlement creates prepaid credit purchase entries and purchase receipts.
+- Internal billing operations:
+  - support credits and admin debits append audited manual adjustment entries,
+  - linked manual adjustments may appear on staff invoice timelines,
+  - customer-facing PDF exports exclude internal adjustment detail.
+- Live-environment readiness is derived from projected prepaid balance.
 
 ### 10) Dashboard UX flow and navigation
 
@@ -222,21 +186,19 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET/POST/PATCH/DELETE /console/webhooks`, `GET /console/webhooks/:id/deliveries`, `POST /console/webhooks/:id/replay`
 - `GET /console/webhooks/:id/attempts`, `GET /console/webhooks/:id/dead-letters` (support `limit`/`cursor` pagination)
 - `GET /console/billing/overview`, `GET /console/billing/invoices`, `GET /console/billing/invoices/:id`
-- `GET /console/billing/invoices/:id/line-items`, `POST /console/billing/invoices/generate`
+- `GET /console/billing/invoices/:id/line-items`, `GET /console/billing/invoices/:id/activity`
+- `GET /console/billing/invoices/:id/pdf`, `POST /console/billing/invoices/generate`
 - `GET /console/billing/usage/monthly-active-wallets`, `POST /console/billing/usage/events`
-- `GET/POST/DELETE /console/billing/payment-methods`, `POST /console/billing/payment-methods/:id/default`
-- `POST /console/billing/stripe/setup-intent`, `POST /console/billing/stripe/payment-intent`
-- `POST /console/billing/stripe/checkout-session`, `POST /console/billing/stripe/customer-portal-session`
-- `GET /console/billing/subscription`, `POST /console/billing/subscription/cancel`, `POST /console/billing/subscription/resume`
+- `GET /console/billing/account/activity`
+- `POST /console/billing/adjustments/support-credit`, `POST /console/billing/adjustments/admin-debit`
+- `POST /console/billing/stripe/checkout-session`
 - `POST /console/billing/stripe/webhook` (provider callback endpoint; shared-secret protected)
-- `GET /console/billing/stablecoins/assets`, `POST /console/billing/stablecoins/quotes`, `POST /console/billing/stablecoins/payment-intents`
-- `GET /console/billing/stablecoins/payment-intents/:id`, `POST /console/billing/stablecoins/payment-intents/:id/cancel`
 
 ## Delivery plan
 
 - Phase 1 (MVP): wallets list/search, baseline policy controls, API keys, webhooks basics, billing overview + invoices read APIs.
-- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, Stripe card payment flows, pricing -> Stripe Checkout -> dashboard return flow.
-- Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability) and stablecoin payment flows (`USDC`, `USDT`).
+- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, prepaid Stripe Checkout top-ups, pricing -> Stripe Checkout -> dashboard return flow.
+- Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability), operator billing adjustments, and ledger/reporting hardening.
 
 ## Acceptance criteria
 
@@ -246,14 +208,10 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - Gas sponsorship toggles affect runtime behavior and telemetry.
 - Security settings (origins/cookies/JWT) are environment-specific and validated.
 - Key export, API key, and webhook features include audit-friendly logs.
-- Billing supports card payments through Stripe and stablecoin invoice settlement via `USDC` and `USDT`.
-- Dashboard billing includes subscription-management controls (plan visibility, lifecycle actions, and billing portal entry).
-- `USDC`/`USDT` settlement accepts payments from all currently supported chains: `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
-- Billing payment attempts enforce the defined payment state machine and allow only listed transitions.
-- Invoice settlement never mixes rails: each invoice is fully settled by card rail or stablecoin rail.
-- Only `admin` can add/remove card payment methods.
-- Only `admin` can set default card payment method.
-- Settlement enforces chain-specific finality thresholds and risk windows for `Ethereum`, `Base`, `Tempo`, `Arc Circle`, and `NEAR`.
+- Billing supports prepaid Stripe Checkout top-ups, receipts/statements, customer-facing PDF exports, and audited internal adjustments.
+- Dashboard billing exposes prepaid balance state, receipt/statement history, and invoice activity under the split account/invoices routes.
+- Billing writes are append-only and auditable through the ledger-first model.
+- Live-environment readiness is enforced from projected prepaid balance state.
 - Billing usage is computed from `Monthly Active Wallets (MAW)` as the canonical wallet activity metric.
 - Policy publish requires `1 admin` approval by default.
 - Key export requires `2 admin` approvals + `MFA` + reason by default.

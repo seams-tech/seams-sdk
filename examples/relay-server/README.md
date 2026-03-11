@@ -71,7 +71,12 @@ Verifies a standard WebAuthn assertion (contract-free; relay-stored authenticato
 - Step 1 (options): `POST /auth/passkey/options` with `{ user_id, rp_id, ttl_ms? }` → `{ challengeId, challengeB64u }`
 - Step 2 (verify): `POST /auth/passkey/verify` with:
   ```json
-  { "challengeId": "<id>", "webauthn_authentication": { /* assertion */ } }
+  {
+    "challengeId": "<id>",
+    "webauthn_authentication": {
+      /* assertion */
+    }
+  }
   ```
 - Response: `{ ok, verified }`
 
@@ -415,7 +420,7 @@ This example server also mounts console/admin routes at `/console/*`.
   - `postgres`: durable billing data via `CONSOLE_POSTGRES_URL`
   - `memory`: ephemeral in-memory billing data for local dev
 - Stripe provider mode:
-  - set `STRIPE_API_SK` to use live Stripe API for setup-intent, checkout-session, customer-portal-session, and payment-intent creation.
+  - set `STRIPE_API_SK` to use live Stripe API for prepaid checkout-session creation.
   - leave `STRIPE_API_SK` unset to use deterministic mock provider outputs for local/offline testing.
   - optional `STRIPE_CHECKOUT_PRICE_ID` pins checkout sessions to a pre-created Stripe Price ID.
 - Stripe webhook auth for billing is configured with `CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET`:
