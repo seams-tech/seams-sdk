@@ -365,6 +365,48 @@ export async function createPostgresConsoleOrgProjectEnvService(
       });
     },
 
+    async findOrganizationForScope(request): Promise<ConsoleOrganization | null> {
+      const projectId = String(request.projectId || '').trim();
+      const environmentId = String(request.environmentId || '').trim();
+
+      if (environmentId) {
+        const values: unknown[] = [namespace, environmentId];
+        const projectFilter = (() => {
+          if (!projectId) return '';
+          values.push(projectId);
+          return ` AND e.project_id = $${values.length}`;
+        })();
+        const environmentRow = await queryOne(
+          pool,
+          `SELECT o.*
+             FROM console_environments e
+             JOIN console_organizations o
+               ON o.namespace = e.namespace
+              AND o.id = e.org_id
+            WHERE e.namespace = $1
+              AND e.id = $2${projectFilter}
+            LIMIT 1`,
+          values,
+        );
+        if (environmentRow) return parseOrgRow(environmentRow);
+      }
+
+      if (!projectId) return null;
+      const projectRow = await queryOne(
+        pool,
+        `SELECT o.*
+           FROM console_projects p
+           JOIN console_organizations o
+             ON o.namespace = p.namespace
+            AND o.id = p.org_id
+          WHERE p.namespace = $1
+            AND p.id = $2
+          LIMIT 1`,
+        [namespace, projectId],
+      );
+      return projectRow ? parseOrgRow(projectRow) : null;
+    },
+
     async upsertOrganization(
       ctx,
       request: UpsertConsoleOrganizationRequest,

@@ -1,18 +1,5 @@
 import type { BillingCreditPackId } from './types';
 
-export interface StripeSetupIntentProviderInput {
-  orgId: string;
-  returnUrl?: string;
-  now: Date;
-}
-
-export interface StripeSetupIntentProviderOutput {
-  id: string;
-  clientSecret: string;
-  customerRef: string;
-  expiresAt: string;
-}
-
 export interface StripeCheckoutSessionProviderInput {
   orgId: string;
   successUrl: string;
@@ -29,29 +16,10 @@ export interface StripeCheckoutSessionProviderOutput {
   expiresAt: string;
 }
 
-export interface StripeCustomerPortalSessionProviderInput {
-  orgId: string;
-  returnUrl: string;
-  now: Date;
-}
-
-export interface StripeCustomerPortalSessionProviderOutput {
-  id: string;
-  url: string;
-  customerRef: string;
-  expiresAt: string;
-}
-
 export interface StripeBillingProviderAdapter {
-  createSetupIntent(
-    input: StripeSetupIntentProviderInput,
-  ): Promise<StripeSetupIntentProviderOutput> | StripeSetupIntentProviderOutput;
   createCheckoutSession(
     input: StripeCheckoutSessionProviderInput,
   ): Promise<StripeCheckoutSessionProviderOutput> | StripeCheckoutSessionProviderOutput;
-  createCustomerPortalSession(
-    input: StripeCustomerPortalSessionProviderInput,
-  ): Promise<StripeCustomerPortalSessionProviderOutput> | StripeCustomerPortalSessionProviderOutput;
 }
 
 export interface BillingProviderAdapters {
@@ -71,15 +39,6 @@ function makeCustomerRef(orgId: string): string {
 export function createDefaultBillingProviderAdapters(): BillingProviderAdapters {
   return {
     stripe: {
-      createSetupIntent(input: StripeSetupIntentProviderInput): StripeSetupIntentProviderOutput {
-        const id = makeProviderId('seti', input.now);
-        return {
-          id,
-          clientSecret: `${id}_secret_${Math.random().toString(36).slice(2, 12)}`,
-          customerRef: makeCustomerRef(input.orgId),
-          expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
-        };
-      },
       createCheckoutSession(
         input: StripeCheckoutSessionProviderInput,
       ): StripeCheckoutSessionProviderOutput {
@@ -91,18 +50,6 @@ export function createDefaultBillingProviderAdapters(): BillingProviderAdapters 
         return {
           id,
           url: `https://checkout.stripe.com/pay/${id}?success_url=${encodedSuccess}&cancel_url=${encodedCancel}&pack=${encodedPack}&amount_minor=${encodedAmount}`,
-          customerRef: makeCustomerRef(input.orgId),
-          expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
-        };
-      },
-      createCustomerPortalSession(
-        input: StripeCustomerPortalSessionProviderInput,
-      ): StripeCustomerPortalSessionProviderOutput {
-        const id = makeProviderId('bps', input.now);
-        const encodedReturn = encodeURIComponent(input.returnUrl);
-        return {
-          id,
-          url: `https://billing.stripe.com/p/session/${id}?return_url=${encodedReturn}`,
           customerRef: makeCustomerRef(input.orgId),
           expiresAt: new Date(input.now.getTime() + 30 * 60 * 1000).toISOString(),
         };

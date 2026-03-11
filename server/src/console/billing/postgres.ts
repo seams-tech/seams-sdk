@@ -9,14 +9,16 @@ import {
   ensureConsoleTenantRlsPolicies,
   withConsoleTenantContextTx,
 } from '../shared/postgresTenantContext';
-import {
-  BILLING_CREDIT_PACK_ID_SQL,
-  resolveCreditPackAmountMinorOrThrow,
-} from './creditPacks';
+import { BILLING_CREDIT_PACK_ID_SQL, resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import { ConsoleBillingError } from './errors';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
+import { resolveBillingLiveEnvironmentState } from './readiness';
+import {
+  normalizeManualAdjustmentRequest,
+  requireBillingAdjustmentRole,
+  requireLargeManualAdminDebitOwnerRole,
+} from './adjustments';
 import type {
-  AddCardPaymentMethodRequest,
   BillingCreditPackId,
   BillingCreditPurchase,
   BillingInvoiceActivity,
@@ -28,9 +30,12 @@ import type {
   BillingInvoiceListResult,
   BillingInvoiceListSummary,
   BillingLedgerEntry,
+  BillingAccountActivityRequest,
+  BillingAccountActivityResult,
+  BillingManualAdjustmentRequest,
+  BillingManualAdjustmentResult,
   BillingMonthlyActiveWallets,
   BillingOverview,
-  BillingPaymentMethod,
   BillingUsageAction,
   BillingUsageEventRequest,
   BillingUsageEventResult,
@@ -38,12 +43,8 @@ import type {
   GenerateMonthlyInvoiceResult,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
-  StripeCustomerPortalSession,
-  StripeCustomerPortalSessionRequest,
   StripeCheckoutSession,
   StripeCheckoutSessionRequest,
-  StripeSetupIntent,
-  StripeSetupIntentRequest,
 } from './types';
 import type { ConsoleBillingContext, ConsoleBillingService } from './service';
 
@@ -58,6 +59,8 @@ const MAW_USAGE_DEBIT_MINOR = 300;
 const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
+const DEFAULT_ACCOUNT_ACTIVITY_LIMIT = 25;
+const MAX_ACCOUNT_ACTIVITY_LIMIT = 100;
 const BILLABLE_USAGE_ACTIONS = new Set<BillingUsageAction>([
   'transfer',
   'swap',
@@ -400,6 +403,13 @@ function normalizeInvoiceListLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
 }
 
+function normalizeAccountActivityLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_ACCOUNT_ACTIVITY_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_ACCOUNT_ACTIVITY_LIMIT, Math.floor(Number(limit))));
+}
+
 function parseInvoiceCursor(
   cursor: string | undefined,
 ): { createdAtMs: number; id: string } | null {
@@ -508,6 +518,9 @@ function parseCreditPurchaseRow(row: PgRow): BillingCreditPurchase {
 }
 
 function parseLedgerEntryRow(row: PgRow): BillingLedgerEntry {
+  const actorType = String(row.actor_type || 'SYSTEM')
+    .trim()
+    .toUpperCase();
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
@@ -522,46 +535,18 @@ function parseLedgerEntryRow(row: PgRow): BillingLedgerEntry {
       row.related_purchase_id == null ? null : String(row.related_purchase_id || '').trim() || null,
     sourceEventId:
       row.source_event_id == null ? null : String(row.source_event_id || '').trim() || null,
-    createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
-  };
-}
-
-function parsePaymentMethodRow(row: PgRow): BillingPaymentMethod {
-  return {
-    id: String(row.id || ''),
-    orgId: String(row.org_id || ''),
-    provider: 'stripe',
-    type: 'card',
-    providerRef: String(row.provider_ref || ''),
-    brand: String(row.brand || ''),
-    last4: String(row.last4 || ''),
-    expMonth: toNumber(row.exp_month),
-    expYear: toNumber(row.exp_year),
-    isDefault: Boolean(row.is_default),
+    actorType: actorType === 'USER' || actorType === 'PROVIDER' ? actorType : 'SYSTEM',
+    actorUserId: row.actor_user_id == null ? null : String(row.actor_user_id || '').trim() || null,
+    reasonCode: row.reason_code == null ? null : String(row.reason_code || '').trim() || null,
+    note: row.note == null ? null : String(row.note || '').trim() || null,
+    idempotencyKey:
+      row.idempotency_key == null ? null : String(row.idempotency_key || '').trim() || null,
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
   };
 }
 
 function makeStripeCustomerRef(orgId: string): string {
   return `cus_${orgId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'org'}`;
-}
-
-function hasAdminRole(roles: string[]): boolean {
-  return roles.some(
-    (role) =>
-      String(role || '')
-        .trim()
-        .toLowerCase() === 'admin',
-  );
-}
-
-function requireAdminForCardActions(ctx: ConsoleBillingContext): void {
-  if (hasAdminRole(ctx.roles)) return;
-  throw new ConsoleBillingError(
-    'forbidden',
-    403,
-    'Only admin can add, remove, or set default card payment methods',
-  );
 }
 
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
@@ -999,6 +984,55 @@ async function appendLedgerEntry(
   return parseLedgerEntryRow(row);
 }
 
+async function findLedgerEntryByIdempotencyKey(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    idempotencyKey: string;
+  },
+): Promise<BillingLedgerEntry | null> {
+  const key = String(input.idempotencyKey || '').trim();
+  if (!key) return null;
+  const row = await queryOne(
+    q,
+    `SELECT *
+       FROM console_billing_ledger_entries
+      WHERE namespace = $1
+        AND org_id = $2
+        AND idempotency_key = $3`,
+    [input.namespace, input.orgId, key],
+  );
+  return row ? parseLedgerEntryRow(row) : null;
+}
+
+async function ensureManualAdjustmentRelatedInvoiceId(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    relatedInvoiceId: string | undefined;
+  },
+): Promise<string | null> {
+  const relatedInvoiceId = String(input.relatedInvoiceId || '').trim();
+  if (!relatedInvoiceId) return null;
+  const linkedInvoice = await queryOne(
+    q,
+    `SELECT id
+       FROM console_invoices
+      WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+    [input.namespace, input.orgId, relatedInvoiceId],
+  );
+  if (!linkedInvoice) {
+    throw new ConsoleBillingError(
+      'invalid_manual_adjustment',
+      400,
+      `Manual adjustment relatedInvoiceId was not found: ${relatedInvoiceId}`,
+    );
+  }
+  return relatedInvoiceId;
+}
+
 async function getCurrentMonthUsageDebitMinor(
   q: Queryable,
   namespace: string,
@@ -1048,7 +1082,6 @@ async function getUsageStatementProjectionTotals(
   const row = await queryOne(
     q,
     `SELECT
-        COUNT(*)::BIGINT AS monthly_active_wallets,
         COALESCE(SUM(ABS(amount_minor)), 0)::BIGINT AS amount_due_minor
        FROM console_billing_ledger_entries
       WHERE namespace = $1
@@ -1057,10 +1090,49 @@ async function getUsageStatementProjectionTotals(
         AND month_utc = $3`,
     [input.namespace, input.orgId, input.periodMonthUtc],
   );
+  const amountDueMinor = toNumber(row?.amount_due_minor);
   return {
-    monthlyActiveWallets: toNumber(row?.monthly_active_wallets),
-    amountDueMinor: toNumber(row?.amount_due_minor),
+    monthlyActiveWallets:
+      amountDueMinor > 0 ? Math.max(0, Math.round(amountDueMinor / MAW_USAGE_DEBIT_MINOR)) : 0,
+    amountDueMinor,
   };
+}
+
+async function reconcileUsageDebitCoverage(
+  q: Queryable,
+  input: {
+    namespace: string;
+    orgId: string;
+    periodMonthUtc: string;
+    monthlyActiveWallets: number;
+    createdAtMs: number;
+  },
+): Promise<void> {
+  const usageTotals = await getUsageStatementProjectionTotals(q, input);
+  const targetAmountMinor = Math.max(0, input.monthlyActiveWallets) * MAW_USAGE_DEBIT_MINOR;
+  if (usageTotals.amountDueMinor >= targetAmountMinor) return;
+
+  const missingAmountMinor = targetAmountMinor - usageTotals.amountDueMinor;
+  if (missingAmountMinor <= 0) return;
+
+  await appendLedgerEntry(q, {
+    namespace: input.namespace,
+    orgId: input.orgId,
+    id: `ble_usage_reconcile_${input.orgId}_${input.periodMonthUtc.replace('-', '')}`,
+    type: 'USAGE_DEBIT',
+    amountMinor: -missingAmountMinor,
+    description: `Reconciled MAW usage debit coverage (${input.periodMonthUtc})`,
+    monthUtc: input.periodMonthUtc,
+    relatedInvoiceId: makeBootstrapUsageStatementId(input.orgId, input.periodMonthUtc),
+    relatedPurchaseId: null,
+    sourceEventId: `usage_statement:${input.periodMonthUtc}`,
+    actorType: 'SYSTEM',
+    actorUserId: 'system-billing-finalizer',
+    reasonCode: 'usage_statement_reconciliation',
+    note: `Reconciled ${Math.round(missingAmountMinor / MAW_USAGE_DEBIT_MINOR)} missing MAW debit(s) into the monthly usage statement.`,
+    idempotencyKey: `usage_statement:${input.orgId}:${input.periodMonthUtc}`,
+    createdAtMs: input.createdAtMs,
+  });
 }
 
 async function ensureUsageStatementProjection(
@@ -1877,35 +1949,6 @@ export async function ensureConsoleBillingPostgresSchema(
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS console_payment_methods (
-        namespace TEXT NOT NULL,
-        id TEXT NOT NULL,
-        org_id TEXT NOT NULL,
-        provider TEXT NOT NULL,
-        type TEXT NOT NULL,
-        provider_ref TEXT NOT NULL,
-        brand TEXT NOT NULL,
-        last4 TEXT NOT NULL,
-        exp_month INTEGER NOT NULL,
-        exp_year INTEGER NOT NULL,
-        is_default BOOLEAN NOT NULL,
-        created_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, id),
-        UNIQUE (namespace, org_id, provider_ref),
-        CHECK (provider IN ('stripe')),
-        CHECK (type IN ('card'))
-      )
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS console_payment_methods_org_created_idx
-      ON console_payment_methods (namespace, org_id, created_at_ms DESC)
-    `);
-    await pool.query(`
-      CREATE INDEX IF NOT EXISTS console_payment_methods_org_default_idx
-      ON console_payment_methods (namespace, org_id, is_default)
-    `);
-
-    await pool.query(`
       CREATE TABLE IF NOT EXISTS console_stripe_webhook_events (
         namespace TEXT NOT NULL,
         event_id TEXT NOT NULL,
@@ -1940,6 +1983,9 @@ export async function ensureConsoleBillingPostgresSchema(
     `);
     await pool.query(`
       DROP TABLE IF EXISTS console_stripe_payment_intents
+    `);
+    await pool.query(`
+      DROP TABLE IF EXISTS console_payment_methods
     `);
     await pool.query(`
       DROP FUNCTION IF EXISTS console_reject_payment_state_transition_mutation()
@@ -1986,11 +2032,6 @@ export async function ensureConsoleBillingPostgresSchema(
       q: pool,
       table: 'console_billing_ledger_postings',
       policyName: 'console_billing_ledger_postings_tenant_rls',
-    });
-    await ensureConsoleTenantRlsPolicies({
-      q: pool,
-      table: 'console_payment_methods',
-      policyName: 'console_payment_methods_tenant_rls',
     });
     await ensureConsoleTenantRlsPolicies({
       q: pool,
@@ -2138,9 +2179,34 @@ export async function createPostgresConsoleBillingService(
           monthlyActiveWallets,
           creditBalanceMinor,
           lowBalanceThresholdMinor: toNumber(account.low_balance_threshold_minor),
+          liveEnvironmentState: resolveBillingLiveEnvironmentState({
+            creditBalanceMinor,
+            lowBalanceThresholdMinor: toNumber(account.low_balance_threshold_minor),
+          }),
           recentUsageDebitMinor,
           recentCreditPurchasedMinor,
           documentCount: toNumber(documentStats?.document_count),
+        };
+      });
+    },
+
+    async listAccountActivity(
+      ctx: ConsoleBillingContext,
+      request: BillingAccountActivityRequest = {},
+    ): Promise<BillingAccountActivityResult> {
+      return withOrgTx(ctx, async (q) => {
+        const limit = normalizeAccountActivityLimit(request.limit);
+        const rows = await q.query(
+          `SELECT *
+             FROM console_billing_ledger_entries
+            WHERE namespace = $1
+              AND org_id = $2
+            ORDER BY created_at_ms DESC, id DESC
+            LIMIT $3`,
+          [namespace, ctx.orgId, limit],
+        );
+        return {
+          entries: rows.rows.map((row) => parseLedgerEntryRow(row as PgRow)),
         };
       });
     },
@@ -2492,6 +2558,7 @@ export async function createPostgresConsoleBillingService(
               invoice.documentType === 'PURCHASE_RECEIPT'
                 ? `Purchase receipt ${invoice.id} recorded for ${invoice.periodMonthUtc}.`
                 : `Usage statement ${invoice.id} recorded for ${invoice.periodMonthUtc}.`,
+            visibility: 'CUSTOMER',
           } satisfies BillingInvoiceActivityEntry,
           ...ledgerRows.rows.map((rawRow) => {
             const row = parseLedgerEntryRow(rawRow as PgRow);
@@ -2516,6 +2583,7 @@ export async function createPostgresConsoleBillingService(
                   : String((rawRow as PgRow).reason_code || '').trim() || row.type.toLowerCase(),
               sourceEventId: row.sourceEventId,
               summary: row.description,
+              visibility: row.type === 'MANUAL_ADJUSTMENT' ? 'INTERNAL' : 'CUSTOMER',
             } satisfies BillingInvoiceActivityEntry;
           }),
         ].sort((left, right) => {
@@ -2572,6 +2640,13 @@ export async function createPostgresConsoleBillingService(
           monthlyActiveWallets,
           updatedAtMs: nowMs(now),
         });
+        await reconcileUsageDebitCoverage(q, {
+          namespace,
+          orgId: ctx.orgId,
+          periodMonthUtc,
+          monthlyActiveWallets,
+          createdAtMs: nowMs(now),
+        });
 
         const existingStatement = await queryOne(
           q,
@@ -2610,167 +2685,124 @@ export async function createPostgresConsoleBillingService(
       });
     },
 
-    async listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]> {
-      return withOrgTx(ctx, async (q) => {
-        const out = await q.query(
-          `SELECT *
-             FROM console_payment_methods
-            WHERE namespace = $1 AND org_id = $2
-            ORDER BY created_at_ms DESC`,
-          [namespace, ctx.orgId],
-        );
-        return out.rows.map((row) => parsePaymentMethodRow(row as PgRow));
-      });
-    },
-
-    async addCardPaymentMethod(
+    async grantManualSupportCredit(
       ctx: ConsoleBillingContext,
-      request: AddCardPaymentMethodRequest,
-    ): Promise<BillingPaymentMethod> {
-      requireAdminForCardActions(ctx);
+      request: BillingManualAdjustmentRequest,
+    ): Promise<BillingManualAdjustmentResult> {
+      requireBillingAdjustmentRole(ctx);
+      const normalizedRequest = normalizeManualAdjustmentRequest(request);
       return withOrgTx(ctx, async (q, now) => {
-        const id = makeId('pm', now);
-        const createdAt = nowMs(now);
-
-        const currentDefault = await queryOne(
-          q,
-          `SELECT id
-             FROM console_payment_methods
-            WHERE namespace = $1 AND org_id = $2 AND is_default = TRUE
-            LIMIT 1`,
-          [namespace, ctx.orgId],
-        );
-        const shouldBeDefault = !currentDefault;
-
-        const inserted = await queryOne(
-          q,
-          `INSERT INTO console_payment_methods
-            (namespace, id, org_id, provider, type, provider_ref, brand, last4, exp_month, exp_year, is_default, created_at_ms)
-           VALUES
-            ($1, $2, $3, 'stripe', 'card', $4, $5, $6, $7, $8, $9, $10)
-           RETURNING *`,
-          [
-            namespace,
-            id,
-            ctx.orgId,
-            request.providerRef,
-            request.brand,
-            request.last4,
-            request.expMonth,
-            request.expYear,
-            shouldBeDefault,
-            createdAt,
-          ],
-        );
-        if (!inserted) {
-          throw new ConsoleBillingError(
-            'payment_method_create_failed',
-            500,
-            'Failed to create card payment method',
-          );
-        }
-        return parsePaymentMethodRow(inserted);
-      });
-    },
-
-    async removeCardPaymentMethod(
-      ctx: ConsoleBillingContext,
-      paymentMethodId: string,
-    ): Promise<{ removed: boolean }> {
-      requireAdminForCardActions(ctx);
-      return withOrgTx(ctx, async (q) => {
-        const removed = await queryOne(
-          q,
-          `DELETE FROM console_payment_methods
-            WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING is_default`,
-          [namespace, ctx.orgId, paymentMethodId],
-        );
-        if (!removed) return { removed: false };
-
-        if (removed.is_default === true) {
-          const fallback = await queryOne(
-            q,
-            `SELECT id
-               FROM console_payment_methods
-              WHERE namespace = $1 AND org_id = $2
-              ORDER BY created_at_ms DESC
-              LIMIT 1`,
-            [namespace, ctx.orgId],
-          );
-          if (fallback?.id) {
-            await q.query(
-              `UPDATE console_payment_methods
-                  SET is_default = TRUE
-                WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-              [namespace, ctx.orgId, String(fallback.id)],
-            );
-          }
-        }
-        return { removed: true };
-      });
-    },
-
-    async setDefaultCardPaymentMethod(
-      ctx: ConsoleBillingContext,
-      paymentMethodId: string,
-    ): Promise<BillingPaymentMethod | null> {
-      requireAdminForCardActions(ctx);
-      return withOrgTx(ctx, async (q) => {
-        const target = await queryOne(
-          q,
-          `SELECT *
-             FROM console_payment_methods
-            WHERE namespace = $1 AND org_id = $2 AND id = $3
-            FOR UPDATE`,
-          [namespace, ctx.orgId, paymentMethodId],
-        );
-        if (!target) return null;
-
-        await q.query(
-          `UPDATE console_payment_methods
-              SET is_default = FALSE
-            WHERE namespace = $1 AND org_id = $2`,
-          [namespace, ctx.orgId],
-        );
-        const updated = await queryOne(
-          q,
-          `UPDATE console_payment_methods
-              SET is_default = TRUE
-            WHERE namespace = $1 AND org_id = $2 AND id = $3
-          RETURNING *`,
-          [namespace, ctx.orgId, paymentMethodId],
-        );
-        return updated ? parsePaymentMethodRow(updated) : null;
-      });
-    },
-
-    async createStripeSetupIntent(
-      ctx: ConsoleBillingContext,
-      request: StripeSetupIntentRequest,
-    ): Promise<StripeSetupIntent> {
-      return withOrgTx(ctx, async (_q, now) => {
-        const providerSetupIntent = await providers.stripe.createSetupIntent({
+        const existing = await findLedgerEntryByIdempotencyKey(q, {
+          namespace,
           orgId: ctx.orgId,
-          returnUrl: request.returnUrl,
-          now,
+          idempotencyKey: normalizedRequest.idempotencyKey,
         });
-        const id = String(providerSetupIntent.id || '').trim();
-        const clientSecret = String(providerSetupIntent.clientSecret || '').trim();
-        const customerRef = String(providerSetupIntent.customerRef || '').trim();
-        const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
-        if (!id || !clientSecret || !customerRef || !expiresAt) {
-          throw new ConsoleBillingError(
-            'payment_provider_error',
-            500,
-            'Stripe setup-intent provider returned invalid payload',
-          );
+        if (existing) {
+          const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+            namespace,
+            orgId: ctx.orgId,
+            updatedAtMs: nowMs(now),
+          });
+          return {
+            created: false,
+            adjustment: existing,
+            creditBalanceMinor,
+          };
         }
+        const relatedInvoiceId = await ensureManualAdjustmentRelatedInvoiceId(q, {
+          namespace,
+          orgId: ctx.orgId,
+          relatedInvoiceId: normalizedRequest.relatedInvoiceId,
+        });
+        const adjustment = await appendLedgerEntry(q, {
+          namespace,
+          orgId: ctx.orgId,
+          id: makeId('ble', now),
+          type: 'MANUAL_ADJUSTMENT',
+          amountMinor: normalizedRequest.amountMinor,
+          description: `Manual support credit (${normalizedRequest.reasonCode})`,
+          monthUtc: monthUtc(now),
+          relatedInvoiceId,
+          relatedPurchaseId: null,
+          sourceEventId: null,
+          actorType: 'USER',
+          actorUserId: ctx.actorUserId,
+          reasonCode: normalizedRequest.reasonCode,
+          note: normalizedRequest.note,
+          idempotencyKey: normalizedRequest.idempotencyKey,
+          createdAtMs: nowMs(now),
+        });
+        const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+          namespace,
+          orgId: ctx.orgId,
+          updatedAtMs: nowMs(now),
+        });
         return {
-          id,
-          clientSecret,
-          customerRef,
-          expiresAt,
+          created: true,
+          adjustment,
+          creditBalanceMinor,
+        };
+      });
+    },
+
+    async appendManualAdminDebit(
+      ctx: ConsoleBillingContext,
+      request: BillingManualAdjustmentRequest,
+    ): Promise<BillingManualAdjustmentResult> {
+      requireBillingAdjustmentRole(ctx);
+      const normalizedRequest = normalizeManualAdjustmentRequest(request);
+      return withOrgTx(ctx, async (q, now) => {
+        const existing = await findLedgerEntryByIdempotencyKey(q, {
+          namespace,
+          orgId: ctx.orgId,
+          idempotencyKey: normalizedRequest.idempotencyKey,
+        });
+        if (existing) {
+          requireLargeManualAdminDebitOwnerRole(ctx, Math.abs(existing.amountMinor));
+          const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+            namespace,
+            orgId: ctx.orgId,
+            updatedAtMs: nowMs(now),
+          });
+          return {
+            created: false,
+            adjustment: existing,
+            creditBalanceMinor,
+          };
+        }
+        requireLargeManualAdminDebitOwnerRole(ctx, normalizedRequest.amountMinor);
+        const relatedInvoiceId = await ensureManualAdjustmentRelatedInvoiceId(q, {
+          namespace,
+          orgId: ctx.orgId,
+          relatedInvoiceId: normalizedRequest.relatedInvoiceId,
+        });
+        const adjustment = await appendLedgerEntry(q, {
+          namespace,
+          orgId: ctx.orgId,
+          id: makeId('ble', now),
+          type: 'MANUAL_ADJUSTMENT',
+          amountMinor: -normalizedRequest.amountMinor,
+          description: `Manual admin debit (${normalizedRequest.reasonCode})`,
+          monthUtc: monthUtc(now),
+          relatedInvoiceId,
+          relatedPurchaseId: null,
+          sourceEventId: null,
+          actorType: 'USER',
+          actorUserId: ctx.actorUserId,
+          reasonCode: normalizedRequest.reasonCode,
+          note: normalizedRequest.note,
+          idempotencyKey: normalizedRequest.idempotencyKey,
+          createdAtMs: nowMs(now),
+        });
+        const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+          namespace,
+          orgId: ctx.orgId,
+          updatedAtMs: nowMs(now),
+        });
+        return {
+          created: true,
+          adjustment,
+          creditBalanceMinor,
         };
       });
     },
@@ -2834,36 +2866,6 @@ export async function createPostgresConsoleBillingService(
           customerRef,
           creditPackId: request.creditPackId,
           amountMinor,
-          expiresAt,
-        };
-      });
-    },
-
-    async createStripeCustomerPortalSession(
-      ctx: ConsoleBillingContext,
-      request: StripeCustomerPortalSessionRequest,
-    ): Promise<StripeCustomerPortalSession> {
-      return withOrgTx(ctx, async (_q, now) => {
-        const providerPortalSession = await providers.stripe.createCustomerPortalSession({
-          orgId: ctx.orgId,
-          returnUrl: request.returnUrl,
-          now,
-        });
-        const id = String(providerPortalSession.id || '').trim();
-        const url = String(providerPortalSession.url || '').trim();
-        const customerRef = String(providerPortalSession.customerRef || '').trim();
-        const expiresAt = String(providerPortalSession.expiresAt || '').trim();
-        if (!id || !url || !customerRef || !expiresAt) {
-          throw new ConsoleBillingError(
-            'payment_provider_error',
-            500,
-            'Stripe customer-portal session provider returned invalid payload',
-          );
-        }
-        return {
-          id,
-          url,
-          customerRef,
           expiresAt,
         };
       });

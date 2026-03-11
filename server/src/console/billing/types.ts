@@ -4,6 +4,7 @@ export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
 export type BillingInvoiceLineItemType = 'CREDIT_TOP_UP' | 'MAW_USAGE_DEBIT' | 'MANUAL_ADJUSTMENT';
 export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
 export type BillingCreditPurchaseStatus = 'PENDING' | 'SETTLED' | 'CANCELED';
+export type BillingLiveEnvironmentState = 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
 export type BillingLedgerEntryType =
   | 'CREDIT_PURCHASE'
   | 'USAGE_DEBIT'
@@ -24,6 +25,7 @@ export interface BillingOverview {
   monthlyActiveWallets: number;
   creditBalanceMinor: number;
   lowBalanceThresholdMinor: number;
+  liveEnvironmentState: BillingLiveEnvironmentState;
   recentUsageDebitMinor: number;
   recentCreditPurchasedMinor: number;
   documentCount: number;
@@ -56,6 +58,11 @@ export interface BillingLedgerEntry {
   relatedInvoiceId: string | null;
   relatedPurchaseId: string | null;
   sourceEventId: string | null;
+  actorType: BillingInvoiceActivityActorType;
+  actorUserId: string | null;
+  reasonCode: string | null;
+  note: string | null;
+  idempotencyKey: string | null;
   createdAt: string;
 }
 
@@ -159,22 +166,9 @@ export interface GenerateMonthlyInvoiceResult {
   };
 }
 
-export interface BillingPaymentMethod {
-  id: string;
-  orgId: string;
-  provider: 'stripe';
-  type: 'card';
-  providerRef: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
-  isDefault: boolean;
-  createdAt: string;
-}
-
 export type BillingInvoiceActivityEntryType = 'DOCUMENT' | 'LEDGER';
 export type BillingInvoiceActivityActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
+export type BillingInvoiceActivityVisibility = 'CUSTOMER' | 'INTERNAL';
 
 export interface BillingInvoiceActivityEntry {
   id: string;
@@ -188,6 +182,7 @@ export interface BillingInvoiceActivityEntry {
   reason: string | null;
   sourceEventId: string | null;
   summary: string;
+  visibility: BillingInvoiceActivityVisibility;
 }
 
 export interface BillingInvoiceActivity {
@@ -195,23 +190,26 @@ export interface BillingInvoiceActivity {
   entries: BillingInvoiceActivityEntry[];
 }
 
-export interface AddCardPaymentMethodRequest {
-  providerRef: string;
-  brand: string;
-  last4: string;
-  expMonth: number;
-  expYear: number;
+export interface BillingManualAdjustmentRequest {
+  amountMinor: number;
+  reasonCode: string;
+  note: string;
+  idempotencyKey: string;
+  relatedInvoiceId?: string;
 }
 
-export interface StripeSetupIntentRequest {
-  returnUrl?: string;
+export interface BillingManualAdjustmentResult {
+  created: boolean;
+  adjustment: BillingLedgerEntry;
+  creditBalanceMinor: number;
 }
 
-export interface StripeSetupIntent {
-  id: string;
-  clientSecret: string;
-  customerRef: string;
-  expiresAt: string;
+export interface BillingAccountActivityRequest {
+  limit?: number;
+}
+
+export interface BillingAccountActivityResult {
+  entries: BillingLedgerEntry[];
 }
 
 export interface StripeCheckoutSessionRequest {
@@ -227,17 +225,6 @@ export interface StripeCheckoutSession {
   customerRef: string;
   creditPackId: BillingCreditPackId;
   amountMinor: number;
-  expiresAt: string;
-}
-
-export interface StripeCustomerPortalSessionRequest {
-  returnUrl: string;
-}
-
-export interface StripeCustomerPortalSession {
-  id: string;
-  url: string;
-  customerRef: string;
   expiresAt: string;
 }
 

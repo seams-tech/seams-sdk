@@ -48,7 +48,9 @@ export interface ConsoleAccountOrganization {
   actorIsAdmin: boolean;
   onboardingComplete: boolean;
   selectedProjectId: string | null;
+  selectedProjectName: string | null;
   selectedEnvironmentId: string | null;
+  selectedEnvironmentName: string | null;
   adminCandidates: ConsoleAccountOrganizationAdminCandidate[];
 }
 

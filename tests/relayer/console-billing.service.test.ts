@@ -4,22 +4,9 @@ import {
   createPostgresConsoleBillingService,
   type ConsoleBillingService,
 } from '@server/router/express-adaptor';
-import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
-import { getPostgresPool } from '../../server/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
-}
-
-async function expectBillingError(fn: () => Promise<unknown>, code: string): Promise<void> {
-  let caught: any;
-  try {
-    await fn();
-  } catch (error: unknown) {
-    caught = error;
-  }
-  expect(caught).toBeTruthy();
-  expect(String(caught?.code || '')).toBe(code);
 }
 
 async function settleCreditPurchase(
@@ -63,21 +50,9 @@ test.describe('console billing service prepaid model', () => {
     const service = createInMemoryConsoleBillingService({
       providers: {
         stripe: {
-          createSetupIntent: () => ({
-            id: 'seti_mem_provider',
-            clientSecret: 'seti_mem_provider_secret',
-            customerRef: 'cus_mem_provider',
-            expiresAt: '2026-03-01T00:30:00.000Z',
-          }),
           createCheckoutSession: () => ({
             id: 'cs_mem_provider',
             url: 'https://checkout.example/memory',
-            customerRef: 'cus_mem_provider',
-            expiresAt: '2026-03-01T00:30:00.000Z',
-          }),
-          createCustomerPortalSession: () => ({
-            id: 'bps_mem_provider',
-            url: 'https://billing.example/memory',
             customerRef: 'cus_mem_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
@@ -91,12 +66,6 @@ test.describe('console billing service prepaid model', () => {
       roles: ['ops'],
     };
 
-    const setupIntent = await service.createStripeSetupIntent(ctx, {});
-    expect(setupIntent.id).toBe('seti_mem_provider');
-    expect(setupIntent.clientSecret).toBe('seti_mem_provider_secret');
-    expect(setupIntent.customerRef).toBe('cus_mem_provider');
-    expect(setupIntent.expiresAt).toBe('2026-03-01T00:30:00.000Z');
-
     const checkoutSession = await service.createStripeCheckoutSession(ctx, {
       successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
       cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
@@ -108,14 +77,6 @@ test.describe('console billing service prepaid model', () => {
     expect(checkoutSession.creditPackId).toBe('usd_25');
     expect(checkoutSession.amountMinor).toBe(2500);
     expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
-
-    const portalSession = await service.createStripeCustomerPortalSession(ctx, {
-      returnUrl: 'https://app.example.com/dashboard/billing/account',
-    });
-    expect(portalSession.id).toBe('bps_mem_provider');
-    expect(portalSession.url).toBe('https://billing.example/memory');
-    expect(portalSession.customerRef).toBe('cus_mem_provider');
-    expect(portalSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
     const projection = await service.processStripeWebhookEvent({
       eventId: 'evt_mem_provider_purchase',
@@ -133,72 +94,7 @@ test.describe('console billing service prepaid model', () => {
     const overview = await service.getOverview(ctx);
     expect(overview.creditBalanceMinor).toBe(2500);
     expect(overview.recentCreditPurchasedMinor).toBe(2500);
-  });
-
-  test('in-memory service enforces admin-only card mutations', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const nonAdminCtx = {
-      orgId: 'org-rbac-memory',
-      actorUserId: 'billing-admin-1',
-      roles: ['billing_admin'],
-    };
-
-    await expectBillingError(async () => {
-      await service.addCardPaymentMethod(nonAdminCtx, {
-        providerRef: 'pm_mem_forbidden',
-        brand: 'visa',
-        last4: '4242',
-        expMonth: 1,
-        expYear: 2031,
-      });
-    }, 'forbidden');
-
-    await expectBillingError(async () => {
-      await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
-    }, 'forbidden');
-
-    await expectBillingError(async () => {
-      await service.setDefaultCardPaymentMethod(nonAdminCtx, 'pm_missing');
-    }, 'forbidden');
-  });
-
-  test('in-memory card payment method lifecycle keeps a default method', async () => {
-    const service = createInMemoryConsoleBillingService();
-    const ctx = {
-      orgId: 'org-card-defaults-memory',
-      actorUserId: 'admin-card-defaults-memory',
-      roles: ['admin'],
-    };
-
-    const pm1 = await service.addCardPaymentMethod(ctx, {
-      providerRef: 'pm_mem_1',
-      brand: 'visa',
-      last4: '1111',
-      expMonth: 1,
-      expYear: 2031,
-    });
-    expect(pm1.isDefault).toBe(true);
-
-    const pm2 = await service.addCardPaymentMethod(ctx, {
-      providerRef: 'pm_mem_2',
-      brand: 'mastercard',
-      last4: '2222',
-      expMonth: 2,
-      expYear: 2032,
-    });
-    expect(pm2.isDefault).toBe(false);
-
-    const updatedDefault = await service.setDefaultCardPaymentMethod(ctx, pm2.id);
-    expect(updatedDefault?.id).toBe(pm2.id);
-    expect(updatedDefault?.isDefault).toBe(true);
-
-    const removed = await service.removeCardPaymentMethod(ctx, pm2.id);
-    expect(removed.removed).toBe(true);
-
-    const methods = await service.listPaymentMethods(ctx);
-    expect(methods.length).toBe(1);
-    expect(methods[0]?.id).toBe(pm1.id);
-    expect(methods[0]?.isDefault).toBe(true);
+    expect(overview.liveEnvironmentState).toBe('HEALTHY');
   });
 
   test('in-memory service settles prepaid purchase receipts idempotently by event id', async () => {
@@ -271,6 +167,213 @@ test.describe('console billing service prepaid model', () => {
 
     expect(projection.purchase?.creditPackId).toBe('usd_custom');
     expect(projection.purchase?.amountMinor).toBe(12345);
+  });
+
+  test('in-memory service appends manual support credits and admin debits idempotently', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-manual-adjustments-memory',
+      actorUserId: 'admin-manual-adjustments-memory',
+      roles: ['admin'],
+    };
+
+    const credit = await service.grantManualSupportCredit(ctx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Applied support credit after incident review',
+      idempotencyKey: 'manual-credit-memory-1',
+    });
+    expect(credit.created).toBe(true);
+    expect(credit.adjustment.type).toBe('MANUAL_ADJUSTMENT');
+    expect(credit.adjustment.amountMinor).toBe(1200);
+    expect(credit.adjustment.actorType).toBe('USER');
+    expect(credit.adjustment.actorUserId).toBe(ctx.actorUserId);
+    expect(credit.adjustment.reasonCode).toBe('incident_credit');
+    expect(credit.adjustment.note).toContain('incident review');
+    expect(credit.adjustment.idempotencyKey).toBe('manual-credit-memory-1');
+    expect(credit.creditBalanceMinor).toBe(1200);
+
+    const duplicateCredit = await service.grantManualSupportCredit(ctx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Applied support credit after incident review',
+      idempotencyKey: 'manual-credit-memory-1',
+    });
+    expect(duplicateCredit.created).toBe(false);
+    expect(duplicateCredit.adjustment.id).toBe(credit.adjustment.id);
+    expect(duplicateCredit.creditBalanceMinor).toBe(1200);
+
+    const debit = await service.appendManualAdminDebit(ctx, {
+      amountMinor: 300,
+      reasonCode: 'duplicate_credit_correction',
+      note: 'Corrected duplicate support credit',
+      idempotencyKey: 'manual-debit-memory-1',
+    });
+    expect(debit.created).toBe(true);
+    expect(debit.adjustment.amountMinor).toBe(-300);
+    expect(debit.adjustment.reasonCode).toBe('duplicate_credit_correction');
+    expect(debit.creditBalanceMinor).toBe(900);
+
+    const overview = await service.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(900);
+    expect(overview.liveEnvironmentState).toBe('LOW_BALANCE');
+
+    const activity = await service.listAccountActivity(ctx, { limit: 5 });
+    expect(activity.entries.map((entry) => entry.id)).toEqual([
+      debit.adjustment.id,
+      credit.adjustment.id,
+    ]);
+    expect(activity.entries[0]?.amountMinor).toBe(-300);
+    expect(activity.entries[1]?.amountMinor).toBe(1200);
+  });
+
+  test('in-memory service derives blocked, low-balance, and healthy live-environment states', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-live-env-state-memory',
+      actorUserId: 'admin-live-env-state-memory',
+      roles: ['admin'],
+    };
+
+    const initialOverview = await service.getOverview(ctx);
+    expect(initialOverview.creditBalanceMinor).toBe(0);
+    expect(initialOverview.liveEnvironmentState).toBe('BLOCKED');
+
+    await service.grantManualSupportCredit(ctx, {
+      amountMinor: 1500,
+      reasonCode: 'bootstrap_credit',
+      note: 'Seeded balance below warning threshold',
+      idempotencyKey: 'live-env-state-credit-low-memory',
+    });
+    const lowBalanceOverview = await service.getOverview(ctx);
+    expect(lowBalanceOverview.creditBalanceMinor).toBe(1500);
+    expect(lowBalanceOverview.liveEnvironmentState).toBe('LOW_BALANCE');
+
+    await service.grantManualSupportCredit(ctx, {
+      amountMinor: 1000,
+      reasonCode: 'bootstrap_credit',
+      note: 'Raised balance above warning threshold',
+      idempotencyKey: 'live-env-state-credit-healthy-memory',
+    });
+    const healthyOverview = await service.getOverview(ctx);
+    expect(healthyOverview.creditBalanceMinor).toBe(2500);
+    expect(healthyOverview.liveEnvironmentState).toBe('HEALTHY');
+
+    await service.appendManualAdminDebit(ctx, {
+      amountMinor: 2600,
+      reasonCode: 'correction',
+      note: 'Corrected overstated prepaid balance',
+      idempotencyKey: 'live-env-state-debit-blocked-memory',
+    });
+    const blockedOverview = await service.getOverview(ctx);
+    expect(blockedOverview.creditBalanceMinor).toBe(-100);
+    expect(blockedOverview.liveEnvironmentState).toBe('BLOCKED');
+  });
+
+  test('in-memory service forbids manual adjustments for non-admin users', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-manual-adjustments-forbidden-memory',
+      actorUserId: 'ops-manual-adjustments-memory',
+      roles: ['ops'],
+    };
+
+    await expect(
+      service.grantManualSupportCredit(ctx, {
+        amountMinor: 100,
+        reasonCode: 'incident_credit',
+        note: 'Should be rejected',
+        idempotencyKey: 'manual-credit-forbidden-memory',
+      }),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403,
+    });
+
+    await expect(
+      service.appendManualAdminDebit(ctx, {
+        amountMinor: 100,
+        reasonCode: 'manual_debit',
+        note: 'Should be rejected',
+        idempotencyKey: 'manual-debit-forbidden-memory',
+      }),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403,
+    });
+  });
+
+  test('in-memory service links manual adjustments to invoice activity when relatedInvoiceId is provided', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-manual-adjustments-linked-memory',
+      actorUserId: 'admin-manual-adjustments-linked-memory',
+      roles: ['admin'],
+    };
+
+    const settled = await settleCreditPurchase(service, ctx, 'usd_25');
+    const credit = await service.grantManualSupportCredit(ctx, {
+      amountMinor: 500,
+      reasonCode: 'invoice_correction',
+      note: 'Linked credit for receipt correction timeline visibility',
+      idempotencyKey: 'manual-credit-linked-memory-1',
+      relatedInvoiceId: settled.invoice.id,
+    });
+    expect(credit.adjustment.relatedInvoiceId).toBe(settled.invoice.id);
+
+    const invoiceActivity = await service.getInvoiceActivity(ctx, settled.invoice.id);
+    expect(invoiceActivity).toBeTruthy();
+    expect(
+      invoiceActivity?.entries.some(
+        (entry) =>
+          entry.id === `${credit.adjustment.id}:MANUAL_ADJUSTMENT` &&
+          entry.visibility === 'INTERNAL',
+      ),
+    ).toBe(true);
+
+    const accountActivity = await service.listAccountActivity(ctx, { limit: 5 });
+    expect(accountActivity.entries[0]?.relatedInvoiceId).toBe(settled.invoice.id);
+  });
+
+  test('in-memory service requires owner role for large manual admin debits', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const adminCtx = {
+      orgId: 'org-manual-adjustments-large-debit-memory',
+      actorUserId: 'admin-manual-adjustments-large-debit-memory',
+      roles: ['admin'],
+    };
+
+    await service.grantManualSupportCredit(adminCtx, {
+      amountMinor: 75_000,
+      reasonCode: 'bootstrap_credit',
+      note: 'Seeded large balance for debit authorization test',
+      idempotencyKey: 'manual-credit-large-debit-memory-1',
+    });
+
+    await expect(
+      service.appendManualAdminDebit(adminCtx, {
+        amountMinor: 50_000,
+        reasonCode: 'large_debit_correction',
+        note: 'Should require owner role',
+        idempotencyKey: 'manual-debit-large-debit-memory-forbidden',
+      }),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403,
+    });
+
+    const ownerCtx = {
+      ...adminCtx,
+      roles: ['admin', 'owner'],
+    };
+    const debit = await service.appendManualAdminDebit(ownerCtx, {
+      amountMinor: 50_000,
+      reasonCode: 'large_debit_correction',
+      note: 'Owner approved large debit',
+      idempotencyKey: 'manual-debit-large-debit-memory-owner',
+    });
+    expect(debit.created).toBe(true);
+    expect(debit.adjustment.amountMinor).toBe(-50_000);
   });
 
   test('in-memory service MAW counts distinct wallets with exclusions and idempotency', async () => {
@@ -576,66 +679,5 @@ test.describe('console billing service prepaid model', () => {
         (entry) => entry.type === 'LEDGER' && entry.toState === 'CREDIT_PURCHASE',
       ),
     ).toBe(true);
-  });
-
-  test('postgres service enforces admin-only card mutations', async () => {
-    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
-    test.skip(!postgresUrl, 'POSTGRES_URL not set');
-    const namespace = randomNamespace('test:console-billing:rbac');
-    const service: ConsoleBillingService = await createPostgresConsoleBillingService({
-      postgresUrl,
-      namespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-
-    const nonAdminCtx = {
-      orgId: 'org-rbac-postgres',
-      actorUserId: 'billing-admin-2',
-      roles: ['billing_admin'],
-    };
-
-    try {
-      await expectBillingError(async () => {
-        await service.addCardPaymentMethod(nonAdminCtx, {
-          providerRef: 'pm_pg_forbidden',
-          brand: 'visa',
-          last4: '4242',
-          expMonth: 1,
-          expYear: 2031,
-        });
-      }, 'forbidden');
-
-      await expectBillingError(async () => {
-        await service.removeCardPaymentMethod(nonAdminCtx, 'pm_missing');
-      }, 'forbidden');
-    } finally {
-      const pool = await getPostgresPool(postgresUrl);
-      await withConsoleTenantContextTx(pool, { namespace, orgId: nonAdminCtx.orgId }, async (q) => {
-        await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_credit_purchases WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_billing_ledger_postings WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_billing_ledger_entries WHERE namespace = $1', [
-          namespace,
-        ]);
-        await q.query('DELETE FROM console_invoices WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_billing_accounts WHERE namespace = $1', [namespace]);
-      });
-      await pool.query('DELETE FROM console_billing_ledger_accounts WHERE namespace = $1', [
-        namespace,
-      ]);
-    }
   });
 });

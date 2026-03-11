@@ -104,6 +104,9 @@ export interface ConsoleRouterOptions {
   session?: SessionAdapter | null;
   // Optional shared secret required by Stripe webhook ingestion endpoint.
   billingStripeWebhookSecret?: string;
+  // Optional local/dev escape hatch: allows live environment provisioning without billing readiness.
+  // Keep disabled in production and only enable intentionally.
+  allowLiveEnvironmentBillingBypass?: boolean;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

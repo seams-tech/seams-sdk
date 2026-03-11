@@ -39,17 +39,8 @@ function normalizeLower(value: unknown): string {
   return normalizeString(value).toLowerCase();
 }
 
-function slugify(value: string): string {
-  return (
-    normalizeLower(value)
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'organization'
-  );
-}
-
-function makeOrgId(name: string, now: Date): string {
-  const slug = slugify(name).replace(/-/g, '_');
-  return `org_${slug || 'account'}_${now.getTime().toString(36)}`;
+function makeOrgId(now: Date): string {
+  return `org_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function hasAdminEligibility(member: ConsoleTeamMember): boolean {
@@ -171,6 +162,38 @@ async function resolveOnboardingState(input: {
     environmentId,
     actorRoles: [],
     onboardingComplete: Boolean(projectId && environmentId),
+  };
+}
+
+async function resolveSelectedScopeLabels(input: {
+  ctx: ConsoleAccountContext;
+  orgId: string;
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  projectId: string | null;
+  environmentId: string | null;
+}): Promise<{ projectName: string | null; environmentName: string | null }> {
+  const targetCtx = {
+    orgId: input.orgId,
+    actorUserId: input.ctx.userId,
+    roles: [],
+    ...(input.ctx.email ? { actorEmail: input.ctx.email } : {}),
+    ...(input.ctx.name ? { actorDisplayName: input.ctx.name } : {}),
+  };
+  const [projects, environments] = await Promise.all([
+    input.orgProjectEnv.listProjects(targetCtx, { status: 'ACTIVE' }).catch(() => []),
+    input.orgProjectEnv.listEnvironments(targetCtx, { status: 'ACTIVE' }).catch(() => []),
+  ]);
+  const project =
+    input.projectId && projects.length
+      ? projects.find((entry) => entry.id === input.projectId) || null
+      : null;
+  const environment =
+    input.environmentId && environments.length
+      ? environments.find((entry) => entry.id === input.environmentId) || null
+      : null;
+  return {
+    projectName: normalizeString(project?.name) || null,
+    environmentName: normalizeString(environment?.name) || null,
   };
 }
 
@@ -378,6 +401,13 @@ export async function createPostgresConsoleAccountService(
       onboarding: options.onboarding || null,
       orgProjectEnv: options.orgProjectEnv,
     });
+    const selectedScope = await resolveSelectedScopeLabels({
+      ctx,
+      orgId: organization.id,
+      orgProjectEnv: options.orgProjectEnv,
+      projectId: onboardingState.projectId,
+      environmentId: onboardingState.environmentId,
+    });
     return {
       id: organization.id,
       name: organization.name,
@@ -391,7 +421,9 @@ export async function createPostgresConsoleAccountService(
       actorIsAdmin: actorMember ? hasAdminEligibility(actorMember) : false,
       onboardingComplete: onboardingState.onboardingComplete,
       selectedProjectId: onboardingState.projectId,
+      selectedProjectName: selectedScope.projectName,
       selectedEnvironmentId: onboardingState.environmentId,
+      selectedEnvironmentName: selectedScope.environmentName,
       adminCandidates: members.filter(hasAdminEligibility).map(toAdminCandidate),
     };
   }
@@ -561,7 +593,7 @@ export async function createPostgresConsoleAccountService(
     },
 
     async createOrganization(ctx, request): Promise<ConsoleAccountOrganization> {
-      const orgId = normalizeString(request.id) || makeOrgId(request.name, now());
+      const orgId = normalizeString(request.id) || makeOrgId(now());
       const existing = await getOrganizationById(orgId);
       if (existing) {
         throw accountError(

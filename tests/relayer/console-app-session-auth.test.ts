@@ -156,6 +156,210 @@ test.describe('console app-session auth adapter', () => {
     });
   });
 
+  test('authenticate repairs stale org claims from active scope before provisioning', async () => {
+    const resolvedOrgId = 'org_migrated_123';
+    const upsertedOrgIds: string[] = [];
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            orgId: 'org-dev',
+            projectId: 'proj_mmggz8jp_v9pft0',
+            environmentId: 'proj_mmggz8jp_v9pft0:dev',
+          }),
+        }),
+      }),
+      authService: {
+        validateAppSessionVersion: async () => ({ ok: true }),
+      },
+      provisioning: {
+        bootstrapRoles: ['admin'],
+        orgProjectEnv: {
+          getOrganization: async (ctx: { orgId: string }) => {
+            if (ctx.orgId === resolvedOrgId) {
+              return {
+                id: resolvedOrgId,
+                name: 'tatchi-org-test',
+                slug: 'tatchi-org-test',
+                status: 'ACTIVE',
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              };
+            }
+            const error = new Error('not found') as Error & { code?: string };
+            error.code = 'organization_not_found';
+            throw error;
+          },
+          findOrganizationForScope: async (request: {
+            projectId?: string;
+            environmentId?: string;
+          }) =>
+            request.projectId === 'proj_mmggz8jp_v9pft0' &&
+            request.environmentId === 'proj_mmggz8jp_v9pft0:dev'
+              ? {
+                  id: resolvedOrgId,
+                  name: 'tatchi-org-test',
+                  slug: 'tatchi-org-test',
+                  status: 'ACTIVE',
+                  createdAt: new Date(0).toISOString(),
+                  updatedAt: new Date(0).toISOString(),
+                }
+              : null,
+          listProjects: async (ctx: { orgId: string }) => {
+            expect(ctx.orgId).toBe(resolvedOrgId);
+            return [
+              {
+                id: 'proj_mmggz8jp_v9pft0',
+                orgId: resolvedOrgId,
+                name: 'Project',
+                slug: 'project',
+                status: 'ACTIVE',
+                environmentCount: 1,
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+            ];
+          },
+          listEnvironments: async (ctx: { orgId: string }) => {
+            expect(ctx.orgId).toBe(resolvedOrgId);
+            return [
+              {
+                id: 'proj_mmggz8jp_v9pft0:dev',
+                orgId: resolvedOrgId,
+                projectId: 'proj_mmggz8jp_v9pft0',
+                key: 'dev',
+                name: 'Development',
+                status: 'ACTIVE',
+                createdAt: new Date(0).toISOString(),
+                updatedAt: new Date(0).toISOString(),
+              },
+            ];
+          },
+          upsertOrganization: async (ctx: { orgId: string }) => {
+            upsertedOrgIds.push(ctx.orgId);
+            return {
+              id: ctx.orgId,
+              name: 'unexpected',
+              slug: 'unexpected',
+              status: 'ACTIVE',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            };
+          },
+        } as any,
+        teamRbac: {
+          listMembers: async (ctx: { orgId: string }) => {
+            expect(ctx.orgId).toBe(resolvedOrgId);
+            return [];
+          },
+          inviteMember: async (_ctx: unknown, req: Record<string, unknown>) => ({
+            id: 'mbr-1',
+            orgId: resolvedOrgId,
+            userId: String(req.userId || ''),
+            email: String(req.email || ''),
+            status: 'ACTIVE',
+            roles: req.roles,
+          }),
+          updateMemberRoles: async () => null,
+        } as any,
+        logger: { warn() {} },
+      },
+    });
+
+    const out = await auth.authenticate({});
+    expect(out).toEqual({
+      ok: true,
+      claims: {
+        orgId: resolvedOrgId,
+        userId: 'oidc:https://accounts.google.com:user-123',
+        roles: ['admin'],
+        projectId: 'proj_mmggz8jp_v9pft0',
+        environmentId: 'proj_mmggz8jp_v9pft0:dev',
+      },
+    });
+    expect(upsertedOrgIds).toEqual([]);
+  });
+
+  test('authenticate repairs stale environment claims against active environments', async () => {
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            orgId: 'org-dev',
+            projectId: 'proj_mmggz8jp_v9pft0',
+            environmentId: 'org-dev:proj_mmggz8jp_v9pft0:dev',
+          }),
+        }),
+      }),
+      authService: {
+        validateAppSessionVersion: async () => ({ ok: true }),
+      },
+      fallbackRoles: ['admin'],
+      provisioning: {
+        orgProjectEnv: {
+          getOrganization: async () => ({
+            id: 'org-dev',
+            name: 'Org',
+            slug: 'org',
+            status: 'ACTIVE',
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+          }),
+          findOrganizationForScope: async () => null,
+          listProjects: async () => [
+            {
+              id: 'proj_mmggz8jp_v9pft0',
+              orgId: 'org-dev',
+              name: 'Project',
+              slug: 'project',
+              status: 'ACTIVE',
+              environmentCount: 3,
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ],
+          listEnvironments: async () => [
+            {
+              id: 'proj_mmggz8jp_v9pft0:dev',
+              orgId: 'org-dev',
+              projectId: 'proj_mmggz8jp_v9pft0',
+              key: 'dev',
+              name: 'Development',
+              status: 'ACTIVE',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+            {
+              id: 'proj_mmggz8jp_v9pft0:prod',
+              orgId: 'org-dev',
+              projectId: 'proj_mmggz8jp_v9pft0',
+              key: 'prod',
+              name: 'Production',
+              status: 'ACTIVE',
+              createdAt: new Date(0).toISOString(),
+              updatedAt: new Date(0).toISOString(),
+            },
+          ],
+        } as any,
+        logger: { warn() {} },
+      },
+    });
+
+    const out = await auth.authenticate({});
+    expect(out).toEqual({
+      ok: true,
+      claims: {
+        orgId: 'org-dev',
+        userId: 'oidc:https://accounts.google.com:user-123',
+        roles: ['admin'],
+        projectId: 'proj_mmggz8jp_v9pft0',
+        environmentId: 'proj_mmggz8jp_v9pft0:dev',
+      },
+    });
+  });
+
   test('provisioning bootstraps first login membership and appends audit event', async () => {
     let listMembersCalls = 0;
     const auditEvents: Array<Record<string, unknown>> = [];

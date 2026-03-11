@@ -142,9 +142,9 @@ import {
 import {
   buildApprovalFailureObservabilityEvent,
   buildBillingFailureObservabilityEvent,
-  buildRouterTimingObservabilityEvent,
   isConsoleObservabilityError,
   type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityRequestMetricInput,
   type ConsoleObservabilityService,
 } from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
@@ -159,6 +159,10 @@ import {
   buildConsolePolicyCoverageView,
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
+import {
+  listConsolePolicyNames,
+  projectConsolePolicyPresentation,
+} from '../policyPresentation';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -253,21 +257,36 @@ async function appendConsoleObservabilityEvent(
   }
 }
 
+async function appendConsoleObservabilityRequestMetric(
+  ctx: CloudflareConsoleContext,
+  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
+  metric: ConsoleObservabilityRequestMetricInput,
+): Promise<void> {
+  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
+  try {
+    await ctx.observabilityIngestion.observeRequestMetric(ingestCtx, metric);
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][observability] failed to append request metric', {
+      orgId: ingestCtx.orgId,
+      route: metric.route,
+      method: metric.method,
+      statusCode: metric.statusCode,
+      message: toUnknownErrorMessage(error),
+    });
+  }
+}
+
 async function emitRouterTimingObservabilityEvent(
   ctx: CloudflareConsoleContext,
   startedAtMs: number,
   statusCode: number,
 ): Promise<void> {
+  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
   const claims = ctx.authClaims;
   const roles = Array.isArray(claims?.roles) ? claims.roles.filter(Boolean) : [];
   const orgId = String(claims?.orgId || '').trim();
   if (!orgId) return;
-
-  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
-  const traceId =
-    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
-    readOptionalRequestHeader(ctx.request, 'traceparent');
-  const event = buildRouterTimingObservabilityEvent({
+  const metric: ConsoleObservabilityRequestMetricInput = {
     orgId,
     ...(claims?.projectId ? { projectId: claims.projectId } : {}),
     ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
@@ -275,10 +294,9 @@ async function emitRouterTimingObservabilityEvent(
     method: ctx.method,
     statusCode,
     latencyMs: Math.max(0, Date.now() - startedAtMs),
-    ...(requestId ? { requestId } : {}),
-    ...(traceId ? { traceId } : {}),
-  });
-  await appendConsoleObservabilityEvent(
+    timestamp: new Date().toISOString(),
+  };
+  await appendConsoleObservabilityRequestMetric(
     ctx,
     {
       orgId,
@@ -287,7 +305,7 @@ async function emitRouterTimingObservabilityEvent(
       ...(claims?.projectId ? { projectId: claims.projectId } : {}),
       ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
     },
-    event,
+    metric,
   );
 }
 
@@ -1179,6 +1197,101 @@ function toAuditContext(claims: ConsoleAuthClaims): {
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
+}
+
+async function projectApprovalResponse(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  row: {
+    resourceType: string | null;
+    resourceId: string | null;
+    metadata: Record<string, unknown>;
+  },
+): Promise<typeof row & { policyId: string | null; policyName: string | null }> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return {
+    ...row,
+    ...projectConsolePolicyPresentation({
+      resourceType: row.resourceType,
+      resourceId: row.resourceId,
+      metadata: row.metadata,
+      policyNames,
+    }),
+  };
+}
+
+async function projectApprovalResponses<T extends {
+  resourceType: string | null;
+  resourceId: string | null;
+  metadata: Record<string, unknown>;
+}>(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  rows: readonly T[],
+): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return rows.map((row) => ({
+    ...row,
+    ...projectConsolePolicyPresentation({
+      resourceType: row.resourceType,
+      resourceId: row.resourceId,
+      metadata: row.metadata,
+      policyNames,
+    }),
+  }));
+}
+
+async function projectAuditEventResponses<T extends {
+  metadata: Record<string, unknown>;
+}>(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  rows: readonly T[],
+): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return rows.map((row) => ({
+    ...row,
+    ...projectConsolePolicyPresentation({
+      metadata: row.metadata,
+      policyNames,
+    }),
+  }));
+}
+
+async function resolveWalletPolicyPresentationByWalletId(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  walletRows: ReadonlyArray<{
+    id: string;
+    projectId?: string | null;
+    environmentId?: string | null;
+    policyId?: string | null;
+  }>,
+): Promise<Record<string, { policyId: string | null; policyName: string | null }>> {
+  if (!ctx.policies || walletRows.length === 0) return {};
+  const [resolvedPolicyIds, policyNames] = await Promise.all([
+    ctx.policies.resolvePoliciesForWallets(
+      toBillingContext(claims),
+      walletRows.map((wallet) => ({
+        walletId: wallet.id,
+        projectId: wallet.projectId || undefined,
+        environmentId: wallet.environmentId || undefined,
+        fallbackPolicyId: wallet.policyId || null,
+      })),
+    ),
+    listConsolePolicyNames(ctx.policies, toBillingContext(claims)),
+  ]);
+  const out: Record<string, { policyId: string | null; policyName: string | null }> = {};
+  for (const wallet of walletRows) {
+    const policyIdRaw =
+      resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
+    const policyId = String(policyIdRaw || '').trim() || null;
+    out[wallet.id] = {
+      policyId,
+      policyName: policyId ? policyNames[policyId] || null : null,
+    };
+  }
+  return out;
 }
 
 function toOnboardingContext(claims: ConsoleAuthClaims): {
@@ -2905,7 +3018,10 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
         environmentId: ctx.url.searchParams.get('environmentId') || undefined,
       });
       const rows = await approvals.listApprovalRequests(approvalCtx, request);
-      return json({ ok: true, approvals: rows }, { status: 200 });
+      return json(
+        { ok: true, approvals: await projectApprovalResponses(ctx, auth.claims, rows) },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'GET' && approvalPathMatch) {
@@ -2921,7 +3037,10 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
           { status: 404 },
         );
       }
-      return json({ ok: true, approval: row }, { status: 200 });
+      return json(
+        { ok: true, approval: await projectApprovalResponse(ctx, auth.claims, row) },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/approvals') {
@@ -2967,7 +3086,10 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
             : {}),
         },
       });
-      return json({ ok: true, approval: row }, { status: 201 });
+      return json(
+        { ok: true, approval: await projectApprovalResponse(ctx, auth.claims, row) },
+        { status: 201 },
+      );
     }
 
     if (ctx.method === 'POST' && approvalApprovePathMatch) {
@@ -3025,7 +3147,10 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
             : {}),
         },
       });
-      return json({ ok: true, approval: row }, { status: 200 });
+      return json(
+        { ok: true, approval: await projectApprovalResponse(ctx, auth.claims, row) },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'POST' && approvalRejectPathMatch) {
@@ -3080,7 +3205,10 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
             : {}),
         },
       });
-      return json({ ok: true, approval: row }, { status: 200 });
+      return json(
+        { ok: true, approval: await projectApprovalResponse(ctx, auth.claims, row) },
+        { status: 200 },
+      );
     }
   } catch (error: unknown) {
     return sendApprovalError(error);
@@ -3113,7 +3241,10 @@ async function handleConsoleAudit(ctx: CloudflareConsoleContext): Promise<Respon
         limit: ctx.url.searchParams.get('limit') || undefined,
       });
       const events = await audit.listEvents(toAuditContext(auth.claims), request);
-      return json({ ok: true, events }, { status: 200 });
+      return json(
+        { ok: true, events: await projectAuditEventResponses(ctx, auth.claims, events) },
+        { status: 200 },
+      );
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/audit/evidence') {
@@ -3520,16 +3651,8 @@ async function handleConsoleInsights(ctx: CloudflareConsoleContext): Promise<Res
         scope,
         ...(ctx.policies
           ? {
-              resolvePolicyIds: async (walletRows) =>
-                await ctx.policies!.resolvePoliciesForWallets(
-                  toBillingContext(auth.claims),
-                  walletRows.map((wallet) => ({
-                    walletId: wallet.id,
-                    projectId: wallet.projectId,
-                    environmentId: wallet.environmentId,
-                    fallbackPolicyId: wallet.policyId,
-                  })),
-                ),
+              resolveWalletPolicies: async (walletRows) =>
+                await resolveWalletPolicyPresentationByWalletId(ctx, auth.claims, walletRows),
             }
           : {}),
       });
@@ -3550,6 +3673,12 @@ async function handleConsoleInsights(ctx: CloudflareConsoleContext): Promise<Res
         walletCtx: toWalletContext(auth.claims),
         scope,
         recentWindowDays: 7,
+        ...(ctx.policies
+          ? {
+              resolveWalletPolicies: async (walletRows) =>
+                await resolveWalletPolicyPresentationByWalletId(ctx, auth.claims, walletRows),
+            }
+          : {}),
       });
       return json({ ok: true, readiness }, { status: 200 });
     }

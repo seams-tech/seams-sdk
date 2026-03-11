@@ -18,10 +18,12 @@ type BillingCtx = {
 };
 
 const PRIMARY_TEST_ORG_IDS = [
-  'org-postgres-card-defaults',
   'org-postgres-purchase-webhook',
   'org-postgres-maw',
   'org-postgres-concurrent-billing-reads',
+  'org-postgres-manual-adjustments',
+  'org-postgres-manual-adjustments-linked',
+  'org-postgres-manual-adjustments-large-debit',
 ];
 
 async function queryInOrg(input: {
@@ -52,7 +54,6 @@ async function cleanupBillingNamespaceForOrgs(input: {
   for (const orgId of orgIds) {
     await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
       await q.query('DELETE FROM console_stripe_webhook_events WHERE namespace = $1', [namespace]);
-      await q.query('DELETE FROM console_payment_methods WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_invoice_line_items WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_usage_rollups_monthly WHERE namespace = $1', [namespace]);
       await q.query('DELETE FROM console_usage_meter_events WHERE namespace = $1', [namespace]);
@@ -162,45 +163,6 @@ test.describe('console billing postgres service prepaid model', () => {
     });
   });
 
-  test('card payment method lifecycle keeps a default method', async () => {
-    test.skip(!enabled, 'POSTGRES_URL not set');
-    const ctx = {
-      orgId: 'org-postgres-card-defaults',
-      actorUserId: 'admin-card-defaults-postgres',
-      roles: ['admin'],
-    } satisfies BillingCtx;
-
-    const pm1 = await service!.addCardPaymentMethod(ctx, {
-      providerRef: 'pm_pg_1',
-      brand: 'visa',
-      last4: '1111',
-      expMonth: 1,
-      expYear: 2031,
-    });
-    expect(pm1.isDefault).toBe(true);
-
-    const pm2 = await service!.addCardPaymentMethod(ctx, {
-      providerRef: 'pm_pg_2',
-      brand: 'mastercard',
-      last4: '2222',
-      expMonth: 2,
-      expYear: 2032,
-    });
-    expect(pm2.isDefault).toBe(false);
-
-    const updatedDefault = await service!.setDefaultCardPaymentMethod(ctx, pm2.id);
-    expect(updatedDefault?.id).toBe(pm2.id);
-    expect(updatedDefault?.isDefault).toBe(true);
-
-    const removed = await service!.removeCardPaymentMethod(ctx, pm2.id);
-    expect(removed.removed).toBe(true);
-
-    const methods = await service!.listPaymentMethods(ctx);
-    expect(methods.length).toBe(1);
-    expect(methods[0]?.id).toBe(pm1.id);
-    expect(methods[0]?.isDefault).toBe(true);
-  });
-
   test('postgres service uses injected prepaid billing provider adapters', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const providerNamespace = randomNamespace('test:console-billing:providers');
@@ -211,21 +173,9 @@ test.describe('console billing postgres service prepaid model', () => {
       ensureSchema: true,
       providers: {
         stripe: {
-          createSetupIntent: () => ({
-            id: 'seti_pg_provider',
-            clientSecret: 'seti_pg_provider_secret',
-            customerRef: 'cus_pg_provider',
-            expiresAt: '2026-03-01T00:30:00.000Z',
-          }),
           createCheckoutSession: () => ({
             id: 'cs_pg_provider',
             url: 'https://checkout.example/postgres',
-            customerRef: 'cus_pg_provider',
-            expiresAt: '2026-03-01T00:30:00.000Z',
-          }),
-          createCustomerPortalSession: () => ({
-            id: 'bps_pg_provider',
-            url: 'https://billing.example/postgres',
             customerRef: 'cus_pg_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
@@ -239,12 +189,6 @@ test.describe('console billing postgres service prepaid model', () => {
     } satisfies BillingCtx;
 
     try {
-      const setupIntent = await providerService.createStripeSetupIntent(ctx, {});
-      expect(setupIntent.id).toBe('seti_pg_provider');
-      expect(setupIntent.clientSecret).toBe('seti_pg_provider_secret');
-      expect(setupIntent.customerRef).toBe('cus_pg_provider');
-      expect(setupIntent.expiresAt).toBe('2026-03-01T00:30:00.000Z');
-
       const checkoutSession = await providerService.createStripeCheckoutSession(ctx, {
         successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
         cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
@@ -256,14 +200,6 @@ test.describe('console billing postgres service prepaid model', () => {
       expect(checkoutSession.creditPackId).toBe('usd_25');
       expect(checkoutSession.amountMinor).toBe(2500);
       expect(checkoutSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
-
-      const portalSession = await providerService.createStripeCustomerPortalSession(ctx, {
-        returnUrl: 'https://app.example.com/dashboard/billing/account',
-      });
-      expect(portalSession.id).toBe('bps_pg_provider');
-      expect(portalSession.url).toBe('https://billing.example/postgres');
-      expect(portalSession.customerRef).toBe('cus_pg_provider');
-      expect(portalSession.expiresAt).toBe('2026-03-01T00:30:00.000Z');
 
       const projection = await providerService.processStripeWebhookEvent({
         eventId: 'evt_pg_provider_purchase',
@@ -416,6 +352,193 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(webhookEvents.rows.length).toBe(1);
     expect(String((webhookEvents.rows[0] as any).provider_ref || '')).toBe(checkoutSession.id);
     expect(String((webhookEvents.rows[0] as any).org_id || '')).toBe(ctx.orgId);
+  });
+
+  test('postgres service appends manual support credits and admin debits idempotently', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-manual-adjustments',
+      actorUserId: 'admin-manual-adjustments-postgres',
+      roles: ['admin'],
+    } satisfies BillingCtx;
+
+    const credit = await service!.grantManualSupportCredit(ctx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Applied support credit after incident review',
+      idempotencyKey: 'manual-credit-postgres-1',
+    });
+    expect(credit.created).toBe(true);
+    expect(credit.adjustment.amountMinor).toBe(1200);
+    expect(credit.creditBalanceMinor).toBe(1200);
+
+    const duplicateCredit = await service!.grantManualSupportCredit(ctx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Applied support credit after incident review',
+      idempotencyKey: 'manual-credit-postgres-1',
+    });
+    expect(duplicateCredit.created).toBe(false);
+    expect(duplicateCredit.adjustment.id).toBe(credit.adjustment.id);
+    expect(duplicateCredit.creditBalanceMinor).toBe(1200);
+
+    const debit = await service!.appendManualAdminDebit(ctx, {
+      amountMinor: 300,
+      reasonCode: 'duplicate_credit_correction',
+      note: 'Corrected duplicate support credit',
+      idempotencyKey: 'manual-debit-postgres-1',
+    });
+    expect(debit.created).toBe(true);
+    expect(debit.adjustment.amountMinor).toBe(-300);
+    expect(debit.creditBalanceMinor).toBe(900);
+
+    const overview = await service!.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(900);
+
+    const activity = await service!.listAccountActivity(ctx, { limit: 5 });
+    expect(activity.entries.map((entry) => entry.id)).toEqual([
+      debit.adjustment.id,
+      credit.adjustment.id,
+    ]);
+    expect(activity.entries[0]?.amountMinor).toBe(-300);
+    expect(activity.entries[1]?.amountMinor).toBe(1200);
+
+    const ledger = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT entry_type, amount_minor, actor_type, actor_user_id, reason_code, note, idempotency_key
+         FROM console_billing_ledger_entries
+        WHERE namespace = $1
+          AND org_id = $2
+          AND entry_type = 'MANUAL_ADJUSTMENT'
+        ORDER BY created_at_ms ASC, id ASC`,
+      values: [namespace, ctx.orgId],
+    });
+    expect(
+      ledger.rows.map((row) => ({
+        entry_type: String((row as any).entry_type || ''),
+        amount_minor: Number((row as any).amount_minor || 0),
+        actor_type: String((row as any).actor_type || ''),
+        actor_user_id: String((row as any).actor_user_id || ''),
+        reason_code: String((row as any).reason_code || ''),
+        idempotency_key: String((row as any).idempotency_key || ''),
+      })),
+    ).toEqual([
+      {
+        entry_type: 'MANUAL_ADJUSTMENT',
+        amount_minor: 1200,
+        actor_type: 'USER',
+        actor_user_id: ctx.actorUserId,
+        reason_code: 'incident_credit',
+        idempotency_key: 'manual-credit-postgres-1',
+      },
+      {
+        entry_type: 'MANUAL_ADJUSTMENT',
+        amount_minor: -300,
+        actor_type: 'USER',
+        actor_user_id: ctx.actorUserId,
+        reason_code: 'duplicate_credit_correction',
+        idempotency_key: 'manual-debit-postgres-1',
+      },
+    ]);
+
+    const postings = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT account_id, direction, amount_minor
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1
+          AND org_id = $2
+          AND source_event_id IS NULL
+          AND related_purchase_id IS NULL
+        ORDER BY created_at_ms ASC, account_id ASC, direction ASC`,
+      values: [namespace, ctx.orgId],
+    });
+    expect(postings.rows.length).toBe(4);
+  });
+
+  test('postgres service links manual adjustments to invoice activity when relatedInvoiceId is provided', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-manual-adjustments-linked',
+      actorUserId: 'admin-manual-adjustments-linked-postgres',
+      roles: ['admin'],
+    } satisfies BillingCtx;
+
+    const settled = await settleCreditPurchase(service!, ctx, 'usd_25');
+    const credit = await service!.grantManualSupportCredit(ctx, {
+      amountMinor: 500,
+      reasonCode: 'invoice_correction',
+      note: 'Linked correction for receipt timeline visibility',
+      idempotencyKey: 'manual-credit-linked-postgres-1',
+      relatedInvoiceId: settled.invoice.id,
+    });
+    expect(credit.adjustment.relatedInvoiceId).toBe(settled.invoice.id);
+
+    const invoiceActivity = await service!.getInvoiceActivity(ctx, settled.invoice.id);
+    expect(invoiceActivity).toBeTruthy();
+    expect(
+      invoiceActivity?.entries.some(
+        (entry) =>
+          entry.id === credit.adjustment.id &&
+          entry.toState === 'MANUAL_ADJUSTMENT' &&
+          entry.visibility === 'INTERNAL',
+      ),
+    ).toBe(true);
+
+    const ledger = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT related_invoice_id
+         FROM console_billing_ledger_entries
+        WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+      values: [namespace, ctx.orgId, credit.adjustment.id],
+    });
+    expect(String((ledger.rows[0] as any)?.related_invoice_id || '')).toBe(settled.invoice.id);
+  });
+
+  test('postgres service requires owner role for large manual admin debits', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const adminCtx = {
+      orgId: 'org-postgres-manual-adjustments-large-debit',
+      actorUserId: 'admin-manual-adjustments-large-debit-postgres',
+      roles: ['admin'],
+    } satisfies BillingCtx;
+
+    await service!.grantManualSupportCredit(adminCtx, {
+      amountMinor: 75_000,
+      reasonCode: 'bootstrap_credit',
+      note: 'Seeded large balance for owner guard test',
+      idempotencyKey: 'manual-credit-large-debit-postgres-1',
+    });
+
+    await expect(
+      service!.appendManualAdminDebit(adminCtx, {
+        amountMinor: 50_000,
+        reasonCode: 'large_debit_correction',
+        note: 'Should require owner role',
+        idempotencyKey: 'manual-debit-large-debit-postgres-forbidden',
+      }),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      status: 403,
+    });
+
+    const ownerCtx = {
+      ...adminCtx,
+      roles: ['admin', 'owner'],
+    } satisfies BillingCtx;
+    const debit = await service!.appendManualAdminDebit(ownerCtx, {
+      amountMinor: 50_000,
+      reasonCode: 'large_debit_correction',
+      note: 'Owner approved large debit',
+      idempotencyKey: 'manual-debit-large-debit-postgres-owner',
+    });
+    expect(debit.created).toBe(true);
+    expect(debit.adjustment.amountMinor).toBe(-50_000);
   });
 
   test('usage events roll up MAW with exclusions and source-event idempotency', async () => {

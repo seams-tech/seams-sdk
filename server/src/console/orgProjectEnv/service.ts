@@ -22,6 +22,10 @@ export interface ConsoleOrgProjectEnvContext {
 
 export interface ConsoleOrgProjectEnvService {
   getOrganization(ctx: ConsoleOrgProjectEnvContext): Promise<ConsoleOrganization>;
+  findOrganizationForScope(request: {
+    projectId?: string;
+    environmentId?: string;
+  }): Promise<ConsoleOrganization | null>;
   upsertOrganization(
     ctx: ConsoleOrgProjectEnvContext,
     request: UpsertConsoleOrganizationRequest,
@@ -205,6 +209,29 @@ export function createInMemoryConsoleOrgProjectEnvService(
         );
       }
       return cloneOrg(store.org);
+    },
+
+    async findOrganizationForScope(request): Promise<ConsoleOrganization | null> {
+      const projectId = String(request.projectId || '').trim();
+      const environmentId = String(request.environmentId || '').trim();
+
+      if (environmentId) {
+        for (const store of stores.values()) {
+          const environment = store.environments.get(environmentId);
+          if (!environment) continue;
+          if (projectId && environment.projectId !== projectId) continue;
+          return cloneOrg(store.org);
+        }
+      }
+
+      if (projectId) {
+        for (const store of stores.values()) {
+          if (!store.projects.has(projectId)) continue;
+          return cloneOrg(store.org);
+        }
+      }
+
+      return null;
     },
 
     async upsertOrganization(

@@ -15,13 +15,12 @@ import {
   requireQueryObject as requireQuery,
 } from '../shared/requestParse';
 import type {
-  AddCardPaymentMethodRequest,
+  BillingAccountActivityRequest,
   BillingInvoiceListRequest,
+  BillingManualAdjustmentRequest,
   BillingUsageEventRequest,
   GenerateMonthlyInvoiceRequest,
   StripeCheckoutSessionRequest,
-  StripeCustomerPortalSessionRequest,
-  StripeSetupIntentRequest,
   StripeWebhookEventRequest,
 } from './types';
 
@@ -33,12 +32,21 @@ const BILLING_INVOICE_STATUSES = new Set(['OPEN', 'PAID', 'VOID', 'UNCOLLECTIBLE
 const BILLING_DOCUMENT_TYPES = new Set(['PURCHASE_RECEIPT', 'USAGE_STATEMENT']);
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
+const DEFAULT_ACCOUNT_ACTIVITY_LIMIT = 25;
+const MAX_ACCOUNT_ACTIVITY_LIMIT = 100;
 
 function normalizeInvoiceListLimit(limit: number | undefined): number {
   if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
     return DEFAULT_INVOICE_LIST_LIMIT;
   }
   return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
+}
+
+function normalizeAccountActivityLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_ACCOUNT_ACTIVITY_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_ACCOUNT_ACTIVITY_LIMIT, Math.floor(Number(limit))));
 }
 
 function parseOptionalMonthUtc(value: string | undefined): string | undefined {
@@ -111,38 +119,41 @@ export function parseBillingInvoiceListRequest(query: unknown): BillingInvoiceLi
   };
 }
 
-export function parseAddCardPaymentMethodRequest(body: unknown): AddCardPaymentMethodRequest {
-  const obj = requireObject(body, createParseError);
-  const providerRef = readRequiredString(obj, 'providerRef', createParseError);
-  const brand = readRequiredString(obj, 'brand', createParseError);
-  const last4 = readRequiredString(obj, 'last4', createParseError);
-  const expMonth = readRequiredInteger(obj, 'expMonth', createParseError);
-  const expYear = readRequiredInteger(obj, 'expYear', createParseError);
-
-  if (!/^\d{4}$/.test(last4)) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field last4 must be 4 digits');
-  }
-  if (expMonth < 1 || expMonth > 12) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field expMonth must be between 1 and 12');
-  }
-  if (expYear < 2000 || expYear > 9999) {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field expYear must be a 4-digit year');
-  }
-
+export function parseBillingAccountActivityRequest(query: unknown): BillingAccountActivityRequest {
+  const obj = requireQuery(query, createParseError);
+  const rawLimit = readOptionalQueryPositiveInteger(obj, 'limit', createParseError);
   return {
-    providerRef,
-    brand,
-    last4,
-    expMonth,
-    expYear,
+    limit: normalizeAccountActivityLimit(rawLimit),
   };
 }
 
-export function parseStripeSetupIntentRequest(body: unknown): StripeSetupIntentRequest {
-  if (body === undefined || body === null) return {};
+export function parseBillingManualAdjustmentRequest(body: unknown): BillingManualAdjustmentRequest {
   const obj = requireObject(body, createParseError);
+  const amountMinor = readRequiredInteger(obj, 'amountMinor', createParseError);
+  const reasonCode = readRequiredString(obj, 'reasonCode', createParseError).trim();
+  const note = readRequiredString(obj, 'note', createParseError).trim();
+  const idempotencyKey = readRequiredString(obj, 'idempotencyKey', createParseError).trim();
+  const relatedInvoiceId = readOptionalString(obj, 'relatedInvoiceId');
+
+  if (amountMinor <= 0) {
+    throw new ConsoleBillingError('invalid_body', 400, 'Field amountMinor must be positive');
+  }
+  if (!reasonCode) {
+    throw new ConsoleBillingError('invalid_body', 400, 'Field reasonCode is required');
+  }
+  if (!note) {
+    throw new ConsoleBillingError('invalid_body', 400, 'Field note is required');
+  }
+  if (!idempotencyKey) {
+    throw new ConsoleBillingError('invalid_body', 400, 'Field idempotencyKey is required');
+  }
+
   return {
-    returnUrl: readOptionalString(obj, 'returnUrl'),
+    amountMinor,
+    reasonCode,
+    note,
+    idempotencyKey,
+    ...(relatedInvoiceId ? { relatedInvoiceId } : {}),
   };
 }
 
@@ -224,17 +235,6 @@ export function parseStripeCheckoutSessionRequest(body: unknown): StripeCheckout
     cancelUrl,
     creditPackId: creditPackId as StripeCheckoutSessionRequest['creditPackId'],
     ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
-  };
-}
-
-export function parseStripeCustomerPortalSessionRequest(
-  body: unknown,
-): StripeCustomerPortalSessionRequest {
-  const obj = requireObject(body, createParseError);
-  const returnUrl = readRequiredString(obj, 'returnUrl', createParseError);
-  validateHttpUrlOrThrow(returnUrl, 'returnUrl');
-  return {
-    returnUrl,
   };
 }
 

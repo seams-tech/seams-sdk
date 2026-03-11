@@ -333,18 +333,27 @@ test.describe('relay API key auth (express)', () => {
       });
       expect(organization.status).toBe(201);
 
-      const paymentMethod = await fetchJson(`${srv.baseUrl}/console/billing/payment-methods`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerRef: 'pm_dashboard_sdk_1',
-          brand: 'visa',
-          last4: '4242',
-          expMonth: 12,
-          expYear: 2030,
-        }),
+      const checkoutSession = await billing.createStripeCheckoutSession(
+        {
+          orgId: apiKeyCtx.orgId,
+          actorUserId: apiKeyCtx.actorUserId,
+          roles: ['admin'],
+        },
+        {
+          successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+          cancelUrl: 'https://app.example.com/dashboard/billing/account?checkout=cancel',
+          creditPackId: 'usd_25',
+        },
+      );
+      const settleResult = await billing.processStripeWebhookEvent({
+        eventId: `evt_relay_api_keys_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        eventType: 'checkout.session.completed',
+        orgId: apiKeyCtx.orgId,
+        checkoutSessionId: checkoutSession.id,
+        providerCustomerRef: checkoutSession.customerRef,
+        providerRef: checkoutSession.id,
       });
-      expect(paymentMethod.status).toBe(201);
+      expect(settleResult.accepted).toBe(true);
 
       const project = await fetchJson(`${srv.baseUrl}/console/onboarding/project`, {
         method: 'POST',

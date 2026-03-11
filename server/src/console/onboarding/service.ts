@@ -1,5 +1,5 @@
 import type { ConsoleApiKey, ConsoleApiKeyService } from '../apiKeys';
-import { type ConsoleBillingService } from '../billing';
+import { getBillingLiveEnvironmentReadiness, type ConsoleBillingService } from '../billing';
 import { normalizeLogger, type Logger } from '../../core/logger';
 import type {
   ConsoleEnvironment,
@@ -154,7 +154,10 @@ function resolveCurrentStep(input: {
   return 'complete';
 }
 
-function requireActiveProject(project: ConsoleProject | undefined, projectId: string): ConsoleProject {
+function requireActiveProject(
+  project: ConsoleProject | undefined,
+  projectId: string,
+): ConsoleProject {
   if (!project) {
     throw new ConsoleOnboardingError(
       'project_not_found',
@@ -254,7 +257,10 @@ function percentileFromSorted(sorted: number[], percentile: number): number {
   return sorted[bounded];
 }
 
-function createEmptyTelemetrySamples(): Record<ConsoleOnboardingTelemetryOperation, OnboardingTelemetrySample[]> {
+function createEmptyTelemetrySamples(): Record<
+  ConsoleOnboardingTelemetryOperation,
+  OnboardingTelemetrySample[]
+> {
   return {
     state: [],
     organization: [],
@@ -323,8 +329,7 @@ function buildSloAlerts(input: {
 
   if (!input.snapshot.slo.p95LatencyOk) {
     const severity: 'WARN' | 'CRITICAL' =
-      input.snapshot.latencyP95Ms >
-      latencyThreshold * CRITICAL_BREACH_MULTIPLIER
+      input.snapshot.latencyP95Ms > latencyThreshold * CRITICAL_BREACH_MULTIPLIER
         ? 'CRITICAL'
         : 'WARN';
     alerts.push({
@@ -336,8 +341,7 @@ function buildSloAlerts(input: {
   }
   if (!input.snapshot.slo.errorRateOk) {
     const severity: 'WARN' | 'CRITICAL' =
-      input.snapshot.errorRatePercent >
-      errorRateThreshold * CRITICAL_BREACH_MULTIPLIER
+      input.snapshot.errorRatePercent > errorRateThreshold * CRITICAL_BREACH_MULTIPLIER
         ? 'CRITICAL'
         : 'WARN';
     alerts.push({
@@ -620,7 +624,9 @@ export function createInMemoryConsoleOnboardingService(
     const projects = await orgProjectEnv.listProjects(orgCtx);
     const environments = await orgProjectEnv.listEnvironments(orgCtx);
     const keyRows = await apiKeys.listApiKeys(apiCtx);
-    const paymentMethods = billing ? await billing.listPaymentMethods(toBillingContext(ctx)) : [];
+    const billingReadiness = billing
+      ? await getBillingLiveEnvironmentReadiness(billing, toBillingContext(ctx))
+      : null;
 
     const activeProjects = projects.filter((entry) => isActiveStatus(entry.status));
     const activeEnvironments = environments.filter((entry) => isActiveStatus(entry.status));
@@ -647,7 +653,7 @@ export function createInMemoryConsoleOnboardingService(
 
     const accountReady = true;
     const organizationReady = hasOrganization;
-    const billingReady = paymentMethods.length > 0;
+    const billingReady = billingReadiness?.canUseLiveEnvironments === true;
     const projectReady = hasProject && hasEnvironment;
     const onboardingComplete = accountReady && organizationReady && projectReady;
     const currentStep = resolveCurrentStep({
@@ -703,7 +709,8 @@ export function createInMemoryConsoleOnboardingService(
     }
 
     const liveEnvironmentsEnabled = billing
-      ? (await billing.listPaymentMethods(toBillingContext(ctx))).length > 0
+      ? (await getBillingLiveEnvironmentReadiness(billing, toBillingContext(ctx)))
+          .canUseLiveEnvironments
       : false;
 
     try {

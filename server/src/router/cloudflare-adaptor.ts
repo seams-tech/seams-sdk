@@ -276,12 +276,8 @@ export type {
   PostgresConsoleBillingServiceOptions,
   PostgresConsoleBillingMonthlyFinalizationOptions,
   PostgresConsoleBillingMonthlyFinalizationResult,
-  StripeSetupIntentProviderInput,
-  StripeSetupIntentProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
-  StripeCustomerPortalSessionProviderInput,
-  StripeCustomerPortalSessionProviderOutput,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
   StripeBillingProviderAdapter,
@@ -329,7 +325,7 @@ export type {
   ListConsoleGasSponsorshipRequest,
   CreateConsoleGasSponsorshipRequest,
   UpdateConsoleGasSponsorshipRequest,
-  ResolvedSponsoredCallPolicy,
+  ResolvedSponsoredCallConfig,
 } from '../console/gasSponsorship';
 export type {
   ConsoleGasSponsorshipContext,

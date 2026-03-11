@@ -144,9 +144,9 @@ import {
 import {
   buildApprovalFailureObservabilityEvent,
   buildBillingFailureObservabilityEvent,
-  buildRouterTimingObservabilityEvent,
   isConsoleObservabilityError,
   type ConsoleObservabilityIngestionService,
+  type ConsoleObservabilityRequestMetricInput,
   type ConsoleObservabilityService,
 } from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
@@ -161,6 +161,10 @@ import {
   buildConsolePolicyCoverageView,
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
+import {
+  listConsolePolicyNames,
+  projectConsolePolicyPresentation,
+} from '../policyPresentation';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -270,11 +274,30 @@ async function appendConsoleObservabilityEvent(
   }
 }
 
+async function appendConsoleObservabilityRequestMetric(
+  ctx: ExpressConsoleContext,
+  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
+  metric: ConsoleObservabilityRequestMetricInput,
+): Promise<void> {
+  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
+  try {
+    await ctx.observabilityIngestion.observeRequestMetric(ingestCtx, metric);
+  } catch (error: unknown) {
+    ctx.logger.warn('[console][observability] failed to append request metric', {
+      orgId: ingestCtx.orgId,
+      route: metric.route,
+      method: metric.method,
+      statusCode: metric.statusCode,
+      message: toUnknownErrorMessage(error),
+    });
+  }
+}
+
 function installConsoleObservabilityTiming(
   router: ExpressRouter,
   ctx: ExpressConsoleContext,
 ): void {
-  if (!ctx.observabilityIngestion) return;
+  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
 
   router.use((req: Request, res: Response, next: any) => {
     const startedAtMs = Date.now();
@@ -292,23 +315,20 @@ function installConsoleObservabilityTiming(
           .trim() ||
         '/';
       const method = String((req as any)?.method || '').toUpperCase();
-      const requestId = readOptionalExpressHeader(req, 'x-request-id');
-      const traceId =
-        readOptionalExpressHeader(req, 'x-trace-id') ||
-        readOptionalExpressHeader(req, 'traceparent');
       const latencyMs = Math.max(0, Date.now() - startedAtMs);
-      const event = buildRouterTimingObservabilityEvent({
+      const statusCode = Math.max(0, Number((res as any).statusCode || 0));
+      const timestamp = new Date().toISOString();
+      const metric: ConsoleObservabilityRequestMetricInput = {
         orgId,
         ...(claims?.projectId ? { projectId: claims.projectId } : {}),
         ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
         route,
         method,
-        statusCode: Number((res as any).statusCode || 0),
+        statusCode,
         latencyMs,
-        ...(requestId ? { requestId } : {}),
-        ...(traceId ? { traceId } : {}),
-      });
-      void appendConsoleObservabilityEvent(
+        timestamp,
+      };
+      void appendConsoleObservabilityRequestMetric(
         ctx,
         {
           orgId,
@@ -317,7 +337,7 @@ function installConsoleObservabilityTiming(
           ...(claims?.projectId ? { projectId: claims.projectId } : {}),
           ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
         },
-        event,
+        metric,
       );
     });
     next();
@@ -1119,6 +1139,101 @@ function toAuditContext(claims: ConsoleAuthClaims): {
     ...(claims.projectId ? { projectId: claims.projectId } : {}),
     ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
   };
+}
+
+async function projectApprovalResponse(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  row: {
+    resourceType: string | null;
+    resourceId: string | null;
+    metadata: Record<string, unknown>;
+  },
+): Promise<typeof row & { policyId: string | null; policyName: string | null }> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return {
+    ...row,
+    ...projectConsolePolicyPresentation({
+      resourceType: row.resourceType,
+      resourceId: row.resourceId,
+      metadata: row.metadata,
+      policyNames,
+    }),
+  };
+}
+
+async function projectApprovalResponses<T extends {
+  resourceType: string | null;
+  resourceId: string | null;
+  metadata: Record<string, unknown>;
+}>(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  rows: readonly T[],
+): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return rows.map((row) => ({
+    ...row,
+    ...projectConsolePolicyPresentation({
+      resourceType: row.resourceType,
+      resourceId: row.resourceId,
+      metadata: row.metadata,
+      policyNames,
+    }),
+  }));
+}
+
+async function projectAuditEventResponses<T extends {
+  metadata: Record<string, unknown>;
+}>(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  rows: readonly T[],
+): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
+  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+  return rows.map((row) => ({
+    ...row,
+    ...projectConsolePolicyPresentation({
+      metadata: row.metadata,
+      policyNames,
+    }),
+  }));
+}
+
+async function resolveWalletPolicyPresentationByWalletId(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  walletRows: ReadonlyArray<{
+    id: string;
+    projectId?: string | null;
+    environmentId?: string | null;
+    policyId?: string | null;
+  }>,
+): Promise<Record<string, { policyId: string | null; policyName: string | null }>> {
+  if (!ctx.policies || walletRows.length === 0) return {};
+  const [resolvedPolicyIds, policyNames] = await Promise.all([
+    ctx.policies.resolvePoliciesForWallets(
+      toBillingContext(claims),
+      walletRows.map((wallet) => ({
+        walletId: wallet.id,
+        projectId: wallet.projectId || undefined,
+        environmentId: wallet.environmentId || undefined,
+        fallbackPolicyId: wallet.policyId || null,
+      })),
+    ),
+    listConsolePolicyNames(ctx.policies, toBillingContext(claims)),
+  ]);
+  const out: Record<string, { policyId: string | null; policyName: string | null }> = {};
+  for (const wallet of walletRows) {
+    const policyIdRaw =
+      resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
+    const policyId = String(policyIdRaw || '').trim() || null;
+    out[wallet.id] = {
+      policyId,
+      policyName: policyId ? policyNames[policyId] || null : null,
+    };
+  }
+  return out;
 }
 
 function toOnboardingContext(claims: ConsoleAuthClaims): {
@@ -2299,7 +2414,9 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
     try {
       const request = parseListConsoleApprovalsRequest((req as any).query || {});
       const rows = await approvals.listApprovalRequests(toApprovalContext(claims), request);
-      res.status(200).json({ ok: true, approvals: rows });
+      res
+        .status(200)
+        .json({ ok: true, approvals: await projectApprovalResponses(ctx, claims, rows) });
     } catch (error: unknown) {
       sendApprovalError(res, error);
     }
@@ -2325,7 +2442,7 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
         });
         return;
       }
-      res.status(200).json({ ok: true, approval: row });
+      res.status(200).json({ ok: true, approval: await projectApprovalResponse(ctx, claims, row) });
     } catch (error: unknown) {
       sendApprovalError(res, error);
     }
@@ -2377,7 +2494,7 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
             : {}),
         },
       });
-      res.status(201).json({ ok: true, approval: row });
+      res.status(201).json({ ok: true, approval: await projectApprovalResponse(ctx, claims, row) });
     } catch (error: unknown) {
       sendApprovalError(res, error);
     }
@@ -2447,7 +2564,7 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
             : {}),
         },
       });
-      res.status(200).json({ ok: true, approval: row });
+      res.status(200).json({ ok: true, approval: await projectApprovalResponse(ctx, claims, row) });
     } catch (error: unknown) {
       sendApprovalError(res, error);
     }
@@ -2514,7 +2631,7 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
             : {}),
         },
       });
-      res.status(200).json({ ok: true, approval: row });
+      res.status(200).json({ ok: true, approval: await projectApprovalResponse(ctx, claims, row) });
     } catch (error: unknown) {
       sendApprovalError(res, error);
     }
@@ -2530,7 +2647,7 @@ function registerConsoleAuditRoutes(router: ExpressRouter, ctx: ExpressConsoleCo
     try {
       const request = parseListConsoleAuditEventsRequest((req as any).query || {});
       const events = await audit.listEvents(toAuditContext(claims), request);
-      res.status(200).json({ ok: true, events });
+      res.status(200).json({ ok: true, events: await projectAuditEventResponses(ctx, claims, events) });
     } catch (error: unknown) {
       sendAuditError(res, error);
     }
@@ -2985,16 +3102,8 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
         scope,
         ...(ctx.policies
           ? {
-              resolvePolicyIds: async (walletRows) =>
-                await ctx.policies!.resolvePoliciesForWallets(
-                  toBillingContext(claims),
-                  walletRows.map((wallet) => ({
-                    walletId: wallet.id,
-                    projectId: wallet.projectId,
-                    environmentId: wallet.environmentId,
-                    fallbackPolicyId: wallet.policyId,
-                  })),
-                ),
+              resolveWalletPolicies: async (walletRows) =>
+                await resolveWalletPolicyPresentationByWalletId(ctx, claims, walletRows),
             }
           : {}),
       });
@@ -3021,6 +3130,12 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
         walletCtx: toWalletContext(claims),
         scope,
         recentWindowDays: 7,
+        ...(ctx.policies
+          ? {
+              resolveWalletPolicies: async (walletRows) =>
+                await resolveWalletPolicyPresentationByWalletId(ctx, claims, walletRows),
+            }
+          : {}),
       });
       res.status(200).json({ ok: true, readiness });
     } catch (error: unknown) {

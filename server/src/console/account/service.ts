@@ -91,17 +91,8 @@ function toIso(date: Date): string {
   return date.toISOString();
 }
 
-function slugify(value: string): string {
-  return (
-    normalizeLower(value)
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'organization'
-  );
-}
-
-function makeOrgId(name: string, now: Date): string {
-  const slug = slugify(name).replace(/-/g, '_');
-  return `org_${slug || 'account'}_${now.getTime().toString(36)}`;
+function makeOrgId(now: Date): string {
+  return `org_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function isAdminEligibleMember(member: ConsoleTeamMember): boolean {
@@ -186,6 +177,38 @@ async function resolveOnboardingState(input: {
   };
 }
 
+async function resolveSelectedScopeLabels(input: {
+  ctx: ConsoleAccountContext;
+  orgId: string;
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  projectId: string | null;
+  environmentId: string | null;
+}): Promise<{ projectName: string | null; environmentName: string | null }> {
+  const targetCtx = {
+    orgId: input.orgId,
+    actorUserId: input.ctx.userId,
+    roles: [],
+    ...(input.ctx.email ? { actorEmail: input.ctx.email } : {}),
+    ...(input.ctx.name ? { actorDisplayName: input.ctx.name } : {}),
+  };
+  const [projects, environments] = await Promise.all([
+    input.orgProjectEnv.listProjects(targetCtx, { status: 'ACTIVE' }).catch(() => []),
+    input.orgProjectEnv.listEnvironments(targetCtx, { status: 'ACTIVE' }).catch(() => []),
+  ]);
+  const project =
+    input.projectId && projects.length
+      ? projects.find((entry) => entry.id === input.projectId) || null
+      : null;
+  const environment =
+    input.environmentId && environments.length
+      ? environments.find((entry) => entry.id === input.environmentId) || null
+      : null;
+  return {
+    projectName: normalizeString(project?.name) || null,
+    environmentName: normalizeString(environment?.name) || null,
+  };
+}
+
 export function createInMemoryConsoleAccountService(
   options: InMemoryConsoleAccountServiceOptions,
 ): ConsoleAccountService {
@@ -261,6 +284,13 @@ export function createInMemoryConsoleAccountService(
       onboarding: options.onboarding || null,
       orgProjectEnv: options.orgProjectEnv,
     });
+    const selectedScope = await resolveSelectedScopeLabels({
+      ctx,
+      orgId: organization.id,
+      orgProjectEnv: options.orgProjectEnv,
+      projectId: onboardingState.projectId,
+      environmentId: onboardingState.environmentId,
+    });
     return {
       id: organization.id,
       name: organization.name,
@@ -274,7 +304,9 @@ export function createInMemoryConsoleAccountService(
       actorIsAdmin: actorMember ? isAdminEligibleMember(actorMember) : false,
       onboardingComplete: onboardingState.onboardingComplete,
       selectedProjectId: onboardingState.projectId,
+      selectedProjectName: selectedScope.projectName,
       selectedEnvironmentId: onboardingState.environmentId,
+      selectedEnvironmentName: selectedScope.environmentName,
       adminCandidates: members.filter(isAdminEligibleMember).map(toAdminCandidate),
     };
   }
@@ -416,7 +448,7 @@ export function createInMemoryConsoleAccountService(
     },
 
     async createOrganization(ctx, request): Promise<ConsoleAccountOrganization> {
-      const targetOrgId = normalizeString(request.id) || makeOrgId(request.name, now());
+      const targetOrgId = normalizeString(request.id) || makeOrgId(now());
       const targetCtx = {
         orgId: targetOrgId,
         actorUserId: ctx.userId,

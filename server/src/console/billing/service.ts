@@ -1,8 +1,14 @@
 import { ConsoleBillingError } from './errors';
 import { resolveCreditPackAmountMinorOrThrow } from './creditPacks';
 import { resolveBillingProviderAdapters, type BillingProviderAdapters } from './providers';
+import { resolveBillingLiveEnvironmentState } from './readiness';
+import {
+  normalizeManualAdjustmentRequest,
+  requireBillingAdjustmentRole,
+  requireKnownManualAdjustmentRelatedInvoiceId,
+  requireLargeManualAdminDebitOwnerRole,
+} from './adjustments';
 import type {
-  AddCardPaymentMethodRequest,
   BillingCreditPurchase,
   BillingInvoiceActivity,
   BillingInvoiceActivityEntry,
@@ -13,9 +19,12 @@ import type {
   BillingInvoiceListResult,
   BillingInvoiceListSummary,
   BillingLedgerEntry,
+  BillingAccountActivityRequest,
+  BillingAccountActivityResult,
+  BillingManualAdjustmentRequest,
+  BillingManualAdjustmentResult,
   BillingMonthlyActiveWallets,
   BillingOverview,
-  BillingPaymentMethod,
   BillingUsageAction,
   BillingUsageEventRequest,
   BillingUsageEventResult,
@@ -23,12 +32,8 @@ import type {
   GenerateMonthlyInvoiceResult,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
-  StripeCustomerPortalSession,
-  StripeCustomerPortalSessionRequest,
   StripeCheckoutSession,
   StripeCheckoutSessionRequest,
-  StripeSetupIntent,
-  StripeSetupIntentRequest,
 } from './types';
 
 export interface ConsoleBillingContext {
@@ -39,6 +44,10 @@ export interface ConsoleBillingContext {
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
+  listAccountActivity(
+    ctx: ConsoleBillingContext,
+    request?: BillingAccountActivityRequest,
+  ): Promise<BillingAccountActivityResult>;
   getMonthlyActiveWallets(
     ctx: ConsoleBillingContext,
     monthUtc?: string,
@@ -65,33 +74,18 @@ export interface ConsoleBillingService {
     ctx: ConsoleBillingContext,
     request: GenerateMonthlyInvoiceRequest,
   ): Promise<GenerateMonthlyInvoiceResult>;
-
-  listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]>;
-  addCardPaymentMethod(
+  grantManualSupportCredit(
     ctx: ConsoleBillingContext,
-    request: AddCardPaymentMethodRequest,
-  ): Promise<BillingPaymentMethod>;
-  removeCardPaymentMethod(
+    request: BillingManualAdjustmentRequest,
+  ): Promise<BillingManualAdjustmentResult>;
+  appendManualAdminDebit(
     ctx: ConsoleBillingContext,
-    paymentMethodId: string,
-  ): Promise<{ removed: boolean }>;
-  setDefaultCardPaymentMethod(
-    ctx: ConsoleBillingContext,
-    paymentMethodId: string,
-  ): Promise<BillingPaymentMethod | null>;
-
-  createStripeSetupIntent(
-    ctx: ConsoleBillingContext,
-    request: StripeSetupIntentRequest,
-  ): Promise<StripeSetupIntent>;
+    request: BillingManualAdjustmentRequest,
+  ): Promise<BillingManualAdjustmentResult>;
   createStripeCheckoutSession(
     ctx: ConsoleBillingContext,
     request: StripeCheckoutSessionRequest,
   ): Promise<StripeCheckoutSession>;
-  createStripeCustomerPortalSession(
-    ctx: ConsoleBillingContext,
-    request: StripeCustomerPortalSessionRequest,
-  ): Promise<StripeCustomerPortalSession>;
   processStripeWebhookEvent(request: StripeWebhookEventRequest): Promise<StripeWebhookEventResult>;
 }
 
@@ -101,7 +95,6 @@ interface OrgBillingStore {
   lowBalanceThresholdMinor: number;
   purchases: Map<string, BillingCreditPurchase>;
   ledgerEntries: BillingLedgerEntry[];
-  paymentMethods: Map<string, BillingPaymentMethod>;
   stripeWebhookEventIds: Set<string>;
   usageEventSourceIds: Set<string>;
   monthlyActiveWalletsByMonth: Map<string, Set<string>>;
@@ -123,6 +116,8 @@ const MAW_USAGE_DEBIT_MINOR = 300;
 const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
+const DEFAULT_ACCOUNT_ACTIVITY_LIMIT = 25;
+const MAX_ACCOUNT_ACTIVITY_LIMIT = 100;
 
 function formatCurrentMonthUtc(now: Date): string {
   const year = now.getUTCFullYear();
@@ -217,6 +212,13 @@ function normalizeInvoiceListLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(MAX_INVOICE_LIST_LIMIT, Math.floor(Number(limit))));
 }
 
+function normalizeAccountActivityLimit(limit: number | undefined): number {
+  if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) {
+    return DEFAULT_ACCOUNT_ACTIVITY_LIMIT;
+  }
+  return Math.max(1, Math.min(MAX_ACCOUNT_ACTIVITY_LIMIT, Math.floor(Number(limit))));
+}
+
 function isInvoiceOverdueAt(invoice: BillingInvoice, now: Date): boolean {
   if (invoice.status !== 'OPEN' || !invoice.dueAt) return false;
   const dueAtMs = Date.parse(invoice.dueAt);
@@ -305,26 +307,16 @@ function sortLineItems(items: BillingInvoiceLineItem[]): BillingInvoiceLineItem[
   return [...items].sort((a, b) => a.itemType.localeCompare(b.itemType));
 }
 
+function sortLedgerEntriesByMostRecent(entries: BillingLedgerEntry[]): BillingLedgerEntry[] {
+  return [...entries].sort((left, right) => {
+    const tsDiff = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+    if (tsDiff !== 0) return tsDiff;
+    return right.id.localeCompare(left.id);
+  });
+}
+
 function outstandingAmountMinor(invoice: BillingInvoice): number {
   return Math.max(invoice.amountDueMinor - invoice.amountPaidMinor, 0);
-}
-
-function hasAdminRole(roles: string[]): boolean {
-  return roles.some(
-    (role) =>
-      String(role || '')
-        .trim()
-        .toLowerCase() === 'admin',
-  );
-}
-
-function requireAdminForCardActions(ctx: ConsoleBillingContext): void {
-  if (hasAdminRole(ctx.roles)) return;
-  throw new ConsoleBillingError(
-    'forbidden',
-    403,
-    'Only admin can add, remove, or set default card payment methods',
-  );
 }
 
 export function createInMemoryConsoleBillingService(
@@ -486,6 +478,21 @@ export function createInMemoryConsoleBillingService(
     );
   }
 
+  function ensureManualAdjustmentRelatedInvoiceId(
+    store: OrgBillingStore,
+    orgId: string,
+    relatedInvoiceId: string | undefined,
+    now: Date,
+  ): string | null {
+    const knownInvoiceIds = new Set(
+      listProjectedInvoices(store, orgId, now).map((invoice) => invoice.id),
+    );
+    return requireKnownManualAdjustmentRelatedInvoiceId({
+      relatedInvoiceId,
+      knownInvoiceIds,
+    });
+  }
+
   function ensureOrgStore(orgId: string): OrgBillingStore {
     const existing = orgStores.get(orgId);
     if (existing) {
@@ -499,7 +506,6 @@ export function createInMemoryConsoleBillingService(
       lowBalanceThresholdMinor: DEFAULT_LOW_BALANCE_THRESHOLD_MINOR,
       purchases: new Map(),
       ledgerEntries: [],
-      paymentMethods: new Map(),
       stripeWebhookEventIds: new Set(),
       usageEventSourceIds: new Set(),
       monthlyActiveWalletsByMonth: new Map(),
@@ -525,10 +531,24 @@ export function createInMemoryConsoleBillingService(
       relatedInvoiceId: input.relatedInvoiceId,
       relatedPurchaseId: input.relatedPurchaseId,
       sourceEventId: input.sourceEventId,
+      actorType: input.actorType,
+      actorUserId: input.actorUserId,
+      reasonCode: input.reasonCode,
+      note: input.note,
+      idempotencyKey: input.idempotencyKey,
       createdAt: coerceIsoDate(input.now),
     };
     store.ledgerEntries.push(entry);
     return entry;
+  }
+
+  function findLedgerEntryByIdempotencyKey(
+    store: OrgBillingStore,
+    idempotencyKey: string,
+  ): BillingLedgerEntry | null {
+    const key = String(idempotencyKey || '').trim();
+    if (!key) return null;
+    return store.ledgerEntries.find((entry) => entry.idempotencyKey === key) || null;
   }
 
   function getCurrentMonthUsageDebitMinor(store: OrgBillingStore, monthUtc: string): number {
@@ -573,6 +593,11 @@ export function createInMemoryConsoleBillingService(
       relatedInvoiceId: `receipt_${purchase.id}`,
       relatedPurchaseId: purchase.id,
       sourceEventId: purchase.providerCheckoutSessionRef,
+      actorType: 'PROVIDER',
+      actorUserId: null,
+      reasonCode: 'credit_purchase',
+      note: `Stripe checkout session ${purchase.providerCheckoutSessionRef} settled`,
+      idempotencyKey: `credit_purchase_settlement:${purchase.id}`,
       currency: 'USD',
     });
     purchase.status = 'SETTLED';
@@ -664,9 +689,26 @@ export function createInMemoryConsoleBillingService(
         monthlyActiveWallets: store.monthlyActiveWallets,
         creditBalanceMinor: store.creditBalanceMinor,
         lowBalanceThresholdMinor: store.lowBalanceThresholdMinor,
+        liveEnvironmentState: resolveBillingLiveEnvironmentState({
+          creditBalanceMinor: store.creditBalanceMinor,
+          lowBalanceThresholdMinor: store.lowBalanceThresholdMinor,
+        }),
         recentUsageDebitMinor: getCurrentMonthUsageDebitMinor(store, currentMonthUtc),
         recentCreditPurchasedMinor: getCurrentMonthPurchasedMinor(store, currentMonthUtc),
         documentCount: projectedInvoices.length,
+      };
+    },
+
+    async listAccountActivity(
+      ctx: ConsoleBillingContext,
+      request: BillingAccountActivityRequest = {},
+    ): Promise<BillingAccountActivityResult> {
+      const store = ensureOrgStore(ctx.orgId);
+      return {
+        entries: sortLedgerEntriesByMostRecent(store.ledgerEntries).slice(
+          0,
+          normalizeAccountActivityLimit(request.limit),
+        ),
       };
     },
 
@@ -743,6 +785,13 @@ export function createInMemoryConsoleBillingService(
             relatedInvoiceId: makeUsageStatementId(monthUtc),
             relatedPurchaseId: null,
             sourceEventId: request.sourceEventId || null,
+            actorType: 'USER',
+            actorUserId: ctx.actorUserId,
+            reasonCode: 'usage_debit',
+            note: `Usage debit recorded for wallet ${request.walletId}`,
+            idempotencyKey: request.sourceEventId
+              ? `usage_debit:${request.sourceEventId}`
+              : `usage_debit:${monthUtc}:${request.walletId}:${occurredAtMs}`,
           });
         }
       }
@@ -831,6 +880,7 @@ export function createInMemoryConsoleBillingService(
             invoice.documentType === 'PURCHASE_RECEIPT'
               ? `Receipt ${invoice.id} recorded for prepaid credit purchase.`
               : `Usage statement ${invoice.id} recorded for billing period ${invoice.periodMonthUtc}.`,
+          visibility: 'CUSTOMER',
         },
       ];
 
@@ -844,11 +894,12 @@ export function createInMemoryConsoleBillingService(
             fromState: null,
             toState: entry.type,
             occurredAt: entry.createdAt,
-            actorType: 'SYSTEM',
-            actorUserId: null,
-            reason: entry.type.toLowerCase(),
+            actorType: entry.actorType,
+            actorUserId: entry.actorUserId,
+            reason: entry.reasonCode || entry.type.toLowerCase(),
             sourceEventId: entry.sourceEventId,
             summary: entry.description,
+            visibility: entry.type === 'MANUAL_ADJUSTMENT' ? 'INTERNAL' : 'CUSTOMER',
           });
         });
 
@@ -902,105 +953,99 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
-    async listPaymentMethods(ctx: ConsoleBillingContext): Promise<BillingPaymentMethod[]> {
-      const store = ensureOrgStore(ctx.orgId);
-      return Array.from(store.paymentMethods.values()).sort((a, b) =>
-        b.createdAt.localeCompare(a.createdAt),
-      );
-    },
-
-    async addCardPaymentMethod(
+    async grantManualSupportCredit(
       ctx: ConsoleBillingContext,
-      request: AddCardPaymentMethodRequest,
-    ): Promise<BillingPaymentMethod> {
-      requireAdminForCardActions(ctx);
+      request: BillingManualAdjustmentRequest,
+    ): Promise<BillingManualAdjustmentResult> {
+      requireBillingAdjustmentRole(ctx);
+      const normalizedRequest = normalizeManualAdjustmentRequest(request);
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
-      const isDefault = Array.from(store.paymentMethods.values()).every(
-        (method) => !method.isDefault,
-      );
-      const paymentMethod: BillingPaymentMethod = {
-        id: makeId('pm', now),
-        orgId: ctx.orgId,
-        provider: 'stripe',
-        type: 'card',
-        providerRef: request.providerRef,
-        brand: request.brand,
-        last4: request.last4,
-        expMonth: request.expMonth,
-        expYear: request.expYear,
-        isDefault,
-        createdAt: coerceIsoDate(now),
-      };
-      store.paymentMethods.set(paymentMethod.id, paymentMethod);
-      return paymentMethod;
-    },
-
-    async removeCardPaymentMethod(
-      ctx: ConsoleBillingContext,
-      paymentMethodId: string,
-    ): Promise<{ removed: boolean }> {
-      requireAdminForCardActions(ctx);
-      const store = ensureOrgStore(ctx.orgId);
-      const current = store.paymentMethods.get(paymentMethodId);
-      if (!current) return { removed: false };
-      store.paymentMethods.delete(paymentMethodId);
-
-      if (current.isDefault) {
-        const next = Array.from(store.paymentMethods.values())[0];
-        if (next) {
-          next.isDefault = true;
-          store.paymentMethods.set(next.id, next);
-        }
+      const existing = findLedgerEntryByIdempotencyKey(store, normalizedRequest.idempotencyKey);
+      if (existing) {
+        return {
+          created: false,
+          adjustment: existing,
+          creditBalanceMinor: store.creditBalanceMinor,
+        };
       }
-
-      return { removed: true };
-    },
-
-    async setDefaultCardPaymentMethod(
-      ctx: ConsoleBillingContext,
-      paymentMethodId: string,
-    ): Promise<BillingPaymentMethod | null> {
-      requireAdminForCardActions(ctx);
-      const store = ensureOrgStore(ctx.orgId);
-      const target = store.paymentMethods.get(paymentMethodId);
-      if (!target) return null;
-
-      Array.from(store.paymentMethods.values()).forEach((method) => {
-        method.isDefault = method.id === paymentMethodId;
-        store.paymentMethods.set(method.id, method);
-      });
-
-      return store.paymentMethods.get(paymentMethodId) || null;
-    },
-
-    async createStripeSetupIntent(
-      ctx: ConsoleBillingContext,
-      request: StripeSetupIntentRequest,
-    ): Promise<StripeSetupIntent> {
-      const now = nowFn();
-      ensureOrgStore(ctx.orgId);
-      const providerSetupIntent = await providers.stripe.createSetupIntent({
-        orgId: ctx.orgId,
-        returnUrl: request.returnUrl,
+      const relatedInvoiceId = ensureManualAdjustmentRelatedInvoiceId(
+        store,
+        ctx.orgId,
+        normalizedRequest.relatedInvoiceId,
         now,
+      );
+      const adjustment = appendLedgerEntry(store, {
+        now,
+        orgId: ctx.orgId,
+        type: 'MANUAL_ADJUSTMENT',
+        amountMinor: normalizedRequest.amountMinor,
+        currency: 'USD',
+        description: `Manual support credit (${normalizedRequest.reasonCode})`,
+        monthUtc: formatCurrentMonthUtc(now),
+        relatedInvoiceId,
+        relatedPurchaseId: null,
+        sourceEventId: null,
+        actorType: 'USER',
+        actorUserId: ctx.actorUserId,
+        reasonCode: normalizedRequest.reasonCode,
+        note: normalizedRequest.note,
+        idempotencyKey: normalizedRequest.idempotencyKey,
       });
-      const id = String(providerSetupIntent.id || '').trim();
-      const clientSecret = String(providerSetupIntent.clientSecret || '').trim();
-      const customerRef = String(providerSetupIntent.customerRef || '').trim();
-      const expiresAt = String(providerSetupIntent.expiresAt || '').trim();
-      if (!id || !clientSecret || !customerRef || !expiresAt) {
-        throw new ConsoleBillingError(
-          'payment_provider_error',
-          500,
-          'Stripe setup-intent provider returned invalid payload',
-        );
-      }
+      store.creditBalanceMinor += normalizedRequest.amountMinor;
       return {
-        id,
-        clientSecret,
-        customerRef,
-        expiresAt,
+        created: true,
+        adjustment,
+        creditBalanceMinor: store.creditBalanceMinor,
+      };
+    },
+
+    async appendManualAdminDebit(
+      ctx: ConsoleBillingContext,
+      request: BillingManualAdjustmentRequest,
+    ): Promise<BillingManualAdjustmentResult> {
+      requireBillingAdjustmentRole(ctx);
+      const normalizedRequest = normalizeManualAdjustmentRequest(request);
+      const now = nowFn();
+      const store = ensureOrgStore(ctx.orgId);
+      const existing = findLedgerEntryByIdempotencyKey(store, normalizedRequest.idempotencyKey);
+      if (existing) {
+        requireLargeManualAdminDebitOwnerRole(ctx, Math.abs(existing.amountMinor));
+        return {
+          created: false,
+          adjustment: existing,
+          creditBalanceMinor: store.creditBalanceMinor,
+        };
+      }
+      requireLargeManualAdminDebitOwnerRole(ctx, normalizedRequest.amountMinor);
+      const relatedInvoiceId = ensureManualAdjustmentRelatedInvoiceId(
+        store,
+        ctx.orgId,
+        normalizedRequest.relatedInvoiceId,
+        now,
+      );
+      const adjustment = appendLedgerEntry(store, {
+        now,
+        orgId: ctx.orgId,
+        type: 'MANUAL_ADJUSTMENT',
+        amountMinor: -normalizedRequest.amountMinor,
+        currency: 'USD',
+        description: `Manual admin debit (${normalizedRequest.reasonCode})`,
+        monthUtc: formatCurrentMonthUtc(now),
+        relatedInvoiceId,
+        relatedPurchaseId: null,
+        sourceEventId: null,
+        actorType: 'USER',
+        actorUserId: ctx.actorUserId,
+        reasonCode: normalizedRequest.reasonCode,
+        note: normalizedRequest.note,
+        idempotencyKey: normalizedRequest.idempotencyKey,
+      });
+      store.creditBalanceMinor -= normalizedRequest.amountMinor;
+      return {
+        created: true,
+        adjustment,
+        creditBalanceMinor: store.creditBalanceMinor,
       };
     },
 
@@ -1055,36 +1100,6 @@ export function createInMemoryConsoleBillingService(
         customerRef,
         creditPackId: request.creditPackId,
         amountMinor,
-        expiresAt,
-      };
-    },
-
-    async createStripeCustomerPortalSession(
-      ctx: ConsoleBillingContext,
-      request: StripeCustomerPortalSessionRequest,
-    ): Promise<StripeCustomerPortalSession> {
-      const now = nowFn();
-      ensureOrgStore(ctx.orgId);
-      const providerPortalSession = await providers.stripe.createCustomerPortalSession({
-        orgId: ctx.orgId,
-        returnUrl: request.returnUrl,
-        now,
-      });
-      const id = String(providerPortalSession.id || '').trim();
-      const url = String(providerPortalSession.url || '').trim();
-      const customerRef = String(providerPortalSession.customerRef || '').trim();
-      const expiresAt = String(providerPortalSession.expiresAt || '').trim();
-      if (!id || !url || !customerRef || !expiresAt) {
-        throw new ConsoleBillingError(
-          'payment_provider_error',
-          500,
-          'Stripe customer-portal session provider returned invalid payload',
-        );
-      }
-      return {
-        id,
-        url,
-        customerRef,
         expiresAt,
       };
     },

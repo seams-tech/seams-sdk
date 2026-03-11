@@ -2,10 +2,6 @@ import type {
   StripeBillingProviderAdapter,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
-  StripeCustomerPortalSessionProviderInput,
-  StripeCustomerPortalSessionProviderOutput,
-  StripeSetupIntentProviderInput,
-  StripeSetupIntentProviderOutput,
 } from '@tatchi-xyz/sdk/server/router/express';
 
 interface StripeApiErrorPayload {
@@ -134,37 +130,6 @@ export function createStripeBillingProviderAdapter(
   }
 
   return {
-    async createSetupIntent(
-      input: StripeSetupIntentProviderInput,
-    ): Promise<StripeSetupIntentProviderOutput> {
-      const customerRef = await ensureCustomer(input.orgId);
-      const form = new URLSearchParams();
-      setFormField(form, 'customer', customerRef);
-      setFormField(form, 'usage', 'off_session');
-      setFormField(form, 'metadata[org_id]', input.orgId);
-      if (input.returnUrl) {
-        setFormField(form, 'return_url', input.returnUrl);
-      }
-
-      const payload = await postForm('/v1/setup_intents', form);
-      const id = normalizeString(payload.id);
-      const clientSecret = normalizeString(payload.client_secret);
-      if (!id || !clientSecret) {
-        throw new Error('Stripe setup intent returned missing id/client_secret');
-      }
-
-      return {
-        id,
-        clientSecret,
-        customerRef,
-        expiresAt: resolveExpiresAt({
-          now: input.now,
-          stripeUnixSeconds: payload.expires_at,
-          fallbackMinutes: 30,
-        }),
-      };
-    },
-
     async createCheckoutSession(
       input: StripeCheckoutSessionProviderInput,
     ): Promise<StripeCheckoutSessionProviderOutput> {
@@ -204,33 +169,6 @@ export function createStripeBillingProviderAdapter(
         expiresAt: resolveExpiresAt({
           now: input.now,
           stripeUnixSeconds: payload.expires_at,
-          fallbackMinutes: 30,
-        }),
-      };
-    },
-
-    async createCustomerPortalSession(
-      input: StripeCustomerPortalSessionProviderInput,
-    ): Promise<StripeCustomerPortalSessionProviderOutput> {
-      const customerRef = await ensureCustomer(input.orgId);
-      const form = new URLSearchParams();
-      setFormField(form, 'customer', customerRef);
-      setFormField(form, 'return_url', input.returnUrl);
-
-      const payload = await postForm('/v1/billing_portal/sessions', form);
-      const id = normalizeString(payload.id);
-      const url = normalizeString(payload.url);
-      if (!id || !url) {
-        throw new Error('Stripe billing portal session returned missing id/url');
-      }
-
-      return {
-        id,
-        url,
-        customerRef,
-        expiresAt: resolveExpiresAt({
-          now: input.now,
-          stripeUnixSeconds: payload.created,
           fallbackMinutes: 30,
         }),
       };
