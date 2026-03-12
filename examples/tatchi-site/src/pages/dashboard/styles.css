@@ -937,12 +937,7 @@
 
 .dashboard-data-table {
   --dashboard-data-table-columns: repeat(6, minmax(0, 1fr));
-  --dashboard-data-table-chrome-surface: color-mix(
-    in srgb,
-    var(--dashboard-active) 44%,
-    var(--dashboard-muted) 16%,
-    var(--dashboard-surface) 40%
-  );
+  --dashboard-data-table-chrome-surface: color-mix(in srgb, var(--dashboard-ink) 12%, var(--dashboard-surface) 88%);
   --dashboard-data-table-row-surface: color-mix(
     in srgb,
     var(--dashboard-muted) 78%,
@@ -977,6 +972,11 @@
 
 .dashboard-data-table__header {
   border-bottom: 1px solid var(--dashboard-border);
+  background: var(--dashboard-data-table-chrome-surface);
+}
+
+.dashboard-data-table__header.dashboard-policy-table__header,
+.dashboard-data-table__pagination {
   background: var(--dashboard-data-table-chrome-surface);
 }
 
@@ -1253,7 +1253,7 @@
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 14px;
-  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
   background: var(--dashboard-data-table-chrome-surface);
 }
 
@@ -1366,6 +1366,7 @@
   min-width: 88px;
   height: 36px;
   padding-block: 0;
+  border-radius: 0.5rem 0.5rem 1rem 0.5rem;
 }
 
 .dashboard-audit-events__toggle {
