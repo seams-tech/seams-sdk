@@ -1,11 +1,14 @@
 import { expect, test } from '@playwright/test';
 import {
   evaluateConsolePolicyRules,
+  isConsoleGasSponsorshipPolicyRules,
   parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
+  validateGasSponsorshipPolicyRulesForPublish,
 } from '../../server/src/console/policies/rules';
 import {
   parseCreateConsolePolicyRequest,
+  parseListConsolePoliciesRequest,
   parseSimulateConsolePolicyRequest,
   parseUpdateConsolePolicyRequest,
 } from '../../server/src/console/policies/requests';
@@ -29,6 +32,7 @@ test.describe('console policy rules parser and evaluator', () => {
   test('request parsers normalize known rules and reject unknown keys', async () => {
     expect(
       parseCreateConsolePolicyRequest({
+        kind: 'TRANSACTION',
         name: 'Typed policy',
         rules: {
           blockedActions: [' transfer ', 'transfer'],
@@ -37,6 +41,7 @@ test.describe('console policy rules parser and evaluator', () => {
         },
       }),
     ).toEqual({
+      kind: 'TRANSACTION',
       name: 'Typed policy',
       rules: {
         schemaVersion: 1,
@@ -49,13 +54,94 @@ test.describe('console policy rules parser and evaluator', () => {
 
     await expectPolicyError(
       async () =>
-        parseUpdateConsolePolicyRequest({
-          rules: {
+        parseConsolePolicyRulesInput(
+          {
             blockedActions: ['transfer'],
             maxTransactionsPerHour: 10,
           },
+          'TRANSACTION',
+        ),
+      'invalid_body',
+    );
+
+    expect(
+      parseCreateConsolePolicyRequest({
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Gas policy draft',
+        rules: {
+          scopeType: 'POLICY',
+          scopePolicyId: 'policy_tx_scope_1',
+          enabled: true,
+          networkClass: 'MAINNET',
+          allowedChainIds: [1, 10, 1],
+          callMode: 'ALLOWLIST',
+          allowedCalls: [
+            {
+              chainId: 1,
+              to: '0x1111111111111111111111111111111111111111',
+              selector: '0xA9059CBB',
+            },
+          ],
+          spendCap: {
+            mode: 'CHAIN_TOTAL',
+            period: 'MONTHLY',
+            capsByChain: [{ chainId: 1, capMinor: 10_000 }],
+          },
+        },
+      }),
+    ).toEqual({
+      kind: 'GAS_SPONSORSHIP',
+      name: 'Gas policy draft',
+      rules: {
+        schemaVersion: 1,
+        scopeType: 'POLICY',
+        projectId: null,
+        environmentId: null,
+        scopePolicyId: 'policy_tx_scope_1',
+        walletSegmentId: null,
+        enabled: true,
+        templateId: null,
+        networkClass: 'MAINNET',
+        allowedChainIds: [1, 10],
+        callMode: 'ALLOWLIST',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            selector: '0xa9059cbb',
+          },
+        ],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 1, capMinor: 10_000 }],
+        },
+      },
+    });
+
+    await expectPolicyError(
+      async () =>
+        parseCreateConsolePolicyRequest({
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Invalid gas assignment',
+          assignment: {
+            scopeType: 'ORG',
+            scopeId: 'org_1',
+          },
         }),
       'invalid_body',
+    );
+
+    expect(parseListConsolePoliciesRequest({ kind: 'gas_sponsorship' })).toEqual({
+      kind: 'GAS_SPONSORSHIP',
+    });
+
+    await expectPolicyError(
+      async () =>
+        parseListConsolePoliciesRequest({
+          kind: 'signing',
+        }),
+      'invalid_query',
     );
 
     await expectPolicyError(
@@ -105,6 +191,67 @@ test.describe('console policy rules parser and evaluator', () => {
     });
   });
 
+  test('gas policy rules normalize and validate publish-time requirements', async () => {
+    const gasRules = parseConsolePolicyRulesInput(
+      {
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'env_1',
+        enabled: false,
+        networkClass: 'testnet',
+        allowedChainIds: [84532, 84532],
+        callMode: 'allow_all',
+        allowedCalls: [
+          {
+            chainId: 84532,
+            to: '0x1111111111111111111111111111111111111111',
+            selector: '0xa9059cbb',
+          },
+        ],
+        spendCap: {
+          mode: 'NONE',
+          period: 'WEEKLY',
+          capsByChain: [{ chainId: 84532, capMinor: 100 }],
+        },
+      },
+      'GAS_SPONSORSHIP',
+    );
+    expect(isConsoleGasSponsorshipPolicyRules(gasRules)).toBe(true);
+    expect(gasRules).toEqual({
+      schemaVersion: 1,
+      scopeType: 'ENVIRONMENT',
+      projectId: null,
+      environmentId: 'env_1',
+      scopePolicyId: null,
+      walletSegmentId: null,
+      enabled: false,
+      templateId: null,
+      networkClass: 'TESTNET',
+      allowedChainIds: [84532],
+      callMode: 'ALLOW_ALL',
+      allowedCalls: [],
+      spendCap: {
+        mode: 'NONE',
+        period: 'WEEKLY',
+        capsByChain: [],
+      },
+    });
+
+    expect(() => validateGasSponsorshipPolicyRulesForPublish(gasRules)).not.toThrow();
+
+    const invalidGasRules = parseConsolePolicyRulesInput(
+      {
+        scopeType: 'POLICY',
+        allowedChainIds: [],
+      },
+      'GAS_SPONSORSHIP',
+    );
+    expect(isConsoleGasSponsorshipPolicyRules(invalidGasRules)).toBe(true);
+    await expectPolicyError(
+      async () => validateGasSponsorshipPolicyRulesForPublish(invalidGasRules),
+      'invalid_body',
+    );
+  });
+
   test('in-memory service simulates policies through the shared evaluator', async () => {
     const service = createInMemoryConsolePolicyService();
     const ctx = {
@@ -122,6 +269,7 @@ test.describe('console policy rules parser and evaluator', () => {
       },
     });
     expect(policy.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+    expect(policy.kind).toBe('TRANSACTION');
 
     const allowed = await service.simulatePolicy(ctx, policy.id, {
       action: 'transfer',
@@ -163,6 +311,51 @@ test.describe('console policy rules parser and evaluator', () => {
     });
   });
 
+  test('in-memory service supports gas policy drafts but rejects assignment and simulation flows', async () => {
+    const service = createInMemoryConsolePolicyService();
+    const ctx = {
+      orgId: 'org-gas-policy-rules-1',
+      actorUserId: 'user-gas-policy-rules-1',
+      roles: ['admin'],
+    };
+
+    const gasPolicy = await service.createPolicy(ctx, {
+      kind: 'GAS_SPONSORSHIP',
+      name: 'Gas Policy 1',
+      rules: {
+        scopeType: 'ORG',
+        allowedChainIds: [1],
+      },
+    });
+    expect(gasPolicy.kind).toBe('GAS_SPONSORSHIP');
+    expect(gasPolicy.rules).toMatchObject({
+      scopeType: 'ORG',
+      scopePolicyId: null,
+      allowedChainIds: [1],
+    });
+
+    const published = await service.publishPolicy(ctx, gasPolicy.id);
+    expect(published?.policy.kind).toBe('GAS_SPONSORSHIP');
+
+    await expectPolicyError(
+      async () =>
+        service.simulatePolicy(ctx, gasPolicy.id, {
+          action: 'transfer',
+        }),
+      'simulation_not_supported',
+    );
+
+    await expectPolicyError(
+      async () =>
+        service.upsertAssignment(ctx, {
+          scopeType: 'ORG',
+          scopeId: ctx.orgId,
+          policyId: gasPolicy.id,
+        }),
+      'policy_assignment_unsupported',
+    );
+  });
+
   test('in-memory service bootstraps a protected default policy with a generated id', async () => {
     const service = createInMemoryConsolePolicyService();
     const ctx = {
@@ -175,6 +368,7 @@ test.describe('console policy rules parser and evaluator', () => {
     const defaultPolicy = policies.find((entry) => entry.isSystemDefault) || null;
     expect(defaultPolicy).toBeTruthy();
     expect(defaultPolicy?.id).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+    expect(defaultPolicy?.kind).toBe('TRANSACTION');
     expect(defaultPolicy?.name).toBe('Default Policy');
 
     await expectPolicyError(

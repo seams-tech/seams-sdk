@@ -44,6 +44,7 @@ import {
 import {
   isConsolePolicyError,
   parseCreateConsolePolicyRequest,
+  parseListConsolePoliciesRequest,
   parseListConsolePolicyAssignmentsRequest,
   parseSimulateConsolePolicyRequest,
   parseUpsertConsolePolicyAssignmentRequest,
@@ -60,13 +61,6 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
-import {
-  isConsoleGasSponsorshipError,
-  parseCreateConsoleGasSponsorshipRequest,
-  parseListConsoleGasSponsorshipRequest,
-  parseUpdateConsoleGasSponsorshipRequest,
-  type ConsoleGasSponsorshipService,
-} from '../../console/gasSponsorship';
 import {
   isConsoleSmartWalletError,
   parseCreateConsoleSmartWalletRequest,
@@ -97,6 +91,7 @@ import {
   type ConsoleTeamRbacService,
 } from '../../console/teamRbac';
 import {
+  type CreateConsoleApprovalRequest,
   type ConsoleApprovalOperationType,
   isConsoleApprovalsError,
   parseApproveConsoleApprovalRequest,
@@ -162,8 +157,10 @@ import {
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
 import {
-  listConsolePolicyNames,
+  type ConsolePolicyPresentation,
+  listConsolePolicyPresentationLookup,
   projectConsolePolicyPresentation,
+  resolveConsolePolicyPresentation,
 } from '../policyPresentation';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
@@ -189,7 +186,6 @@ export interface CloudflareConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
-  gasSponsorship: ConsoleGasSponsorshipService | null;
   smartWallets: ConsoleSmartWalletService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
@@ -237,7 +233,6 @@ function readOptionalRequestHeader(request: Request, header: string): string | u
   const value = String(request.headers.get(header) || '').trim();
   return value || undefined;
 }
-
 
 async function emitRouterTimingObservabilityEvent(
   ctx: CloudflareConsoleContext,
@@ -425,29 +420,6 @@ function sendPolicyError(error: unknown): Response {
 
 function sendWebhookError(error: unknown): Response {
   if (isConsoleWebhookError(error)) {
-    return json(
-      {
-        ok: false,
-        code: error.code,
-        message: error.message,
-        ...(error.details ? { details: error.details } : {}),
-      },
-      { status: error.status },
-    );
-  }
-
-  return json(
-    {
-      ok: false,
-      code: 'internal',
-      message: error instanceof Error ? error.message : String(error),
-    },
-    { status: 500 },
-  );
-}
-
-function sendGasSponsorshipError(error: unknown): Response {
-  if (isConsoleGasSponsorshipError(error)) {
     return json(
       {
         ok: false,
@@ -809,20 +781,6 @@ function requireWebhookService(ctx: CloudflareConsoleContext): ConsoleWebhookSer
   );
 }
 
-function requireGasSponsorshipService(
-  ctx: CloudflareConsoleContext,
-): ConsoleGasSponsorshipService | Response {
-  if (ctx.gasSponsorship) return ctx.gasSponsorship;
-  return json(
-    {
-      ok: false,
-      code: 'gas_sponsorship_not_configured',
-      message: 'Gas sponsorship service is not configured on this server',
-    },
-    { status: 501 },
-  );
-}
-
 function requireSmartWalletService(
   ctx: CloudflareConsoleContext,
 ): ConsoleSmartWalletService | Response {
@@ -1115,15 +1073,18 @@ async function projectApprovalResponse(
     resourceId: string | null;
     metadata: Record<string, unknown>;
   },
-): Promise<typeof row & { policyId: string | null; policyName: string | null }> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<typeof row & ConsolePolicyPresentation> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return {
     ...row,
     ...projectConsolePolicyPresentation({
       resourceType: row.resourceType,
       resourceId: row.resourceId,
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   };
 }
@@ -1136,17 +1097,43 @@ async function projectApprovalResponses<T extends {
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
-): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<Array<T & ConsolePolicyPresentation>> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return rows.map((row) => ({
     ...row,
     ...projectConsolePolicyPresentation({
       resourceType: row.resourceType,
       resourceId: row.resourceId,
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   }));
+}
+
+async function enrichPolicyApprovalCreateRequest(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  request: CreateConsoleApprovalRequest,
+): Promise<CreateConsoleApprovalRequest> {
+  if (request.operationType !== 'POLICY_PUBLISH') return request;
+  const resourceType = String(request.resourceType || '').trim().toUpperCase();
+  const resourceId = String(request.resourceId || '').trim();
+  if (resourceType !== 'POLICY' || !resourceId) return request;
+  const policy = await resolveConsolePolicyPresentation(ctx.policies, toBillingContext(claims), resourceId);
+  const metadata =
+    request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
+      ? { ...request.metadata }
+      : {};
+  metadata.policyId = policy.policyId || resourceId;
+  if (policy.policyName) metadata.policyName = policy.policyName;
+  if (policy.policyKind) metadata.policyKind = policy.policyKind;
+  return {
+    ...request,
+    metadata,
+  };
 }
 
 async function projectAuditEventResponses<T extends {
@@ -1155,13 +1142,16 @@ async function projectAuditEventResponses<T extends {
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
-): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<Array<T & ConsolePolicyPresentation>> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return rows.map((row) => ({
     ...row,
     ...projectConsolePolicyPresentation({
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   }));
 }
@@ -1175,9 +1165,9 @@ async function resolveWalletPolicyPresentationByWalletId(
     environmentId?: string | null;
     policyId?: string | null;
   }>,
-): Promise<Record<string, { policyId: string | null; policyName: string | null }>> {
+): Promise<Record<string, ConsolePolicyPresentation>> {
   if (!ctx.policies || walletRows.length === 0) return {};
-  const [resolvedPolicyIds, policyNames] = await Promise.all([
+  const [resolvedPolicyIds, policyPresentationLookup] = await Promise.all([
     ctx.policies.resolvePoliciesForWallets(
       toBillingContext(claims),
       walletRows.map((wallet) => ({
@@ -1187,16 +1177,18 @@ async function resolveWalletPolicyPresentationByWalletId(
         fallbackPolicyId: wallet.policyId || null,
       })),
     ),
-    listConsolePolicyNames(ctx.policies, toBillingContext(claims)),
+    listConsolePolicyPresentationLookup(ctx.policies, toBillingContext(claims)),
   ]);
-  const out: Record<string, { policyId: string | null; policyName: string | null }> = {};
+  const out: Record<string, ConsolePolicyPresentation> = {};
   for (const wallet of walletRows) {
     const policyIdRaw =
       resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
     const policyId = String(policyIdRaw || '').trim() || null;
+    const policy = policyId ? policyPresentationLookup[policyId] : undefined;
     out[wallet.id] = {
       policyId,
-      policyName: policyId ? policyNames[policyId] || null : null,
+      policyName: policy?.policyName || null,
+      policyKind: policy?.policyKind || null,
     };
   }
   return out;
@@ -2152,12 +2144,6 @@ function isConsoleWebhookPath(pathname: string): boolean {
   return pathname.startsWith('/console/webhooks');
 }
 
-function isConsoleGasSponsorshipPath(pathname: string): boolean {
-  return (
-    pathname === '/console/gas-sponsorship' || pathname.startsWith('/console/gas-sponsorship/')
-  );
-}
-
 function isConsoleSmartWalletPath(pathname: string): boolean {
   return pathname === '/console/smart-wallets' || pathname.startsWith('/console/smart-wallets/');
 }
@@ -2170,69 +2156,6 @@ function isConsoleRuntimeSnapshotPath(pathname: string): boolean {
   return (
     pathname === '/console/runtime-snapshots' || pathname.startsWith('/console/runtime-snapshots/')
   );
-}
-
-async function handleConsoleGasSponsorship(
-  ctx: CloudflareConsoleContext,
-): Promise<Response | null> {
-  if (!isConsoleGasSponsorshipPath(ctx.pathname)) return null;
-
-  const auth = await requireConsoleAuth(ctx);
-  if (!auth.ok) return auth.response;
-
-  const gasSponsorshipOrResponse = requireGasSponsorshipService(ctx);
-  if (gasSponsorshipOrResponse instanceof Response) return gasSponsorshipOrResponse;
-  const gasSponsorship = gasSponsorshipOrResponse;
-  const configMatch = ctx.pathname.match(/^\/console\/gas-sponsorship\/([^/]+)$/);
-
-  try {
-    if (ctx.method === 'GET' && ctx.pathname === '/console/gas-sponsorship') {
-      const request = parseListConsoleGasSponsorshipRequest({
-        scopeType: ctx.url.searchParams.get('scopeType') || undefined,
-        projectId: ctx.url.searchParams.get('projectId') || undefined,
-        environmentId: ctx.url.searchParams.get('environmentId') || undefined,
-        policyId: ctx.url.searchParams.get('policyId') || undefined,
-        walletSegmentId: ctx.url.searchParams.get('walletSegmentId') || undefined,
-      });
-      const configs = await gasSponsorship.listConfigs(toBillingContext(auth.claims), request);
-      return json({ ok: true, configs }, { status: 200 });
-    }
-
-    if (ctx.method === 'POST' && ctx.pathname === '/console/gas-sponsorship') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const request = parseCreateConsoleGasSponsorshipRequest(await readJson(ctx.request));
-      const config = await gasSponsorship.createConfig(toBillingContext(auth.claims), request);
-      return json({ ok: true, config }, { status: 201 });
-    }
-
-    if (ctx.method === 'PATCH' && configMatch) {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
-      const configId = decodePathPart(configMatch[1]);
-      const request = parseUpdateConsoleGasSponsorshipRequest(await readJson(ctx.request));
-      const config = await gasSponsorship.updateConfig(
-        toBillingContext(auth.claims),
-        configId,
-        request,
-      );
-      if (!config) {
-        return json(
-          {
-            ok: false,
-            code: 'gas_sponsorship_not_found',
-            message: `Gas sponsorship config ${configId} was not found`,
-          },
-          { status: 404 },
-        );
-      }
-      return json({ ok: true, config }, { status: 200 });
-    }
-  } catch (error: unknown) {
-    return sendGasSponsorshipError(error);
-  }
-
-  return new Response('Not Found', { status: 404 });
 }
 
 async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise<Response | null> {
@@ -2432,7 +2355,6 @@ async function handleConsoleRuntimeSnapshots(
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
-        gasSponsorship: ctx.gasSponsorship,
         smartWallets: ctx.smartWallets,
       });
       const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(auth.claims), {
@@ -2954,8 +2876,14 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
     if (ctx.method === 'POST' && ctx.pathname === '/console/approvals') {
       const forbidden = requireApprovalMutationRole(auth.claims);
       if (forbidden) return forbidden;
-      const request = parseCreateConsoleApprovalRequest(await readJson(ctx.request));
+      const parsedRequest = parseCreateConsoleApprovalRequest(await readJson(ctx.request));
+      const request = await enrichPolicyApprovalCreateRequest(ctx, auth.claims, parsedRequest);
       const row = await approvals.createApprovalRequest(approvalCtx, request);
+      const approvalPolicy = projectConsolePolicyPresentation({
+        resourceType: row.resourceType,
+        resourceId: row.resourceId,
+        metadata: row.metadata,
+      });
       await emitApprovalWebhookEvent(ctx, {
         orgId: auth.claims.orgId,
         actorUserId: auth.claims.userId,
@@ -2971,6 +2899,9 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
           environmentId: row.environmentId,
           resourceType: row.resourceType,
           resourceId: row.resourceId,
+          policyId: approvalPolicy.policyId,
+          policyName: approvalPolicy.policyName,
+          policyKind: approvalPolicy.policyKind,
         },
       });
       await emitConsoleAuditEvent(ctx, auth.claims, {
@@ -2992,6 +2923,7 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
             .toUpperCase() === 'POLICY' && row.resourceId
             ? { policyId: row.resourceId }
             : {}),
+          ...(approvalPolicy.policyKind ? { policyKind: approvalPolicy.policyKind } : {}),
         },
       });
       return json(
@@ -3382,7 +3314,10 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/policies') {
-      const out = await policies.listPolicies(policyCtx);
+      const request = parseListConsolePoliciesRequest({
+        kind: ctx.url.searchParams.get('kind') || undefined,
+      });
+      const out = await policies.listPolicies(policyCtx, request);
       return json({ ok: true, policies: out }, { status: 200 });
     }
 
@@ -3497,6 +3432,7 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
           summary: `Published policy ${policyId}`,
           metadata: {
             policyId,
+            policyKind: result.policy.kind,
             version: result.policy.version,
             status: result.policy.status,
           },
@@ -4077,7 +4013,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
-  const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
   const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
@@ -4110,7 +4045,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleWallets,
     handleConsolePolicies,
     handleConsoleInsights,
-    handleConsoleGasSponsorship,
     handleConsoleSmartWallets,
     handleConsoleKeyExports,
     handleConsoleRuntimeSnapshots,
@@ -4150,7 +4084,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       policies,
       apiKeys,
       webhooks,
-      gasSponsorship,
       smartWallets,
       keyExports,
       runtimeSnapshots,

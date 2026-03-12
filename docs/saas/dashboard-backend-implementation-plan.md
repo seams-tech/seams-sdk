@@ -272,10 +272,10 @@ Completed:
   - `DELETE /console/policies/assignments/:id`
   - draft creation, rule updates, simulation, publish, assignment upsert, and assignment delete actions are wired while keeping coverage insights.
   - policy publish controls now integrate with the approval queue and forward the selected approved request id (`approvalId`) to publish when approvals are configured.
-- Dashboard gas sponsorship and smart-wallet page now consumes live config APIs:
-  - `GET/POST/PATCH /console/gas-sponsorship`
-  - `GET/POST/PATCH /console/smart-wallets`
-  - create forms and mutation controls are wired with role-gated actions plus scope-aware payloads.
+- Dashboard gas sponsorship and smart-wallet page now consumes live policy-backed APIs:
+  - gas sponsorship flows use `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP`, plus `POST /console/policies/:id/publish`
+  - smart-wallet flows use `GET/POST/PATCH /console/smart-wallets`
+  - the dedicated gas page remains a thin adapter over policy APIs, with role-gated actions plus scope-aware payloads.
 - Dashboard export keys page now consumes live key export workflow APIs:
   - `GET /console/key-exports`
   - `POST /console/key-exports`
@@ -293,7 +293,7 @@ Completed:
   - `GET /console/audit/evidence`
   - timeline/evidence filters and context-scoped investigation tables are wired in UI.
 - Browser-level dashboard API wiring coverage now validates the new page flows:
-  - `/dashboard/gas-smart-wallets`: gas config create + mutation flow against mocked `/console/gas-sponsorship` endpoints.
+  - `/dashboard/gas-smart-wallets`: gas policy create + mutation flow against mocked `/console/policies` endpoints using `kind=GAS_SPONSORSHIP`.
   - `/dashboard/policy-engine`: approval-backed policy publish flow forwards the selected `approvalId` to `/console/policies/:id/publish`.
   - `/dashboard/export-keys`: key export create + MFA-gated approval flow against mocked `/console/key-exports` endpoints.
   - `/dashboard/approvals`: approval request create + MFA-gated approve + reject + filter flows against mocked `/console/approvals` endpoints.
@@ -301,7 +301,7 @@ Completed:
   - e2e wiring assertions validate `approvalId` forwarding on key-export approve requests.
 - Cross-org isolation coverage is implemented for webhook and billing routes (including invoice, payment-intent, overview, and MAW usage paths) with Postgres-backed integration tests.
 - CI now executes Postgres-backed console isolation coverage (`console-router`) in `threshold-signing-core`.
-- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
+- Dedicated Postgres tenant-isolation harness tests are implemented at the console service layer (org/project/environment, wallets, API keys, webhooks, billing, policy-backed gas sponsorship, smart wallets, settings, key exports, runtime snapshots) and wired into the CI-gated console Postgres suite.
 - Cross-org mutation denial coverage is implemented for org/project/environment services and routes.
 - Direct Postgres FK denial coverage is implemented for invalid cross-org wallet lineage inserts.
 
@@ -446,7 +446,7 @@ Key outputs:
 
 - APIs:
   - `GET /console/gas/readiness` (implemented)
-  - `GET/POST/PATCH /console/gas-sponsorship` (scaffolded; in-memory + postgres service + router wiring)
+  - gas sponsorship flows use `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP` and `POST /console/policies/:id/publish`
   - `GET/POST/PATCH /console/smart-wallets` (scaffolded; in-memory + postgres service + router wiring)
 - Data:
   - sponsorship budget and telemetry tables
@@ -693,7 +693,8 @@ Backend:
 - Implement:
   - `GET/POST /console/key-exports`
   - `POST /console/key-exports/:id/approve`
-  - `GET/POST/PATCH /console/gas-sponsorship`
+  - gas sponsorship policy CRUD through `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP`
+  - `POST /console/policies/:id/publish` for gas publish
   - `GET/POST/PATCH /console/smart-wallets`
 - Add step-up and approval guardrails for export actions.
 - Enforce default key-export approval: `2 admin + MFA + reason`.

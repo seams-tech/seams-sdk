@@ -182,7 +182,7 @@ test.describe('console policy id postgres migration', () => {
     await spendCapService.reserve(ctx, {
       sourceEventId: 'source-event-manual-policy-1',
       environmentId: 'env-migration',
-      sponsorshipConfigId: legacyPolicyId,
+      policyId: legacyPolicyId,
       chainId: 1,
       mode: 'CHAIN_TOTAL',
       period: 'MONTHLY',
@@ -194,7 +194,7 @@ test.describe('console policy id postgres migration', () => {
       apiKeyId: 'pk_manual_policy_1',
       apiKeyKind: 'publishable_key',
       route: 'sponsored_evm_call_v1',
-      sponsorshipConfigId: legacyPolicyId,
+      policyId: legacyPolicyId,
       chainFamily: 'evm',
       intentKind: 'evm_call',
       accountRef: 'near:alice.testnet',

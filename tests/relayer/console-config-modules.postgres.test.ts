@@ -1,11 +1,22 @@
 import { expect, test } from '@playwright/test';
 import {
-  createPostgresConsoleGasSponsorshipService,
+  createPostgresConsolePolicyService,
   createPostgresConsoleKeyExportService,
   createPostgresConsoleRuntimeSnapshotService,
   createPostgresConsoleSmartWalletService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
 } from '@server/router/express-adaptor';
+import {
+  projectConsoleGasSponsorshipPolicyProjection,
+  sortConsoleGasSponsorshipPolicyProjections,
+  type ConsoleGasSponsorshipPolicyProjection,
+} from '../../server/src/console/gasSponsorship';
+import {
+  isConsoleGasSponsorshipPolicyRules,
+  type ConsoleGasSponsorshipPolicyRulesInput,
+  type ConsolePoliciesContext,
+  type ConsolePolicyService,
+} from '../../server/src/console/policies';
 import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
 import { getPostgresPool } from '../../server/src/storage/postgres';
 
@@ -22,6 +33,83 @@ async function expectConsoleError(fn: () => Promise<unknown>, code: string): Pro
   }
   expect(caught).toBeTruthy();
   expect(String(caught?.code || '')).toBe(code);
+}
+
+async function listProjectedGasPolicies(
+  policies: ConsolePolicyService,
+  ctx: ConsolePoliciesContext,
+  filters: {
+    environmentId?: string;
+    projectId?: string;
+  } = {},
+): Promise<ConsoleGasSponsorshipPolicyProjection[]> {
+  const projections = (
+    await Promise.all(
+      (await policies.listPolicies(ctx, { kind: 'GAS_SPONSORSHIP' })).map(
+        async (policy) => await projectConsoleGasSponsorshipPolicyProjection(policies, ctx, policy),
+      ),
+    )
+  ).filter(
+    (projection): projection is ConsoleGasSponsorshipPolicyProjection => projection !== null,
+  );
+  return sortConsoleGasSponsorshipPolicyProjections(
+    projections.filter((projection) => {
+      if (filters.environmentId && projection.environmentId !== filters.environmentId) return false;
+      if (filters.projectId && projection.projectId !== filters.projectId) return false;
+      return true;
+    }),
+  );
+}
+
+async function createPublishedGasPolicy(
+  policies: ConsolePolicyService,
+  ctx: ConsolePoliciesContext,
+  input: {
+    name?: string;
+    rules: ConsoleGasSponsorshipPolicyRulesInput;
+  },
+): Promise<ConsoleGasSponsorshipPolicyProjection> {
+  const created = await policies.createPolicy(ctx, {
+    kind: 'GAS_SPONSORSHIP',
+    name: input.name || 'Gas Sponsorship Policy',
+    rules: input.rules,
+  });
+  const published = await policies.publishPolicy(ctx, created.id);
+  if (!published) {
+    throw new Error(`Policy ${created.id} was not found after create`);
+  }
+  const projection = await projectConsoleGasSponsorshipPolicyProjection(
+    policies,
+    ctx,
+    published.policy,
+  );
+  if (!projection) {
+    throw new Error(`Policy ${published.policy.id} did not project as gas policy`);
+  }
+  return projection;
+}
+
+async function updatePublishedGasPolicy(
+  policies: ConsolePolicyService,
+  ctx: ConsolePoliciesContext,
+  policyId: string,
+  input: {
+    name?: string;
+    rules?: Partial<ConsoleGasSponsorshipPolicyRulesInput>;
+  },
+): Promise<ConsoleGasSponsorshipPolicyProjection | null> {
+  const current = await policies.getPolicy(ctx, policyId);
+  if (!current || current.kind !== 'GAS_SPONSORSHIP' || !isConsoleGasSponsorshipPolicyRules(current.rules)) {
+    return null;
+  }
+  const updated = await policies.updatePolicy(ctx, policyId, {
+    ...(input.name !== undefined ? { name: input.name || current.name } : {}),
+    ...(input.rules ? { rules: { ...current.rules, ...input.rules } } : {}),
+  });
+  if (!updated) return null;
+  const published = await policies.publishPolicy(ctx, updated.id);
+  if (!published) return null;
+  return await projectConsoleGasSponsorshipPolicyProjection(policies, ctx, published.policy);
 }
 
 test.describe('console config modules postgres services', () => {
@@ -54,16 +142,20 @@ test.describe('console config modules postgres services', () => {
         ]);
         await q.query('DELETE FROM console_runtime_snapshots WHERE namespace = $1', [namespace]);
         await q.query('DELETE FROM console_smart_wallet_configs WHERE namespace = $1', [namespace]);
-        await q.query('DELETE FROM console_gas_sponsorship_configs WHERE namespace = $1', [
-          namespace,
-        ]);
+        await q.query('DELETE FROM console_policy_versions WHERE namespace = $1', [namespace]);
+        await q.query(
+          `DELETE FROM console_policies
+            WHERE namespace = $1
+              AND kind = 'GAS_SPONSORSHIP'`,
+          [namespace],
+        );
       });
     }
   });
 
   test('gas sponsorship postgres service supports create/list/update + scope validation', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
-    const service = await createPostgresConsoleGasSponsorshipService({
+    const policies = await createPostgresConsolePolicyService({
       postgresUrl,
       namespace,
       logger: console as any,
@@ -71,25 +163,29 @@ test.describe('console config modules postgres services', () => {
     });
 
     await expectConsoleError(async () => {
-      await service.createConfig(adminCtx, {
-        scopeType: 'PROJECT',
-        enabled: true,
+      await createPublishedGasPolicy(policies, adminCtx, {
+        rules: {
+          scopeType: 'PROJECT',
+          enabled: true,
+          allowedChainIds: [1],
+        },
       });
-    }, 'invalid_scope');
+    }, 'invalid_body');
 
-    const created = await service.createConfig(adminCtx, {
-      id: 'gs-postgres-1',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod',
-      enabled: true,
-      allowedChainIds: [1],
-      spendCap: {
-        mode: 'CHAIN_TOTAL',
-        period: 'MONTHLY',
-        capsByChain: [{ chainId: 1, capMinor: 400_000 }],
+    const created = await createPublishedGasPolicy(policies, adminCtx, {
+      rules: {
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod',
+        enabled: true,
+        allowedChainIds: [1],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 1, capMinor: 400_000 }],
+        },
       },
     });
-    expect(created.id).toBe('gs-postgres-1');
+    expect(created.id.startsWith('policy_')).toBe(true);
     expect(created.scopeType).toBe('ENVIRONMENT');
     expect(created.environmentId).toBe('prod');
     expect(created.spendCap).toEqual({
@@ -98,20 +194,24 @@ test.describe('console config modules postgres services', () => {
       capsByChain: [{ chainId: 1, capMinor: 400_000 }],
     });
 
-    const listAll = await service.listConfigs(adminCtx);
-    expect(listAll.some((entry) => entry.id === 'gs-postgres-1')).toBe(true);
+    const listAll = await listProjectedGasPolicies(policies, adminCtx);
+    expect(listAll.some((entry) => entry.id === created.id)).toBe(true);
 
-    const listScoped = await service.listConfigs(adminCtx, { environmentId: 'prod' });
+    const listScoped = await listProjectedGasPolicies(policies, adminCtx, {
+      environmentId: 'prod',
+    });
     expect(listScoped.length).toBeGreaterThanOrEqual(1);
     expect(listScoped.every((entry) => entry.environmentId === 'prod')).toBe(true);
 
-    const updated = await service.updateConfig(adminCtx, 'gs-postgres-1', {
-      enabled: false,
-      allowedChainIds: [8_453],
-      spendCap: {
-        mode: 'WALLET_CHAIN_TOTAL',
-        period: 'WEEKLY',
-        capsByChain: [{ chainId: 8_453, capMinor: 250_000 }],
+    const updated = await updatePublishedGasPolicy(policies, adminCtx, created.id, {
+      rules: {
+        enabled: false,
+        allowedChainIds: [8_453],
+        spendCap: {
+          mode: 'WALLET_CHAIN_TOTAL',
+          period: 'WEEKLY',
+          capsByChain: [{ chainId: 8_453, capMinor: 250_000 }],
+        },
       },
     });
     expect(updated).toBeTruthy();
@@ -524,7 +624,7 @@ test.describe('console config modules postgres services', () => {
 
   test('gas/smart-wallet tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
-    const gasService = await createPostgresConsoleGasSponsorshipService({
+    const policies = await createPostgresConsolePolicyService({
       postgresUrl,
       namespace,
       logger: console as any,
@@ -548,17 +648,21 @@ test.describe('console config modules postgres services', () => {
       roles: ['admin'],
     };
 
-    await gasService.createConfig(ownerCtx, {
-      id: 'gs-postgres-rls-owner',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod-rls',
-      enabled: true,
+    await createPublishedGasPolicy(policies, ownerCtx, {
+      rules: {
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod-rls',
+        enabled: true,
+        allowedChainIds: [1],
+      },
     });
-    await gasService.createConfig(attackerCtx, {
-      id: 'gs-postgres-rls-attacker',
-      scopeType: 'ENVIRONMENT',
-      environmentId: 'prod-rls',
-      enabled: true,
+    await createPublishedGasPolicy(policies, attackerCtx, {
+      rules: {
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod-rls',
+        enabled: true,
+        allowedChainIds: [1],
+      },
     });
 
     await smartWalletService.createConfig(ownerCtx, {
@@ -590,8 +694,9 @@ test.describe('console config modules postgres services', () => {
       async (q) =>
         q.query(
           `SELECT org_id, id
-             FROM console_gas_sponsorship_configs
-            WHERE namespace = $1`,
+             FROM console_policies
+            WHERE namespace = $1
+              AND kind = 'GAS_SPONSORSHIP'`,
           [namespace],
         ),
     );
@@ -621,7 +726,10 @@ test.describe('console config modules postgres services', () => {
     ).toBe(true);
 
     const rowsWithoutTenantContext = await pool.query(
-      `SELECT org_id, id FROM console_gas_sponsorship_configs WHERE namespace = $1`,
+      `SELECT org_id, id
+         FROM console_policies
+        WHERE namespace = $1
+          AND kind = 'GAS_SPONSORSHIP'`,
       [namespace],
     );
     expect(rowsWithoutTenantContext.rows.length).toBe(0);
@@ -690,7 +798,7 @@ test.describe('console config modules postgres services', () => {
   test('postgres config module services enforce org isolation', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
 
-    const gasService = await createPostgresConsoleGasSponsorshipService({
+    const policies = await createPostgresConsolePolicyService({
       postgresUrl,
       namespace,
       logger: console as any,
@@ -727,13 +835,15 @@ test.describe('console config modules postgres services', () => {
     };
     const ownerEnvironmentId = 'prod-org-isolation';
 
-    const createdGas = await gasService.createConfig(ownerCtx, {
-      id: 'gs-postgres-isolation-1',
-      scopeType: 'ENVIRONMENT',
-      environmentId: ownerEnvironmentId,
-      enabled: true,
+    const createdGas = await createPublishedGasPolicy(policies, ownerCtx, {
+      rules: {
+        scopeType: 'ENVIRONMENT',
+        environmentId: ownerEnvironmentId,
+        enabled: true,
+        allowedChainIds: [1],
+      },
     });
-    expect(createdGas.id).toBe('gs-postgres-isolation-1');
+    expect(createdGas.id.startsWith('policy_')).toBe(true);
 
     const createdSmartWallet = await smartWalletService.createConfig(ownerCtx, {
       id: 'sw-postgres-isolation-1',
@@ -765,14 +875,21 @@ test.describe('console config modules postgres services', () => {
     });
     expect(ownerSnapshot.version).toBe(1);
 
-    const attackerGasList = await gasService.listConfigs(attackerCtx, {
+    const attackerGasList = await listProjectedGasPolicies(policies, attackerCtx, {
       environmentId: ownerEnvironmentId,
     });
     expect(attackerGasList.length).toBe(0);
 
-    const attackerGasPatch = await gasService.updateConfig(attackerCtx, createdGas.id, {
-      enabled: false,
-    });
+    const attackerGasPatch = await updatePublishedGasPolicy(
+      policies,
+      attackerCtx,
+      createdGas.id,
+      {
+        rules: {
+          enabled: false,
+        },
+      },
+    );
     expect(attackerGasPatch).toBeNull();
 
     const attackerSmartWalletList = await smartWalletService.listConfigs(attackerCtx, {

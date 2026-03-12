@@ -2,7 +2,6 @@ import type { ConsoleOrgProjectEnvService, ConsoleOrgProjectEnvContext } from '.
 import type { ConsoleRuntimeSnapshotService } from '../runtimeSnapshots';
 import type { ConsolePolicyService } from '../policies';
 import type { ConsoleSmartWalletService } from '../smartWallets';
-import type { ConsoleGasSponsorshipService } from './service';
 import { ensureTempoTestnetOnboardingPolicyForEnvironment } from './onboarding';
 import { resolveConsoleRuntimeSnapshotPayload } from '../../router/runtimeSnapshotPayload';
 
@@ -18,8 +17,7 @@ async function publishCurrentEnvironmentSnapshot(input: {
   ctx: ConsoleOrgProjectEnvContext;
   environment: { id: string; projectId: string };
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
-  gasSponsorship: ConsoleGasSponsorshipService;
-  policies?: ConsolePolicyService | null;
+  policies: ConsolePolicyService;
   smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   const payload = await resolveConsoleRuntimeSnapshotPayload({
@@ -28,8 +26,7 @@ async function publishCurrentEnvironmentSnapshot(input: {
     roles: input.ctx.roles,
     environmentId: input.environment.id,
     projectId: input.environment.projectId,
-    ...(input.policies ? { policies: input.policies } : {}),
-    gasSponsorship: input.gasSponsorship,
+    policies: input.policies,
     ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
   });
   await input.runtimeSnapshots.publishSnapshot(toSnapshotContext(input.ctx), {
@@ -42,14 +39,13 @@ async function publishCurrentEnvironmentSnapshot(input: {
 async function seedEnvironment(input: {
   ctx: ConsoleOrgProjectEnvContext;
   environment: { id: string; projectId: string; status?: string };
-  gasSponsorship: ConsoleGasSponsorshipService;
+  policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
-  policies?: ConsolePolicyService | null;
   smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   await ensureTempoTestnetOnboardingPolicyForEnvironment({
-    gasSponsorship: input.gasSponsorship,
+    policies: input.policies,
     ctx: {
       orgId: input.ctx.orgId,
       actorUserId: input.ctx.actorUserId,
@@ -63,18 +59,16 @@ async function seedEnvironment(input: {
     ctx: input.ctx,
     environment: input.environment,
     runtimeSnapshots: input.runtimeSnapshots,
-    gasSponsorship: input.gasSponsorship,
-    ...(input.policies ? { policies: input.policies } : {}),
+    policies: input.policies,
     ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
   });
 }
 
 export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(input: {
   base: ConsoleOrgProjectEnvService;
-  gasSponsorship: ConsoleGasSponsorshipService;
+  policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   faucetContractAddress: `0x${string}`;
-  policies?: ConsolePolicyService | null;
   smartWallets?: ConsoleSmartWalletService | null;
 }): ConsoleOrgProjectEnvService {
   return {
@@ -87,10 +81,9 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
         await seedEnvironment({
           ctx,
           environment,
-          gasSponsorship: input.gasSponsorship,
+          policies: input.policies,
           runtimeSnapshots: input.runtimeSnapshots,
           faucetContractAddress: input.faucetContractAddress,
-          ...(input.policies ? { policies: input.policies } : {}),
           ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
         });
       }
@@ -101,10 +94,9 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
       await seedEnvironment({
         ctx,
         environment,
-        gasSponsorship: input.gasSponsorship,
+        policies: input.policies,
         runtimeSnapshots: input.runtimeSnapshots,
         faucetContractAddress: input.faucetContractAddress,
-        ...(input.policies ? { policies: input.policies } : {}),
         ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
       });
       return environment;
@@ -114,12 +106,11 @@ export function createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship(
 
 export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService;
-  gasSponsorship: ConsoleGasSponsorshipService;
+  policies: ConsolePolicyService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService;
   ctx: ConsoleOrgProjectEnvContext;
   faucetContractAddress: `0x${string}`;
   projectId?: string;
-  policies?: ConsolePolicyService | null;
   smartWallets?: ConsoleSmartWalletService | null;
 }): Promise<void> {
   const environments = await input.orgProjectEnv.listEnvironments(input.ctx, {
@@ -130,10 +121,9 @@ export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(in
     await seedEnvironment({
       ctx: input.ctx,
       environment,
-      gasSponsorship: input.gasSponsorship,
+      policies: input.policies,
       runtimeSnapshots: input.runtimeSnapshots,
       faucetContractAddress: input.faucetContractAddress,
-      ...(input.policies ? { policies: input.policies } : {}),
       ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
     });
   }

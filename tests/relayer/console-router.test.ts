@@ -9,7 +9,6 @@ import {
   createInMemoryConsoleEnterpriseIsolationService,
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
-  createInMemoryConsoleGasSponsorshipService,
   createInMemoryConsoleKeyExportService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsolePolicyService,
@@ -1501,10 +1500,21 @@ test.describe('console router (express)', () => {
   test('approval creation emits audit timeline events', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const approvals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
+    const policies: ConsolePolicyService = createInMemoryConsolePolicyService();
+    const policyCtx = {
+      orgId: 'org-audit-live-1',
+      actorUserId: 'user-audit-live-admin',
+      roles: ['admin'],
+    };
+    const gasPolicy = await policies.createPolicy(policyCtx, {
+      kind: 'GAS_SPONSORSHIP',
+      name: 'Gas publish policy',
+    });
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-audit-live-1', 'user-audit-live-admin'),
       approvals,
       audit,
+      policies,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -1516,10 +1526,13 @@ test.describe('console router (express)', () => {
           operationType: 'POLICY_PUBLISH',
           reason: 'Publish policy v2',
           resourceType: 'policy',
-          resourceId: 'policy_live_1',
+          resourceId: gasPolicy.id,
         }),
       });
       expect(created.status).toBe(201);
+      expect(String(getPath(created.json, 'approval', 'policyId') || '')).toBe(gasPolicy.id);
+      expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe('Gas publish policy');
+      expect(String(getPath(created.json, 'approval', 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
 
       const events = await fetchJson(
         `${srv.baseUrl}/console/audit/events?category=APPROVAL&limit=20`,
@@ -1533,9 +1546,13 @@ test.describe('console router (express)', () => {
         (row: any) => String(row?.action || '') === 'approval.request.create',
       );
       expect(createdEvent).toBeTruthy();
+      expect(String(getPath(createdEvent, 'policyId') || '')).toBe(gasPolicy.id);
+      expect(String(getPath(createdEvent, 'policyName') || '')).toBe('Gas publish policy');
+      expect(String(getPath(createdEvent, 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
       expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_live_1');
-      expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_live_1');
-      expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_live_1');
+      expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe(gasPolicy.id);
+      expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe(gasPolicy.id);
+      expect(String(getPath(createdEvent, 'metadata', 'policyKind'))).toBe('GAS_SPONSORSHIP');
     } finally {
       await srv.close();
     }
@@ -2367,9 +2384,11 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const gas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, { method: 'GET' });
+      const gas = await fetchJson(`${srv.baseUrl}/console/policies?kind=GAS_SPONSORSHIP`, {
+        method: 'GET',
+      });
       expect(gas.status).toBe(501);
-      expect(gas.json?.code).toBe('gas_sponsorship_not_configured');
+      expect(gas.json?.code).toBe('policies_not_configured');
 
       const smartWallets = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
         method: 'GET',
@@ -2393,55 +2412,80 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoints support scaffold CRUD flows', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-express-1', 'user-scaffold-express-1'),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const srv = await startExpressRouter(router);
     try {
-      const createdGas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+      const createdGas = await fetchJson(`${srv.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'gs-express-1',
-          scopeType: 'ENVIRONMENT',
-          environmentId: 'prod',
-          enabled: true,
-          allowedChainIds: [1],
-          spendCap: {
-            mode: 'CHAIN_TOTAL',
-            period: 'MONTHLY',
-            capsByChain: [{ chainId: 1, capMinor: 500000 }],
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Scaffold gas policy express',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            environmentId: 'prod',
+            enabled: true,
+            allowedChainIds: [1],
+            spendCap: {
+              mode: 'CHAIN_TOTAL',
+              period: 'MONTHLY',
+              capsByChain: [{ chainId: 1, capMinor: 500000 }],
+            },
           },
         }),
       });
       expect(createdGas.status).toBe(201);
-      expect(getPath(createdGas.json, 'config', 'id')).toBe('gs-express-1');
+      const createdGasId = String(getPath(createdGas.json, 'policy', 'id') || '');
+      expect(createdGasId.startsWith('policy_')).toBe(true);
 
       const listedGas = await fetchJson(
-        `${srv.baseUrl}/console/gas-sponsorship?environmentId=${encodeURIComponent('prod')}`,
+        `${srv.baseUrl}/console/policies?kind=GAS_SPONSORSHIP`,
         { method: 'GET' },
       );
       expect(listedGas.status).toBe(200);
-      const listedGasRows: unknown[] = Array.isArray(listedGas.json?.configs)
-        ? (listedGas.json?.configs as unknown[])
+      const listedGasRows: unknown[] = Array.isArray(listedGas.json?.policies)
+        ? (listedGas.json?.policies as unknown[])
         : [];
       expect(listedGasRows.length).toBeGreaterThanOrEqual(1);
 
-      const patchedGas = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship/gs-express-1`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: false }),
-      });
+      const patchedGas = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(createdGasId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rules: {
+              scopeType: 'ENVIRONMENT',
+              environmentId: 'prod',
+              enabled: false,
+              allowedChainIds: [1],
+              spendCap: {
+                mode: 'CHAIN_TOTAL',
+                period: 'MONTHLY',
+                capsByChain: [{ chainId: 1, capMinor: 500000 }],
+              },
+            },
+          }),
+        },
+      );
       expect(patchedGas.status).toBe(200);
-      expect(getPath(patchedGas.json, 'config', 'enabled')).toBe(false);
+      expect(getPath(patchedGas.json, 'policy', 'rules', 'enabled')).toBe(false);
+
+      const publishedGas = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(createdGasId)}/publish`,
+        { method: 'POST' },
+      );
+      expect(publishedGas.status).toBe(200);
 
       const createdSmartWallet = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
         method: 'POST',
@@ -2704,8 +2748,112 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('runtime snapshot publish-current resolves published gas sponsorship policy state instead of draft gas rules', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const policies = createInMemoryConsolePolicyService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-gas-policy-express-1',
+        'user-runtime-gas-policy-express-1',
+      ),
+      runtimeSnapshots,
+      policies,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const environmentId = 'env-runtime-gas-policy-express-1';
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Runtime gas policy express',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            environmentId,
+            allowedChainIds: [1],
+            callMode: 'ALLOW_ALL',
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const policyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+
+      const published = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+        { method: 'POST' },
+      );
+      expect(published.status).toBe(200);
+
+      const drafted = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rules: {
+              scopeType: 'ENVIRONMENT',
+              environmentId,
+              allowedChainIds: [10],
+              callMode: 'ALLOW_ALL',
+            },
+          }),
+        },
+      );
+      expect(drafted.status).toBe(200);
+      expect(getPath(drafted.json, 'policy', 'status')).toBe('DRAFT');
+
+      const snapshot = await fetchJson(`${srv.baseUrl}/console/runtime-snapshots/publish-current`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          environmentId,
+          snapshotId: 'runtime-gas-policy-live-express-v1',
+        }),
+      });
+      expect(snapshot.status).toBe(201);
+      expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+        'resolved',
+      );
+      expect(Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0)).toBe(1);
+      expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id')).toBe(
+        policyId,
+      );
+      expect(
+        getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'allowedChainIds', 0),
+      ).toBe(1);
+      expect(
+        getPath(
+          snapshot.json,
+          'snapshot',
+          'payload',
+          'gasSponsorship',
+          'sponsoredCallPolicies',
+          0,
+          'policyId',
+        ),
+      ).toBe(policyId);
+      expect(
+        getPath(
+          snapshot.json,
+          'snapshot',
+          'payload',
+          'gasSponsorship',
+          'sponsoredCallPolicies',
+          0,
+          'allowedChainIds',
+          0,
+        ),
+      ).toBe(1);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('new console endpoint mutations enforce role gates', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -2715,18 +2863,19 @@ test.describe('console router (express)', () => {
         'org-scaffold-express-rbac-1',
         'user-scaffold-express-rbac-1',
       ),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const srv = await startExpressRouter(router);
     try {
-      const gasCreate = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+      const gasCreate = await fetchJson(`${srv.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scopeType: 'ORG',
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Forbidden gas policy express',
         }),
       });
       expect(gasCreate.status).toBe(403);
@@ -2779,7 +2928,7 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoint validation errors return typed error codes', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -2789,22 +2938,26 @@ test.describe('console router (express)', () => {
         'org-scaffold-express-validation-1',
         'user-scaffold-express-validation-1',
       ),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const srv = await startExpressRouter(router);
     try {
-      const invalidGasScope = await fetchJson(`${srv.baseUrl}/console/gas-sponsorship`, {
+      const invalidGasScope = await fetchJson(`${srv.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          scopeType: 'ENVIRONMENT',
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Invalid gas scope express',
+          rules: {
+            scopeType: 'NOT_A_SCOPE',
+          },
         }),
       });
       expect(invalidGasScope.status).toBe(400);
-      expect(invalidGasScope.json?.code).toBe('invalid_scope');
+      expect(invalidGasScope.json?.code).toBe('invalid_body');
 
       const invalidStatusQuery = await fetchJson(
         `${srv.baseUrl}/console/key-exports?status=NOT_A_STATUS`,
@@ -2882,7 +3035,7 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoints enforce org isolation', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -2892,24 +3045,30 @@ test.describe('console router (express)', () => {
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-express-isolation-user'),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
+    let ownerGasId = '';
     try {
-      const createGas = await fetchJson(`${ownerServer.baseUrl}/console/gas-sponsorship`, {
+      const createGas = await fetchJson(`${ownerServer.baseUrl}/console/policies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: 'gs-express-isolation-1',
-          scopeType: 'ENVIRONMENT',
-          environmentId: ownerEnvironmentId,
-          allowedChainIds: [11_155_111],
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Isolation gas policy express',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            environmentId: ownerEnvironmentId,
+            allowedChainIds: [11_155_111],
+          },
         }),
       });
       expect(createGas.status).toBe(201);
+      ownerGasId = String(getPath(createGas.json, 'policy', 'id') || '');
+      expect(ownerGasId.startsWith('policy_')).toBe(true);
 
       const createSmartWallet = await fetchJson(`${ownerServer.baseUrl}/console/smart-wallets`, {
         method: 'POST',
@@ -2957,7 +3116,7 @@ test.describe('console router (express)', () => {
         attackerOrgId,
         'attacker-scaffold-express-isolation-user',
       ),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
@@ -2965,23 +3124,23 @@ test.describe('console router (express)', () => {
     const attackerServer = await startExpressRouter(attackerRouter);
     try {
       const gasList = await fetchJson(
-        `${attackerServer.baseUrl}/console/gas-sponsorship?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+        `${attackerServer.baseUrl}/console/policies?kind=GAS_SPONSORSHIP`,
         { method: 'GET' },
       );
       expect(gasList.status).toBe(200);
-      const attackerGasRows = Array.isArray(gasList.json?.configs) ? gasList.json?.configs : [];
+      const attackerGasRows = Array.isArray(gasList.json?.policies) ? gasList.json?.policies : [];
       expect(attackerGasRows.length).toBe(0);
 
       const patchGas = await fetchJson(
-        `${attackerServer.baseUrl}/console/gas-sponsorship/gs-express-isolation-1`,
+        `${attackerServer.baseUrl}/console/policies/${encodeURIComponent(ownerGasId)}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: false }),
+          body: JSON.stringify({ rules: { enabled: false } }),
         },
       );
       expect(patchGas.status).toBe(404);
-      expect(patchGas.json?.code).toBe('gas_sponsorship_not_found');
+      expect(patchGas.json?.code).toBe('policy_not_found');
 
       const smartWalletList = await fetchJson(
         `${attackerServer.baseUrl}/console/smart-wallets?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
@@ -3104,17 +3263,18 @@ test.describe('console router (express)', () => {
     const orgId = 'org-insights-express-1';
     const projectId = 'default-project';
     const environmentId = `${projectId}:prod`;
+    const wallet = makeSeedWallet({
+      id: 'wallet_insights_express_1',
+      orgId,
+      projectId,
+      environmentId,
+    });
+    wallet.lastActivityAt = wallet.updatedAt;
     const wallets = createInMemoryConsoleWalletService({
-      seedWallets: [
-        makeSeedWallet({
-          id: 'wallet_insights_express_1',
-          orgId,
-          projectId,
-          environmentId,
-        }),
-      ],
+      seedWallets: [wallet],
     });
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId,
@@ -3125,6 +3285,7 @@ test.describe('console router (express)', () => {
       auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-express-1'),
       wallets,
       apiKeys,
+      policies,
       orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
@@ -3162,6 +3323,9 @@ test.describe('console router (express)', () => {
         ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
         : [];
       expect(policyRows.length).toBeGreaterThanOrEqual(1);
+      expect(
+        policyRows.some((row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION'),
+      ).toBe(true);
 
       const readiness = await fetchJson(`${srv.baseUrl}/console/gas/readiness`, { method: 'GET' });
       expect(readiness.status).toBe(200);
@@ -3172,6 +3336,14 @@ test.describe('console router (express)', () => {
         ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
         : [];
       expect(chainRows.length).toBeGreaterThanOrEqual(1);
+      const readinessWalletRows: unknown[] = Array.isArray(
+        getPath(readiness.json, 'readiness', 'recentWalletSample'),
+      )
+        ? (getPath(readiness.json, 'readiness', 'recentWalletSample') as unknown[])
+        : [];
+      expect(
+        readinessWalletRows.some((row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION'),
+      ).toBe(true);
 
       const governance = await fetchJson(
         `${srv.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(environmentId)}`,
@@ -6143,10 +6315,21 @@ test.describe('console router (cloudflare)', () => {
   test('cloudflare approval creation emits audit timeline events', async () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const approvals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
+    const policies: ConsolePolicyService = createInMemoryConsolePolicyService();
+    const policyCtx = {
+      orgId: 'org-audit-cf-live-1',
+      actorUserId: 'user-audit-cf-live-admin',
+      roles: ['admin'],
+    };
+    const gasPolicy = await policies.createPolicy(policyCtx, {
+      kind: 'GAS_SPONSORSHIP',
+      name: 'Gas publish policy CF',
+    });
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-audit-cf-live-1', 'user-audit-cf-live-admin'),
       approvals,
       audit,
+      policies,
     });
 
     const created = await callCf(handler, {
@@ -6157,10 +6340,13 @@ test.describe('console router (cloudflare)', () => {
         operationType: 'POLICY_PUBLISH',
         reason: 'Publish policy v2',
         resourceType: 'policy',
-        resourceId: 'policy_cf_live_1',
+        resourceId: gasPolicy.id,
       },
     });
     expect(created.status).toBe(201);
+    expect(String(getPath(created.json, 'approval', 'policyId') || '')).toBe(gasPolicy.id);
+    expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe('Gas publish policy CF');
+    expect(String(getPath(created.json, 'approval', 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
 
     const events = await callCf(handler, {
       method: 'GET',
@@ -6172,9 +6358,13 @@ test.describe('console router (cloudflare)', () => {
       (row: any) => String(row?.action || '') === 'approval.request.create',
     );
     expect(createdEvent).toBeTruthy();
+    expect(String(getPath(createdEvent, 'policyId') || '')).toBe(gasPolicy.id);
+    expect(String(getPath(createdEvent, 'policyName') || '')).toBe('Gas publish policy CF');
+    expect(String(getPath(createdEvent, 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
     expect(String(getPath(createdEvent, 'metadata', 'approvalId'))).toBe('apr_audit_cf_live_1');
-    expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe('policy_cf_live_1');
-    expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe('policy_cf_live_1');
+    expect(String(getPath(createdEvent, 'metadata', 'resourceId'))).toBe(gasPolicy.id);
+    expect(String(getPath(createdEvent, 'metadata', 'policyId'))).toBe(gasPolicy.id);
+    expect(String(getPath(createdEvent, 'metadata', 'policyKind'))).toBe('GAS_SPONSORSHIP');
   });
 
   test('cloudflare audit export and enterprise isolation routes support scaffold flows', async () => {
@@ -6922,10 +7112,10 @@ test.describe('console router (cloudflare)', () => {
 
     const gas = await callCf(handler, {
       method: 'GET',
-      path: '/console/gas-sponsorship',
+      path: '/console/policies?kind=GAS_SPONSORSHIP',
     });
     expect(gas.status).toBe(501);
-    expect(gas.json?.code).toBe('gas_sponsorship_not_configured');
+    expect(gas.json?.code).toBe('policies_not_configured');
 
     const smartWallets = await callCf(handler, {
       method: 'GET',
@@ -6950,13 +7140,13 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare new console endpoints support scaffold CRUD flows', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], 'org-scaffold-cf-1', 'user-scaffold-cf-1'),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
@@ -6964,42 +7154,62 @@ test.describe('console router (cloudflare)', () => {
 
     const createdGas = await callCf(handler, {
       method: 'POST',
-      path: '/console/gas-sponsorship',
+      path: '/console/policies',
       body: {
-        id: 'gs-cf-1',
-        scopeType: 'ENVIRONMENT',
-        environmentId: 'prod',
-        enabled: true,
-        allowedChainIds: [1],
-        spendCap: {
-          mode: 'CHAIN_TOTAL',
-          period: 'MONTHLY',
-          capsByChain: [{ chainId: 1, capMinor: 500000 }],
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Scaffold gas policy cloudflare',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          environmentId: 'prod',
+          enabled: true,
+          allowedChainIds: [1],
+          spendCap: {
+            mode: 'CHAIN_TOTAL',
+            period: 'MONTHLY',
+            capsByChain: [{ chainId: 1, capMinor: 500000 }],
+          },
         },
       },
     });
     expect(createdGas.status).toBe(201);
-    expect(getPath(createdGas.json, 'config', 'id')).toBe('gs-cf-1');
+    const createdGasId = String(getPath(createdGas.json, 'policy', 'id') || '');
+    expect(createdGasId.startsWith('policy_')).toBe(true);
 
     const listedGas = await callCf(handler, {
       method: 'GET',
-      path: '/console/gas-sponsorship?environmentId=prod',
+      path: '/console/policies?kind=GAS_SPONSORSHIP',
     });
     expect(listedGas.status).toBe(200);
-    const listedGasRows: unknown[] = Array.isArray(listedGas.json?.configs)
-      ? (listedGas.json?.configs as unknown[])
+    const listedGasRows: unknown[] = Array.isArray(listedGas.json?.policies)
+      ? (listedGas.json?.policies as unknown[])
       : [];
     expect(listedGasRows.length).toBeGreaterThanOrEqual(1);
 
     const patchedGas = await callCf(handler, {
       method: 'PATCH',
-      path: '/console/gas-sponsorship/gs-cf-1',
+      path: `/console/policies/${encodeURIComponent(createdGasId)}`,
       body: {
-        enabled: false,
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          environmentId: 'prod',
+          enabled: false,
+          allowedChainIds: [1],
+          spendCap: {
+            mode: 'CHAIN_TOTAL',
+            period: 'MONTHLY',
+            capsByChain: [{ chainId: 1, capMinor: 500000 }],
+          },
+        },
       },
     });
     expect(patchedGas.status).toBe(200);
-    expect(getPath(patchedGas.json, 'config', 'enabled')).toBe(false);
+    expect(getPath(patchedGas.json, 'policy', 'rules', 'enabled')).toBe(false);
+
+    const publishedGas = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(createdGasId)}/publish`,
+    });
+    expect(publishedGas.status).toBe(200);
 
     const createdSmartWallet = await callCf(handler, {
       method: 'POST',
@@ -7242,8 +7452,105 @@ test.describe('console router (cloudflare)', () => {
     ).toBe(true);
   });
 
+  test('cloudflare runtime snapshot publish-current resolves published gas sponsorship policy state instead of draft gas rules', async () => {
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const policies = createInMemoryConsolePolicyService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-runtime-gas-policy-cf-1',
+        'user-runtime-gas-policy-cf-1',
+      ),
+      runtimeSnapshots,
+      policies,
+    });
+
+    const environmentId = 'env-runtime-gas-policy-cf-1';
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Runtime gas policy cloudflare',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          environmentId,
+          allowedChainIds: [1],
+          callMode: 'ALLOW_ALL',
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(policyId).toMatch(/^policy_[a-z0-9]+_[a-z0-9]+$/);
+
+    const published = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(policyId)}/publish`,
+    });
+    expect(published.status).toBe(200);
+
+    const drafted = await callCf(handler, {
+      method: 'PATCH',
+      path: `/console/policies/${encodeURIComponent(policyId)}`,
+      body: {
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          environmentId,
+          allowedChainIds: [10],
+          callMode: 'ALLOW_ALL',
+        },
+      },
+    });
+    expect(drafted.status).toBe(200);
+    expect(getPath(drafted.json, 'policy', 'status')).toBe('DRAFT');
+
+    const snapshot = await callCf(handler, {
+      method: 'POST',
+      path: '/console/runtime-snapshots/publish-current',
+      body: {
+        environmentId,
+        snapshotId: 'runtime-gas-policy-live-cf-v1',
+      },
+    });
+    expect(snapshot.status).toBe(201);
+    expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
+      'resolved',
+    );
+    expect(Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0)).toBe(1);
+    expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id')).toBe(
+      policyId,
+    );
+    expect(
+      getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'allowedChainIds', 0),
+    ).toBe(1);
+    expect(
+      getPath(
+        snapshot.json,
+        'snapshot',
+        'payload',
+        'gasSponsorship',
+        'sponsoredCallPolicies',
+        0,
+        'policyId',
+      ),
+    ).toBe(policyId);
+    expect(
+      getPath(
+        snapshot.json,
+        'snapshot',
+        'payload',
+        'gasSponsorship',
+        'sponsoredCallPolicies',
+        0,
+        'allowedChainIds',
+        0,
+      ),
+    ).toBe(1);
+  });
+
   test('cloudflare new console endpoint mutations enforce role gates', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -7253,7 +7560,7 @@ test.describe('console router (cloudflare)', () => {
         'org-scaffold-cf-rbac-1',
         'user-scaffold-cf-rbac-1',
       ),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
@@ -7261,9 +7568,10 @@ test.describe('console router (cloudflare)', () => {
 
     const gasCreate = await callCf(handler, {
       method: 'POST',
-      path: '/console/gas-sponsorship',
+      path: '/console/policies',
       body: {
-        scopeType: 'ORG',
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Forbidden gas policy cloudflare',
       },
     });
     expect(gasCreate.status).toBe(403);
@@ -7307,7 +7615,7 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare new console endpoint validation errors return typed error codes', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -7317,7 +7625,7 @@ test.describe('console router (cloudflare)', () => {
         'org-scaffold-cf-validation-1',
         'user-scaffold-cf-validation-1',
       ),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
@@ -7325,13 +7633,17 @@ test.describe('console router (cloudflare)', () => {
 
     const invalidGasScope = await callCf(handler, {
       method: 'POST',
-      path: '/console/gas-sponsorship',
+      path: '/console/policies',
       body: {
-        scopeType: 'ENVIRONMENT',
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Invalid gas scope cloudflare',
+        rules: {
+          scopeType: 'NOT_A_SCOPE',
+        },
       },
     });
     expect(invalidGasScope.status).toBe(400);
-    expect(invalidGasScope.json?.code).toBe('invalid_scope');
+    expect(invalidGasScope.json?.code).toBe('invalid_body');
 
     const invalidStatusQuery = await callCf(handler, {
       method: 'GET',
@@ -7395,7 +7707,7 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare new console endpoints enforce org isolation', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -7405,22 +7717,27 @@ test.describe('console router (cloudflare)', () => {
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-scaffold-cf-isolation-user'),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const createGas = await callCf(ownerHandler, {
       method: 'POST',
-      path: '/console/gas-sponsorship',
+      path: '/console/policies',
       body: {
-        id: 'gs-cf-isolation-1',
-        scopeType: 'ENVIRONMENT',
-        environmentId: ownerEnvironmentId,
-        allowedChainIds: [11_155_111],
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Isolation gas policy cloudflare',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          environmentId: ownerEnvironmentId,
+          allowedChainIds: [11_155_111],
+        },
       },
     });
     expect(createGas.status).toBe(201);
+    const ownerGasId = String(getPath(createGas.json, 'policy', 'id') || '');
+    expect(ownerGasId.startsWith('policy_')).toBe(true);
 
     const createSmartWallet = await callCf(ownerHandler, {
       method: 'POST',
@@ -7458,26 +7775,26 @@ test.describe('console router (cloudflare)', () => {
 
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-scaffold-cf-isolation-user'),
-      gasSponsorship,
+      policies,
       smartWallets,
       keyExports,
       runtimeSnapshots,
     });
     const gasList = await callCf(attackerHandler, {
       method: 'GET',
-      path: `/console/gas-sponsorship?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
+      path: '/console/policies?kind=GAS_SPONSORSHIP',
     });
     expect(gasList.status).toBe(200);
-    const attackerGasRows = Array.isArray(gasList.json?.configs) ? gasList.json?.configs : [];
+    const attackerGasRows = Array.isArray(gasList.json?.policies) ? gasList.json?.policies : [];
     expect(attackerGasRows.length).toBe(0);
 
     const patchGas = await callCf(attackerHandler, {
       method: 'PATCH',
-      path: '/console/gas-sponsorship/gs-cf-isolation-1',
-      body: { enabled: false },
+      path: `/console/policies/${encodeURIComponent(ownerGasId)}`,
+      body: { rules: { enabled: false } },
     });
     expect(patchGas.status).toBe(404);
-    expect(patchGas.json?.code).toBe('gas_sponsorship_not_found');
+    expect(patchGas.json?.code).toBe('policy_not_found');
 
     const smartWalletList = await callCf(attackerHandler, {
       method: 'GET',
@@ -7589,17 +7906,18 @@ test.describe('console router (cloudflare)', () => {
     const orgId = 'org-insights-cloudflare-1';
     const projectId = 'default-project';
     const environmentId = `${projectId}:prod`;
+    const wallet = makeSeedWallet({
+      id: 'wallet_insights_cf_1',
+      orgId,
+      projectId,
+      environmentId,
+    });
+    wallet.lastActivityAt = wallet.updatedAt;
     const wallets = createInMemoryConsoleWalletService({
-      seedWallets: [
-        makeSeedWallet({
-          id: 'wallet_insights_cf_1',
-          orgId,
-          projectId,
-          environmentId,
-        }),
-      ],
+      seedWallets: [wallet],
     });
     const apiKeys = createInMemoryConsoleApiKeyService();
+    const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId,
@@ -7610,6 +7928,7 @@ test.describe('console router (cloudflare)', () => {
       auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-cloudflare-1'),
       wallets,
       apiKeys,
+      policies,
       orgProjectEnv,
     });
 
@@ -7649,6 +7968,9 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(coverage.json, 'coverage', 'policies') as unknown[])
       : [];
     expect(policyRows.length).toBeGreaterThanOrEqual(1);
+    expect(
+      policyRows.some((row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION'),
+    ).toBe(true);
 
     const readiness = await callCf(handler, {
       method: 'GET',
@@ -7662,6 +7984,14 @@ test.describe('console router (cloudflare)', () => {
       ? (getPath(readiness.json, 'readiness', 'chains') as unknown[])
       : [];
     expect(chainRows.length).toBeGreaterThanOrEqual(1);
+    const readinessWalletRows: unknown[] = Array.isArray(
+      getPath(readiness.json, 'readiness', 'recentWalletSample'),
+    )
+      ? (getPath(readiness.json, 'readiness', 'recentWalletSample') as unknown[])
+      : [];
+    expect(
+      readinessWalletRows.some((row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION'),
+    ).toBe(true);
 
     const governance = await callCf(handler, {
       method: 'GET',
@@ -10941,7 +11271,7 @@ test.describe('console router (postgres api keys)', () => {
     });
     const keyPrefix = String((row || {}).key_prefix || '');
     expect(keyPrefix.length).toBeGreaterThan(12);
-    expect(keyPrefix.startsWith('tsk_v1_')).toBe(true);
+    expect(keyPrefix.startsWith('sk_')).toBe(true);
   });
 
   test('express export governance route enforces org isolation', async () => {

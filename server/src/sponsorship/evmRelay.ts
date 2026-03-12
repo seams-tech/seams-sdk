@@ -18,8 +18,8 @@ import {
   parseOptionalPositiveInteger,
   parseBigIntWithFallback,
   parseSponsoredEvmCallRequest,
-  parseResolvedSponsoredEvmCallConfigs,
-  matchResolvedSponsoredEvmCallConfig,
+  parseResolvedSponsoredEvmCallPolicies,
+  matchResolvedSponsoredEvmCallPolicy,
   createSponsoredEvmSourceEventId,
 } from './evm';
 
@@ -522,9 +522,9 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
       return;
     }
 
-    const configs = parseResolvedSponsoredEvmCallConfigs(latestSnapshot.payload);
-    const matched = matchResolvedSponsoredEvmCallConfig({
-      configs,
+    const policies = parseResolvedSponsoredEvmCallPolicies(latestSnapshot.payload);
+    const matched = matchResolvedSponsoredEvmCallPolicy({
+      policies,
       chainId: parsedBody.chainId,
       call: parsedBody.call,
     });
@@ -562,7 +562,7 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         ok: existing.receiptStatus === 'success',
         replayed: true,
         recordId: existing.id,
-        sponsorshipConfigId: String(existing.sponsorshipConfigId || '').trim() || null,
+        policyId: String(existing.policyId || '').trim() || null,
         txHash: existing.txOrExecutionRef,
         spendWei: existingFeeAmount,
         gasUsed: details?.execution.gasUsed || null,
@@ -588,8 +588,8 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         apiKeyId: authResult.apiKey.id,
         apiKeyKind: 'publishable_key',
         route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-        sponsorshipConfigId: matched.config.sponsorshipConfigId,
-        sponsorshipConfigNameAtEvent: matched.config.sponsorshipConfigName,
+        policyId: matched.policy.policyId,
+        policyNameAtEvent: matched.policy.policyName,
         chainFamily: 'evm',
         intentKind: 'evm_call',
         accountRef: buildAccountRef(parsedBody.nearAccountId),
@@ -622,7 +622,7 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         ok: true,
         replayed: false,
         recordId: record.id,
-        sponsorshipConfigId: matched.config.sponsorshipConfigId,
+        policyId: matched.policy.policyId,
         txHash: execution.txHash,
         spendWei: execution.feeAmount,
         gasUsed: execution.gasUsed,
@@ -654,8 +654,8 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         apiKeyId: authResult.apiKey.id,
         apiKeyKind: 'publishable_key',
         route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-        sponsorshipConfigId: matched.config.sponsorshipConfigId,
-        sponsorshipConfigNameAtEvent: matched.config.sponsorshipConfigName,
+        policyId: matched.policy.policyId,
+        policyNameAtEvent: matched.policy.policyName,
         chainFamily: 'evm',
         intentKind: 'evm_call',
         accountRef: buildAccountRef(parsedBody.nearAccountId),
@@ -705,7 +705,7 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
         message,
         txHash,
         recordId: record.id,
-        sponsorshipConfigId: matched.config.sponsorshipConfigId,
+        policyId: matched.policy.policyId,
       });
     }
   });

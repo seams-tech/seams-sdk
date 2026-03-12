@@ -26,8 +26,19 @@ export function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
   const random = new Uint8Array(8);
   requireCrypto().getRandomValues(random);
-  const suffix = base64UrlEncode(random).slice(0, 10);
-  return `${prefix}_${ts}_${suffix}`;
+  const suffix = Array.from(random)
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+  return `${prefix}_${ts}${suffix}`;
+}
+
+export function makeApiKeyId(now: Date): string {
+  const random = new Uint8Array(8);
+  requireCrypto().getRandomValues(random);
+  const suffix = Array.from(random)
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+  return `ak_${suffix}`;
 }
 
 function randomNonceB64u(): string {

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   makeApiKeyLookupPrefix,
+  makeApiKeyId,
   makeApiKeySecret,
   parseApiKeySecret,
 } from '@server/console/apiKeys/secret';
@@ -28,5 +29,13 @@ test.describe('console API key secret format', () => {
   test('rejects legacy dotted token layouts', async () => {
     expect(parseApiKeySecret('pk_org.part.keypart')).toBeNull();
     expect(parseApiKeySecret('sk_org.part.keypart')).toBeNull();
+  });
+
+  test('creates opaque api key ids without extra separators', async () => {
+    const id = makeApiKeyId(new Date('2026-03-12T00:00:00.000Z'));
+
+    expect(id).toMatch(/^ak_[a-f0-9]+$/);
+    expect(id.slice(3)).not.toContain('_');
+    expect(id.slice(3)).not.toContain('-');
   });
 });

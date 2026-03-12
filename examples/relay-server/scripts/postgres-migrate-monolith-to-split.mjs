@@ -9,7 +9,6 @@ import {
   ensureConsoleApprovalsPostgresSchema,
   ensureConsoleAuditPostgresSchema,
   ensureConsoleBillingPostgresSchema,
-  ensureConsoleGasSponsorshipPostgresSchema,
   ensureConsoleKeyExportsPostgresSchema,
   ensureConsoleObservabilityPostgresSchema,
   ensureConsoleOrgProjectEnvPostgresSchema,
@@ -130,7 +129,6 @@ async function ensureSplitSchemas(input) {
   await ensureConsoleApiKeysPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleBillingPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleWebhooksPostgresSchema({ postgresUrl: consoleUrl, logger });
-  await ensureConsoleGasSponsorshipPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleSmartWalletsPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleSettingsPostgresSchema({ postgresUrl: consoleUrl, logger });
   await ensureConsoleKeyExportsPostgresSchema({ postgresUrl: consoleUrl, logger });

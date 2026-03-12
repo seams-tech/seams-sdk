@@ -17,18 +17,23 @@ import {
 import {
   createDefaultConsolePolicyRules,
   evaluateConsolePolicyRules,
+  isConsoleGasSponsorshipPolicyRules,
+  isConsoleTransactionPolicyRules,
   parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
   serializeConsolePolicyRules,
+  validateGasSponsorshipPolicyRulesForPublish,
 } from './rules';
 import type { ConsolePoliciesContext, ConsolePolicyService } from './service';
 import type {
   ConsolePolicyAssignment,
+  ConsolePolicyKind,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
   ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
+  ListConsolePoliciesRequest,
   ListConsolePolicyAssignmentsRequest,
   PublishConsolePolicyResult,
   SimulateConsolePolicyRequest,
@@ -82,16 +87,23 @@ function parseBoolean(raw: unknown): boolean {
   return value === 'true' || value === 't' || value === '1';
 }
 
+function parsePolicyKind(raw: unknown): ConsolePolicyKind {
+  return String(raw || '').trim().toUpperCase() === 'GAS_SPONSORSHIP'
+    ? 'GAS_SPONSORSHIP'
+    : 'TRANSACTION';
+}
+
 function parsePolicyRow(row: PgRow): ConsolePolicy {
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
     isSystemDefault: parseBoolean(row.is_system_default),
+    kind: parsePolicyKind(row.kind),
     name: String(row.name || ''),
     description: row.description == null ? null : String(row.description || '') || null,
     status: String(row.status || 'DRAFT') as ConsolePolicy['status'],
     version: toNumber(row.version),
-    rules: parseStoredConsolePolicyRules(parseRules(row.rules)),
+    rules: parseStoredConsolePolicyRules(parseRules(row.rules), parsePolicyKind(row.kind)),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
     publishedAt: toIso(row.published_at_ms == null ? null : toNumber(row.published_at_ms)),
@@ -113,9 +125,10 @@ function parsePolicyAssignmentRow(row: PgRow): ConsolePolicyAssignment {
 function parsePolicyVersionRow(row: PgRow): ConsolePolicyVersion {
   return {
     policyId: String(row.policy_id || ''),
+    kind: parsePolicyKind(row.kind),
     version: toNumber(row.version),
     status: String(row.status || 'PUBLISHED') as ConsolePolicyVersion['status'],
-    rules: parseStoredConsolePolicyRules(parseRules(row.rules)),
+    rules: parseStoredConsolePolicyRules(parseRules(row.rules), parsePolicyKind(row.kind)),
     publishedAt: toIso(row.published_at_ms == null ? null : toNumber(row.published_at_ms)),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     actorUserId: String(row.actor_user_id || ''),
@@ -502,10 +515,11 @@ async function migrateStoredPolicyId(
   if (!target) {
     await q.query(
       `INSERT INTO console_policies
-        (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+        (namespace, org_id, id, kind, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
        SELECT namespace,
               org_id,
               $4,
+              kind,
               name,
               description,
               status,
@@ -536,8 +550,8 @@ async function migrateStoredPolicyId(
 
   await q.query(
     `INSERT INTO console_policy_versions
-      (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
-     SELECT namespace, org_id, $4, version, status, rules, published_at_ms, created_at_ms, actor_user_id
+      (namespace, org_id, policy_id, kind, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
+     SELECT namespace, org_id, $4, kind, version, status, rules, published_at_ms, created_at_ms, actor_user_id
        FROM console_policy_versions
       WHERE namespace = $1 AND org_id = $2 AND policy_id = $3
      ON CONFLICT (namespace, org_id, policy_id, version) DO NOTHING`,
@@ -596,6 +610,7 @@ export async function ensureConsolePoliciesPostgresSchema(
         namespace TEXT NOT NULL,
         org_id TEXT NOT NULL,
         id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'TRANSACTION',
         name TEXT NOT NULL,
         description TEXT,
         status TEXT NOT NULL,
@@ -605,6 +620,7 @@ export async function ensureConsolePoliciesPostgresSchema(
         updated_at_ms BIGINT NOT NULL,
         published_at_ms BIGINT,
         PRIMARY KEY (namespace, org_id, id),
+        CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP')),
         CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
         CHECK (version >= 0),
         CHECK (jsonb_typeof(rules) = 'object')
@@ -623,12 +639,41 @@ export async function ensureConsolePoliciesPostgresSchema(
       ALTER TABLE console_policies
       ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN NOT NULL DEFAULT FALSE
     `);
+    await pool.query(`
+      ALTER TABLE console_policies
+      ADD COLUMN IF NOT EXISTS kind TEXT
+    `);
+    await pool.query(`
+      UPDATE console_policies
+         SET kind = 'TRANSACTION'
+       WHERE kind IS NULL OR kind = ''
+    `);
+    await pool.query(`
+      ALTER TABLE console_policies
+      ALTER COLUMN kind SET DEFAULT 'TRANSACTION'
+    `);
+    await pool.query(`
+      ALTER TABLE console_policies
+      ALTER COLUMN kind SET NOT NULL
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE console_policies
+          ADD CONSTRAINT console_policies_kind_check
+          CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP'));
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END
+      $$
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS console_policy_versions (
         namespace TEXT NOT NULL,
         org_id TEXT NOT NULL,
         policy_id TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'TRANSACTION',
         version INTEGER NOT NULL,
         status TEXT NOT NULL,
         rules JSONB NOT NULL,
@@ -639,6 +684,7 @@ export async function ensureConsolePoliciesPostgresSchema(
         FOREIGN KEY (namespace, org_id, policy_id)
           REFERENCES console_policies(namespace, org_id, id)
           ON DELETE CASCADE,
+        CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP')),
         CHECK (status IN ('DRAFT', 'PUBLISHED', 'ARCHIVED')),
         CHECK (version >= 0),
         CHECK (jsonb_typeof(rules) = 'object')
@@ -647,6 +693,34 @@ export async function ensureConsolePoliciesPostgresSchema(
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_policy_versions_org_policy_created_idx
       ON console_policy_versions (namespace, org_id, policy_id, created_at_ms DESC)
+    `);
+    await pool.query(`
+      ALTER TABLE console_policy_versions
+      ADD COLUMN IF NOT EXISTS kind TEXT
+    `);
+    await pool.query(`
+      UPDATE console_policy_versions
+         SET kind = 'TRANSACTION'
+       WHERE kind IS NULL OR kind = ''
+    `);
+    await pool.query(`
+      ALTER TABLE console_policy_versions
+      ALTER COLUMN kind SET DEFAULT 'TRANSACTION'
+    `);
+    await pool.query(`
+      ALTER TABLE console_policy_versions
+      ALTER COLUMN kind SET NOT NULL
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE console_policy_versions
+          ADD CONSTRAINT console_policy_versions_kind_check
+          CHECK (kind IN ('TRANSACTION', 'GAS_SPONSORSHIP'));
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END
+      $$
     `);
 
     await pool.query(`
@@ -777,7 +851,7 @@ export async function createPostgresConsolePolicyService(
 
     const now = nowFn();
     const createdAtMs = nowMs(now);
-    const defaultRules = createDefaultConsolePolicyRules();
+    const defaultRules = createDefaultConsolePolicyRules('TRANSACTION');
     let defaultPolicyId = '';
     let inserted = false;
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -785,9 +859,9 @@ export async function createPostgresConsolePolicyService(
       try {
         await q.query(
           `INSERT INTO console_policies
-            (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+            (namespace, org_id, id, kind, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
            VALUES
-            ($1, $2, $3, $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7, TRUE)`,
+            ($1, $2, $3, 'TRANSACTION', $4, $5, 'PUBLISHED', 1, $6::jsonb, $7, $7, $7, TRUE)`,
           [
             namespace,
             ctx.orgId,
@@ -817,9 +891,9 @@ export async function createPostgresConsolePolicyService(
 
     await q.query(
       `INSERT INTO console_policy_versions
-        (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
+        (namespace, org_id, policy_id, kind, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
        VALUES
-        ($1, $2, $3, 1, 'PUBLISHED', $4::jsonb, $5, $5, 'system-bootstrap')
+        ($1, $2, $3, 'TRANSACTION', 1, 'PUBLISHED', $4::jsonb, $5, $5, 'system-bootstrap')
        ON CONFLICT (namespace, org_id, policy_id, version) DO NOTHING`,
       [
         namespace,
@@ -904,15 +978,17 @@ export async function createPostgresConsolePolicyService(
   }
 
   return {
-    async listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]> {
+    async listPolicies(ctx: ConsolePoliciesContext, request = {}): Promise<ConsolePolicy[]> {
       return withTenantTx(ctx, async (q) => {
         await ensureDefaultPolicy(q, ctx);
+        const kind = request.kind ? parsePolicyKind(request.kind) : null;
         const out = await q.query(
           `SELECT *
              FROM console_policies
             WHERE namespace = $1 AND org_id = $2
+              AND ($3::text IS NULL OR kind = $3)
             ORDER BY updated_at_ms DESC, created_at_ms DESC`,
-          [namespace, ctx.orgId],
+          [namespace, ctx.orgId, kind],
         );
         return out.rows.map((row) => parsePolicyRow(row as PgRow));
       });
@@ -952,21 +1028,22 @@ export async function createPostgresConsolePolicyService(
         await ensureDefaultPolicy(q, ctx);
         const now = nowFn();
         const createdAtMs = nowMs(now);
-        const rules = parseConsolePolicyRulesInput(request.rules);
+        const rules = parseConsolePolicyRulesInput(request.rules, request.kind || 'TRANSACTION');
         for (let attempt = 0; attempt < 8; attempt += 1) {
           const policyId = await generatePolicyId(q, ctx, now);
           try {
             const inserted = await queryOne(
               q,
               `INSERT INTO console_policies
-                (namespace, org_id, id, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
+                (namespace, org_id, id, kind, name, description, status, version, rules, created_at_ms, updated_at_ms, published_at_ms, is_system_default)
                VALUES
-                ($1, $2, $3, $4, $5, 'DRAFT', 0, $6::jsonb, $7, $7, NULL, FALSE)
+                ($1, $2, $3, $4, $5, $6, 'DRAFT', 0, $7::jsonb, $8, $8, NULL, FALSE)
                RETURNING *`,
               [
                 namespace,
                 ctx.orgId,
                 policyId,
+                request.kind || 'TRANSACTION',
                 request.name,
                 request.description || null,
                 JSON.stringify(serializeConsolePolicyRules(rules)),
@@ -1016,7 +1093,9 @@ export async function createPostgresConsolePolicyService(
           );
         }
 
-        const rules = request.rules ? parseConsolePolicyRulesInput(request.rules) : current.rules;
+        const rules = request.rules
+          ? parseConsolePolicyRulesInput(request.rules, current.kind)
+          : current.rules;
         const row = await queryOne(
           q,
           `UPDATE console_policies
@@ -1056,6 +1135,16 @@ export async function createPostgresConsolePolicyService(
             `Policy ${policyId} is archived and cannot be published`,
           );
         }
+        if (current.kind === 'GAS_SPONSORSHIP') {
+          if (!isConsoleGasSponsorshipPolicyRules(current.rules)) {
+            throw new ConsolePolicyError(
+              'invalid_policy_rules',
+              409,
+              `Policy ${policyId} does not contain gas sponsorship rules`,
+            );
+          }
+          validateGasSponsorshipPolicyRulesForPublish(current.rules);
+        }
 
         const now = nowFn();
         const publishedAtMs = nowMs(now);
@@ -1074,14 +1163,15 @@ export async function createPostgresConsolePolicyService(
         const policy = parsePolicyRow(row);
         await q.query(
           `INSERT INTO console_policy_versions
-            (namespace, org_id, policy_id, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
+            (namespace, org_id, policy_id, kind, version, status, rules, published_at_ms, created_at_ms, actor_user_id)
            VALUES
-            ($1, $2, $3, $4, $5, $6::jsonb, $7, $7, $8)
+            ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $8, $9)
            ON CONFLICT (namespace, org_id, policy_id, version) DO NOTHING`,
           [
             namespace,
             ctx.orgId,
             policy.id,
+            policy.kind,
             policy.version,
             policy.status,
             JSON.stringify(serializeConsolePolicyRules(policy.rules)),
@@ -1134,6 +1224,13 @@ export async function createPostgresConsolePolicyService(
         await ensureDefaultPolicy(q, ctx);
         const policy = await findPolicy(q, { orgId: ctx.orgId, policyId });
         if (!policy) return null;
+        if (policy.kind !== 'TRANSACTION' || !isConsoleTransactionPolicyRules(policy.rules)) {
+          throw new ConsolePolicyError(
+            'simulation_not_supported',
+            409,
+            `Policy simulation is only supported for TRANSACTION policies`,
+          );
+        }
         const evaluation = evaluateConsolePolicyRules(policy.rules, request);
         return {
           policyId: policy.id,
@@ -1192,6 +1289,13 @@ export async function createPostgresConsolePolicyService(
             'policy_not_found',
             404,
             `Policy ${request.policyId} was not found`,
+          );
+        }
+        if (policy.kind !== 'TRANSACTION') {
+          throw new ConsolePolicyError(
+            'policy_assignment_unsupported',
+            409,
+            `Policy ${request.policyId} cannot be assigned through transaction policy assignments`,
           );
         }
 

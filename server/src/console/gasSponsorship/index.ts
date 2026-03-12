@@ -8,44 +8,24 @@ export type {
   ConsoleGasSponsorshipSpendCap,
   ConsoleGasSponsorshipAllowedCall,
   ConsoleGasSponsorshipTelemetry,
-  ConsoleGasSponsorshipConfig,
-  ListConsoleGasSponsorshipRequest,
-  CreateConsoleGasSponsorshipRequest,
-  UpdateConsoleGasSponsorshipRequest,
+  ConsoleGasSponsorshipPolicyProjection,
 } from './types';
 
-export type {
-  ConsoleGasSponsorshipContext,
-  ConsoleGasSponsorshipService,
-  InMemoryConsoleGasSponsorshipServiceOptions,
+export {
+  projectConsoleGasSponsorshipPolicyProjection,
+  sortConsoleGasSponsorshipPolicyProjections,
 } from './service';
-export { createInMemoryConsoleGasSponsorshipService } from './service';
 
-export type {
-  PostgresConsoleGasSponsorshipSchemaOptions,
-  PostgresConsoleGasSponsorshipServiceOptions,
-} from './postgres';
-export {
-  ensureConsoleGasSponsorshipPostgresSchema,
-  createPostgresConsoleGasSponsorshipService,
-} from './postgres';
-
-export {
-  parseListConsoleGasSponsorshipRequest,
-  parseCreateConsoleGasSponsorshipRequest,
-  parseUpdateConsoleGasSponsorshipRequest,
-} from './requests';
-
-export type { ResolvedSponsoredCallConfig } from './onboarding';
+export type { ResolvedSponsoredCallPolicy } from './onboarding';
 export {
   TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
   TEMPO_TESTNET_CHAIN_ID,
   TEMPO_DRIP_SELECTOR,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
-  createTempoTestnetOnboardingGasSponsorshipRequest,
+  buildTempoTestnetOnboardingGasPolicyRules,
   ensureTempoTestnetOnboardingPolicyForEnvironment,
-  resolveSponsoredCallConfigsFromConfigs,
+  resolveSponsoredCallPoliciesFromProjections,
 } from './onboarding';
 export {
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,

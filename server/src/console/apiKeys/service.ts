@@ -4,8 +4,8 @@ import { buildPublishableKeyOriginBlockedMessage } from './originMessage';
 import {
   hashApiKeySecret,
   makeApiKeyLookupPrefix,
+  makeApiKeyId,
   makeApiKeySecret,
-  makeId,
   makeSecretPreview,
   parseApiKeySecret,
 } from './secret';
@@ -241,7 +241,7 @@ export function createInMemoryConsoleApiKeyService(
     async createApiKey(ctx, request): Promise<CreateConsoleApiKeyResult> {
       const createdAt = now();
       const iso = toIso(createdAt);
-      const id = makeId('ak', createdAt);
+      const id = makeApiKeyId(createdAt);
       const secret = makeApiKeySecret({ kind: request.kind });
       const secretHash = await hashApiKeySecret(secret);
       const base: Omit<

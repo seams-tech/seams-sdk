@@ -4,7 +4,6 @@ import {
   DashboardTableActionButton,
   DashboardTableActionGroup,
   DashboardTableCell,
-  DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
@@ -26,8 +25,10 @@ import {
   type DashboardConsoleApiKey,
 } from './consoleApiKeysApi';
 import { FRONTEND_CONFIG } from '../../../../config';
+import { CopyButton } from '../../../../components/CopyButton';
 import { UriListEditor } from '../../components/UriListEditor';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
+import { getDashboardEnvironmentLabel } from '../../utils/scopeLabels';
 
 const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
 const DEFAULT_QUOTA_BUCKET = 'free_registrations_v1';
@@ -87,7 +88,7 @@ const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = [
     description: 'Allows session refresh operations.',
   },
 ] as const;
-const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.15, 0.9, 0.9, 0.65, 0.95, 1.2, 0.85, 1.2);
+const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
 const DEFAULT_SECRET_SCOPES = ['accounts.create', 'accounts.sync'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
@@ -269,28 +270,39 @@ function PublishablePaymentPolicyField(props: {
   );
 }
 
-function describeCredentialDetails(apiKey: DashboardConsoleApiKey): {
+function describeCredentialNamePreview(apiKey: DashboardConsoleApiKey): string {
+  if (apiKey.kind !== 'publishable_key') return '';
+  return String(apiKey.credentialPreview || '').trim();
+}
+
+function describeCredentialOverage(apiKey: DashboardConsoleApiKey): {
   short: string;
   title: string;
 } {
-  if (apiKey.kind === 'publishable_key') {
-    const parts: string[] = [];
-    parts.push(
-      apiKey.allowedOrigins.length > 0
-        ? `origins: ${apiKey.allowedOrigins.join(', ')}`
-        : 'origins: -',
-    );
-    parts.push(`overage: ${describePublishablePaymentPolicy(apiKey.paymentPolicy)}`);
-    const text = parts.join(' · ');
-    return { short: text, title: text };
+  if (apiKey.kind !== 'publishable_key') {
+    return { short: '-', title: 'Not applicable for secret_key' };
   }
-  const parts: string[] = [];
-  parts.push(apiKey.scopes.length > 0 ? `scopes: ${apiKey.scopes.join(', ')}` : 'scopes: -');
-  if (apiKey.ipAllowlist.length > 0) {
-    parts.push(`ip: ${apiKey.ipAllowlist.join(', ')}`);
-  }
-  const text = parts.join(' · ');
+  const text = describePublishablePaymentPolicy(apiKey.paymentPolicy);
   return { short: text, title: text };
+}
+
+function describeCredentialOrigins(apiKey: DashboardConsoleApiKey): {
+  short: string;
+  title: string;
+} {
+  if (apiKey.kind !== 'publishable_key') {
+    return { short: '-', title: 'Not applicable for secret_key' };
+  }
+  const text = apiKey.allowedOrigins.length > 0 ? apiKey.allowedOrigins.join(', ') : '-';
+  return { short: text, title: text };
+}
+
+function formatCredentialKindLabel(kind: DashboardCredentialKind): string {
+  return kind === 'publishable_key' ? 'Publishable Key' : 'Secret Key';
+}
+
+function formatCredentialEnvironmentLabel(environmentId: string): string {
+  return getDashboardEnvironmentLabel({ environmentId });
 }
 
 export function ApiKeyManagementPage(): React.JSX.Element {
@@ -745,29 +757,59 @@ export function ApiKeyManagementPage(): React.JSX.Element {
 
       {revealedCredential ? (
         <div className="dashboard-secret-banner">
-          <p>
-            <code>{revealedCredential.apiKey.kind}</code> {revealedCredential.action} for{' '}
-            <strong>{revealedCredential.apiKey.id}</strong> (shown once):{' '}
-            <code>{revealedCredential.credential}</code>
-          </p>
-          <div className="dashboard-form-actions">
-            <button
-              type="button"
-              className="dashboard-pagination-button"
-              onClick={async () => {
-                try {
-                  await window.navigator?.clipboard?.writeText(revealedCredential.credential);
-                  setCopyCredentialStatus(`${revealedCredential.apiKey.kind} copied to clipboard.`);
-                } catch {
-                  setCopyCredentialStatus('Clipboard copy failed. Copy manually.');
-                }
-              }}
-            >
-              Copy {revealedCredential.apiKey.kind}
-            </button>
+          <div className="dashboard-secret-banner__header">
+            <span className="dashboard-secret-banner__eyebrow">Shown once</span>
+            <h3>
+              Save this{' '}
+              {revealedCredential.apiKey.kind === 'publishable_key'
+                ? 'publishable key'
+                : 'secret key'}{' '}
+              now
+            </h3>
+            <p>
+              This value is only returned when the credential is {revealedCredential.action}.{' '}
+              <code>{revealedCredential.apiKey.id}</code> is the credential ID used for management
+              and audit trails, not the key value your app should send.
+            </p>
           </div>
+          <div className="dashboard-secret-banner__facts">
+            <div className="dashboard-secret-banner__fact">
+              <span className="dashboard-secret-banner__fact-label">Credential ID</span>
+              <code>{revealedCredential.apiKey.id}</code>
+            </div>
+            <div className="dashboard-secret-banner__fact">
+              <span className="dashboard-secret-banner__fact-label">Credential value</span>
+              <div className="dashboard-secret-banner__secret-row">
+                <code className="dashboard-secret-banner__secret-value">
+                  {revealedCredential.credential}
+                </code>
+                <div className="dashboard-secret-banner__copy-action">
+                  <CopyButton
+                    text={revealedCredential.credential}
+                    ariaLabel={`Copy ${revealedCredential.apiKey.kind} value`}
+                    className="dashboard-context-copy dashboard-secret-banner__copy"
+                    size={16}
+                    onCopy={() =>
+                      setCopyCredentialStatus(
+                        `${revealedCredential.apiKey.kind} copied to clipboard.`,
+                      )
+                    }
+                    onCopyError={() =>
+                      setCopyCredentialStatus('Clipboard copy failed. Copy manually.')
+                    }
+                  />
+                  <span>Copy value</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p className="dashboard-pagination-note dashboard-secret-banner__hint">
+            Store it in your password manager or secrets vault before leaving this page.
+          </p>
           {copyCredentialStatus ? (
-            <p className="dashboard-pagination-note">{copyCredentialStatus}</p>
+            <p className="dashboard-pagination-note dashboard-secret-banner__status" role="status">
+              {copyCredentialStatus}
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -812,8 +854,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
           <DashboardTableHeaderCell>Kind</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Environment</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Preview</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Details</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Overage</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Origins</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Last used</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
         </DashboardTableHeader>
@@ -830,20 +872,31 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         ) : (
           <>
             {apiKeysPagination.rows.map((apiKey) => {
-              const details = describeCredentialDetails(apiKey);
+              const preview = describeCredentialNamePreview(apiKey);
+              const overage = describeCredentialOverage(apiKey);
+              const origins = describeCredentialOrigins(apiKey);
               return (
                 <DashboardTableRow key={apiKey.id}>
-                  <DashboardTableCell title={apiKey.name}>{apiKey.name}</DashboardTableCell>
-                  <DashboardTableCell title={apiKey.kind}>{apiKey.kind}</DashboardTableCell>
-                  <DashboardTableCell title={apiKey.environmentId}>
-                    {apiKey.environmentId || '-'}
+                  <DashboardTableCell title={apiKey.name}>
+                    <div className="dashboard-credential-table__name">
+                      <span className="dashboard-data-table__summary">{apiKey.name}</span>
+                      {preview ? (
+                        <code className="dashboard-credential-table__preview">{preview}</code>
+                      ) : null}
+                    </div>
+                  </DashboardTableCell>
+                  <DashboardTableCell title={formatCredentialKindLabel(apiKey.kind)}>
+                    {formatCredentialKindLabel(apiKey.kind)}
+                  </DashboardTableCell>
+                  <DashboardTableCell title={formatCredentialEnvironmentLabel(apiKey.environmentId)}>
+                    {formatCredentialEnvironmentLabel(apiKey.environmentId)}
                   </DashboardTableCell>
                   <DashboardTableCell>{apiKey.status}</DashboardTableCell>
-                  <DashboardTableCell title={apiKey.credentialPreview}>
-                    {apiKey.credentialPreview || '-'}
+                  <DashboardTableCell title={overage.title}>
+                    {overage.short || '-'}
                   </DashboardTableCell>
-                  <DashboardTableCell title={details.title}>
-                    {details.short || '-'}
+                  <DashboardTableCell title={origins.title}>
+                    {origins.short || '-'}
                   </DashboardTableCell>
                   <DashboardTableCell truncate>
                     {formatTimestamp(apiKey.lastUsedAt)}
@@ -884,9 +937,6 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 </DashboardTableRow>
               );
             })}
-            <DashboardTableFooter>
-              Showing {visibleApiKeys.length} credential{visibleApiKeys.length === 1 ? '' : 's'}.
-            </DashboardTableFooter>
           </>
         )}
       </DashboardTable>

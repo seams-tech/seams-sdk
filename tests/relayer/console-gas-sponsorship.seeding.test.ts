@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 import {
-  createInMemoryConsoleGasSponsorshipService,
-} from '../../server/src/console/gasSponsorship/service';
+  projectConsoleGasSponsorshipPolicyProjection,
+  sortConsoleGasSponsorshipPolicyProjections,
+  type ConsoleGasSponsorshipPolicyProjection,
+} from '../../server/src/console/gasSponsorship';
+import {
+  createInMemoryConsolePolicyService,
+  type ConsolePolicyService,
+} from '../../server/src/console/policies/service';
 import {
   createInMemoryConsoleOrgProjectEnvService,
 } from '../../server/src/console/orgProjectEnv/service';
@@ -26,12 +32,37 @@ const ctx = {
   roles: ['owner', 'admin'],
 };
 
+async function listProjectedGasPolicies(
+  policies: ConsolePolicyService,
+  filters: {
+    projectId?: string;
+    environmentId?: string;
+  } = {},
+): Promise<ConsoleGasSponsorshipPolicyProjection[]> {
+  const projections = (
+    await Promise.all(
+      (await policies.listPolicies(ctx, { kind: 'GAS_SPONSORSHIP' })).map(
+        async (policy) => await projectConsoleGasSponsorshipPolicyProjection(policies, ctx, policy),
+      ),
+    )
+  ).filter(
+    (projection): projection is ConsoleGasSponsorshipPolicyProjection => projection !== null,
+  );
+  return sortConsoleGasSponsorshipPolicyProjections(
+    projections.filter((projection) => {
+      if (filters.projectId && projection.projectId !== filters.projectId) return false;
+      if (filters.environmentId && projection.environmentId !== filters.environmentId) return false;
+      return true;
+    }),
+  );
+}
+
 test.describe('console gas sponsorship seeding', () => {
   test('createProject seeds the Tempo onboarding policy into default project environments', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({
       base: createInMemoryConsoleOrgProjectEnvService(),
-      gasSponsorship,
+      policies,
       runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),
       faucetContractAddress: DEFAULT_TEMPO_ONBOARDING_CONTRACT,
     });
@@ -42,7 +73,7 @@ test.describe('console gas sponsorship seeding', () => {
       name: 'Mock Project',
     });
 
-    const configs = await gasSponsorship.listConfigs(ctx, {
+    const configs = await listProjectedGasPolicies(policies, {
       projectId: 'proj_mmggz8jp_v9pft0',
       environmentId: 'proj_mmggz8jp_v9pft0:dev',
     });
@@ -61,14 +92,14 @@ test.describe('console gas sponsorship seeding', () => {
     expect(configs[0]?.allowedCalls).toEqual([
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
-        to: DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+        to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
         selector: TEMPO_DRIP_SELECTOR,
       },
     ]);
   });
 
   test('startup seeding backfills the Tempo onboarding policy for every existing project environment', async () => {
-    const gasSponsorship = createInMemoryConsoleGasSponsorshipService();
+    const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
 
@@ -84,16 +115,16 @@ test.describe('console gas sponsorship seeding', () => {
 
     await ensureTempoOnboardingSponsorshipForExistingEnvironments({
       orgProjectEnv,
-      gasSponsorship,
+      policies,
       runtimeSnapshots,
       ctx,
       faucetContractAddress: DEFAULT_TEMPO_ONBOARDING_CONTRACT,
     });
 
-    const firstProjectConfigs = await gasSponsorship.listConfigs(ctx, {
+    const firstProjectConfigs = await listProjectedGasPolicies(policies, {
       projectId: 'proj_existing_one',
     });
-    const secondProjectConfigs = await gasSponsorship.listConfigs(ctx, {
+    const secondProjectConfigs = await listProjectedGasPolicies(policies, {
       projectId: 'proj_existing_two',
     });
 

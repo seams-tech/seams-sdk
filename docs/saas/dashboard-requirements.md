@@ -180,7 +180,8 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 - `GET /console/wallets/search`
 - `GET/POST/PATCH /console/policies`, `POST /console/policies/:id/simulate`, `POST /console/policies/:id/publish`
 - `GET /console/runtime-snapshots`, `GET /console/runtime-snapshots/latest`, `POST /console/runtime-snapshots/publish`, `POST /console/runtime-snapshots/publish-current`
-- `GET/POST/PATCH /console/gas-sponsorship`, `GET/POST/PATCH /console/smart-wallets`
+- gas sponsorship uses `GET/POST/PATCH /console/policies` with `kind=GAS_SPONSORSHIP`, and `POST /console/policies/:id/publish`
+- `GET/POST/PATCH /console/smart-wallets`
 - `GET/POST /console/key-exports`, `POST /console/key-exports/:id/approve`
 - `GET/POST/DELETE /console/api-keys`, `POST /console/api-keys/:id/rotate`
 - `GET/POST/PATCH/DELETE /console/webhooks`, `GET /console/webhooks/:id/deliveries`, `POST /console/webhooks/:id/replay`
@@ -197,7 +198,7 @@ Build a console dashboard at `/dashboard` for teams running embedded threshold w
 ## Delivery plan
 
 - Phase 1 (MVP): wallets list/search, baseline policy controls, API keys, webhooks basics, billing overview + invoices read APIs.
-- Phase 2: policy simulation/versioning, gas sponsorship budgets, smart wallet controls, key export approvals, prepaid Stripe Checkout top-ups, pricing -> Stripe Checkout -> dashboard return flow.
+- Phase 2: policy simulation/versioning, gas sponsorship budgets through `GAS_SPONSORSHIP` policies, smart wallet controls, key export approvals, prepaid Stripe Checkout top-ups, pricing -> Stripe Checkout -> dashboard return flow.
 - Phase 3: advanced governance (RBAC refinements, staged rollouts, SSO, anomaly detection, deeper observability), operator billing adjustments, and ledger/reporting hardening.
 
 ## Acceptance criteria

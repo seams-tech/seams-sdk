@@ -46,6 +46,7 @@ import {
 import {
   isConsolePolicyError,
   parseCreateConsolePolicyRequest,
+  parseListConsolePoliciesRequest,
   parseListConsolePolicyAssignmentsRequest,
   parseSimulateConsolePolicyRequest,
   parseUpsertConsolePolicyAssignmentRequest,
@@ -62,13 +63,6 @@ import {
   parseUpdateConsoleWebhookEndpointRequest,
   type ConsoleWebhookService,
 } from '../../console/webhooks';
-import {
-  isConsoleGasSponsorshipError,
-  parseCreateConsoleGasSponsorshipRequest,
-  parseListConsoleGasSponsorshipRequest,
-  parseUpdateConsoleGasSponsorshipRequest,
-  type ConsoleGasSponsorshipService,
-} from '../../console/gasSponsorship';
 import {
   isConsoleSmartWalletError,
   parseCreateConsoleSmartWalletRequest,
@@ -99,6 +93,7 @@ import {
   type ConsoleTeamRbacService,
 } from '../../console/teamRbac';
 import {
+  type CreateConsoleApprovalRequest,
   type ConsoleApprovalOperationType,
   isConsoleApprovalsError,
   parseApproveConsoleApprovalRequest,
@@ -164,8 +159,10 @@ import {
   resolveConsoleInsightsScope,
 } from '../consoleInsights';
 import {
-  listConsolePolicyNames,
+  type ConsolePolicyPresentation,
+  listConsolePolicyPresentationLookup,
   projectConsolePolicyPresentation,
+  resolveConsolePolicyPresentation,
 } from '../policyPresentation';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
@@ -183,7 +180,6 @@ export interface ExpressConsoleContext {
   policies: ConsolePolicyService | null;
   apiKeys: ConsoleApiKeyService | null;
   webhooks: ConsoleWebhookService | null;
-  gasSponsorship: ConsoleGasSponsorshipService | null;
   smartWallets: ConsoleSmartWalletService | null;
   keyExports: ConsoleKeyExportService | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
@@ -254,7 +250,6 @@ function readOptionalExpressHeader(req: Request, header: string): string | undef
   const value = Array.isArray(raw) ? String(raw[0] || '').trim() : String(raw || '').trim();
   return value || undefined;
 }
-
 
 function installConsoleObservabilityTiming(
   router: ExpressRouter,
@@ -436,24 +431,6 @@ function sendPolicyError(res: Response, error: unknown): void {
 
 function sendWebhookError(res: Response, error: unknown): void {
   if (isConsoleWebhookError(error)) {
-    res.status(error.status).json({
-      ok: false,
-      code: error.code,
-      message: error.message,
-      ...(error.details ? { details: error.details } : {}),
-    });
-    return;
-  }
-
-  res.status(500).json({
-    ok: false,
-    code: 'internal',
-    message: error instanceof Error ? error.message : String(error),
-  });
-}
-
-function sendGasSponsorshipError(res: Response, error: unknown): void {
-  if (isConsoleGasSponsorshipError(error)) {
     res.status(error.status).json({
       ok: false,
       code: error.code,
@@ -762,19 +739,6 @@ function requireWebhookService(
   return null;
 }
 
-function requireGasSponsorshipService(
-  res: Response,
-  ctx: ExpressConsoleContext,
-): ConsoleGasSponsorshipService | null {
-  if (ctx.gasSponsorship) return ctx.gasSponsorship;
-  res.status(501).json({
-    ok: false,
-    code: 'gas_sponsorship_not_configured',
-    message: 'Gas sponsorship service is not configured on this server',
-  });
-  return null;
-}
-
 function requireSmartWalletService(
   res: Response,
   ctx: ExpressConsoleContext,
@@ -1061,15 +1025,18 @@ async function projectApprovalResponse(
     resourceId: string | null;
     metadata: Record<string, unknown>;
   },
-): Promise<typeof row & { policyId: string | null; policyName: string | null }> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<typeof row & ConsolePolicyPresentation> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return {
     ...row,
     ...projectConsolePolicyPresentation({
       resourceType: row.resourceType,
       resourceId: row.resourceId,
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   };
 }
@@ -1082,17 +1049,43 @@ async function projectApprovalResponses<T extends {
   ctx: ExpressConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
-): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<Array<T & ConsolePolicyPresentation>> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return rows.map((row) => ({
     ...row,
     ...projectConsolePolicyPresentation({
       resourceType: row.resourceType,
       resourceId: row.resourceId,
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   }));
+}
+
+async function enrichPolicyApprovalCreateRequest(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  request: CreateConsoleApprovalRequest,
+): Promise<CreateConsoleApprovalRequest> {
+  if (request.operationType !== 'POLICY_PUBLISH') return request;
+  const resourceType = String(request.resourceType || '').trim().toUpperCase();
+  const resourceId = String(request.resourceId || '').trim();
+  if (resourceType !== 'POLICY' || !resourceId) return request;
+  const policy = await resolveConsolePolicyPresentation(ctx.policies, toBillingContext(claims), resourceId);
+  const metadata =
+    request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
+      ? { ...request.metadata }
+      : {};
+  metadata.policyId = policy.policyId || resourceId;
+  if (policy.policyName) metadata.policyName = policy.policyName;
+  if (policy.policyKind) metadata.policyKind = policy.policyKind;
+  return {
+    ...request,
+    metadata,
+  };
 }
 
 async function projectAuditEventResponses<T extends {
@@ -1101,13 +1094,16 @@ async function projectAuditEventResponses<T extends {
   ctx: ExpressConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
-): Promise<Array<T & { policyId: string | null; policyName: string | null }>> {
-  const policyNames = await listConsolePolicyNames(ctx.policies, toBillingContext(claims));
+): Promise<Array<T & ConsolePolicyPresentation>> {
+  const policyPresentationLookup = await listConsolePolicyPresentationLookup(
+    ctx.policies,
+    toBillingContext(claims),
+  );
   return rows.map((row) => ({
     ...row,
     ...projectConsolePolicyPresentation({
       metadata: row.metadata,
-      policyNames,
+      policyPresentationLookup,
     }),
   }));
 }
@@ -1121,9 +1117,9 @@ async function resolveWalletPolicyPresentationByWalletId(
     environmentId?: string | null;
     policyId?: string | null;
   }>,
-): Promise<Record<string, { policyId: string | null; policyName: string | null }>> {
+): Promise<Record<string, ConsolePolicyPresentation>> {
   if (!ctx.policies || walletRows.length === 0) return {};
-  const [resolvedPolicyIds, policyNames] = await Promise.all([
+  const [resolvedPolicyIds, policyPresentationLookup] = await Promise.all([
     ctx.policies.resolvePoliciesForWallets(
       toBillingContext(claims),
       walletRows.map((wallet) => ({
@@ -1133,16 +1129,18 @@ async function resolveWalletPolicyPresentationByWalletId(
         fallbackPolicyId: wallet.policyId || null,
       })),
     ),
-    listConsolePolicyNames(ctx.policies, toBillingContext(claims)),
+    listConsolePolicyPresentationLookup(ctx.policies, toBillingContext(claims)),
   ]);
-  const out: Record<string, { policyId: string | null; policyName: string | null }> = {};
+  const out: Record<string, ConsolePolicyPresentation> = {};
   for (const wallet of walletRows) {
     const policyIdRaw =
       resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
     const policyId = String(policyIdRaw || '').trim() || null;
+    const policy = policyId ? policyPresentationLookup[policyId] : undefined;
     out[wallet.id] = {
       policyId,
-      policyName: policyId ? policyNames[policyId] || null : null,
+      policyName: policy?.policyName || null,
+      policyKind: policy?.policyKind || null,
     };
   }
   return out;
@@ -2366,8 +2364,14 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
     const approvals = requireApprovalService(res, ctx);
     if (!approvals) return;
     try {
-      const request = parseCreateConsoleApprovalRequest((req as any).body || {});
+      const parsedRequest = parseCreateConsoleApprovalRequest((req as any).body || {});
+      const request = await enrichPolicyApprovalCreateRequest(ctx, claims, parsedRequest);
       const row = await approvals.createApprovalRequest(toApprovalContext(claims), request);
+      const approvalPolicy = projectConsolePolicyPresentation({
+        resourceType: row.resourceType,
+        resourceId: row.resourceId,
+        metadata: row.metadata,
+      });
       await emitApprovalWebhookEvent(ctx, {
         orgId: claims.orgId,
         actorUserId: claims.userId,
@@ -2383,6 +2387,9 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
           environmentId: row.environmentId,
           resourceType: row.resourceType,
           resourceId: row.resourceId,
+          policyId: approvalPolicy.policyId,
+          policyName: approvalPolicy.policyName,
+          policyKind: approvalPolicy.policyKind,
         },
       });
       await emitConsoleAuditEvent(ctx, claims, {
@@ -2404,6 +2411,7 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
             .toUpperCase() === 'POLICY' && row.resourceId
             ? { policyId: row.resourceId }
             : {}),
+          ...(approvalPolicy.policyKind ? { policyKind: approvalPolicy.policyKind } : {}),
         },
       });
       res.status(201).json({ ok: true, approval: await projectApprovalResponse(ctx, claims, row) });
@@ -2757,7 +2765,8 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     try {
-      const out = await policies.listPolicies(toBillingContext(claims));
+      const request = parseListConsolePoliciesRequest((req as any).query || {});
+      const out = await policies.listPolicies(toBillingContext(claims), request);
       res.status(200).json({ ok: true, policies: out });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2950,6 +2959,7 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         summary: `Published policy ${policyId}`,
         metadata: {
           policyId,
+          policyKind: result.policy.kind,
           version: result.policy.version,
           status: result.policy.status,
         },
@@ -3071,68 +3081,6 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
       res.status(200).json({ ok: true, governance });
     } catch (error: unknown) {
       sendApiKeyError(res, error);
-    }
-  });
-}
-
-function registerConsoleGasSponsorshipRoutes(
-  router: ExpressRouter,
-  ctx: ExpressConsoleContext,
-): void {
-  router.get('/console/gas-sponsorship', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    const gasSponsorship = requireGasSponsorshipService(res, ctx);
-    if (!gasSponsorship) return;
-    try {
-      const request = parseListConsoleGasSponsorshipRequest((req as any).query || {});
-      const configs = await gasSponsorship.listConfigs(toBillingContext(claims), request);
-      res.status(200).json({ ok: true, configs });
-    } catch (error: unknown) {
-      sendGasSponsorshipError(res, error);
-    }
-  });
-
-  router.post('/console/gas-sponsorship', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
-    const gasSponsorship = requireGasSponsorshipService(res, ctx);
-    if (!gasSponsorship) return;
-    try {
-      const request = parseCreateConsoleGasSponsorshipRequest((req as any).body);
-      const config = await gasSponsorship.createConfig(toBillingContext(claims), request);
-      res.status(201).json({ ok: true, config });
-    } catch (error: unknown) {
-      sendGasSponsorshipError(res, error);
-    }
-  });
-
-  router.patch('/console/gas-sponsorship/:id', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
-    const gasSponsorship = requireGasSponsorshipService(res, ctx);
-    if (!gasSponsorship) return;
-    const configId = readPathParam(req, 'id');
-    if (!configId) {
-      res
-        .status(400)
-        .json({ ok: false, code: 'invalid_path', message: 'Missing gas sponsorship id' });
-      return;
-    }
-    try {
-      const request = parseUpdateConsoleGasSponsorshipRequest((req as any).body);
-      const config = await gasSponsorship.updateConfig(toBillingContext(claims), configId, request);
-      if (!config) {
-        res.status(404).json({
-          ok: false,
-          code: 'gas_sponsorship_not_found',
-          message: `Gas sponsorship config ${configId} was not found`,
-        });
-        return;
-      }
-      res.status(200).json({ ok: true, config });
-    } catch (error: unknown) {
-      sendGasSponsorshipError(res, error);
     }
   });
 }
@@ -3340,7 +3288,6 @@ function registerConsoleRuntimeSnapshotRoutes(
         environmentId: request.environmentId,
         ...(request.projectId ? { projectId: request.projectId } : {}),
         policies: ctx.policies,
-        gasSponsorship: ctx.gasSponsorship,
         smartWallets: ctx.smartWallets,
       });
       const snapshot = await runtimeSnapshots.publishSnapshot(toBillingContext(claims), {
@@ -4133,7 +4080,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const policies = opts.policies === undefined ? null : opts.policies;
   const apiKeys = opts.apiKeys === undefined ? null : opts.apiKeys;
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
-  const gasSponsorship = opts.gasSponsorship === undefined ? null : opts.gasSponsorship;
   const smartWallets = opts.smartWallets === undefined ? null : opts.smartWallets;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
@@ -4160,7 +4106,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     policies,
     apiKeys,
     webhooks,
-    gasSponsorship,
     smartWallets,
     keyExports,
     runtimeSnapshots,
@@ -4197,7 +4142,6 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   registerConsoleWalletRoutes(router, ctx);
   registerConsolePolicyRoutes(router, ctx);
   registerConsoleInsightsRoutes(router, ctx);
-  registerConsoleGasSponsorshipRoutes(router, ctx);
   registerConsoleSmartWalletRoutes(router, ctx);
   registerConsoleKeyExportRoutes(router, ctx);
   registerConsoleRuntimeSnapshotRoutes(router, ctx);

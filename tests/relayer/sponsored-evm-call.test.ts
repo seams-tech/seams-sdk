@@ -264,14 +264,14 @@ async function publishAllowedPolicy(runtimeSnapshots: ReturnType<typeof createIn
       smartWallets: {},
       gasSponsorship: {
         status: 'resolved',
-        configCount: 1,
-        configs: [],
-        sponsoredCallConfigs: [
+        policyCount: 1,
+        policies: [],
+        sponsoredCallPolicies: [
           {
-            sponsorshipConfigId: 'gs_onboarding',
-            sponsorshipConfigName: 'Tempo Testnet Onboarding',
-            policyId: null,
-            policyName: null,
+            policyId: 'policy_gs_onboarding',
+            policyName: 'Tempo Testnet Onboarding',
+            scopePolicyId: null,
+            scopePolicyName: null,
             templateId: 'tempo_testnet_onboarding',
             networkClass: 'TESTNET',
             allowedChainIds: [42_431],
@@ -327,8 +327,8 @@ test.describe('sponsored evm call route', () => {
         apiKeyId: 'pk_live_1',
         apiKeyKind: 'publishable_key',
         route: 'sponsored_evm_call_v1',
-        sponsorshipConfigId: 'gs_onboarding',
-        sponsorshipConfigNameAtEvent: 'Tempo Testnet Onboarding',
+        policyId: 'policy_gs_onboarding',
+        policyNameAtEvent: 'Tempo Testnet Onboarding',
         chainFamily: 'evm',
         intentKind: 'evm_call',
         accountRef: 'near:alice.testnet',
@@ -369,7 +369,7 @@ test.describe('sponsored evm call route', () => {
         apiKeyId: 'pk_live_2',
         apiKeyKind: 'publishable_key',
         route: 'sponsored_evm_call_v1',
-        sponsorshipConfigId: 'gs_other',
+        policyId: 'policy_gs_other',
         chainFamily: 'evm',
         intentKind: 'evm_call',
         accountRef: 'near:bob.testnet',
@@ -384,7 +384,7 @@ test.describe('sponsored evm call route', () => {
     );
     expect(second.id).toBe(first.id);
     expect(second.apiKeyId).toBe('pk_live_1');
-    expect(second.sponsorshipConfigId).toBe('gs_onboarding');
+    expect(second.policyId).toBe('policy_gs_onboarding');
   });
 
   test('executes a sponsored call and records exact spend', async () => {
@@ -431,14 +431,14 @@ test.describe('sponsored evm call route', () => {
       expect(response.status).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.txHash).toBe(txHash);
-      expect(body.sponsorshipConfigId).toBe('gs_onboarding');
+      expect(body.policyId).toBe('policy_gs_onboarding');
       expect(body.gasUsed).toBe(gasUsedDec);
       expect(body.effectiveGasPrice).toBe(effectiveGasPriceDec);
       expect(body.spendWei).toBe(spendWeiDec);
 
       const record = await ledger.getRecordBySourceEventId(apiKeyCtx, sourceEventId);
       const details = parseRecordDetails(record?.detailsJson);
-      expect(record?.sponsorshipConfigId).toBe('gs_onboarding');
+      expect(record?.policyId).toBe('policy_gs_onboarding');
       expect(record?.chainFamily).toBe('evm');
       expect(record?.intentKind).toBe('evm_call');
       expect(record?.accountRef).toBe('near:alice.testnet');

@@ -204,7 +204,7 @@ export function createInMemoryConsoleAuditService(
         action: 'api_key.update',
         outcome: 'SUCCESS',
         summary: 'Updated publishable_key allowed origins for the production environment',
-        metadata: { environmentId, apiKeyId: 'ak_publishable_prod' },
+        metadata: { environmentId, apiKeyId: 'ak_publishableprod' },
         createdAt: new Date(seedNow - 9 * 60_000).toISOString(),
       },
       {

@@ -47,8 +47,8 @@ function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
     apiKeyId: String(row.api_key_id || ''),
     apiKeyKind: String(row.api_key_kind || 'publishable_key') as ConsoleSponsoredCallRecord['apiKeyKind'],
     route: String(row.route || ''),
-    sponsorshipConfigId: String(row.sponsorship_config_id || ''),
-    sponsorshipConfigNameAtEvent: normalizeString(row.sponsorship_config_name_at_event),
+    policyId: String(row.policy_id || ''),
+    policyNameAtEvent: normalizeString(row.policy_name_at_event),
     chainFamily: String(row.chain_family || 'evm') as ConsoleSponsoredCallRecord['chainFamily'],
     intentKind: String(row.intent_kind || 'evm_call') as ConsoleSponsoredCallRecord['intentKind'],
     accountRef: String(row.account_ref || ''),
@@ -108,8 +108,8 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
         api_key_id TEXT NOT NULL,
         api_key_kind TEXT NOT NULL,
         route TEXT NOT NULL,
-        sponsorship_config_id TEXT NOT NULL,
-        sponsorship_config_name_at_event TEXT,
+        policy_id TEXT NOT NULL,
+        policy_name_at_event TEXT,
         chain_family TEXT NOT NULL DEFAULT 'evm',
         intent_kind TEXT NOT NULL DEFAULT 'evm_call',
         account_ref TEXT NOT NULL DEFAULT '',
@@ -147,11 +147,7 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
-      ADD COLUMN IF NOT EXISTS sponsorship_config_id TEXT NOT NULL DEFAULT ''
-    `);
-    await pool.query(`
-      ALTER TABLE console_sponsored_call_records
-      ADD COLUMN IF NOT EXISTS sponsorship_config_name_at_event TEXT
+      ADD COLUMN IF NOT EXISTS policy_id TEXT NOT NULL DEFAULT ''
     `);
     await pool.query(`
       DO $$
@@ -160,18 +156,35 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
           SELECT 1
             FROM information_schema.columns
            WHERE table_name = 'console_sponsored_call_records'
+             AND column_name = 'sponsorship_config_id'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsored_call_records'
              AND column_name = 'policy_id'
         ) THEN
-          UPDATE console_sponsored_call_records
-             SET sponsorship_config_id = COALESCE(
-               NULLIF(sponsorship_config_id, ''),
-               NULLIF(policy_id, ''),
-               sponsorship_config_id
-             );
           ALTER TABLE console_sponsored_call_records
-          DROP COLUMN policy_id;
+          RENAME COLUMN sponsorship_config_id TO policy_id;
+        END IF;
+        IF EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsored_call_records'
+             AND column_name = 'sponsorship_config_name_at_event'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM information_schema.columns
+           WHERE table_name = 'console_sponsored_call_records'
+             AND column_name = 'policy_name_at_event'
+        ) THEN
+          ALTER TABLE console_sponsored_call_records
+          RENAME COLUMN sponsorship_config_name_at_event TO policy_name_at_event;
         END IF;
       END $$;
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS policy_name_at_event TEXT
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
@@ -388,8 +401,8 @@ export async function createPostgresConsoleSponsoredCallService(
                 api_key_id,
                 api_key_kind,
                 route,
-                sponsorship_config_id,
-                sponsorship_config_name_at_event,
+                policy_id,
+                policy_name_at_event,
                 chain_family,
                 intent_kind,
                 account_ref,
@@ -418,8 +431,8 @@ export async function createPostgresConsoleSponsoredCallService(
               String(request.apiKeyId || '').trim(),
               request.apiKeyKind,
               String(request.route || '').trim(),
-              String(request.sponsorshipConfigId || '').trim(),
-              normalizeString(request.sponsorshipConfigNameAtEvent),
+              String(request.policyId || '').trim(),
+              normalizeString(request.policyNameAtEvent),
               request.chainFamily,
               request.intentKind,
               String(request.accountRef || '').trim(),

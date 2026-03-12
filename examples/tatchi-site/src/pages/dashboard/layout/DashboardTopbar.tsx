@@ -18,6 +18,7 @@ type DashboardTopbarProps = {
   onSelectContext: (menu: TopbarMenuKey, value: string) => void;
   dropdownOptions: Record<TopbarMenuKey, TopbarOption[]>;
   focusedMode?: boolean;
+  focusedContextValue?: string;
 };
 
 export function DashboardTopbar({
@@ -28,15 +29,18 @@ export function DashboardTopbar({
   onSelectContext,
   dropdownOptions,
   focusedMode = false,
+  focusedContextValue,
 }: DashboardTopbarProps): React.JSX.Element {
   const topbarRef = React.useRef<HTMLElement | null>(null);
   const [activeTopbarMenu, setActiveTopbarMenu] = React.useState<TopbarMenuKey | null>(null);
   const environmentId = String(selectedContext.environment || '').trim();
   const organizationLabel =
-    dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
-      ?.label ||
-    selectedContext.organization ||
-    'Organization';
+    focusedContextValue !== undefined
+      ? focusedContextValue
+      : (dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
+          ?.label ||
+          selectedContext.organization ||
+          'Organization');
 
   React.useEffect(() => {
     if (!activeTopbarMenu) return;

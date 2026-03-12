@@ -1,10 +1,10 @@
 import {
-  buildConsoleAcceptHeaders,
-  buildConsoleJsonHeaders,
-  consoleErrorMessage,
-  parseConsoleJson,
-  requireConsoleBaseUrl,
-} from '../../consoleHttp';
+  createDashboardPolicy,
+  listDashboardPolicies,
+  publishDashboardPolicy,
+  updateDashboardPolicy,
+  type DashboardConsolePolicy,
+} from '../policy-engine/consolePoliciesApi';
 
 export interface DashboardGasSponsorshipAllowedCall {
   chainId: number;
@@ -25,13 +25,13 @@ export interface DashboardGasSponsorshipSpendCap {
   }>;
 }
 
-export interface DashboardGasSponsorshipConfig {
+export interface DashboardGasSponsorshipPolicy {
   id: string;
   scopeType: string;
   projectId: string | null;
   environmentId: string | null;
-  policyId: string | null;
-  policyName: string | null;
+  scopePolicyId: string | null;
+  scopePolicyName: string | null;
   walletSegmentId: string | null;
   name: string;
   templateId: string | null;
@@ -44,16 +44,14 @@ export interface DashboardGasSponsorshipConfig {
   updatedAt: string;
 }
 
-interface ConsoleConfigListResponse {
-  ok?: boolean;
-  message?: string;
-  configs?: unknown;
+function normalizeString(value: unknown): string {
+  return String(value || '').trim();
 }
 
-interface ConsoleConfigMutationResponse {
-  ok?: boolean;
-  message?: string;
-  config?: unknown;
+function readObject(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
 }
 
 function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] {
@@ -62,8 +60,8 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
     .map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
       const row = entry as Record<string, unknown>;
-      const to = String(row.to || '').trim();
-      const selector = String(row.selector || '').trim();
+      const to = normalizeString(row.to);
+      const selector = normalizeString(row.selector);
       const chainId = Number(row.chainId || 0);
       if (!to || !selector || !Number.isFinite(chainId) || chainId <= 0) return null;
       return {
@@ -98,12 +96,8 @@ function decodeSpendCap(raw: unknown): DashboardGasSponsorshipSpendCap {
     };
   }
   const row = raw as Record<string, unknown>;
-  const modeRaw = String(row.mode || '')
-    .trim()
-    .toUpperCase();
-  const periodRaw = String(row.period || '')
-    .trim()
-    .toUpperCase();
+  const modeRaw = normalizeString(row.mode).toUpperCase();
+  const periodRaw = normalizeString(row.period).toUpperCase();
   const capsByChainRaw = Array.isArray(row.capsByChain) ? row.capsByChain : [];
   const mode =
     modeRaw === 'CHAIN_TOTAL' || modeRaw === 'WALLET_CHAIN_TOTAL'
@@ -112,129 +106,150 @@ function decodeSpendCap(raw: unknown): DashboardGasSponsorshipSpendCap {
   return {
     mode,
     period: periodRaw === 'WEEKLY' ? 'WEEKLY' : 'MONTHLY',
-    capsByChain: mode === 'NONE' ? [] : Array.from(
-      new Map(
-        capsByChainRaw
-          .map((entry) => {
-            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-            const cap = entry as Record<string, unknown>;
-            const chainId = Number(cap.chainId || 0);
-            const capMinor = Number(cap.capMinor || 0);
-            if (!Number.isFinite(chainId) || chainId <= 0) return null;
-            if (!Number.isFinite(capMinor) || capMinor < 0) return null;
-            return [Math.floor(chainId), { chainId: Math.floor(chainId), capMinor: Math.floor(capMinor) }] as const;
-          })
-          .filter(
-            (
-              entry,
-            ): entry is readonly [
-              number,
-              DashboardGasSponsorshipSpendCap['capsByChain'][number],
-            ] => entry !== null,
+    capsByChain:
+      mode === 'NONE'
+        ? []
+        : Array.from(
+            new Map(
+              capsByChainRaw
+                .map((entry) => {
+                  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+                  const cap = entry as Record<string, unknown>;
+                  const chainId = Number(cap.chainId || 0);
+                  const capMinor = Number(cap.capMinor || 0);
+                  if (!Number.isFinite(chainId) || chainId <= 0) return null;
+                  if (!Number.isFinite(capMinor) || capMinor < 0) return null;
+                  return [
+                    Math.floor(chainId),
+                    {
+                      chainId: Math.floor(chainId),
+                      capMinor: Math.floor(capMinor),
+                    },
+                  ] as const;
+                })
+                .filter(
+                  (
+                    entry,
+                  ): entry is readonly [
+                    number,
+                    DashboardGasSponsorshipSpendCap['capsByChain'][number],
+                  ] => entry !== null,
+                ),
+            ).values(),
           ),
-      ).values(),
-    ),
   };
 }
 
-function decodeGasSponsorshipConfig(raw: unknown): DashboardGasSponsorshipConfig | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const row = raw as Record<string, unknown>;
-  const id = String(row.id || '').trim();
-  if (!id) return null;
-  const allowedCalls = decodeAllowedCalls(row.allowedCalls);
-  const callModeRaw = String(row.callMode || '')
-    .trim()
-    .toUpperCase();
+function decodeGasSponsorshipPolicy(
+  policy: DashboardConsolePolicy,
+  policyNamesById: ReadonlyMap<string, string>,
+): DashboardGasSponsorshipPolicy | null {
+  if (policy.kind !== 'GAS_SPONSORSHIP') return null;
+  const rules = readObject(policy.rules);
+  const allowedCalls = decodeAllowedCalls(rules.allowedCalls);
+  const callModeRaw = normalizeString(rules.callMode).toUpperCase();
+  const scopePolicyId = normalizeString(rules.scopePolicyId) || null;
   return {
-    id,
-    scopeType: String(row.scopeType || '').trim() || 'ENVIRONMENT',
-    projectId: row.projectId == null ? null : String(row.projectId || '').trim() || null,
-    environmentId: row.environmentId == null ? null : String(row.environmentId || '').trim() || null,
-    policyId: row.policyId == null ? null : String(row.policyId || '').trim() || null,
-    policyName: row.policyName == null ? null : String(row.policyName || '').trim() || null,
-    walletSegmentId: row.walletSegmentId == null ? null : String(row.walletSegmentId || '').trim() || null,
-    name: String(row.name || '').trim() || 'Gas Sponsorship Policy',
-    templateId: row.templateId == null ? null : String(row.templateId || '').trim() || null,
-    networkClass: String(row.networkClass || '').trim() || 'ANY',
-    enabled: row.enabled !== false,
-    allowedChainIds: decodeAllowedChainIds(row.allowedChainIds, allowedCalls),
+    id: policy.id,
+    scopeType: normalizeString(rules.scopeType) || 'ENVIRONMENT',
+    projectId: normalizeString(rules.projectId) || null,
+    environmentId: normalizeString(rules.environmentId) || null,
+    scopePolicyId,
+    scopePolicyName: scopePolicyId ? policyNamesById.get(scopePolicyId) || null : null,
+    walletSegmentId: normalizeString(rules.walletSegmentId) || null,
+    name: normalizeString(policy.name) || 'Gas Sponsorship Policy',
+    templateId: normalizeString(rules.templateId) || null,
+    networkClass: normalizeString(rules.networkClass) || 'ANY',
+    enabled: rules.enabled !== false,
+    allowedChainIds: decodeAllowedChainIds(rules.allowedChainIds, allowedCalls),
     callMode:
       callModeRaw === 'ALLOWLIST' || callModeRaw === 'ALLOW_ALL'
         ? (callModeRaw as DashboardGasSponsorshipCallMode)
         : allowedCalls.length > 0
           ? 'ALLOWLIST'
           : 'ALLOW_ALL',
-    spendCap: decodeSpendCap(row.spendCap),
+    spendCap: decodeSpendCap(rules.spendCap),
     allowedCalls,
-    updatedAt: String(row.updatedAt || '').trim(),
+    updatedAt: normalizeString(policy.updatedAt),
   };
 }
 
-export async function listDashboardGasSponsorship(input: {
+function matchesScopeFilter(
+  policy: DashboardGasSponsorshipPolicy,
+  input: { environmentId?: string; projectId?: string },
+): boolean {
+  if (input.environmentId && policy.environmentId !== input.environmentId) return false;
+  if (input.projectId && policy.projectId !== input.projectId) return false;
+  return true;
+}
+
+function splitGasPolicyMutationInput(input: Record<string, unknown>): {
+  name: string;
+  rules: Record<string, unknown>;
+} {
+  const name = normalizeString(input.name) || 'Gas Sponsorship Policy';
+  const rules: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key === 'name') continue;
+    rules[key] = value;
+  }
+  return { name, rules };
+}
+
+async function getDashboardGasSponsorshipPolicyById(
+  policyId: string,
+): Promise<DashboardGasSponsorshipPolicy> {
+  const policies = await listDashboardPolicies();
+  const policyNamesById = new Map(
+    policies.map((entry) => [entry.id, normalizeString(entry.name) || entry.id]),
+  );
+  const policy = policies.find((entry) => entry.id === policyId) || null;
+  const gasPolicy = policy ? decodeGasSponsorshipPolicy(policy, policyNamesById) : null;
+  if (!gasPolicy) {
+    throw new Error(`Gas sponsorship policy ${policyId} was not found after publish`);
+  }
+  return gasPolicy;
+}
+
+export async function listDashboardGasSponsorshipPolicies(input: {
   environmentId?: string;
   projectId?: string;
-} = {}): Promise<DashboardGasSponsorshipConfig[]> {
-  const base = requireConsoleBaseUrl();
-  const params = new URLSearchParams();
-  if (input.environmentId) params.set('environmentId', input.environmentId);
-  if (input.projectId) params.set('projectId', input.projectId);
-  const suffix = params.toString();
-  const response = await fetch(`${base}/console/gas-sponsorship${suffix ? `?${suffix}` : ''}`, {
-    method: 'GET',
-    headers: buildConsoleAcceptHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const body = (await parseConsoleJson(response)) as ConsoleConfigListResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Gas sponsorship request failed'));
-  }
-  const rows = Array.isArray(body?.configs) ? body.configs : [];
-  return rows
-    .map((entry) => decodeGasSponsorshipConfig(entry))
-    .filter((entry): entry is DashboardGasSponsorshipConfig => entry !== null);
+} = {}): Promise<DashboardGasSponsorshipPolicy[]> {
+  const policies = await listDashboardPolicies();
+  const policyNamesById = new Map(
+    policies.map((entry) => [entry.id, normalizeString(entry.name) || entry.id]),
+  );
+  return policies
+    .map((entry) => decodeGasSponsorshipPolicy(entry, policyNamesById))
+    .filter((entry): entry is DashboardGasSponsorshipPolicy => entry !== null)
+    .filter((entry) => matchesScopeFilter(entry, input));
 }
 
-export async function createDashboardGasSponsorship(
+export async function createDashboardGasSponsorshipPolicy(
   input: Record<string, unknown>,
-): Promise<DashboardGasSponsorshipConfig> {
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/gas-sponsorship`, {
-    method: 'POST',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
+): Promise<DashboardGasSponsorshipPolicy> {
+  const { name, rules } = splitGasPolicyMutationInput(input);
+  const created = await createDashboardPolicy({
+    kind: 'GAS_SPONSORSHIP',
+    name,
+    rules,
   });
-  const body = (await parseConsoleJson(response)) as ConsoleConfigMutationResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Create gas sponsorship request failed'));
-  }
-  const config = decodeGasSponsorshipConfig(body?.config);
-  if (!config) throw new Error('Create gas sponsorship response was invalid');
-  return config;
+  const published = await publishDashboardPolicy({ policyId: created.id });
+  return await getDashboardGasSponsorshipPolicyById(published.id);
 }
 
-export async function updateDashboardGasSponsorship(
-  configId: string,
+export async function updateDashboardGasSponsorshipPolicy(
+  policyIdRaw: string,
   input: Record<string, unknown>,
-): Promise<DashboardGasSponsorshipConfig> {
-  const id = String(configId || '').trim();
-  if (!id) throw new Error('Gas sponsorship config id is required');
-  const base = requireConsoleBaseUrl();
-  const response = await fetch(`${base}/console/gas-sponsorship/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: buildConsoleJsonHeaders(),
-    credentials: 'include',
-    cache: 'no-store',
-    body: JSON.stringify(input),
+): Promise<DashboardGasSponsorshipPolicy> {
+  const policyId = normalizeString(policyIdRaw);
+  if (!policyId) throw new Error('Gas sponsorship policy id is required');
+  const { name, rules } = splitGasPolicyMutationInput(input);
+  const updated = await updateDashboardPolicy({
+    policyId,
+    ...(Object.prototype.hasOwnProperty.call(input, 'name') ? { name } : {}),
+    rules,
   });
-  const body = (await parseConsoleJson(response)) as ConsoleConfigMutationResponse | null;
-  if (!response.ok || body?.ok !== true) {
-    throw new Error(consoleErrorMessage(response, body, 'Update gas sponsorship request failed'));
-  }
-  const config = decodeGasSponsorshipConfig(body?.config);
-  if (!config) throw new Error('Update gas sponsorship response was invalid');
-  return config;
+  const published = await publishDashboardPolicy({ policyId: updated.id });
+  return await getDashboardGasSponsorshipPolicyById(published.id);
 }

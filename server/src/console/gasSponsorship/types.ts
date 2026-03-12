@@ -1,31 +1,22 @@
-export type ConsoleGasSponsorshipScopeType =
-  | 'ORG'
-  | 'PROJECT'
-  | 'ENVIRONMENT'
-  | 'POLICY'
-  | 'WALLET_SEGMENT';
+import type {
+  ConsoleGasSponsorshipPolicyAllowedCall,
+  ConsoleGasSponsorshipPolicyCallMode,
+  ConsoleGasSponsorshipPolicyNetworkClass,
+  ConsoleGasSponsorshipPolicyScopeType,
+  ConsoleGasSponsorshipPolicySpendCap,
+  ConsoleGasSponsorshipPolicySpendCapChain,
+  ConsoleGasSponsorshipPolicySpendCapMode,
+  ConsoleGasSponsorshipPolicySpendCapPeriod,
+} from '../policies';
 
-export type ConsoleGasSponsorshipNetworkClass = 'ANY' | 'TESTNET' | 'MAINNET';
-export type ConsoleGasSponsorshipCallMode = 'ALLOW_ALL' | 'ALLOWLIST';
-export type ConsoleGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
-export type ConsoleGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
-
-export interface ConsoleGasSponsorshipSpendCapChain {
-  chainId: number;
-  capMinor: number;
-}
-
-export interface ConsoleGasSponsorshipSpendCap {
-  mode: ConsoleGasSponsorshipSpendCapMode;
-  period: ConsoleGasSponsorshipSpendCapPeriod;
-  capsByChain: ConsoleGasSponsorshipSpendCapChain[];
-}
-
-export interface ConsoleGasSponsorshipAllowedCall {
-  chainId: number;
-  to: string;
-  selector: string;
-}
+export type ConsoleGasSponsorshipScopeType = ConsoleGasSponsorshipPolicyScopeType;
+export type ConsoleGasSponsorshipNetworkClass = ConsoleGasSponsorshipPolicyNetworkClass;
+export type ConsoleGasSponsorshipCallMode = ConsoleGasSponsorshipPolicyCallMode;
+export type ConsoleGasSponsorshipSpendCapMode = ConsoleGasSponsorshipPolicySpendCapMode;
+export type ConsoleGasSponsorshipSpendCapPeriod = ConsoleGasSponsorshipPolicySpendCapPeriod;
+export type ConsoleGasSponsorshipSpendCapChain = ConsoleGasSponsorshipPolicySpendCapChain;
+export type ConsoleGasSponsorshipSpendCap = ConsoleGasSponsorshipPolicySpendCap;
+export type ConsoleGasSponsorshipAllowedCall = ConsoleGasSponsorshipPolicyAllowedCall;
 
 export interface ConsoleGasSponsorshipTelemetry {
   sponsoredTransactionCount: number;
@@ -34,14 +25,14 @@ export interface ConsoleGasSponsorshipTelemetry {
   budgetUtilizationPct: number;
 }
 
-export interface ConsoleGasSponsorshipConfig {
+export interface ConsoleGasSponsorshipPolicyProjection {
   id: string;
   orgId: string;
   scopeType: ConsoleGasSponsorshipScopeType;
   projectId: string | null;
   environmentId: string | null;
-  policyId: string | null;
-  policyName: string | null;
+  scopePolicyId: string | null;
+  scopePolicyName: string | null;
   walletSegmentId: string | null;
   name: string;
   templateId: string | null;
@@ -54,46 +45,4 @@ export interface ConsoleGasSponsorshipConfig {
   telemetry: ConsoleGasSponsorshipTelemetry;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface ListConsoleGasSponsorshipRequest {
-  scopeType?: ConsoleGasSponsorshipScopeType;
-  projectId?: string;
-  environmentId?: string;
-  policyId?: string;
-  walletSegmentId?: string;
-  templateId?: string;
-}
-
-export interface CreateConsoleGasSponsorshipRequest {
-  id?: string;
-  scopeType: ConsoleGasSponsorshipScopeType;
-  projectId?: string;
-  environmentId?: string;
-  policyId?: string;
-  walletSegmentId?: string;
-  name?: string;
-  templateId?: string;
-  networkClass?: ConsoleGasSponsorshipNetworkClass;
-  enabled?: boolean;
-  allowedChainIds?: number[];
-  callMode?: ConsoleGasSponsorshipCallMode;
-  spendCap?: ConsoleGasSponsorshipSpendCap;
-  allowedCalls?: ConsoleGasSponsorshipAllowedCall[];
-}
-
-export interface UpdateConsoleGasSponsorshipRequest {
-  scopeType?: ConsoleGasSponsorshipScopeType;
-  projectId?: string;
-  environmentId?: string;
-  policyId?: string;
-  walletSegmentId?: string;
-  name?: string;
-  templateId?: string;
-  networkClass?: ConsoleGasSponsorshipNetworkClass;
-  enabled?: boolean;
-  allowedChainIds?: number[];
-  callMode?: ConsoleGasSponsorshipCallMode;
-  spendCap?: ConsoleGasSponsorshipSpendCap;
-  allowedCalls?: ConsoleGasSponsorshipAllowedCall[];
 }

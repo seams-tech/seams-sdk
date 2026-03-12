@@ -1,6 +1,20 @@
 export type ConsolePolicyStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+export type ConsolePolicyKind = 'TRANSACTION' | 'GAS_SPONSORSHIP';
 export type ConsolePolicyDecision = 'ALLOW' | 'DENY';
 export type ConsolePolicyAssignmentScopeType = 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
+export type ConsoleGasSponsorshipPolicyScopeType =
+  | 'ORG'
+  | 'PROJECT'
+  | 'ENVIRONMENT'
+  | 'POLICY'
+  | 'WALLET_SEGMENT';
+export type ConsoleGasSponsorshipPolicyNetworkClass = 'ANY' | 'TESTNET' | 'MAINNET';
+export type ConsoleGasSponsorshipPolicyCallMode = 'ALLOW_ALL' | 'ALLOWLIST';
+export type ConsoleGasSponsorshipPolicySpendCapMode =
+  | 'NONE'
+  | 'CHAIN_TOTAL'
+  | 'WALLET_CHAIN_TOTAL';
+export type ConsoleGasSponsorshipPolicySpendCapPeriod = 'WEEKLY' | 'MONTHLY';
 export type ConsolePolicyDenyReasonCode =
   | 'ACTION_BLOCKED'
   | 'CHAIN_NOT_ALLOWED'
@@ -18,7 +32,24 @@ export interface ConsolePolicyContractCallRule {
   functions: string[];
 }
 
-export interface ConsolePolicyRulesInput {
+export interface ConsoleGasSponsorshipPolicyAllowedCall {
+  chainId: number;
+  to: string;
+  selector: string;
+}
+
+export interface ConsoleGasSponsorshipPolicySpendCapChain {
+  chainId: number;
+  capMinor: number;
+}
+
+export interface ConsoleGasSponsorshipPolicySpendCap {
+  mode: ConsoleGasSponsorshipPolicySpendCapMode;
+  period: ConsoleGasSponsorshipPolicySpendCapPeriod;
+  capsByChain: ConsoleGasSponsorshipPolicySpendCapChain[];
+}
+
+export interface ConsoleTransactionPolicyRulesInput {
   schemaVersion?: 1;
   blockedActions?: string[];
   allowedChains?: string[];
@@ -26,7 +57,23 @@ export interface ConsolePolicyRulesInput {
   allowedContractCalls?: ConsolePolicyContractCallRuleInput[];
 }
 
-export interface ConsolePolicyRules {
+export interface ConsoleGasSponsorshipPolicyRulesInput {
+  schemaVersion?: 1;
+  scopeType?: ConsoleGasSponsorshipPolicyScopeType;
+  projectId?: string;
+  environmentId?: string;
+  scopePolicyId?: string;
+  walletSegmentId?: string;
+  enabled?: boolean;
+  templateId?: string;
+  networkClass?: ConsoleGasSponsorshipPolicyNetworkClass;
+  allowedChainIds?: number[];
+  callMode?: ConsoleGasSponsorshipPolicyCallMode;
+  allowedCalls?: ConsoleGasSponsorshipPolicyAllowedCall[];
+  spendCap?: ConsoleGasSponsorshipPolicySpendCap;
+}
+
+export interface ConsoleTransactionPolicyRules {
   schemaVersion: 1;
   blockedActions: string[];
   allowedChains: string[];
@@ -34,10 +81,35 @@ export interface ConsolePolicyRules {
   allowedContractCalls: ConsolePolicyContractCallRule[];
 }
 
+export interface ConsoleGasSponsorshipPolicyRules {
+  schemaVersion: 1;
+  scopeType: ConsoleGasSponsorshipPolicyScopeType;
+  projectId: string | null;
+  environmentId: string | null;
+  scopePolicyId: string | null;
+  walletSegmentId: string | null;
+  enabled: boolean;
+  templateId: string | null;
+  networkClass: ConsoleGasSponsorshipPolicyNetworkClass;
+  allowedChainIds: number[];
+  callMode: ConsoleGasSponsorshipPolicyCallMode;
+  allowedCalls: ConsoleGasSponsorshipPolicyAllowedCall[];
+  spendCap: ConsoleGasSponsorshipPolicySpendCap;
+}
+
+export type ConsolePolicyRulesInput =
+  | ConsoleTransactionPolicyRulesInput
+  | ConsoleGasSponsorshipPolicyRulesInput;
+
+export type ConsolePolicyRules =
+  | ConsoleTransactionPolicyRules
+  | ConsoleGasSponsorshipPolicyRules;
+
 export interface ConsolePolicy {
   id: string;
   orgId: string;
   isSystemDefault: boolean;
+  kind: ConsolePolicyKind;
   name: string;
   description: string | null;
   status: ConsolePolicyStatus;
@@ -50,6 +122,7 @@ export interface ConsolePolicy {
 
 export interface ConsolePolicyVersion {
   policyId: string;
+  kind: ConsolePolicyKind;
   version: number;
   status: ConsolePolicyStatus;
   rules: ConsolePolicyRules;
@@ -64,6 +137,7 @@ export interface CreateConsolePolicyAssignmentInput {
 }
 
 export interface CreateConsolePolicyRequest {
+  kind?: ConsolePolicyKind;
   name: string;
   description?: string;
   rules?: ConsolePolicyRulesInput;
@@ -115,6 +189,10 @@ export interface PublishConsolePolicyResult {
 export interface DeleteConsolePolicyResult {
   removed: boolean;
   policy: ConsolePolicy | null;
+}
+
+export interface ListConsolePoliciesRequest {
+  kind?: ConsolePolicyKind;
 }
 
 export interface ConsolePolicyAssignment {

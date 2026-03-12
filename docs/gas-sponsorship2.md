@@ -81,7 +81,7 @@ export interface ConsoleGasSponsorshipSpendCap {
 }
 ```
 
-Then update `ConsoleGasSponsorshipConfig` to store:
+Then update the gas sponsorship policy projection to store:
 
 - `spendCap: ConsoleGasSponsorshipSpendCap`
 

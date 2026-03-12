@@ -7,6 +7,7 @@ export type CopyButtonProps = {
   className?: string;
   size?: number;
   onCopy?: () => void;
+  onCopyError?: () => void;
 };
 
 export const CopyButton: React.FC<CopyButtonProps> = ({
@@ -15,6 +16,7 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
   className,
   size = 16,
   onCopy,
+  onCopyError,
 }) => {
   const [isCopied, setIsCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -42,10 +44,11 @@ export const CopyButton: React.FC<CopyButtonProps> = ({
       timerRef.current = window.setTimeout(() => setIsCopied(false), 1200);
       return true;
     } catch {
+      onCopyError?.();
       // ignore
       return false;
     }
-  }, [text, onCopy]);
+  }, [text, onCopy, onCopyError]);
 
   return (
     <button

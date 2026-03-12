@@ -6,9 +6,12 @@ import {
   requireConsoleBaseUrl,
 } from '../consoleHttp';
 
+export type DashboardConsolePolicyKind = 'TRANSACTION' | 'GAS_SPONSORSHIP';
+
 export interface DashboardPolicyCoveragePolicy {
   policyId: string;
   policyName: string | null;
+  policyKind: DashboardConsolePolicyKind | null;
   walletCount: number;
   activeWalletCount: number;
   archivedWalletCount: number;
@@ -24,6 +27,7 @@ export interface DashboardPolicyCoverageWalletSample {
   balanceMinor: number;
   policyId: string | null;
   policyName: string | null;
+  policyKind: DashboardConsolePolicyKind | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -59,6 +63,7 @@ export interface DashboardGasReadinessWalletSample {
   balanceMinor: number;
   policyId: string | null;
   policyName: string | null;
+  policyKind: DashboardConsolePolicyKind | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -132,6 +137,14 @@ function decodeStringArray(raw: unknown): string[] {
   return out;
 }
 
+function decodePolicyKind(raw: unknown): DashboardConsolePolicyKind | null {
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (value === 'TRANSACTION' || value === 'GAS_SPONSORSHIP') return value;
+  return null;
+}
+
 function decodePolicyCoverage(raw: unknown): DashboardPolicyCoverage | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -152,6 +165,7 @@ function decodePolicyCoverage(raw: unknown): DashboardPolicyCoverage | null {
     policies.push({
       policyId: String(policy.policyId || '').trim() || 'unassigned',
       policyName: policy.policyName == null ? null : String(policy.policyName || '').trim() || null,
+      policyKind: decodePolicyKind(policy.policyKind),
       walletCount: Number(policy.walletCount || 0),
       activeWalletCount: Number(policy.activeWalletCount || 0),
       archivedWalletCount: Number(policy.archivedWalletCount || 0),
@@ -173,6 +187,7 @@ function decodePolicyCoverage(raw: unknown): DashboardPolicyCoverage | null {
       balanceMinor: Number(wallet.balanceMinor || 0),
       policyId: wallet.policyId == null ? null : String(wallet.policyId || '').trim() || null,
       policyName: wallet.policyName == null ? null : String(wallet.policyName || '').trim() || null,
+      policyKind: decodePolicyKind(wallet.policyKind),
       userId: String(wallet.userId || '').trim(),
       lastActivityAt: wallet.lastActivityAt == null ? null : String(wallet.lastActivityAt || '').trim() || null,
       updatedAt: String(wallet.updatedAt || '').trim(),
@@ -238,6 +253,7 @@ function decodeGasReadiness(raw: unknown): DashboardGasReadiness | null {
       balanceMinor: Number(wallet.balanceMinor || 0),
       policyId: wallet.policyId == null ? null : String(wallet.policyId || '').trim() || null,
       policyName: wallet.policyName == null ? null : String(wallet.policyName || '').trim() || null,
+      policyKind: decodePolicyKind(wallet.policyKind),
       userId: String(wallet.userId || '').trim(),
       lastActivityAt: wallet.lastActivityAt == null ? null : String(wallet.lastActivityAt || '').trim() || null,
       updatedAt: String(wallet.updatedAt || '').trim(),

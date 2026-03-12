@@ -25,7 +25,6 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleBootstrapTokenService,
-  createInMemoryConsoleGasSponsorshipService,
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleObservabilityService,
   createInMemoryConsoleOrgProjectEnvService,
@@ -41,7 +40,6 @@ import {
   createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
   createPostgresConsoleBootstrapTokenService,
-  createPostgresConsoleGasSponsorshipService,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
   createPostgresConsoleOrgProjectEnvService,
@@ -62,7 +60,6 @@ import {
   type ConsoleBillingService,
   type ConsoleAuditService,
   type ConsoleBootstrapTokenService,
-  type ConsoleGasSponsorshipService,
   type ConsoleApprovalService,
   type ConsoleObservabilityIngestionService,
   type ConsoleObservabilityService,
@@ -957,7 +954,6 @@ async function main() {
   let consoleOrgProjectEnv: ConsoleOrgProjectEnvService;
   let consoleApiKeys: ConsoleApiKeyService;
   let consoleBootstrapTokens: ConsoleBootstrapTokenService;
-  let consoleGasSponsorship: ConsoleGasSponsorshipService;
   let consoleApprovals: ConsoleApprovalService;
   let consolePolicies: ConsolePolicyService;
   let consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService;
@@ -1013,19 +1009,13 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
-    consoleGasSponsorship = await createPostgresConsoleGasSponsorshipService({
+    consolePolicies = await createPostgresConsolePolicyService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
       ensureSchema: true,
     });
     consoleApprovals = await createPostgresConsoleApprovalService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
-    consolePolicies = await createPostgresConsolePolicyService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
       logger: console as any,
@@ -1062,9 +1052,8 @@ async function main() {
     consoleOrgProjectEnvBase = createInMemoryConsoleOrgProjectEnvService();
     consoleApiKeys = createInMemoryConsoleApiKeyService();
     consoleBootstrapTokens = createInMemoryConsoleBootstrapTokenService();
-    consoleGasSponsorship = createInMemoryConsoleGasSponsorshipService();
-    consoleApprovals = createInMemoryConsoleApprovalService();
     consolePolicies = createInMemoryConsolePolicyService();
+    consoleApprovals = createInMemoryConsoleApprovalService();
     consoleRuntimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     consoleTeamRbac = createInMemoryConsoleTeamRbacService();
     consoleWallets = createInMemoryConsoleWalletService({
@@ -1081,7 +1070,7 @@ async function main() {
   })();
   consoleOrgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({
     base: consoleOrgProjectEnvBase,
-    gasSponsorship: consoleGasSponsorship,
+    policies: consolePolicies,
     runtimeSnapshots: consoleRuntimeSnapshots,
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
@@ -1211,7 +1200,7 @@ async function main() {
   }
   await ensureTempoOnboardingSponsorshipForExistingEnvironments({
     orgProjectEnv: consoleOrgProjectEnv,
-    gasSponsorship: consoleGasSponsorship,
+    policies: consolePolicies,
     runtimeSnapshots: consoleRuntimeSnapshots,
     ctx: {
       orgId: consoleDemoOrgId,
@@ -1282,7 +1271,6 @@ async function main() {
       billingStripeWebhookSecret: toOptionalSecret(consoleBillingStripeWebhookSecret),
       webhooks: consoleWebhooks,
       apiKeys: consoleApiKeys,
-      gasSponsorship: consoleGasSponsorship,
       approvals: consoleApprovals,
       policies: consolePolicies,
       runtimeSnapshots: consoleRuntimeSnapshots,

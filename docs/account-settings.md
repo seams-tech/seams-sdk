@@ -129,7 +129,7 @@ Recommended access index:
 - Remove any legacy topbar selection semantics for account action items.
 - Do not keep dual implementations after cutover; page route becomes the only account settings path.
 
-## Implementation Status (March 10, 2026)
+## Implementation Status (March 11, 2026)
 
 Shipped:
 
@@ -139,13 +139,13 @@ Shipped:
 - Account org creation reuses onboarding bootstrap, and org rename/owner transfer emit audit events.
 - Context switching now refreshes `orgId`, `projectId`, and `environmentId` together and routes to onboarding for incomplete target orgs.
 - Focused relayer parity coverage exists for Express and Cloudflare account routes, including OIDC primary-email read-only enforcement, forbidden owner transfer, and org-directory visibility checks.
-- Browser-level account-settings API wiring has been extended for create/rename/transfer/open flows and read-only-email UX, but the dashboard Playwright harness is still blocked before the dashboard shell renders.
+- Browser-level account-settings API wiring is green for navigation, onboarding-incomplete empty-org rendering, create/rename/transfer/open flows with context rehydration, and read-only primary-email UX.
+- Focused parser/service validation coverage now exists for account request parsing and OIDC/list-organization service semantics.
 
 Remaining next steps:
 
-- Get the dashboard account-settings Playwright cases green once the existing dashboard shell/bootstrap blocker is resolved.
-- Add any still-missing service-level validation coverage and optional Postgres-backed account-query coverage if we want persistence-level guarantees beyond current route tests.
-- Verify downstream `/console/*` behavior after context switch in the real browser path once the dashboard harness is healthy.
+- Run the new Postgres tenant-scope account-organization coverage in an environment with `POSTGRES_URL` and RLS enabled (non-bypass role) and keep it green in CI.
+- Keep broad relayer + dashboard suites green while account-settings and onboarding changes continue landing.
 
 ## Phased TODO List
 
@@ -169,7 +169,7 @@ Exit criteria:
 - [x] Implement profile endpoints (`GET/PATCH /console/account/profile`) in Express + Cloudflare console routers.
 - [x] Add profile form UI and optimistic/safe-save states on account settings page.
 - [x] Add validation and permission rules for editable fields.
-- [ ] Add focused parser/service validation coverage; route parity tests (Express + Cloudflare) are already in place.
+- [x] Add focused parser/service validation coverage; route parity tests (Express + Cloudflare) are already in place.
 
 Exit criteria:
 
@@ -193,7 +193,8 @@ Exit criteria:
 - [x] Implement `GET/POST /console/account/organizations` for “organizations created by me” on top of that shared org-creation path.
 - [x] Implement account page organizations list and create organization form.
 - [x] Preserve current owner bootstrap and audit behavior when account settings creates an organization.
-- [ ] Add Postgres-backed tenant-safe query coverage and finish browser verification for org-creation wiring once the dashboard harness is green.
+- [x] Finish browser verification for org-creation wiring once the dashboard harness is green.
+- [x] Add Postgres-backed tenant-safe query coverage.
 
 Exit criteria:
 
@@ -208,7 +209,7 @@ Exit criteria:
 - [x] Add UI action for owner-only org deletion with empty-org guardrails.
 - [x] Reuse existing Team RBAC role semantics; enforce last-owner safety.
 - [x] Emit audit events for rename and owner transfer.
-- [ ] Finish browser verification for successful transfer and delete flows once the dashboard harness is green; relayer parity coverage now includes successful and blocked delete cases.
+- [x] Finish browser verification for successful transfer and delete flows once the dashboard harness is green; relayer parity coverage now includes successful and blocked delete cases.
 
 Exit criteria:
 
@@ -220,11 +221,13 @@ Exit criteria:
 - [x] Wire “Open organization” action from account settings list.
 - [x] Clear persisted project/environment selections from the previous org during switch and rehydrate them from the target org session/onboarding state.
 - [x] Route switched users to onboarding for incomplete orgs and to the default dashboard route for complete orgs.
-- [ ] Verify downstream `/console/*` routes behave correctly after context switch in the real browser path once the dashboard harness is green.
+- [x] Verify context rehydration after org switch in browser wiring (`orgId`/`projectId`/`environmentId` and dashboard destination).
+- [x] Extend downstream `/console/*` route checks after context switch beyond context rehydration assertions.
 - [x] Remove dead legacy code paths and obsolete tests tied to team-members modal account settings.
-- [ ] Update docs:
+- [x] Update docs:
   - [x] `docs/saas/dashboard-backend-implementation-plan.md` (new account module status)
   - [x] `docs/saas/db-schema.md` (new account/profile/org-created-by fields)
+  - [x] `docs/account-settings.md` (implementation status + browser verification updates)
 
 Exit criteria:
 
@@ -246,6 +249,7 @@ Exit criteria:
 - `/dashboard/account-settings` remains accessible even when the active org is still onboarding.
 - Account page supports profile editing + backup emails.
 - Account page lists organizations created by current user and supports create/rename/transfer owner.
+- Account page keeps “My Organisations” empty for onboarding-incomplete placeholder orgs before the first real org is created.
 - Account page supports owner-only deletion for empty non-current orgs and blocks deletion when other members or wallets exist.
 - User can switch active org context from account settings without leaking stale project/environment scope from the previous org.
 - Opening an incomplete org from account settings routes to onboarding; opening a complete org routes to the default dashboard entry.

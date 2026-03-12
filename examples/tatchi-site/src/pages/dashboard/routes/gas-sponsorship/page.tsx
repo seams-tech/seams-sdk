@@ -28,10 +28,10 @@ import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import { getDashboardEnvironmentLabel, getDashboardProjectLabel } from '../../utils/scopeLabels';
 import {
-  createDashboardGasSponsorship,
-  listDashboardGasSponsorship,
-  updateDashboardGasSponsorship,
-  type DashboardGasSponsorshipConfig,
+  createDashboardGasSponsorshipPolicy,
+  listDashboardGasSponsorshipPolicies,
+  updateDashboardGasSponsorshipPolicy,
+  type DashboardGasSponsorshipPolicy,
 } from './consoleGasSponsorshipApi';
 
 const SCOPE_TYPES = ['ORG', 'PROJECT', 'ENVIRONMENT', 'POLICY', 'WALLET_SEGMENT'] as const;
@@ -80,7 +80,7 @@ type GasSponsorshipFormState = {
   scopeType: ScopeType;
   projectId: string;
   environmentId: string;
-  policyId: string;
+  scopePolicyId: string;
   walletSegmentId: string;
   enabled: boolean;
   selectedTargets: string[];
@@ -329,7 +329,7 @@ function deriveLegacyContractCallRules(raw: Record<string, unknown>): GasContrac
 }
 
 function groupAllowedCallsByContract(
-  allowedCalls: readonly DashboardGasSponsorshipConfig['allowedCalls'][number][],
+  allowedCalls: readonly DashboardGasSponsorshipPolicy['allowedCalls'][number][],
 ): GasContractRuleDraft[] {
   const byContract = new Map<
     string,
@@ -369,21 +369,21 @@ function resolveSelectedTargetsOrThrow(selectedTargetIds: readonly string[]): Ga
   return targets;
 }
 
-function resolveSelectedTargetIdsFromConfig(config: DashboardGasSponsorshipConfig): string[] {
-  const targetIdsFromChains = config.allowedChainIds
+function resolveSelectedTargetIdsFromPolicy(policy: DashboardGasSponsorshipPolicy): string[] {
+  const targetIdsFromChains = policy.allowedChainIds
     .map((chainId) => GAS_CHAIN_TARGETS.find((target) => target.chainId === chainId)?.id || '')
     .filter(Boolean);
   if (targetIdsFromChains.length > 0) {
     return uniqueGasTargetIds(targetIdsFromChains);
   }
-  const targetIdsFromCalls = config.allowedCalls
+  const targetIdsFromCalls = policy.allowedCalls
     .map((call) => GAS_CHAIN_TARGETS.find((target) => target.chainId === call.chainId)?.id || '')
     .filter(Boolean);
   if (targetIdsFromCalls.length > 0) {
     return uniqueGasTargetIds(targetIdsFromCalls);
   }
-  if (config.networkClass === 'MAINNET') return [...GAS_MAINNET_TARGET_IDS];
-  if (config.networkClass === 'TESTNET') return [...GAS_TESTNET_TARGET_IDS];
+  if (policy.networkClass === 'MAINNET') return [...GAS_MAINNET_TARGET_IDS];
+  if (policy.networkClass === 'TESTNET') return [...GAS_TESTNET_TARGET_IDS];
   return [];
 }
 
@@ -408,7 +408,7 @@ function parseGasSponsorshipFormDraft(
     scopeType: readEnumValue(raw.scopeType, SCOPE_TYPES, fallback.scopeType),
     projectId: normalizeString(String(raw.projectId ?? fallback.projectId)),
     environmentId: normalizeString(String(raw.environmentId ?? fallback.environmentId)),
-    policyId: normalizeString(String(raw.policyId ?? fallback.policyId)),
+    scopePolicyId: normalizeString(String(raw.scopePolicyId ?? fallback.scopePolicyId)),
     walletSegmentId: normalizeString(String(raw.walletSegmentId ?? fallback.walletSegmentId)),
     enabled: raw.enabled === true || raw.enabled === false ? raw.enabled : fallback.enabled,
     selectedTargets: (() => {
@@ -455,7 +455,7 @@ function createInitialFormState(projectId: string, environmentId: string): GasSp
     scopeType: resolveDefaultScopeType(projectId, environmentId),
     projectId,
     environmentId,
-    policyId: '',
+    scopePolicyId: '',
     walletSegmentId: '',
     enabled: true,
     selectedTargets: [],
@@ -467,13 +467,13 @@ function createInitialFormState(projectId: string, environmentId: string): GasSp
   };
 }
 
-function buildFormStateFromConfig(
-  config: DashboardGasSponsorshipConfig,
+function buildFormStateFromPolicy(
+  policy: DashboardGasSponsorshipPolicy,
   projectId: string,
   environmentId: string,
 ): GasSponsorshipFormState {
-  const contractCallRules = groupAllowedCallsByContract(config.allowedCalls);
-  const spendCapAmountByChainName = config.spendCap.capsByChain.reduce<Record<string, string>>(
+  const contractCallRules = groupAllowedCallsByContract(policy.allowedCalls);
+  const spendCapAmountByChainName = policy.spendCap.capsByChain.reduce<Record<string, string>>(
     (accumulator, entry) => {
       const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(entry.chainId);
       if (!target) return accumulator;
@@ -486,23 +486,23 @@ function buildFormStateFromConfig(
     {},
   );
   return {
-    name: config.name,
-    scopeType: String(config.scopeType || 'ENVIRONMENT').toUpperCase() as ScopeType,
-    projectId: config.projectId || projectId,
-    environmentId: config.environmentId || environmentId,
-    policyId: config.policyId || '',
-    walletSegmentId: config.walletSegmentId || '',
-    enabled: config.enabled,
-    selectedTargets: resolveSelectedTargetIdsFromConfig(config),
-    contractCallAllowlistEnabled: config.callMode === 'ALLOWLIST',
+    name: policy.name,
+    scopeType: String(policy.scopeType || 'ENVIRONMENT').toUpperCase() as ScopeType,
+    projectId: policy.projectId || projectId,
+    environmentId: policy.environmentId || environmentId,
+    scopePolicyId: policy.scopePolicyId || '',
+    walletSegmentId: policy.walletSegmentId || '',
+    enabled: policy.enabled,
+    selectedTargets: resolveSelectedTargetIdsFromPolicy(policy),
+    contractCallAllowlistEnabled: policy.callMode === 'ALLOWLIST',
     contractCallRules,
-    spendCapMode: config.spendCap.mode,
-    spendCapPeriod: config.spendCap.period,
+    spendCapMode: policy.spendCap.mode,
+    spendCapPeriod: policy.spendCap.period,
     spendCapAmountByChainName,
   };
 }
 
-function hasConfigMutationRole(rolesRaw: unknown): boolean {
+function hasGasPolicyMutationRole(rolesRaw: unknown): boolean {
   if (!Array.isArray(rolesRaw)) return false;
   return rolesRaw.some((role) => {
     const normalized = String(role || '')
@@ -515,7 +515,7 @@ function hasConfigMutationRole(rolesRaw: unknown): boolean {
 function buildScopePayload(form: GasSponsorshipFormState): Record<string, string> {
   const projectId = normalizeString(form.projectId);
   const environmentId = normalizeString(form.environmentId);
-  const policyId = normalizeString(form.policyId);
+  const scopePolicyId = normalizeString(form.scopePolicyId);
   const walletSegmentId = normalizeString(form.walletSegmentId);
   if (form.scopeType === 'PROJECT' && !projectId) {
     throw new Error('Project scope requires a project ID.');
@@ -523,7 +523,7 @@ function buildScopePayload(form: GasSponsorshipFormState): Record<string, string
   if (form.scopeType === 'ENVIRONMENT' && !environmentId) {
     throw new Error('Environment scope requires an environment ID.');
   }
-  if (form.scopeType === 'POLICY' && !policyId) {
+  if (form.scopeType === 'POLICY' && !scopePolicyId) {
     throw new Error('Policy scope requires a policy ID.');
   }
   if (form.scopeType === 'WALLET_SEGMENT' && !walletSegmentId) {
@@ -533,7 +533,7 @@ function buildScopePayload(form: GasSponsorshipFormState): Record<string, string
     scopeType: form.scopeType,
     ...(projectId ? { projectId } : {}),
     ...(environmentId ? { environmentId } : {}),
-    ...(policyId ? { policyId } : {}),
+    ...(scopePolicyId ? { scopePolicyId } : {}),
     ...(walletSegmentId ? { walletSegmentId } : {}),
   };
 }
@@ -632,8 +632,8 @@ function describeScopeTarget(
   ids: {
     projectId?: string | null;
     environmentId?: string | null;
-    policyId?: string | null;
-    policyName?: string | null;
+    scopePolicyId?: string | null;
+    scopePolicyName?: string | null;
     walletSegmentId?: string | null;
     projectName?: string | null;
     environmentName?: string | null;
@@ -647,7 +647,9 @@ function describeScopeTarget(
       projectName: ids.projectName,
     });
   }
-  if (scopeType === 'POLICY') return `Policy ${ids.policyName || ids.policyId || '-'}`;
+  if (scopeType === 'POLICY') {
+    return `Policy ${ids.scopePolicyName || ids.scopePolicyId || '-'}`;
+  }
   if (scopeType === 'WALLET_SEGMENT') return `Wallet segment ${ids.walletSegmentId || '-'}`;
   return getDashboardEnvironmentLabel({
     environmentId: ids.environmentId,
@@ -656,21 +658,21 @@ function describeScopeTarget(
 }
 
 function describeScope(
-  config: DashboardGasSponsorshipConfig,
+  policy: DashboardGasSponsorshipPolicy,
   labels: {
     projectNamesById: Readonly<Record<string, string>>;
     environmentNamesById: Readonly<Record<string, string>>;
   },
 ): string {
-  return describeScopeTarget(config.scopeType, {
-    projectId: config.projectId,
-    environmentId: config.environmentId,
-    policyId: config.policyId,
-    policyName: config.policyName,
-    walletSegmentId: config.walletSegmentId,
-    projectName: config.projectId ? labels.projectNamesById[config.projectId] || '' : '',
-    environmentName: config.environmentId
-      ? labels.environmentNamesById[config.environmentId] || ''
+  return describeScopeTarget(policy.scopeType, {
+    projectId: policy.projectId,
+    environmentId: policy.environmentId,
+    scopePolicyId: policy.scopePolicyId,
+    scopePolicyName: policy.scopePolicyName,
+    walletSegmentId: policy.walletSegmentId,
+    projectName: policy.projectId ? labels.projectNamesById[policy.projectId] || '' : '',
+    environmentName: policy.environmentId
+      ? labels.environmentNamesById[policy.environmentId] || ''
       : '',
   });
 }
@@ -701,7 +703,7 @@ function describeCoverageEnvironmentLabel(input: {
 }
 
 function describeSpendCapMode(
-  mode: GasSpendCapMode | DashboardGasSponsorshipConfig['spendCap']['mode'],
+  mode: GasSpendCapMode | DashboardGasSponsorshipPolicy['spendCap']['mode'],
 ): string {
   if (mode === 'CHAIN_TOTAL') return 'Per chain total';
   if (mode === 'WALLET_CHAIN_TOTAL') return 'Per wallet, per chain';
@@ -711,8 +713,8 @@ function describeSpendCapMode(
 function formatSpendCapCoverageEntry(input: {
   chainId: number;
   capMinor: number;
-  mode: DashboardGasSponsorshipConfig['spendCap']['mode'];
-  period: DashboardGasSponsorshipConfig['spendCap']['period'];
+  mode: DashboardGasSponsorshipPolicy['spendCap']['mode'];
+  period: DashboardGasSponsorshipPolicy['spendCap']['period'];
 }): string {
   const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(input.chainId);
   const chainLabel = target?.chainLabel || `Chain ${input.chainId}`;
@@ -724,38 +726,38 @@ function formatSpendCapCoverageEntry(input: {
   )} ${scopeLabel}`;
 }
 
-function formatSpendCapSummary(config: DashboardGasSponsorshipConfig): string {
-  if (config.spendCap.mode === 'NONE') return 'No spend cap';
-  const firstCap = config.spendCap.capsByChain[0];
+function formatSpendCapSummary(policy: DashboardGasSponsorshipPolicy): string {
+  if (policy.spendCap.mode === 'NONE') return 'No spend cap';
+  const firstCap = policy.spendCap.capsByChain[0];
   if (!firstCap) {
-    return `${describeSpendCapMode(config.spendCap.mode)} (${config.spendCap.period.toLowerCase()})`;
+    return `${describeSpendCapMode(policy.spendCap.mode)} (${policy.spendCap.period.toLowerCase()})`;
   }
-  if (config.spendCap.capsByChain.length > 1) {
-    return `${config.spendCap.capsByChain.length} ${config.spendCap.period.toLowerCase()} caps · ${describeSpendCapMode(
-      config.spendCap.mode,
+  if (policy.spendCap.capsByChain.length > 1) {
+    return `${policy.spendCap.capsByChain.length} ${policy.spendCap.period.toLowerCase()} caps · ${describeSpendCapMode(
+      policy.spendCap.mode,
     ).toLowerCase()}`;
   }
   return formatSpendCapCoverageEntry({
     chainId: firstCap.chainId,
     capMinor: firstCap.capMinor,
-    mode: config.spendCap.mode,
-    period: config.spendCap.period,
+    mode: policy.spendCap.mode,
+    period: policy.spendCap.period,
   });
 }
 
-function formatAllowedCallSummary(config: DashboardGasSponsorshipConfig): string {
-  if (config.callMode === 'ALLOW_ALL') return 'Allow all contract calls';
-  const groupedRules = groupAllowedCallsByContract(config.allowedCalls);
+function formatAllowedCallSummary(policy: DashboardGasSponsorshipPolicy): string {
+  if (policy.callMode === 'ALLOW_ALL') return 'Allow all contract calls';
+  const groupedRules = groupAllowedCallsByContract(policy.allowedCalls);
   const contractCount = groupedRules.length;
   const functionCount = groupedRules.reduce((sum, rule) => sum + rule.functions.length, 0);
   if (contractCount === 0 || functionCount === 0) return 'No allowed-call rule';
   return `${contractCount} contract${contractCount === 1 ? '' : 's'} / ${functionCount} function${functionCount === 1 ? '' : 's'}`;
 }
 
-function formatRuleSummary(config: DashboardGasSponsorshipConfig): string {
+function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
   return [
-    formatSelectedTargetLabels(resolveSelectedTargetIdsFromConfig(config)),
-    config.enabled ? 'enabled' : 'disabled',
+    formatSelectedTargetLabels(resolveSelectedTargetIdsFromPolicy(policy)),
+    policy.enabled ? 'enabled' : 'disabled',
   ].join(' / ');
 }
 
@@ -778,9 +780,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
   const [mutationNotice, setMutationNotice] = React.useState<string>('');
   const [mutating, setMutating] = React.useState<boolean>(false);
   const [activeModal, setActiveModal] = React.useState<GasSponsorshipModalKind | null>(null);
-  const [editingConfigId, setEditingConfigId] = React.useState<string>('');
-  const [selectedConfigId, setSelectedConfigId] = React.useState<string>('');
-  const [gasConfigs, setGasConfigs] = React.useState<DashboardGasSponsorshipConfig[]>([]);
+  const [editingPolicyId, setEditingPolicyId] = React.useState<string>('');
+  const [selectedPolicyId, setSelectedPolicyId] = React.useState<string>('');
+  const [gasPolicies, setGasPolicies] = React.useState<DashboardGasSponsorshipPolicy[]>([]);
   const [modalScope, setModalScope] = React.useState<GasSponsorshipDraftScope | null>(null);
   const [selectedProjectName, setSelectedProjectName] = React.useState<string>('');
   const [selectedEnvironmentKey, setSelectedEnvironmentKey] = React.useState<string>('');
@@ -814,9 +816,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
       orgId: modalScope.orgId,
       projectId: modalScope.projectId,
       environmentId: modalScope.environmentId,
-      resourceId: activeModal === 'edit' ? editingConfigId : '',
+      resourceId: activeModal === 'edit' ? editingPolicyId : '',
     };
-  }, [activeModal, editingConfigId, modalScope, policyModalOpen]);
+  }, [activeModal, editingPolicyId, modalScope, policyModalOpen]);
 
   const parseDraftForm = React.useCallback(
     (raw: unknown): GasSponsorshipFormState | null =>
@@ -839,8 +841,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
     if (previousScopeKeyRef.current === currentScopeKey) return;
     previousScopeKeyRef.current = currentScopeKey;
     if (!policyModalOpen) return;
-    setEditingConfigId('');
-    setSelectedConfigId('');
+    setEditingPolicyId('');
+    setSelectedPolicyId('');
     setActiveModal(null);
     setMutationError('');
   }, [currentScopeKey, policyModalOpen]);
@@ -916,16 +918,16 @@ export function GasSponsorshipPage(): React.JSX.Element {
     });
   }, [policyModalOpen, setForm]);
 
-  const canMutateConfig = React.useMemo(
-    () => hasConfigMutationRole(session.claims?.roles),
+  const canMutatePolicy = React.useMemo(
+    () => hasGasPolicyMutationRole(session.claims?.roles),
     [session.claims?.roles],
   );
 
-  const selectedConfig = React.useMemo(
-    () => gasConfigs.find((config) => config.id === selectedConfigId) || null,
-    [gasConfigs, selectedConfigId],
+  const selectedPolicy = React.useMemo(
+    () => gasPolicies.find((policy) => policy.id === selectedPolicyId) || null,
+    [gasPolicies, selectedPolicyId],
   );
-  const gasConfigsPagination = useDashboardTablePagination(gasConfigs, {
+  const gasPoliciesPagination = useDashboardTablePagination(gasPolicies, {
     disabled: session.loading || loading,
     itemLabel: 'policy',
     itemLabelPlural: 'policies',
@@ -975,11 +977,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
     };
   }, [selectedEnvironmentId, selectedProjectId, session.claims]);
 
-  const loadGasConfigs = React.useCallback(() => {
+  const loadGasPolicies = React.useCallback(() => {
     if (!session.claims) {
       setLoading(false);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
-      setGasConfigs([]);
+      setGasPolicies([]);
       return;
     }
     const query = {
@@ -989,14 +991,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
     let cancelled = false;
     setLoading(true);
     setErrorMessage('');
-    listDashboardGasSponsorship(query)
+    listDashboardGasSponsorshipPolicies(query)
       .then((rows) => {
         if (cancelled) return;
-        setGasConfigs([...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+        setGasPolicies([...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
       })
       .catch((error: unknown) => {
         if (cancelled) return;
-        setGasConfigs([]);
+        setGasPolicies([]);
         setErrorMessage(error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
@@ -1013,13 +1015,13 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setLoading(true);
       return;
     }
-    const cleanup = loadGasConfigs();
+    const cleanup = loadGasPolicies();
     return cleanup;
-  }, [loadGasConfigs, session.loading]);
+  }, [loadGasPolicies, session.loading]);
 
   const onResetForm = React.useCallback(() => {
-    setEditingConfigId('');
-    setSelectedConfigId('');
+    setEditingPolicyId('');
+    setSelectedPolicyId('');
     setModalScope(null);
     setActiveModal(null);
     setMutationError('');
@@ -1027,8 +1029,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
   }, [selectedEnvironmentId, selectedProjectId]);
 
   const openCreateModal = React.useCallback(() => {
-    setEditingConfigId('');
-    setSelectedConfigId('');
+    setEditingPolicyId('');
+    setSelectedPolicyId('');
     setModalScope({
       orgId: selectedOrgId,
       projectId: selectedProjectId,
@@ -1040,17 +1042,17 @@ export function GasSponsorshipPage(): React.JSX.Element {
     setMutationNotice('');
   }, [selectedEnvironmentId, selectedOrgId, selectedProjectId]);
 
-  const onEditConfig = React.useCallback(
-    (config: DashboardGasSponsorshipConfig) => {
-      setEditingConfigId(config.id);
-      setSelectedConfigId(config.id);
+  const onEditPolicy = React.useCallback(
+    (policy: DashboardGasSponsorshipPolicy) => {
+      setEditingPolicyId(policy.id);
+      setSelectedPolicyId(policy.id);
       setModalScope({
         orgId: selectedOrgId,
         projectId: selectedProjectId,
         environmentId: selectedEnvironmentId,
       });
       setModalInitialForm(
-        buildFormStateFromConfig(config, selectedProjectId, selectedEnvironmentId),
+        buildFormStateFromPolicy(policy, selectedProjectId, selectedEnvironmentId),
       );
       setActiveModal('edit');
       setMutationError('');
@@ -1059,9 +1061,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
     [selectedEnvironmentId, selectedOrgId, selectedProjectId],
   );
 
-  const onViewConfig = React.useCallback((config: DashboardGasSponsorshipConfig) => {
-    setEditingConfigId('');
-    setSelectedConfigId(config.id);
+  const onViewPolicy = React.useCallback((policy: DashboardGasSponsorshipPolicy) => {
+    setEditingPolicyId('');
+    setSelectedPolicyId(policy.id);
     setModalScope(null);
     setActiveModal('view');
     setMutationError('');
@@ -1218,7 +1220,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         setMutationError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      if (!canMutateConfig) {
+      if (!canMutatePolicy) {
         setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
         return;
       }
@@ -1227,14 +1229,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setMutationNotice('');
       try {
         const request = buildGasSponsorshipRequest(form, selectedEnvironmentNetworkClass);
-        if (editingConfigId) {
-          await updateDashboardGasSponsorship(editingConfigId, request);
+        if (editingPolicyId) {
+          await updateDashboardGasSponsorshipPolicy(editingPolicyId, request);
           setMutationNotice('Gas sponsorship policy updated.');
         } else {
-          await createDashboardGasSponsorship(request);
+          await createDashboardGasSponsorshipPolicy(request);
           setMutationNotice('Gas sponsorship policy created.');
         }
-        await loadGasConfigs();
+        await loadGasPolicies();
         clearDraft();
         onResetForm();
       } catch (error: unknown) {
@@ -1244,11 +1246,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
       }
     },
     [
-      canMutateConfig,
-      editingConfigId,
+      canMutatePolicy,
+      editingPolicyId,
       form,
       clearDraft,
-      loadGasConfigs,
+      loadGasPolicies,
       onResetForm,
       selectedEnvironmentNetworkClass,
       session.claims,
@@ -1271,12 +1273,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
   }, [formDiffersFromInitial, onResetForm, resetToInitial]);
 
   const onToggleEnabled = React.useCallback(
-    async (config: DashboardGasSponsorshipConfig) => {
+    async (policy: DashboardGasSponsorshipPolicy) => {
       if (!session.claims) {
         setMutationError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      if (!canMutateConfig) {
+      if (!canMutatePolicy) {
         setMutationError('Only owner/admin/security_admin can mutate gas sponsorship settings.');
         return;
       }
@@ -1284,12 +1286,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setMutationError('');
       setMutationNotice('');
       try {
-        await updateDashboardGasSponsorship(config.id, {
-          enabled: !config.enabled,
+        await updateDashboardGasSponsorshipPolicy(policy.id, {
+          enabled: !policy.enabled,
         });
-        await loadGasConfigs();
+        await loadGasPolicies();
         setMutationNotice(
-          `${config.name || config.id} ${config.enabled ? 'disabled' : 'enabled'}.`,
+          `${policy.name || policy.id} ${policy.enabled ? 'disabled' : 'enabled'}.`,
         );
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -1297,7 +1299,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         setMutating(false);
       }
     },
-    [canMutateConfig, loadGasConfigs, session.claims, session.errorMessage],
+    [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
   );
 
   return (
@@ -1311,7 +1313,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
 
       {session.loading || loading ? (
         <section className="dashboard-view__section">
-          <p>Loading gas sponsorship configs...</p>
+          <p>Loading gas sponsorship policies...</p>
         </section>
       ) : !session.claims ? (
         <section className="dashboard-view__section">
@@ -1333,7 +1335,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
               type="button"
               className="dashboard-pagination-button"
               onClick={openCreateModal}
-              disabled={!canMutateConfig || mutating}
+              disabled={!canMutatePolicy || mutating}
             >
               Create policy
             </button>
@@ -1341,14 +1343,14 @@ export function GasSponsorshipPage(): React.JSX.Element {
 
           <section
             className="dashboard-view__section dashboard-view__section--plain"
-            aria-label="Gas sponsorship configs"
+            aria-label="Gas sponsorship policies"
           >
             <h2>Gas Sponsorship Policies</h2>
             <DashboardTable
               ariaLabel="Gas sponsorship rows"
               className="dashboard-gas-sponsorship-table"
               columns={GAS_SPONSORSHIP_TABLE_COLUMNS}
-              pagination={gasConfigsPagination.pagination}
+              pagination={gasPoliciesPagination.pagination}
             >
               <DashboardTableHeader className="dashboard-gas-sponsorship-table__header">
                 <DashboardTableHeaderCell>Policy</DashboardTableHeaderCell>
@@ -1359,63 +1361,63 @@ export function GasSponsorshipPage(): React.JSX.Element {
                 <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
               </DashboardTableHeader>
-              {gasConfigs.length === 0 ? (
+              {gasPolicies.length === 0 ? (
                 <DashboardTableState>
-                  No gas sponsorship configs found for this environment yet.
+                  No gas sponsorship policies found for this environment yet.
                 </DashboardTableState>
               ) : (
-                gasConfigsPagination.rows.map((config) => (
+                gasPoliciesPagination.rows.map((policy) => (
                   <DashboardTableRow
                     className="dashboard-gas-sponsorship-table__row"
-                    key={config.id}
+                    key={policy.id}
                   >
-                    <DashboardTableCell title={config.id}>
+                    <DashboardTableCell title={policy.id}>
                       <strong className="dashboard-data-table__summary">
-                        {config.name || config.id}
+                        {policy.name || policy.id}
                       </strong>
                     </DashboardTableCell>
                     <DashboardTableCell
-                      title={describeScope(config, {
+                      title={describeScope(policy, {
                         projectNamesById,
                         environmentNamesById,
                       })}
                     >
-                      {describeScope(config, {
+                      {describeScope(policy, {
                         projectNamesById,
                         environmentNamesById,
                       })}
                     </DashboardTableCell>
-                    <DashboardTableCell title={formatRuleSummary(config)}>
-                      {formatRuleSummary(config)}
+                    <DashboardTableCell title={formatRuleSummary(policy)}>
+                      {formatRuleSummary(policy)}
                     </DashboardTableCell>
-                    <DashboardTableCell title={formatSpendCapSummary(config)}>
-                      {formatSpendCapSummary(config)}
+                    <DashboardTableCell title={formatSpendCapSummary(policy)}>
+                      {formatSpendCapSummary(policy)}
                     </DashboardTableCell>
-                    <DashboardTableCell title={formatAllowedCallSummary(config)}>
-                      {formatAllowedCallSummary(config)}
+                    <DashboardTableCell title={formatAllowedCallSummary(policy)}>
+                      {formatAllowedCallSummary(policy)}
                     </DashboardTableCell>
                     <DashboardTableCell truncate>
-                      {formatTimestamp(config.updatedAt)}
+                      {formatTimestamp(policy.updatedAt)}
                     </DashboardTableCell>
                     <DashboardTableCell>
                       <DashboardTableActionGroup>
                         <DashboardTableActionButton
-                          onClick={() => onViewConfig(config)}
+                          onClick={() => onViewPolicy(policy)}
                           disabled={mutating}
                         >
                           View
                         </DashboardTableActionButton>
                         <DashboardTableActionButton
-                          onClick={() => onEditConfig(config)}
+                          onClick={() => onEditPolicy(policy)}
                           disabled={mutating}
                         >
                           Edit
                         </DashboardTableActionButton>
                         <DashboardTableActionButton
-                          onClick={() => onToggleEnabled(config)}
-                          disabled={!canMutateConfig || mutating}
+                          onClick={() => onToggleEnabled(policy)}
+                          disabled={!canMutatePolicy || mutating}
                         >
-                          {config.enabled ? 'Disable' : 'Enable'}
+                          {policy.enabled ? 'Disable' : 'Enable'}
                         </DashboardTableActionButton>
                       </DashboardTableActionGroup>
                     </DashboardTableCell>
@@ -1443,9 +1445,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
             <>
               <h2>Coverage</h2>
               <p className="dashboard-pagination-note dashboard-gas-coverage__subtitle">
-                {selectedConfig?.name || selectedConfig?.id || 'Selected sponsorship policy'}
+                {selectedPolicy?.name || selectedPolicy?.id || 'Selected sponsorship policy'}
               </p>
-              {selectedConfig ? (
+              {selectedPolicy ? (
                 <>
                   <div className="dashboard-gas-coverage__stats">
                     <div className="dashboard-gas-coverage__stat">
@@ -1455,7 +1457,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           project:{' '}
                           {describeCoverageProjectLabel({
                             projectName: selectedProjectName,
-                            projectId: selectedConfig.projectId,
+                            projectId: selectedPolicy.projectId,
                           })}
                         </span>
                         <span>
@@ -1463,45 +1465,45 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           {describeCoverageEnvironmentLabel({
                             environmentName: selectedEnvironmentName,
                             environmentKey: selectedEnvironmentKey,
-                            environmentId: selectedConfig.environmentId,
+                            environmentId: selectedPolicy.environmentId,
                           })}
                         </span>
                       </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Status</span>
-                      <strong>{selectedConfig.enabled ? 'Enabled' : 'Disabled'}</strong>
+                      <strong>{selectedPolicy.enabled ? 'Enabled' : 'Disabled'}</strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Contract calls</span>
                       <strong>
-                        {selectedConfig.callMode === 'ALLOW_ALL'
+                        {selectedPolicy.callMode === 'ALLOW_ALL'
                           ? 'Allow all'
-                          : formatAllowedCallSummary(selectedConfig)}
+                          : formatAllowedCallSummary(selectedPolicy)}
                       </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Spend cap</span>
-                      <strong>{describeSpendCapMode(selectedConfig.spendCap.mode)}</strong>
+                      <strong>{describeSpendCapMode(selectedPolicy.spendCap.mode)}</strong>
                     </div>
                   </div>
                   <section className="dashboard-gas-coverage__section">
                     <div className="dashboard-gas-coverage__section-header">
                       <span>Policy behavior</span>
                     </div>
-                    <p className="dashboard-pagination-note">{formatRuleSummary(selectedConfig)}</p>
+                    <p className="dashboard-pagination-note">{formatRuleSummary(selectedPolicy)}</p>
                   </section>
                   <section className="dashboard-gas-coverage__section">
                     <div className="dashboard-gas-coverage__section-header">
                       <span>Contract calls</span>
                     </div>
-                    {selectedConfig.callMode === 'ALLOW_ALL' ? (
+                    {selectedPolicy.callMode === 'ALLOW_ALL' ? (
                       <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
                         All contract calls are sponsored on the selected chains.
                       </p>
-                    ) : selectedConfig.allowedCalls.length > 0 ? (
+                    ) : selectedPolicy.allowedCalls.length > 0 ? (
                       <div className="dashboard-gas-coverage__contracts">
-                        {groupAllowedCallsByContract(selectedConfig.allowedCalls).map((rule) => (
+                        {groupAllowedCallsByContract(selectedPolicy.allowedCalls).map((rule) => (
                           <div key={rule.id} className="dashboard-gas-coverage__contract">
                             <div className="dashboard-gas-coverage__contract-header">
                               <strong>{rule.contractAddress}</strong>
@@ -1529,25 +1531,25 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     <div className="dashboard-gas-coverage__section-header">
                       <span>Spend caps</span>
                     </div>
-                    {selectedConfig.spendCap.capsByChain.length > 0 ? (
+                    {selectedPolicy.spendCap.capsByChain.length > 0 ? (
                       <div className="dashboard-gas-coverage__function-list">
-                        {selectedConfig.spendCap.capsByChain.map((cap) => (
+                        {selectedPolicy.spendCap.capsByChain.map((cap) => (
                           <span
                             className="dashboard-gas-coverage__function-chip"
-                            key={`${cap.chainId}:${selectedConfig.spendCap.period}`}
+                            key={`${cap.chainId}:${selectedPolicy.spendCap.period}`}
                           >
                             {formatSpendCapCoverageEntry({
                               chainId: cap.chainId,
                               capMinor: cap.capMinor,
-                              mode: selectedConfig.spendCap.mode,
-                              period: selectedConfig.spendCap.period,
+                              mode: selectedPolicy.spendCap.mode,
+                              period: selectedPolicy.spendCap.period,
                             })}
                           </span>
                         ))}
                       </div>
                     ) : (
                       <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
-                        {selectedConfig.spendCap.mode === 'NONE'
+                        {selectedPolicy.spendCap.mode === 'NONE'
                           ? 'No spend cap configured.'
                           : 'No per-chain spend caps configured.'}
                       </p>
@@ -1980,11 +1982,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   <button
                     type="submit"
                     className="dashboard-pagination-button"
-                    disabled={!canMutateConfig || mutating}
+                    disabled={!canMutatePolicy || mutating}
                   >
                     {mutating
                       ? 'Saving...'
-                      : editingConfigId
+                      : editingPolicyId
                         ? 'Save sponsorship policy'
                         : 'Create sponsorship policy'}
                   </button>

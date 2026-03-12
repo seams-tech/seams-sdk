@@ -1,7 +1,7 @@
 export type {
   SponsoredEvmCall,
   SponsoredEvmCallRequest,
-  ResolvedSponsoredEvmCallConfig,
+  ResolvedSponsoredEvmCallPolicy,
 } from './evm';
 export {
   normalizeEvmAddress,
@@ -13,8 +13,8 @@ export {
   parseRequiredUnsignedBigInt,
   extractEvmFunctionSelector,
   createSponsoredEvmSourceEventId,
-  parseResolvedSponsoredEvmCallConfigs,
-  matchResolvedSponsoredEvmCallConfig,
+  parseResolvedSponsoredEvmCallPolicies,
+  matchResolvedSponsoredEvmCallPolicy,
   parseSponsoredEvmCallRequest,
 } from './evm';
 export type {

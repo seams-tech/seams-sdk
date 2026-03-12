@@ -11,6 +11,7 @@ export interface DashboardConsolePolicy {
   id: string;
   orgId: string;
   isSystemDefault: boolean;
+  kind: 'TRANSACTION' | 'GAS_SPONSORSHIP';
   name: string;
   description: string | null;
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
@@ -23,6 +24,7 @@ export interface DashboardConsolePolicy {
 
 export interface DashboardConsolePolicyVersion {
   policyId: string;
+  kind: 'TRANSACTION' | 'GAS_SPONSORSHIP';
   version: number;
   status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   rules: Record<string, unknown>;
@@ -149,6 +151,8 @@ function decodePolicy(raw: unknown): DashboardConsolePolicy | null {
   const statusRaw = String(row.status || '').trim().toUpperCase();
   const status =
     statusRaw === 'ARCHIVED' ? 'ARCHIVED' : statusRaw === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
+  const kindRaw = String(row.kind || '').trim().toUpperCase();
+  const kind = kindRaw === 'GAS_SPONSORSHIP' ? 'GAS_SPONSORSHIP' : 'TRANSACTION';
   const rulesRaw =
     row.rules && typeof row.rules === 'object' && !Array.isArray(row.rules)
       ? (row.rules as Record<string, unknown>)
@@ -157,6 +161,7 @@ function decodePolicy(raw: unknown): DashboardConsolePolicy | null {
     id,
     orgId,
     isSystemDefault: row.isSystemDefault === true,
+    kind,
     name: String(row.name || '').trim(),
     description: row.description == null ? null : String(row.description || '').trim() || null,
     status,
@@ -176,12 +181,15 @@ function decodePolicyVersion(raw: unknown): DashboardConsolePolicyVersion | null
   const statusRaw = String(row.status || '').trim().toUpperCase();
   const status =
     statusRaw === 'ARCHIVED' ? 'ARCHIVED' : statusRaw === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
+  const kindRaw = String(row.kind || '').trim().toUpperCase();
+  const kind = kindRaw === 'GAS_SPONSORSHIP' ? 'GAS_SPONSORSHIP' : 'TRANSACTION';
   const rulesRaw =
     row.rules && typeof row.rules === 'object' && !Array.isArray(row.rules)
       ? (row.rules as Record<string, unknown>)
       : {};
   return {
     policyId,
+    kind,
     version: Number(row.version || 0),
     status,
     rules: rulesRaw,
@@ -273,10 +281,15 @@ function decodeAssignment(raw: unknown): DashboardConsolePolicyAssignment | null
   };
 }
 
-export async function listDashboardPolicies(): Promise<DashboardConsolePolicy[]> {
+export async function listDashboardPolicies(input: {
+  kind?: DashboardConsolePolicy['kind'];
+} = {}): Promise<DashboardConsolePolicy[]> {
   const base = requireConsoleBaseUrl();
+  const search = new URLSearchParams();
+  if (input.kind) search.set('kind', input.kind);
+  const listPath = `/console/policies${search.size > 0 ? `?${search.toString()}` : ''}`;
   const response = await fetchConsoleEndpoint(
-    `${base}/console/policies`,
+    `${base}${listPath}`,
     {
       method: 'GET',
       headers: buildConsoleAcceptHeaders(),
@@ -285,7 +298,7 @@ export async function listDashboardPolicies(): Promise<DashboardConsolePolicy[]>
     },
     {
       baseUrl: base,
-      path: '/console/policies',
+      path: listPath,
       operation: 'Policy list request',
     },
   );
@@ -331,6 +344,7 @@ export async function listDashboardPolicyVersions(
 }
 
 export async function createDashboardPolicy(input: {
+  kind?: DashboardConsolePolicy['kind'];
   name: string;
   description?: string;
   rules?: Record<string, unknown>;

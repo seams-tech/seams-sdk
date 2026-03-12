@@ -3,6 +3,10 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { persistDashboardSelectedContext } from '../../useDashboardUiPreferences';
 import {
+  deriveDashboardOrganizationSlug,
+  isDashboardDefaultOrganizationName,
+} from '../../utils/organizationIdentity';
+import {
   createDashboardOnboardingOrganization,
   createDashboardOnboardingProject,
   getDashboardOnboardingState,
@@ -13,23 +17,16 @@ import {
   type DashboardOnboardingStep,
 } from './consoleOnboardingApi';
 
-const RESOURCE_ID_PATTERN = /^[A-Za-z0-9:_-]+$/;
 const ONBOARDING_DRAFT_STORAGE_PREFIX = 'tatchi-dashboard-onboarding-draft-v1:';
-const DEFAULT_DEVELOPMENT_ENVIRONMENT_NAME = 'Development';
 const ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
+const DEFAULT_ONBOARDING_ORGANIZATION_NAME = 'Acme Corp';
 
 type OnboardingMutationAction = 'organization' | 'project';
 
 type OnboardingDraft = {
   orgNameInput: string;
-  orgSlugInput: string;
-  orgNameConfirmed: boolean;
   orgNameExplicitlySelected: boolean;
   projectNameInput: string;
-  projectIdInput: string;
-  environmentIdInput: string;
-  showOrganizationOptionalFields: boolean;
-  showProjectOptionalFields: boolean;
 };
 
 type OnboardingStepperStatus = 'current' | 'done' | 'locked';
@@ -64,7 +61,11 @@ function hasConfiguredOrganizationName(
   if (!state) return false;
   const organizationName = String(state.organization?.name || '').trim();
   if (!organizationName) return false;
-  return organizationName !== String(state.orgId || '').trim() || orgNameExplicitlySelected;
+  if (orgNameExplicitlySelected) return true;
+  return !isDashboardDefaultOrganizationName({
+    name: organizationName,
+    orgId: String(state.orgId || '').trim(),
+  });
 }
 
 function resolveCurrentStep(
@@ -91,14 +92,8 @@ function readOnboardingDraft(storageKey: string): OnboardingDraft | null {
     const row = parsed as Record<string, unknown>;
     return {
       orgNameInput: String(row.orgNameInput || '').trim(),
-      orgSlugInput: String(row.orgSlugInput || '').trim(),
-      orgNameConfirmed: row.orgNameConfirmed === true,
       orgNameExplicitlySelected: row.orgNameExplicitlySelected === true,
       projectNameInput: String(row.projectNameInput || '').trim(),
-      projectIdInput: String(row.projectIdInput || '').trim(),
-      environmentIdInput: String(row.environmentIdInput || '').trim(),
-      showOrganizationOptionalFields: row.showOrganizationOptionalFields === true,
-      showProjectOptionalFields: row.showProjectOptionalFields === true,
     };
   } catch {
     return null;
@@ -136,25 +131,16 @@ function validateProjectName(value: string): string {
   return '';
 }
 
-function validateOptionalResourceId(value: string, label: string): string {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return '';
-  if (!RESOURCE_ID_PATTERN.test(trimmed)) {
-    return `${label} may only contain letters, numbers, colon (:), underscore (_), and hyphen (-).`;
-  }
-  return '';
-}
-
 function resolveActionableMutationError(error: unknown): string {
   if (error instanceof DashboardConsoleApiError) {
     if (error.code === 'forbidden' || error.status === 403) {
       return 'Permission missing. Ask an organization owner/admin for onboarding access and retry.';
     }
     if (error.code === 'invalid_body') {
-      return 'Invalid ID format. Use only letters, numbers, colon (:), underscore (_), and hyphen (-).';
+      return 'Invalid input format. Update the form values and retry.';
     }
     if (error.code === 'project_already_exists' || error.code === 'environment_already_exists') {
-      return 'Name already used. Choose a different project or environment ID and retry.';
+      return 'Name already used. Choose a different project or environment name and retry.';
     }
     if (error.code === 'environment_key_conflict') {
       return 'Name already used. Development environment already exists for this project.';
@@ -163,7 +149,7 @@ function resolveActionableMutationError(error: unknown): string {
       return 'Name your organization before creating your first project.';
     }
     if (error.code === 'project_archived' || error.code === 'environment_archived') {
-      return 'Name already used. That ID belongs to an archived resource, so choose a new ID.';
+      return 'Name already used. That name belongs to an archived resource, so choose a new name.';
     }
   }
 
@@ -174,7 +160,7 @@ function resolveActionableMutationError(error: unknown): string {
     return 'Name already used. Choose a different value and retry.';
   }
   if (/invalid|may only contain/i.test(message)) {
-    return 'Invalid ID format. Use only letters, numbers, colon (:), underscore (_), and hyphen (-).';
+    return 'Invalid input format. Update the form values and retry.';
   }
   if (/forbidden|permission|unauthorized/i.test(message)) {
     return 'Permission missing. Ask an organization owner/admin for onboarding access and retry.';
@@ -214,15 +200,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const [projectResult, setProjectResult] =
     React.useState<DashboardCreateOnboardingProjectResult | null>(null);
   const [orgNameInput, setOrgNameInput] = React.useState<string>('');
-  const [orgSlugInput, setOrgSlugInput] = React.useState<string>('');
-  const [orgNameConfirmed, setOrgNameConfirmed] = React.useState<boolean>(false);
   const [orgNameExplicitlySelected, setOrgNameExplicitlySelected] = React.useState<boolean>(false);
-  const [projectIdInput, setProjectIdInput] = React.useState<string>('');
   const [projectNameInput, setProjectNameInput] = React.useState<string>('');
-  const [environmentIdInput, setEnvironmentIdInput] = React.useState<string>('');
-  const [showOrganizationOptionalFields, setShowOrganizationOptionalFields] =
-    React.useState<boolean>(false);
-  const [showProjectOptionalFields, setShowProjectOptionalFields] = React.useState<boolean>(false);
   const [loadedDraftStorageKey, setLoadedDraftStorageKey] = React.useState<string>('');
 
   const draftStorageKey = React.useMemo(() => {
@@ -244,12 +223,27 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       .then((nextState) => {
         if (cancelled) return;
         setState(nextState);
-        setOrgNameInput((current) => current || String(nextState.organization?.name || '').trim());
-        setOrgSlugInput((current) => current || String(nextState.organization?.slug || '').trim());
-        setProjectIdInput((current) => current || String(nextState.selectedProjectId || '').trim());
-        setEnvironmentIdInput(
-          (current) => current || String(nextState.selectedEnvironmentId || '').trim(),
-        );
+        const onboardingOrganizationName = String(nextState.organization?.name || '').trim();
+        const onboardingOrganizationId = String(nextState.orgId || '').trim();
+        const nextOrganizationNameInput =
+          onboardingOrganizationName &&
+          isDashboardDefaultOrganizationName({
+            name: onboardingOrganizationName,
+            orgId: onboardingOrganizationId,
+          })
+            ? DEFAULT_ONBOARDING_ORGANIZATION_NAME
+            : onboardingOrganizationName;
+        setOrgNameInput((current) => {
+          const currentName = String(current || '').trim();
+          const currentNameIsDefaultIdentity =
+            currentName &&
+            isDashboardDefaultOrganizationName({
+              name: currentName,
+              orgId: onboardingOrganizationId,
+            });
+          if (!currentName || currentNameIsDefaultIdentity) return nextOrganizationNameInput;
+          return currentName;
+        });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -283,25 +277,18 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     const draft = readOnboardingDraft(draftStorageKey);
     if (draft) {
       setOrgNameInput(draft.orgNameInput);
-      setOrgSlugInput(draft.orgSlugInput);
-      setOrgNameConfirmed(draft.orgNameConfirmed);
       setOrgNameExplicitlySelected(draft.orgNameExplicitlySelected);
       setProjectNameInput(draft.projectNameInput);
-      setProjectIdInput(draft.projectIdInput);
-      setEnvironmentIdInput(draft.environmentIdInput);
-      setShowOrganizationOptionalFields(draft.showOrganizationOptionalFields);
-      setShowProjectOptionalFields(draft.showProjectOptionalFields);
     }
     setLoadedDraftStorageKey(draftStorageKey);
   }, [draftStorageKey, loadedDraftStorageKey]);
 
   const orgNameValidationMessage = validateOrganizationName(orgNameInput);
-  const projectNameValidationMessage = validateProjectName(projectNameInput);
-  const projectIdValidationMessage = validateOptionalResourceId(projectIdInput, 'Project ID');
-  const environmentIdValidationMessage = validateOptionalResourceId(
-    environmentIdInput,
-    'Environment ID',
+  const orgSlugInput = React.useMemo(
+    () => deriveDashboardOrganizationSlug(orgNameInput),
+    [orgNameInput],
   );
+  const projectNameValidationMessage = validateProjectName(projectNameInput);
 
   const submitOrganizationStep = React.useCallback(async () => {
     if (!session.claims) {
@@ -312,12 +299,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setMutationError(orgNameValidationMessage);
       return;
     }
-    if (!orgNameConfirmed) {
-      setMutationError('Confirm the organization name before continuing.');
-      return;
-    }
     const orgName = String(orgNameInput || '').trim();
-    const orgSlug = String(orgSlugInput || '').trim();
+    const orgSlug = deriveDashboardOrganizationSlug(orgName);
 
     setSubmitting(true);
     setMutationError('');
@@ -340,10 +323,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     }
   }, [
     loadState,
-    orgNameConfirmed,
     orgNameInput,
     orgNameValidationMessage,
-    orgSlugInput,
     session.claims,
     session.errorMessage,
   ]);
@@ -353,39 +334,27 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setMutationError(session.errorMessage || 'Console session is unavailable');
       return;
     }
+    if (
+      !state?.organizationReady ||
+      !hasConfiguredOrganizationName(state, orgNameExplicitlySelected)
+    ) {
+      setMutationError('Complete organization setup before creating your first project.');
+      return;
+    }
     if (projectNameValidationMessage) {
       setMutationError(projectNameValidationMessage);
       return;
     }
-    if (projectIdValidationMessage) {
-      setMutationError(projectIdValidationMessage);
-      return;
-    }
-    if (environmentIdValidationMessage) {
-      setMutationError(environmentIdValidationMessage);
-      return;
-    }
 
     const projectName = String(projectNameInput || '').trim();
-    const projectId = String(projectIdInput || '').trim();
-    const environmentId = String(environmentIdInput || '').trim();
 
     setSubmitting(true);
     setMutationError('');
     try {
       const next = await createDashboardOnboardingProject({
         project: {
-          ...(projectId ? { id: projectId } : {}),
           name: projectName,
         },
-        ...(environmentId
-          ? {
-              environment: {
-                id: environmentId,
-                name: DEFAULT_DEVELOPMENT_ENVIRONMENT_NAME,
-              },
-            }
-          : {}),
       });
       setProjectResult(next);
       setLastFailedAction(null);
@@ -399,15 +368,13 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setSubmitting(false);
     }
   }, [
-    environmentIdInput,
-    environmentIdValidationMessage,
     loadState,
-    projectIdInput,
-    projectIdValidationMessage,
+    orgNameExplicitlySelected,
     projectNameInput,
     projectNameValidationMessage,
     session.claims,
     session.errorMessage,
+    state,
   ]);
 
   const onSubmitOrganization = React.useCallback(
@@ -451,34 +418,23 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     if (loadedDraftStorageKey !== draftStorageKey) return;
     writeOnboardingDraft(draftStorageKey, {
       orgNameInput: String(orgNameInput || '').trim(),
-      orgSlugInput: String(orgSlugInput || '').trim(),
-      orgNameConfirmed,
       orgNameExplicitlySelected,
       projectNameInput: String(projectNameInput || '').trim(),
-      projectIdInput: String(projectIdInput || '').trim(),
-      environmentIdInput: String(environmentIdInput || '').trim(),
-      showOrganizationOptionalFields,
-      showProjectOptionalFields,
     });
   }, [
     draftStorageKey,
-    environmentIdInput,
     loadedDraftStorageKey,
     onboardingComplete,
-    orgNameConfirmed,
     orgNameExplicitlySelected,
     orgNameInput,
-    orgSlugInput,
-    projectIdInput,
     projectNameInput,
-    showOrganizationOptionalFields,
-    showProjectOptionalFields,
   ]);
 
   const currentStep = resolveCurrentStep(state, orgNameExplicitlySelected);
   const organizationProfileReady =
     state?.organizationReady === true &&
     hasConfiguredOrganizationName(state, orgNameExplicitlySelected);
+  const projectStepLocked = !organizationProfileReady;
   const projectProfileReady = state?.projectReady === true;
   const completionProjectId = String(
     state?.selectedProjectId || projectResult?.project.id || '',
@@ -499,8 +455,9 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     });
   }, [completionEnvironmentId, completionOrgId, completionProjectId]);
 
-  const showOrganizationStep = !onboardingComplete && currentStep === 'organization';
-  const showProjectStep = !onboardingComplete && currentStep === 'project';
+  const showOrganizationStep = !onboardingComplete;
+  const showProjectStep = !onboardingComplete;
+  const projectNameValidationMessageForUi = projectStepLocked ? '' : projectNameValidationMessage;
 
   const stepper: Array<{
     key: DashboardOnboardingStep;
@@ -521,20 +478,13 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       label: 'Project',
       status: projectProfileReady ? 'done' : currentStep === 'project' ? 'current' : 'locked',
     },
-    {
-      key: 'complete',
-      label: 'Complete',
-      status: onboardingComplete ? 'current' : 'locked',
-    },
   ];
 
-  const organizationSubmitDisabled =
-    submitting || Boolean(orgNameValidationMessage) || !orgNameConfirmed;
+  const organizationSubmitDisabled = submitting || Boolean(orgNameValidationMessage);
   const projectSubmitDisabled =
     submitting ||
+    projectStepLocked ||
     Boolean(projectNameValidationMessage) ||
-    Boolean(projectIdValidationMessage) ||
-    Boolean(environmentIdValidationMessage) ||
     state?.projectReady === true;
 
   return (
@@ -551,28 +501,22 @@ export function DashboardOnboardingPage(): React.JSX.Element {
         ) : errorMessage ? (
           <p className="dashboard-pagination-note">Onboarding status unavailable: {errorMessage}</p>
         ) : state ? (
-          <>
-            <ol className="dashboard-onboarding-stepper" aria-label="Onboarding progress">
-              {stepper.map((entry, index) => (
-                <li
-                  key={entry.key}
-                  className={`dashboard-onboarding-stepper__item dashboard-onboarding-stepper__item--${entry.status}`}
-                >
-                  <span className="dashboard-onboarding-stepper__index" aria-hidden="true">
-                    {index + 1}
-                  </span>
-                  <span className="dashboard-onboarding-stepper__label">{entry.label}</span>
-                  <span className="dashboard-onboarding-stepper__status">
-                    {stepperStatusLabel(entry.status)}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            <p className="dashboard-pagination-note">
-              Billing is optional during onboarding. Add billing later to unlock staging and
-              production environments.
-            </p>
-          </>
+          <ol className="dashboard-onboarding-stepper" aria-label="Onboarding progress">
+            {stepper.map((entry, index) => (
+              <li
+                key={entry.key}
+                className={`dashboard-onboarding-stepper__item dashboard-onboarding-stepper__item--${entry.status}`}
+              >
+                <span className="dashboard-onboarding-stepper__index" aria-hidden="true">
+                  {index + 1}
+                </span>
+                <span className="dashboard-onboarding-stepper__label">{entry.label}</span>
+                <span className="dashboard-onboarding-stepper__status">
+                  {stepperStatusLabel(entry.status)}
+                </span>
+              </li>
+            ))}
+          </ol>
         ) : null}
       </section>
 
@@ -611,9 +555,11 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       ) : (
         <section className="dashboard-view__section" aria-label="Onboarding form">
           {showOrganizationStep ? (
-            <>
+            <section className="dashboard-onboarding-panel" aria-label="Create organization">
               <h2>Name your organization</h2>
-              <p>Confirm the organization name your team will use in the dashboard.</p>
+              <p className="dashboard-onboarding-panel__lead">
+                Confirm the organization name your team will use in the dashboard.
+              </p>
               <form
                 className="dashboard-view-grid dashboard-view-grid--two"
                 onSubmit={onSubmitOrganization}
@@ -625,55 +571,29 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                     value={orgNameInput}
                     onChange={(event) => {
                       setOrgNameInput(event.target.value);
-                      setOrgNameConfirmed(false);
                       setOrgNameExplicitlySelected(false);
                     }}
                     placeholder="Acme Wallets"
                     aria-invalid={Boolean(orgNameValidationMessage)}
                   />
-                  <p
-                    className={`dashboard-form-hint${orgNameValidationMessage ? ' dashboard-form-hint--error' : ''}`}
-                  >
-                    {orgNameValidationMessage || 'Use the name customers and teammates recognize.'}
-                  </p>
+                  {orgNameValidationMessage ? (
+                    <p className="dashboard-form-hint dashboard-form-hint--error">
+                      {orgNameValidationMessage}
+                    </p>
+                  ) : null}
                 </label>
 
                 <div className="dashboard-onboarding-optional">
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => setShowOrganizationOptionalFields((current) => !current)}
-                  >
-                    {showOrganizationOptionalFields
-                      ? 'Hide optional organization details'
-                      : 'Add optional organization details'}
-                  </button>
-                  {showOrganizationOptionalFields ? (
-                    <label className="dashboard-form-field">
-                      <span>Organization slug (optional)</span>
-                      <input
-                        className="dashboard-input"
-                        value={orgSlugInput}
-                        onChange={(event) => setOrgSlugInput(event.target.value)}
-                        placeholder="acme-wallets"
-                      />
-                      <p className="dashboard-form-hint">
-                        Optional URL-safe slug for organization settings.
-                      </p>
-                    </label>
-                  ) : (
-                    <p className="dashboard-form-hint">Optional fields are hidden until needed.</p>
-                  )}
+                  <label className="dashboard-form-field">
+                    <span>Organization slug</span>
+                    <input
+                      className="dashboard-input"
+                      value={orgSlugInput}
+                      disabled
+                      placeholder="acme-wallets"
+                    />
+                  </label>
                 </div>
-
-                <label className="dashboard-onboarding-confirm">
-                  <input
-                    type="checkbox"
-                    checked={orgNameConfirmed}
-                    onChange={(event) => setOrgNameConfirmed(event.target.checked)}
-                  />
-                  <span>I confirm this organization name is correct.</span>
-                </label>
 
                 <div className="dashboard-form-actions">
                   <button
@@ -690,13 +610,17 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                   Organization configured: <strong>{organizationResult.organization.name}</strong>.
                 </p>
               ) : null}
-            </>
+            </section>
           ) : null}
 
           {showProjectStep ? (
-            <>
+            <section
+              className={`dashboard-onboarding-panel${projectStepLocked ? ' dashboard-onboarding-panel--locked' : ''}`}
+              aria-label="Create project"
+              aria-disabled={projectStepLocked}
+            >
               <h2>Create your first project</h2>
-              <p>
+              <p className="dashboard-onboarding-panel__lead">
                 Add your first project. A default <strong>Development</strong> environment will be
                 created automatically.
               </p>
@@ -704,94 +628,45 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                 className="dashboard-view-grid dashboard-view-grid--two"
                 onSubmit={onSubmitProjectStep}
               >
-                <label className="dashboard-form-field">
-                  <span>Project name</span>
-                  <input
-                    className="dashboard-input"
-                    value={projectNameInput}
-                    onChange={(event) => setProjectNameInput(event.target.value)}
-                    placeholder="Consumer App"
-                    aria-invalid={Boolean(projectNameValidationMessage)}
-                  />
-                  <p
-                    className={`dashboard-form-hint${projectNameValidationMessage ? ' dashboard-form-hint--error' : ''}`}
-                  >
-                    {projectNameValidationMessage ||
-                      'Required. You can rename this later from the project dashboard.'}
-                  </p>
-                </label>
-
-                <div className="dashboard-onboarding-optional">
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => setShowProjectOptionalFields((current) => !current)}
-                  >
-                    {showProjectOptionalFields ? 'Hide optional IDs' : 'Add optional IDs'}
-                  </button>
-                  {showProjectOptionalFields ? (
-                    <div className="dashboard-view-grid">
-                      <label className="dashboard-form-field">
-                        <span>Project ID (optional)</span>
-                        <input
-                          className="dashboard-input"
-                          value={projectIdInput}
-                          onChange={(event) => setProjectIdInput(event.target.value)}
-                          placeholder="proj_consumer"
-                          aria-invalid={Boolean(projectIdValidationMessage)}
-                        />
-                        <p
-                          className={`dashboard-form-hint${projectIdValidationMessage ? ' dashboard-form-hint--error' : ''}`}
-                        >
-                          {projectIdValidationMessage ||
-                            'Optional stable identifier for API and automation usage.'}
-                        </p>
-                      </label>
-                      <label className="dashboard-form-field">
-                        <span>Environment ID (optional)</span>
-                        <input
-                          className="dashboard-input"
-                          value={environmentIdInput}
-                          onChange={(event) => setEnvironmentIdInput(event.target.value)}
-                          placeholder="proj_consumer:dev"
-                          aria-invalid={Boolean(environmentIdValidationMessage)}
-                        />
-                        <p
-                          className={`dashboard-form-hint${environmentIdValidationMessage ? ' dashboard-form-hint--error' : ''}`}
-                        >
-                          {environmentIdValidationMessage ||
-                            'Optional ID for the default Development environment.'}
-                        </p>
-                      </label>
-                    </div>
-                  ) : (
-                    <p className="dashboard-form-hint">
-                      Optional IDs are collapsed to keep setup focused.
+                <fieldset
+                  className="dashboard-onboarding-panel__fieldset dashboard-view-grid"
+                  disabled={projectStepLocked || state?.projectReady === true}
+                >
+                  <label className="dashboard-form-field dashboard-form-field--full">
+                    <span>Project name</span>
+                    <input
+                      className="dashboard-input"
+                      value={projectNameInput}
+                      onChange={(event) => setProjectNameInput(event.target.value)}
+                      placeholder="Consumer App"
+                      aria-invalid={Boolean(projectNameValidationMessageForUi)}
+                    />
+                    <p
+                      className={`dashboard-form-hint${projectNameValidationMessageForUi ? ' dashboard-form-hint--error' : ''}`}
+                    >
+                      {projectNameValidationMessageForUi ||
+                        'Required. You can rename this later from the project dashboard.'}
                     </p>
-                  )}
-                </div>
+                  </label>
 
-                <div className="dashboard-form-actions">
-                  <button
-                    type="submit"
-                    className="dashboard-pagination-button"
-                    disabled={projectSubmitDisabled}
-                  >
-                    {submitting ? 'Creating project...' : 'Finish onboarding'}
-                  </button>
-                </div>
+                  <div className="dashboard-form-actions">
+                    <button
+                      type="submit"
+                      className="dashboard-pagination-button"
+                      disabled={projectSubmitDisabled}
+                    >
+                      {submitting ? 'Creating project...' : 'Finish onboarding'}
+                    </button>
+                  </div>
+                </fieldset>
               </form>
-              <p className="dashboard-pagination-note">
-                Billing is optional for onboarding. Add billing later to create staging/production
-                environments.
-              </p>
               {projectResult ? (
                 <p className="dashboard-pagination-note">
                   Project configured: <strong>{projectResult.project.name}</strong> /{' '}
                   <strong>{projectResult.environment.id}</strong>.
                 </p>
               ) : null}
-            </>
+            </section>
           ) : null}
 
           {mutationError ? (

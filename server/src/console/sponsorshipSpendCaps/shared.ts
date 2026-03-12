@@ -12,7 +12,7 @@ import type {
 
 export type NormalizedConsoleSponsorshipSpendCapBucket = {
   environmentId: string;
-  sponsorshipConfigId: string;
+  policyId: string;
   accountRef: string | null;
   storedAccountRef: string;
   chainId: number;
@@ -140,10 +140,7 @@ export function normalizeReserveRequest(
 ): ReserveNormalized {
   const sourceEventId = normalizeRequiredString(input.sourceEventId, 'sourceEventId');
   const environmentId = normalizeRequiredString(input.environmentId, 'environmentId');
-  const sponsorshipConfigId = normalizeRequiredString(
-    input.sponsorshipConfigId,
-    'sponsorshipConfigId',
-  );
+  const policyId = normalizeRequiredString(input.policyId, 'policyId');
   const mode = input.mode;
   const period = input.period;
   if (mode !== 'CHAIN_TOTAL' && mode !== 'WALLET_CHAIN_TOTAL') {
@@ -163,7 +160,7 @@ export function normalizeReserveRequest(
   return {
     sourceEventId,
     environmentId,
-    sponsorshipConfigId,
+    policyId,
     accountRef,
     storedAccountRef: toStoredAccountRef(mode, accountRef),
     chainId,
@@ -199,10 +196,7 @@ export function normalizeWindowUsageRequest(
   input: GetConsoleSponsorshipSpendCapWindowUsageRequest,
 ): NormalizedConsoleSponsorshipSpendCapBucket {
   const environmentId = normalizeRequiredString(input.environmentId, 'environmentId');
-  const sponsorshipConfigId = normalizeRequiredString(
-    input.sponsorshipConfigId,
-    'sponsorshipConfigId',
-  );
+  const policyId = normalizeRequiredString(input.policyId, 'policyId');
   const mode = input.mode;
   const period = input.period;
   if (mode !== 'CHAIN_TOTAL' && mode !== 'WALLET_CHAIN_TOTAL') {
@@ -216,7 +210,7 @@ export function normalizeWindowUsageRequest(
   const window = resolveConsoleSponsorshipSpendCapWindow(period, input.at || new Date());
   return {
     environmentId,
-    sponsorshipConfigId,
+    policyId,
     accountRef,
     storedAccountRef: toStoredAccountRef(mode, accountRef),
     chainId,
@@ -233,7 +227,7 @@ export function buildConsoleSponsorshipSpendCapWindowKey(
   bucket: Pick<
     NormalizedConsoleSponsorshipSpendCapBucket,
     | 'environmentId'
-    | 'sponsorshipConfigId'
+    | 'policyId'
     | 'storedAccountRef'
     | 'chainId'
     | 'mode'
@@ -243,7 +237,7 @@ export function buildConsoleSponsorshipSpendCapWindowKey(
 ): string {
   return [
     bucket.environmentId,
-    bucket.sponsorshipConfigId,
+    bucket.policyId,
     bucket.storedAccountRef,
     bucket.chainId,
     bucket.mode,
@@ -256,7 +250,7 @@ export function buildConsoleSponsorshipSpendCapWindowKeyFromReservation(
   reservation: Pick<
     ConsoleSponsorshipSpendCapReservation,
     | 'environmentId'
-    | 'sponsorshipConfigId'
+    | 'policyId'
     | 'accountRef'
     | 'chainId'
     | 'mode'
@@ -266,7 +260,7 @@ export function buildConsoleSponsorshipSpendCapWindowKeyFromReservation(
 ): string {
   return buildConsoleSponsorshipSpendCapWindowKey({
     environmentId: reservation.environmentId,
-    sponsorshipConfigId: reservation.sponsorshipConfigId,
+    policyId: reservation.policyId,
     storedAccountRef: toStoredAccountRef(reservation.mode, reservation.accountRef),
     chainId: reservation.chainId,
     mode: reservation.mode,
@@ -288,7 +282,7 @@ export function buildConsoleSponsorshipSpendCapWindowUsage(
   return {
     orgId: input.orgId,
     environmentId: input.environmentId,
-    sponsorshipConfigId: input.sponsorshipConfigId,
+    policyId: input.policyId,
     accountRef: input.accountRef,
     chainId: input.chainId,
     mode: input.mode,

@@ -1,4 +1,4 @@
-import * as wasmModule from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import type * as wasmModule from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 /**
  * User verification policy for WebAuthn authenticators
@@ -36,13 +36,13 @@ export const toEnumUserVerificationPolicy = (
 ): wasmModule.UserVerificationPolicy => {
   switch (userVerification) {
     case UserVerificationPolicy.Required:
-      return wasmModule.UserVerificationPolicy.Required;
+      return 'required' as unknown as wasmModule.UserVerificationPolicy;
     case UserVerificationPolicy.Preferred:
-      return wasmModule.UserVerificationPolicy.Preferred;
+      return 'preferred' as unknown as wasmModule.UserVerificationPolicy;
     case UserVerificationPolicy.Discouraged:
-      return wasmModule.UserVerificationPolicy.Discouraged;
+      return 'discouraged' as unknown as wasmModule.UserVerificationPolicy;
     default:
-      return wasmModule.UserVerificationPolicy.Preferred;
+      return 'preferred' as unknown as wasmModule.UserVerificationPolicy;
   }
 };
 

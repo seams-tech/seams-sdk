@@ -24,6 +24,7 @@ import {
   clearDashboardUiState,
   persistDashboardSelectedContext,
 } from '../../useDashboardUiPreferences';
+import { isDashboardDefaultOrganizationName } from '../../utils/organizationIdentity';
 import {
   createDashboardAccountOrganization,
   deleteDashboardAccountOrganization,
@@ -57,6 +58,16 @@ const ACCOUNT_ORGANIZATIONS_TABLE_COLUMNS = dashboardTableColumns(
   1.15,
   0.95,
 );
+
+function isProvisionedPlaceholderOrganization(
+  organization: DashboardAccountOrganization,
+): boolean {
+  if (organization.onboardingComplete) return false;
+  return isDashboardDefaultOrganizationName({
+    name: String(organization.name || '').trim(),
+    orgId: String(organization.id || '').trim(),
+  });
+}
 
 export function AccountSettingsPage(): React.JSX.Element {
   const { go } = useSiteRouter();
@@ -115,7 +126,11 @@ export function AccountSettingsPage(): React.JSX.Element {
         const organizationsResult = await listDashboardAccountOrganizations();
         if (cancelled) return;
         setProfile(profileResult);
-        setOrganizations(organizationsResult);
+        setOrganizations(
+          organizationsResult.filter(
+            (organization) => !isProvisionedPlaceholderOrganization(organization),
+          ),
+        );
       } catch (error: unknown) {
         if (cancelled) return;
         setProfile(null);
@@ -137,7 +152,11 @@ export function AccountSettingsPage(): React.JSX.Element {
     const profileResult = await getDashboardAccountProfile();
     const organizationsResult = await listDashboardAccountOrganizations();
     setProfile(profileResult);
-    setOrganizations(organizationsResult);
+    setOrganizations(
+      organizationsResult.filter(
+        (organization) => !isProvisionedPlaceholderOrganization(organization),
+      ),
+    );
   }, [session.claims]);
 
   React.useEffect(() => {
@@ -504,6 +523,11 @@ export function AccountSettingsPage(): React.JSX.Element {
                 disabled={profile?.canEditPrimaryEmail === false}
                 placeholder="name@example.com"
               />
+              {profile?.canEditPrimaryEmail === false ? (
+                <span className="dashboard-pagination-note">
+                  Primary email is managed by your identity provider.
+                </span>
+              ) : null}
             </label>
           </div>
           <div className="dashboard-account-subsection dashboard-account-subsection--compact">
@@ -677,6 +701,11 @@ export function AccountSettingsPage(): React.JSX.Element {
               <div className="dashboard-account-static-value">
                 {profile?.primaryEmail || 'Not set'}
               </div>
+              {profile?.canEditPrimaryEmail === false ? (
+                <p className="dashboard-pagination-note">
+                  Primary email is managed by your identity provider.
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="dashboard-account-subsection dashboard-account-subsection--compact">

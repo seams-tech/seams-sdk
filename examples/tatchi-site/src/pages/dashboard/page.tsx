@@ -34,6 +34,7 @@ import {
   readPersistedDashboardSelectedContext,
   useDashboardUiPreferences,
 } from './useDashboardUiPreferences';
+import { isDashboardDefaultOrganizationName } from './utils/organizationIdentity';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import './styles.css';
 
@@ -107,6 +108,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       ? onboardingState.complete === true
       : onboardingState.onboardingComplete
     : false;
+  const hasExistingOrganization = onboardingState?.hasOrganization === true;
   const resolvedTheme: 'light' | 'dark' = theme === 'light' ? 'light' : 'dark';
   const sessionForbidden =
     !consoleSession.loading &&
@@ -116,6 +118,20 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const onboardingSelectedEnvironmentId = String(
     onboardingState?.selectedEnvironmentId || '',
   ).trim();
+  const onboardingOrganizationName = String(onboardingState?.organization?.name || '').trim();
+  const onboardingOrganizationId = String(
+    onboardingState?.orgId || consoleSession.claims?.orgId || '',
+  ).trim();
+  const onboardingHasConfiguredOrganizationName =
+    onboardingOrganizationName.length > 0 &&
+    !isDashboardDefaultOrganizationName({
+      name: onboardingOrganizationName,
+      orgId: onboardingOrganizationId,
+    });
+  const hasConfiguredOrganization = hasExistingOrganization && onboardingHasConfiguredOrganizationName;
+  const focusedOnboardingOrganizationValue = onboardingHasConfiguredOrganizationName
+    ? onboardingOrganizationName
+    : '';
   const billingReady = onboardingState?.billingReady === true;
   const isSidebarNavigationLocked =
     onboardingGateEnabled &&
@@ -200,25 +216,25 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (!onboardingGateEnabled || !onboardingState) return;
     const isOnboardingRoute = pathname === DASHBOARD_ONBOARDING_ROUTE;
     const isAccountSettingsRoute = pathname === DASHBOARD_ACCOUNT_SETTINGS_ROUTE;
-    if (!onboardingComplete && !isOnboardingRoute && !isAccountSettingsRoute) {
+    if (!hasConfiguredOrganization && !isOnboardingRoute && !isAccountSettingsRoute) {
       go(DASHBOARD_ONBOARDING_ROUTE);
     }
   }, [
     consoleSession.claims,
     consoleSession.loading,
     go,
+    hasConfiguredOrganization,
     onboardingGateEnabled,
     onboardingLoading,
-    onboardingComplete,
     onboardingState,
     pathname,
   ]);
 
   const dashboardEntryRoute = React.useMemo<DashboardRoute>(() => {
-    if (onboardingGateEnabled && onboardingState && onboardingComplete)
+    if (onboardingGateEnabled && onboardingState && hasConfiguredOrganization)
       return DEFAULT_DASHBOARD_ROUTE;
     return DASHBOARD_ONBOARDING_ROUTE;
-  }, [onboardingComplete, onboardingGateEnabled, onboardingState]);
+  }, [hasConfiguredOrganization, onboardingGateEnabled, onboardingState]);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -565,13 +581,25 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   React.useEffect(() => {
     if (!consoleSession.claims) return;
+    if (onboardingGateEnabled && onboardingLoading) return;
+    if (onboardingGateEnabled && !onboardingState) return;
     if (pathname === '/dashboard') {
       go(dashboardEntryRoute);
     }
-  }, [consoleSession.claims, dashboardEntryRoute, go, pathname]);
+  }, [
+    consoleSession.claims,
+    dashboardEntryRoute,
+    go,
+    onboardingGateEnabled,
+    onboardingLoading,
+    onboardingState,
+    pathname,
+  ]);
 
   React.useEffect(() => {
     if (!consoleSession.claims) return;
+    if (onboardingGateEnabled && onboardingLoading) return;
+    if (onboardingGateEnabled && !onboardingState) return;
     if (
       pathname !== '/dashboard' &&
       pathname.startsWith('/dashboard/') &&
@@ -579,7 +607,15 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     ) {
       go(dashboardEntryRoute);
     }
-  }, [consoleSession.claims, dashboardEntryRoute, go, pathname]);
+  }, [
+    consoleSession.claims,
+    dashboardEntryRoute,
+    go,
+    onboardingGateEnabled,
+    onboardingLoading,
+    onboardingState,
+    pathname,
+  ]);
 
   React.useEffect(() => {
     if (consoleSession.loading || consoleSession.claims) return;
@@ -643,6 +679,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         onSelectContext={onSelectContext}
         dropdownOptions={dropdownOptions}
         focusedMode={focusedOnboardingMode}
+        focusedContextValue={focusedOnboardingMode ? focusedOnboardingOrganizationValue : undefined}
       />
 
       <DashboardSidebar

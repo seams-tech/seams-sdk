@@ -378,6 +378,89 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(noTenantContextRows.rows.length).toBe(0);
   });
 
+  test('account organizations created-by query remains tenant-scoped under RLS', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
+    const pool = await getPostgresPool(postgresUrl);
+
+    const ownerRowsForOwnerUser = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT id
+             FROM console_organizations
+            WHERE namespace = $1
+              AND created_by_user_id = $2
+            ORDER BY id ASC`,
+          [namespace, 'owner-seed-admin'],
+        ),
+    );
+    const ownerRowIdsForOwnerUser = ownerRowsForOwnerUser.rows.map((row) =>
+      String((row as Record<string, unknown>).id || ''),
+    );
+    expect(ownerRowIdsForOwnerUser).toContain(ownerOrgId);
+    expect(ownerRowIdsForOwnerUser).not.toContain(attackerOrgId);
+
+    const ownerRowsForAttackerUser = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: ownerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT id
+             FROM console_organizations
+            WHERE namespace = $1
+              AND created_by_user_id = $2
+            ORDER BY id ASC`,
+          [namespace, 'attacker-seed-admin'],
+        ),
+    );
+    expect(ownerRowsForAttackerUser.rows.length).toBe(0);
+
+    const attackerRowsForOwnerUser = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT id
+             FROM console_organizations
+            WHERE namespace = $1
+              AND created_by_user_id = $2
+            ORDER BY id ASC`,
+          [namespace, 'owner-seed-admin'],
+        ),
+    );
+    expect(attackerRowsForOwnerUser.rows.length).toBe(0);
+
+    const attackerRowsForAttackerUser = await withConsoleTenantContextTx(
+      pool,
+      { namespace, orgId: attackerOrgId },
+      async (q) =>
+        q.query(
+          `SELECT id
+             FROM console_organizations
+            WHERE namespace = $1
+              AND created_by_user_id = $2
+            ORDER BY id ASC`,
+          [namespace, 'attacker-seed-admin'],
+        ),
+    );
+    const attackerRowIdsForAttackerUser = attackerRowsForAttackerUser.rows.map((row) =>
+      String((row as Record<string, unknown>).id || ''),
+    );
+    expect(attackerRowIdsForAttackerUser).toContain(attackerOrgId);
+    expect(attackerRowIdsForAttackerUser).not.toContain(ownerOrgId);
+
+    const noTenantContextRows = await pool.query(
+      `SELECT id
+         FROM console_organizations
+        WHERE namespace = $1
+          AND created_by_user_id = $2`,
+      [namespace, 'owner-seed-admin'],
+    );
+    expect(noTenantContextRows.rows.length).toBe(0);
+  });
+
   test('org/project/environment service denies cross-org mutations', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ownerCtx = {

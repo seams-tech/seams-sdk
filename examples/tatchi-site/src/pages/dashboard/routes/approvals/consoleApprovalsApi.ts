@@ -10,6 +10,7 @@ import {
 export type DashboardConsoleApprovalOperationType = 'POLICY_PUBLISH' | 'KEY_EXPORT';
 
 export type DashboardConsoleApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELED';
+export type DashboardConsolePolicyKind = 'TRANSACTION' | 'GAS_SPONSORSHIP';
 
 export type DashboardConsoleApprovalDecision = 'APPROVE' | 'REJECT';
 
@@ -36,6 +37,7 @@ export interface DashboardConsoleApprovalRequest {
   resourceId: string | null;
   policyId: string | null;
   policyName: string | null;
+  policyKind: DashboardConsolePolicyKind | null;
   metadata: Record<string, unknown>;
   decisions: DashboardConsoleApprovalDecisionRecord[];
   createdAt: string;
@@ -83,6 +85,12 @@ function decodeStatus(raw: unknown): DashboardConsoleApprovalStatus {
   return STATUS_SET.has(value as DashboardConsoleApprovalStatus)
     ? (value as DashboardConsoleApprovalStatus)
     : 'PENDING';
+}
+
+function decodePolicyKind(raw: unknown): DashboardConsolePolicyKind | null {
+  const value = normalizeString(raw).toUpperCase();
+  if (value === 'TRANSACTION' || value === 'GAS_SPONSORSHIP') return value;
+  return null;
 }
 
 function decodeDecision(raw: unknown): DashboardConsoleApprovalDecisionRecord | null {
@@ -134,6 +142,7 @@ function decodeApproval(raw: unknown): DashboardConsoleApprovalRequest | null {
     resourceId: normalizeString(row.resourceId) || null,
     policyId: normalizeString(row.policyId) || null,
     policyName: normalizeString(row.policyName) || null,
+    policyKind: decodePolicyKind(row.policyKind),
     metadata,
     decisions: decisionsRaw
       .map((entry) => decodeDecision(entry))

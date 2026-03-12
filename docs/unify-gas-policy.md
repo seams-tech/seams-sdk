@@ -2,27 +2,39 @@
 
 ## Goal
 
-Unify gas sponsorship policy and transaction policy under one policy model so both use the same lifecycle (draft, approval, publish), assignment semantics, and auditability.
+Unify gas sponsorship and transaction policies around one policy identity and lifecycle:
 
-Breaking changes are acceptable. Legacy compatibility paths should not be retained.
+- one policy record model
+- one versioning model
+- one approval and publish flow
+- one audit vocabulary
 
-## Scope
+Do this with minimal behavior change. Breaking changes are acceptable. Legacy compatibility branches are not.
 
-- In scope:
-  - Shared policy struct types and storage model for both policy kinds.
-  - Shared approval and publish flow.
-  - Runtime projection and relay matching updated to unified payloads.
-  - Dashboard policy-engine UX updated to manage both kinds.
-  - Full migration from gas sponsorship configs to policy records.
-- Out of scope:
-  - Backward-compatible dual-write/read paths.
-  - Long-lived feature flags for old gas sponsorship config routes.
+## First-Cut Constraints
 
-## Canonical Model
+This refactor should stay narrow.
 
-### 1) Shared envelope type
+Do:
 
-Define a single policy envelope:
+- unify policy identity
+- unify draft and publish lifecycle
+- unify approval handling
+- unify audit and API naming around real `policyId`
+
+Do not do in the first cut:
+
+- do not invent a generic mega-rule engine
+- do not introduce `entries[]` or `policyEntryId`
+- do not force gas scopes into the existing transaction-policy assignment model
+- do not rewrite the relay hot path to consume a generic policy payload directly
+- do not require the dashboard gas page to be deleted in the same backend refactor
+
+## Minimal Target Model
+
+### Shared policy envelope
+
+Both kinds should use one top-level policy record shape:
 
 - `id`
 - `kind` (`TRANSACTION` | `GAS_SPONSORSHIP`)
@@ -32,253 +44,299 @@ Define a single policy envelope:
 - `createdAt`
 - `updatedAt`
 - `publishedAt`
-- `rules` (kind-discriminated payload)
+- `rules`
 
-### 2) Kind-specific rules
+### Kind-specific rules
 
-Keep one discriminated union:
+Use a discriminated union for `rules`:
 
 - `TransactionPolicyRules`
 - `GasSponsorshipPolicyRules`
 
-`GasSponsorshipPolicyRules` should contain `entries[]`, where each entry has:
+`TransactionPolicyRules` should remain behaviorally unchanged.
 
-- `entryId` (stable id for accounting and matching)
+`GasSponsorshipPolicyRules` should preserve the current gas sponsorship config semantics one-to-one:
+
+- `scopeType` (`ORG` | `PROJECT` | `ENVIRONMENT` | `POLICY` | `WALLET_SEGMENT`)
+- `projectId`
+- `environmentId`
+- `scopePolicyId`
+- `walletSegmentId`
 - `enabled`
-- `scope constraints` (project/environment/wallet-segment constraints if needed)
+- `templateId`
 - `networkClass`
 - `allowedChainIds`
 - `callMode`
 - `allowedCalls`
 - `spendCap`
 
-### 3) Shared assignment semantics
+Notes:
 
-Use one assignment model and precedence rules across both kinds:
+- `scopePolicyId` replaces the old overloaded gas field named `policyId`.
+- `policyId` should refer only to the actual policy record id.
+- Telemetry is not policy definition data. Keep it derived/runtime-side, not versioned policy rules.
 
-- `ORG`
-- `PROJECT`
-- `ENVIRONMENT`
-- `WALLET`
+### Why this is the minimal model
 
-Resolution should be per scope and per `kind`.
+Each existing gas sponsorship config becomes one `GAS_SPONSORSHIP` policy record.
+
+That means:
+
+- no grouping multiple gas configs into one parent policy
+- no second identity layer for gas entries
+- no need for `policyEntryId`
+- no need to redesign spend-cap accounting around sub-entries
+
+## Scope Semantics
+
+Do not unify scope semantics in the first cut.
+
+Transaction policies currently use the policy assignment model.
+Gas sponsorship currently has its own scope vocabulary, including `POLICY` and `WALLET_SEGMENT`.
+
+For a minimal refactor:
+
+- keep transaction policy assignment behavior as-is
+- keep gas sponsorship scope behavior as-is
+- unify only the top-level policy envelope and lifecycle
+
+If scope models should be merged later, that should be a separate refactor after the backend model is stable.
 
 ## Approval and Publish
 
-Use one approval pipeline for publish across both policy kinds.
+Reuse the existing policy publish approval flow.
 
-Default approval config for gas sponsorship:
+Rules:
 
-- `operationType`: policy publish operation for `GAS_SPONSORSHIP` kind
-- `requiredApprovals`: `1`
-- required role: `admin` (or existing admin-equivalent role set)
+- keep `POLICY_PUBLISH` as the approval operation type
+- do not create a separate gas-specific approval operation type
+- include `policyKind` in approval metadata and audit payloads
+- default gas policy publish approvals to `requiredApprovals = 1`
+- default the required mutation role to `admin` or the existing admin-equivalent role set
 
-Approval/audit metadata must include policy `kind` and `policyId`.
+This keeps approval taxonomy small while still making gas policy approvals visible in audit and UI.
 
-## Data Migration Plan (Single Breaking Cutover)
+## Storage and Migration
 
-### 1) Schema changes
+### Policy storage
 
-- Add `kind` and rules union support in policy tables/version rows.
-- Add any missing columns/indexes required for gas-rule entry resolution.
-- Add new references for sponsorship accounting:
-  - `policyId`
-  - `policyEntryId` (for gas rule entry identity)
+Add `kind` support to the policy tables and version rows so both transaction and gas sponsorship policies live in the same policy store.
 
-### 2) Backfill gas configs to policies
+### Migration strategy
 
-For each org:
+Migrate existing gas sponsorship configs one-to-one:
 
-- Read all gas sponsorship configs.
-- Group into target gas policies by scope strategy (deterministic).
-- Create `GAS_SPONSORSHIP` policy records + policy versions.
-- Create assignments for effective scopes.
-- Generate stable `policyEntryId` per former config.
+- one gas sponsorship config becomes one `GAS_SPONSORSHIP` policy
+- carry over the existing config `name`
+- carry over the existing scope fields into `GasSponsorshipPolicyRules`
+- carry over the current enabled/rule/spend-cap settings
+- create a published policy version when the source config is currently live
 
-### 3) Migrate downstream references
+### Downstream references
 
-Migrate sponsorship-related records from config identity to policy identity:
+Migrate downstream sponsorship data from config identity to unified policy identity:
 
-- sponsored call ledger rows
-- spend cap windows/reservations
-- runtime projection dependencies
+- sponsored call ledger rows should reference `policyId`
+- spend-cap windows and reservations should reference `policyId`
 
-Persist mapping only for migration execution; remove mapping artifacts after verification.
+Do not add `policyEntryId` in this migration.
 
-### 4) Deletion
-
-After successful migration:
-
-- remove old gas sponsorship config tables
-- remove old gas sponsorship service interfaces/routes
-- remove old sponsorship-config-centric payload fields
-
-No legacy fallback branches should remain.
+The one-to-one mapping is the reason this stays simple.
 
 ## API and Runtime Refactor
 
-### 1) API surface
+### API surface
 
-- Policy endpoints become the source of truth for both kinds.
-- Gas sponsorship CRUD endpoints are removed.
-- Policy APIs support filtering by `kind`.
+Policy APIs should become the source of truth for both kinds.
 
-### 2) Runtime payloads
+Required changes:
 
-- Runtime snapshots expose unified `policies` grouped or filterable by `kind`.
-- Remove dedicated `sponsoredCallConfigs` projection.
-- Relay matcher resolves applicable `GAS_SPONSORSHIP` policy and selects matching `entryId`.
+- add `kind` filtering to policy list/read endpoints
+- support create/update/publish for `GAS_SPONSORSHIP` policies
+- expose `policyKind` in responses where relevant
 
-### 3) Naming contracts
+Transition rule:
 
-- `policyId` always means real policy record id.
-- For gas entry-level references, use `policyEntryId`.
-- Do not reintroduce overloaded fields like `sponsorshipConfigId`.
+- the dedicated gas dashboard page may remain temporarily as a thin client adapter over `/console/policies`
+- do not keep a dedicated backend `/console/gas-sponsorship` CRUD surface
+- do not keep a second source of truth
 
-## Dashboard Changes
+### Runtime payloads
 
-### 1) Policy Engine as single surface
+Do not force the relay to consume a generic policy document directly.
 
-- Add policy kind filters/tabs:
-  - Transaction
-  - Gas Sponsorship
-- Reuse shared lifecycle controls:
-  - Edit draft
-  - Request approval
-  - Approve/reject
-  - Publish
+Instead:
 
-### 2) Gas editor in policy engine
+- keep a dedicated gas execution projection in runtime snapshots
+- derive that projection from published `GAS_SPONSORSHIP` policies
+- keep relay matching logic focused on gas execution data, not authoring-format policy objects
 
-- Gas-specific form for `GasSponsorshipPolicyRules`.
-- Show publish timeline and approvals like transaction policies.
-- Keep URL behavior:
-  - `?policyId=...` selects and expands the policy row for both kinds.
+This preserves hot-path clarity and avoids coupling execution to policy authoring shape.
+
+### Naming contract
+
+Use these names consistently:
+
+- `policyId`: actual policy record id
+- `policyKind`: `TRANSACTION` or `GAS_SPONSORSHIP`
+- `scopePolicyId`: gas sponsorship rule field for policy-scoped targeting
+
+Do not keep or reintroduce:
+
+- `sponsorshipConfigId`
+- `sponsorshipConfigNameAtEvent`
+- gas-owned `policyId` fields that are not actual policy ids
+
+## Dashboard Plan
+
+Keep the UI plan narrow.
+
+Phase 1:
+
+- backend unification first
+- existing gas sponsorship page can call the unified backend through an adapter if that reduces churn
+
+Phase 2:
+
+- keep the dedicated gas page unless folding it into policy engine clearly removes code and duplicated UX
+
+If policy engine convergence happens later:
+
+- add `kind` filters or tabs
+- reuse the shared publish and approval UI shell
+- keep `?policyId=...` selection behavior
+
+But do not block the backend refactor on the UI merge.
 
 ## Testing Plan
 
-### 1) Migration tests
+Required test coverage:
 
-- Config-to-policy conversion correctness.
-- Assignment precedence preserved after migration.
-- Referential integrity for sponsorship ledger/spend-cap rows.
+- gas config to policy migration correctness
+- publish flow for `GAS_SPONSORSHIP` policies
+- approval defaults for gas policy publish
+- runtime projection derived from published gas policies
+- sponsored call matching against unified gas policy projection
+- spend-cap accounting using migrated `policyId`
+- audit payloads including `policyId` and `policyKind`
 
-### 2) Service/router tests
-
-- Policy CRUD and publish by kind.
-- Approval defaults for gas policies (`requiredApprovals=1`).
-- `policy_not_found` behavior for all references.
-
-### 3) End-to-end tests
-
-- Create gas policy draft, request approval, approve, publish.
-- Sponsored call matching on published gas policy entries.
-- Spend-cap reservation/settle/release using `policyId + policyEntryId`.
+Avoid expanding test scope into unrelated UI redesign work in the first cut.
 
 ## Phased TODO List
 
-### Phase 1: Canonical Types and Schema
+### Immediate next steps
 
-- [ ] Add `PolicyKind` support everywhere policy records are modeled and decoded.
-- [ ] Add `GasSponsorshipPolicyRules` union member with stable `entryId` support.
-- [ ] Add DB support for `kind` in policy records/versions.
-- [ ] Add DB support for sponsorship execution references: `policyId` + `policyEntryId`.
-- [ ] Add indexes for `policyId` + `policyEntryId` lookup on sponsorship accounting tables.
-- [ ] Remove any remaining overloaded naming in new code paths.
+- [x] remove remaining standalone gas sponsorship service/adaptor exports
+- [x] decide that the gas dashboard remains a thin policy-backed surface for now
+- [x] delete the remaining `/console/gas-sponsorship` backend route adapter and switch the remaining route tests to `/console/policies`
+- [x] retire or rewrite older planning docs that still describe the removed gas route
+- [x] keep the thin gas dashboard adapter for now; only merge into policy engine if doing so clearly removes code
+- [x] remove the old gas CRUD helper surface from shared router adaptor exports
+- [x] rename remaining gas config-shaped symbols to policy projection terminology
+
+### Phase 1: Shared Policy Envelope
+
+- [x] Add `kind` to policy records and policy versions.
+- [x] Add `GasSponsorshipPolicyRules` as a policy rules union member.
+- [x] Preserve existing gas scope semantics inside gas rules.
+- [x] Rename gas rule field `policyId` to `scopePolicyId`.
+- [x] Keep transaction policy rules unchanged.
 
 Phase 1 exit criteria:
 
-- All compile-time policy types can represent transaction and gas policies in one envelope.
-- New schema can store and query gas policy rules without using gas sponsorship config tables.
+- The policy store can persist both transaction and gas sponsorship policies without changing gas behavior.
 
-### Phase 2: Policy Service + Publish/Approval Unification
+### Phase 2: Shared Publish and Approval Flow
 
-- [ ] Extend policy service CRUD/list/version APIs to support `kind=GAS_SPONSORSHIP`.
-- [ ] Implement gas policy publish with shared approval path.
-- [ ] Set gas publish approval defaults to one admin approver.
-- [ ] Ensure audit events always include `policyId` and `kind`.
-- [ ] Remove any gas-specific publish bypass route.
+- [x] Reuse the existing `POLICY_PUBLISH` approval flow for gas policies.
+- [x] Include `policyKind` in approval metadata.
+- [x] Include `policyKind` in publish audit metadata.
+- [x] Set default gas publish approvals to one admin approver.
+- [x] Add router and service support for listing and mutating policies by `kind`.
 
 Phase 2 exit criteria:
 
-- Gas policies can be created, edited, approved, and published through the policy service only.
+- Gas policies are real policy records with the same draft, approval, and publish lifecycle as transaction policies.
 
-### Phase 3: Runtime + Relay Cutover
+### Phase 3: Migration and Downstream Reference Cutover
 
-- [ ] Replace runtime payload use of `sponsoredCallConfigs` with unified policy payload.
-- [ ] Update sponsorship matcher to resolve effective gas policy and matched `policyEntryId`.
-- [ ] Update sponsored call ledger writes to persist `policyId` + `policyEntryId`.
-- [ ] Update spend-cap reservation/settle/release paths to key by `policyId` + `policyEntryId`.
+- [x] Migrate each gas sponsorship config to one `GAS_SPONSORSHIP` policy.
+- [x] Rename remaining gas sponsorship API/UI scope fields from `policyId` to `scopePolicyId`.
+- [x] Migrate sponsored call rows from config id references to `policyId`.
+- [x] Migrate spend-cap rows from config id references to `policyId`.
+- [x] Remove remaining overloaded config identity usage from production code.
 
 Phase 3 exit criteria:
 
-- Sponsored execution path runs entirely on unified gas policy data.
+- Runtime writes and reads no longer depend on gas sponsorship config ids.
 
-### Phase 4: Dashboard Policy Engine Unification
+### Phase 4: Runtime Projection Cleanup
 
-- [ ] Add policy kind filters/tabs in policy engine (`TRANSACTION`, `GAS_SPONSORSHIP`).
-- [ ] Implement gas rules editor under policy engine using shared draft/publish shell.
-- [ ] Move approvals UI to single policy approval timeline for both kinds.
-- [ ] Keep deep-link behavior: `?policyId=...` selects and expands row for both kinds.
-- [ ] Remove dashboard dependency on dedicated gas sponsorship page/API for config management.
+- [x] Keep a dedicated runtime gas execution projection.
+- [x] Change that projection to be derived from published gas policies.
+- [x] Keep relay matching code focused on gas execution data.
+- [x] Update audit and insights payloads to expose `policyId` and `policyKind` explicitly.
 
 Phase 4 exit criteria:
 
-- Users can fully manage gas policies from policy engine without separate config UI.
+- Sponsorship execution runs on unified policy data without turning the relay into a generic policy interpreter.
 
-### Phase 5: Data Migration + Hard Cutover
+### Phase 5: UI Convergence Decision
 
-- [ ] Migrate existing gas sponsorship configs into `GAS_SPONSORSHIP` policy records/versions.
-- [ ] Migrate sponsorship ledger/spend-cap rows from config ids to `policyId` + `policyEntryId`.
-- [ ] Verify assignment precedence and runtime behavior match pre-cutover behavior.
-- [ ] Run fixture/e2e sweeps and update all assumptions about old gas config identity.
-- [ ] Remove migration helpers and temporary mapping artifacts after validation.
+- [x] Decide whether the dedicated gas page should remain as a policy-backed surface or be merged into policy engine.
+- [ ] If merging, implement `kind`-aware policy engine UI.
+- [x] If not merging yet, keep the gas page as a thin adapter only.
 
 Phase 5 exit criteria:
 
-- No runtime reads depend on old gas sponsorship config storage or identifiers.
+- There is only one backend source of truth regardless of whether one or two UI surfaces remain temporarily.
 
 ## Definition of Done
 
-- Gas sponsorship is represented only as `GAS_SPONSORSHIP` policy records.
-- `policyId` is globally consistent and always points to a real policy record.
-- Sponsorship execution, spend-cap accounting, audit, and insights use unified policy identities.
-- No legacy gas sponsorship config APIs/types/tables remain.
+- Gas sponsorship is stored as `GAS_SPONSORSHIP` policy records.
+- `policyId` always means a real policy record id.
+- Gas publish uses the shared policy approval and publish flow.
+- Sponsored execution and spend-cap accounting read unified policy identities.
+- No production code depends on legacy gas sponsorship config identity.
 
 ## Legacy Removal (Mandatory Final Cleanup)
 
-After Phase 5, remove all legacy gas sponsorship config surfaces in the same cleanup window. Do not leave compatibility branches.
+Remove legacy paths as soon as the unified backend cutover is complete. Do not keep dead compatibility branches.
 
-API and route paths to remove:
+Mandatory backend removals:
 
-- `/console/gas-sponsorship` list/create/update handlers.
-- Any router helpers that parse or project gas sponsorship config DTOs directly.
+- old gas sponsorship config tables
+- old gas sponsorship config ids in ledger and spend-cap tables
+- old backend structs that model gas sponsorship as a separate top-level resource
+- old runtime fields that expose config identity instead of policy identity
 
-Legacy structs and fields to remove or rename:
+Mandatory naming removals:
 
-- `ConsoleGasSponsorshipConfig` as a top-level managed resource.
-- `CreateConsoleGasSponsorshipRequest` and `UpdateConsoleGasSponsorshipRequest`.
-- `ResolvedSponsoredCallConfig` payload shape derived from gas config resources.
-- `sponsorshipConfigId` and `sponsorshipConfigNameAtEvent` in runtime/ledger payloads.
-- Any remaining `sponsoredCallConfigs` payload contracts.
+- `sponsorshipConfigId`
+- `sponsorshipConfigNameAtEvent`
+- gas-owned overloaded `policyId` fields that are not true policy ids
 
-Legacy files/modules to delete or replace:
+Backend files/modules expected to be deleted or replaced after cutover:
 
 - `server/src/console/gasSponsorship/types.ts`
 - `server/src/console/gasSponsorship/requests.ts`
-- `server/src/console/gasSponsorship/service.ts`
-- `server/src/console/gasSponsorship/postgres.ts`
 - `server/src/console/gasSponsorship/onboarding.ts`
 - `server/src/console/gasSponsorship/index.ts`
-- `examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts`
-- `examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx`
 
-Legacy schema/storage to remove after data migration validation:
+Runtime and accounting modules expected to be simplified after cutover:
 
-- `console_gas_sponsorship_configs` table and dependent indexes/constraints.
-- Any sponsorship tables/columns keyed by gas sponsorship config identity instead of policy identity.
+- `server/src/router/runtimeSnapshotPayload.ts`
+- `server/src/sponsorship/evm.ts`
+- `server/src/sponsorship/evmRelay.ts`
+- `server/src/console/sponsoredCalls/*`
+- `server/src/console/sponsorshipSpendCaps/*`
 
-Final verification gate before merge:
+UI removals are conditional:
 
-- `rg` searches for `sponsorshipConfigId`, `sponsoredCallConfigs`, and `/console/gas-sponsorship` return no production code hits.
-- All sponsorship execution, accounting, audit, and dashboard tests pass on policy-only paths.
+- remove the dedicated gas sponsorship page and API only if policy engine fully replaces it
+- otherwise keep them as thin adapters and remove only the old backend model beneath them
+
+Final verification gate:
+
+- `rg` searches for `sponsorshipConfigId` and legacy gas config identity terms return no production code hits
+- gas publish, runtime sponsorship, spend-cap, audit, and dashboard tests pass on unified policy-backed behavior

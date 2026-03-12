@@ -209,6 +209,7 @@ export type {
 } from '../console/wallets';
 export type {
   ConsolePolicyStatus,
+  ConsolePolicyKind,
   ConsolePolicyDecision,
   ConsolePolicyAssignmentScopeType,
   ConsolePolicy,
@@ -219,6 +220,7 @@ export type {
   SimulateConsolePolicyResult,
   PublishConsolePolicyResult,
   ConsolePolicyAssignment,
+  ListConsolePoliciesRequest,
   ListConsolePolicyAssignmentsRequest,
   UpsertConsolePolicyAssignmentRequest,
   ConsolePolicyWalletScopeRef,
@@ -312,28 +314,6 @@ export type {
   PostgresConsoleWebhookRetryDispatchResult,
   ConsoleWebhookService,
 } from '../console/webhooks';
-export type {
-  ConsoleGasSponsorshipScopeType,
-  ConsoleGasSponsorshipNetworkClass,
-  ConsoleGasSponsorshipSpendCapMode,
-  ConsoleGasSponsorshipSpendCapPeriod,
-  ConsoleGasSponsorshipSpendCapChain,
-  ConsoleGasSponsorshipSpendCap,
-  ConsoleGasSponsorshipAllowedCall,
-  ConsoleGasSponsorshipTelemetry,
-  ConsoleGasSponsorshipConfig,
-  ListConsoleGasSponsorshipRequest,
-  CreateConsoleGasSponsorshipRequest,
-  UpdateConsoleGasSponsorshipRequest,
-  ResolvedSponsoredCallConfig,
-} from '../console/gasSponsorship';
-export type {
-  ConsoleGasSponsorshipContext,
-  ConsoleGasSponsorshipService,
-  InMemoryConsoleGasSponsorshipServiceOptions,
-  PostgresConsoleGasSponsorshipSchemaOptions,
-  PostgresConsoleGasSponsorshipServiceOptions,
-} from '../console/gasSponsorship';
 export type {
   ConsoleSponsorshipSpendCapMode,
   ConsoleSponsorshipSpendCapPeriod,
@@ -550,16 +530,6 @@ export {
   isConsoleWebhookError,
   ConsoleWebhookError,
 } from '../console/webhooks';
-export {
-  createInMemoryConsoleGasSponsorshipService,
-  ensureConsoleGasSponsorshipPostgresSchema,
-  createPostgresConsoleGasSponsorshipService,
-  parseListConsoleGasSponsorshipRequest,
-  parseCreateConsoleGasSponsorshipRequest,
-  parseUpdateConsoleGasSponsorshipRequest,
-  isConsoleGasSponsorshipError,
-  ConsoleGasSponsorshipError,
-} from '../console/gasSponsorship';
 export {
   createInMemoryConsoleSponsorshipSpendCapService,
   ensureConsoleSponsorshipSpendCapPostgresSchema,

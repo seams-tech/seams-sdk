@@ -7,12 +7,16 @@ import {
   cloneConsolePolicyRules,
   createDefaultConsolePolicyRules,
   evaluateConsolePolicyRules,
+  isConsoleGasSponsorshipPolicyRules,
+  isConsoleTransactionPolicyRules,
   parseConsolePolicyRulesInput,
+  validateGasSponsorshipPolicyRulesForPublish,
 } from './rules';
 import type {
   ConsolePolicyAssignment,
   ConsolePolicyWalletScopeRef,
   ConsolePolicy,
+  ListConsolePoliciesRequest,
   ConsolePolicyVersion,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
@@ -31,7 +35,10 @@ export interface ConsolePoliciesContext {
 }
 
 export interface ConsolePolicyService {
-  listPolicies(ctx: ConsolePoliciesContext): Promise<ConsolePolicy[]>;
+  listPolicies(
+    ctx: ConsolePoliciesContext,
+    request?: ListConsolePoliciesRequest,
+  ): Promise<ConsolePolicy[]>;
   getPolicy(ctx: ConsolePoliciesContext, policyId: string): Promise<ConsolePolicy | null>;
   listPolicyVersions(
     ctx: ConsolePoliciesContext,
@@ -146,11 +153,12 @@ export function createInMemoryConsolePolicyService(
         id: defaultPolicyId,
         orgId: ctx.orgId,
         isSystemDefault: true,
+        kind: 'TRANSACTION',
         name: DEFAULT_POLICY_NAME,
         description: DEFAULT_POLICY_DESCRIPTION,
         status: 'PUBLISHED',
         version: 1,
-        rules: createDefaultConsolePolicyRules(),
+        rules: createDefaultConsolePolicyRules('TRANSACTION'),
         createdAt,
         updatedAt: createdAt,
         publishedAt: createdAt,
@@ -172,6 +180,7 @@ export function createInMemoryConsolePolicyService(
             [
               {
                 policyId: defaultPolicy.id,
+                kind: defaultPolicy.kind,
                 version: defaultPolicy.version,
                 status: defaultPolicy.status,
                 rules: cloneConsolePolicyRules(defaultPolicy.rules),
@@ -228,9 +237,14 @@ export function createInMemoryConsolePolicyService(
   }
 
   return {
-    async listPolicies(ctx): Promise<ConsolePolicy[]> {
+    async listPolicies(ctx, request = {}): Promise<ConsolePolicy[]> {
       const store = ensureOrgStore(ctx);
+      const kind = String(request.kind || '').trim().toUpperCase();
       return Array.from(store.policies.values())
+        .filter((policy) => {
+          if (kind && policy.kind !== kind) return false;
+          return true;
+        })
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
         .map((policy) => clonePolicy(policy));
     },
@@ -258,11 +272,12 @@ export function createInMemoryConsolePolicyService(
         id: policyId,
         orgId: ctx.orgId,
         isSystemDefault: false,
+        kind: request.kind || 'TRANSACTION',
         name: request.name,
         description: request.description || null,
         status: 'DRAFT',
         version: 0,
-        rules: parseConsolePolicyRulesInput(request.rules),
+        rules: parseConsolePolicyRulesInput(request.rules, request.kind || 'TRANSACTION'),
         createdAt: ts,
         updatedAt: ts,
         publishedAt: null,
@@ -291,7 +306,7 @@ export function createInMemoryConsolePolicyService(
       }
       if (request.name) current.name = request.name;
       if (request.description !== undefined) current.description = request.description || null;
-      if (request.rules) current.rules = parseConsolePolicyRulesInput(request.rules);
+      if (request.rules) current.rules = parseConsolePolicyRulesInput(request.rules, current.kind);
       current.status = 'DRAFT';
       current.updatedAt = toIso(nowFn());
       store.policies.set(current.id, current);
@@ -309,6 +324,16 @@ export function createInMemoryConsolePolicyService(
           `Policy ${policyId} is archived and cannot be published`,
         );
       }
+      if (current.kind === 'GAS_SPONSORSHIP') {
+        if (!isConsoleGasSponsorshipPolicyRules(current.rules)) {
+          throw new ConsolePolicyError(
+            'invalid_policy_rules',
+            409,
+            `Policy ${policyId} does not contain gas sponsorship rules`,
+          );
+        }
+        validateGasSponsorshipPolicyRulesForPublish(current.rules);
+      }
       const now = nowFn();
       current.status = 'PUBLISHED';
       current.version += 1;
@@ -319,6 +344,7 @@ export function createInMemoryConsolePolicyService(
         ...(store.versions.get(current.id) || []).filter((entry) => entry.version !== current.version),
         {
           policyId: current.id,
+          kind: current.kind,
           version: current.version,
           status: current.status,
           rules: cloneConsolePolicyRules(current.rules),
@@ -364,6 +390,13 @@ export function createInMemoryConsolePolicyService(
       const store = ensureOrgStore(ctx);
       const policy = store.policies.get(policyId);
       if (!policy) return null;
+      if (policy.kind !== 'TRANSACTION' || !isConsoleTransactionPolicyRules(policy.rules)) {
+        throw new ConsolePolicyError(
+          'simulation_not_supported',
+          409,
+          `Policy simulation is only supported for TRANSACTION policies`,
+        );
+      }
       const evaluation = evaluateConsolePolicyRules(policy.rules, request);
       return {
         policyId: policy.id,
@@ -394,6 +427,13 @@ export function createInMemoryConsolePolicyService(
       const policy = store.policies.get(request.policyId);
       if (!policy) {
         throw new ConsolePolicyError('policy_not_found', 404, `Policy ${request.policyId} was not found`);
+      }
+      if (policy.kind !== 'TRANSACTION') {
+        throw new ConsolePolicyError(
+          'policy_assignment_unsupported',
+          409,
+          `Policy ${request.policyId} cannot be assigned through transaction policy assignments`,
+        );
       }
 
       return upsertAssignmentInStore(store, ctx, request);

@@ -11,6 +11,7 @@ import {
 } from '../shared/requestParse';
 import type {
   CreateConsolePolicyRequest,
+  ListConsolePoliciesRequest,
   ListConsolePolicyAssignmentsRequest,
   SimulateConsolePolicyRequest,
   UpsertConsolePolicyAssignmentRequest,
@@ -24,13 +25,45 @@ function createParseError(code: string, status: number, message: string): Consol
   return new ConsolePolicyError(code, status, message);
 }
 
+function readOptionalPolicyKind(
+  raw: unknown,
+  input: { code: 'invalid_body' | 'invalid_query'; field: string },
+): 'TRANSACTION' | 'GAS_SPONSORSHIP' | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (!value) return undefined;
+  if (value !== 'TRANSACTION' && value !== 'GAS_SPONSORSHIP') {
+    throw new ConsolePolicyError(
+      input.code,
+      400,
+      `Field ${input.field} must be TRANSACTION or GAS_SPONSORSHIP`,
+    );
+  }
+  return value;
+}
+
 function readOptionalRules(
   body: Record<string, unknown>,
   key: string,
+  kind: 'TRANSACTION' | 'GAS_SPONSORSHIP',
 ): CreateConsolePolicyRequest['rules'] | undefined {
   const raw = body[key];
   if (raw === undefined || raw === null) return undefined;
-  return parseConsolePolicyRulesInput(raw);
+  return parseConsolePolicyRulesInput(raw, kind);
+}
+
+function readRawOptionalRules(
+  body: Record<string, unknown>,
+  key: string,
+): UpdateConsolePolicyRequest['rules'] | undefined {
+  const raw = body[key];
+  if (raw === undefined || raw === null) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field rules must be a JSON object');
+  }
+  return raw as UpdateConsolePolicyRequest['rules'];
 }
 
 function readOptionalAssignment(
@@ -88,11 +121,21 @@ export function parseCreateConsolePolicyRequest(body: unknown): CreateConsolePol
       'Field id is not allowed when creating a policy',
     );
   }
+  const kind = readOptionalPolicyKind(obj.kind, { code: 'invalid_body', field: 'kind' });
+  const normalizedKind = kind || 'TRANSACTION';
   const name = readRequiredString(obj, 'name', createParseError);
   const description = readOptionalString(obj, 'description');
-  const rules = readOptionalRules(obj, 'rules');
+  const rules = readOptionalRules(obj, 'rules', normalizedKind);
   const assignment = readOptionalAssignment(obj);
+  if (normalizedKind === 'GAS_SPONSORSHIP' && assignment) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment is not supported for GAS_SPONSORSHIP policies',
+    );
+  }
   return {
+    ...(kind ? { kind } : {}),
     name,
     ...(description ? { description } : {}),
     ...(rules ? { rules } : {}),
@@ -100,11 +143,20 @@ export function parseCreateConsolePolicyRequest(body: unknown): CreateConsolePol
   };
 }
 
+export function parseListConsolePoliciesRequest(query: unknown): ListConsolePoliciesRequest {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return {};
+  const row = query as Record<string, unknown>;
+  const kind = readOptionalPolicyKind(row.kind, { code: 'invalid_query', field: 'kind' });
+  return {
+    ...(kind ? { kind } : {}),
+  };
+}
+
 export function parseUpdateConsolePolicyRequest(body: unknown): UpdateConsolePolicyRequest {
   const obj = requireObject(body, createParseError);
   const name = readOptionalString(obj, 'name');
   const description = readOptionalString(obj, 'description');
-  const rules = readOptionalRules(obj, 'rules');
+  const rules = readRawOptionalRules(obj, 'rules');
   if (!name && !description && !rules) {
     throw new ConsolePolicyError(
       'invalid_body',

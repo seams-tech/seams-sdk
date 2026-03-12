@@ -5,7 +5,6 @@ import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { ConsolePolicyService } from '../console/policies';
 import type { ConsoleWalletService } from '../console/wallets';
 import type { ConsoleWebhookService } from '../console/webhooks';
-import type { ConsoleGasSponsorshipService } from '../console/gasSponsorship';
 import type { ConsoleSmartWalletService } from '../console/smartWallets';
 import type { ConsoleKeyExportService } from '../console/keyExports';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
@@ -74,8 +73,6 @@ export interface ConsoleRouterOptions {
   apiKeys?: ConsoleApiKeyService | null;
   // Optional webhook adapter for console webhook management endpoints.
   webhooks?: ConsoleWebhookService | null;
-  // Optional gas sponsorship adapter for sponsorship config endpoints.
-  gasSponsorship?: ConsoleGasSponsorshipService | null;
   // Optional smart wallet adapter for account-abstraction config endpoints.
   smartWallets?: ConsoleSmartWalletService | null;
   // Optional key export adapter for export request and approval endpoints.

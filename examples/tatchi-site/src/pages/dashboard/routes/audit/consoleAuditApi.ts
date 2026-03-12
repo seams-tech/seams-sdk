@@ -19,6 +19,7 @@ export type DashboardConsoleAuditCategory =
   | 'SYSTEM';
 
 export type DashboardConsoleAuditOutcome = 'SUCCESS' | 'FAILURE' | 'PENDING';
+export type DashboardConsolePolicyKind = 'TRANSACTION' | 'GAS_SPONSORSHIP';
 export type DashboardConsoleAuditExportDomain =
   | 'POLICY'
   | 'BILLING'
@@ -35,6 +36,7 @@ export interface DashboardConsoleAuditEvent {
   environmentId?: string;
   policyId: string | null;
   policyName: string | null;
+  policyKind: DashboardConsolePolicyKind | null;
   actorUserId: string;
   actorType: 'USER' | 'SYSTEM';
   category: DashboardConsoleAuditCategory;
@@ -117,6 +119,14 @@ const EXPORT_STATUS_SET = new Set<DashboardConsoleAuditExportStatus>([
   'FAILED',
 ]);
 
+function decodePolicyKind(raw: unknown): DashboardConsolePolicyKind | null {
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (value === 'TRANSACTION' || value === 'GAS_SPONSORSHIP') return value;
+  return null;
+}
+
 function decodeAuditEvent(raw: unknown): DashboardConsoleAuditEvent | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
@@ -142,6 +152,7 @@ function decodeAuditEvent(raw: unknown): DashboardConsoleAuditEvent | null {
     ...(row.environmentId ? { environmentId: String(row.environmentId || '').trim() } : {}),
     policyId: String(row.policyId || '').trim() || null,
     policyName: String(row.policyName || '').trim() || null,
+    policyKind: decodePolicyKind(row.policyKind),
     actorUserId,
     actorType: actorType === 'SYSTEM' ? 'SYSTEM' : 'USER',
     category,

@@ -228,31 +228,30 @@ function resolveDefaultDashboardRoute(groups: SidebarGroup[]): DashboardRoute {
 export const DEFAULT_DASHBOARD_ROUTE: DashboardRoute = resolveDefaultDashboardRoute(SIDEBAR_GROUPS);
 
 export function getRouteFromPathname(pathname: string): DashboardRoute | null {
+  const normalizedPathname =
+    pathname.length > 1 && pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
+
   if (
-    pathname === '/dashboard/billing' ||
-    pathname === '/dashboard/billing/' ||
-    pathname === '/dashboard/billing/account' ||
-    pathname === '/dashboard/billing/account/'
+    normalizedPathname === '/dashboard/billing' ||
+    normalizedPathname === '/dashboard/billing/account'
   ) {
     return '/dashboard/billing/account';
   }
   if (
-    pathname === '/dashboard/invoices' ||
-    pathname === '/dashboard/invoices/' ||
-    pathname.startsWith('/dashboard/invoices/') ||
-    pathname === '/dashboard/billing/invoices' ||
-    pathname === '/dashboard/billing/invoices/' ||
-    pathname.startsWith('/dashboard/billing/invoices/')
+    normalizedPathname === '/dashboard/invoices' ||
+    normalizedPathname.startsWith('/dashboard/invoices/') ||
+    normalizedPathname === '/dashboard/billing/invoices' ||
+    normalizedPathname.startsWith('/dashboard/billing/invoices/')
   ) {
     return '/dashboard/invoices';
   }
   for (const group of SIDEBAR_GROUPS) {
     for (const item of group.items) {
-      if (item.path === pathname) return item.path;
+      if (item.path === normalizedPathname) return item.path;
     }
   }
   for (const item of HIDDEN_DASHBOARD_ROUTES) {
-    if (item.path === pathname) return item.path;
+    if (item.path === normalizedPathname) return item.path;
   }
   return null;
 }

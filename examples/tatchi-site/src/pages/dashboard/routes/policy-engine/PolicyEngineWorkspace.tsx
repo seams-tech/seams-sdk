@@ -802,7 +802,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     setPoliciesLoading(true);
     setPoliciesErrorMessage('');
     try {
-      const rows = await listDashboardPolicies();
+      const rows = await listDashboardPolicies({ kind: 'TRANSACTION' });
       setPolicies([...rows].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
     } catch (error: unknown) {
       setPolicies([]);
@@ -1302,6 +1302,7 @@ export function PolicyEnginePage(): React.JSX.Element {
         resourceId: selectedPolicyId,
         metadata: {
           policyId: selectedPolicyId,
+          ...(selectedPolicy?.kind ? { policyKind: selectedPolicy.kind } : {}),
         },
       });
       setApprovalCreateReason('Policy reviewed for publish.');
@@ -1320,6 +1321,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     loadApprovals,
     projectScopeId,
     selectedApprovalId,
+    selectedPolicy,
     selectedPolicyId,
     session.claims,
     session.errorMessage,

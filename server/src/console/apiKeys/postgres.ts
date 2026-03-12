@@ -16,8 +16,8 @@ import { buildPublishableKeyOriginBlockedMessage } from './originMessage';
 import {
   hashApiKeySecret,
   makeApiKeyLookupPrefix,
+  makeApiKeyId,
   makeApiKeySecret,
-  makeId,
   makeSecretPreview,
   parseApiKeySecret,
 } from './secret';
@@ -613,7 +613,7 @@ export async function createPostgresConsoleApiKeyService(
     ): Promise<CreateConsoleApiKeyResult> {
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
-        const apiKeyId = makeId('ak', now);
+        const apiKeyId = makeApiKeyId(now);
         const secret = makeApiKeySecret({ kind: request.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const expiresAtMs = request.expiresAt ? Date.parse(request.expiresAt) : NaN;

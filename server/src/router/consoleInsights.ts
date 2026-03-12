@@ -1,4 +1,5 @@
 import type { ConsoleApiKeyService, ConsoleApiKeysContext } from '../console/apiKeys';
+import type { ConsolePolicyKind } from '../console/policies';
 import type { ConsoleWallet, ConsoleWalletService, ConsoleWalletsContext } from '../console/wallets';
 
 export interface ConsoleInsightsScope {
@@ -9,6 +10,7 @@ export interface ConsoleInsightsScope {
 export interface ConsolePolicyCoveragePolicy {
   policyId: string;
   policyName: string | null;
+  policyKind: ConsolePolicyKind | null;
   walletCount: number;
   activeWalletCount: number;
   archivedWalletCount: number;
@@ -24,6 +26,7 @@ export interface ConsolePolicyCoverageWalletSample {
   balanceMinor: number;
   policyId: string | null;
   policyName: string | null;
+  policyKind: ConsolePolicyKind | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -59,6 +62,7 @@ export interface ConsoleGasReadinessWalletSample {
   balanceMinor: number;
   policyId: string | null;
   policyName: string | null;
+  policyKind: ConsolePolicyKind | null;
   userId: string;
   lastActivityAt: string | null;
   updatedAt: string;
@@ -128,9 +132,15 @@ function toScopeResponse(scope: ConsoleInsightsScope): {
   };
 }
 
+type ResolvedWalletPolicyPresentation = {
+  policyId: string | null;
+  policyName: string | null;
+  policyKind: ConsolePolicyKind | null;
+};
+
 function toWalletSample(
   wallet: ConsoleWallet,
-  policyOverride?: { policyId: string | null; policyName: string | null } | null,
+  policyOverride?: ResolvedWalletPolicyPresentation | null,
 ): ConsolePolicyCoverageWalletSample {
   return {
     id: wallet.id,
@@ -140,6 +150,7 @@ function toWalletSample(
     balanceMinor: wallet.balanceMinor,
     policyId: policyOverride === undefined ? wallet.policyId : policyOverride?.policyId || null,
     policyName: policyOverride?.policyName || null,
+    policyKind: policyOverride?.policyKind || null,
     userId: wallet.userId,
     lastActivityAt: wallet.lastActivityAt,
     updatedAt: wallet.updatedAt,
@@ -148,7 +159,7 @@ function toWalletSample(
 
 function toGasWalletSample(
   wallet: ConsoleWallet,
-  policyOverride?: { policyId: string | null; policyName: string | null } | null,
+  policyOverride?: ResolvedWalletPolicyPresentation | null,
 ): ConsoleGasReadinessWalletSample {
   return {
     id: wallet.id,
@@ -157,6 +168,7 @@ function toGasWalletSample(
     balanceMinor: wallet.balanceMinor,
     policyId: policyOverride === undefined ? wallet.policyId : policyOverride?.policyId || null,
     policyName: policyOverride?.policyName || null,
+    policyKind: policyOverride?.policyKind || null,
     userId: wallet.userId,
     lastActivityAt: wallet.lastActivityAt,
     updatedAt: wallet.updatedAt,
@@ -227,7 +239,7 @@ export async function buildConsolePolicyCoverageView(input: {
   scope: ConsoleInsightsScope;
   resolveWalletPolicies?: (
     wallets: ConsoleWallet[],
-  ) => Promise<Record<string, { policyId: string | null; policyName: string | null }>>;
+  ) => Promise<Record<string, ResolvedWalletPolicyPresentation>>;
 }): Promise<ConsolePolicyCoverageView> {
   const collected = await listAllWalletsForScope(input);
   const resolvedWalletPolicies = input.resolveWalletPolicies
@@ -238,7 +250,7 @@ export async function buildConsolePolicyCoverageView(input: {
   let archivedWalletCount = 0;
   const unassigned: Array<{
     wallet: ConsoleWallet;
-    policy: { policyId: string | null; policyName: string | null };
+    policy: ResolvedWalletPolicyPresentation;
   }> = [];
 
   for (const wallet of collected.wallets) {
@@ -248,13 +260,14 @@ export async function buildConsolePolicyCoverageView(input: {
 
     const effectivePolicy =
       resolvedWalletPolicies[wallet.id] === undefined
-        ? { policyId: wallet.policyId, policyName: null }
-        : resolvedWalletPolicies[wallet.id] || { policyId: null, policyName: null };
+        ? { policyId: wallet.policyId, policyName: null, policyKind: null }
+        : resolvedWalletPolicies[wallet.id] || { policyId: null, policyName: null, policyKind: null };
     const effectivePolicyId = String(effectivePolicy.policyId || '').trim();
     const policyId = effectivePolicyId || 'unassigned';
     const current = policies.get(policyId) || {
       policyId,
       policyName: effectivePolicy.policyName || null,
+      policyKind: effectivePolicy.policyKind || null,
       walletCount: 0,
       activeWalletCount: 0,
       archivedWalletCount: 0,
@@ -263,6 +276,9 @@ export async function buildConsolePolicyCoverageView(input: {
     };
     if (!current.policyName && effectivePolicy.policyName) {
       current.policyName = effectivePolicy.policyName;
+    }
+    if (!current.policyKind && effectivePolicy.policyKind) {
+      current.policyKind = effectivePolicy.policyKind;
     }
     current.walletCount += 1;
     if (status === 'ACTIVE') current.activeWalletCount += 1;
@@ -278,6 +294,7 @@ export async function buildConsolePolicyCoverageView(input: {
         policy: {
           policyId: effectivePolicy.policyId || null,
           policyName: effectivePolicy.policyName || null,
+          policyKind: effectivePolicy.policyKind || null,
         },
       });
     }
@@ -315,7 +332,7 @@ export async function buildConsoleGasReadinessView(input: {
   recentWindowDays?: number;
   resolveWalletPolicies?: (
     wallets: ConsoleWallet[],
-  ) => Promise<Record<string, { policyId: string | null; policyName: string | null }>>;
+  ) => Promise<Record<string, ResolvedWalletPolicyPresentation>>;
 }): Promise<ConsoleGasReadinessView> {
   const recentWindowDays = Math.max(1, Math.floor(Number(input.recentWindowDays || 7)));
   const recentCutoffMs = Date.now() - recentWindowDays * 24 * 60 * 60 * 1000;

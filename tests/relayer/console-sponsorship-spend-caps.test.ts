@@ -37,7 +37,7 @@ test.describe('console sponsorship spend-cap service', () => {
     const walletAReserve = await service.reserve(ctx, {
       sourceEventId: 'mem-wallet-a-1',
       environmentId: 'dev',
-      sponsorshipConfigId: 'policy-wallets',
+      policyId: 'policy-wallets',
       accountRef: 'near:alice.testnet',
       chainId: 42_431,
       mode: 'WALLET_CHAIN_TOTAL',
@@ -53,7 +53,7 @@ test.describe('console sponsorship spend-cap service', () => {
     const walletBReserve = await service.reserve(ctx, {
       sourceEventId: 'mem-wallet-b-1',
       environmentId: 'dev',
-      sponsorshipConfigId: 'policy-wallets',
+      policyId: 'policy-wallets',
       accountRef: 'near:bob.testnet',
       chainId: 42_431,
       mode: 'WALLET_CHAIN_TOTAL',
@@ -69,7 +69,7 @@ test.describe('console sponsorship spend-cap service', () => {
         await service.reserve(ctx, {
           sourceEventId: 'mem-wallet-a-2',
           environmentId: 'dev',
-          sponsorshipConfigId: 'policy-wallets',
+          policyId: 'policy-wallets',
           accountRef: 'near:alice.testnet',
           chainId: 42_431,
           mode: 'WALLET_CHAIN_TOTAL',
@@ -101,7 +101,7 @@ test.describe('console sponsorship spend-cap service', () => {
     const duplicateWalletAReserve = await service.reserve(ctx, {
       sourceEventId: 'mem-wallet-a-1',
       environmentId: 'dev',
-      sponsorshipConfigId: 'policy-wallets',
+      policyId: 'policy-wallets',
       accountRef: 'near:alice.testnet',
       chainId: 42_431,
       mode: 'WALLET_CHAIN_TOTAL',
@@ -147,7 +147,7 @@ test.describe('console sponsorship spend-cap service', () => {
         service.reserve(ctx, {
           sourceEventId: 'pg-chain-1',
           environmentId: 'prod',
-          sponsorshipConfigId: 'policy-chain',
+          policyId: 'policy-chain',
           chainId: 1,
           mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
@@ -157,7 +157,7 @@ test.describe('console sponsorship spend-cap service', () => {
         service.reserve(ctx, {
           sourceEventId: 'pg-chain-2',
           environmentId: 'prod',
-          sponsorshipConfigId: 'policy-chain',
+          policyId: 'policy-chain',
           chainId: 1,
           mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
@@ -181,7 +181,7 @@ test.describe('console sponsorship spend-cap service', () => {
 
       const usageAfterReserve = await service.getWindowUsage(ctx, {
         environmentId: 'prod',
-        sponsorshipConfigId: 'policy-chain',
+        policyId: 'policy-chain',
         chainId: 1,
         mode: 'CHAIN_TOTAL',
         period: 'MONTHLY',
@@ -204,7 +204,7 @@ test.describe('console sponsorship spend-cap service', () => {
       const followupReserve = await service.reserve(ctx, {
         sourceEventId: 'pg-chain-3',
         environmentId: 'prod',
-        sponsorshipConfigId: 'policy-chain',
+        policyId: 'policy-chain',
         chainId: 1,
         mode: 'CHAIN_TOTAL',
         period: 'MONTHLY',
@@ -223,7 +223,7 @@ test.describe('console sponsorship spend-cap service', () => {
 
       const usageAfterRelease = await service.getWindowUsage(ctx, {
         environmentId: 'prod',
-        sponsorshipConfigId: 'policy-chain',
+        policyId: 'policy-chain',
         chainId: 1,
         mode: 'CHAIN_TOTAL',
         period: 'MONTHLY',

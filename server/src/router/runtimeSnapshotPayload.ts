@@ -1,6 +1,7 @@
 import {
-  type ConsoleGasSponsorshipService,
-  resolveSponsoredCallConfigsFromConfigs,
+  projectConsoleGasSponsorshipPolicyProjection,
+  resolveSponsoredCallPoliciesFromProjections,
+  sortConsoleGasSponsorshipPolicyProjections,
 } from '../console/gasSponsorship';
 import type { ConsolePolicy, ConsolePolicyService } from '../console/policies';
 import type { ConsoleRuntimeSnapshotPayload } from '../console/runtimeSnapshots';
@@ -13,7 +14,6 @@ export interface ResolveConsoleRuntimeSnapshotPayloadInput {
   environmentId: string;
   projectId?: string;
   policies?: ConsolePolicyService | null;
-  gasSponsorship?: ConsoleGasSponsorshipService | null;
   smartWallets?: ConsoleSmartWalletService | null;
   now?: () => Date;
 }
@@ -59,6 +59,19 @@ async function resolveLiveRuntimePolicy(input: {
   };
 }
 
+function matchesRuntimeGasScope(input: {
+  environmentId: string;
+  projectId?: string;
+  config: {
+    environmentId: string | null;
+    projectId: string | null;
+  };
+}): boolean {
+  if (input.config.environmentId !== input.environmentId) return false;
+  if (input.projectId && input.config.projectId !== input.projectId) return false;
+  return true;
+}
+
 export async function resolveConsoleRuntimeSnapshotPayload(
   input: ResolveConsoleRuntimeSnapshotPayloadInput,
 ): Promise<ConsoleRuntimeSnapshotPayload> {
@@ -78,7 +91,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
       };
     }
     const [policies, assignments] = await Promise.all([
-      input.policies.listPolicies(ctx),
+      input.policies.listPolicies(ctx, { kind: 'TRANSACTION' }),
       input.policies.listAssignments(ctx),
     ]);
     const scopedAssignments = assignments.filter((assignment) =>
@@ -111,23 +124,49 @@ export async function resolveConsoleRuntimeSnapshotPayload(
   })();
 
   const gasPromise = (async () => {
-    if (!input.gasSponsorship) {
+    if (!input.policies) {
       return {
         status: 'not_configured',
-        configCount: 0,
-        configs: [] as unknown[],
-        sponsoredCallConfigs: [] as unknown[],
+        policyCount: 0,
+        policies: [] as unknown[],
+        sponsoredCallPolicies: [] as unknown[],
       };
     }
-    const configs = await input.gasSponsorship.listConfigs(ctx, {
-      environmentId: input.environmentId,
-      ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
+    const gasPolicies = await input.policies.listPolicies(ctx, { kind: 'GAS_SPONSORSHIP' });
+    const livePolicies = (
+      await Promise.all(
+        gasPolicies.map(async (policy) =>
+          await resolveLiveRuntimePolicy({
+            policies: input.policies!,
+            ctx,
+            policy,
+          }),
+        ),
+      )
+    ).filter((policy): policy is ConsolePolicy => policy !== null);
+    const projectedPolicies = sortConsoleGasSponsorshipPolicyProjections(
+      (
+        await Promise.all(
+          livePolicies.map(
+            async (policy) =>
+              await projectConsoleGasSponsorshipPolicyProjection(input.policies!, ctx, policy),
+          ),
+        )
+      )
+        .filter((policy): policy is NonNullable<typeof policy> => policy !== null)
+        .filter((policy) =>
+          matchesRuntimeGasScope({
+            environmentId: input.environmentId,
+            ...(input.projectId ? { projectId: input.projectId } : {}),
+            config: policy,
+          }),
+        ),
+    );
     return {
       status: 'resolved',
-      configCount: configs.length,
-      configs,
-      sponsoredCallConfigs: resolveSponsoredCallConfigsFromConfigs(configs),
+      policyCount: projectedPolicies.length,
+      policies: projectedPolicies,
+      sponsoredCallPolicies: resolveSponsoredCallPoliciesFromProjections(projectedPolicies),
     };
   })();
 
