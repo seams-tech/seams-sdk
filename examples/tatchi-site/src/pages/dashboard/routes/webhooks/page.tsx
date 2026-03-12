@@ -8,7 +8,6 @@ import {
   DashboardTableActionButton,
   DashboardTableActionGroup,
   DashboardTableCell,
-  DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
@@ -426,9 +425,6 @@ export function WebhooksPage(): React.JSX.Element {
                 </DashboardTableCell>
               </DashboardTableRow>
             ))}
-            <DashboardTableFooter>
-              Showing {endpoints.length} endpoint{endpoints.length === 1 ? '' : 's'}.
-            </DashboardTableFooter>
           </>
         )}
       </DashboardTable>
