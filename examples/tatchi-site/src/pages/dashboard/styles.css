@@ -669,6 +669,25 @@
   overflow: hidden;
 }
 
+.dashboard-overlay-layer {
+  grid-column: 2;
+  grid-row: 2;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  z-index: 16;
+  pointer-events: none;
+}
+
+.dashboard-overlay-layer > * {
+  pointer-events: auto;
+}
+
+.dashboard-overlay-layer--modal-open {
+  background: color-mix(in srgb, #0a1128 14%, transparent);
+  backdrop-filter: blur(12px);
+}
+
 .dashboard-main__title {
   margin: 0;
   font-size: 1.28rem;
@@ -3546,19 +3565,25 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 }
 
 .dashboard-inline-modal-backdrop {
-  --dashboard-modal-overscroll-bleed: 36vh;
+  --dashboard-inline-modal-padding-block-start: max(24px, env(safe-area-inset-top));
+  --dashboard-inline-modal-padding-block-end: max(24px, env(safe-area-inset-bottom));
+  --dashboard-inline-modal-padding-inline: 18px;
   position: absolute;
-  inset: calc(-1 * var(--dashboard-modal-overscroll-bleed)) 0;
-  background: color-mix(in srgb, #0a1128 14%, transparent);
-  backdrop-filter: blur(12px);
+  inset: 0;
   display: grid;
   align-content: start;
   justify-items: center;
-  padding: calc(18px + var(--dashboard-modal-overscroll-bleed)) 18px
-    calc(32vh + var(--dashboard-modal-overscroll-bleed));
-  z-index: 40;
+  padding: var(--dashboard-inline-modal-padding-block-start) var(--dashboard-inline-modal-padding-inline)
+    var(--dashboard-inline-modal-padding-block-end);
+  z-index: 64;
   overflow: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-inline-modal-backdrop--self-styled {
+  background: color-mix(in srgb, #0a1128 14%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .dashboard-modal {
@@ -3570,6 +3595,7 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   display: grid;
   gap: 10px;
   box-shadow: 0 12px 40px color-mix(in srgb, #0a1128 32%, transparent);
+  outline: none;
 }
 
 .dashboard-modal--wide {
@@ -4287,6 +4313,11 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
     grid-row: 3;
   }
 
+  .dashboard-overlay-layer {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
   .dashboard-shell--onboarding-focus .dashboard-main {
     grid-column: 1;
     grid-row: 3;
@@ -4335,9 +4366,9 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 
   .dashboard-inline-modal-backdrop {
-    --dashboard-modal-overscroll-bleed: 28vh;
-    padding: calc(12px + var(--dashboard-modal-overscroll-bleed)) 12px
-      calc(28vh + var(--dashboard-modal-overscroll-bleed));
+    --dashboard-inline-modal-padding-block-start: max(12px, env(safe-area-inset-top));
+    --dashboard-inline-modal-padding-block-end: max(12px, env(safe-area-inset-bottom));
+    --dashboard-inline-modal-padding-inline: 12px;
   }
 
   .dashboard-topbar {

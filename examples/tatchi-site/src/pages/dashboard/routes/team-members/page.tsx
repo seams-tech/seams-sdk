@@ -1,5 +1,4 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -425,7 +424,6 @@ function TeamPermissionEditor(props: TeamPermissionEditorProps): React.JSX.Eleme
 
 export function TeamMembersPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
-  const viewRef = React.useRef<HTMLDivElement | null>(null);
 
   const [members, setMembers] = React.useState<DashboardConsoleTeamMember[]>([]);
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -451,7 +449,6 @@ export function TeamMembersPage(): React.JSX.Element {
   const [updatePermissions, setUpdatePermissions] = React.useState<TeamPermissionEditorState>(
     makeDefaultPermissionEditorState(),
   );
-  const [modalHost, setModalHost] = React.useState<HTMLElement | null>(null);
 
   const canMutateTeam = React.useMemo(
     () => canMutateTeamFromRoles(session.claims?.roles),
@@ -496,10 +493,6 @@ export function TeamMembersPage(): React.JSX.Element {
     const cleanup = loadMembers();
     return cleanup;
   }, [loadMembers, session.loading]);
-
-  React.useEffect(() => {
-    setModalHost(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
-  }, []);
 
   const orderedMembers = React.useMemo(
     () => [...members].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
@@ -946,7 +939,7 @@ export function TeamMembersPage(): React.JSX.Element {
   ) : null;
 
   return (
-    <div ref={viewRef} className="dashboard-view" aria-label="Team members and roles page">
+    <div className="dashboard-view" aria-label="Team members and roles page">
       <section className="dashboard-view__section" aria-label="Team member controls section">
         <div className="dashboard-section-toolbar dashboard-team-members-toolbar">
           <div className="dashboard-section-toolbar__copy">
@@ -1115,9 +1108,9 @@ export function TeamMembersPage(): React.JSX.Element {
           </>
         )}
       </DashboardTable>
-      {modalHost ? createPortal(inviteModal, modalHost) : inviteModal}
-      {modalHost ? createPortal(updateModal, modalHost) : updateModal}
-      {modalHost ? createPortal(detailsModal, modalHost) : detailsModal}
+      {inviteModal}
+      {updateModal}
+      {detailsModal}
     </div>
   );
 }

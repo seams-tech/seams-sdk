@@ -720,6 +720,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           <ActiveViewComponent />
         </DashboardSelectedContextProvider>
       </section>
+      <div className="dashboard-overlay-layer" aria-hidden="true" />
     </main>
   );
 }

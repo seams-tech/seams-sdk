@@ -1,5 +1,4 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
@@ -72,7 +71,6 @@ function isProvisionedPlaceholderOrganization(
 export function AccountSettingsPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
-  const viewRef = React.useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [noticeMessage, setNoticeMessage] = React.useState<string>('');
@@ -103,7 +101,6 @@ export function AccountSettingsPage(): React.JSX.Element {
   const [profileModalOpen, setProfileModalOpen] = React.useState<boolean>(false);
   const [profileModalErrorMessage, setProfileModalErrorMessage] = React.useState<string>('');
   const [renameModalOrganizationId, setRenameModalOrganizationId] = React.useState<string>('');
-  const [modalHost, setModalHost] = React.useState<HTMLElement | null>(null);
 
   React.useEffect(() => {
     if (session.loading) {
@@ -181,10 +178,6 @@ export function AccountSettingsPage(): React.JSX.Element {
       return next;
     });
   }, [organizations, session.claims?.userId]);
-
-  React.useEffect(() => {
-    setModalHost(viewRef.current?.closest('.dashboard-main') as HTMLElement | null);
-  }, []);
 
   const renameOrganization = React.useMemo(
     () =>
@@ -663,7 +656,7 @@ export function AccountSettingsPage(): React.JSX.Element {
   ) : null;
 
   return (
-    <div ref={viewRef} className="dashboard-account-settings" aria-label="Account settings page">
+    <div className="dashboard-account-settings" aria-label="Account settings page">
       {noticeMessage ? (
         <p className="dashboard-form-alert dashboard-account-alert--success" role="status">
           {noticeMessage}
@@ -910,13 +903,9 @@ export function AccountSettingsPage(): React.JSX.Element {
           )}
         </DashboardTable>
       </section>
-      {profileModal ? (modalHost ? createPortal(profileModal, modalHost) : profileModal) : null}
-      {createOrganizationModal
-        ? modalHost
-          ? createPortal(createOrganizationModal, modalHost)
-          : createOrganizationModal
-        : null}
-      {renameModal ? (modalHost ? createPortal(renameModal, modalHost) : renameModal) : null}
+      {profileModal}
+      {createOrganizationModal}
+      {renameModal}
     </div>
   );
 }
