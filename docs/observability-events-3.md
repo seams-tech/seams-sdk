@@ -1,5 +1,7 @@
 # Observability Event Noise Reduction Plan
 
+This document is the current source of truth for the implemented observability architecture, rollout state, and maintainability follow-up work.
+
 ## Problem statement
 
 The current observability pipeline is too chatty because it stores routine console request completions as durable events. That creates three problems:
@@ -126,7 +128,7 @@ Deliverables:
 
 - updated event taxonomy in `server/src/console/observability/types.ts`
 - updated adapter surface in `server/src/console/observability/adapters.ts`
-- updated docs in `docs/dashboard/observability.md`
+- updated docs in `docs/observability-events-3.md`
 
 ### Phase 2. Add request rollup storage
 
@@ -230,7 +232,7 @@ Because we are in development, we should clean this up as if the old approach ne
 - `examples/tatchi-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
 - `tests/relayer/console-observability.ingestion.test.ts`
-- `docs/dashboard/observability.md`
+- `docs/observability-events-3.md`
 
 ## Acceptance criteria
 
@@ -250,21 +252,162 @@ Because we are in development, we should clean this up as if the old approach ne
 - once rollups are live and validated, remove router event writes and clean old noisy rows
 - enforce the strict durable-event source constraint (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`) for pre-existing schemas during migration
 
-## Next steps
+## Local rollout completion
 
 1. [x] Local schema ensure executed on 2026-03-11 via `examples/relay-server/scripts/postgres-migrate-console.mjs`.
 2. [x] Local cleanup verification executed on 2026-03-11:
    - `SELECT COUNT(*) FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';`
    - result: `0`.
+   - `pnpm -C examples/relay-server run postgres:verify:observability-cleanup`
+   - result: `legacyRowCount=0` and strict source constraint validated.
 3. [x] Validation rerun completed on 2026-03-11:
    - `pnpm -s type-check:relay-server` passed.
    - relayer observability suites passed (`console-observability.ingestion`, `console-router`) after test isolation fixes.
    - dashboard observability API wiring e2e subset passed.
-4. [ ] Run schema ensure + legacy-row verification in shared dev/staging databases (not just local).
-   - requires shared DB credentials/environment access not present in this workspace.
-   - run: `pnpm -C examples/relay-server exec node scripts/postgres-migrate-console.mjs`
-   - verify: `SELECT COUNT(*) FROM console_observability_events WHERE event_type = 'router.request.completed' OR source = 'ROUTER';` (expect `0`)
+4. [x] Local cleanup verifier rerun on 2026-03-12:
+   - `pnpm -C examples/relay-server run postgres:verify:observability-cleanup`
+   - result: `legacyRowCount=0`, strict source constraint enforced (`WEBHOOK`, `BILLING`, `APPROVAL`, `SYSTEM`).
 5. [x] Route-family allowlist capture landed on 2026-03-11 (skip-list removed from capture path).
+6. [x] Added reusable verification script on 2026-03-11:
+   - `examples/relay-server/scripts/postgres-verify-observability-cleanup.mjs`
+7. [x] Local observability data reset completed on 2026-03-12 for ongoing development:
+   - truncated `console_observability_events`, `console_observability_event_dedup`, `console_observability_ingest_windows`, and `console_observability_request_rollups_minute`
+   - post-reset verification passed with `legacyRowCount=0`
+
+Local development rollout is complete. Shared environment verification is intentionally out of scope for this document's current execution state.
+
+## Maintainability follow-up
+
+The incident-log and rollup split is the right steady-state design, but the implementation still carries avoidable maintenance cost in a few places. The next cleanup pass should reduce code duplication, sharpen module boundaries, and move product policy out of storage internals.
+
+### TODO list
+
+- [x] Extract a declarative observability policy registry module.
+- [x] Move request-metric route-family allowlist definitions into the registry.
+- [x] Move route-family to service mapping into the registry.
+- [x] Move durable event taxonomy and source ownership declarations into the registry.
+- [x] Refactor observability storage code to consume the registry instead of embedded policy constants.
+- [x] Extract the first focused storage module, `requestRollups.ts`, and move request-metric normalization/policy helpers out of `postgres.ts`.
+- [x] Extract `retention.ts` and centralize tenant retention pruning/scheduling outside the main ingestion code paths.
+- [x] Extract `schema.ts` for partition setup, legacy cleanup, and source-constraint enforcement.
+- [x] Extract `incidentIngest.ts` for durable event append, dedupe, backpressure, and request-rollup writes.
+- [x] Split `server/src/console/observability/postgres.ts` into focused modules (`schema.ts`, `incidentIngest.ts`, `requestRollups.ts`, `queries.ts`, `retention.ts`).
+- [x] Keep `server/src/console/observability/index.ts` as the stable export surface after the split.
+- [x] Preserve existing behavior and test coverage while splitting storage code.
+- [x] Extract shared observability hook helpers used by both Express and Cloudflare routers.
+- [x] Unify request metric recording across Express and Cloudflare through the shared helper path.
+- [x] Unify billing failure event emission across Express and Cloudflare through the shared helper path.
+- [x] Unify approval failure event emission across Express and Cloudflare through the shared helper path.
+- [x] Unify request/trace ID extraction and observability warning logs across both router adapters.
+- [x] Consolidate observability docs into the newer rollout/architecture docs and remove legacy planning docs that no longer reflect the implemented system.
+- [x] Re-run observability ingestion tests after the first storage split.
+- [x] Re-run observability ingestion tests after the retention extraction.
+- [x] Re-run observability ingestion tests after the schema extraction.
+- [x] Re-run observability ingestion tests after the incident-ingest extraction.
+- [x] Re-run observability ingestion tests after the query extraction.
+- [x] Re-run router parity and dashboard wiring tests after the router-hook unification work.
+
+Maintainability follow-up is complete for the current local-development scope.
+
+### 1. Split `server/src/console/observability/postgres.ts`
+
+Current issue:
+
+- `postgres.ts` currently mixes schema setup, legacy cleanup, retention, event ingestion, request rollups, and read queries in one file.
+- that makes it harder to review changes safely because storage, policy, and query behavior are coupled together
+
+Target shape:
+
+- `schema.ts` for schema ensure, partition precreate, and source-constraint enforcement
+- `incidentIngest.ts` for durable event append, dedupe, redaction, and validation
+- `requestRollups.ts` for request metric normalization, allowlist capture, and rollup upserts
+- `queries.ts` for `summary`, `events`, `timeseries`, and `services` reads
+- `retention.ts` for TTL cleanup and pruning behavior
+- keep `index.ts` as the stable export surface
+
+Acceptance criteria:
+
+- no single observability storage file owns all schema, ingest, rollup, retention, and read logic
+- feature behavior and tests remain unchanged after the split
+- future changes to rollup policy or read queries do not require touching schema code by default
+
+### 2. Unify Express/Cloudflare observability hooks
+
+Current issue:
+
+- request metric capture and failure-event emission are duplicated across Express and Cloudflare router implementations
+- parity currently depends on keeping two large router files in sync
+
+Target shape:
+
+- extract shared observability hook helpers for:
+  - request metric recording
+  - billing failure event emission
+  - approval failure event emission
+  - request/trace ID extraction and common logging
+- keep transport-specific adapters thin so Express and Cloudflare only provide request/response primitives
+
+Acceptance criteria:
+
+- common observability hook behavior lives in shared code rather than duplicated router logic
+- Express and Cloudflare parity tests continue to pass against the shared helper path
+- adding a new observability hook requires one implementation, not parallel edits in both routers
+
+Completion note:
+
+- shared router observability plumbing now lives in `server/src/router/consoleObservabilityHooks.ts`
+- verified with relayer router parity subset and dashboard observability API wiring subset on 2026-03-12
+
+### 3. Create a declarative observability policy registry
+
+Current issue:
+
+- route-family allowlist capture and related observability policy decisions currently live inside storage-oriented code
+- product policy is therefore harder to inspect and update independently from persistence details
+
+Target shape:
+
+- add a single registry module that defines:
+  - allowed request-metric route families
+  - route-family to service mapping
+  - durable event taxonomy and source ownership
+  - any shared defaults for severity and component naming where applicable
+- storage code should consume this registry rather than hardcoding policy locally
+
+Acceptance criteria:
+
+- observability capture policy is declared in one module
+- storage and router code read policy from the registry instead of embedding their own route/service rules
+- reviewers can inspect observability policy changes without tracing through Postgres query code
+
+### 4. Consolidate observability docs
+
+Current issue:
+
+- observability documentation is currently split between this completed rollout doc and older planning docs that still describe the system as partially built
+- that split will drift and makes it harder to tell which document is authoritative
+
+Target shape:
+
+- keep the newer rollout/architecture docs as the source of truth for the implemented system
+- fold any still-relevant material from older planning docs into the maintained docs
+- remove or replace outdated observability planning docs once their remaining useful content is captured
+
+Acceptance criteria:
+
+- there is one clear, current observability design document for implemented behavior
+- stale observability planning docs are removed or explicitly superseded
+- future observability changes update one current doc set instead of parallel narratives
+
+Completion note:
+
+- `docs/dashboard/observability.md` has been removed and this document now carries the active architecture, rollout, and refactor tracking.
+
+## Suggested execution order
+
+1. Extract the declarative policy registry first so subsequent refactors share one source of truth.
+2. Split `postgres.ts` around that policy boundary.
+3. Unify Express/Cloudflare observability hooks last, once the storage and policy surfaces are smaller and clearer.
 
 ## Success metric
 

@@ -4,6 +4,7 @@ import type {
   ConsoleObservabilityEventEnvelope,
   ConsoleObservabilityWebhookDeadLetterInput,
 } from './types';
+import { CONSOLE_OBSERVABILITY_EVENT_POLICIES } from './policy';
 
 function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
@@ -76,6 +77,7 @@ function baseEnvelope(input: {
 export function buildWebhookDeadLetterObservabilityEvent(
   input: ConsoleObservabilityWebhookDeadLetterInput,
 ): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.webhookDeadLetter;
   return baseEnvelope({
     eventIdPrefix: 'obs_webhook_dead_letter',
     orgId: input.orgId,
@@ -86,11 +88,11 @@ export function buildWebhookDeadLetterObservabilityEvent(
     timestamp: input.movedToDlqAt,
     schemaVersion: input.schemaVersion,
     redactionVersion: input.redactionVersion,
-    source: 'WEBHOOK',
-    service: 'webhooks',
-    component: 'delivery_dispatch',
-    level: 'ERROR',
-    eventType: 'webhook.delivery.dead_letter',
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
     message: `Webhook delivery ${input.deliveryId} moved to dead-letter queue`,
     metadata: {
       endpointId: normalizeString(input.endpointId),
@@ -113,6 +115,7 @@ export function buildBillingFailureObservabilityEvent(
   input: ConsoleObservabilityBillingFailureInput,
 ): ConsoleObservabilityEventEnvelope {
   const invoiceId = normalizeString(input.invoiceId);
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingFailure;
   return baseEnvelope({
     eventIdPrefix: 'obs_billing_failure',
     orgId: input.orgId,
@@ -123,10 +126,10 @@ export function buildBillingFailureObservabilityEvent(
     timestamp: input.timestamp,
     schemaVersion: input.schemaVersion,
     redactionVersion: input.redactionVersion,
-    source: 'BILLING',
-    service: 'billing',
-    component: 'finalization',
-    level: 'ERROR',
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
     eventType: `billing.${normalizeString(input.operation).toLowerCase()}.failed`,
     message: normalizeString(input.failureMessage),
     metadata: {
@@ -142,6 +145,7 @@ export function buildApprovalFailureObservabilityEvent(
   input: ConsoleObservabilityApprovalFailureInput,
 ): ConsoleObservabilityEventEnvelope {
   const approvalId = normalizeString(input.approvalId);
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.approvalPublishFailure;
   return baseEnvelope({
     eventIdPrefix: 'obs_approval_failure',
     orgId: input.orgId,
@@ -152,11 +156,11 @@ export function buildApprovalFailureObservabilityEvent(
     timestamp: input.timestamp,
     schemaVersion: input.schemaVersion,
     redactionVersion: input.redactionVersion,
-    source: 'APPROVAL',
-    service: 'approvals',
-    component: 'policy_publish',
-    level: 'ERROR',
-    eventType: 'approval.policy_publish.failed',
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
     message: normalizeString(input.failureMessage),
     metadata: {
       operationType: normalizeString(input.operationType),

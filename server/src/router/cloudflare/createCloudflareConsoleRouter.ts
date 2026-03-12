@@ -140,15 +140,17 @@ import {
   type ConsoleAccountService,
 } from '../../console/account';
 import {
-  buildApprovalFailureObservabilityEvent,
-  buildBillingFailureObservabilityEvent,
   isConsoleObservabilityError,
   type ConsoleObservabilityIngestionService,
-  type ConsoleObservabilityRequestMetricInput,
   type ConsoleObservabilityService,
 } from '../../console/observability';
 import type { ConsoleAuthClaims, ConsoleAuthResult, ConsoleRouterOptions } from '../console';
 import { authenticateConsoleRequest, hasConsoleRole } from '../console';
+import {
+  emitConsoleApprovalFailureObservabilityEvent,
+  emitConsoleBillingFailureObservabilityEvent,
+  observeConsoleRequestMetric,
+} from '../consoleObservabilityHooks';
 import {
   buildConsoleContextSwitchSessionClaims,
   parseConsoleSessionForContextSwitch,
@@ -236,77 +238,19 @@ function readOptionalRequestHeader(request: Request, header: string): string | u
   return value || undefined;
 }
 
-function toUnknownErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function appendConsoleObservabilityEvent(
-  ctx: CloudflareConsoleContext,
-  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
-  event: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[1],
-): Promise<void> {
-  if (!ctx.observabilityIngestion) return;
-  try {
-    await ctx.observabilityIngestion.appendEvent(ingestCtx, event);
-  } catch (error: unknown) {
-    ctx.logger.warn('[console][observability] failed to append observability event', {
-      orgId: ingestCtx.orgId,
-      eventType: event.eventType,
-      message: toUnknownErrorMessage(error),
-    });
-  }
-}
-
-async function appendConsoleObservabilityRequestMetric(
-  ctx: CloudflareConsoleContext,
-  ingestCtx: Parameters<ConsoleObservabilityIngestionService['appendEvent']>[0],
-  metric: ConsoleObservabilityRequestMetricInput,
-): Promise<void> {
-  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
-  try {
-    await ctx.observabilityIngestion.observeRequestMetric(ingestCtx, metric);
-  } catch (error: unknown) {
-    ctx.logger.warn('[console][observability] failed to append request metric', {
-      orgId: ingestCtx.orgId,
-      route: metric.route,
-      method: metric.method,
-      statusCode: metric.statusCode,
-      message: toUnknownErrorMessage(error),
-    });
-  }
-}
 
 async function emitRouterTimingObservabilityEvent(
   ctx: CloudflareConsoleContext,
   startedAtMs: number,
   statusCode: number,
 ): Promise<void> {
-  if (!ctx.observabilityIngestion?.observeRequestMetric) return;
-  const claims = ctx.authClaims;
-  const roles = Array.isArray(claims?.roles) ? claims.roles.filter(Boolean) : [];
-  const orgId = String(claims?.orgId || '').trim();
-  if (!orgId) return;
-  const metric: ConsoleObservabilityRequestMetricInput = {
-    orgId,
-    ...(claims?.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
+  await observeConsoleRequestMetric(ctx, {
+    claims: ctx.authClaims,
     route: ctx.pathname,
     method: ctx.method,
     statusCode,
     latencyMs: Math.max(0, Date.now() - startedAtMs),
-    timestamp: new Date().toISOString(),
-  };
-  await appendConsoleObservabilityRequestMetric(
-    ctx,
-    {
-      orgId,
-      actorUserId: String(claims?.userId || 'system-console-router'),
-      roles: roles.length ? roles : ['ops'],
-      ...(claims?.projectId ? { projectId: claims.projectId } : {}),
-      ...(claims?.environmentId ? { environmentId: claims.environmentId } : {}),
-    },
-    metric,
-  );
+  });
 }
 
 async function emitBillingFailureObservabilityEvent(
@@ -319,33 +263,15 @@ async function emitBillingFailureObservabilityEvent(
     error: unknown;
   },
 ): Promise<void> {
-  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
-  const traceId =
-    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
-    readOptionalRequestHeader(ctx.request, 'traceparent');
-  const event = buildBillingFailureObservabilityEvent({
-    orgId: claims.orgId,
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
-    ...(input.invoiceId ? { invoiceId: input.invoiceId } : {}),
+  await emitConsoleBillingFailureObservabilityEvent(ctx, {
+    claims,
     operation: input.operation,
-    failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
-    failureMessage: toUnknownErrorMessage(input.error),
+    ...(input.invoiceId ? { invoiceId: input.invoiceId } : {}),
     ...(input.providerRef ? { providerRef: input.providerRef } : {}),
-    ...(requestId ? { requestId } : {}),
-    ...(traceId ? { traceId } : {}),
+    failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
+    failureMessage: input.error instanceof Error ? input.error.message : String(input.error),
+    readHeader: (header) => readOptionalRequestHeader(ctx.request, header),
   });
-  await appendConsoleObservabilityEvent(
-    ctx,
-    {
-      orgId: claims.orgId,
-      actorUserId: claims.userId,
-      roles: claims.roles,
-      ...(claims.projectId ? { projectId: claims.projectId } : {}),
-      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
-    },
-    event,
-  );
 }
 
 async function emitApprovalFailureObservabilityEvent(
@@ -359,34 +285,16 @@ async function emitApprovalFailureObservabilityEvent(
     error: unknown;
   },
 ): Promise<void> {
-  const requestId = readOptionalRequestHeader(ctx.request, 'x-request-id');
-  const traceId =
-    readOptionalRequestHeader(ctx.request, 'x-trace-id') ||
-    readOptionalRequestHeader(ctx.request, 'traceparent');
-  const event = buildApprovalFailureObservabilityEvent({
-    orgId: claims.orgId,
-    ...(claims.projectId ? { projectId: claims.projectId } : {}),
-    ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+  await emitConsoleApprovalFailureObservabilityEvent(ctx, {
+    claims,
     ...(input.approvalId ? { approvalId: input.approvalId } : {}),
     operationType: input.operationType,
     ...(input.resourceType ? { resourceType: input.resourceType } : {}),
     ...(input.resourceId ? { resourceId: input.resourceId } : {}),
     failureCode: isConsolePolicyError(input.error) ? input.error.code : 'internal',
-    failureMessage: toUnknownErrorMessage(input.error),
-    ...(requestId ? { requestId } : {}),
-    ...(traceId ? { traceId } : {}),
+    failureMessage: input.error instanceof Error ? input.error.message : String(input.error),
+    readHeader: (header) => readOptionalRequestHeader(ctx.request, header),
   });
-  await appendConsoleObservabilityEvent(
-    ctx,
-    {
-      orgId: claims.orgId,
-      actorUserId: claims.userId,
-      roles: claims.roles,
-      ...(claims.projectId ? { projectId: claims.projectId } : {}),
-      ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
-    },
-    event,
-  );
 }
 
 function sendAuthFailure(auth: Extract<ConsoleAuthResult, { ok: false }>): Response {
