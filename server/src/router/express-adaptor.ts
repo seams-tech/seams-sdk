@@ -264,6 +264,8 @@ export type {
   PostgresConsoleBillingServiceOptions,
   PostgresConsoleBillingMonthlyFinalizationOptions,
   PostgresConsoleBillingMonthlyFinalizationResult,
+  StripeCheckoutSessionLookupProviderInput,
+  StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
   StripeWebhookEventRequest,

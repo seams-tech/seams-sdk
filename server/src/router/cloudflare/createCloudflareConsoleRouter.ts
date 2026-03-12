@@ -11,6 +11,7 @@ import {
   parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
+  parseStripeCheckoutSessionReconcileRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeWebhookEventRequest,
@@ -1370,13 +1371,13 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | nul
   );
 }
 
-function requireBillingAdjustmentRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin')) return null;
+function requirePlatformBillingAdjustmentRole(claims: ConsoleAuthClaims): Response | null {
+  if (hasConsoleRole(claims, 'platform_admin')) return null;
   return json(
     {
       ok: false,
       code: 'forbidden',
-      message: 'Only admin can append manual billing adjustments',
+      message: 'Only platform_admin can append manual billing adjustments',
     },
     { status: 403 },
   );
@@ -3834,7 +3835,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/support-credit') {
-      const forbidden = requireBillingAdjustmentRole(auth.claims);
+      const forbidden = requirePlatformBillingAdjustmentRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
       const result = await billing.grantManualSupportCredit(billingCtx, request);
@@ -3856,7 +3857,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/admin-debit') {
-      const forbidden = requireBillingAdjustmentRole(auth.claims);
+      const forbidden = requirePlatformBillingAdjustmentRole(auth.claims);
       if (forbidden) return forbidden;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
       const result = await billing.appendManualAdminDebit(billingCtx, request);
@@ -3989,6 +3990,30 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const request = parseStripeCheckoutSessionRequest(await readJson(ctx.request));
       const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, request);
       return json({ ok: true, checkoutSession }, { status: 201 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      ctx.pathname === '/console/billing/stripe/checkout-session/reconcile'
+    ) {
+      const request = parseStripeCheckoutSessionReconcileRequest(await readJson(ctx.request));
+      const result = await billing.reconcileStripeCheckoutSession(billingCtx, request);
+      if (result.settledNow && result.purchase && result.orgId) {
+        await emitBillingWebhookEvent(ctx, {
+          orgId: result.orgId,
+          actorUserId: 'system-stripe-checkout-reconcile',
+          eventType: 'billing.credit_purchase.settled',
+          eventId: `stripe_checkout_reconcile:${request.checkoutSessionId}`,
+          payload: {
+            purchaseId: result.purchase.id,
+            creditPackId: result.purchase.creditPackId,
+            amountMinor: result.purchase.amountMinor,
+            receiptId: result.invoice?.id || null,
+            source: 'stripe_checkout_reconcile',
+          },
+        });
+      }
+      return json({ ok: true, result }, { status: 200 });
     }
   } catch (error: unknown) {
     if (billingFailureEvent) {

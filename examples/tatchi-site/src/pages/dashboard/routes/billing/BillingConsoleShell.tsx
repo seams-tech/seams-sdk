@@ -5,6 +5,7 @@ import { useDashboardSelectedContextDisplay } from '../../selectedContext';
 import { BillingAccountView } from './BillingAccountView';
 import { BillingInvoiceDetailView } from './BillingInvoiceDetailView';
 import { BillingInvoicesView } from './BillingInvoicesView';
+import { PlatformBillingView } from './PlatformBillingView';
 import {
   createDashboardBillingManualAdminDebit,
   createDashboardBillingManualSupportCredit,
@@ -18,6 +19,7 @@ import {
   listDashboardBillingAccountActivity,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
+  reconcileDashboardStripeCheckoutSession,
   type DashboardBillingAccountActivityEntry,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceActivity,
@@ -31,7 +33,7 @@ import {
 import { buildInvoicePdfFilename, parseBillingSubview, type BillingMetric } from './billingShared';
 
 export interface BillingConsoleShellProps {
-  defaultPath: '/dashboard/billing/account' | '/dashboard/invoices';
+  defaultPath: '/dashboard/billing/account' | '/dashboard/invoices' | '/platform/billing';
 }
 
 const DATE_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -147,6 +149,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const { go } = useSiteRouter();
   const pathname = typeof window === 'undefined' ? defaultPath : window.location.pathname;
   const subview = React.useMemo(() => parseBillingSubview(pathname), [pathname]);
+  const isPlatformBillingPage = pathname === '/platform/billing';
   const activeInvoiceId = subview.kind === 'invoice' ? subview.invoiceId : '';
 
   const [loading, setLoading] = React.useState<boolean>(true);
@@ -192,6 +195,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [invoicePeriodEndDateFilter, setInvoicePeriodEndDateFilter] = React.useState<string>('');
   const [downloadingInvoicePdfId, setDownloadingInvoicePdfId] = React.useState<string>('');
   const [invoiceDownloadError, setInvoiceDownloadError] = React.useState<string>('');
+  const checkoutReconcileAttemptedRef = React.useRef<Set<string>>(new Set());
 
   const refreshBillingShellData = React.useCallback(async () => {
     if (!session.claims) {
@@ -213,14 +217,19 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       ]);
       setOverview(nextOverview);
       setUsage(nextUsage);
-      try {
-        const nextAccountActivity = await listDashboardBillingAccountActivity(25);
-        setAccountActivity(nextAccountActivity);
-      } catch (activityError: unknown) {
+      if (!isPlatformBillingPage) {
         setAccountActivity([]);
-        setAccountActivityError(
-          activityError instanceof Error ? activityError.message : String(activityError),
-        );
+        setAccountActivityError('');
+      } else {
+        try {
+          const nextAccountActivity = await listDashboardBillingAccountActivity(25);
+          setAccountActivity(nextAccountActivity);
+        } catch (activityError: unknown) {
+          setAccountActivity([]);
+          setAccountActivityError(
+            activityError instanceof Error ? activityError.message : String(activityError),
+          );
+        }
       }
     } catch (error: unknown) {
       setOverview(null);
@@ -231,7 +240,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     } finally {
       setLoading(false);
     }
-  }, [session.claims, session.errorMessage]);
+  }, [isPlatformBillingPage, session.claims, session.errorMessage]);
 
   const loadInvoiceListPage = React.useCallback(async () => {
     if (!session.claims) return;
@@ -300,20 +309,71 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (isPlatformBillingPage) {
+      setCheckoutReturnMessage('');
+      return;
+    }
     const params = new URLSearchParams(window.location.search);
     const checkout = String(params.get('checkout') || '')
       .trim()
       .toLowerCase();
-    if (checkout === 'success') {
+    const checkoutSessionId = String(params.get('checkout_session_id') || '').trim();
+    if (checkout === 'cancel') {
+      setCheckoutReturnMessage('Top-up checkout was canceled before settlement.');
+      return;
+    }
+    if (checkout !== 'success') {
+      setCheckoutReturnMessage('');
+      return;
+    }
+    if (!checkoutSessionId) {
       setCheckoutReturnMessage(
         'Top-up checkout completed. Balance updates after settlement confirmation.',
       );
-    } else if (checkout === 'cancel') {
-      setCheckoutReturnMessage('Top-up checkout was canceled before settlement.');
-    } else {
-      setCheckoutReturnMessage('');
+      return;
     }
-  }, [pathname]);
+    if (!session.claims || subview.kind !== 'account') {
+      setCheckoutReturnMessage('Top-up checkout completed. Verifying settlement...');
+      return;
+    }
+    if (checkoutReconcileAttemptedRef.current.has(checkoutSessionId)) return;
+    checkoutReconcileAttemptedRef.current.add(checkoutSessionId);
+    let cancelled = false;
+    setCheckoutReturnMessage('Top-up checkout completed. Verifying settlement...');
+    void (async () => {
+      try {
+        const result = await reconcileDashboardStripeCheckoutSession({ checkoutSessionId });
+        if (cancelled) return;
+        if (result.settled) {
+          setCheckoutReturnMessage(
+            result.settledNow
+              ? 'Top-up checkout completed. Balance updated.'
+              : 'Top-up checkout is already settled. Balance is up to date.',
+          );
+          await Promise.all([refreshBillingShellData(), loadInvoiceListPage()]);
+          return;
+        }
+        setCheckoutReturnMessage(
+          'Top-up checkout completed. Balance updates after settlement confirmation.',
+        );
+      } catch {
+        if (cancelled) return;
+        setCheckoutReturnMessage(
+          'Top-up checkout completed, but settlement verification is still pending. Refresh again in a moment.',
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isPlatformBillingPage,
+    loadInvoiceListPage,
+    pathname,
+    refreshBillingShellData,
+    session.claims,
+    subview.kind,
+  ]);
 
   React.useEffect(() => {
     if (!overview) {
@@ -482,12 +542,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     );
   }, [activeInvoiceId, invoiceActivity?.invoice, invoiceDetail, invoices]);
 
-  const canManageBillingAdjustments = React.useMemo(() => {
+  const isPlatformAdmin = React.useMemo(() => {
     return (session.claims?.roles || []).some(
       (role) =>
         String(role || '')
           .trim()
-          .toLowerCase() === 'admin',
+          .toLowerCase() === 'platform_admin',
     );
   }, [session.claims?.roles]);
 
@@ -505,7 +565,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       try {
         const origin = window.location.origin;
         const checkoutSession = await createDashboardStripeCheckoutSession({
-          successUrl: `${origin}/dashboard/billing/account?checkout=success`,
+          successUrl: `${origin}/dashboard/billing/account?checkout=success&checkout_session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${origin}/dashboard/billing/account?checkout=cancel`,
           creditPackId,
           ...(customAmountMinor === undefined ? {} : { customAmountMinor }),
@@ -635,23 +695,35 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           <p>Billing data unavailable: {errorMessage}</p>
         </section>
       ) : subview.kind === 'account' ? (
-        <BillingAccountView
-          selectedContext={selectedContextDisplay}
-          summaryMetrics={summaryMetrics}
-          checkoutActionError={checkoutActionError}
-          startingCheckoutPackId={startingCheckoutPackId}
-          canManageBillingAdjustments={canManageBillingAdjustments}
-          currentCreditBalanceMinor={overview?.creditBalanceMinor || 0}
-          startingAdjustmentKind={startingAdjustmentKind}
-          adjustmentActionError={adjustmentActionError}
-          adjustmentActionMessage={adjustmentActionMessage}
-          accountActivity={accountActivity}
-          accountActivityError={accountActivityError}
-          onStartStripeCheckout={(checkoutRequest) => {
-            void onStartStripeCheckout(checkoutRequest);
-          }}
-          onSubmitManualAdjustment={(request) => onSubmitManualAdjustment(request)}
-        />
+        isPlatformBillingPage ? (
+          isPlatformAdmin ? (
+            <PlatformBillingView
+              selectedContext={selectedContextDisplay}
+              summaryMetrics={summaryMetrics}
+              currentCreditBalanceMinor={overview?.creditBalanceMinor || 0}
+              startingAdjustmentKind={startingAdjustmentKind}
+              adjustmentActionError={adjustmentActionError}
+              adjustmentActionMessage={adjustmentActionMessage}
+              accountActivity={accountActivity}
+              accountActivityError={accountActivityError}
+              onSubmitManualAdjustment={(request) => onSubmitManualAdjustment(request)}
+            />
+          ) : (
+            <section className="dashboard-view__section">
+              <p>Platform billing is only available to platform_admin users.</p>
+            </section>
+          )
+        ) : (
+          <BillingAccountView
+            selectedContext={selectedContextDisplay}
+            summaryMetrics={summaryMetrics}
+            checkoutActionError={checkoutActionError}
+            startingCheckoutPackId={startingCheckoutPackId}
+            onStartStripeCheckout={(checkoutRequest) => {
+              void onStartStripeCheckout(checkoutRequest);
+            }}
+          />
+        )
       ) : subview.kind === 'invoices' ? (
         <BillingInvoicesView
           invoiceMetrics={invoiceSummaryMetrics}

@@ -16,7 +16,7 @@ import { resolveBillingLiveEnvironmentState } from './readiness';
 import {
   normalizeManualAdjustmentRequest,
   requireBillingAdjustmentRole,
-  requireLargeManualAdminDebitOwnerRole,
+  requireLargeManualAdminDebitEscalationRole,
 } from './adjustments';
 import type {
   BillingCreditPackId,
@@ -41,6 +41,8 @@ import type {
   BillingUsageEventResult,
   GenerateMonthlyInvoiceRequest,
   GenerateMonthlyInvoiceResult,
+  StripeCheckoutSessionReconcileRequest,
+  StripeCheckoutSessionReconcileResult,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
   StripeCheckoutSession,
@@ -2105,6 +2107,168 @@ export async function createPostgresConsoleBillingService(
       return fn(q, now);
     });
 
+  async function processStripeWebhookEventInternal(
+    request: StripeWebhookEventRequest,
+  ): Promise<StripeWebhookEventResult> {
+    const now = nowFn();
+    const eventType = String(request.eventType || 'checkout.session.completed')
+      .trim()
+      .toLowerCase();
+    if (eventType !== 'checkout.session.completed') {
+      return {
+        accepted: true,
+        purchase: null,
+        invoice: null,
+        orgId: null,
+      };
+    }
+    let currentOrgId: string | null = String(request.orgId || '').trim() || null;
+    let matchedPurchaseId: string | null = null;
+    let eventProviderRef = String(request.providerRef || '').trim();
+    const checkoutSessionRef = String(request.checkoutSessionId || request.providerRef || '').trim();
+    const providerCustomerRef = String(request.providerCustomerRef || '').trim();
+    if (!currentOrgId && (checkoutSessionRef || providerCustomerRef)) {
+      const purchaseMatch = await queryOne(
+        pool,
+        `SELECT org_id, id
+           FROM console_billing_credit_purchases
+          WHERE namespace = $1
+            AND (
+              provider_checkout_session_ref = $2
+              OR ($3 <> '' AND provider_customer_ref = $3)
+            )
+          ORDER BY created_at_ms DESC
+          LIMIT 1`,
+        [namespace, checkoutSessionRef, providerCustomerRef],
+      );
+      currentOrgId = purchaseMatch?.org_id ? String(purchaseMatch.org_id || '').trim() : null;
+      matchedPurchaseId = purchaseMatch?.id ? String(purchaseMatch.id || '').trim() : null;
+    }
+    eventProviderRef =
+      eventProviderRef || checkoutSessionRef || providerCustomerRef || eventType || 'stripe_event';
+
+    if (!currentOrgId) {
+      return {
+        accepted: true,
+        purchase: null,
+        invoice: null,
+        orgId: null,
+      };
+    }
+
+    return withConsoleTenantContextTx(pool, { namespace, orgId: currentOrgId }, async (q) => {
+      const inserted = await queryOne(
+        q,
+        `INSERT INTO console_stripe_webhook_events
+            (namespace, event_id, provider_ref, org_id, processed_at_ms)
+           VALUES
+            ($1, $2, $3, $4, $5)
+           ON CONFLICT (namespace, event_id) DO NOTHING
+           RETURNING event_id`,
+        [namespace, request.eventId, eventProviderRef, currentOrgId, nowMs(now)],
+      );
+      if (!inserted) {
+        const existingPurchaseRow = matchedPurchaseId
+          ? await queryOne(
+              q,
+              `SELECT *
+                 FROM console_billing_credit_purchases
+                WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+              [namespace, currentOrgId, matchedPurchaseId],
+            )
+          : await queryOne(
+              q,
+              `SELECT *
+                 FROM console_billing_credit_purchases
+                WHERE namespace = $1
+                  AND org_id = $2
+                  AND provider_checkout_session_ref = $3
+                ORDER BY created_at_ms DESC
+                LIMIT 1`,
+              [namespace, currentOrgId, checkoutSessionRef],
+            );
+        const existingInvoiceRow =
+          existingPurchaseRow?.related_invoice_id == null
+            ? null
+            : await queryOne(
+                q,
+                `SELECT *
+                   FROM console_invoices
+                  WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+                [namespace, currentOrgId, String(existingPurchaseRow.related_invoice_id || '')],
+              );
+        return {
+          accepted: false,
+          purchase: existingPurchaseRow ? parseCreditPurchaseRow(existingPurchaseRow) : null,
+          invoice: existingInvoiceRow ? parseInvoiceRow(existingInvoiceRow) : null,
+          orgId: currentOrgId,
+        };
+      }
+
+      let projectedPurchase: BillingCreditPurchase | null = null;
+      let projectedInvoice: BillingInvoice | null = null;
+      const purchaseRow = matchedPurchaseId
+        ? await queryOne(
+            q,
+            `SELECT *
+               FROM console_billing_credit_purchases
+              WHERE namespace = $1 AND org_id = $2 AND id = $3
+              FOR UPDATE`,
+            [namespace, currentOrgId, matchedPurchaseId],
+          )
+        : await queryOne(
+            q,
+            `SELECT *
+               FROM console_billing_credit_purchases
+              WHERE namespace = $1
+                AND org_id = $2
+                AND provider_checkout_session_ref = $3
+              ORDER BY created_at_ms DESC
+              LIMIT 1
+              FOR UPDATE`,
+            [namespace, currentOrgId, checkoutSessionRef],
+          );
+      if (purchaseRow) {
+        const settled = await settleCreditPurchase(q, {
+          namespace,
+          orgId: currentOrgId,
+          purchaseId: String(purchaseRow.id || ''),
+          settledAtMs: nowMs(now),
+        });
+        projectedPurchase = settled.purchase;
+        projectedInvoice = settled.invoice;
+      }
+
+      if (!projectedPurchase && matchedPurchaseId) {
+        const currentPurchaseRow = await queryOne(
+          q,
+          `SELECT *
+             FROM console_billing_credit_purchases
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, currentOrgId, matchedPurchaseId],
+        );
+        projectedPurchase = currentPurchaseRow ? parseCreditPurchaseRow(currentPurchaseRow) : null;
+      }
+      if (!projectedInvoice && projectedPurchase?.relatedInvoiceId) {
+        const invoiceRow = await queryOne(
+          q,
+          `SELECT *
+             FROM console_invoices
+            WHERE namespace = $1 AND org_id = $2 AND id = $3`,
+          [namespace, currentOrgId, projectedPurchase.relatedInvoiceId],
+        );
+        projectedInvoice = invoiceRow ? parseInvoiceRow(invoiceRow) : null;
+      }
+
+      return {
+        accepted: true,
+        purchase: projectedPurchase,
+        invoice: projectedInvoice,
+        orgId: currentOrgId,
+      };
+    });
+  }
+
   return {
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       return withOrgTx(ctx, async (q, now) => {
@@ -2758,7 +2922,7 @@ export async function createPostgresConsoleBillingService(
           idempotencyKey: normalizedRequest.idempotencyKey,
         });
         if (existing) {
-          requireLargeManualAdminDebitOwnerRole(ctx, Math.abs(existing.amountMinor));
+          requireLargeManualAdminDebitEscalationRole(ctx, Math.abs(existing.amountMinor));
           const creditBalanceMinor = await syncProjectedOrgBalance(q, {
             namespace,
             orgId: ctx.orgId,
@@ -2770,7 +2934,7 @@ export async function createPostgresConsoleBillingService(
             creditBalanceMinor,
           };
         }
-        requireLargeManualAdminDebitOwnerRole(ctx, normalizedRequest.amountMinor);
+        requireLargeManualAdminDebitEscalationRole(ctx, normalizedRequest.amountMinor);
         const relatedInvoiceId = await ensureManualAdjustmentRelatedInvoiceId(q, {
           namespace,
           orgId: ctx.orgId,
@@ -2871,175 +3035,103 @@ export async function createPostgresConsoleBillingService(
       });
     },
 
-    async processStripeWebhookEvent(
-      request: StripeWebhookEventRequest,
-    ): Promise<StripeWebhookEventResult> {
-      const now = nowFn();
-      const eventType = String(request.eventType || 'checkout.session.completed')
-        .trim()
-        .toLowerCase();
-      if (eventType !== 'checkout.session.completed') {
-        return {
-          accepted: true,
-          purchase: null,
-          invoice: null,
-          orgId: null,
-        };
-      }
-      let currentOrgId: string | null = null;
-      let matchedPurchaseId: string | null = null;
-      let eventProviderRef = String(request.providerRef || '').trim();
-      currentOrgId = String(request.orgId || '').trim() || null;
-      const checkoutSessionRef = String(
-        request.checkoutSessionId || request.providerRef || '',
-      ).trim();
-      const providerCustomerRef = String(request.providerCustomerRef || '').trim();
-      if (!currentOrgId && (checkoutSessionRef || providerCustomerRef)) {
-        const purchaseMatch = await queryOne(
-          pool,
-          `SELECT org_id, id
-             FROM console_billing_credit_purchases
-            WHERE namespace = $1
-              AND (
-                provider_checkout_session_ref = $2
-                OR ($3 <> '' AND provider_customer_ref = $3)
-              )
-            ORDER BY created_at_ms DESC
-            LIMIT 1`,
-          [namespace, checkoutSessionRef, providerCustomerRef],
+    async reconcileStripeCheckoutSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCheckoutSessionReconcileRequest,
+    ): Promise<StripeCheckoutSessionReconcileResult> {
+      const checkoutSessionId = String(request.checkoutSessionId || '').trim();
+      if (!checkoutSessionId) {
+        throw new ConsoleBillingError(
+          'invalid_body',
+          400,
+          'Field checkoutSessionId is required',
         );
-        currentOrgId = purchaseMatch?.org_id ? String(purchaseMatch.org_id || '').trim() : null;
-        matchedPurchaseId = purchaseMatch?.id ? String(purchaseMatch.id || '').trim() : null;
       }
-      eventProviderRef =
-        eventProviderRef ||
-        checkoutSessionRef ||
-        providerCustomerRef ||
-        eventType ||
-        'stripe_event';
-
-      if (!currentOrgId) {
-        return {
-          accepted: true,
-          purchase: null,
-          invoice: null,
-          orgId: null,
-        };
-      }
-
-      return withConsoleTenantContextTx(pool, { namespace, orgId: currentOrgId }, async (q) => {
-        const inserted = await queryOne(
-          q,
-          `INSERT INTO console_stripe_webhook_events
-              (namespace, event_id, provider_ref, org_id, processed_at_ms)
-             VALUES
-              ($1, $2, $3, $4, $5)
-             ON CONFLICT (namespace, event_id) DO NOTHING
-             RETURNING event_id`,
-          [namespace, request.eventId, eventProviderRef, currentOrgId, nowMs(now)],
+      const existingPurchaseRow = await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        (q) =>
+          queryOne(
+            q,
+            `SELECT *
+               FROM console_billing_credit_purchases
+              WHERE namespace = $1
+                AND org_id = $2
+                AND provider_checkout_session_ref = $3
+              ORDER BY created_at_ms DESC
+              LIMIT 1`,
+            [namespace, ctx.orgId, checkoutSessionId],
+          ),
+      );
+      if (!existingPurchaseRow) {
+        throw new ConsoleBillingError(
+          'purchase_not_found',
+          404,
+          `No credit purchase found for Stripe checkout session ${checkoutSessionId}`,
         );
-        if (!inserted) {
-          const existingPurchaseRow = matchedPurchaseId
-            ? await queryOne(
-                q,
-                `SELECT *
-                   FROM console_billing_credit_purchases
-                  WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                [namespace, currentOrgId, matchedPurchaseId],
-              )
-            : await queryOne(
-                q,
-                `SELECT *
-                   FROM console_billing_credit_purchases
-                  WHERE namespace = $1
-                    AND org_id = $2
-                    AND provider_checkout_session_ref = $3
-                  ORDER BY created_at_ms DESC
-                  LIMIT 1`,
-                [namespace, currentOrgId, checkoutSessionRef],
-              );
-          const existingInvoiceRow =
-            existingPurchaseRow?.related_invoice_id == null
-              ? null
-              : await queryOne(
+      }
+      const existingPurchase = parseCreditPurchaseRow(existingPurchaseRow);
+      const checkoutSession = await providers.stripe.getCheckoutSession({ checkoutSessionId });
+      const providerOrgId = String(checkoutSession.orgId || '').trim();
+      if (providerOrgId && providerOrgId !== ctx.orgId) {
+        throw new ConsoleBillingError(
+          'forbidden',
+          403,
+          'Stripe checkout session does not belong to the current organization',
+        );
+      }
+      const paymentStatus = String(checkoutSession.paymentStatus || '').trim().toLowerCase();
+      const checkoutStatus = String(checkoutSession.checkoutStatus || '').trim().toLowerCase();
+      if (paymentStatus !== 'paid') {
+        const invoiceRow =
+          existingPurchase.relatedInvoiceId == null
+            ? null
+            : await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, (q) =>
+                queryOne(
                   q,
                   `SELECT *
                      FROM console_invoices
                     WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-                  [namespace, currentOrgId, String(existingPurchaseRow.related_invoice_id || '')],
-                );
-          return {
-            accepted: false,
-            purchase: existingPurchaseRow ? parseCreditPurchaseRow(existingPurchaseRow) : null,
-            invoice: existingInvoiceRow ? parseInvoiceRow(existingInvoiceRow) : null,
-            orgId: currentOrgId,
-          };
-        }
-
-        let projectedPurchase: BillingCreditPurchase | null = null;
-        let projectedInvoice: BillingInvoice | null = null;
-        const purchaseRow = matchedPurchaseId
-          ? await queryOne(
-              q,
-              `SELECT *
-                 FROM console_billing_credit_purchases
-                WHERE namespace = $1 AND org_id = $2 AND id = $3
-                FOR UPDATE`,
-              [namespace, currentOrgId, matchedPurchaseId],
-            )
-          : await queryOne(
-              q,
-              `SELECT *
-                 FROM console_billing_credit_purchases
-                WHERE namespace = $1
-                  AND org_id = $2
-                  AND provider_checkout_session_ref = $3
-                ORDER BY created_at_ms DESC
-                LIMIT 1
-                FOR UPDATE`,
-              [namespace, currentOrgId, checkoutSessionRef],
-            );
-        if (purchaseRow) {
-          const settled = await settleCreditPurchase(q, {
-            namespace,
-            orgId: currentOrgId,
-            purchaseId: String(purchaseRow.id || ''),
-            settledAtMs: nowMs(now),
-          });
-          projectedPurchase = settled.purchase;
-          projectedInvoice = settled.invoice;
-        }
-
-        if (!projectedPurchase && matchedPurchaseId) {
-          const currentPurchaseRow = await queryOne(
-            q,
-            `SELECT *
-               FROM console_billing_credit_purchases
-              WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-            [namespace, currentOrgId, matchedPurchaseId],
-          );
-          projectedPurchase = currentPurchaseRow
-            ? parseCreditPurchaseRow(currentPurchaseRow)
-            : null;
-        }
-        if (!projectedInvoice && projectedPurchase?.relatedInvoiceId) {
-          const invoiceRow = await queryOne(
-            q,
-            `SELECT *
-               FROM console_invoices
-              WHERE namespace = $1 AND org_id = $2 AND id = $3`,
-            [namespace, currentOrgId, projectedPurchase.relatedInvoiceId],
-          );
-          projectedInvoice = invoiceRow ? parseInvoiceRow(invoiceRow) : null;
-        }
-
+                  [namespace, ctx.orgId, existingPurchase.relatedInvoiceId],
+                ),
+              );
         return {
-          accepted: true,
-          purchase: projectedPurchase,
-          invoice: projectedInvoice,
-          orgId: currentOrgId,
+          settled: existingPurchase.status === 'SETTLED',
+          settledNow: false,
+          purchase: existingPurchase,
+          invoice: invoiceRow ? parseInvoiceRow(invoiceRow) : null,
+          orgId: ctx.orgId,
+          paymentStatus: paymentStatus || null,
+          checkoutStatus: checkoutStatus || null,
         };
+      }
+      const result = await processStripeWebhookEventInternal({
+        eventId: `stripe_checkout_reconcile:${checkoutSessionId}`,
+        eventType: 'checkout.session.completed',
+        orgId: ctx.orgId,
+        checkoutSessionId,
+        providerCustomerRef:
+          String(checkoutSession.customerRef || '').trim() ||
+          String(existingPurchase.providerCustomerRef || '').trim() ||
+          undefined,
+        providerRef: checkoutSessionId,
       });
+      return {
+        settled: result.purchase?.status === 'SETTLED',
+        settledNow:
+          existingPurchase.status !== 'SETTLED' && result.purchase?.status === 'SETTLED',
+        purchase: result.purchase,
+        invoice: result.invoice,
+        orgId: result.orgId,
+        paymentStatus: paymentStatus || null,
+        checkoutStatus: checkoutStatus || null,
+      };
+    },
+
+    async processStripeWebhookEvent(
+      request: StripeWebhookEventRequest,
+    ): Promise<StripeWebhookEventResult> {
+      return processStripeWebhookEventInternal(request);
     },
   };
 }

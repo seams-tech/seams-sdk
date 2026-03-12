@@ -228,6 +228,10 @@ export interface StripeCheckoutSession {
   expiresAt: string;
 }
 
+export interface StripeCheckoutSessionReconcileRequest {
+  checkoutSessionId: string;
+}
+
 export interface StripeWebhookEventRequest {
   eventId: string;
   eventType?: 'checkout.session.completed';
@@ -235,6 +239,16 @@ export interface StripeWebhookEventRequest {
   providerCustomerRef?: string;
   checkoutSessionId?: string;
   providerRef?: string;
+}
+
+export interface StripeCheckoutSessionReconcileResult {
+  settled: boolean;
+  settledNow: boolean;
+  purchase: BillingCreditPurchase | null;
+  invoice: BillingInvoice | null;
+  orgId: string | null;
+  paymentStatus: string | null;
+  checkoutStatus: string | null;
 }
 
 export interface StripeWebhookEventResult {

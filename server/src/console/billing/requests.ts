@@ -20,6 +20,7 @@ import type {
   BillingManualAdjustmentRequest,
   BillingUsageEventRequest,
   GenerateMonthlyInvoiceRequest,
+  StripeCheckoutSessionReconcileRequest,
   StripeCheckoutSessionRequest,
   StripeWebhookEventRequest,
 } from './types';
@@ -258,6 +259,15 @@ export function parseStripeWebhookEventRequest(body: unknown): StripeWebhookEven
     providerCustomerRef: readOptionalString(obj, 'providerCustomerRef'),
     checkoutSessionId: readOptionalString(obj, 'checkoutSessionId'),
     providerRef: readOptionalString(obj, 'providerRef'),
+  };
+}
+
+export function parseStripeCheckoutSessionReconcileRequest(
+  body: unknown,
+): StripeCheckoutSessionReconcileRequest {
+  const obj = requireObject(body, createParseError);
+  return {
+    checkoutSessionId: readRequiredString(obj, 'checkoutSessionId', createParseError),
   };
 }
 

@@ -6,6 +6,7 @@ import { ExportKeysSettingsPage } from './routes/export-keys/page';
 import { GasSponsorshipPage } from './routes/gas-sponsorship/page';
 import { SelfHostingPage } from './routes/integrations/self-hosting/page';
 import { InvoicesPage } from './routes/invoices/page';
+import { PlatformBillingPage } from './routes/platform-billing/page';
 import { PolicyEnginePage } from './routes/policy-engine/page';
 import { TeamMembersPage } from './routes/team-members/page';
 import { DashboardOnboardingPage } from './routes/onboarding/page';
@@ -174,6 +175,19 @@ const sidebarGroups: SidebarGroup[] = [
       },
     ],
   },
+  {
+    key: 'platform',
+    label: 'Platform',
+    items: [
+      {
+        key: 'platform-billing',
+        label: 'Platform billing',
+        path: '/platform/billing',
+        icon: CreditCardIcon,
+        component: PlatformBillingPage,
+      },
+    ],
+  },
 ];
 
 export const SIDEBAR_GROUPS: SidebarGroup[] = sidebarGroups.filter(
@@ -195,6 +209,7 @@ export const DEFAULT_EXPANDED_SIDEBAR_GROUPS: ExpandedSidebarGroupsState = {
   operationsSecurity: true,
   billing: true,
   integrations: true,
+  platform: true,
 };
 
 export const SIDEBAR_GROUP_KEYS = Object.keys(DEFAULT_EXPANDED_SIDEBAR_GROUPS) as Array<
@@ -244,6 +259,9 @@ export function getRouteFromPathname(pathname: string): DashboardRoute | null {
     normalizedPathname.startsWith('/dashboard/billing/invoices/')
   ) {
     return '/dashboard/invoices';
+  }
+  if (normalizedPathname === '/platform/billing') {
+    return '/platform/billing';
   }
   for (const group of SIDEBAR_GROUPS) {
     for (const item of group.items) {

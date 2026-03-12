@@ -156,6 +156,36 @@ test.describe('console app-session auth adapter', () => {
     });
   });
 
+  test('authenticate appends platform_admin for allowlisted SSO email', async () => {
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims({
+            email: 'n6378056@gmail.com',
+          }),
+        }),
+      }),
+      authService: {
+        validateAppSessionVersion: async () => ({ ok: true }),
+      },
+      defaultOrgId: 'org-dev',
+      fallbackRoles: ['admin'],
+      platformAdminEmails: 'n6378056@gmail.com, someone@example.com',
+    });
+
+    const out = await auth.authenticate({});
+    expect(out).toEqual({
+      ok: true,
+      claims: {
+        orgId: 'org-dev',
+        userId: 'oidc:https://accounts.google.com:user-123',
+        roles: ['admin', 'platform_admin'],
+        email: 'n6378056@gmail.com',
+      },
+    });
+  });
+
   test('authenticate repairs stale org claims from active scope before provisioning', async () => {
     const resolvedOrgId = 'org_migrated_123';
     const upsertedOrgIds: string[] = [];

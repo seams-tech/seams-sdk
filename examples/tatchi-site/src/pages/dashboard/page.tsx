@@ -44,6 +44,7 @@ type DashboardPageProps = {
 
 const DASHBOARD_ONBOARDING_ROUTE: DashboardRoute = '/dashboard/onboarding';
 const DASHBOARD_ACCOUNT_SETTINGS_ROUTE: DashboardRoute = '/dashboard/account-settings';
+const PLATFORM_BILLING_ROUTE: DashboardRoute = '/platform/billing';
 const DASHBOARD_LOGIN_ROUTE = '/dashboard/login';
 const DASHBOARD_ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
 const LOCKED_PRODUCTION_OPTION_PREFIX = '__production_locked__:';
@@ -133,7 +134,19 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     ? onboardingOrganizationName
     : '';
   const billingReady = onboardingState?.billingReady === true;
+  const isPlatformRoute = pathname === PLATFORM_BILLING_ROUTE || pathname.startsWith('/platform/');
+  const isPlatformAdmin = React.useMemo(
+    () =>
+      (consoleSession.claims?.roles || []).some(
+        (role) =>
+          String(role || '')
+            .trim()
+            .toLowerCase() === 'platform_admin',
+      ),
+    [consoleSession.claims?.roles],
+  );
   const isSidebarNavigationLocked =
+    !isPlatformRoute &&
     onboardingGateEnabled &&
     (onboardingLoading ||
       !onboardingState ||
@@ -216,7 +229,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (!onboardingGateEnabled || !onboardingState) return;
     const isOnboardingRoute = pathname === DASHBOARD_ONBOARDING_ROUTE;
     const isAccountSettingsRoute = pathname === DASHBOARD_ACCOUNT_SETTINGS_ROUTE;
-    if (!hasConfiguredOrganization && !isOnboardingRoute && !isAccountSettingsRoute) {
+    const isPlatformBillingRoute = pathname === PLATFORM_BILLING_ROUTE;
+    if (
+      !hasConfiguredOrganization &&
+      !isOnboardingRoute &&
+      !isAccountSettingsRoute &&
+      !isPlatformBillingRoute
+    ) {
       go(DASHBOARD_ONBOARDING_ROUTE);
     }
   }, [
@@ -602,7 +621,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (onboardingGateEnabled && !onboardingState) return;
     if (
       pathname !== '/dashboard' &&
-      pathname.startsWith('/dashboard/') &&
+      (pathname.startsWith('/dashboard/') || pathname.startsWith('/platform/')) &&
       !getRouteFromPathname(pathname)
     ) {
       go(dashboardEntryRoute);
@@ -620,7 +639,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   React.useEffect(() => {
     if (consoleSession.loading || consoleSession.claims) return;
     if (sessionForbidden) return;
-    if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+    if (
+      pathname === '/dashboard' ||
+      pathname.startsWith('/dashboard/') ||
+      pathname.startsWith('/platform/')
+    ) {
       go(DASHBOARD_LOGIN_ROUTE);
     }
   }, [consoleSession.claims, consoleSession.loading, go, pathname, sessionForbidden]);
@@ -665,8 +688,17 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const sidebarExpanded = focusedOnboardingMode ? true : isSidebarExpanded;
   const shellClassName = `dashboard-shell${focusedOnboardingMode ? ' dashboard-shell--onboarding-focus' : ''}${isSidebarCollapsed ? ' dashboard-shell--sidebar-collapsed' : ''}${isSidebarCollapsedSettled ? ' dashboard-shell--sidebar-collapsed-settled' : ''}`;
   const navigationLockExemptPaths = React.useMemo<ReadonlySet<DashboardRoute>>(
-    () => new Set<DashboardRoute>([DASHBOARD_ACCOUNT_SETTINGS_ROUTE]),
-    [],
+    () =>
+      new Set<DashboardRoute>(
+        isPlatformAdmin
+          ? [DASHBOARD_ACCOUNT_SETTINGS_ROUTE, PLATFORM_BILLING_ROUTE]
+          : [DASHBOARD_ACCOUNT_SETTINGS_ROUTE],
+      ),
+    [isPlatformAdmin],
+  );
+  const visibleSidebarGroups = React.useMemo(
+    () => SIDEBAR_GROUPS.filter((group) => group.key !== 'platform' || isPlatformAdmin),
+    [isPlatformAdmin],
   );
 
   return (
@@ -683,7 +715,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       />
 
       <DashboardSidebar
-        groups={SIDEBAR_GROUPS}
+        groups={visibleSidebarGroups}
         isSidebarExpanded={sidebarExpanded}
         expandedGroups={expandedGroups}
         activeRoute={activeRoute}

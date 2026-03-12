@@ -78,7 +78,11 @@ import {
 import dotenv from 'dotenv';
 import { createJwtSession } from './jwtSession.js';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
-import { createStripeBillingProviderAdapter } from './stripeBillingProvider.js';
+import {
+  createStripeBillingProviderAdapter,
+  normalizeOptionalStripePublishableKey,
+  normalizeStripeSecretKey,
+} from './stripeBillingProvider.js';
 
 dotenv.config();
 
@@ -929,8 +933,8 @@ async function main() {
     ['owner', 'admin'],
     defaultConsoleRoles,
   );
-  const stripeApiSecretKey = String(env.STRIPE_API_SK || '').trim() || '';
-  const stripeApiPublishableKey = String(env.STRIPE_API_PK || '').trim() || '';
+  const stripeApiSecretKey = normalizeStripeSecretKey(env.STRIPE_API_SK);
+  const stripeApiPublishableKey = normalizeOptionalStripePublishableKey(env.STRIPE_API_PK);
   const stripeCheckoutPriceId = String(env.STRIPE_CHECKOUT_PRICE_ID || '').trim() || '';
   const stripeApiBaseUrl = String(env.STRIPE_API_BASE_URL || '').trim() || '';
   const stripeApiTimeoutMs = parseOptionalPositiveInteger(env.STRIPE_API_TIMEOUT_MS);
@@ -1163,6 +1167,7 @@ async function main() {
     authService,
     defaultOrgId: consoleDemoOrgId,
     fallbackRoles: consoleSsoBootstrapRoles,
+    platformAdminEmails: env.CONSOLE_PLATFORM_ADMIN_EMAILS,
     provisioning: {
       bootstrapRoles: consoleSsoBootstrapRoles,
       orgProjectEnv: consoleOrgProjectEnv,

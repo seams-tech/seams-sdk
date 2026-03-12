@@ -6,7 +6,7 @@ import {
   normalizeManualAdjustmentRequest,
   requireBillingAdjustmentRole,
   requireKnownManualAdjustmentRelatedInvoiceId,
-  requireLargeManualAdminDebitOwnerRole,
+  requireLargeManualAdminDebitEscalationRole,
 } from './adjustments';
 import type {
   BillingCreditPurchase,
@@ -30,6 +30,8 @@ import type {
   BillingUsageEventResult,
   GenerateMonthlyInvoiceRequest,
   GenerateMonthlyInvoiceResult,
+  StripeCheckoutSessionReconcileRequest,
+  StripeCheckoutSessionReconcileResult,
   StripeWebhookEventRequest,
   StripeWebhookEventResult,
   StripeCheckoutSession,
@@ -86,6 +88,10 @@ export interface ConsoleBillingService {
     ctx: ConsoleBillingContext,
     request: StripeCheckoutSessionRequest,
   ): Promise<StripeCheckoutSession>;
+  reconcileStripeCheckoutSession(
+    ctx: ConsoleBillingContext,
+    request: StripeCheckoutSessionReconcileRequest,
+  ): Promise<StripeCheckoutSessionReconcileResult>;
   processStripeWebhookEvent(request: StripeWebhookEventRequest): Promise<StripeWebhookEventResult>;
 }
 
@@ -675,7 +681,78 @@ export function createInMemoryConsoleBillingService(
     return match;
   }
 
-  return {
+  async function processStripeWebhookEventInternal(
+    request: StripeWebhookEventRequest,
+  ): Promise<StripeWebhookEventResult> {
+    const eventType = String(request.eventType || 'checkout.session.completed').trim();
+    if (eventType !== 'checkout.session.completed') {
+      return {
+        accepted: true,
+        purchase: null,
+        invoice: null,
+        orgId: null,
+      };
+    }
+
+    const now = nowFn();
+    const resolved = resolveWebhookStore(request);
+    if (!resolved) {
+      return {
+        accepted: true,
+        purchase: null,
+        invoice: null,
+        orgId: null,
+      };
+    }
+
+    const { orgId, store } = resolved;
+    const checkoutSessionRef = String(request.checkoutSessionId || request.providerRef || '').trim();
+    const providerCustomerRef = String(request.providerCustomerRef || '').trim();
+    const matchedPurchase =
+      resolved.purchase ||
+      Array.from(store.purchases.values()).find(
+        (entry) =>
+          (checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef) ||
+          (providerCustomerRef && entry.providerCustomerRef === providerCustomerRef),
+      ) ||
+      null;
+
+    const projectedInvoice = matchedPurchase?.relatedInvoiceId
+      ? getProjectedInvoice(store, orgId, matchedPurchase.relatedInvoiceId, now)
+      : null;
+
+    if (store.stripeWebhookEventIds.has(request.eventId)) {
+      return {
+        accepted: false,
+        purchase: matchedPurchase,
+        invoice: projectedInvoice,
+        orgId,
+      };
+    }
+
+    let purchase: BillingCreditPurchase | null = matchedPurchase;
+    let invoice = projectedInvoice;
+    if (matchedPurchase) {
+      purchase = settleCreditPurchase(store, {
+        orgId,
+        purchaseId: matchedPurchase.id,
+        now,
+      });
+      invoice = purchase.relatedInvoiceId
+        ? getProjectedInvoice(store, orgId, purchase.relatedInvoiceId, now)
+        : null;
+    }
+
+    store.stripeWebhookEventIds.add(request.eventId);
+    return {
+      accepted: true,
+      purchase,
+      invoice,
+      orgId,
+    };
+  }
+
+  const service: ConsoleBillingService = {
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       const now = nowFn();
       const store = ensureOrgStore(ctx.orgId);
@@ -1010,14 +1087,14 @@ export function createInMemoryConsoleBillingService(
       const store = ensureOrgStore(ctx.orgId);
       const existing = findLedgerEntryByIdempotencyKey(store, normalizedRequest.idempotencyKey);
       if (existing) {
-        requireLargeManualAdminDebitOwnerRole(ctx, Math.abs(existing.amountMinor));
+        requireLargeManualAdminDebitEscalationRole(ctx, Math.abs(existing.amountMinor));
         return {
           created: false,
           adjustment: existing,
           creditBalanceMinor: store.creditBalanceMinor,
         };
       }
-      requireLargeManualAdminDebitOwnerRole(ctx, normalizedRequest.amountMinor);
+      requireLargeManualAdminDebitEscalationRole(ctx, normalizedRequest.amountMinor);
       const relatedInvoiceId = ensureManualAdjustmentRelatedInvoiceId(
         store,
         ctx.orgId,
@@ -1104,77 +1181,84 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
+    async reconcileStripeCheckoutSession(
+      ctx: ConsoleBillingContext,
+      request: StripeCheckoutSessionReconcileRequest,
+    ): Promise<StripeCheckoutSessionReconcileResult> {
+      const checkoutSessionId = String(request.checkoutSessionId || '').trim();
+      if (!checkoutSessionId) {
+        throw new ConsoleBillingError(
+          'invalid_body',
+          400,
+          'Field checkoutSessionId is required',
+        );
+      }
+      const store = ensureOrgStore(ctx.orgId);
+      const purchase =
+        Array.from(store.purchases.values()).find(
+          (entry) => entry.providerCheckoutSessionRef === checkoutSessionId,
+        ) || null;
+      if (!purchase) {
+        throw new ConsoleBillingError(
+          'purchase_not_found',
+          404,
+          `No credit purchase found for Stripe checkout session ${checkoutSessionId}`,
+        );
+      }
+      const wasSettled = purchase.status === 'SETTLED';
+      const checkoutSession = await providers.stripe.getCheckoutSession({ checkoutSessionId });
+      const providerOrgId = String(checkoutSession.orgId || '').trim();
+      if (providerOrgId && providerOrgId !== ctx.orgId) {
+        throw new ConsoleBillingError(
+          'forbidden',
+          403,
+          'Stripe checkout session does not belong to the current organization',
+        );
+      }
+      const paymentStatus = String(checkoutSession.paymentStatus || '').trim().toLowerCase();
+      const checkoutStatus = String(checkoutSession.checkoutStatus || '').trim().toLowerCase();
+      if (paymentStatus !== 'paid') {
+        const projectedInvoice =
+          purchase.relatedInvoiceId == null
+            ? null
+            : getProjectedInvoice(store, ctx.orgId, purchase.relatedInvoiceId, nowFn());
+        return {
+          settled: purchase.status === 'SETTLED',
+          settledNow: false,
+          purchase,
+          invoice: projectedInvoice,
+          orgId: ctx.orgId,
+          paymentStatus: paymentStatus || null,
+          checkoutStatus: checkoutStatus || null,
+        };
+      }
+      const result = await processStripeWebhookEventInternal({
+        eventId: `stripe_checkout_reconcile:${checkoutSessionId}`,
+        eventType: 'checkout.session.completed',
+        orgId: ctx.orgId,
+        checkoutSessionId,
+        providerCustomerRef:
+          String(checkoutSession.customerRef || '').trim() ||
+          String(purchase.providerCustomerRef || '').trim() ||
+          undefined,
+        providerRef: checkoutSessionId,
+      });
+      return {
+        settled: result.purchase?.status === 'SETTLED',
+        settledNow: !wasSettled && result.purchase?.status === 'SETTLED',
+        purchase: result.purchase,
+        invoice: result.invoice,
+        orgId: result.orgId,
+        paymentStatus: paymentStatus || null,
+        checkoutStatus: checkoutStatus || null,
+      };
+    },
+
     async processStripeWebhookEvent(
       request: StripeWebhookEventRequest,
     ): Promise<StripeWebhookEventResult> {
-      const eventType = String(request.eventType || 'checkout.session.completed').trim();
-      if (eventType !== 'checkout.session.completed') {
-        return {
-          accepted: true,
-          purchase: null,
-          invoice: null,
-          orgId: null,
-        };
-      }
-
-      const now = nowFn();
-      const resolved = resolveWebhookStore(request);
-      if (!resolved) {
-        return {
-          accepted: true,
-          purchase: null,
-          invoice: null,
-          orgId: null,
-        };
-      }
-
-      const { orgId, store } = resolved;
-      const checkoutSessionRef = String(
-        request.checkoutSessionId || request.providerRef || '',
-      ).trim();
-      const providerCustomerRef = String(request.providerCustomerRef || '').trim();
-      const matchedPurchase =
-        resolved.purchase ||
-        Array.from(store.purchases.values()).find(
-          (entry) =>
-            (checkoutSessionRef && entry.providerCheckoutSessionRef === checkoutSessionRef) ||
-            (providerCustomerRef && entry.providerCustomerRef === providerCustomerRef),
-        ) ||
-        null;
-
-      const projectedInvoice = matchedPurchase?.relatedInvoiceId
-        ? getProjectedInvoice(store, orgId, matchedPurchase.relatedInvoiceId, now)
-        : null;
-
-      if (store.stripeWebhookEventIds.has(request.eventId)) {
-        return {
-          accepted: false,
-          purchase: matchedPurchase,
-          invoice: projectedInvoice,
-          orgId,
-        };
-      }
-
-      let purchase: BillingCreditPurchase | null = matchedPurchase;
-      let invoice = projectedInvoice;
-      if (matchedPurchase) {
-        purchase = settleCreditPurchase(store, {
-          orgId,
-          purchaseId: matchedPurchase.id,
-          now,
-        });
-        invoice = purchase.relatedInvoiceId
-          ? getProjectedInvoice(store, orgId, purchase.relatedInvoiceId, now)
-          : null;
-      }
-
-      store.stripeWebhookEventIds.add(request.eventId);
-      return {
-        accepted: true,
-        purchase,
-        invoice,
-        orgId,
-      };
+      return processStripeWebhookEventInternal(request);
     },
   };
+  return service;
 }

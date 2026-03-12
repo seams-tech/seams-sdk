@@ -4406,6 +4406,68 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+          cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+          creditPackId: 'usd_25',
+        }),
+      });
+      expect(created.status).toBe(201);
+      const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
+      expect(checkoutSessionId).toBeTruthy();
+
+      const reconciled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            checkoutSessionId,
+          }),
+        },
+      );
+      expect(reconciled.status).toBe(200);
+      expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
+      expect(getPath(reconciled.json, 'result', 'settledNow')).toBe(true);
+      expect(getPath(reconciled.json, 'result', 'purchase', 'status')).toBe('SETTLED');
+      expect(getPath(reconciled.json, 'result', 'invoice', 'documentType')).toBe(
+        'PURCHASE_RECEIPT',
+      );
+
+      const duplicate = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            checkoutSessionId,
+          }),
+        },
+      );
+      expect(duplicate.status).toBe(200);
+      expect(getPath(duplicate.json, 'result', 'settled')).toBe(true);
+      expect(getPath(duplicate.json, 'result', 'settledNow')).toBe(false);
+
+      const overview = await fetchJson(`${srv.baseUrl}/console/billing/overview`, {
+        method: 'GET',
+      });
+      expect(overview.status).toBe(200);
+      expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('legacy billing subscription route is removed', async () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
@@ -4440,7 +4502,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('POST /console/billing/adjustments/support-credit requires admin role', async () => {
+  test('POST /console/billing/adjustments/support-credit requires platform_admin role', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['ops']),
       billing: createInMemoryConsoleBillingService(),
@@ -4459,14 +4521,15 @@ test.describe('console router (express)', () => {
       });
       expect(res.status).toBe(403);
       expect(res.json?.code).toBe('forbidden');
+      expect(String(res.json?.message || '')).toContain('platform_admin');
     } finally {
       await srv.close();
     }
   });
 
-  test('POST /console/billing/adjustments/admin-debit requires owner role for large debit amounts', async () => {
+  test('POST /console/billing/adjustments/admin-debit allows platform_admin for large debit amounts', async () => {
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin']),
       billing: createInMemoryConsoleBillingService(),
     });
     const srv = await startExpressRouter(router);
@@ -4477,13 +4540,12 @@ test.describe('console router (express)', () => {
         body: JSON.stringify({
           amountMinor: 50000,
           reasonCode: 'large_debit_correction',
-          note: 'Should require owner role',
-          idempotencyKey: 'manual-debit-express-large-owner-required',
+          note: 'Platform operator approved large debit',
+          idempotencyKey: 'manual-debit-express-large-platform',
         }),
       });
-      expect(res.status).toBe(403);
-      expect(res.json?.code).toBe('forbidden');
-      expect(String(res.json?.message || '')).toContain('require owner role');
+      expect(res.status).toBe(201);
+      expect(Number(getPath(res.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(-50000);
     } finally {
       await srv.close();
     }
@@ -4493,7 +4555,7 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin']),
       billing,
       audit,
     });
@@ -4571,7 +4633,7 @@ test.describe('console router (express)', () => {
       ).toEqual([-200, 1200]);
 
       const auditEvents = await audit.listEvents(
-        { orgId: 'org-1', actorUserId: 'user-1', roles: ['admin'] },
+        { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
         { limit: 20 },
       );
       expect(
@@ -8899,6 +8961,58 @@ test.describe('console router (cloudflare)', () => {
     expect(missingCustomAmount.json?.code).toBe('invalid_body');
   });
 
+  test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_25',
+      },
+    });
+    expect(created.status).toBe(201);
+    const checkoutSessionId = String(getPath(created.json, 'checkoutSession', 'id') || '');
+    expect(checkoutSessionId).toBeTruthy();
+
+    const reconciled = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session/reconcile',
+      body: {
+        checkoutSessionId,
+      },
+    });
+    expect(reconciled.status).toBe(200);
+    expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
+    expect(getPath(reconciled.json, 'result', 'settledNow')).toBe(true);
+    expect(getPath(reconciled.json, 'result', 'purchase', 'status')).toBe('SETTLED');
+    expect(getPath(reconciled.json, 'result', 'invoice', 'documentType')).toBe(
+      'PURCHASE_RECEIPT',
+    );
+
+    const duplicate = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session/reconcile',
+      body: {
+        checkoutSessionId,
+      },
+    });
+    expect(duplicate.status).toBe(200);
+    expect(getPath(duplicate.json, 'result', 'settled')).toBe(true);
+    expect(getPath(duplicate.json, 'result', 'settledNow')).toBe(false);
+
+    const overview = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/overview',
+    });
+    expect(overview.status).toBe(200);
+    expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+  });
+
   test('legacy billing subscription route is removed', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -8963,7 +9077,7 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('forbidden');
   });
 
-  test('POST /console/billing/adjustments/support-credit requires admin role (cloudflare)', async () => {
+  test('POST /console/billing/adjustments/support-credit requires platform_admin role (cloudflare)', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['ops']),
       billing: createInMemoryConsoleBillingService(),
@@ -8980,11 +9094,12 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(403);
     expect(res.json?.code).toBe('forbidden');
+    expect(String(res.json?.message || '')).toContain('platform_admin');
   });
 
-  test('POST /console/billing/adjustments/admin-debit requires owner role for large debit amounts (cloudflare)', async () => {
+  test('POST /console/billing/adjustments/admin-debit allows platform_admin for large debit amounts (cloudflare)', async () => {
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin']),
       billing: createInMemoryConsoleBillingService(),
     });
     const res = await callCf(handler, {
@@ -8993,20 +9108,19 @@ test.describe('console router (cloudflare)', () => {
       body: {
         amountMinor: 50000,
         reasonCode: 'large_debit_correction',
-        note: 'Should require owner role',
-        idempotencyKey: 'manual-debit-cloudflare-large-owner-required',
+        note: 'Platform operator approved large debit',
+        idempotencyKey: 'manual-debit-cloudflare-large-platform',
       },
     });
-    expect(res.status).toBe(403);
-    expect(res.json?.code).toBe('forbidden');
-    expect(String(res.json?.message || '')).toContain('require owner role');
+    expect(res.status).toBe(201);
+    expect(Number(getPath(res.json, 'result', 'adjustment', 'amountMinor') || 0)).toBe(-50000);
   });
 
   test('manual billing adjustment routes append audited support credits and admin debits (cloudflare)', async () => {
     const billing = createInMemoryConsoleBillingService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
+      auth: makeConsoleAuthAdapter(['platform_admin']),
       billing,
       audit,
     });
@@ -9077,7 +9191,7 @@ test.describe('console router (cloudflare)', () => {
     ).toEqual([-200, 1200]);
 
     const auditEvents = await audit.listEvents(
-      { orgId: 'org-1', actorUserId: 'user-1', roles: ['admin'] },
+      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
       { limit: 20 },
     );
     expect(

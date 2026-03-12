@@ -35,6 +35,7 @@ export interface AppSessionConsoleAuthAdapterOptions {
   defaultProjectId?: string;
   defaultEnvironmentId?: string;
   fallbackRoles?: ReadonlyArray<unknown>;
+  platformAdminEmails?: ReadonlyArray<unknown> | string;
   provisioning?: ConsoleSsoProvisioningOptions | null;
 }
 
@@ -45,6 +46,22 @@ function parseCsvValues(value: unknown): string[] {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function normalizeConsolePlatformAdminEmailList(input: unknown): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const values = Array.isArray(input) ? input : parseCsvValues(input);
+  for (const raw of values) {
+    const email = String(raw || '')
+      .trim()
+      .toLowerCase();
+    if (!email || !email.includes('@')) continue;
+    if (seen.has(email)) continue;
+    seen.add(email);
+    out.push(email);
+  }
+  return out;
 }
 
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
@@ -472,6 +489,9 @@ export function createAppSessionConsoleAuthAdapter(
   const defaultProjectId = String(options.defaultProjectId || '').trim();
   const defaultEnvironmentId = String(options.defaultEnvironmentId || '').trim();
   const fallbackRoles = normalizeConsoleOrgScopedRoleList(options.fallbackRoles || []);
+  const platformAdminEmails = normalizeConsolePlatformAdminEmailList(
+    options.platformAdminEmails || [],
+  );
   const provisioning = options.provisioning || null;
   const bootstrapRoles = normalizeConsoleOrgScopedRoleList(provisioning?.bootstrapRoles || []);
   const logger = provisioning?.logger || console;
@@ -526,8 +546,9 @@ export function createAppSessionConsoleAuthAdapter(
       const orgId = scopedClaims.orgId;
       const projectId = scopedClaims.projectId;
       const environmentId = scopedClaims.environmentId;
+      const claimedEmail = readConsoleSsoEmailClaim(claims);
 
-      let roles = [...fallbackRoles];
+      let roles: string[] = [...fallbackRoles];
       if (provisioning?.teamRbac) {
         roles = await ensureConsoleSsoProvisioning({
           userId,
@@ -548,6 +569,10 @@ export function createAppSessionConsoleAuthAdapter(
           );
           return [] as ConsoleOrgScopedTeamRole[];
         });
+      }
+
+      if (claimedEmail && platformAdminEmails.includes(claimedEmail)) {
+        roles = roles.includes('platform_admin') ? roles : [...roles, 'platform_admin'];
       }
 
       if (!roles.length) {

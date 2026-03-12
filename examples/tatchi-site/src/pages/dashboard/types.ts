@@ -5,7 +5,8 @@ export type SidebarGroupKey =
   | 'administration'
   | 'operationsSecurity'
   | 'integrations'
-  | 'billing';
+  | 'billing'
+  | 'platform';
 
 export type DashboardRoute =
   | '/dashboard/account-settings'
@@ -17,6 +18,7 @@ export type DashboardRoute =
   | '/dashboard/observability'
   | '/dashboard/billing/account'
   | '/dashboard/invoices'
+  | '/platform/billing'
   | '/dashboard/team-members'
   | '/dashboard/audit'
   | '/dashboard/integrations/self-hosting'

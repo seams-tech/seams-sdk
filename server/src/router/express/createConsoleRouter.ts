@@ -13,6 +13,7 @@ import {
   parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
+  parseStripeCheckoutSessionReconcileRequest,
   parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeWebhookEventRequest,
@@ -1310,12 +1311,12 @@ function requireInvoiceGenerationRole(claims: ConsoleAuthClaims, res: Response):
   return false;
 }
 
-function requireBillingAdjustmentRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin')) return true;
+function requirePlatformBillingAdjustmentRole(claims: ConsoleAuthClaims, res: Response): boolean {
+  if (hasConsoleRole(claims, 'platform_admin')) return true;
   res.status(403).json({
     ok: false,
     code: 'forbidden',
-    message: 'Only admin can append manual billing adjustments',
+    message: 'Only platform_admin can append manual billing adjustments',
   });
   return false;
 }
@@ -3849,7 +3850,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     '/console/billing/adjustments/support-credit',
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims || !requireBillingAdjustmentRole(claims, res)) return;
+      if (!claims || !requirePlatformBillingAdjustmentRole(claims, res)) return;
       const billing = requireBillingService(res, ctx);
       if (!billing) return;
       try {
@@ -3878,7 +3879,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
 
   router.post('/console/billing/adjustments/admin-debit', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireBillingAdjustmentRole(claims, res)) return;
+    if (!claims || !requirePlatformBillingAdjustmentRole(claims, res)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -4069,6 +4070,41 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       sendBillingError(res, error);
     }
   });
+
+  router.post(
+    '/console/billing/stripe/checkout-session/reconcile',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseStripeCheckoutSessionReconcileRequest((req as any).body);
+        const result = await billing.reconcileStripeCheckoutSession(
+          toBillingContext(claims),
+          request,
+        );
+        if (result.settledNow && result.purchase && result.orgId) {
+          await emitBillingWebhookEvent(ctx, {
+            orgId: result.orgId,
+            actorUserId: 'system-stripe-checkout-reconcile',
+            eventType: 'billing.credit_purchase.settled',
+            eventId: `stripe_checkout_reconcile:${request.checkoutSessionId}`,
+            payload: {
+              purchaseId: result.purchase.id,
+              creditPackId: result.purchase.creditPackId,
+              amountMinor: result.purchase.amountMinor,
+              receiptId: result.invoice?.id || null,
+              source: 'stripe_checkout_reconcile',
+            },
+          });
+        }
+        res.status(200).json({ ok: true, result });
+      } catch (error: unknown) {
+        sendBillingError(res, error);
+      }
+    },
+  );
 }
 
 export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRouter {

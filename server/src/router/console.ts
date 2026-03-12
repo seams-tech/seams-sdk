@@ -24,6 +24,7 @@ import type { SessionAdapter } from './relay';
 export type ConsoleRole =
   | 'owner'
   | 'admin'
+  | 'platform_admin'
   | 'security_admin'
   | 'billing_admin'
   | 'developer'

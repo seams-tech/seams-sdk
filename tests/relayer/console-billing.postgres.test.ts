@@ -179,6 +179,13 @@ test.describe('console billing postgres service prepaid model', () => {
             customerRef: 'cus_pg_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
+          getCheckoutSession: () => ({
+            id: 'cs_pg_provider',
+            orgId: 'org-postgres-provider-adapter',
+            customerRef: 'cus_pg_provider',
+            paymentStatus: 'paid',
+            checkoutStatus: 'complete',
+          }),
         },
       },
     });
@@ -359,7 +366,7 @@ test.describe('console billing postgres service prepaid model', () => {
     const ctx = {
       orgId: 'org-postgres-manual-adjustments',
       actorUserId: 'admin-manual-adjustments-postgres',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     } satisfies BillingCtx;
 
     const credit = await service!.grantManualSupportCredit(ctx, {
@@ -464,7 +471,7 @@ test.describe('console billing postgres service prepaid model', () => {
     const ctx = {
       orgId: 'org-postgres-manual-adjustments-linked',
       actorUserId: 'admin-manual-adjustments-linked-postgres',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     } satisfies BillingCtx;
 
     const settled = await settleCreditPurchase(service!, ctx, 'usd_25');
@@ -500,42 +507,26 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(String((ledger.rows[0] as any)?.related_invoice_id || '')).toBe(settled.invoice.id);
   });
 
-  test('postgres service requires owner role for large manual admin debits', async () => {
+  test('postgres service allows large manual admin debits for platform_admin', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
-    const adminCtx = {
+    const platformCtx = {
       orgId: 'org-postgres-manual-adjustments-large-debit',
       actorUserId: 'admin-manual-adjustments-large-debit-postgres',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     } satisfies BillingCtx;
 
-    await service!.grantManualSupportCredit(adminCtx, {
+    await service!.grantManualSupportCredit(platformCtx, {
       amountMinor: 75_000,
       reasonCode: 'bootstrap_credit',
       note: 'Seeded large balance for owner guard test',
       idempotencyKey: 'manual-credit-large-debit-postgres-1',
     });
 
-    await expect(
-      service!.appendManualAdminDebit(adminCtx, {
-        amountMinor: 50_000,
-        reasonCode: 'large_debit_correction',
-        note: 'Should require owner role',
-        idempotencyKey: 'manual-debit-large-debit-postgres-forbidden',
-      }),
-    ).rejects.toMatchObject({
-      code: 'forbidden',
-      status: 403,
-    });
-
-    const ownerCtx = {
-      ...adminCtx,
-      roles: ['admin', 'owner'],
-    } satisfies BillingCtx;
-    const debit = await service!.appendManualAdminDebit(ownerCtx, {
+    const debit = await service!.appendManualAdminDebit(platformCtx, {
       amountMinor: 50_000,
       reasonCode: 'large_debit_correction',
-      note: 'Owner approved large debit',
-      idempotencyKey: 'manual-debit-large-debit-postgres-owner',
+      note: 'Platform operator approved large debit',
+      idempotencyKey: 'manual-debit-large-debit-postgres-platform',
     });
     expect(debit.created).toBe(true);
     expect(debit.adjustment.amountMinor).toBe(-50_000);

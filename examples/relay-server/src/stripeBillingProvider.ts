@@ -1,5 +1,7 @@
 import type {
   StripeBillingProviderAdapter,
+  StripeCheckoutSessionLookupProviderInput,
+  StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
 } from '@tatchi-xyz/sdk/server/router/express';
@@ -12,14 +14,48 @@ interface StripeApiErrorPayload {
   };
 }
 
+interface StripeCheckoutSessionPayload {
+  id?: unknown;
+  customer?: unknown;
+  client_reference_id?: unknown;
+  payment_status?: unknown;
+  status?: unknown;
+  metadata?: {
+    org_id?: unknown;
+  };
+}
+
 interface StripeBillingProviderOptions {
   secretKey: string;
   apiBaseUrl?: string;
   requestTimeoutMs?: number;
 }
 
+const STRIPE_PUBLISHABLE_KEY_PREFIX = 'pk_';
+const STRIPE_SECRET_KEY_PREFIXES = ['sk_', 'rk_'] as const;
+
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function hasAllowedPrefix(value: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => value.startsWith(prefix));
+}
+
+export function normalizeStripeSecretKey(value: unknown): string {
+  const normalized = normalizeString(value);
+  if (!normalized) return '';
+  if (hasAllowedPrefix(normalized, STRIPE_SECRET_KEY_PREFIXES)) return normalized;
+  throw new Error(
+    'STRIPE_API_SK must be a Stripe secret key (sk_...) or restricted key (rk_...), not a publishable key.',
+  );
+}
+
+export function normalizeOptionalStripePublishableKey(value: unknown): string {
+  const normalized = normalizeString(value);
+  if (!normalized) return '';
+  if (normalized.startsWith(STRIPE_PUBLISHABLE_KEY_PREFIX)) return normalized;
+  throw new Error('STRIPE_API_PK must be a Stripe publishable key (pk_...).');
 }
 
 function toPositiveInteger(value: unknown, fallback: number): number {
@@ -75,7 +111,7 @@ function buildCreditPackName(input: StripeCheckoutSessionProviderInput): string 
 export function createStripeBillingProviderAdapter(
   options: StripeBillingProviderOptions,
 ): StripeBillingProviderAdapter {
-  const secretKey = normalizeString(options.secretKey);
+  const secretKey = normalizeStripeSecretKey(options.secretKey);
   if (!secretKey) {
     throw new Error('STRIPE_API_SK must be set to enable live Stripe billing provider adapter');
   }
@@ -99,6 +135,27 @@ export function createStripeBillingProviderAdapter(
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: form.toString(),
+        signal: controller.signal,
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) {
+        throw new Error(toStripeApiErrorMessage(response.status, payload));
+      }
+      return payload;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function getJson(pathname: string): Promise<Record<string, unknown>> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      const response = await fetch(`${apiBaseUrl}${pathname}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+        },
         signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -171,6 +228,29 @@ export function createStripeBillingProviderAdapter(
           stripeUnixSeconds: payload.expires_at,
           fallbackMinutes: 30,
         }),
+      };
+    },
+
+    async getCheckoutSession(
+      input: StripeCheckoutSessionLookupProviderInput,
+    ): Promise<StripeCheckoutSessionLookupProviderOutput> {
+      const checkoutSessionId = normalizeString(input.checkoutSessionId);
+      if (!checkoutSessionId) {
+        throw new Error('Stripe checkout session id is required');
+      }
+      const payload = (await getJson(
+        `/v1/checkout/sessions/${encodeURIComponent(checkoutSessionId)}`,
+      )) as StripeCheckoutSessionPayload;
+      const id = normalizeString(payload.id);
+      if (!id) {
+        throw new Error('Stripe checkout session lookup returned missing id');
+      }
+      return {
+        id,
+        orgId: normalizeString(payload.client_reference_id || payload.metadata?.org_id) || null,
+        customerRef: normalizeString(payload.customer) || null,
+        paymentStatus: normalizeString(payload.payment_status).toLowerCase() || 'unknown',
+        checkoutStatus: normalizeString(payload.status).toLowerCase() || 'unknown',
       };
     },
   };

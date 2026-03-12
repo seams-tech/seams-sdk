@@ -122,6 +122,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
   test('wires prepaid top-up actions', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const checkoutBodies: Record<string, unknown>[] = [];
+    const checkoutReconcileBodies: Record<string, unknown>[] = [];
+    let creditBalanceMinor = 0;
+    let recentCreditPurchasedMinor = 0;
+    let documentCount = 0;
 
     const org = {
       id: 'org_dash_billing_prepaid',
@@ -163,11 +167,11 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               usageMetricVersion: 'maw_v1',
               currentMonthUtc: '2026-03',
               monthlyActiveWallets: 42,
-              creditBalanceMinor: 2500,
-              lowBalanceThresholdMinor: 3000,
+              creditBalanceMinor,
+              lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 12600,
-              recentCreditPurchasedMinor: 2500,
-              documentCount: 3,
+              recentCreditPurchasedMinor,
+              documentCount,
             },
           });
           return true;
@@ -198,17 +202,31 @@ test.describe('dashboard billing prepaid console api wiring', () => {
         if (method === 'GET' && pathname === '/console/billing/invoices') {
           await fulfillJson(route, {
             ok: true,
-            invoices: [],
+            invoices:
+              documentCount > 0
+                ? [
+                    {
+                      id: 'receipt_cs_dash_billing_prepaid',
+                      documentType: 'PURCHASE_RECEIPT',
+                      status: 'PAID',
+                      amountDueMinor: 2500,
+                      amountPaidMinor: 2500,
+                      periodMonthUtc: '2026-03',
+                      createdAt: iso('2026-03-01T00:31:00.000Z'),
+                      dueAt: null,
+                    },
+                  ]
+                : [],
             nextCursor: null,
-            totalCount: 0,
+            totalCount: documentCount,
             summary: {
-              totalCount: 0,
+              totalCount: documentCount,
               openCount: 0,
               overdueCount: 0,
-              paidCount: 0,
+              paidCount: documentCount,
               outstandingAmountMinor: 0,
-              latestPeriodMonthUtc: null,
-              receiptCount: 0,
+              latestPeriodMonthUtc: documentCount > 0 ? '2026-03' : null,
+              receiptCount: documentCount,
               statementCount: 0,
             },
           });
@@ -223,7 +241,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               ok: true,
               checkoutSession: {
                 id: 'cs_dash_billing_prepaid',
-                url: `${consoleOrigin}/dashboard/billing/account?checkout=success`,
+                url: `${consoleOrigin}/dashboard/billing/account?checkout=success&checkout_session_id=cs_dash_billing_prepaid`,
                 customerRef: 'cus_dash_billing_prepaid',
                 creditPackId: 'usd_25',
                 amountMinor: 2500,
@@ -232,6 +250,47 @@ test.describe('dashboard billing prepaid console api wiring', () => {
             },
             201,
           );
+          return true;
+        }
+
+        if (method === 'POST' && pathname === '/console/billing/stripe/checkout-session/reconcile') {
+          checkoutReconcileBodies.push(parseJsonBody(route.request().postData()));
+          creditBalanceMinor = 2500;
+          recentCreditPurchasedMinor = 2500;
+          documentCount = 1;
+          await fulfillJson(route, {
+            ok: true,
+            result: {
+              settled: true,
+              settledNow: true,
+              paymentStatus: 'paid',
+              checkoutStatus: 'complete',
+              purchase: {
+                id: 'bcp_dash_billing_prepaid',
+                orgId: org.id,
+                creditPackId: 'usd_25',
+                status: 'SETTLED',
+                amountMinor: 2500,
+                currency: 'USD',
+                providerCheckoutSessionRef: 'cs_dash_billing_prepaid',
+                providerCustomerRef: 'cus_dash_billing_prepaid',
+                relatedInvoiceId: 'receipt_cs_dash_billing_prepaid',
+                settledAt: iso('2026-03-01T00:31:00.000Z'),
+                createdAt: iso('2026-03-01T00:30:00.000Z'),
+                updatedAt: iso('2026-03-01T00:31:00.000Z'),
+              },
+              invoice: {
+                id: 'receipt_cs_dash_billing_prepaid',
+                documentType: 'PURCHASE_RECEIPT',
+                status: 'PAID',
+                amountDueMinor: 2500,
+                amountPaidMinor: 2500,
+                periodMonthUtc: '2026-03',
+                createdAt: iso('2026-03-01T00:31:00.000Z'),
+                dueAt: null,
+              },
+            },
+          });
           return true;
         }
 
@@ -250,23 +309,28 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     const metrics = page.locator('section[aria-label="Billing account summary metrics"]');
     await expect(metrics).toContainText('Balance');
-    await expect(metrics).toContainText('$25.00');
+    await expect(metrics).toContainText('$0.00');
     await expect(metrics).toContainText('Recent top-ups');
 
-    await expect(page.locator('.dashboard-warning-banner')).toContainText('warning threshold');
+    await expect(page.locator('.dashboard-warning-banner')).toContainText('Prepaid balance is depleted');
 
     const topUpSection = page.locator('section[aria-label="Prepaid top-up actions"]');
     await expect(topUpSection).toContainText('Top up credits');
     await topUpSection.getByRole('button', { name: 'Buy $25' }).click();
     await expect.poll(() => checkoutBodies.length).toBe(1);
+    await expect.poll(() => checkoutReconcileBodies.length).toBe(1);
     expect(String(checkoutBodies[0]?.creditPackId || '')).toBe('usd_25');
     expect(String(checkoutBodies[0]?.successUrl || '')).toContain(
-      '/dashboard/billing/account?checkout=success',
+      '/dashboard/billing/account?checkout=success&checkout_session_id={CHECKOUT_SESSION_ID}',
     );
-    await expect(page.locator('.dashboard-info-banner')).toContainText('Top-up checkout completed');
+    expect(String(checkoutReconcileBodies[0]?.checkoutSessionId || '')).toBe(
+      'cs_dash_billing_prepaid',
+    );
+    await expect(page.locator('.dashboard-info-banner')).toContainText('Balance updated');
+    await expect(metrics).toContainText('$25.00');
   });
 
-  test('wires internal manual adjustments with impact preview for admin role', async ({
+  test('wires internal manual adjustments on platform billing for platform admin role', async ({
     page,
     baseURL,
   }) => {
@@ -277,6 +341,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await routeWorkspaceScaffold(page, consoleOrigin, {
       userId: 'user_dash_billing_adjustments_admin',
+      roles: ['platform_admin'],
       org: {
         id: 'org_dash_billing_adjustments',
         name: 'Dashboard Billing Adjustments Org',
@@ -406,7 +471,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       },
     });
 
-    await page.goto('/dashboard/billing/account');
+    await page.goto('/platform/billing');
 
     const adjustmentSection = page.locator('section[aria-label="Internal billing adjustments"]');
     await expect(adjustmentSection).toBeVisible();
@@ -426,14 +491,122 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await expect(adjustmentSection).toContainText('Manual support credit recorded.');
     await expect(
-      page.locator('section[aria-label="Billing account summary metrics"]'),
+      page.locator('section[aria-label="Platform billing summary metrics"]'),
     ).toContainText('$65.00');
     await expect(page.locator('section[aria-label="Billing account activity"]')).toContainText(
       'incident_credit',
     );
   });
 
-  test('hides internal manual adjustments for non-admin role', async ({ page, baseURL }) => {
+  test('billing account page no longer renders platform-only or duplicate activity sections', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let activityRequestCount = 0;
+
+    await routeWorkspaceScaffold(page, consoleOrigin, {
+      userId: 'user_dash_billing_adjustments_platform',
+      roles: ['platform_admin'],
+      org: {
+        id: 'org_dash_billing_adjustments_platform',
+        name: 'Dashboard Billing Platform Org',
+        slug: 'dashboard-billing-platform-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      project: {
+        id: 'proj_dash_billing_adjustments_platform',
+        name: 'Billing Platform Project',
+        slug: 'billing-platform-project',
+        status: 'ACTIVE',
+        environmentCount: 1,
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      environment: {
+        id: 'env_dash_billing_adjustments_platform',
+        projectId: 'proj_dash_billing_adjustments_platform',
+        key: 'prod',
+        name: 'Production',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      handleBillingRequest: async (route, pathname, method, _url) => {
+        if (method === 'GET' && pathname === '/console/billing/overview') {
+          await fulfillJson(route, {
+            ok: true,
+            overview: {
+              usageMetricVersion: 'maw_v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+              creditBalanceMinor: 3000,
+              lowBalanceThresholdMinor: 2000,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
+          await fulfillJson(route, {
+            ok: true,
+            usage: {
+              usageMetricVersion: 'maw_v1',
+              monthUtc: '2026-03',
+              monthlyActiveWallets: 0,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/account/activity') {
+          activityRequestCount += 1;
+          await fulfillJson(route, {
+            ok: true,
+            activity: {
+              entries: [],
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/invoices') {
+          await fulfillJson(route, {
+            ok: true,
+            invoices: [],
+            nextCursor: null,
+            totalCount: 0,
+            summary: {
+              totalCount: 0,
+              openCount: 0,
+              overdueCount: 0,
+              paidCount: 0,
+              outstandingAmountMinor: 0,
+              latestPeriodMonthUtc: null,
+              receiptCount: 0,
+              statementCount: 0,
+            },
+          });
+          return true;
+        }
+
+        return false;
+      },
+    });
+
+    await page.goto('/dashboard/billing/account');
+    await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
+    await expect(page.locator('section[aria-label="Billing account activity"]')).toHaveCount(0);
+    await expect(page.locator('section[aria-label="Prepaid top-up actions"]')).toBeVisible();
+    expect(activityRequestCount).toBe(0);
+  });
+
+  test('platform billing page is forbidden for non-platform roles', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await routeWorkspaceScaffold(page, consoleOrigin, {
@@ -529,7 +702,8 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       },
     });
 
-    await page.goto('/dashboard/billing/account');
+    await page.goto('/platform/billing');
+    await expect(page.getByText('Platform billing is only available to platform_admin users.')).toBeVisible();
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
   });
 

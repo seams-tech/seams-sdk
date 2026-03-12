@@ -98,7 +98,11 @@ export const App: React.FC = () => {
       case '/dashboard/login':
         return <DashboardLoginPage />;
       default:
-        if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+        if (
+          pathname === '/dashboard' ||
+          pathname.startsWith('/dashboard/') ||
+          pathname.startsWith('/platform/')
+        ) {
           return <DashboardPage pathname={pathname} />;
         }
         return <NotFoundPage />;

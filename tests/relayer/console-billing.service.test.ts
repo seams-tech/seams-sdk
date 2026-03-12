@@ -56,6 +56,13 @@ test.describe('console billing service prepaid model', () => {
             customerRef: 'cus_mem_provider',
             expiresAt: '2026-03-01T00:30:00.000Z',
           }),
+          getCheckoutSession: () => ({
+            id: 'cs_mem_provider',
+            orgId: 'org-provider-adapter-memory',
+            customerRef: 'cus_mem_provider',
+            paymentStatus: 'paid',
+            checkoutStatus: 'complete',
+          }),
         },
       },
     });
@@ -174,7 +181,7 @@ test.describe('console billing service prepaid model', () => {
     const ctx = {
       orgId: 'org-manual-adjustments-memory',
       actorUserId: 'admin-manual-adjustments-memory',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
 
     const credit = await service.grantManualSupportCredit(ctx, {
@@ -232,7 +239,7 @@ test.describe('console billing service prepaid model', () => {
     const ctx = {
       orgId: 'org-live-env-state-memory',
       actorUserId: 'admin-live-env-state-memory',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
 
     const initialOverview = await service.getOverview(ctx);
@@ -270,12 +277,12 @@ test.describe('console billing service prepaid model', () => {
     expect(blockedOverview.liveEnvironmentState).toBe('BLOCKED');
   });
 
-  test('in-memory service forbids manual adjustments for non-admin users', async () => {
+  test('in-memory service forbids manual adjustments for non-platform-admin users', async () => {
     const service = createInMemoryConsoleBillingService();
     const ctx = {
       orgId: 'org-manual-adjustments-forbidden-memory',
-      actorUserId: 'ops-manual-adjustments-memory',
-      roles: ['ops'],
+      actorUserId: 'admin-manual-adjustments-memory',
+      roles: ['admin'],
     };
 
     await expect(
@@ -308,7 +315,7 @@ test.describe('console billing service prepaid model', () => {
     const ctx = {
       orgId: 'org-manual-adjustments-linked-memory',
       actorUserId: 'admin-manual-adjustments-linked-memory',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
 
     const settled = await settleCreditPurchase(service, ctx, 'usd_25');
@@ -335,42 +342,26 @@ test.describe('console billing service prepaid model', () => {
     expect(accountActivity.entries[0]?.relatedInvoiceId).toBe(settled.invoice.id);
   });
 
-  test('in-memory service requires owner role for large manual admin debits', async () => {
+  test('in-memory service allows large manual admin debits for platform_admin', async () => {
     const service = createInMemoryConsoleBillingService();
-    const adminCtx = {
+    const platformCtx = {
       orgId: 'org-manual-adjustments-large-debit-memory',
       actorUserId: 'admin-manual-adjustments-large-debit-memory',
-      roles: ['admin'],
+      roles: ['platform_admin'],
     };
 
-    await service.grantManualSupportCredit(adminCtx, {
+    await service.grantManualSupportCredit(platformCtx, {
       amountMinor: 75_000,
       reasonCode: 'bootstrap_credit',
       note: 'Seeded large balance for debit authorization test',
       idempotencyKey: 'manual-credit-large-debit-memory-1',
     });
 
-    await expect(
-      service.appendManualAdminDebit(adminCtx, {
-        amountMinor: 50_000,
-        reasonCode: 'large_debit_correction',
-        note: 'Should require owner role',
-        idempotencyKey: 'manual-debit-large-debit-memory-forbidden',
-      }),
-    ).rejects.toMatchObject({
-      code: 'forbidden',
-      status: 403,
-    });
-
-    const ownerCtx = {
-      ...adminCtx,
-      roles: ['admin', 'owner'],
-    };
-    const debit = await service.appendManualAdminDebit(ownerCtx, {
+    const debit = await service.appendManualAdminDebit(platformCtx, {
       amountMinor: 50_000,
       reasonCode: 'large_debit_correction',
-      note: 'Owner approved large debit',
-      idempotencyKey: 'manual-debit-large-debit-memory-owner',
+      note: 'Platform operator approved large debit',
+      idempotencyKey: 'manual-debit-large-debit-memory-platform',
     });
     expect(debit.created).toBe(true);
     expect(debit.adjustment.amountMinor).toBe(-50_000);

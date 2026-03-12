@@ -112,6 +112,21 @@ export interface DashboardBillingAccountActivityEntry {
   createdAt: string;
 }
 
+export interface DashboardBillingCreditPurchase {
+  id: string;
+  orgId: string;
+  creditPackId: DashboardBillingCreditPackId;
+  status: 'PENDING' | 'SETTLED' | 'CANCELED';
+  amountMinor: number;
+  currency: 'USD';
+  providerCheckoutSessionRef: string;
+  providerCustomerRef: string | null;
+  relatedInvoiceId: string | null;
+  settledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type DashboardBillingManualAdjustmentKind = 'support_credit' | 'admin_debit';
 
 export interface DashboardBillingManualAdjustmentRequest {
@@ -144,6 +159,19 @@ export interface DashboardStripeCheckoutSession {
   creditPackId: DashboardBillingCreditPackId;
   amountMinor: number;
   expiresAt: string;
+}
+
+export interface DashboardStripeCheckoutSessionReconcileRequest {
+  checkoutSessionId: string;
+}
+
+export interface DashboardStripeCheckoutSessionReconcileResult {
+  settled: boolean;
+  settledNow: boolean;
+  paymentStatus: string | null;
+  checkoutStatus: string | null;
+  purchase: DashboardBillingCreditPurchase | null;
+  invoice: DashboardBillingInvoice | null;
 }
 
 interface ConsoleOverviewResponse {
@@ -201,6 +229,12 @@ interface ConsoleStripeCheckoutSessionResponse {
   ok?: boolean;
   message?: string;
   checkoutSession?: unknown;
+}
+
+interface ConsoleStripeCheckoutSessionReconcileResponse {
+  ok?: boolean;
+  message?: string;
+  result?: unknown;
 }
 
 interface ConsoleBillingErrorBody {
@@ -367,6 +401,52 @@ function decodeStripeCheckoutSession(raw: unknown): DashboardStripeCheckoutSessi
     creditPackId: creditPackId as DashboardStripeCheckoutSession['creditPackId'],
     amountMinor: Number(row.amountMinor || 0),
     expiresAt,
+  };
+}
+
+function decodeCreditPurchase(raw: unknown): DashboardBillingCreditPurchase | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const orgId = String(row.orgId || '').trim();
+  const creditPackId = String(row.creditPackId || '').trim();
+  const providerCheckoutSessionRef = String(row.providerCheckoutSessionRef || '').trim();
+  if (!id || !orgId || !creditPackId || !providerCheckoutSessionRef) return null;
+  const status = String(row.status || '').trim().toUpperCase();
+  return {
+    id,
+    orgId,
+    creditPackId: creditPackId as DashboardBillingCreditPurchase['creditPackId'],
+    status:
+      status === 'SETTLED' || status === 'CANCELED'
+        ? status
+        : 'PENDING',
+    amountMinor: Number(row.amountMinor || 0),
+    currency: 'USD',
+    providerCheckoutSessionRef,
+    providerCustomerRef:
+      row.providerCustomerRef == null ? null : String(row.providerCustomerRef || '').trim() || null,
+    relatedInvoiceId:
+      row.relatedInvoiceId == null ? null : String(row.relatedInvoiceId || '').trim() || null,
+    settledAt: row.settledAt == null ? null : String(row.settledAt || '').trim() || null,
+    createdAt: String(row.createdAt || '').trim(),
+    updatedAt: String(row.updatedAt || '').trim(),
+  };
+}
+
+function decodeStripeCheckoutSessionReconcileResult(
+  raw: unknown,
+): DashboardStripeCheckoutSessionReconcileResult | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  return {
+    settled: Boolean(row.settled),
+    settledNow: Boolean(row.settledNow),
+    paymentStatus: row.paymentStatus == null ? null : String(row.paymentStatus || '').trim() || null,
+    checkoutStatus:
+      row.checkoutStatus == null ? null : String(row.checkoutStatus || '').trim() || null,
+    purchase: decodeCreditPurchase(row.purchase),
+    invoice: decodeInvoice(row.invoice),
   };
 }
 
@@ -715,6 +795,26 @@ export async function createDashboardStripeCheckoutSession(
   const checkoutSession = decodeStripeCheckoutSession(body.checkoutSession);
   if (!checkoutSession) throw new Error('Stripe checkout session response was invalid');
   return checkoutSession;
+}
+
+export async function reconcileDashboardStripeCheckoutSession(
+  input: DashboardStripeCheckoutSessionReconcileRequest,
+): Promise<DashboardStripeCheckoutSessionReconcileResult> {
+  const base = requireConsoleBaseUrl();
+  const response = await fetch(`${base}/console/billing/stripe/checkout-session/reconcile`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(input),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleStripeCheckoutSessionReconcileResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw buildBillingApiError(response, body as ConsoleBillingErrorBody | null, 'Stripe checkout reconciliation failed');
+  }
+  const result = decodeStripeCheckoutSessionReconcileResult(body.result);
+  if (!result) throw new Error('Stripe checkout reconciliation response was invalid');
+  return result;
 }
 
 export function formatUsdMinor(amountMinor: number): string {

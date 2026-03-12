@@ -17,24 +17,29 @@ function hasConsoleRole(roles: readonly string[], targetRole: string): boolean {
 }
 
 export function requireBillingAdjustmentRole(ctx: BillingAdjustmentActorContext): void {
-  if (hasConsoleRole(ctx.roles || [], 'admin')) return;
+  if (hasConsoleRole(ctx.roles || [], 'platform_admin')) return;
   throw new ConsoleBillingError(
     'forbidden',
     403,
-    'Only admin can append manual billing adjustments',
+    'Only platform_admin can append manual billing adjustments',
   );
 }
 
-export function requireLargeManualAdminDebitOwnerRole(
+export function requireLargeManualAdminDebitEscalationRole(
   ctx: BillingAdjustmentActorContext,
   amountMinor: number,
 ): void {
   if (Math.trunc(Number(amountMinor || 0)) < LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR) return;
-  if (hasConsoleRole(ctx.roles || [], 'owner')) return;
+  if (
+    hasConsoleRole(ctx.roles || [], 'owner') ||
+    hasConsoleRole(ctx.roles || [], 'platform_admin')
+  ) {
+    return;
+  }
   throw new ConsoleBillingError(
     'forbidden',
     403,
-    `Manual admin debits of ${formatUsdMinor(LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR)} or more require owner role`,
+    `Manual admin debits of ${formatUsdMinor(LARGE_MANUAL_ADMIN_DEBIT_THRESHOLD_MINOR)} or more require owner or platform_admin role`,
   );
 }
 

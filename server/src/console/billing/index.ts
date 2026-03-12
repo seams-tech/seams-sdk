@@ -28,6 +28,8 @@ export type {
   BillingAccountActivityResult,
   GenerateMonthlyInvoiceRequest,
   GenerateMonthlyInvoiceResult,
+  StripeCheckoutSessionReconcileRequest,
+  StripeCheckoutSessionReconcileResult,
   StripeCheckoutSessionRequest,
   StripeCheckoutSession,
   StripeWebhookEventRequest,
@@ -45,6 +47,8 @@ export {
 
 export type {
   StripeCheckoutSessionProviderInput,
+  StripeCheckoutSessionLookupProviderInput,
+  StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderOutput,
   StripeBillingProviderAdapter,
   BillingProviderAdapters,
@@ -83,6 +87,7 @@ export {
   parseBillingAccountActivityRequest,
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
+  parseStripeCheckoutSessionReconcileRequest,
   parseStripeCheckoutSessionRequest,
   parseStripeWebhookEventRequest,
   parseBillingUsageEventRequest,
