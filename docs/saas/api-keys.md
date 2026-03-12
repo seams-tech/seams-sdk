@@ -151,7 +151,8 @@ Properties:
 ### `secret_key`
 
 - Holder: developer backend only.
-- Current prefix in code: `tsk_v1_`.
+- Current prefix in code: `sk_`.
+- Credential format: opaque random token body; org and key ids are not embedded.
 - Direct relay authorization: yes.
 - Metadata:
   - `kind = secret_key`
@@ -168,7 +169,8 @@ Properties:
 ### `publishable_key`
 
 - Holder: browser-safe frontend config.
-- Target prefix: `tpk_v1_`.
+- Target prefix: `pk_`.
+- Credential format: opaque random token body; org and key ids are not embedded.
 - Direct relay authorization: no.
 - Metadata:
   - `kind = publishable_key`
@@ -415,7 +417,7 @@ Create response example:
     "lastUsedAt": null,
     "expiresAt": null
   },
-  "credential": "tpk_v1_..."
+  "credential": "pk_..."
 }
 ```
 
@@ -913,7 +915,7 @@ Direct curl:
 ```bash
 curl -X POST "https://relay.example.com/registration/bootstrap" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer tsk_v1_..." \
+  -H "Authorization: Bearer sk_..." \
   -d '{
     "new_account_id": "alice.w3a-relayer.testnet",
     "device_number": 1,

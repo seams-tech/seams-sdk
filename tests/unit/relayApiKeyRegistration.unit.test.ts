@@ -193,7 +193,7 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           managed: {
             environmentId: 'env_prod',
             brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
-            publishableKey: 'tpk_v1_publishable',
+            publishableKey: 'pk_publishable',
           },
         }),
         'alice.w3a-relayer.testnet',
@@ -205,7 +205,7 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
       expect(result.success).toBe(true);
       expect(calls).toHaveLength(2);
       expect(calls[0]?.url).toBe('https://broker.example/v1/registration/bootstrap-grants');
-      expect(calls[0]?.authorization).toBe('Bearer tpk_v1_publishable');
+      expect(calls[0]?.authorization).toBe('Bearer pk_publishable');
       expect(calls[0]?.body.environmentId).toBe('env_prod');
       expect(calls[0]?.body.newAccountId).toBe('alice.w3a-relayer.testnet');
       expect(calls[0]?.body.rpId).toBe('wallet.example.test');
@@ -244,7 +244,7 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           managed: {
             environmentId: 'env_prod',
             brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
-            publishableKey: 'tpk_v1_publishable',
+            publishableKey: 'pk_publishable',
           },
         }),
         'alice.w3a-relayer.testnet',

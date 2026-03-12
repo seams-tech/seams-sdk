@@ -209,19 +209,20 @@ export function createInMemoryConsoleApiKeyService(
     return true;
   }
 
-  function findByParsedSecret(input: {
-    orgId: string;
-    apiKeyId: string;
+  function findBySecretFingerprint(input: {
+    kind: 'secret_key' | 'publishable_key';
     keyPrefix: string;
+    secretHash: string;
   }): StoredApiKey | null {
-    const store = stores.get(input.orgId);
-    if (!store) return null;
-    const apiKey = store.get(input.apiKeyId) || null;
-    if (!apiKey) return null;
-    if (apiKey.keyPrefix && input.keyPrefix && apiKey.keyPrefix !== input.keyPrefix) {
-      return null;
+    for (const store of stores.values()) {
+      for (const apiKey of store.values()) {
+        if (apiKey.kind !== input.kind) continue;
+        if (apiKey.keyPrefix !== input.keyPrefix) continue;
+        if (apiKey.secretHash !== input.secretHash) continue;
+        return apiKey;
+      }
     }
-    return apiKey;
+    return null;
   }
 
   function isAllowedOrigin(apiKey: StoredApiKey, rawOrigin: string): boolean {
@@ -241,7 +242,7 @@ export function createInMemoryConsoleApiKeyService(
       const createdAt = now();
       const iso = toIso(createdAt);
       const id = makeId('ak', createdAt);
-      const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId: id, kind: request.kind });
+      const secret = makeApiKeySecret({ kind: request.kind });
       const secretHash = await hashApiKeySecret(secret);
       const base: Omit<
         StoredApiKey,
@@ -350,7 +351,7 @@ export function createInMemoryConsoleApiKeyService(
         );
       }
       const rotatedAt = now();
-      const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId, kind: apiKey.kind });
+      const secret = makeApiKeySecret({ kind: apiKey.kind });
       apiKey.secretHash = await hashApiKeySecret(secret);
       apiKey.keyPrefix = makeApiKeyLookupPrefix(secret);
       apiKey.secretVersion += 1;
@@ -405,20 +406,14 @@ export function createInMemoryConsoleApiKeyService(
         };
       }
 
-      const keyPrefix = makeApiKeyLookupPrefix(secret);
-      const apiKey = findByParsedSecret({ ...parsed, keyPrefix });
-      if (!apiKey) {
-        return {
-          ok: false,
-          status: 401,
-          code: 'secret_key_invalid',
-          message: 'Invalid secret key',
-        };
-      }
-
       const hash = await hashApiKeySecret(secret);
-      if (hash !== apiKey.secretHash) {
-        markAnomaly(apiKey, 'auth.invalid_secret');
+      const keyPrefix = makeApiKeyLookupPrefix(secret);
+      const apiKey = findBySecretFingerprint({
+        kind: parsed.kind,
+        keyPrefix,
+        secretHash: hash,
+      });
+      if (!apiKey) {
         return {
           ok: false,
           status: 401,
@@ -530,20 +525,14 @@ export function createInMemoryConsoleApiKeyService(
         };
       }
 
-      const keyPrefix = makeApiKeyLookupPrefix(secret);
-      const apiKey = findByParsedSecret({ ...parsed, keyPrefix });
-      if (!apiKey) {
-        return {
-          ok: false,
-          status: 401,
-          code: 'publishable_key_invalid',
-          message: 'Invalid publishable key',
-        };
-      }
-
       const hash = await hashApiKeySecret(secret);
-      if (hash !== apiKey.secretHash) {
-        markAnomaly(apiKey, 'auth.invalid_publishable_key');
+      const keyPrefix = makeApiKeyLookupPrefix(secret);
+      const apiKey = findBySecretFingerprint({
+        kind: parsed.kind,
+        keyPrefix,
+        secretHash: hash,
+      });
+      if (!apiKey) {
         return {
           ok: false,
           status: 401,

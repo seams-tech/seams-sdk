@@ -80,7 +80,9 @@ test.describe('console API key kinds', () => {
       });
       expect(created.status, created.text).toBe(201);
       expect(getPath(created.json, 'apiKey', 'kind')).toBe('publishable_key');
-      expect(String(getPath(created.json, 'secret') || '')).toContain('tpk_v1_');
+      const secret = String(getPath(created.json, 'secret') || '');
+      expect(secret).toMatch(/^pk_[A-Za-z0-9_-]+$/);
+      expect(secret.length).toBeLessThan(50);
       expect(getPath(created.json, 'apiKey', 'allowedOrigins')).toEqual(['https://app.example.com']);
       expect(getPath(created.json, 'apiKey', 'scopes')).toBeUndefined();
       expect(getPath(created.json, 'apiKey', 'ipAllowlist')).toBeUndefined();
@@ -125,7 +127,9 @@ test.describe('console API key kinds', () => {
     });
     expect(created.status, created.text).toBe(201);
     expect(getPath(created.json, 'apiKey', 'kind')).toBe('publishable_key');
-    expect(String(getPath(created.json, 'secret') || '')).toContain('tpk_v1_');
+    const secret = String(getPath(created.json, 'secret') || '');
+    expect(secret).toMatch(/^pk_[A-Za-z0-9_-]+$/);
+    expect(secret.length).toBeLessThan(50);
     expect(getPath(created.json, 'apiKey', 'allowedOrigins')).toEqual(['https://cf.example.com']);
     expect(getPath(created.json, 'apiKey', 'scopes')).toBeUndefined();
     expect(getPath(created.json, 'apiKey', 'ipAllowlist')).toBeUndefined();

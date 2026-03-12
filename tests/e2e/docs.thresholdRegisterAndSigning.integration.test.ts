@@ -494,7 +494,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                   managedRegistration: {
                     mode: 'managed',
                     environmentId: 'env_test_docs',
-                    publishableKey: 'tpk_docs_register_flow',
+                    publishableKey: 'pk_docs_register_flow',
                     brokerUrl: 'https://relay.example/v1/registration/bootstrap-grants',
                   },
                 },
@@ -628,7 +628,7 @@ test.describe('docs frontend register + threshold signing integration', () => {
     expect(finalCounters.tempoSigns).toBe(0);
     expect(finalCounters.tempoDispatches).toBe(0);
     expect(finalCounters.lastTempoSponsoredCallRequest).toMatchObject({
-      authorization: 'Bearer tpk_docs_register_flow',
+      authorization: 'Bearer pk_docs_register_flow',
       environmentHeader: 'env_test_docs',
       environmentId: 'env_test_docs',
       nearAccountId: 'alice.testnet',

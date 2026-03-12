@@ -1,10 +1,11 @@
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { base64UrlEncode } from '@shared/utils/encoders';
 
 const SECRET_PREFIX_BY_KIND = {
-  secret_key: 'tsk_v1_',
-  publishable_key: 'tpk_v1_',
+  secret_key: 'sk_',
+  publishable_key: 'pk_',
 } as const;
-const LOOKUP_PREFIX_LENGTH = 48;
+const LOOKUP_PREFIX_LENGTH = 24;
+const SECRET_RANDOM_BYTES = 24;
 
 function requireCrypto(): Crypto {
   if (!globalThis.crypto?.getRandomValues) {
@@ -29,39 +30,22 @@ export function makeId(prefix: string, now: Date): string {
   return `${prefix}_${ts}_${suffix}`;
 }
 
-function encodeText(value: string): string {
-  return base64UrlEncode(new TextEncoder().encode(value));
-}
-
-function decodeText(value: string): string {
-  const bytes = base64UrlDecode(value);
-  return new TextDecoder().decode(bytes);
-}
-
 function randomNonceB64u(): string {
-  const bytes = new Uint8Array(24);
+  const bytes = new Uint8Array(SECRET_RANDOM_BYTES);
   requireCrypto().getRandomValues(bytes);
   return base64UrlEncode(bytes);
 }
 
 export function makeApiKeySecret(input: {
-  orgId: string;
-  apiKeyId: string;
   kind?: 'secret_key' | 'publishable_key';
 }): string {
-  const orgId = String(input.orgId || '').trim();
-  const apiKeyId = String(input.apiKeyId || '').trim();
   const kind = input.kind === 'publishable_key' ? 'publishable_key' : 'secret_key';
-  if (!orgId) throw new Error('orgId is required to generate API key secret');
-  if (!apiKeyId) throw new Error('apiKeyId is required to generate API key secret');
-  return `${SECRET_PREFIX_BY_KIND[kind]}${encodeText(orgId)}.${encodeText(apiKeyId)}.${randomNonceB64u()}`;
+  return `${SECRET_PREFIX_BY_KIND[kind]}${randomNonceB64u()}`;
 }
 
 export function parseApiKeySecret(
   rawSecret: string,
 ): {
-  orgId: string;
-  apiKeyId: string;
   kind: 'secret_key' | 'publishable_key';
 } | null {
   const secret = String(rawSecret || '').trim();
@@ -71,19 +55,11 @@ export function parseApiKeySecret(
       ? 'secret_key'
       : null;
   if (!kind) return null;
-  const encodedParts = secret.slice(SECRET_PREFIX_BY_KIND[kind].length).split('.');
-  if (encodedParts.length !== 3) return null;
-  const orgIdPart = String(encodedParts[0] || '').trim();
-  const apiKeyIdPart = String(encodedParts[1] || '').trim();
-  if (!orgIdPart || !apiKeyIdPart) return null;
-  try {
-    const orgId = decodeText(orgIdPart).trim();
-    const apiKeyId = decodeText(apiKeyIdPart).trim();
-    if (!orgId || !apiKeyId) return null;
-    return { orgId, apiKeyId, kind };
-  } catch {
-    return null;
-  }
+  const body = secret.slice(SECRET_PREFIX_BY_KIND[kind].length).trim();
+  if (!body) return null;
+  if (body.includes('.')) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
+  return { kind };
 }
 
 export async function hashApiKeySecret(secret: string): Promise<string> {

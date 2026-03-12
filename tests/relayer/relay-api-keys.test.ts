@@ -101,7 +101,7 @@ test.describe('relay API key auth (express)', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer tsk_invalid_secret',
+          Authorization: 'Bearer sk_invalid_secret',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
@@ -438,7 +438,7 @@ test.describe('relay API key auth (cloudflare)', () => {
     const res = await callCf(handler, {
       method: 'POST',
       path: '/registration/bootstrap',
-      headers: { Authorization: 'Bearer tsk_invalid_secret' },
+      headers: { Authorization: 'Bearer sk_invalid_secret' },
       body: makeRegistrationBody(),
       ctx,
     });

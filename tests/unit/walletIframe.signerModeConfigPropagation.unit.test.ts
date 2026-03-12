@@ -198,7 +198,7 @@ test.describe('Wallet iframe config propagation', () => {
           registration: {
             mode: 'managed',
             environmentId: 'proj_demo:dev',
-            publishableKey: 'tpk_v1_demo.publishable_key.preview',
+            publishableKey: 'pk_demo_publishable_key_preview',
             brokerUrl: 'https://localhost:9444',
           },
           iframeWallet: {
@@ -225,7 +225,7 @@ test.describe('Wallet iframe config propagation', () => {
     expect(capturedRegistration).toEqual({
       mode: 'managed',
       environmentId: 'proj_demo:dev',
-      publishableKey: 'tpk_v1_demo.publishable_key.preview',
+      publishableKey: 'pk_demo_publishable_key_preview',
       brokerUrl: 'https://localhost:9444',
       paymentMode: 'disabled',
     });

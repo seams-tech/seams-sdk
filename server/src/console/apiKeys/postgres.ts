@@ -39,6 +39,9 @@ type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
 const CONSOLE_API_KEYS_MIGRATION_LOCK_ID = 9452360123585;
+const CONSOLE_API_KEY_LOOKUP_KIND_GUC = 'app.console_api_key_lookup_kind';
+const CONSOLE_API_KEY_LOOKUP_PREFIX_GUC = 'app.console_api_key_lookup_prefix';
+const CONSOLE_API_KEY_LOOKUP_HASH_GUC = 'app.console_api_key_lookup_hash';
 
 interface StoredApiKey extends ConsoleApiKey {
   secretHash: string;
@@ -405,8 +408,11 @@ export async function ensureConsoleApiKeysPostgresSchema(
       ON console_api_keys (namespace, org_id, status)
     `);
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS console_api_keys_org_key_prefix_idx
-      ON console_api_keys (namespace, org_id, key_prefix, id)
+      DROP INDEX IF EXISTS console_api_keys_org_key_prefix_idx
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_api_keys_auth_lookup_idx
+      ON console_api_keys (namespace, kind, key_prefix)
     `);
 
     await ensureConsoleTenantRlsPolicies({
@@ -414,6 +420,20 @@ export async function ensureConsoleApiKeysPostgresSchema(
       table: 'console_api_keys',
       policyName: 'console_api_keys_tenant_rls',
     });
+    await pool.query(`
+      DROP POLICY IF EXISTS console_api_keys_auth_lookup_rls ON console_api_keys
+    `);
+    await pool.query(`
+      CREATE POLICY console_api_keys_auth_lookup_rls
+        ON console_api_keys
+        FOR SELECT
+        USING (
+          namespace = current_setting('app.console_namespace', true)
+          AND kind = current_setting('${CONSOLE_API_KEY_LOOKUP_KIND_GUC}', true)
+          AND key_prefix = current_setting('${CONSOLE_API_KEY_LOOKUP_PREFIX_GUC}', true)
+          AND secret_hash = current_setting('${CONSOLE_API_KEY_LOOKUP_HASH_GUC}', true)
+        )
+    `);
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_API_KEYS_MIGRATION_LOCK_ID]);
@@ -454,6 +474,52 @@ export async function createPostgresConsoleApiKeyService(
     fn: (q: Queryable) => Promise<T>,
   ): Promise<T> => withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, fn);
 
+  const withAuthLookupTx = async <T>(
+    input: {
+      kind: 'secret_key' | 'publishable_key';
+      keyPrefix: string;
+      secretHash: string;
+    },
+    fn: (q: Queryable) => Promise<T>,
+  ): Promise<T> => {
+    if (typeof pool.connect !== 'function') {
+      throw new Error('Postgres pool does not expose connect(); API key auth lookup requires a dedicated client');
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `SELECT
+           set_config($1, $2, true),
+           set_config($3, $4, true),
+           set_config($5, $6, true),
+           set_config($7, $8, true)`,
+        [
+          'app.console_namespace',
+          namespace,
+          CONSOLE_API_KEY_LOOKUP_KIND_GUC,
+          input.kind,
+          CONSOLE_API_KEY_LOOKUP_PREFIX_GUC,
+          input.keyPrefix,
+          CONSOLE_API_KEY_LOOKUP_HASH_GUC,
+          input.secretHash,
+        ],
+      );
+      const out = await fn(client);
+      await client.query('COMMIT');
+      return out;
+    } catch (error: unknown) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // no-op
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  };
+
   async function findApiKey(
     q: Queryable,
     input: { orgId: string; apiKeyId: string },
@@ -466,6 +532,26 @@ export async function createPostgresConsoleApiKeyService(
       [namespace, input.orgId, input.apiKeyId],
     );
     return row ? parseApiKeyRow(row) : null;
+  }
+
+  async function findApiKeyBySecretFingerprint(input: {
+    kind: 'secret_key' | 'publishable_key';
+    keyPrefix: string;
+    secretHash: string;
+  }): Promise<StoredApiKey | null> {
+    return withAuthLookupTx(input, async (q) => {
+      const row = await queryOne(
+        q,
+        `SELECT *
+           FROM console_api_keys
+          WHERE namespace = $1
+            AND kind = $2
+            AND key_prefix = $3
+            AND secret_hash = $4`,
+        [namespace, input.kind, input.keyPrefix, input.secretHash],
+      );
+      return row ? parseApiKeyRow(row) : null;
+    });
   }
 
   function hasRequiredScopes(scopes: string[], requiredScopes: string[]): boolean {
@@ -528,7 +614,7 @@ export async function createPostgresConsoleApiKeyService(
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const apiKeyId = makeId('ak', now);
-        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId, kind: request.kind });
+        const secret = makeApiKeySecret({ kind: request.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const expiresAtMs = request.expiresAt ? Date.parse(request.expiresAt) : NaN;
         const scopes = request.kind === 'secret_key' ? request.scopes : [];
@@ -665,7 +751,7 @@ export async function createPostgresConsoleApiKeyService(
         }
 
         const now = nowFn();
-        const secret = makeApiKeySecret({ orgId: ctx.orgId, apiKeyId, kind: current.kind });
+        const secret = makeApiKeySecret({ kind: current.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const row = await queryOne(
           q,
@@ -802,25 +888,12 @@ export async function createPostgresConsoleApiKeyService(
 
       const hashedSecret = await hashApiKeySecret(secret);
       const keyPrefix = makeApiKeyLookupPrefix(secret);
-      const keyRow = await withConsoleTenantContextTx(
-        pool,
-        { namespace, orgId: parsed.orgId },
-        async (q) => {
-          const prefixed = await queryOne(
-            q,
-            `SELECT *
-               FROM console_api_keys
-              WHERE namespace = $1
-                AND org_id = $2
-                AND id = $3
-                AND key_prefix = $4`,
-            [namespace, parsed.orgId, parsed.apiKeyId, keyPrefix],
-          );
-          if (prefixed) return parseApiKeyRow(prefixed);
-          return await findApiKey(q, { orgId: parsed.orgId, apiKeyId: parsed.apiKeyId });
-        },
-      );
-      if (!keyRow || keyRow.secretHash !== hashedSecret) {
+      const keyRow = await findApiKeyBySecretFingerprint({
+        kind: parsed.kind,
+        keyPrefix,
+        secretHash: hashedSecret,
+      });
+      if (!keyRow) {
         return {
           ok: false,
           status: 401,
@@ -959,25 +1032,12 @@ export async function createPostgresConsoleApiKeyService(
 
       const hashedSecret = await hashApiKeySecret(secret);
       const keyPrefix = makeApiKeyLookupPrefix(secret);
-      const keyRow = await withConsoleTenantContextTx(
-        pool,
-        { namespace, orgId: parsed.orgId },
-        async (q) => {
-          const prefixed = await queryOne(
-            q,
-            `SELECT *
-               FROM console_api_keys
-              WHERE namespace = $1
-                AND org_id = $2
-                AND id = $3
-                AND key_prefix = $4`,
-            [namespace, parsed.orgId, parsed.apiKeyId, keyPrefix],
-          );
-          if (prefixed) return parseApiKeyRow(prefixed);
-          return await findApiKey(q, { orgId: parsed.orgId, apiKeyId: parsed.apiKeyId });
-        },
-      );
-      if (!keyRow || keyRow.secretHash !== hashedSecret) {
+      const keyRow = await findApiKeyBySecretFingerprint({
+        kind: parsed.kind,
+        keyPrefix,
+        secretHash: hashedSecret,
+      });
+      if (!keyRow) {
         return {
           ok: false,
           status: 401,

@@ -35,7 +35,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
       buildConfigsFromEnv({
         relayer: {
           url: 'https://relay.example',
-          apiKey: 'tsk_v1_secret',
+          apiKey: 'sk_secret',
         } as any,
       }),
     ).toThrow(/relayer\.apiKey has been removed/i);
@@ -47,7 +47,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
         relayer: { url: 'https://relay.example' },
         registration: {
           mode: 'managed',
-          publishableKey: 'tpk_v1_publishable',
+          publishableKey: 'pk_publishable',
         } as any,
       }),
     ).toThrow(/registration\.environmentId/i);
@@ -59,7 +59,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
       registration: {
         mode: 'managed',
         environmentId: 'env_prod',
-        publishableKey: 'tpk_v1_publishable',
+        publishableKey: 'pk_publishable',
         brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
       },
     });
@@ -69,7 +69,7 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
       throw new Error('Expected managed registration mode');
     }
     expect(cfg.registration.environmentId).toBe('env_prod');
-    expect(cfg.registration.publishableKey).toBe('tpk_v1_publishable');
+    expect(cfg.registration.publishableKey).toBe('pk_publishable');
     expect(cfg.registration.brokerUrl).toBe('https://broker.example/v1/registration/bootstrap-grants');
   });
 });
