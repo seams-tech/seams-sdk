@@ -16,6 +16,7 @@ import { BillingAccountActivitySection, BillingContextSummarySection } from './b
 
 const PLATFORM_BILLING_ACTIVITY_LIMIT = 50;
 const PLATFORM_BILLING_SEARCH_LIMIT = 10;
+const PLATFORM_BILLING_RECENT_ORGANIZATION_LIMIT = 5;
 const PLATFORM_BILLING_EVENT_TYPE_OPTIONS: Array<{
   value: 'all' | DashboardBillingAccountActivityEventType;
   label: string;
@@ -136,6 +137,7 @@ export function PlatformBillingView(): React.JSX.Element {
   const [searchInput, setSearchInput] = React.useState<string>('');
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = React.useState<boolean>(false);
   const [activeSearchIndex, setActiveSearchIndex] = React.useState<number>(-1);
+  const [searchResultsMode, setSearchResultsMode] = React.useState<'recent' | 'search'>('search');
   const [periodMonthUtcFilter, setPeriodMonthUtcFilter] = React.useState<string>('');
   const [eventTypeFilter, setEventTypeFilter] = React.useState<
     'all' | DashboardBillingAccountActivityEventType
@@ -187,14 +189,46 @@ export function PlatformBillingView(): React.JSX.Element {
   }, []);
 
   const fetchSearchResults = React.useCallback(
-    async (query: string): Promise<DashboardPlatformBillingOrganization[]> => {
+    async (
+      query: string,
+      limit: number,
+    ): Promise<DashboardPlatformBillingOrganization[]> => {
       const results = await searchDashboardPlatformBillingOrganizations({
         query,
-        limit: PLATFORM_BILLING_SEARCH_LIMIT,
+        limit,
       });
-      return sortPlatformBillingOrganizations(results, query);
+      return query ? sortPlatformBillingOrganizations(results, query) : results;
     },
     [],
+  );
+
+  const runSearchRequest = React.useCallback(
+    async (query: string, mode: 'recent' | 'search', limit: number): Promise<void> => {
+      const requestId = searchRequestIdRef.current + 1;
+      searchRequestIdRef.current = requestId;
+      setSearchLoading(true);
+      setSearchError('');
+      setSearchPerformed(false);
+      setSearchResultsMode(mode);
+      setIsSearchDropdownOpen(true);
+      try {
+        const results = await fetchSearchResults(query, limit);
+        if (searchRequestIdRef.current !== requestId) return;
+        React.startTransition(() => {
+          setSearchResults(results);
+          setSearchPerformed(true);
+        });
+      } catch (error: unknown) {
+        if (searchRequestIdRef.current !== requestId) return;
+        setSearchResults([]);
+        setSearchPerformed(true);
+        setSearchError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (searchRequestIdRef.current !== requestId) return;
+        setSearchLoading(false);
+      }
+    },
+    [fetchSearchResults],
   );
 
   const normalizedSearchInput = React.useMemo(
@@ -203,14 +237,13 @@ export function PlatformBillingView(): React.JSX.Element {
   );
 
   React.useEffect(() => {
-    const requestId = searchRequestIdRef.current + 1;
-    searchRequestIdRef.current = requestId;
-
     if (!normalizedSearchInput) {
+      searchRequestIdRef.current += 1;
       setSearchLoading(false);
       setSearchError('');
       setSearchResults([]);
       setSearchPerformed(false);
+      setSearchResultsMode('search');
       setLookupResult(null);
       setActiveLookupRequest(null);
       setLookupError('');
@@ -230,33 +263,18 @@ export function PlatformBillingView(): React.JSX.Element {
       setSearchError('');
       setSearchResults([]);
       setSearchPerformed(false);
+      setSearchResultsMode('search');
       setIsSearchDropdownOpen(false);
       setActiveSearchIndex(-1);
       return;
     }
 
-    setSearchLoading(true);
-    setSearchError('');
-    setIsSearchDropdownOpen(true);
-    void fetchSearchResults(normalizedSearchInput)
-      .then((results) => {
-        if (searchRequestIdRef.current !== requestId) return;
-        React.startTransition(() => {
-          setSearchResults(results);
-          setSearchPerformed(true);
-        });
-      })
-      .catch((error: unknown) => {
-        if (searchRequestIdRef.current !== requestId) return;
-        setSearchResults([]);
-        setSearchPerformed(true);
-        setSearchError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (searchRequestIdRef.current !== requestId) return;
-        setSearchLoading(false);
-      });
-  }, [fetchSearchResults, normalizedSearchInput]);
+    void runSearchRequest(
+      normalizedSearchInput,
+      'search',
+      PLATFORM_BILLING_SEARCH_LIMIT,
+    );
+  }, [normalizedSearchInput, runSearchRequest]);
 
   React.useEffect(() => {
     if (!searchResults.length) {
@@ -306,9 +324,12 @@ export function PlatformBillingView(): React.JSX.Element {
   );
 
   const onSearchFieldFocus = React.useCallback(() => {
-    if (!normalizedSearchInput) return;
-    setIsSearchDropdownOpen(true);
-  }, [normalizedSearchInput]);
+    if (normalizedSearchInput) {
+      setIsSearchDropdownOpen(true);
+      return;
+    }
+    void runSearchRequest('', 'recent', PLATFORM_BILLING_RECENT_ORGANIZATION_LIMIT);
+  }, [normalizedSearchInput, runSearchRequest]);
 
   const onSearchFieldBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget;
@@ -320,13 +341,13 @@ export function PlatformBillingView(): React.JSX.Element {
 
   const onSearchInputKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (!normalizedSearchInput) return;
       if (event.key === 'Escape') {
         setIsSearchDropdownOpen(false);
         setActiveSearchIndex(-1);
         return;
       }
       if (event.key === 'ArrowDown') {
+        if (searchResults.length === 0) return;
         event.preventDefault();
         setIsSearchDropdownOpen(true);
         setActiveSearchIndex((current) => {
@@ -337,6 +358,7 @@ export function PlatformBillingView(): React.JSX.Element {
         return;
       }
       if (event.key === 'ArrowUp') {
+        if (searchResults.length === 0) return;
         event.preventDefault();
         setIsSearchDropdownOpen(true);
         setActiveSearchIndex((current) => {
@@ -356,7 +378,7 @@ export function PlatformBillingView(): React.JSX.Element {
         void onLoadSearchOrganization(selectedMatch);
       }
     },
-    [activeSearchIndex, normalizedSearchInput, onLoadSearchOrganization, searchResults],
+    [activeSearchIndex, onLoadSearchOrganization, searchResults],
   );
 
   const onApplyActivityFilters = React.useCallback(async () => {
@@ -592,7 +614,6 @@ export function PlatformBillingView(): React.JSX.Element {
 
   const showSearchResults =
     isSearchDropdownOpen &&
-    Boolean(normalizedSearchInput) &&
     (searchLoading || searchPerformed || searchResults.length > 0 || Boolean(searchError));
 
   return (
@@ -642,7 +663,13 @@ export function PlatformBillingView(): React.JSX.Element {
                     </p>
                   ) : searchResults.length === 0 ? (
                     <p className="dashboard-platform-billing-search-dropdown__state">
-                      No billing accounts matched <code>{normalizedSearchInput || '-'}</code>.
+                      {searchResultsMode === 'recent' ? (
+                        'No organisations have been created yet.'
+                      ) : (
+                        <>
+                          No billing accounts matched <code>{normalizedSearchInput || '-'}</code>.
+                        </>
+                      )}
                     </p>
                   ) : (
                     searchResults.map((organization, index) => {
@@ -664,7 +691,7 @@ export function PlatformBillingView(): React.JSX.Element {
                           disabled={loading}
                         >
                           <span className="dashboard-platform-billing-search-option__kind">
-                            Organization
+                            {searchResultsMode === 'recent' ? 'Recent' : 'Organization'}
                           </span>
                           <span className="dashboard-platform-billing-search-option__copy">
                             <strong>{describeOrganizationTitle(organization)}</strong>
