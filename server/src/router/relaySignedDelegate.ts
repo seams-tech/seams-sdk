@@ -161,7 +161,6 @@ function buildSignedDelegateDetailsJson(input: {
 
 async function meterSignedDelegate(input: {
   hash: string;
-  logger: NormalizedRouterLogger;
   policy?: DelegateActionPolicy;
   result: {
     outcome?: unknown;
@@ -372,7 +371,6 @@ export async function handleRelaySignedDelegate(
     try {
       await meterSignedDelegate({
         hash: parsedBody.hash,
-        logger: input.logger,
         policy: input.policy,
         result,
         route: input.route,

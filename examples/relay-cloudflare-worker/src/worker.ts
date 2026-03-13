@@ -148,7 +148,6 @@ export default {
         rorRpId: env.ROR_RP_ID,
         rorAllowedOrigins: env.ROR_ALLOWED_ORIGINS,
       }),
-      signedDelegate: { route: '/signed-delegate' },
       session: jwtSession,
       sessionCookieName,
       runtimeSnapshots: runtimeSnapshotCache.runtimeSnapshots,
