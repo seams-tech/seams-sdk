@@ -51,6 +51,7 @@ import {
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
   createRelayBootstrapGrantBroker,
+  createRelayPublishableKeyAuthAdapter,
   createAppSessionConsoleAuthAdapter,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
@@ -1166,6 +1167,9 @@ async function main() {
   const relayApiKeyAuth = relayApiKeyAuthEnabled
     ? createRelayApiKeyAuthAdapter(consoleApiKeys)
     : null;
+  const relayPublishableKeyAuth = relayApiKeyAuthEnabled
+    ? createRelayPublishableKeyAuthAdapter(consoleApiKeys)
+    : null;
   const relayApiKeyUsageMeter = relayApiKeyAuthEnabled
     ? createRelayBillingUsageMeterAdapter(consoleBilling)
     : null;
@@ -1295,11 +1299,16 @@ async function main() {
             },
           }
         : {}),
-      signedDelegate: { route: '/signed-delegate' },
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: consoleBilling,
+        ledger: consoleSponsoredCalls,
+      },
       session: jwtSession,
       sessionCookieName,
       threshold,
       ...(relayApiKeyAuth ? { apiKeyAuth: relayApiKeyAuth } : {}),
+      ...(relayPublishableKeyAuth ? { publishableKeyAuth: relayPublishableKeyAuth } : {}),
       ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
       bootstrapGrantBroker: relayBootstrapGrantBroker,
       bootstrapTokenStore: consoleBootstrapTokens,
