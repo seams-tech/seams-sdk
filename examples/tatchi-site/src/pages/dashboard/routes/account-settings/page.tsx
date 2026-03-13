@@ -21,11 +21,10 @@ import {
 } from '../../utils/scopeLabels';
 import {
   clearDashboardUiState,
-  persistDashboardSelectedContext,
+  replaceDashboardSelectedContext,
 } from '../../useDashboardUiPreferences';
 import { isDashboardDefaultOrganizationName } from '../../utils/organizationIdentity';
 import {
-  createDashboardAccountOrganization,
   deleteDashboardAccountOrganization,
   getDashboardAccountProfile,
   listDashboardAccountOrganizations,
@@ -81,19 +80,12 @@ export function AccountSettingsPage(): React.JSX.Element {
   const [displayNameDraft, setDisplayNameDraft] = React.useState<string>('');
   const [primaryEmailDraft, setPrimaryEmailDraft] = React.useState<string>('');
   const [newBackupEmail, setNewBackupEmail] = React.useState<string>('');
-  const [createNameDraft, setCreateNameDraft] = React.useState<string>('');
-  const [createSlugDraft, setCreateSlugDraft] = React.useState<string>('');
   const [renameDrafts, setRenameDrafts] = React.useState<Record<string, string>>({});
   const [transferTargets, setTransferTargets] = React.useState<Record<string, string>>({});
 
   const [savingProfile, setSavingProfile] = React.useState<boolean>(false);
   const [addingBackupEmail, setAddingBackupEmail] = React.useState<boolean>(false);
   const [removingBackupEmail, setRemovingBackupEmail] = React.useState<string>('');
-  const [creatingOrganization, setCreatingOrganization] = React.useState<boolean>(false);
-  const [createOrganizationModalOpen, setCreateOrganizationModalOpen] =
-    React.useState<boolean>(false);
-  const [createOrganizationModalErrorMessage, setCreateOrganizationModalErrorMessage] =
-    React.useState<string>('');
   const [renamingOrganizationId, setRenamingOrganizationId] = React.useState<string>('');
   const [transferringOrganizationId, setTransferringOrganizationId] = React.useState<string>('');
   const [switchingOrganizationId, setSwitchingOrganizationId] = React.useState<string>('');
@@ -134,8 +126,9 @@ export function AccountSettingsPage(): React.JSX.Element {
         setOrganizations([]);
         setErrorMessage(toErrorMessage(error));
       } finally {
-        if (cancelled) return;
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
     void run();
@@ -254,40 +247,11 @@ export function AccountSettingsPage(): React.JSX.Element {
     }
   }, []);
 
-  const onCreateOrganization = React.useCallback(async () => {
-    setCreatingOrganization(true);
-    setCreateOrganizationModalErrorMessage('');
+  const onCreateOrganization = React.useCallback(() => {
     setActionErrorMessage('');
     setNoticeMessage('');
-    try {
-      await createDashboardAccountOrganization({
-        name: createNameDraft,
-        ...(createSlugDraft.trim() ? { slug: createSlugDraft.trim() } : {}),
-      });
-      setCreateNameDraft('');
-      setCreateSlugDraft('');
-      setCreateOrganizationModalOpen(false);
-      await reloadAccountSettings();
-      setNoticeMessage('Organization created.');
-    } catch (error: unknown) {
-      setCreateOrganizationModalErrorMessage(toErrorMessage(error));
-    } finally {
-      setCreatingOrganization(false);
-    }
-  }, [createNameDraft, createSlugDraft, reloadAccountSettings]);
-
-  const onOpenCreateOrganizationModal = React.useCallback(() => {
-    setCreateNameDraft('');
-    setCreateSlugDraft('');
-    setCreateOrganizationModalErrorMessage('');
-    setCreateOrganizationModalOpen(true);
-  }, []);
-
-  const onCloseCreateOrganizationModal = React.useCallback(() => {
-    if (creatingOrganization) return;
-    setCreateOrganizationModalErrorMessage('');
-    setCreateOrganizationModalOpen(false);
-  }, [creatingOrganization]);
+    go('/dashboard/onboarding?createOrganization=1');
+  }, [go]);
 
   const onRenameOrganization = React.useCallback(
     async (organization: DashboardAccountOrganization) => {
@@ -352,14 +316,18 @@ export function AccountSettingsPage(): React.JSX.Element {
       try {
         if (!organization.isCurrentOrg) {
           const nextContext = await switchDashboardAccountOrganizationContext(organization.id);
+          const nextPath = nextContext.onboardingComplete ? '/dashboard' : '/dashboard/onboarding';
           clearDashboardUiState();
-          persistDashboardSelectedContext({
+          replaceDashboardSelectedContext({
             organization: nextContext.orgId,
             project: nextContext.projectId || '',
             environment: nextContext.environmentId || '',
           });
-          session.refresh();
-          go(nextContext.onboardingComplete ? '/dashboard' : '/dashboard/onboarding');
+          if (typeof window !== 'undefined') {
+            window.location.assign(nextPath);
+            return;
+          }
+          go(nextPath);
           return;
         }
         go(organization.onboardingComplete ? '/dashboard' : '/dashboard/onboarding');
@@ -369,7 +337,7 @@ export function AccountSettingsPage(): React.JSX.Element {
         setSwitchingOrganizationId('');
       }
     },
-    [go, session],
+    [go],
   );
 
   const onDeleteOrganization = React.useCallback(
@@ -593,68 +561,6 @@ export function AccountSettingsPage(): React.JSX.Element {
     </DashboardInlineModal>
   ) : null;
 
-  const createOrganizationModal = createOrganizationModalOpen ? (
-    <DashboardInlineModal
-      isOpen
-      ariaLabel="Create organization modal"
-      onRequestClose={onCloseCreateOrganizationModal}
-      className="dashboard-account-organization-modal"
-    >
-      <h2>Create organization</h2>
-      <form
-        className="dashboard-view-grid"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void onCreateOrganization();
-        }}
-      >
-        <div className="dashboard-view-grid dashboard-view-grid--two dashboard-account-grid">
-          <label className="dashboard-form-field">
-            <span>Organization name</span>
-            <input
-              className="dashboard-input"
-              value={createNameDraft}
-              onChange={(event) => setCreateNameDraft(event.target.value)}
-              placeholder="Northwind Labs"
-              autoFocus
-            />
-          </label>
-          <label className="dashboard-form-field">
-            <span>Slug</span>
-            <input
-              className="dashboard-input"
-              value={createSlugDraft}
-              onChange={(event) => setCreateSlugDraft(event.target.value)}
-              placeholder="northwind-labs"
-            />
-          </label>
-        </div>
-        {createOrganizationModalErrorMessage ? (
-          <p className="dashboard-form-alert" role="alert">
-            {createOrganizationModalErrorMessage}
-          </p>
-        ) : null}
-        <div className="dashboard-form-actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button dashboard-pagination-button--secondary"
-            onClick={onCloseCreateOrganizationModal}
-            disabled={creatingOrganization}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            className="dashboard-pagination-button"
-            disabled={creatingOrganization || !createNameDraft.trim()}
-          >
-            {creatingOrganization ? 'Creating...' : 'Create organization'}
-          </button>
-        </div>
-      </form>
-    </DashboardInlineModal>
-  ) : null;
-
   return (
     <div className="dashboard-account-settings" aria-label="Account settings page">
       {noticeMessage ? (
@@ -742,7 +648,7 @@ export function AccountSettingsPage(): React.JSX.Element {
           <button
             type="button"
             className="dashboard-pagination-button"
-            onClick={onOpenCreateOrganizationModal}
+            onClick={onCreateOrganization}
           >
             Create organization
           </button>
@@ -904,7 +810,6 @@ export function AccountSettingsPage(): React.JSX.Element {
         </DashboardTable>
       </section>
       {profileModal}
-      {createOrganizationModal}
       {renameModal}
     </div>
   );

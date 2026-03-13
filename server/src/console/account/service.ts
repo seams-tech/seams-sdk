@@ -1,3 +1,4 @@
+import { generateConsoleOrganizationId } from '@shared/console/organizationIdentity';
 import { ConsoleAccountError } from './errors';
 import type {
   DeleteConsoleAccountOrganizationResult,
@@ -89,10 +90,6 @@ function normalizeLower(value: unknown): string {
 
 function toIso(date: Date): string {
   return date.toISOString();
-}
-
-function makeOrgId(now: Date): string {
-  return `org_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function isAdminEligibleMember(member: ConsoleTeamMember): boolean {
@@ -448,7 +445,7 @@ export function createInMemoryConsoleAccountService(
     },
 
     async createOrganization(ctx, request): Promise<ConsoleAccountOrganization> {
-      const targetOrgId = normalizeString(request.id) || makeOrgId(now());
+      const targetOrgId = normalizeString(request.id) || generateConsoleOrganizationId();
       const targetCtx = {
         orgId: targetOrgId,
         actorUserId: ctx.userId,

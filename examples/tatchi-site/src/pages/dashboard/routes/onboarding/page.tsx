@@ -1,11 +1,19 @@
 import React from 'react';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useDashboardConsoleSession } from '../../consoleSession';
-import { persistDashboardSelectedContext } from '../../useDashboardUiPreferences';
+import {
+  clearDashboardUiState,
+  persistDashboardSelectedContext,
+  replaceDashboardSelectedContext,
+} from '../../useDashboardUiPreferences';
 import {
   deriveDashboardOrganizationSlug,
   isDashboardDefaultOrganizationName,
 } from '../../utils/organizationIdentity';
+import {
+  createDashboardAccountOrganization,
+  switchDashboardAccountOrganizationContext,
+} from '../account-settings/consoleAccountApi';
 import {
   createDashboardOnboardingOrganization,
   createDashboardOnboardingProject,
@@ -19,7 +27,7 @@ import {
 
 const ONBOARDING_DRAFT_STORAGE_PREFIX = 'tatchi-dashboard-onboarding-draft-v1:';
 const ONBOARDING_STATE_UPDATED_EVENT = 'dashboard:onboarding-state-updated';
-const DEFAULT_ONBOARDING_ORGANIZATION_NAME = 'Acme Corp';
+const CREATE_ORGANIZATION_QUERY_PARAM = 'createOrganization';
 
 type OnboardingMutationAction = 'organization' | 'project';
 
@@ -30,6 +38,7 @@ type OnboardingDraft = {
 };
 
 type OnboardingStepperStatus = 'current' | 'done' | 'locked';
+type OnboardingVisibleStep = 'organization' | 'project';
 
 function buildDefaultState(orgId: string): DashboardOnboardingState {
   return {
@@ -183,6 +192,12 @@ function publishOnboardingStateUpdate(state: DashboardOnboardingState): void {
   );
 }
 
+function readCreateOrganizationIntent(): boolean {
+  if (typeof window === 'undefined') return false;
+  const searchParams = new URLSearchParams(window.location.search);
+  return String(searchParams.get(CREATE_ORGANIZATION_QUERY_PARAM) || '').trim() === '1';
+}
+
 export function DashboardOnboardingPage(): React.JSX.Element {
   const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
@@ -202,18 +217,43 @@ export function DashboardOnboardingPage(): React.JSX.Element {
   const [orgNameInput, setOrgNameInput] = React.useState<string>('');
   const [orgNameExplicitlySelected, setOrgNameExplicitlySelected] = React.useState<boolean>(false);
   const [projectNameInput, setProjectNameInput] = React.useState<string>('');
+  const [visibleStep, setVisibleStep] = React.useState<OnboardingVisibleStep>('organization');
+  const [manualOrganizationStepSelection, setManualOrganizationStepSelection] =
+    React.useState<boolean>(false);
   const [loadedDraftStorageKey, setLoadedDraftStorageKey] = React.useState<string>('');
+  const [createOrganizationIntent, setCreateOrganizationIntent] = React.useState<boolean>(() =>
+    readCreateOrganizationIntent(),
+  );
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncCreateOrganizationIntent = () => {
+      setCreateOrganizationIntent(readCreateOrganizationIntent());
+    };
+    window.addEventListener('popstate', syncCreateOrganizationIntent);
+    window.addEventListener('site:navigate', syncCreateOrganizationIntent as EventListener);
+    return () => {
+      window.removeEventListener('popstate', syncCreateOrganizationIntent);
+      window.removeEventListener('site:navigate', syncCreateOrganizationIntent as EventListener);
+    };
+  }, []);
 
   const draftStorageKey = React.useMemo(() => {
     if (!sessionOrgId) return '';
-    return `${ONBOARDING_DRAFT_STORAGE_PREFIX}${sessionOrgId}`;
-  }, [sessionOrgId]);
+    return `${ONBOARDING_DRAFT_STORAGE_PREFIX}${sessionOrgId}${createOrganizationIntent ? ':create-organization' : ''}`;
+  }, [createOrganizationIntent, sessionOrgId]);
 
   const loadState = React.useCallback(() => {
     if (!sessionOrgId) {
       setState(null);
       setLoading(false);
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
+      return;
+    }
+    if (createOrganizationIntent) {
+      setState(buildDefaultState(sessionOrgId));
+      setLoading(false);
+      setErrorMessage('');
       return;
     }
     let cancelled = false;
@@ -231,17 +271,13 @@ export function DashboardOnboardingPage(): React.JSX.Element {
             name: onboardingOrganizationName,
             orgId: onboardingOrganizationId,
           })
-            ? DEFAULT_ONBOARDING_ORGANIZATION_NAME
+            ? ''
             : onboardingOrganizationName;
         setOrgNameInput((current) => {
           const currentName = String(current || '').trim();
-          const currentNameIsDefaultIdentity =
-            currentName &&
-            isDashboardDefaultOrganizationName({
-              name: currentName,
-              orgId: onboardingOrganizationId,
-            });
-          if (!currentName || currentNameIsDefaultIdentity) return nextOrganizationNameInput;
+          if (!currentName || currentName === 'Acme Corp') {
+            return nextOrganizationNameInput;
+          }
           return currentName;
         });
       })
@@ -257,7 +293,7 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [session.errorMessage, sessionOrgId]);
+  }, [createOrganizationIntent, session.errorMessage, sessionOrgId]);
 
   React.useEffect(() => {
     if (session.loading) {
@@ -267,6 +303,16 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     const cleanup = loadState();
     return cleanup;
   }, [loadState, session.loading]);
+
+  React.useEffect(() => {
+    setOrgNameInput('');
+    setProjectNameInput('');
+    setOrgNameExplicitlySelected(false);
+    setOrganizationResult(null);
+    setProjectResult(null);
+    setMutationError('');
+    setLastFailedAction(null);
+  }, [sessionOrgId]);
 
   React.useEffect(() => {
     if (!draftStorageKey) {
@@ -305,6 +351,25 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     setSubmitting(true);
     setMutationError('');
     try {
+      if (createOrganizationIntent) {
+        const createdOrganization = await createDashboardAccountOrganization({
+          name: orgName,
+          ...(orgSlug ? { slug: orgSlug } : {}),
+        });
+        const nextContext = await switchDashboardAccountOrganizationContext(createdOrganization.id);
+        clearDashboardUiState();
+        replaceDashboardSelectedContext({
+          organization: nextContext.orgId,
+          project: nextContext.projectId || '',
+          environment: nextContext.environmentId || '',
+        });
+        if (typeof window !== 'undefined') {
+          window.location.assign('/dashboard/onboarding');
+          return;
+        }
+        go('/dashboard/onboarding');
+        return;
+      }
       const next = await createDashboardOnboardingOrganization({
         org: { name: orgName, ...(orgSlug ? { slug: orgSlug } : {}) },
       });
@@ -312,6 +377,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setProjectResult(null);
       setLastFailedAction(null);
       setOrgNameExplicitlySelected(true);
+      setManualOrganizationStepSelection(false);
+      setVisibleStep('project');
       setState(next.state);
       publishOnboardingStateUpdate(next.state);
       loadState();
@@ -322,6 +389,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       setSubmitting(false);
     }
   }, [
+    createOrganizationIntent,
+    go,
     loadState,
     orgNameInput,
     orgNameValidationMessage,
@@ -403,6 +472,14 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     }
   }, [lastFailedAction, submitOrganizationStep, submitProjectStep]);
 
+  const onBackToOrganizationStep = React.useCallback(() => {
+    if (submitting) return;
+    setMutationError('');
+    setLastFailedAction(null);
+    setManualOrganizationStepSelection(true);
+    setVisibleStep('organization');
+  }, [submitting]);
+
   const onboardingComplete = state
     ? state.onboardingComplete === undefined
       ? state.complete === true
@@ -447,6 +524,23 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     state?.organization?.name || organizationResult?.organization.name || completionOrgId,
   ).trim();
 
+  React.useEffect(() => {
+    setVisibleStep('organization');
+    setManualOrganizationStepSelection(false);
+  }, [createOrganizationIntent, sessionOrgId]);
+
+  React.useEffect(() => {
+    if (onboardingComplete) return;
+    if (currentStep === 'organization') {
+      setVisibleStep('organization');
+      setManualOrganizationStepSelection(false);
+      return;
+    }
+    if (!manualOrganizationStepSelection) {
+      setVisibleStep('project');
+    }
+  }, [currentStep, manualOrganizationStepSelection, onboardingComplete]);
+
   const persistCompletionContextSelection = React.useCallback(() => {
     persistDashboardSelectedContext({
       organization: completionOrgId,
@@ -455,8 +549,8 @@ export function DashboardOnboardingPage(): React.JSX.Element {
     });
   }, [completionEnvironmentId, completionOrgId, completionProjectId]);
 
-  const showOrganizationStep = !onboardingComplete;
-  const showProjectStep = !onboardingComplete;
+  const showOrganizationStep = !onboardingComplete && visibleStep === 'organization';
+  const showProjectStep = !onboardingComplete && visibleStep === 'project';
   const projectNameValidationMessageForUi = projectStepLocked ? '' : projectNameValidationMessage;
 
   const stepper: Array<{
@@ -468,15 +562,15 @@ export function DashboardOnboardingPage(): React.JSX.Element {
       key: 'organization',
       label: 'Organization',
       status: organizationProfileReady
-        ? 'done'
-        : currentStep === 'organization'
+        ? visibleStep === 'organization'
           ? 'current'
-          : 'locked',
+          : 'done'
+        : 'current',
     },
     {
       key: 'project',
       label: 'Project',
-      status: projectProfileReady ? 'done' : currentStep === 'project' ? 'current' : 'locked',
+      status: projectProfileReady ? 'done' : visibleStep === 'project' ? 'current' : 'locked',
     },
   ];
 
@@ -650,6 +744,14 @@ export function DashboardOnboardingPage(): React.JSX.Element {
                   </label>
 
                   <div className="dashboard-form-actions">
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                      onClick={onBackToOrganizationStep}
+                      disabled={submitting}
+                    >
+                      Back
+                    </button>
                     <button
                       type="submit"
                       className="dashboard-pagination-button"

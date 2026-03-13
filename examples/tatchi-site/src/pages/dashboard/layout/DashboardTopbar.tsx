@@ -38,9 +38,7 @@ export function DashboardTopbar({
     focusedContextValue !== undefined
       ? focusedContextValue
       : (dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
-          ?.label ||
-          selectedContext.organization ||
-          'Organization');
+          ?.label || '');
 
   React.useEffect(() => {
     if (!activeTopbarMenu) return;

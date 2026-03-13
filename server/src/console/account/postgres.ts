@@ -1,5 +1,6 @@
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
+import { generateConsoleOrganizationId } from '@shared/console/organizationIdentity';
 import {
   ensureConsoleNamespace as ensureNamespace,
   toConsoleIso as toIso,
@@ -17,11 +18,8 @@ import type {
   ConsoleAccountOrganization,
   ConsoleAccountOrganizationAdminCandidate,
   ConsoleAccountProfile,
-  CreateConsoleAccountOrganizationRequest,
-  PatchConsoleAccountProfileRequest,
   SwitchConsoleAccountOrganizationContextResult,
   TransferConsoleAccountOrganizationOwnerResult,
-  UpdateConsoleAccountOrganizationRequest,
 } from './types';
 import type { ConsoleWalletService } from '../wallets';
 
@@ -37,10 +35,6 @@ function normalizeString(value: unknown): string {
 
 function normalizeLower(value: unknown): string {
   return normalizeString(value).toLowerCase();
-}
-
-function makeOrgId(now: Date): string {
-  return `org_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function hasAdminEligibility(member: ConsoleTeamMember): boolean {
@@ -63,7 +57,9 @@ function parseRoleAssignments(raw: unknown): ConsoleAccountOrganizationAdminCand
   return source
     .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
     .map((entry) => ({
-      role: normalizeString((entry as Record<string, unknown>).role) as any,
+      role:
+        normalizeString((entry as Record<string, unknown>).role) as
+          ConsoleAccountOrganizationAdminCandidate['roles'][number]['role'],
       scope: 'ORG' as const,
     }));
 }
@@ -593,7 +589,7 @@ export async function createPostgresConsoleAccountService(
     },
 
     async createOrganization(ctx, request): Promise<ConsoleAccountOrganization> {
-      const orgId = normalizeString(request.id) || makeOrgId(now());
+      const orgId = normalizeString(request.id) || generateConsoleOrganizationId();
       const existing = await getOrganizationById(orgId);
       if (existing) {
         throw accountError(

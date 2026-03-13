@@ -20,7 +20,6 @@ import {
 } from './consoleSession';
 import { DashboardSelectedContextProvider } from './selectedContext';
 import {
-  getDashboardOrganization,
   listDashboardEnvironments,
   listDashboardProjects,
 } from './consoleContextApi';
@@ -32,10 +31,15 @@ import {
 import {
   clearDashboardUiState,
   readPersistedDashboardSelectedContext,
+  replaceDashboardSelectedContext,
   useDashboardUiPreferences,
 } from './useDashboardUiPreferences';
 import { isDashboardDefaultOrganizationName } from './utils/organizationIdentity';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import {
+  listDashboardAccountOrganizations,
+  switchDashboardAccountOrganizationContext,
+} from './routes/account-settings/consoleAccountApi';
 import './styles.css';
 
 type DashboardPageProps = {
@@ -100,7 +104,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const [onboardingGateEnabled, setOnboardingGateEnabled] = React.useState<boolean>(true);
   const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
   const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
-  const [organizationOption, setOrganizationOption] = React.useState<TopbarOption | null>(null);
+  const [contextActionErrorMessage, setContextActionErrorMessage] = React.useState<string>('');
+  const [organizationOptions, setOrganizationOptions] = React.useState<TopbarOption[]>([]);
   const [projectOptions, setProjectOptions] = React.useState<TopbarOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string>(persistedProjectId);
   const [environmentOptions, setEnvironmentOptions] = React.useState<TopbarOption[]>([]);
@@ -115,6 +120,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     !consoleSession.loading &&
     !consoleSession.claims &&
     (consoleSession.errorCode === 'forbidden' || consoleSession.errorStatus === 403);
+  const currentOrgId = String(consoleSession.claims?.orgId || '').trim();
   const onboardingSelectedProjectId = String(onboardingState?.selectedProjectId || '').trim();
   const onboardingSelectedEnvironmentId = String(
     onboardingState?.selectedEnvironmentId || '',
@@ -159,7 +165,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       setOnboardingLoading(false);
       setOnboardingState(null);
       setOnboardingGateEnabled(true);
-      setOrganizationOption(null);
+      setOrganizationOptions([]);
       setProjectOptions([]);
       setSelectedProjectId(persistedProjectId);
       setEnvironmentOptions([]);
@@ -261,13 +267,36 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       return;
     }
     let cancelled = false;
-    Promise.all([getDashboardOrganization(), listDashboardProjects({ status: 'ACTIVE' })])
-      .then(([organization, projects]) => {
+    Promise.all([
+      listDashboardAccountOrganizations(),
+      listDashboardProjects({ status: 'ACTIVE' }),
+    ])
+      .then(([organizations, projects]) => {
         if (cancelled) return;
-        setOrganizationOption({
-          value: organization.id,
-          label: organization.name || organization.id,
-        });
+        const nextOrganizationOptions = dedupeOptions(
+          organizations
+            .filter((entry) => {
+              const status = String(entry.status || '')
+                .trim()
+                .toUpperCase();
+              return status === 'ACTIVE' || entry.isCurrentOrg;
+            })
+            .sort((left, right) => {
+              if (left.isCurrentOrg !== right.isCurrentOrg) {
+                return left.isCurrentOrg ? -1 : 1;
+              }
+              const nameDiff = (left.name || left.id).localeCompare(right.name || right.id);
+              if (nameDiff !== 0) return nameDiff;
+              return left.id.localeCompare(right.id);
+            })
+            .map((entry) => ({
+              value: entry.id,
+              label: entry.name || entry.id,
+            })),
+        );
+        setOrganizationOptions(
+          nextOrganizationOptions,
+        );
         const nextProjectOptions = dedupeOptions(
           projects.map((entry) => ({
             value: entry.id,
@@ -288,10 +317,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         if (cancelled) return;
         const persisted = readPersistedDashboardSelectedContext();
         const preferredProjectId = String(persisted.project || '').trim();
-        setOrganizationOption({
-          value: claims.orgId,
-          label: claims.orgId,
-        });
+        setOrganizationOptions([]);
         const fallbackProjects = dedupeOptions([
           ...(preferredProjectId ? [{ value: preferredProjectId, label: preferredProjectId }] : []),
           ...(onboardingSelectedProjectId
@@ -402,13 +428,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const dropdownOptions = React.useMemo<Record<TopbarMenuKey, TopbarOption[]>>(
     () => ({
-      organization: dedupeOptions(
-        organizationOption
-          ? [organizationOption]
-          : consoleSession.claims
-            ? [{ value: consoleSession.claims.orgId, label: consoleSession.claims.orgId }]
-            : [],
-      ),
+      organization: dedupeOptions(organizationOptions),
       project: dedupeOptions(
         projectOptions.length > 0
           ? projectOptions
@@ -454,7 +474,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       environmentOptions,
       onboardingSelectedEnvironmentId,
       onboardingSelectedProjectId,
-      organizationOption,
+      organizationOptions,
       persistedProjectId,
       projectOptions,
       resolvedTheme,
@@ -514,9 +534,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     () => ({
       organization:
         dropdownOptions.organization.find((entry) => entry.value === selectedContext.organization)
-          ?.label ||
-        selectedContext.organization ||
-        '',
+          ?.label || '',
       project:
         dropdownOptions.project.find((entry) => entry.value === selectedContext.project)?.label ||
         selectedContext.project ||
@@ -537,6 +555,12 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   );
 
   React.useEffect(() => {
+    if (!currentOrgId) return;
+    if (selectedContext.organization === currentOrgId) return;
+    onSelectContextRaw('organization', currentOrgId);
+  }, [currentOrgId, onSelectContextRaw, selectedContext.organization]);
+
+  React.useEffect(() => {
     const project = String(selectedContext.project || '').trim();
     if (!project || project === selectedProjectId) return;
     setSelectedProjectId(project);
@@ -544,6 +568,32 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const onSelectContext = React.useCallback(
     (menu: TopbarMenuKey, value: string) => {
+      if (menu === 'organization') {
+        const nextOrgId = String(value || '').trim();
+        if (!nextOrgId) return;
+        setContextActionErrorMessage('');
+        if (!currentOrgId || nextOrgId === currentOrgId) {
+          onSelectContextRaw(menu, nextOrgId);
+          return;
+        }
+        void switchDashboardAccountOrganizationContext(nextOrgId)
+          .then((nextContext) => {
+            clearDashboardUiState();
+            replaceDashboardSelectedContext({
+              organization: nextContext.orgId,
+              project: nextContext.projectId || '',
+              environment: nextContext.environmentId || '',
+            });
+            setSelectedProjectId(nextContext.projectId || '');
+            consoleSession.refresh();
+          })
+          .catch((error: unknown) => {
+            setContextActionErrorMessage(
+              `Organization switch failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          });
+        return;
+      }
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION) {
         go(DASHBOARD_ACCOUNT_SETTINGS_ROUTE);
         return;
@@ -588,6 +638,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       }
     },
     [
+      currentOrgId,
       consoleSession,
       dropdownOptions.environment,
       go,
@@ -742,6 +793,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         {logoutErrorMessage ? (
           <p className="dashboard-table-limit" role="alert">
             Sign out failed: {logoutErrorMessage}
+          </p>
+        ) : null}
+        {contextActionErrorMessage ? (
+          <p className="dashboard-table-limit" role="alert">
+            {contextActionErrorMessage}
           </p>
         ) : null}
 

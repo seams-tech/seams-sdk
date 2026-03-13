@@ -153,9 +153,16 @@ test.describe('console account parser and service semantics', () => {
       slug: 'created-org',
     });
 
+    const generatedOrganization = await service.createOrganization(adminCtx, {
+      name: 'Generated Org',
+      slug: 'generated-org',
+    });
+    expect(generatedOrganization.id).toMatch(/^org_[a-z0-9]{12}$/);
+
     const afterCreate = await service.listOrganizations(adminCtx);
     expect(afterCreate.some((entry) => entry.id === adminCtx.orgId)).toBe(true);
     expect(afterCreate.some((entry) => entry.id === 'org_account_service_created')).toBe(true);
+    expect(afterCreate.some((entry) => entry.id === generatedOrganization.id)).toBe(true);
 
     const memberClaimsCtx = {
       ...adminCtx,

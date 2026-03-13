@@ -277,6 +277,7 @@ export async function listDashboardAccountOrganizations(): Promise<DashboardAcco
 }
 
 export async function createDashboardAccountOrganization(input: {
+  id?: string;
   name: string;
   slug?: string;
 }): Promise<DashboardAccountOrganization> {
