@@ -523,6 +523,24 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                 slug: 'target-billing-org',
                 status: 'ACTIVE',
               },
+              teamMembers: [
+                {
+                  id: 'tm_target_owner',
+                  userId: 'user_target_owner',
+                  email: 'owner@target.example',
+                  displayName: 'Tina Owner',
+                  status: 'ACTIVE',
+                  access: 'OWNER',
+                },
+                {
+                  id: 'tm_target_admin',
+                  userId: 'user_target_admin',
+                  email: 'admin@target.example',
+                  displayName: 'Alex Admin',
+                  status: 'INVITED',
+                  access: 'ADMIN',
+                },
+              ],
               project: null,
               overview: {
                 usageMetricVersion: 'maw_v1',
@@ -633,6 +651,15 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(
       page.locator('section[aria-label="Customer organisation account summary"]'),
     ).toContainText('Target Billing Org');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Team members');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Tina Owner');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Alex Admin');
     await expect(page.getByText('$50.00').first()).toBeVisible();
     const activitySection = page.locator('section[aria-label="Customer account activity"]');
     await expect(activitySection).toHaveAttribute('role', 'table');

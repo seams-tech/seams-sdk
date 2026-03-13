@@ -2793,6 +2793,73 @@
   white-space: nowrap;
 }
 
+.dashboard-billing-overview__members {
+  border: 1px solid var(--dashboard-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--dashboard-surface) 94%, var(--dashboard-muted) 6%);
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-billing-overview__members-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard-billing-overview__members-header h3,
+.dashboard-billing-overview__members-header p {
+  margin: 0;
+}
+
+.dashboard-billing-overview__members-header h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dashboard-ink-soft);
+}
+
+.dashboard-billing-overview__members-header p {
+  color: var(--dashboard-ink-soft);
+  font-size: 0.88rem;
+}
+
+.dashboard-billing-overview__members-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.dashboard-billing-overview__member {
+  min-width: 0;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 10px;
+  background: var(--dashboard-surface);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-billing-overview__member-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.dashboard-billing-overview__member-copy strong,
+.dashboard-billing-overview__member-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dashboard-billing-meta-card {
   gap: 12px;
 }

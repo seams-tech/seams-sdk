@@ -499,6 +499,23 @@ export async function createPostgresConsoleTeamRbacService(
       });
     },
 
+    async listOrganizationMembers(
+      orgId: string,
+      request?: ListConsoleTeamMembersRequest,
+    ): Promise<ConsoleTeamMember[]> {
+      const status = String(request?.status || '').trim();
+      const out = await pool.query(
+        `SELECT *
+           FROM console_team_members
+          WHERE namespace = $1
+            AND org_id = $2
+            AND ($3 = '' OR status = $3)
+          ORDER BY updated_at_ms DESC, created_at_ms DESC`,
+        [namespace, orgId, status],
+      );
+      return out.rows.map((row) => parseMemberRow(row as PgRow));
+    },
+
     async purgeOrganization(ctx: ConsoleTeamRbacContext): Promise<void> {
       await withTenantTx(ctx, async (q) => {
         await q.query(

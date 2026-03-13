@@ -716,6 +716,7 @@ export function PlatformBillingView(): React.JSX.Element {
             title="Customer Organisation Account"
             description="Reviewing customer organisation's billing account as a platform admin"
             ariaLabel="Customer organisation account summary"
+            members={lookupResult.teamMembers}
             metrics={summaryMetrics}
           />
 

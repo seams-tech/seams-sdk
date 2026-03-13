@@ -12,7 +12,10 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
-import type { DashboardBillingAccountActivityEntry } from './consoleBillingApi';
+import type {
+  DashboardBillingAccountActivityEntry,
+  DashboardPlatformBillingOrganizationMember,
+} from './consoleBillingApi';
 import { formatUsdMinor } from './consoleBillingApi';
 
 const BILLING_ACCOUNT_ACTIVITY_TABLE_COLUMNS = dashboardTableColumns(
@@ -104,6 +107,46 @@ function getAccountActivitySummary(entry: DashboardBillingAccountActivityEntry):
   };
 }
 
+function getBillingOverviewMemberBadgeTone(
+  member: DashboardPlatformBillingOrganizationMember,
+): 'neutral' | 'success' | 'warning' {
+  if (member.status === 'ACTIVE') {
+    return member.access === 'OWNER' ? 'success' : 'neutral';
+  }
+  return 'warning';
+}
+
+function describeBillingOverviewMemberStatus(
+  member: DashboardPlatformBillingOrganizationMember,
+): string {
+  if (member.status === 'ACTIVE') return member.access;
+  return `${member.access} · ${member.status === 'INVITED' ? 'Invited' : 'Suspended'}`;
+}
+
+function sortBillingOverviewMembers(
+  members: DashboardPlatformBillingOrganizationMember[],
+): DashboardPlatformBillingOrganizationMember[] {
+  const accessRank: Record<DashboardPlatformBillingOrganizationMember['access'], number> = {
+    OWNER: 0,
+    ADMIN: 1,
+    MEMBER: 2,
+  };
+  const statusRank: Record<DashboardPlatformBillingOrganizationMember['status'], number> = {
+    ACTIVE: 0,
+    INVITED: 1,
+    SUSPENDED: 2,
+  };
+  return [...members].sort((left, right) => {
+    const accessDelta = accessRank[left.access] - accessRank[right.access];
+    if (accessDelta !== 0) return accessDelta;
+    const statusDelta = statusRank[left.status] - statusRank[right.status];
+    if (statusDelta !== 0) return statusDelta;
+    const displayDelta = left.displayName.localeCompare(right.displayName);
+    if (displayDelta !== 0) return displayDelta;
+    return left.email.localeCompare(right.email);
+  });
+}
+
 export function BillingContextSummarySection(props: {
   context: {
     organization: string;
@@ -115,8 +158,10 @@ export function BillingContextSummarySection(props: {
   description: string;
   ariaLabel: string;
   metrics?: BillingMetric[];
+  members?: DashboardPlatformBillingOrganizationMember[];
 }): React.JSX.Element {
-  const { context, title, description, ariaLabel, metrics = [] } = props;
+  const { context, title, description, ariaLabel, metrics = [], members = [] } = props;
+  const sortedMembers = React.useMemo(() => sortBillingOverviewMembers(members), [members]);
   return (
     <section className="dashboard-view__section dashboard-billing-overview" aria-label={ariaLabel}>
       <div className="dashboard-billing-overview__header">
@@ -139,6 +184,34 @@ export function BillingContextSummarySection(props: {
           <dd title={context.thirdValue || '-'}>{context.thirdValue || '-'}</dd>
         </div>
       </dl>
+      {sortedMembers.length > 0 ? (
+        <div className="dashboard-billing-overview__members" aria-label="Organisation team members">
+          <div className="dashboard-billing-overview__members-header">
+            <h3>Team members</h3>
+            <p>{sortedMembers.length} associated with this organisation</p>
+          </div>
+          <ul className="dashboard-billing-overview__members-list">
+            {sortedMembers.map((member) => (
+              <li className="dashboard-billing-overview__member" key={member.id}>
+                <div className="dashboard-billing-overview__member-copy">
+                  <strong title={member.displayName}>{member.displayName}</strong>
+                  <span
+                    className="dashboard-data-table__subline dashboard-data-table__subline--muted"
+                    title={member.email}
+                  >
+                    {member.email}
+                  </span>
+                </div>
+                <span
+                  className={`dashboard-data-table__badge dashboard-data-table__badge--${getBillingOverviewMemberBadgeTone(member)}`}
+                >
+                  {describeBillingOverviewMemberStatus(member)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {metrics.length > 0 ? (
         <div className="dashboard-kpi-grid dashboard-kpi-grid--content dashboard-billing-overview__metrics">
           {metrics.map((metric) => (

@@ -5643,6 +5643,7 @@ test.describe('console router (express)', () => {
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
     const targetCtx = {
       orgId: 'org-platform-target-express',
       actorUserId: 'platform-user-express',
@@ -5653,6 +5654,26 @@ test.describe('console router (express)', () => {
       projectId: 'proj-platform-target-express',
       actorUserId: 'platform-user-express',
     });
+    await teamRbac.bootstrapOwner({
+      orgId: 'org-platform-target-express',
+      actorUserId: 'owner-platform-target-express',
+      roles: ['owner'],
+      actorEmail: 'owner-platform-target-express@example.com',
+      actorDisplayName: 'Owner Express',
+    });
+    await teamRbac.inviteMember(
+      {
+        orgId: 'org-platform-target-express',
+        actorUserId: 'owner-platform-target-express',
+        roles: ['owner'],
+      },
+      {
+        userId: 'admin-platform-target-express',
+        email: 'admin-platform-target-express@example.com',
+        displayName: 'Admin Express',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+      },
+    );
     await billing.grantManualSupportCredit(targetCtx, {
       amountMinor: 1200,
       reasonCode: 'incident_credit',
@@ -5675,6 +5696,7 @@ test.describe('console router (express)', () => {
       ),
       billing,
       orgProjectEnv,
+      teamRbac,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -5698,6 +5720,18 @@ test.describe('console router (express)', () => {
       expect(entries).toHaveLength(1);
       expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
       expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
+      const teamMembers = Array.isArray(getPath(res.json, 'result', 'teamMembers'))
+        ? (getPath(res.json, 'result', 'teamMembers') as any[])
+        : [];
+      expect(teamMembers.map((entry) => String(entry?.displayName || ''))).toEqual([
+        'Owner Express',
+        'Admin Express',
+      ]);
+      expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
+      expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual([
+        'ACTIVE',
+        'ACTIVE',
+      ]);
     } finally {
       await srv.close();
     }
@@ -5819,6 +5853,7 @@ test.describe('console router (express)', () => {
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-adjust-target-express',
       projectId: 'proj-platform-adjust-target-express',
@@ -5833,6 +5868,7 @@ test.describe('console router (express)', () => {
       ),
       billing,
       orgProjectEnv,
+      teamRbac,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -11558,6 +11594,7 @@ test.describe('console router (cloudflare)', () => {
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
     const targetCtx = {
       orgId: 'org-platform-target-cloudflare',
       actorUserId: 'platform-user-cloudflare',
@@ -11568,6 +11605,26 @@ test.describe('console router (cloudflare)', () => {
       projectId: 'proj-platform-target-cloudflare',
       actorUserId: 'platform-user-cloudflare',
     });
+    await teamRbac.bootstrapOwner({
+      orgId: 'org-platform-target-cloudflare',
+      actorUserId: 'owner-platform-target-cloudflare',
+      roles: ['owner'],
+      actorEmail: 'owner-platform-target-cloudflare@example.com',
+      actorDisplayName: 'Owner Cloudflare',
+    });
+    await teamRbac.inviteMember(
+      {
+        orgId: 'org-platform-target-cloudflare',
+        actorUserId: 'owner-platform-target-cloudflare',
+        roles: ['owner'],
+      },
+      {
+        userId: 'admin-platform-target-cloudflare',
+        email: 'admin-platform-target-cloudflare@example.com',
+        displayName: 'Admin Cloudflare',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+      },
+    );
     await billing.grantManualSupportCredit(targetCtx, {
       amountMinor: 1200,
       reasonCode: 'incident_credit',
@@ -11590,6 +11647,7 @@ test.describe('console router (cloudflare)', () => {
       ),
       billing,
       orgProjectEnv,
+      teamRbac,
     });
     const res = await callCf(handler, {
       method: 'GET',
@@ -11611,6 +11669,18 @@ test.describe('console router (cloudflare)', () => {
     expect(entries).toHaveLength(1);
     expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
     expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
+    const teamMembers = Array.isArray(getPath(res.json, 'result', 'teamMembers'))
+      ? (getPath(res.json, 'result', 'teamMembers') as any[])
+      : [];
+    expect(teamMembers.map((entry) => String(entry?.displayName || ''))).toEqual([
+      'Owner Cloudflare',
+      'Admin Cloudflare',
+    ]);
+    expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
+    expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual([
+      'ACTIVE',
+      'ACTIVE',
+    ]);
   });
 
   test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
@@ -11720,6 +11790,7 @@ test.describe('console router (cloudflare)', () => {
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
       orgId: 'org-platform-adjust-target-cloudflare',
       projectId: 'proj-platform-adjust-target-cloudflare',
@@ -11734,6 +11805,7 @@ test.describe('console router (cloudflare)', () => {
       ),
       billing,
       orgProjectEnv,
+      teamRbac,
     });
     const res = await callCf(handler, {
       method: 'POST',

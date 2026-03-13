@@ -3958,12 +3958,15 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     if (!billing) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
+    const teamRbac = requireTeamRbacService(res, ctx);
+    if (!teamRbac) return;
     try {
       const request = parsePlatformBillingLookupRequest((req as any).query);
       const result = await resolvePlatformBillingLookup({
         claims,
         billing,
         orgProjectEnv,
+        teamRbac,
         request,
       });
       res.status(200).json({ ok: true, result });

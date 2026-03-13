@@ -201,6 +201,21 @@ export interface DashboardPlatformBillingProject {
   environmentCount: number;
 }
 
+export type DashboardPlatformBillingOrganizationMemberAccess = 'OWNER' | 'ADMIN' | 'MEMBER';
+export type DashboardPlatformBillingOrganizationMemberStatus =
+  | 'ACTIVE'
+  | 'INVITED'
+  | 'SUSPENDED';
+
+export interface DashboardPlatformBillingOrganizationMember {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  status: DashboardPlatformBillingOrganizationMemberStatus;
+  access: DashboardPlatformBillingOrganizationMemberAccess;
+}
+
 export interface DashboardPlatformBillingLookupRequest {
   orgId?: string;
   projectId?: string;
@@ -220,6 +235,7 @@ export interface DashboardPlatformBillingLookupResult {
   project: DashboardPlatformBillingProject | null;
   overview: DashboardBillingOverview;
   activity: DashboardBillingAccountActivityEntry[];
+  teamMembers: DashboardPlatformBillingOrganizationMember[];
 }
 
 interface ConsoleOverviewResponse {
@@ -303,6 +319,13 @@ interface ConsoleBillingErrorBody {
   message?: unknown;
   details?: unknown;
 }
+
+const PLATFORM_BILLING_MEMBER_STATUS_SET = new Set<DashboardPlatformBillingOrganizationMemberStatus>(
+  ['ACTIVE', 'INVITED', 'SUSPENDED'],
+);
+const PLATFORM_BILLING_MEMBER_ACCESS_SET = new Set<DashboardPlatformBillingOrganizationMemberAccess>(
+  ['OWNER', 'ADMIN', 'MEMBER'],
+);
 
 export class DashboardBillingApiError extends Error {
   readonly status: number;
@@ -631,6 +654,50 @@ function decodePlatformBillingProject(raw: unknown): DashboardPlatformBillingPro
   };
 }
 
+function decodePlatformBillingOrganizationMember(
+  raw: unknown,
+): DashboardPlatformBillingOrganizationMember | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  const userId = String(row.userId || '').trim();
+  const email = String(row.email || '').trim();
+  const displayName = String(row.displayName || '').trim();
+  const status = String(row.status || '')
+    .trim()
+    .toUpperCase() as DashboardPlatformBillingOrganizationMemberStatus;
+  const access = String(row.access || '')
+    .trim()
+    .toUpperCase() as DashboardPlatformBillingOrganizationMemberAccess;
+  if (
+    !id ||
+    !userId ||
+    !email ||
+    !displayName ||
+    !PLATFORM_BILLING_MEMBER_STATUS_SET.has(status) ||
+    !PLATFORM_BILLING_MEMBER_ACCESS_SET.has(access)
+  ) {
+    return null;
+  }
+  return {
+    id,
+    userId,
+    email,
+    displayName,
+    status,
+    access,
+  };
+}
+
+function decodePlatformBillingOrganizationMembers(
+  raw: unknown,
+): DashboardPlatformBillingOrganizationMember[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => decodePlatformBillingOrganizationMember(entry))
+    .filter((entry): entry is DashboardPlatformBillingOrganizationMember => entry !== null);
+}
+
 function decodeAccountActivity(
   raw: unknown,
 ): { entries: DashboardBillingAccountActivityEntry[] } | null {
@@ -676,6 +743,7 @@ function decodePlatformBillingLookupResult(
     project: row.project == null ? null : decodePlatformBillingProject(row.project),
     overview,
     activity: activity.entries,
+    teamMembers: decodePlatformBillingOrganizationMembers(row.teamMembers),
   };
 }
 

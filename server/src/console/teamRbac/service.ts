@@ -24,6 +24,10 @@ export interface ConsoleTeamRbacService {
     ctx: ConsoleTeamRbacContext,
     request?: ListConsoleTeamMembersRequest,
   ): Promise<ConsoleTeamMember[]>;
+  listOrganizationMembers?(
+    orgId: string,
+    request?: ListConsoleTeamMembersRequest,
+  ): Promise<ConsoleTeamMember[]>;
   purgeOrganization(ctx: ConsoleTeamRbacContext): Promise<void>;
   transferOwner(
     ctx: ConsoleTeamRbacContext,
@@ -318,6 +322,17 @@ export function createInMemoryConsoleTeamRbacService(
     ): Promise<ConsoleTeamMember[]> {
       ensureActorMembership(ctx);
       const store = ensureOrgStore(ctx.orgId);
+      const status = request?.status;
+      return sortMembers(Array.from(store.members.values()))
+        .filter((member) => (!status ? true : member.status === status))
+        .map(cloneMember);
+    },
+
+    async listOrganizationMembers(
+      orgId: string,
+      request?: ListConsoleTeamMembersRequest,
+    ): Promise<ConsoleTeamMember[]> {
+      const store = ensureOrgStore(orgId);
       const status = request?.status;
       return sortMembers(Array.from(store.members.values()))
         .filter((member) => (!status ? true : member.status === status))

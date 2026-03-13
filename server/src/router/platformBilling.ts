@@ -13,6 +13,11 @@ import type {
   ConsoleOrganization,
   ConsoleProject,
 } from '../console/orgProjectEnv';
+import type {
+  ConsoleTeamMember,
+  ConsoleTeamMembershipStatus,
+  ConsoleTeamRbacService,
+} from '../console/teamRbac';
 import {
   readRequiredStringField,
   readOptionalQueryStringField,
@@ -76,6 +81,22 @@ export interface PlatformBillingLookupResult {
   project: ConsoleProject | null;
   overview: BillingOverview;
   activity: BillingAccountActivityResult;
+  teamMembers: PlatformBillingOrganizationMember[];
+}
+
+export type PlatformBillingOrganizationMemberAccess = 'OWNER' | 'ADMIN' | 'MEMBER';
+export type PlatformBillingOrganizationMemberStatus = Exclude<
+  ConsoleTeamMembershipStatus,
+  'REMOVED'
+>;
+
+export interface PlatformBillingOrganizationMember {
+  id: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  status: PlatformBillingOrganizationMemberStatus;
+  access: PlatformBillingOrganizationMemberAccess;
 }
 
 const DEFAULT_PLATFORM_BILLING_ORGANIZATION_SEARCH_LIMIT = 10;
@@ -137,6 +158,7 @@ export async function resolvePlatformBillingLookup(input: {
   claims: ConsoleAuthClaims;
   billing: ConsoleBillingService;
   orgProjectEnv: ConsoleOrgProjectEnvService;
+  teamRbac: ConsoleTeamRbacService;
   request: PlatformBillingLookupRequest;
 }): Promise<PlatformBillingLookupResult> {
   const requestedOrgId = String(input.request.orgId || '').trim();
@@ -192,9 +214,22 @@ export async function resolvePlatformBillingLookup(input: {
   }
 
   const billingCtx = toPlatformBillingContext(input.claims, targetOrgId);
-  const [overview, activity] = await Promise.all([
+  const listOrganizationMembers = input.teamRbac.listOrganizationMembers;
+  if (typeof listOrganizationMembers !== 'function') {
+    throw new ConsoleBillingError(
+      'team_rbac_platform_lookup_not_supported',
+      501,
+      'Platform billing team member lookup is not configured on this server',
+    );
+  }
+  const [overview, activity, teamMembers] = await Promise.all([
     input.billing.getOverview(billingCtx),
     input.billing.listAccountActivity(billingCtx, input.request.activity),
+    listOrganizationMembers(targetOrgId).then((members) =>
+      members
+        .filter((member): member is ConsoleTeamMember & { status: PlatformBillingOrganizationMemberStatus } => member.status !== 'REMOVED')
+        .map(toPlatformBillingOrganizationMember),
+    ),
   ]);
 
   return {
@@ -203,6 +238,30 @@ export async function resolvePlatformBillingLookup(input: {
     project,
     overview,
     activity,
+    teamMembers,
+  };
+}
+
+function toPlatformBillingOrganizationMemberAccess(
+  member: ConsoleTeamMember,
+): PlatformBillingOrganizationMemberAccess {
+  if (member.roles.some((entry) => entry.role === 'owner')) return 'OWNER';
+  if (member.roles.some((entry) => entry.role === 'admin' || entry.role === 'admin_manage_admins' || entry.role === 'admin_manage_members')) {
+    return 'ADMIN';
+  }
+  return 'MEMBER';
+}
+
+function toPlatformBillingOrganizationMember(
+  member: ConsoleTeamMember & { status: PlatformBillingOrganizationMemberStatus },
+): PlatformBillingOrganizationMember {
+  return {
+    id: member.id,
+    userId: member.userId,
+    email: member.email,
+    displayName: String(member.displayName || '').trim() || member.email || member.userId,
+    status: member.status,
+    access: toPlatformBillingOrganizationMemberAccess(member),
   };
 }
 

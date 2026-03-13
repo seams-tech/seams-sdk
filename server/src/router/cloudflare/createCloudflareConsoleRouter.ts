@@ -3893,10 +3893,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (routePolicy) return routePolicy;
       const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
       if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+      const teamRbacOrResponse = requireTeamRbacService(ctx);
+      if (teamRbacOrResponse instanceof Response) return teamRbacOrResponse;
       const result = await resolvePlatformBillingLookup({
         claims: auth.claims,
         billing,
         orgProjectEnv: orgProjectEnvOrResponse,
+        teamRbac: teamRbacOrResponse,
         request: parsePlatformBillingLookupRequest(
           Object.fromEntries(ctx.url.searchParams.entries()),
         ),
