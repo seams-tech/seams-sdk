@@ -344,6 +344,44 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     const platformSearchRequests: Array<Record<string, string>> = [];
     const lookupRequests: Array<Record<string, string>> = [];
     const manualRequests: Record<string, unknown>[] = [];
+    const recentOrganizations = [
+      {
+        id: 'org_recent_6',
+        name: 'Zeta Labs',
+        slug: 'zeta-labs',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_recent_5',
+        name: 'Yellow Systems',
+        slug: 'yellow-systems',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_recent_4',
+        name: 'Xeno Payments',
+        slug: 'xeno-payments',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_recent_3',
+        name: 'Willow Commerce',
+        slug: 'willow-commerce',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_recent_2',
+        name: 'Vector Wallets',
+        slug: 'vector-wallets',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_recent_1',
+        name: 'Archive Billing',
+        slug: 'archive-billing',
+        status: 'ACTIVE',
+      },
+    ];
     const activityEntries: Record<string, unknown>[] = [
       {
         id: 'ble_purchase_platform_1',
@@ -435,17 +473,22 @@ test.describe('dashboard billing prepaid console api wiring', () => {
         if (method === 'GET' && pathname === '/console/platform/billing/search') {
           platformSearchRequests.push({
             query: String(url.searchParams.get('query') || ''),
+            limit: String(url.searchParams.get('limit') || ''),
           });
+          const query = String(url.searchParams.get('query') || '').trim();
+          const limit = Number(url.searchParams.get('limit') || 0);
           await fulfillJson(route, {
             ok: true,
-            organizations: [
-              {
-                id: 'org_dash_billing_adjustments_target',
-                name: 'Target Billing Org',
-                slug: 'target-billing-org',
-                status: 'ACTIVE',
-              },
-            ],
+            organizations: query
+              ? [
+                  {
+                    id: 'org_dash_billing_adjustments_target',
+                    name: 'Target Billing Org',
+                    slug: 'target-billing-org',
+                    status: 'ACTIVE',
+                  },
+                ]
+              : recentOrganizations.slice(0, limit > 0 ? limit : 10),
           });
           return true;
         }
@@ -558,22 +601,31 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(searchCard.getByRole('button', { name: 'Clear' })).toHaveCount(0);
     await expect(searchCard.getByRole('button', { name: /^Load account$/ })).toHaveCount(0);
 
-    await page.getByLabel('Search').type('org_dash_billing_adjustments_target', { delay: 20 });
-    await expect.poll(() => platformSearchRequests.length).toBeGreaterThan(3);
-    await expect
-      .poll(() =>
-        String(platformSearchRequests[platformSearchRequests.length - 1]?.query || ''),
-      )
-      .toBe('org_dash_billing_adjustments_target');
+    const searchInput = page.getByRole('combobox', { name: 'Search' });
+    await searchInput.click();
+    await expect.poll(() => platformSearchRequests.length).toBe(1);
+    expect(String(platformSearchRequests[0]?.query || '')).toBe('');
+    expect(String(platformSearchRequests[0]?.limit || '')).toBe('5');
 
     const platformSearchDropdown = page.getByRole('listbox', {
       name: 'Platform billing search suggestions',
     });
+    await expect(platformSearchDropdown).toContainText('Zeta Labs');
+    await expect(platformSearchDropdown).toContainText('Yellow Systems');
+    await expect(platformSearchDropdown).toContainText('Xeno Payments');
+    await expect(platformSearchDropdown).toContainText('Willow Commerce');
+    await expect(platformSearchDropdown).toContainText('Vector Wallets');
+    await expect(platformSearchDropdown).not.toContainText('Archive Billing');
+
+    await searchInput.type('org_dash_billing_adjustments_target', { delay: 20 });
+    await expect.poll(() => platformSearchRequests.length).toBeGreaterThan(4);
+    await expect
+      .poll(() => String(platformSearchRequests[platformSearchRequests.length - 1]?.query || ''))
+      .toBe('org_dash_billing_adjustments_target');
+
     await expect(platformSearchDropdown).toContainText('Target Billing Org');
 
-    await platformSearchDropdown
-      .getByRole('option', { name: /Target Billing Org/i })
-      .click();
+    await platformSearchDropdown.getByRole('option', { name: /Target Billing Org/i }).click();
     await expect.poll(() => lookupRequests.length).toBe(1);
     expect(String(lookupRequests[0]?.orgId || '')).toBe('org_dash_billing_adjustments_target');
     expect(String(lookupRequests[0]?.projectId || '')).toBe('');

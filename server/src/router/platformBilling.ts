@@ -14,6 +14,7 @@ import type {
   ConsoleProject,
 } from '../console/orgProjectEnv';
 import {
+  readRequiredStringField,
   readOptionalQueryStringField,
   requireBodyObject,
   requireQueryObject,
@@ -24,7 +25,10 @@ function createParseError(code: string, status: number, message: string): Consol
   return new ConsoleBillingError(code, status, message);
 }
 
-function toPlatformLookupReadContext(claims: ConsoleAuthClaims, orgId: string): {
+function toPlatformLookupReadContext(
+  claims: ConsoleAuthClaims,
+  orgId: string,
+): {
   orgId: string;
   actorUserId: string;
   roles: string[];
@@ -40,7 +44,10 @@ function toPlatformLookupReadContext(claims: ConsoleAuthClaims, orgId: string): 
   };
 }
 
-function toPlatformBillingContext(claims: ConsoleAuthClaims, orgId: string): {
+function toPlatformBillingContext(
+  claims: ConsoleAuthClaims,
+  orgId: string,
+): {
   orgId: string;
   actorUserId: string;
   roles: string[];

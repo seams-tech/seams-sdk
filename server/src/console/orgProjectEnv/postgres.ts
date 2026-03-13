@@ -347,7 +347,9 @@ export async function ensureConsoleOrgProjectEnvPostgresSchema(
     });
   } finally {
     try {
-      await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_ORG_PROJECT_ENV_MIGRATION_LOCK_ID]);
+      await pool.query('SELECT pg_advisory_unlock($1)', [
+        CONSOLE_ORG_PROJECT_ENV_MIGRATION_LOCK_ID,
+      ]);
     } catch {
       // no-op
     }
@@ -527,7 +529,11 @@ export async function createPostgresConsoleOrgProjectEnvService(
               namespace,
               ctx.orgId,
               String(request.name || '').trim() || defaultName,
-              slugify(String(request.slug || '').trim() || String(request.name || '').trim() || defaultName),
+              slugify(
+                String(request.slug || '').trim() ||
+                  String(request.name || '').trim() ||
+                  defaultName,
+              ),
               String(ctx.actorUserId || '').trim() || null,
               nowMs(now),
             ],
@@ -550,13 +556,12 @@ export async function createPostgresConsoleOrgProjectEnvService(
           );
         }
         const nextName = String(request.name || '').trim() || String(base.name || '');
-        const nextSlug =
-          slugify(
-            String(request.slug || '').trim() ||
-              String(base.slug || '') ||
-              nextName ||
-              humanizeId(ctx.orgId, 'Organization'),
-          );
+        const nextSlug = slugify(
+          String(request.slug || '').trim() ||
+            String(base.slug || '') ||
+            nextName ||
+            humanizeId(ctx.orgId, 'Organization'),
+        );
         const updated = await queryOne(
           q,
           `UPDATE console_organizations
@@ -597,10 +602,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
       });
     },
 
-    async listProjects(
-      ctx,
-      request?: ListConsoleProjectsRequest,
-    ): Promise<ConsoleProject[]> {
+    async listProjects(ctx, request?: ListConsoleProjectsRequest): Promise<ConsoleProject[]> {
       return withTenantTx(ctx, async (q) => {
         const where: string[] = ['p.namespace = $1', 'p.org_id = $2'];
         const values: unknown[] = [namespace, ctx.orgId];
@@ -633,10 +635,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
       });
     },
 
-    async createProject(
-      ctx,
-      request: CreateConsoleProjectRequest,
-    ): Promise<ConsoleProject> {
+    async createProject(ctx, request: CreateConsoleProjectRequest): Promise<ConsoleProject> {
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const org = await queryOne(
@@ -761,10 +760,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
       });
     },
 
-    async archiveProject(
-      ctx,
-      projectId: string,
-    ): Promise<ConsoleProject | null> {
+    async archiveProject(ctx, projectId: string): Promise<ConsoleProject | null> {
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const current = await queryOne(
@@ -949,10 +945,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
       });
     },
 
-    async archiveEnvironment(
-      ctx,
-      environmentId: string,
-    ): Promise<ConsoleEnvironment | null> {
+    async archiveEnvironment(ctx, environmentId: string): Promise<ConsoleEnvironment | null> {
       return withTenantTx(ctx, async (q) => {
         const now = nowFn();
         const updated = await queryOne(

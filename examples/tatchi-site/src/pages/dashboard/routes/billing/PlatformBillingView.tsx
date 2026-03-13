@@ -128,9 +128,7 @@ function describeOrganizationTitle(organization: DashboardPlatformBillingOrganiz
 }
 
 function describeOrganizationMeta(organization: DashboardPlatformBillingOrganization): string {
-  return [organization.id, organization.status || 'ACTIVE']
-    .filter(Boolean)
-    .join(' • ');
+  return [organization.id, organization.status || 'ACTIVE'].filter(Boolean).join(' • ');
 }
 
 export function PlatformBillingView(): React.JSX.Element {
@@ -150,9 +148,8 @@ export function PlatformBillingView(): React.JSX.Element {
   );
   const [searchPerformed, setSearchPerformed] = React.useState<boolean>(false);
   const [lookupError, setLookupError] = React.useState<string>('');
-  const [lookupResult, setLookupResult] = React.useState<DashboardPlatformBillingLookupResult | null>(
-    null,
-  );
+  const [lookupResult, setLookupResult] =
+    React.useState<DashboardPlatformBillingLookupResult | null>(null);
   const [activeLookupRequest, setActiveLookupRequest] =
     React.useState<DashboardPlatformBillingLookupRequest | null>(null);
   const [startingAdjustmentKind, setStartingAdjustmentKind] = React.useState<
@@ -189,10 +186,7 @@ export function PlatformBillingView(): React.JSX.Element {
   }, []);
 
   const fetchSearchResults = React.useCallback(
-    async (
-      query: string,
-      limit: number,
-    ): Promise<DashboardPlatformBillingOrganization[]> => {
+    async (query: string, limit: number): Promise<DashboardPlatformBillingOrganization[]> => {
       const results = await searchDashboardPlatformBillingOrganizations({
         query,
         limit,
@@ -269,11 +263,7 @@ export function PlatformBillingView(): React.JSX.Element {
       return;
     }
 
-    void runSearchRequest(
-      normalizedSearchInput,
-      'search',
-      PLATFORM_BILLING_SEARCH_LIMIT,
-    );
+    void runSearchRequest(normalizedSearchInput, 'search', PLATFORM_BILLING_SEARCH_LIMIT);
   }, [normalizedSearchInput, runSearchRequest]);
 
   React.useEffect(() => {
@@ -311,17 +301,14 @@ export function PlatformBillingView(): React.JSX.Element {
     [eventTypeFilter, loadLookup, periodMonthUtcFilter],
   );
 
-  const onSearchInputChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextValue = event.target.value;
-      setSearchInput(nextValue);
-      setSearchError('');
-      setLookupError('');
-      setIsSearchDropdownOpen(Boolean(String(nextValue || '').trim()));
-      setActiveSearchIndex(0);
-    },
-    [],
-  );
+  const onSearchInputChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextValue = event.target.value;
+    setSearchInput(nextValue);
+    setSearchError('');
+    setLookupError('');
+    setIsSearchDropdownOpen(Boolean(String(nextValue || '').trim()));
+    setActiveSearchIndex(0);
+  }, []);
 
   const onSearchFieldFocus = React.useCallback(() => {
     if (normalizedSearchInput) {
@@ -620,7 +607,9 @@ export function PlatformBillingView(): React.JSX.Element {
     <>
       <section className="dashboard-view__section dashboard-billing-filters-panel dashboard-platform-billing-search-card">
         <div className="dashboard-billing-table__intro">
-          <h3 className="dashboard-billing-table__title">Find Customer Organisation Bill Account</h3>
+          <h3 className="dashboard-billing-table__title">
+            Find Customer Organisation Bill Account
+          </h3>
           <div className="dashboard-billing-filters dashboard-platform-billing-search-form">
             <div
               className="dashboard-platform-billing-search-combobox"
@@ -638,7 +627,7 @@ export function PlatformBillingView(): React.JSX.Element {
                   aria-controls={showSearchResults ? searchListboxId : undefined}
                   aria-activedescendant={
                     showSearchResults && activeSearchIndex >= 0 && searchResults[activeSearchIndex]
-                      ? `${searchListboxId}-${buildOrganizationKey(searchResults[activeSearchIndex]!)}` 
+                      ? `${searchListboxId}-${buildOrganizationKey(searchResults[activeSearchIndex]!)}`
                       : undefined
                   }
                   value={searchInput}
@@ -656,7 +645,9 @@ export function PlatformBillingView(): React.JSX.Element {
                   aria-label="Platform billing search suggestions"
                 >
                   {searchLoading ? (
-                    <p className="dashboard-platform-billing-search-dropdown__state">Searching...</p>
+                    <p className="dashboard-platform-billing-search-dropdown__state">
+                      Searching...
+                    </p>
                   ) : searchError ? (
                     <p className="dashboard-platform-billing-search-dropdown__state">
                       Search failed. Refine the query and try again.
@@ -837,9 +828,7 @@ export function PlatformBillingView(): React.JSX.Element {
         </>
       ) : (
         <section className="dashboard-view__section">
-          <p>
-            Search for an organization name or organization ID to load platform billing data.
-          </p>
+          <p>Search for an organization name or organization ID to load platform billing data.</p>
         </section>
       )}
     </>

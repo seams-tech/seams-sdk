@@ -353,10 +353,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
       return { deleted: true, organization };
     },
 
-    async listProjects(
-      ctx,
-      request?: ListConsoleProjectsRequest,
-    ): Promise<ConsoleProject[]> {
+    async listProjects(ctx, request?: ListConsoleProjectsRequest): Promise<ConsoleProject[]> {
       const store = getOrgStore(ctx);
       if (!store) return [];
       const rows = Array.from(store.projects.values()).filter(
@@ -370,10 +367,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
       );
     },
 
-    async createProject(
-      ctx,
-      request: CreateConsoleProjectRequest,
-    ): Promise<ConsoleProject> {
+    async createProject(ctx, request: CreateConsoleProjectRequest): Promise<ConsoleProject> {
       const store = getOrgStore(ctx);
       if (!store) {
         throw new ConsoleOrgProjectEnvError(
@@ -458,10 +452,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
       });
     },
 
-    async archiveProject(
-      ctx,
-      projectId: string,
-    ): Promise<ConsoleProject | null> {
+    async archiveProject(ctx, projectId: string): Promise<ConsoleProject | null> {
       const store = getOrgStore(ctx);
       if (!store) return null;
       const current = store.projects.get(projectId);
@@ -579,10 +570,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
       return cloneEnvironment(current);
     },
 
-    async archiveEnvironment(
-      ctx,
-      environmentId: string,
-    ): Promise<ConsoleEnvironment | null> {
+    async archiveEnvironment(ctx, environmentId: string): Promise<ConsoleEnvironment | null> {
       const store = getOrgStore(ctx);
       if (!store) return null;
       const current = store.environments.get(environmentId);

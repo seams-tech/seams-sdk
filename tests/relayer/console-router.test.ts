@@ -241,26 +241,30 @@ async function seedPostgresWalletRecord(input: {
 }): Promise<void> {
   const pool = await getPostgresPool(input.postgresUrl);
   const createdAtMs = Date.now();
-  await withConsoleTenantContextTx(pool, { namespace: input.namespace, orgId: input.orgId }, async (q) => {
-    await q.query(
-      `INSERT INTO console_wallet_index
+  await withConsoleTenantContextTx(
+    pool,
+    { namespace: input.namespace, orgId: input.orgId },
+    async (q) => {
+      await q.query(
+        `INSERT INTO console_wallet_index
         (namespace, id, org_id, project_id, environment_id, user_id, external_ref_id, address, chain, wallet_type, status, policy_id, balance_minor, last_activity_at_ms, created_at_ms, updated_at_ms)
        VALUES
         ($1, $2, $3, $4, $5, $6, $7, $8, 'Ethereum', 'EOA', 'ACTIVE', NULL, 0, $9, $9, $9)
        ON CONFLICT (namespace, id) DO NOTHING`,
-      [
-        input.namespace,
-        input.walletId,
-        input.orgId,
-        input.projectId,
-        input.environmentId,
-        input.userId,
-        input.externalRefId,
-        input.address,
-        createdAtMs,
-      ],
-    );
-  });
+        [
+          input.namespace,
+          input.walletId,
+          input.orgId,
+          input.projectId,
+          input.environmentId,
+          input.userId,
+          input.externalRefId,
+          input.address,
+          createdAtMs,
+        ],
+      );
+    },
+  );
 }
 
 test.describe('console router (express)', () => {
@@ -613,7 +617,6 @@ test.describe('console router (express)', () => {
       expect(String((approvalFailure?.event?.requestId as string) || '')).toBe(
         'req_obs_policy_publish',
       );
-
     } finally {
       await srv.close();
     }
@@ -702,23 +705,25 @@ test.describe('console router (express)', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-request-id': 'req_obs_billing_reconcile',
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-request-id': 'req_obs_billing_reconcile',
+          },
+          body: JSON.stringify({ checkoutSessionId: 'cs_obs_billing_reconcile' }),
         },
-        body: JSON.stringify({ checkoutSessionId: 'cs_obs_billing_reconcile' }),
-      });
+      );
       expect(res.status).toBe(500);
       expect(res.json?.code).toBe('internal');
 
       await expect
         .poll(
           () =>
-            ingested.filter(
-              (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
-            ).length,
+            ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
+              .length,
         )
         .toBe(1);
 
@@ -787,12 +792,12 @@ test.describe('console router (express)', () => {
       expect(String(webhookFailure?.event?.orgId || '')).toBe(
         'org-observability-express-webhook-invalid',
       );
-      expect(String(getPath(webhookFailure?.event || null, 'metadata', 'stripeEventId') || '')).toBe(
-        'evt_obs_invalid_signature',
-      );
       expect(
-        String(getPath(webhookFailure?.event || null, 'metadata', 'providerRef') || ''),
-      ).toBe('cs_obs_invalid_signature');
+        String(getPath(webhookFailure?.event || null, 'metadata', 'stripeEventId') || ''),
+      ).toBe('evt_obs_invalid_signature');
+      expect(String(getPath(webhookFailure?.event || null, 'metadata', 'providerRef') || '')).toBe(
+        'cs_obs_invalid_signature',
+      );
       expect(String((webhookFailure?.event?.requestId as string) || '')).toBe(
         'req_obs_stripe_invalid_signature',
       );
@@ -1798,7 +1803,9 @@ test.describe('console router (express)', () => {
       });
       expect(created.status).toBe(201);
       expect(String(getPath(created.json, 'approval', 'policyId') || '')).toBe(gasPolicy.id);
-      expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe('Gas publish policy');
+      expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe(
+        'Gas publish policy',
+      );
       expect(String(getPath(created.json, 'approval', 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
 
       const events = await fetchJson(
@@ -2715,10 +2722,9 @@ test.describe('console router (express)', () => {
       const createdGasId = String(getPath(createdGas.json, 'policy', 'id') || '');
       expect(createdGasId.startsWith('policy_')).toBe(true);
 
-      const listedGas = await fetchJson(
-        `${srv.baseUrl}/console/policies?kind=GAS_SPONSORSHIP`,
-        { method: 'GET' },
-      );
+      const listedGas = await fetchJson(`${srv.baseUrl}/console/policies?kind=GAS_SPONSORSHIP`, {
+        method: 'GET',
+      });
       expect(listedGas.status).toBe(200);
       const listedGasRows: unknown[] = Array.isArray(listedGas.json?.policies)
         ? (listedGas.json?.policies as unknown[])
@@ -3084,12 +3090,23 @@ test.describe('console router (express)', () => {
       expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
         'resolved',
       );
-      expect(Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0)).toBe(1);
-      expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id')).toBe(
-        policyId,
-      );
       expect(
-        getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'allowedChainIds', 0),
+        Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0),
+      ).toBe(1);
+      expect(
+        getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id'),
+      ).toBe(policyId);
+      expect(
+        getPath(
+          snapshot.json,
+          'snapshot',
+          'payload',
+          'gasSponsorship',
+          'policies',
+          0,
+          'allowedChainIds',
+          0,
+        ),
       ).toBe(1);
       expect(
         getPath(
@@ -3767,7 +3784,9 @@ test.describe('console router (express)', () => {
         ? (getPath(readiness.json, 'readiness', 'recentWalletSample') as unknown[])
         : [];
       expect(
-        readinessWalletRows.some((row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION'),
+        readinessWalletRows.some(
+          (row) => String(getPath(row, 'policyKind') || '') === 'TRANSACTION',
+        ),
       ).toBe(true);
 
       const governance = await fetchJson(
@@ -3780,12 +3799,7 @@ test.describe('console router (express)', () => {
       expect(Number(getPath(governance.json, 'governance', 'totals', 'requestCount') || 0)).toBe(2);
       expect(
         Number(
-          getPath(
-            governance.json,
-            'governance',
-            'totals',
-            'selectedEnvironmentRequestCount',
-          ) || 0,
+          getPath(governance.json, 'governance', 'totals', 'selectedEnvironmentRequestCount') || 0,
         ),
       ).toBe(1);
       expect(
@@ -4038,18 +4052,24 @@ test.describe('console router (express)', () => {
       const createdVersion = Number(getPath(created.json, 'policy', 'version') || 0);
       expect(policyId).toBeTruthy();
 
-      const updated = await fetchJson(`${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'Express audited policy updated',
-        }),
-      });
+      const updated = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Express audited policy updated',
+          }),
+        },
+      );
       expect(updated.status).toBe(200);
 
-      const deleted = await fetchJson(`${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`, {
-        method: 'DELETE',
-      });
+      const deleted = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
       expect(deleted.status).toBe(200);
 
       const auditEvents = await audit.listEvents(
@@ -4145,7 +4165,9 @@ test.describe('console router (express)', () => {
         },
       );
       expect(createdCheckout.status).toBe(201);
-      const checkoutSessionId = String(getPath(createdCheckout.json, 'checkoutSession', 'id') || '');
+      const checkoutSessionId = String(
+        getPath(createdCheckout.json, 'checkoutSession', 'id') || '',
+      );
       expect(checkoutSessionId).toBeTruthy();
 
       const reconciled = await fetchJson(
@@ -4231,9 +4253,9 @@ test.describe('console router (express)', () => {
       const assignmentByAction = Object.fromEntries(
         assignmentEvents.map((event) => [String(event.action || ''), event]),
       );
-      expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId')).toBe(
-        assignmentId,
-      );
+      expect(
+        getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId'),
+      ).toBe(assignmentId);
       expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'policyId')).toBe(
         policyId,
       );
@@ -4243,9 +4265,9 @@ test.describe('console router (express)', () => {
       expect(
         getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentScopeId'),
       ).toBe('env_policy_assignment_audit_express');
-      expect(getPath(assignmentByAction['policy.assignment.delete'], 'metadata', 'policyName')).toBe(
-        'Express assignment audited policy',
-      );
+      expect(
+        getPath(assignmentByAction['policy.assignment.delete'], 'metadata', 'policyName'),
+      ).toBe('Express assignment audited policy');
       expect(assignmentByAction['policy.assignment.upsert']?.environmentId).toBe(
         'env_policy_assignment_audit_express',
       );
@@ -5123,30 +5145,42 @@ test.describe('console router (express)', () => {
       expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointUrl')).toBe(
         'https://example.com/express-webhook-audit',
       );
-      expect(
-        getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl'),
-      ).toBe('https://example.com/express-webhook-audit-updated');
+      expect(getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl')).toBe(
+        'https://example.com/express-webhook-audit-updated',
+      );
       expect(
         getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'eventCategories'),
       ).toEqual(['billing']);
-      expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId')).toBe(
-        endpointId,
-      );
-      expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId')).toBe(
-        deliveryId,
-      );
       expect(
-        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'requestedDeliveryId'),
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId'),
+      ).toBe(endpointId);
+      expect(
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId'),
+      ).toBe(deliveryId);
+      expect(
+        getPath(
+          webhookByAction['webhook.delivery.replay_requested'],
+          'metadata',
+          'requestedDeliveryId',
+        ),
       ).toBe(deliveryId);
       expect(
         getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'selectionMode'),
       ).toBe('explicit_delivery');
       expect(
-        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryEventType'),
+        getPath(
+          webhookByAction['webhook.delivery.replay_requested'],
+          'metadata',
+          'deliveryEventType',
+        ),
       ).toBe('billing.invoice.generated');
       expect(
         Number(
-          getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'replayCount') || 0,
+          getPath(
+            webhookByAction['webhook.delivery.replay_requested'],
+            'metadata',
+            'replayCount',
+          ) || 0,
         ),
       ).toBe(1);
       expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointId')).toBe(
@@ -5708,9 +5742,7 @@ test.describe('console router (express)', () => {
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(
-        `${srv.baseUrl}/console/platform/billing/search?query=${encodeURIComponent(
-          'watchbook',
-        )}`,
+        `${srv.baseUrl}/console/platform/billing/search?query=${encodeURIComponent('watchbook')}`,
         { method: 'GET' },
       );
       expect(res.status).toBe(200);
@@ -5720,6 +5752,63 @@ test.describe('console router (express)', () => {
       expect(organizations).toHaveLength(1);
       expect(String(organizations[0]?.id || '')).toBe('org-platform-search-primary-express');
       expect(String(organizations[0]?.name || '')).toBe('Watchbook Marketplace');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/platform/billing/search returns the 5 most recent organizations when query is empty', async () => {
+    let currentNow = new Date('2026-03-01T00:00:00.000Z');
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService({
+      now: () => currentNow,
+    });
+    const organizations = [
+      ['org-platform-recent-1-express', 'Recent One'],
+      ['org-platform-recent-2-express', 'Recent Two'],
+      ['org-platform-recent-3-express', 'Recent Three'],
+      ['org-platform-recent-4-express', 'Recent Four'],
+      ['org-platform-recent-5-express', 'Recent Five'],
+      ['org-platform-recent-6-express', 'Recent Six'],
+    ] as const;
+    for (const [index, [orgId, name]] of organizations.entries()) {
+      currentNow = new Date(`2026-03-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`);
+      await orgProjectEnv.upsertOrganization(
+        {
+          orgId,
+          actorUserId: 'platform-user-express',
+          roles: ['platform_admin'],
+        },
+        {
+          name,
+          slug: name.toLowerCase().replace(/\s+/g, '-'),
+        },
+      );
+    }
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-express',
+        'platform-user-express',
+      ),
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/platform/billing/search?query=&limit=5`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(200);
+      const rows = Array.isArray(getPath(res.json, 'organizations'))
+        ? (getPath(res.json, 'organizations') as any[])
+        : [];
+      expect(rows.map((row) => String(row?.id || ''))).toEqual([
+        'org-platform-recent-6-express',
+        'org-platform-recent-5-express',
+        'org-platform-recent-4-express',
+        'org-platform-recent-3-express',
+        'org-platform-recent-2-express',
+      ]);
     } finally {
       await srv.close();
     }
@@ -6944,7 +7033,6 @@ test.describe('console router (cloudflare)', () => {
     expect(String((approvalFailure?.event?.requestId as string) || '')).toBe(
       'req_obs_policy_publish_cf',
     );
-
   });
 
   test('cloudflare billing document finalization failures emit billing observability events', async () => {
@@ -7102,9 +7190,7 @@ test.describe('console router (cloudflare)', () => {
       (entry) => entry.event.eventType === 'billing.stripe_webhook.invalid_signature',
     );
     expect(webhookFailure).toBeTruthy();
-    expect(String(webhookFailure?.event?.orgId || '')).toBe(
-      'org-observability-cf-webhook-invalid',
-    );
+    expect(String(webhookFailure?.event?.orgId || '')).toBe('org-observability-cf-webhook-invalid');
     expect(String(getPath(webhookFailure?.event || null, 'metadata', 'stripeEventId') || '')).toBe(
       'evt_obs_invalid_signature_cf',
     );
@@ -8039,7 +8125,9 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(created.status).toBe(201);
     expect(String(getPath(created.json, 'approval', 'policyId') || '')).toBe(gasPolicy.id);
-    expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe('Gas publish policy CF');
+    expect(String(getPath(created.json, 'approval', 'policyName') || '')).toBe(
+      'Gas publish policy CF',
+    );
     expect(String(getPath(created.json, 'approval', 'policyKind') || '')).toBe('GAS_SPONSORSHIP');
 
     const events = await callCf(handler, {
@@ -9211,12 +9299,23 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'status')).toBe(
       'resolved',
     );
-    expect(Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0)).toBe(1);
-    expect(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id')).toBe(
-      policyId,
-    );
     expect(
-      getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'allowedChainIds', 0),
+      Number(getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policyCount') || 0),
+    ).toBe(1);
+    expect(
+      getPath(snapshot.json, 'snapshot', 'payload', 'gasSponsorship', 'policies', 0, 'id'),
+    ).toBe(policyId);
+    expect(
+      getPath(
+        snapshot.json,
+        'snapshot',
+        'payload',
+        'gasSponsorship',
+        'policies',
+        0,
+        'allowedChainIds',
+        0,
+      ),
     ).toBe(1);
     expect(
       getPath(
@@ -9847,12 +9946,7 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(governance.json, 'governance', 'totals', 'requestCount') || 0)).toBe(2);
     expect(
       Number(
-        getPath(
-          governance.json,
-          'governance',
-          'totals',
-          'selectedEnvironmentRequestCount',
-        ) || 0,
+        getPath(governance.json, 'governance', 'totals', 'selectedEnvironmentRequestCount') || 0,
       ),
     ).toBe(1);
     expect(
@@ -10117,9 +10211,7 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'projectId')).toBe(
       'proj_policy_audit_cloudflare',
     );
-    expect(lifecycleByAction['policy.delete']?.environmentId).toBe(
-      'env_policy_audit_cloudflare',
-    );
+    expect(lifecycleByAction['policy.delete']?.environmentId).toBe('env_policy_audit_cloudflare');
     expect(lifecycleByAction['policy.delete']?.projectId).toBe('proj_policy_audit_cloudflare');
     expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'policyName')).toBe(
       'Cloudflare audited policy',
@@ -10236,9 +10328,7 @@ test.describe('console router (cloudflare)', () => {
       { category: 'POLICY', limit: 20 },
     );
     const assignmentEvents = auditEvents.filter((event) =>
-      ['policy.assignment.upsert', 'policy.assignment.delete'].includes(
-        String(event.action || ''),
-      ),
+      ['policy.assignment.upsert', 'policy.assignment.delete'].includes(String(event.action || '')),
     );
     expect(assignmentEvents.map((event) => String(event.action || '')).sort()).toEqual([
       'policy.assignment.delete',
@@ -10247,9 +10337,9 @@ test.describe('console router (cloudflare)', () => {
     const assignmentByAction = Object.fromEntries(
       assignmentEvents.map((event) => [String(event.action || ''), event]),
     );
-    expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId')).toBe(
-      assignmentId,
-    );
+    expect(
+      getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId'),
+    ).toBe(assignmentId);
     expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'policyId')).toBe(
       policyId,
     );
@@ -11044,30 +11134,39 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointUrl')).toBe(
       'https://example.com/cloudflare-webhook-audit',
     );
-    expect(
-      getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl'),
-    ).toBe('https://example.com/cloudflare-webhook-audit-updated');
+    expect(getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl')).toBe(
+      'https://example.com/cloudflare-webhook-audit-updated',
+    );
     expect(
       getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'eventCategories'),
     ).toEqual(['billing']);
-    expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId')).toBe(
-      endpointId,
-    );
-    expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId')).toBe(
-      deliveryId,
-    );
     expect(
-      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'requestedDeliveryId'),
+      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId'),
+    ).toBe(endpointId);
+    expect(
+      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId'),
+    ).toBe(deliveryId);
+    expect(
+      getPath(
+        webhookByAction['webhook.delivery.replay_requested'],
+        'metadata',
+        'requestedDeliveryId',
+      ),
     ).toBe(deliveryId);
     expect(
       getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'selectionMode'),
     ).toBe('explicit_delivery');
     expect(
-      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryEventType'),
+      getPath(
+        webhookByAction['webhook.delivery.replay_requested'],
+        'metadata',
+        'deliveryEventType',
+      ),
     ).toBe('billing.invoice.generated');
     expect(
       Number(
-        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'replayCount') || 0,
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'replayCount') ||
+          0,
       ),
     ).toBe(1);
     expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointId')).toBe(
@@ -11409,9 +11508,7 @@ test.describe('console router (cloudflare)', () => {
     expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
     expect(getPath(reconciled.json, 'result', 'settledNow')).toBe(true);
     expect(getPath(reconciled.json, 'result', 'purchase', 'status')).toBe('SETTLED');
-    expect(getPath(reconciled.json, 'result', 'invoice', 'documentType')).toBe(
-      'PURCHASE_RECEIPT',
-    );
+    expect(getPath(reconciled.json, 'result', 'invoice', 'documentType')).toBe('PURCHASE_RECEIPT');
 
     const duplicate = await callCf(handler, {
       method: 'POST',
@@ -11554,9 +11651,7 @@ test.describe('console router (cloudflare)', () => {
     });
     const res = await callCf(handler, {
       method: 'GET',
-      path: `/console/platform/billing/search?query=${encodeURIComponent(
-        'watchbook',
-      )}`,
+      path: `/console/platform/billing/search?query=${encodeURIComponent('watchbook')}`,
     });
     expect(res.status).toBe(200);
     const organizations = Array.isArray(getPath(res.json, 'organizations'))
@@ -11565,6 +11660,59 @@ test.describe('console router (cloudflare)', () => {
     expect(organizations).toHaveLength(1);
     expect(String(organizations[0]?.id || '')).toBe('org-platform-search-primary-cloudflare');
     expect(String(organizations[0]?.name || '')).toBe('Watchbook Marketplace');
+  });
+
+  test('GET /console/platform/billing/search returns the 5 most recent organizations when query is empty', async () => {
+    let currentNow = new Date('2026-03-01T00:00:00.000Z');
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService({
+      now: () => currentNow,
+    });
+    const organizations = [
+      ['org-platform-recent-1-cloudflare', 'Recent One'],
+      ['org-platform-recent-2-cloudflare', 'Recent Two'],
+      ['org-platform-recent-3-cloudflare', 'Recent Three'],
+      ['org-platform-recent-4-cloudflare', 'Recent Four'],
+      ['org-platform-recent-5-cloudflare', 'Recent Five'],
+      ['org-platform-recent-6-cloudflare', 'Recent Six'],
+    ] as const;
+    for (const [index, [orgId, name]] of organizations.entries()) {
+      currentNow = new Date(`2026-03-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`);
+      await orgProjectEnv.upsertOrganization(
+        {
+          orgId,
+          actorUserId: 'platform-user-cloudflare',
+          roles: ['platform_admin'],
+        },
+        {
+          name,
+          slug: name.toLowerCase().replace(/\s+/g, '-'),
+        },
+      );
+    }
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-cloudflare',
+        'platform-user-cloudflare',
+      ),
+      orgProjectEnv,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/platform/billing/search?query=&limit=5',
+    });
+    expect(res.status).toBe(200);
+    const rows = Array.isArray(getPath(res.json, 'organizations'))
+      ? (getPath(res.json, 'organizations') as any[])
+      : [];
+    expect(rows.map((row) => String(row?.id || ''))).toEqual([
+      'org-platform-recent-6-cloudflare',
+      'org-platform-recent-5-cloudflare',
+      'org-platform-recent-4-cloudflare',
+      'org-platform-recent-3-cloudflare',
+      'org-platform-recent-2-cloudflare',
+    ]);
   });
 
   test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform_admin', async () => {
@@ -14210,12 +14358,8 @@ test.describe('console router (postgres api keys)', () => {
     expect(ownerGovernance.status).toBe(200);
     expect(
       Number(
-        getPath(
-          ownerGovernance.json,
-          'governance',
-          'totals',
-          'selectedEnvironmentRequestCount',
-        ) || 0,
+        getPath(ownerGovernance.json, 'governance', 'totals', 'selectedEnvironmentRequestCount') ||
+          0,
       ),
     ).toBeGreaterThanOrEqual(1);
 
