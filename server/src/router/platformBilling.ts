@@ -15,7 +15,6 @@ import type {
 } from '../console/orgProjectEnv';
 import {
   readOptionalQueryStringField,
-  readRequiredStringField,
   requireBodyObject,
   requireQueryObject,
 } from '../console/shared/requestParse';
@@ -109,12 +108,8 @@ export function parsePlatformBillingSearchRequest(
   query: unknown,
 ): PlatformBillingOrganizationSearchRequest {
   const obj = requireQueryObject(query, createParseError);
-  const requestQuery = readRequiredStringField(obj, 'query', createParseError).trim();
-  if (!requestQuery) {
-    throw new ConsoleBillingError('invalid_query', 400, 'Query parameter query is required');
-  }
   return {
-    query: requestQuery,
+    query: readOptionalQueryStringField(obj, 'query') || '',
     limit: normalizePlatformBillingSearchLimit((obj as Record<string, unknown>).limit),
   };
 }
