@@ -16,6 +16,7 @@ import {
   type PostgresConsoleWebhookRetryDispatchOptions,
   type PostgresConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks';
+import type { ConsoleObservabilityIngestionService } from '../../console/observability';
 import type { ScheduledHandler } from './types';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -207,6 +208,10 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
    * Optional runner override for tests.
    */
   runner?: WebhookRetryDispatchRunner;
+  /**
+   * Optional observability ingestion service forwarded to the retry runner.
+   */
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
    * Optional lock provider override for tests.
    */
@@ -532,6 +537,7 @@ export function createCloudflareCron(
               initialBackoffMs: webhookRetryDispatch?.initialBackoffMs,
               maxBackoffMs: webhookRetryDispatch?.maxBackoffMs,
               ensureSchema: webhookRetryDispatch?.ensureSchema,
+              observabilityIngestion: webhookRetryDispatch?.observabilityIngestion,
               logger: logger as any,
             });
             logger.info('[cron][webhook-retry-dispatch] completed', {

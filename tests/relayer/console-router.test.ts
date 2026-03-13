@@ -32,6 +32,7 @@ import {
   type ConsoleAuditExportsService,
   type ConsoleAuthAdapter,
   type ConsoleBillingService,
+  type ConsoleObservabilityService,
   type ConsoleEnterpriseIsolationService,
   type ConsoleObservabilityIngestionService,
   type ConsoleOrgProjectEnvService,
@@ -90,6 +91,48 @@ function makeObservabilityIngestionCollector(
         });
       }
       return { accepted: events.length, deduplicated: 0 };
+    },
+  };
+}
+
+function makeObservabilityRequestRecorder(): {
+  requests: Array<Record<string, unknown>>;
+  service: ConsoleObservabilityService;
+} {
+  const requests: Array<Record<string, unknown>> = [];
+  return {
+    requests,
+    service: {
+      async getSummary() {
+        return {
+          generatedAt: new Date('2026-03-13T00:00:00.000Z').toISOString(),
+          status: { state: 'ok' },
+          errorRate: 0,
+          p95LatencyMs: 0,
+          failingServices: 0,
+          deadLetterCount: 0,
+        };
+      },
+      async listEvents(_ctx, request = {}) {
+        requests.push({ ...request });
+        return {
+          status: { state: 'ok' },
+          events: [],
+          totalPages: 1,
+        };
+      },
+      async getTimeseries() {
+        return {
+          status: { state: 'ok' },
+          buckets: [],
+        };
+      },
+      async listServices() {
+        return {
+          status: { state: 'ok' },
+          services: [],
+        };
+      },
     },
   };
 }
@@ -482,6 +525,39 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('GET /console/observability/events forwards component and query filters to observability service', async () => {
+    const recorder = makeObservabilityRequestRecorder();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-express-component',
+        'user-observability-express-component',
+      ),
+      observability: recorder.service,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/observability/events?query=invoice&level=ERROR&service=billing&component=checkout_reconcile&eventType=billing.payment_reconcile.failed&from=2026-03-12T00:00:00.000Z&to=2026-03-13T00:00:00.000Z&limit=25`,
+        { method: 'GET' },
+      );
+      expect(res.status).toBe(200);
+      expect(recorder.requests).toHaveLength(1);
+      expect(recorder.requests[0]).toMatchObject({
+        query: 'invoice',
+        level: 'ERROR',
+        service: 'billing',
+        component: 'checkout_reconcile',
+        eventType: 'billing.payment_reconcile.failed',
+        from: '2026-03-12T00:00:00.000Z',
+        to: '2026-03-13T00:00:00.000Z',
+        limit: 25,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('policy publish failures emit approval observability events (express)', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
@@ -596,6 +672,197 @@ test.describe('console router (express)', () => {
       );
       expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
         'req_obs_billing_finalize',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing checkout reconcile failures emit payment reconcile observability events (express)', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      reconcileStripeCheckoutSession: async () => {
+        throw new Error('checkout reconcile failed');
+      },
+    };
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-express-reconcile',
+        'user-observability-express-reconcile',
+      ),
+      billing: failingBilling,
+      observabilityIngestion,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-request-id': 'req_obs_billing_reconcile',
+        },
+        body: JSON.stringify({ checkoutSessionId: 'cs_obs_billing_reconcile' }),
+      });
+      expect(res.status).toBe(500);
+      expect(res.json?.code).toBe('internal');
+
+      await expect
+        .poll(
+          () =>
+            ingested.filter(
+              (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+            ).length,
+        )
+        .toBe(1);
+
+      const billingFailure = ingested.find(
+        (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+      );
+      expect(billingFailure).toBeTruthy();
+      expect(String(getPath(billingFailure?.event || null, 'metadata', 'operation') || '')).toBe(
+        'PAYMENT_RECONCILE',
+      );
+      expect(String(getPath(billingFailure?.event || null, 'metadata', 'providerRef') || '')).toBe(
+        'cs_obs_billing_reconcile',
+      );
+      expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
+        'req_obs_billing_reconcile',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('invalid Stripe webhook secrets emit invalid signature observability events (express)', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const router = createConsoleRouter({
+      billing: createInMemoryConsoleBillingService(),
+      billingStripeWebhookSecret: 'whsec_expected_express',
+      observabilityIngestion,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-console-stripe-webhook-secret': 'whsec_wrong_express',
+          'x-request-id': 'req_obs_stripe_invalid_signature',
+        },
+        body: JSON.stringify({
+          eventId: 'evt_obs_invalid_signature',
+          eventType: 'checkout.session.completed',
+          orgId: 'org-observability-express-webhook-invalid',
+          checkoutSessionId: 'cs_obs_invalid_signature',
+          providerRef: 'cs_obs_invalid_signature',
+        }),
+      });
+      expect(res.status).toBe(401);
+      expect(res.json?.code).toBe('unauthorized');
+
+      await expect
+        .poll(
+          () =>
+            ingested.filter(
+              (entry) => entry.event.eventType === 'billing.stripe_webhook.invalid_signature',
+            ).length,
+        )
+        .toBe(1);
+
+      const webhookFailure = ingested.find(
+        (entry) => entry.event.eventType === 'billing.stripe_webhook.invalid_signature',
+      );
+      expect(webhookFailure).toBeTruthy();
+      expect(String(webhookFailure?.event?.orgId || '')).toBe(
+        'org-observability-express-webhook-invalid',
+      );
+      expect(String(getPath(webhookFailure?.event || null, 'metadata', 'stripeEventId') || '')).toBe(
+        'evt_obs_invalid_signature',
+      );
+      expect(
+        String(getPath(webhookFailure?.event || null, 'metadata', 'providerRef') || ''),
+      ).toBe('cs_obs_invalid_signature');
+      expect(String((webhookFailure?.event?.requestId as string) || '')).toBe(
+        'req_obs_stripe_invalid_signature',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Stripe webhook processing failures emit processing observability events (express)', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      processStripeWebhookEvent: async () => {
+        throw new Error('stripe webhook processing failed');
+      },
+    };
+    const router = createConsoleRouter({
+      billing: failingBilling,
+      billingStripeWebhookSecret: 'whsec_expected_processing_express',
+      observabilityIngestion,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/stripe/webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-console-stripe-webhook-secret': 'whsec_expected_processing_express',
+          'x-request-id': 'req_obs_stripe_processing',
+        },
+        body: JSON.stringify({
+          eventId: 'evt_obs_processing_failed',
+          eventType: 'checkout.session.completed',
+          orgId: 'org-observability-express-webhook-processing',
+          checkoutSessionId: 'cs_obs_processing_failed',
+          providerRef: 'cs_obs_processing_failed',
+        }),
+      });
+      expect(res.status).toBe(500);
+      expect(res.json?.code).toBe('internal');
+
+      await expect
+        .poll(
+          () =>
+            ingested.filter(
+              (entry) => entry.event.eventType === 'billing.stripe_webhook.processing.failed',
+            ).length,
+        )
+        .toBe(1);
+
+      const webhookFailure = ingested.find(
+        (entry) => entry.event.eventType === 'billing.stripe_webhook.processing.failed',
+      );
+      expect(webhookFailure).toBeTruthy();
+      expect(String(webhookFailure?.event?.orgId || '')).toBe(
+        'org-observability-express-webhook-processing',
+      );
+      expect(String(getPath(webhookFailure?.event || null, 'metadata', 'failureCode') || '')).toBe(
+        'internal',
+      );
+      expect(
+        String(getPath(webhookFailure?.event || null, 'metadata', 'checkoutSessionId') || ''),
+      ).toBe('cs_obs_processing_failed');
+      expect(String((webhookFailure?.event?.requestId as string) || '')).toBe(
+        'req_obs_stripe_processing',
       );
     } finally {
       await srv.close();
@@ -2363,7 +2630,7 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('GET /console/export/governance returns api_keys_not_configured without API key service', async () => {
+  test('GET /console/export/governance returns key_exports_not_configured without key export service', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       wallets: createInMemoryConsoleWalletService(),
@@ -2372,7 +2639,7 @@ test.describe('console router (express)', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/console/export/governance`, { method: 'GET' });
       expect(res.status).toBe(501);
-      expect(res.json?.code).toBe('api_keys_not_configured');
+      expect(res.json?.code).toBe('key_exports_not_configured');
     } finally {
       await srv.close();
     }
@@ -2853,6 +3120,18 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoint mutations enforce role gates', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const auditExports = createInMemoryConsoleAuditExportsService();
+    const billing = createInMemoryConsoleBillingService();
+    const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const approvals = createInMemoryConsoleApprovalService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      apiKeys,
+      orgProjectEnv,
+      teamRbac,
+    });
     const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
@@ -2863,6 +3142,14 @@ test.describe('console router (express)', () => {
         'org-scaffold-express-rbac-1',
         'user-scaffold-express-rbac-1',
       ),
+      onboarding,
+      orgProjectEnv,
+      teamRbac,
+      approvals,
+      apiKeys,
+      auditExports,
+      billing,
+      enterpriseIsolation,
       policies,
       smartWallets,
       keyExports,
@@ -2880,6 +3167,105 @@ test.describe('console router (express)', () => {
       });
       expect(gasCreate.status).toBe(403);
       expect(gasCreate.json?.code).toBe('forbidden');
+
+      const configureOnboardingOrganization = await fetchJson(
+        `${srv.baseUrl}/console/onboarding/organization`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'Forbidden onboarding organization express',
+            slug: 'forbidden-onboarding-org-express',
+          }),
+        },
+      );
+      expect(configureOnboardingOrganization.status).toBe(403);
+      expect(configureOnboardingOrganization.json?.code).toBe('forbidden');
+
+      const createProject = await fetchJson(`${srv.baseUrl}/console/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'proj-express-rbac-1',
+          name: 'Forbidden project express',
+        }),
+      });
+      expect(createProject.status).toBe(403);
+      expect(createProject.json?.code).toBe('forbidden');
+
+      const inviteMember = await fetchJson(`${srv.baseUrl}/console/members/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'member-express-rbac-1',
+          email: 'forbidden-member-express@example.com',
+          roles: [{ role: 'overview_read' }],
+        }),
+      });
+      expect(inviteMember.status).toBe(403);
+      expect(inviteMember.json?.code).toBe('forbidden');
+
+      const createApproval = await fetchJson(`${srv.baseUrl}/console/approvals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operationType: 'KEY_EXPORT',
+          reason: 'Forbidden approval request express',
+        }),
+      });
+      expect(createApproval.status).toBe(403);
+      expect(createApproval.json?.code).toBe('forbidden');
+
+      const createAuditExport = await fetchJson(`${srv.baseUrl}/console/audit/exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'aexp-express-rbac-1',
+          format: 'JSONL',
+          domain: 'POLICY',
+        }),
+      });
+      expect(createAuditExport.status).toBe(403);
+      expect(createAuditExport.json?.code).toBe('forbidden');
+
+      const triggerIsolation = await fetchJson(`${srv.baseUrl}/console/isolation/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scope: 'ORG',
+          trigger: 'COMPLIANCE',
+          reason: 'Forbidden isolation express',
+        }),
+      });
+      expect(triggerIsolation.status).toBe(403);
+      expect(triggerIsolation.json?.code).toBe('forbidden');
+
+      const createKeyExport = await fetchJson(`${srv.baseUrl}/console/key-exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'ke-express-rbac-1',
+          environmentId: 'prod',
+          reason: 'Trying as developer',
+          requiredApprovals: 1,
+        }),
+      });
+      expect(createKeyExport.status).toBe(403);
+      expect(createKeyExport.json?.code).toBe('forbidden');
+
+      const createSmartWallet = await fetchJson(`${srv.baseUrl}/console/smart-wallets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: 'sw-express-rbac-1',
+          scopeType: 'ENVIRONMENT',
+          environmentId: 'prod',
+          mode: 'REQUIRED',
+          accountType: 'SMART_ACCOUNT',
+        }),
+      });
+      expect(createSmartWallet.status).toBe(403);
+      expect(createSmartWallet.json?.code).toBe('forbidden');
 
       const approve = await fetchJson(
         `${srv.baseUrl}/console/key-exports/ke-express-rbac-1/approve`,
@@ -2922,6 +3308,32 @@ test.describe('console router (express)', () => {
       );
       expect(publishCurrentSnapshot.status).toBe(403);
       expect(publishCurrentSnapshot.json?.code).toBe('forbidden');
+
+      const generateInvoice = await fetchJson(`${srv.baseUrl}/console/billing/invoices/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodMonthUtc: '2026-01',
+        }),
+      });
+      expect(generateInvoice.status).toBe(403);
+      expect(generateInvoice.json?.code).toBe('forbidden');
+
+      const appendSupportCredit = await fetchJson(
+        `${srv.baseUrl}/console/billing/adjustments/support-credit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: 100,
+            reasonCode: 'incident_credit',
+            note: 'Forbidden support credit express',
+            idempotencyKey: 'manual-credit-express-rbac',
+          }),
+        },
+      );
+      expect(appendSupportCredit.status).toBe(403);
+      expect(appendSupportCredit.json?.code).toBe('forbidden');
     } finally {
       await srv.close();
     }
@@ -3273,7 +3685,7 @@ test.describe('console router (express)', () => {
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [wallet],
     });
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const keyExports = createInMemoryConsoleKeyExportService();
     const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -3284,35 +3696,48 @@ test.describe('console router (express)', () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-express-1'),
       wallets,
-      apiKeys,
+      keyExports,
       policies,
       orgProjectEnv,
     });
     const srv = await startExpressRouter(router);
     try {
-      const createdExportKey = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'export-key',
+      await keyExports.createKeyExport(
+        {
+          orgId,
+          actorUserId: 'user-insights-express-1',
+          roles: ['admin'],
+        },
+        {
           environmentId,
-          kind: 'secret_key',
-          scopes: ['wallets:read', 'keys:export'],
-        }),
-      });
-      expect(createdExportKey.status).toBe(201);
+          reason: 'Break-glass recovery for production wallet',
+        },
+      );
 
-      const createdNonExportKey = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'non-export-key',
-          environmentId,
-          kind: 'secret_key',
-          scopes: ['wallets:read'],
-        }),
-      });
-      expect(createdNonExportKey.status).toBe(201);
+      const approvedRequest = await keyExports.createKeyExport(
+        {
+          orgId,
+          actorUserId: 'user-insights-approver-1',
+          roles: ['admin'],
+        },
+        {
+          environmentId: `${projectId}:stage`,
+          reason: 'Stage export drill',
+          requiredApprovals: 1,
+        },
+      );
+      await keyExports.approveKeyExport(
+        {
+          orgId,
+          actorUserId: 'user-insights-approver-1',
+          roles: ['admin'],
+        },
+        approvedRequest.id,
+        {
+          reason: 'Approved stage export drill',
+          mfaVerified: true,
+        },
+      );
 
       const coverage = await fetchJson(`${srv.baseUrl}/console/policy/coverage`, { method: 'GET' });
       expect(coverage.status).toBe(200);
@@ -3352,19 +3777,19 @@ test.describe('console router (express)', () => {
         },
       );
       expect(governance.status).toBe(200);
-      expect(Number(getPath(governance.json, 'governance', 'totals', 'apiKeyCount') || 0)).toBe(2);
-      expect(
-        Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0),
-      ).toBe(1);
+      expect(Number(getPath(governance.json, 'governance', 'totals', 'requestCount') || 0)).toBe(2);
       expect(
         Number(
           getPath(
             governance.json,
             'governance',
             'totals',
-            'selectedEnvironmentExportScopedKeyCount',
+            'selectedEnvironmentRequestCount',
           ) || 0,
         ),
+      ).toBe(1);
+      expect(
+        Number(getPath(governance.json, 'governance', 'totals', 'pendingApprovalCount') || 0),
       ).toBe(1);
     } finally {
       await srv.close();
@@ -3575,6 +4000,341 @@ test.describe('console router (express)', () => {
       });
       expect(created.status).toBe(400);
       expect(created.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy create, update, and delete append audit rows', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-audit-express',
+        'user-policy-audit-express',
+      ),
+      policies,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Express audited policy',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            projectId: 'proj_policy_audit_express',
+            environmentId: 'env_policy_audit_express',
+            enabled: true,
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const policyId = String(getPath(created.json, 'policy', 'id') || '');
+      const createdVersion = Number(getPath(created.json, 'policy', 'version') || 0);
+      expect(policyId).toBeTruthy();
+
+      const updated = await fetchJson(`${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Express audited policy updated',
+        }),
+      });
+      expect(updated.status).toBe(200);
+
+      const deleted = await fetchJson(`${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}`, {
+        method: 'DELETE',
+      });
+      expect(deleted.status).toBe(200);
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-policy-audit-express',
+          actorUserId: 'user-policy-audit-express',
+          roles: ['admin'],
+        },
+        { category: 'POLICY', limit: 20 },
+      );
+      const lifecycleEvents = auditEvents.filter((event) =>
+        ['policy.create', 'policy.update', 'policy.delete'].includes(String(event.action || '')),
+      );
+      expect(lifecycleEvents.map((event) => String(event.action || '')).sort()).toEqual([
+        'policy.create',
+        'policy.delete',
+        'policy.update',
+      ]);
+      expect(lifecycleEvents.every((event) => event.category === 'POLICY')).toBe(true);
+      const lifecycleByAction = Object.fromEntries(
+        lifecycleEvents.map((event) => [String(event.action || ''), event]),
+      );
+      expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyId')).toBe(policyId);
+      expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyName')).toBe(
+        'Express audited policy updated',
+      );
+      expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyKind')).toBe(
+        'GAS_SPONSORSHIP',
+      );
+      expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'environmentId')).toBe(
+        'env_policy_audit_express',
+      );
+      expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'projectId')).toBe(
+        'proj_policy_audit_express',
+      );
+      expect(lifecycleByAction['policy.delete']?.environmentId).toBe('env_policy_audit_express');
+      expect(lifecycleByAction['policy.delete']?.projectId).toBe('proj_policy_audit_express');
+      expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'policyName')).toBe(
+        'Express audited policy',
+      );
+      expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'version')).toBe(
+        createdVersion,
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('successful policy create and Stripe top-up do not append durable observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-success-express',
+        'user-observability-success-express',
+      ),
+      policies: createInMemoryConsolePolicyService(),
+      billing: createInMemoryConsoleBillingService(),
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const createdPolicy = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Healthy observability policy',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            projectId: 'proj_obs_success_express',
+            environmentId: 'env_obs_success_express',
+            enabled: true,
+          },
+        }),
+      });
+      expect(createdPolicy.status).toBe(201);
+      expect(String(getPath(createdPolicy.json, 'policy', 'id') || '')).toBeTruthy();
+
+      const createdCheckout = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+            cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+            creditPackId: 'usd_25',
+          }),
+        },
+      );
+      expect(createdCheckout.status).toBe(201);
+      const checkoutSessionId = String(getPath(createdCheckout.json, 'checkoutSession', 'id') || '');
+      expect(checkoutSessionId).toBeTruthy();
+
+      const reconciled = await fetchJson(
+        `${srv.baseUrl}/console/billing/stripe/checkout-session/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ checkoutSessionId }),
+        },
+      );
+      expect(reconciled.status).toBe(200);
+      expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
+
+      expect(ingested).toEqual([]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy assignment upsert and delete append audit rows', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-assignment-audit-express',
+        'user-policy-assignment-audit-express',
+      ),
+      policies,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Express assignment audited policy',
+        }),
+      });
+      expect(created.status).toBe(201);
+      const policyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(policyId).toBeTruthy();
+
+      const assignmentUpsert = await fetchJson(`${srv.baseUrl}/console/policies/assignments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeType: 'ENVIRONMENT',
+          scopeId: 'env_policy_assignment_audit_express',
+          policyId,
+        }),
+      });
+      expect(assignmentUpsert.status).toBe(200);
+      const assignmentId = String(getPath(assignmentUpsert.json, 'assignment', 'id') || '');
+      expect(assignmentId).toBeTruthy();
+
+      const assignmentDelete = await fetchJson(
+        `${srv.baseUrl}/console/policies/assignments/${encodeURIComponent(assignmentId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+      expect(assignmentDelete.status).toBe(200);
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-policy-assignment-audit-express',
+          actorUserId: 'user-policy-assignment-audit-express',
+          roles: ['admin'],
+        },
+        { category: 'POLICY', limit: 20 },
+      );
+      const assignmentEvents = auditEvents.filter((event) =>
+        ['policy.assignment.upsert', 'policy.assignment.delete'].includes(
+          String(event.action || ''),
+        ),
+      );
+      expect(assignmentEvents.map((event) => String(event.action || '')).sort()).toEqual([
+        'policy.assignment.delete',
+        'policy.assignment.upsert',
+      ]);
+      const assignmentByAction = Object.fromEntries(
+        assignmentEvents.map((event) => [String(event.action || ''), event]),
+      );
+      expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId')).toBe(
+        assignmentId,
+      );
+      expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'policyId')).toBe(
+        policyId,
+      );
+      expect(
+        getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentScopeType'),
+      ).toBe('ENVIRONMENT');
+      expect(
+        getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentScopeId'),
+      ).toBe('env_policy_assignment_audit_express');
+      expect(getPath(assignmentByAction['policy.assignment.delete'], 'metadata', 'policyName')).toBe(
+        'Express assignment audited policy',
+      );
+      expect(assignmentByAction['policy.assignment.upsert']?.environmentId).toBe(
+        'env_policy_assignment_audit_express',
+      );
+      expect(assignmentByAction['policy.assignment.delete']?.environmentId).toBe(
+        'env_policy_assignment_audit_express',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('policy publish appends audit row with final version and scope metadata', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-publish-audit-express',
+        'user-policy-publish-audit-express',
+      ),
+      policies,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/policies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'GAS_SPONSORSHIP',
+          name: 'Express published audit policy',
+          rules: {
+            scopeType: 'ENVIRONMENT',
+            projectId: 'proj_policy_publish_audit_express',
+            environmentId: 'env_policy_publish_audit_express',
+            enabled: true,
+            allowedChainIds: [1],
+            spendCap: {
+              mode: 'CHAIN_TOTAL',
+              period: 'MONTHLY',
+              capsByChain: [{ chainId: 1, capMinor: 500000 }],
+            },
+          },
+        }),
+      });
+      expect(created.status).toBe(201);
+      const policyId = String(getPath(created.json, 'policy', 'id') || '');
+      expect(policyId).toBeTruthy();
+
+      const published = await fetchJson(
+        `${srv.baseUrl}/console/policies/${encodeURIComponent(policyId)}/publish`,
+        {
+          method: 'POST',
+        },
+      );
+      expect(published.status).toBe(200);
+      expect(getPath(published.json, 'result', 'published')).toBe(true);
+      expect(getPath(published.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+      expect(Number(getPath(published.json, 'result', 'policy', 'version') || 0)).toBe(1);
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-policy-publish-audit-express',
+          actorUserId: 'user-policy-publish-audit-express',
+          roles: ['admin'],
+        },
+        { category: 'POLICY', limit: 20 },
+      );
+      const publishEvent = auditEvents.find(
+        (event) => String(event.action || '') === 'policy.publish',
+      );
+      expect(publishEvent).toBeTruthy();
+      expect(getPath(publishEvent, 'metadata', 'policyId')).toBe(policyId);
+      expect(getPath(publishEvent, 'metadata', 'policyName')).toBe(
+        'Express published audit policy',
+      );
+      expect(getPath(publishEvent, 'metadata', 'policyKind')).toBe('GAS_SPONSORSHIP');
+      expect(getPath(publishEvent, 'metadata', 'version')).toBe(1);
+      expect(getPath(publishEvent, 'metadata', 'status')).toBe('PUBLISHED');
+      expect(getPath(publishEvent, 'metadata', 'scopeType')).toBe('ENVIRONMENT');
+      expect(getPath(publishEvent, 'metadata', 'projectId')).toBe(
+        'proj_policy_publish_audit_express',
+      );
+      expect(getPath(publishEvent, 'metadata', 'environmentId')).toBe(
+        'env_policy_publish_audit_express',
+      );
+      expect(getPath(publishEvent, 'metadata', 'published')).toBe(true);
+      expect(publishEvent?.projectId).toBe('proj_policy_publish_audit_express');
+      expect(publishEvent?.environmentId).toBe('env_policy_publish_audit_express');
     } finally {
       await srv.close();
     }
@@ -3837,7 +4597,7 @@ test.describe('console router (express)', () => {
           name: 'server-key',
           environmentId,
           kind: 'secret_key',
-          scopes: ['wallets:read', 'billing:read'],
+          scopes: ['accounts.create'],
           ipAllowlist: ['203.0.113.10/32'],
           expiresAt,
         }),
@@ -3846,7 +4606,7 @@ test.describe('console router (express)', () => {
       const keyId = String(getPath(created.json, 'apiKey', 'id') || '');
       const createdSecret = String(getPath(created.json, 'secret') || '');
       expect(keyId).toBeTruthy();
-      expect(createdSecret).toContain('tsk_');
+      expect(createdSecret).toContain('sk_');
       expect(Number(getPath(created.json, 'apiKey', 'secretVersion') || 0)).toBe(1);
       expect(String(getPath(created.json, 'apiKey', 'expiresAt') || '')).toBe(expiresAt);
 
@@ -3866,7 +4626,7 @@ test.describe('console router (express)', () => {
       );
       expect(rotated.status).toBe(200);
       const rotatedSecret = String(getPath(rotated.json, 'secret') || '');
-      expect(rotatedSecret).toContain('tsk_');
+      expect(rotatedSecret).toContain('sk_');
       expect(rotatedSecret).not.toBe(createdSecret);
       expect(Number(getPath(rotated.json, 'apiKey', 'secretVersion') || 0)).toBe(2);
 
@@ -4227,6 +4987,356 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('webhook endpoint create, update, delete, and replay append audit rows', async () => {
+    let dispatchCalls = 0;
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => {
+          dispatchCalls += 1;
+          if (dispatchCalls === 1) {
+            return {
+              ok: false,
+              statusCode: 500,
+              responseBody: 'temporary failure',
+              errorMessage: 'upstream failure',
+            };
+          }
+          return {
+            ok: true,
+            statusCode: 200,
+            responseBody: 'ok',
+          };
+        },
+      },
+    });
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-webhook-audit-express',
+        'user-webhook-audit-express',
+      ),
+      webhooks,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://example.com/express-webhook-audit',
+          eventCategories: ['billing'],
+        }),
+      });
+      expect(created.status).toBe(201);
+      const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+      expect(endpointId).toBeTruthy();
+
+      const updated = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: 'https://example.com/express-webhook-audit-updated',
+          }),
+        },
+      );
+      expect(updated.status).toBe(200);
+
+      const emitted = await webhooks.emitEvent(
+        {
+          orgId: 'org-webhook-audit-express',
+          actorUserId: 'system-webhooks-audit-express',
+          roles: ['ops'],
+        },
+        {
+          eventType: 'billing.invoice.generated',
+          payload: {
+            invoiceId: 'inv_webhook_audit_express',
+          },
+        },
+      );
+      expect(emitted.attempted).toBe(1);
+      expect(emitted.failed).toBe(1);
+
+      const deliveries = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+        { method: 'GET' },
+      );
+      expect(deliveries.status).toBe(200);
+      const deliveryId = String(getPath(deliveries.json, 'deliveries', 0, 'id') || '');
+      expect(deliveryId).toBeTruthy();
+
+      const replayed = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliveryId }),
+        },
+      );
+      expect(replayed.status).toBe(200);
+      expect(getPath(replayed.json, 'replay', 'delivery', 'status')).toBe('SUCCEEDED');
+
+      const deleted = await fetchJson(
+        `${srv.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        { method: 'DELETE' },
+      );
+      expect(deleted.status).toBe(200);
+      expect(deleted.json?.removed).toBe(true);
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-webhook-audit-express',
+          actorUserId: 'user-webhook-audit-express',
+          roles: ['admin'],
+        },
+        { category: 'WEBHOOK', limit: 20 },
+      );
+      const webhookEvents = auditEvents.filter((event) =>
+        [
+          'webhook.endpoint.create',
+          'webhook.endpoint.update',
+          'webhook.endpoint.delete',
+          'webhook.delivery.replay_requested',
+        ].includes(String(event.action || '')),
+      );
+      expect(webhookEvents.map((event) => String(event.action || '')).sort()).toEqual([
+        'webhook.delivery.replay_requested',
+        'webhook.endpoint.create',
+        'webhook.endpoint.delete',
+        'webhook.endpoint.update',
+      ]);
+      expect(webhookEvents.every((event) => event.category === 'WEBHOOK')).toBe(true);
+      expect(
+        webhookEvents.every((event) => event.actorUserId === 'user-webhook-audit-express'),
+      ).toBe(true);
+
+      const webhookByAction = Object.fromEntries(
+        webhookEvents.map((event) => [String(event.action || ''), event]),
+      );
+      expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointId')).toBe(
+        endpointId,
+      );
+      expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointUrl')).toBe(
+        'https://example.com/express-webhook-audit',
+      );
+      expect(
+        getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl'),
+      ).toBe('https://example.com/express-webhook-audit-updated');
+      expect(
+        getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'eventCategories'),
+      ).toEqual(['billing']);
+      expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId')).toBe(
+        endpointId,
+      );
+      expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId')).toBe(
+        deliveryId,
+      );
+      expect(
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'requestedDeliveryId'),
+      ).toBe(deliveryId);
+      expect(
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'selectionMode'),
+      ).toBe('explicit_delivery');
+      expect(
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryEventType'),
+      ).toBe('billing.invoice.generated');
+      expect(
+        Number(
+          getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'replayCount') || 0,
+        ),
+      ).toBe(1);
+      expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointId')).toBe(
+        endpointId,
+      );
+      expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointUrl')).toBe(
+        'https://example.com/express-webhook-audit-updated',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('webhook delivery failures append dead-letter and endpoint degraded observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const webhooks = createInMemoryConsoleWebhookService({
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+      endpointDegradedThreshold: 2,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: false,
+          statusCode: 500,
+          responseBody: 'temporary failure',
+          errorMessage: 'upstream failure',
+        }),
+      },
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      webhooks,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://example.com/observability-webhook',
+          eventCategories: ['billing'],
+        }),
+      });
+      expect(created.status).toBe(201);
+      const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+      expect(endpointId).toBeTruthy();
+
+      await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-observability',
+          roles: ['ops'],
+        },
+        {
+          eventType: 'billing.invoice.failed',
+          payload: { invoiceId: 'inv_obs_webhook_1' },
+        },
+      );
+      await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-observability',
+          roles: ['ops'],
+        },
+        {
+          eventType: 'billing.invoice.failed',
+          payload: { invoiceId: 'inv_obs_webhook_2' },
+        },
+      );
+
+      const deadLetterEvents = ingested.filter(
+        (entry) => entry.event.eventType === 'webhook.delivery.dead_letter',
+      );
+      const degradedEvents = ingested.filter(
+        (entry) => entry.event.eventType === 'webhook.endpoint.degraded',
+      );
+      expect(deadLetterEvents).toHaveLength(2);
+      expect(degradedEvents).toHaveLength(1);
+      expect(String(getPath(deadLetterEvents[0]?.event, 'metadata', 'endpointId') || '')).toBe(
+        endpointId,
+      );
+      expect(
+        Number(getPath(degradedEvents[0]?.event, 'metadata', 'unresolvedDeadLetterCount') || 0),
+      ).toBe(2);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('webhook mutations require console config mutation role', async () => {
+    const webhooks = createInMemoryConsoleWebhookService();
+    const adminRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      webhooks,
+    });
+    const developerRouter = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer']),
+      webhooks,
+    });
+    const adminServer = await startExpressRouter(adminRouter);
+    const developerServer = await startExpressRouter(developerRouter);
+    try {
+      const created = await fetchJson(`${adminServer.baseUrl}/console/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://example.com/restricted-webhook',
+          eventCategories: ['billing'],
+        }),
+      });
+      expect(created.status).toBe(201);
+      const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+      expect(endpointId).toBeTruthy();
+
+      const listed = await fetchJson(`${developerServer.baseUrl}/console/webhooks`, {
+        method: 'GET',
+      });
+      expect(listed.status).toBe(200);
+
+      const forbiddenCreate = await fetchJson(`${developerServer.baseUrl}/console/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: 'https://example.com/forbidden-webhook',
+          eventCategories: ['billing'],
+        }),
+      });
+      expect(forbiddenCreate.status).toBe(403);
+      expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+      const emitted = await webhooks.emitEvent(
+        {
+          orgId: 'org-1',
+          actorUserId: 'system-webhooks-rbac-test',
+          roles: ['ops'],
+        },
+        {
+          eventType: 'billing.invoice.paid',
+          payload: {
+            invoiceId: 'inv_webhook_rbac_express',
+          },
+        },
+      );
+      expect(emitted.attempted).toBe(1);
+      const deliveries = await fetchJson(
+        `${adminServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+        {
+          method: 'GET',
+        },
+      );
+      const deliveryId = String(getPath(deliveries.json, 'deliveries', 0, 'id') || '');
+      expect(deliveryId).toBeTruthy();
+
+      const forbiddenUpdate = await fetchJson(
+        `${developerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'DISABLED' }),
+        },
+      );
+      expect(forbiddenUpdate.status).toBe(403);
+      expect(forbiddenUpdate.json?.code).toBe('forbidden');
+
+      const forbiddenReplay = await fetchJson(
+        `${developerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliveryId }),
+        },
+      );
+      expect(forbiddenReplay.status).toBe(403);
+      expect(forbiddenReplay.json?.code).toBe('forbidden');
+
+      const forbiddenDelete = await fetchJson(
+        `${developerServer.baseUrl}/console/webhooks/${encodeURIComponent(endpointId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+      expect(forbiddenDelete.status).toBe(403);
+      expect(forbiddenDelete.json?.code).toBe('forbidden');
+    } finally {
+      await adminServer.close();
+      await developerServer.close();
+    }
+  });
+
   test('webhook list endpoints reject malformed cursor', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -4407,9 +5517,11 @@ test.describe('console router (express)', () => {
   });
 
   test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing: createInMemoryConsoleBillingService(),
+      audit,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -4463,6 +5575,208 @@ test.describe('console router (express)', () => {
       });
       expect(overview.status).toBe(200);
       expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+
+      const auditEvents = await audit.listEvents({
+        orgId: 'org-1',
+        actorUserId: 'user-1',
+        roles: ['admin'],
+      });
+      const settlementEvents = auditEvents.filter(
+        (event) => String(event.action || '') === 'billing.credit_purchase.settled',
+      );
+      expect(settlementEvents).toHaveLength(1);
+      expect(settlementEvents[0]?.actorType).toBe('USER');
+      expect(settlementEvents[0]?.actorUserId).toBe('user-1');
+      expect(getPath(settlementEvents[0], 'metadata', 'purchaseId')).toBe(
+        getPath(reconciled.json, 'result', 'purchase', 'id'),
+      );
+      expect(getPath(settlementEvents[0], 'metadata', 'receiptId')).toBe(
+        getPath(reconciled.json, 'result', 'invoice', 'id'),
+      );
+      expect(getPath(settlementEvents[0], 'metadata', 'settlementSource')).toBe(
+        'stripe_checkout_reconcile',
+      );
+      expect(getPath(settlementEvents[0], 'metadata', 'settlementEventId')).toBe(
+        `stripe_checkout_reconcile:${checkoutSessionId}`,
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/platform/billing/account resolves project-scoped lookup for platform_admin', async () => {
+    const billing = createInMemoryConsoleBillingService({
+      now: () => new Date('2026-03-20T00:00:00.000Z'),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const targetCtx = {
+      orgId: 'org-platform-target-express',
+      actorUserId: 'platform-user-express',
+      roles: ['platform_admin'],
+    };
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-platform-target-express',
+      projectId: 'proj-platform-target-express',
+      actorUserId: 'platform-user-express',
+    });
+    await billing.grantManualSupportCredit(targetCtx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Seed manual credit',
+      idempotencyKey: 'platform-lookup-credit-express',
+    });
+    await billing.recordUsageEvent(targetCtx, {
+      walletId: 'wallet-platform-express',
+      action: 'transfer',
+      succeeded: true,
+      occurredAt: '2026-02-15T00:00:00.000Z',
+      sourceEventId: 'usage-platform-express',
+    });
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-express',
+        'platform-user-express',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/platform/billing/account?projectId=${encodeURIComponent(
+          'proj-platform-target-express',
+        )}&periodMonthUtc=2026-03&eventType=MANUAL_ADJUSTMENT`,
+        { method: 'GET' },
+      );
+      expect(res.status).toBe(200);
+      expect(String(getPath(res.json, 'result', 'organization', 'id') || '')).toBe(
+        'org-platform-target-express',
+      );
+      expect(String(getPath(res.json, 'result', 'project', 'id') || '')).toBe(
+        'proj-platform-target-express',
+      );
+      expect(Number(getPath(res.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(900);
+      const entries = Array.isArray(getPath(res.json, 'result', 'activity', 'entries'))
+        ? (getPath(res.json, 'result', 'activity', 'entries') as any[])
+        : [];
+      expect(entries).toHaveLength(1);
+      expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
+      expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const searchCtx = {
+      orgId: 'org-platform-search-primary-express',
+      actorUserId: 'platform-user-express',
+      roles: ['platform_admin'],
+    };
+    await orgProjectEnv.upsertOrganization(searchCtx, {
+      name: 'Watchbook Marketplace',
+      slug: 'watchbook-marketplace',
+    });
+    await orgProjectEnv.createProject(searchCtx, {
+      id: 'proj-platform-search-primary-express',
+      name: 'Marketplace API',
+      liveEnvironmentsEnabled: true,
+    });
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-platform-search-secondary-express',
+        actorUserId: 'platform-user-express',
+        roles: ['platform_admin'],
+      },
+      {
+        name: 'Acme Labs',
+        slug: 'acme-labs',
+      },
+    );
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-express',
+        'platform-user-express',
+      ),
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/platform/billing/search?query=${encodeURIComponent(
+          'watchbook',
+        )}`,
+        { method: 'GET' },
+      );
+      expect(res.status).toBe(200);
+      const organizations = Array.isArray(getPath(res.json, 'organizations'))
+        ? (getPath(res.json, 'organizations') as any[])
+        : [];
+      expect(organizations).toHaveLength(1);
+      expect(String(organizations[0]?.id || '')).toBe('org-platform-search-primary-express');
+      expect(String(organizations[0]?.name || '')).toBe('Watchbook Marketplace');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform_admin', async () => {
+    const billing = createInMemoryConsoleBillingService({
+      now: () => new Date('2026-03-20T00:00:00.000Z'),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-platform-adjust-target-express',
+      projectId: 'proj-platform-adjust-target-express',
+      actorUserId: 'platform-user-express',
+    });
+
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-express',
+        'platform-user-express',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(
+        `${srv.baseUrl}/console/platform/billing/adjustments/support-credit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orgId: 'org-platform-adjust-target-express',
+            amountMinor: 1500,
+            reasonCode: 'incident_credit',
+            note: 'Applied by platform admin',
+            idempotencyKey: 'platform-adjust-credit-express',
+          }),
+        },
+      );
+      expect(res.status).toBe(201);
+      expect(String(getPath(res.json, 'result', 'adjustment', 'orgId') || '')).toBe(
+        'org-platform-adjust-target-express',
+      );
+      expect(Number(getPath(res.json, 'result', 'creditBalanceMinor') || 0)).toBe(1500);
+
+      const lookup = await fetchJson(
+        `${srv.baseUrl}/console/platform/billing/account?orgId=${encodeURIComponent(
+          'org-platform-adjust-target-express',
+        )}`,
+        { method: 'GET' },
+      );
+      expect(lookup.status).toBe(200);
+      expect(Number(getPath(lookup.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(
+        1500,
+      );
     } finally {
       await srv.close();
     }
@@ -4679,10 +5993,12 @@ test.describe('console router (express)', () => {
 
   test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {
     const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const secret = 'whsec_console_router_projection_test';
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing,
+      audit,
       billingStripeWebhookSecret: secret,
     });
     const srv = await startExpressRouter(router);
@@ -4761,6 +6077,25 @@ test.describe('console router (express)', () => {
       });
       expect(overviewAfter.status).toBe(200);
       expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+
+      const auditEvents = await audit.listEvents({
+        orgId: 'org-1',
+        actorUserId: 'user-1',
+        roles: ['admin'],
+      });
+      const settlementEvents = auditEvents.filter(
+        (event) => String(event.action || '') === 'billing.credit_purchase.settled',
+      );
+      expect(settlementEvents).toHaveLength(1);
+      expect(settlementEvents[0]?.category).toBe('BILLING');
+      expect(settlementEvents[0]?.actorType).toBe('SYSTEM');
+      expect(settlementEvents[0]?.actorUserId).toBe('system-stripe-webhook');
+      expect(getPath(settlementEvents[0], 'metadata', 'purchaseId')).toBe(
+        getPath(projectedPurchase.json, 'purchase', 'id'),
+      );
+      expect(getPath(settlementEvents[0], 'metadata', 'receiptId')).toBe(receiptInvoiceId);
+      expect(getPath(settlementEvents[0], 'metadata', 'settlementSource')).toBe('stripe_webhook');
+      expect(getPath(settlementEvents[0], 'metadata', 'settlementEventId')).toBe(purchaseEventId);
     } finally {
       await srv.close();
     }
@@ -5054,6 +6389,30 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('POST /console/billing/usage/events requires admin or ops role', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['billing_admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletId: 'wallet_usage_role_express',
+          action: 'transfer',
+          succeeded: true,
+          sourceEventId: 'usage_role_express_1',
+        }),
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /console/billing/invoices/generate requires admin or ops role', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['billing_admin']),
@@ -5140,6 +6499,73 @@ test.describe('console router (express)', () => {
       const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
       expect(items.length).toBe(1);
       expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing invoice generation appends audit rows', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-billing-invoice-audit-express',
+        'user-billing-invoice-audit-express',
+      ),
+      billing,
+      audit,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const usage = await fetchJson(`${srv.baseUrl}/console/billing/usage/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletId: 'wallet_invoice_audit_express',
+          action: 'transfer',
+          succeeded: true,
+          occurredAt: '2026-03-05T01:00:00.000Z',
+          sourceEventId: 'usage_evt_invoice_audit_express',
+        }),
+      });
+      expect(usage.status).toBe(200);
+
+      const generated = await fetchJson(`${srv.baseUrl}/console/billing/invoices/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          periodMonthUtc: '2026-03',
+        }),
+      });
+      expect(generated.status).toBe(200);
+      const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
+      expect(invoiceId).toBeTruthy();
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-billing-invoice-audit-express',
+          actorUserId: 'user-billing-invoice-audit-express',
+          roles: ['admin'],
+        },
+        { category: 'BILLING', limit: 20 },
+      );
+      const invoiceEvent = auditEvents.find(
+        (event) => String(event.action || '') === 'billing.invoice.generated',
+      );
+      expect(invoiceEvent).toBeTruthy();
+      expect(getPath(invoiceEvent, 'metadata', 'invoiceId')).toBe(invoiceId);
+      expect(getPath(invoiceEvent, 'metadata', 'periodMonthUtc')).toBe('2026-03');
+      expect(getPath(invoiceEvent, 'metadata', 'invoiceDocumentType')).toBe('USAGE_STATEMENT');
+      expect(getPath(invoiceEvent, 'metadata', 'monthlyActiveWallets')).toBe(1);
+      expect(getPath(invoiceEvent, 'metadata', 'lineItemCount')).toBe(
+        Array.isArray(getPath(generated.json, 'generation', 'lineItems'))
+          ? (getPath(generated.json, 'generation', 'lineItems') as any[]).length
+          : 0,
+      );
+      expect(getPath(invoiceEvent, 'metadata', 'generated')).toBe(
+        getPath(generated.json, 'generation', 'generated'),
+      );
     } finally {
       await srv.close();
     }
@@ -5436,6 +6862,34 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('invalid_query');
   });
 
+  test('cloudflare GET /console/observability/events forwards component and query filters to observability service', async () => {
+    const recorder = makeObservabilityRequestRecorder();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['ops'],
+        'org-observability-cf-component',
+        'user-observability-cf-component',
+      ),
+      observability: recorder.service,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/observability/events?query=invoice&level=ERROR&service=billing&component=checkout_reconcile&eventType=billing.payment_reconcile.failed&from=2026-03-12T00:00:00.000Z&to=2026-03-13T00:00:00.000Z&limit=25',
+    });
+    expect(res.status).toBe(200);
+    expect(recorder.requests).toHaveLength(1);
+    expect(recorder.requests[0]).toMatchObject({
+      query: 'invoice',
+      level: 'ERROR',
+      service: 'billing',
+      component: 'checkout_reconcile',
+      eventType: 'billing.payment_reconcile.failed',
+      from: '2026-03-12T00:00:00.000Z',
+      to: '2026-03-13T00:00:00.000Z',
+      limit: 25,
+    });
+  });
+
   test('cloudflare policy publish failures emit approval observability events', async () => {
     const ingested: Array<{
       ingestCtx: Record<string, unknown>;
@@ -5545,6 +6999,184 @@ test.describe('console router (cloudflare)', () => {
     );
     expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
       'req_obs_billing_finalize_cf',
+    );
+  });
+
+  test('cloudflare billing checkout reconcile failures emit payment reconcile observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      reconcileStripeCheckoutSession: async () => {
+        throw new Error('checkout reconcile failed');
+      },
+    };
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-cf-reconcile',
+        'user-observability-cf-reconcile',
+      ),
+      billing: failingBilling,
+      observabilityIngestion,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session/reconcile',
+      headers: {
+        'x-request-id': 'req_obs_billing_reconcile_cf',
+      },
+      body: { checkoutSessionId: 'cs_obs_billing_reconcile_cf' },
+    });
+    expect(res.status).toBe(500);
+    expect(res.json?.code).toBe('internal');
+
+    await expect
+      .poll(
+        () =>
+          ingested.filter((entry) => entry.event.eventType === 'billing.payment_reconcile.failed')
+            .length,
+      )
+      .toBe(1);
+
+    const billingFailure = ingested.find(
+      (entry) => entry.event.eventType === 'billing.payment_reconcile.failed',
+    );
+    expect(billingFailure).toBeTruthy();
+    expect(String(getPath(billingFailure?.event || null, 'metadata', 'operation') || '')).toBe(
+      'PAYMENT_RECONCILE',
+    );
+    expect(String(getPath(billingFailure?.event || null, 'metadata', 'providerRef') || '')).toBe(
+      'cs_obs_billing_reconcile_cf',
+    );
+    expect(String((billingFailure?.event?.requestId as string) || '')).toBe(
+      'req_obs_billing_reconcile_cf',
+    );
+  });
+
+  test('cloudflare invalid Stripe webhook secrets emit invalid signature observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const handler = createCloudflareConsoleRouter({
+      billing: createInMemoryConsoleBillingService(),
+      billingStripeWebhookSecret: 'whsec_expected_cf',
+      observabilityIngestion,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/webhook',
+      headers: {
+        'x-console-stripe-webhook-secret': 'whsec_wrong_cf',
+        'x-request-id': 'req_obs_stripe_invalid_signature_cf',
+      },
+      body: {
+        eventId: 'evt_obs_invalid_signature_cf',
+        eventType: 'checkout.session.completed',
+        orgId: 'org-observability-cf-webhook-invalid',
+        checkoutSessionId: 'cs_obs_invalid_signature_cf',
+        providerRef: 'cs_obs_invalid_signature_cf',
+      },
+    });
+    expect(res.status).toBe(401);
+    expect(res.json?.code).toBe('unauthorized');
+
+    await expect
+      .poll(
+        () =>
+          ingested.filter(
+            (entry) => entry.event.eventType === 'billing.stripe_webhook.invalid_signature',
+          ).length,
+      )
+      .toBe(1);
+
+    const webhookFailure = ingested.find(
+      (entry) => entry.event.eventType === 'billing.stripe_webhook.invalid_signature',
+    );
+    expect(webhookFailure).toBeTruthy();
+    expect(String(webhookFailure?.event?.orgId || '')).toBe(
+      'org-observability-cf-webhook-invalid',
+    );
+    expect(String(getPath(webhookFailure?.event || null, 'metadata', 'stripeEventId') || '')).toBe(
+      'evt_obs_invalid_signature_cf',
+    );
+    expect(String(getPath(webhookFailure?.event || null, 'metadata', 'providerRef') || '')).toBe(
+      'cs_obs_invalid_signature_cf',
+    );
+    expect(String((webhookFailure?.event?.requestId as string) || '')).toBe(
+      'req_obs_stripe_invalid_signature_cf',
+    );
+  });
+
+  test('cloudflare Stripe webhook processing failures emit processing observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion = makeObservabilityIngestionCollector(ingested);
+    const baseBilling = createInMemoryConsoleBillingService();
+    const failingBilling: ConsoleBillingService = {
+      ...baseBilling,
+      processStripeWebhookEvent: async () => {
+        throw new Error('stripe webhook processing failed');
+      },
+    };
+    const handler = createCloudflareConsoleRouter({
+      billing: failingBilling,
+      billingStripeWebhookSecret: 'whsec_expected_processing_cf',
+      observabilityIngestion,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/webhook',
+      headers: {
+        'x-console-stripe-webhook-secret': 'whsec_expected_processing_cf',
+        'x-request-id': 'req_obs_stripe_processing_cf',
+      },
+      body: {
+        eventId: 'evt_obs_processing_failed_cf',
+        eventType: 'checkout.session.completed',
+        orgId: 'org-observability-cf-webhook-processing',
+        checkoutSessionId: 'cs_obs_processing_failed_cf',
+        providerRef: 'cs_obs_processing_failed_cf',
+      },
+    });
+    expect(res.status).toBe(500);
+    expect(res.json?.code).toBe('internal');
+
+    await expect
+      .poll(
+        () =>
+          ingested.filter(
+            (entry) => entry.event.eventType === 'billing.stripe_webhook.processing.failed',
+          ).length,
+      )
+      .toBe(1);
+
+    const webhookFailure = ingested.find(
+      (entry) => entry.event.eventType === 'billing.stripe_webhook.processing.failed',
+    );
+    expect(webhookFailure).toBeTruthy();
+    expect(String(webhookFailure?.event?.orgId || '')).toBe(
+      'org-observability-cf-webhook-processing',
+    );
+    expect(String(getPath(webhookFailure?.event || null, 'metadata', 'failureCode') || '')).toBe(
+      'internal',
+    );
+    expect(
+      String(getPath(webhookFailure?.event || null, 'metadata', 'checkoutSessionId') || ''),
+    ).toBe('cs_obs_processing_failed_cf');
+    expect(String((webhookFailure?.event?.requestId as string) || '')).toBe(
+      'req_obs_stripe_processing_cf',
     );
   });
 
@@ -7154,7 +8786,7 @@ test.describe('console router (cloudflare)', () => {
     expect(res.json?.code).toBe('wallets_not_configured');
   });
 
-  test('GET /console/export/governance returns api_keys_not_configured without API key service', async () => {
+  test('GET /console/export/governance returns key_exports_not_configured without key export service', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       wallets: createInMemoryConsoleWalletService(),
@@ -7164,7 +8796,7 @@ test.describe('console router (cloudflare)', () => {
       path: '/console/export/governance',
     });
     expect(res.status).toBe(501);
-    expect(res.json?.code).toBe('api_keys_not_configured');
+    expect(res.json?.code).toBe('key_exports_not_configured');
   });
 
   test('cloudflare new console endpoints return *_not_configured when services are not wired', async () => {
@@ -7612,6 +9244,18 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('cloudflare new console endpoint mutations enforce role gates', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const auditExports = createInMemoryConsoleAuditExportsService();
+    const billing = createInMemoryConsoleBillingService();
+    const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const approvals = createInMemoryConsoleApprovalService();
+    const onboarding = createInMemoryConsoleOnboardingService({
+      apiKeys,
+      orgProjectEnv,
+      teamRbac,
+    });
     const policies = createInMemoryConsolePolicyService();
     const smartWallets = createInMemoryConsoleSmartWalletService();
     const keyExports = createInMemoryConsoleKeyExportService();
@@ -7622,6 +9266,14 @@ test.describe('console router (cloudflare)', () => {
         'org-scaffold-cf-rbac-1',
         'user-scaffold-cf-rbac-1',
       ),
+      onboarding,
+      orgProjectEnv,
+      teamRbac,
+      approvals,
+      apiKeys,
+      auditExports,
+      billing,
+      enterpriseIsolation,
       policies,
       smartWallets,
       keyExports,
@@ -7638,6 +9290,102 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(gasCreate.status).toBe(403);
     expect(gasCreate.json?.code).toBe('forbidden');
+
+    const configureOnboardingOrganization = await callCf(handler, {
+      method: 'POST',
+      path: '/console/onboarding/organization',
+      body: {
+        name: 'Forbidden onboarding organization cloudflare',
+        slug: 'forbidden-onboarding-org-cloudflare',
+      },
+    });
+    expect(configureOnboardingOrganization.status).toBe(403);
+    expect(configureOnboardingOrganization.json?.code).toBe('forbidden');
+
+    const createProject = await callCf(handler, {
+      method: 'POST',
+      path: '/console/projects',
+      body: {
+        id: 'proj-cf-rbac-1',
+        name: 'Forbidden project cloudflare',
+      },
+    });
+    expect(createProject.status).toBe(403);
+    expect(createProject.json?.code).toBe('forbidden');
+
+    const inviteMember = await callCf(handler, {
+      method: 'POST',
+      path: '/console/members/invite',
+      body: {
+        userId: 'member-cf-rbac-1',
+        email: 'forbidden-member-cloudflare@example.com',
+        roles: [{ role: 'overview_read' }],
+      },
+    });
+    expect(inviteMember.status).toBe(403);
+    expect(inviteMember.json?.code).toBe('forbidden');
+
+    const createApproval = await callCf(handler, {
+      method: 'POST',
+      path: '/console/approvals',
+      body: {
+        operationType: 'KEY_EXPORT',
+        reason: 'Forbidden approval request cloudflare',
+      },
+    });
+    expect(createApproval.status).toBe(403);
+    expect(createApproval.json?.code).toBe('forbidden');
+
+    const createAuditExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/audit/exports',
+      body: {
+        id: 'aexp-cf-rbac-1',
+        format: 'CSV',
+        domain: 'SECURITY',
+      },
+    });
+    expect(createAuditExport.status).toBe(403);
+    expect(createAuditExport.json?.code).toBe('forbidden');
+
+    const triggerIsolation = await callCf(handler, {
+      method: 'POST',
+      path: '/console/isolation/trigger',
+      body: {
+        scope: 'ORG',
+        trigger: 'COMPLIANCE',
+        reason: 'Forbidden isolation cloudflare',
+      },
+    });
+    expect(triggerIsolation.status).toBe(403);
+    expect(triggerIsolation.json?.code).toBe('forbidden');
+
+    const createKeyExport = await callCf(handler, {
+      method: 'POST',
+      path: '/console/key-exports',
+      body: {
+        id: 'ke-cf-rbac-1',
+        environmentId: 'prod',
+        reason: 'Trying as developer',
+        requiredApprovals: 1,
+      },
+    });
+    expect(createKeyExport.status).toBe(403);
+    expect(createKeyExport.json?.code).toBe('forbidden');
+
+    const createSmartWallet = await callCf(handler, {
+      method: 'POST',
+      path: '/console/smart-wallets',
+      body: {
+        id: 'sw-cf-rbac-1',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'prod',
+        mode: 'REQUIRED',
+        accountType: 'SMART_ACCOUNT',
+      },
+    });
+    expect(createSmartWallet.status).toBe(403);
+    expect(createSmartWallet.json?.code).toBe('forbidden');
 
     const approve = await callCf(handler, {
       method: 'POST',
@@ -7674,6 +9422,29 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(publishCurrentSnapshot.status).toBe(403);
     expect(publishCurrentSnapshot.json?.code).toBe('forbidden');
+
+    const generateInvoice = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/invoices/generate',
+      body: {
+        periodMonthUtc: '2026-01',
+      },
+    });
+    expect(generateInvoice.status).toBe(403);
+    expect(generateInvoice.json?.code).toBe('forbidden');
+
+    const appendSupportCredit = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 100,
+        reasonCode: 'incident_credit',
+        note: 'Forbidden support credit cloudflare',
+        idempotencyKey: 'manual-credit-cloudflare-rbac',
+      },
+    });
+    expect(appendSupportCredit.status).toBe(403);
+    expect(appendSupportCredit.json?.code).toBe('forbidden');
   });
 
   test('cloudflare new console endpoint validation errors return typed error codes', async () => {
@@ -7978,7 +9749,7 @@ test.describe('console router (cloudflare)', () => {
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [wallet],
     });
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const keyExports = createInMemoryConsoleKeyExportService();
     const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -7989,34 +9760,47 @@ test.describe('console router (cloudflare)', () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], orgId, 'user-insights-cloudflare-1'),
       wallets,
-      apiKeys,
+      keyExports,
       policies,
       orgProjectEnv,
     });
 
-    const createdExportKey = await callCf(handler, {
-      method: 'POST',
-      path: '/console/api-keys',
-      body: {
-        name: 'export-key-cf',
-        environmentId,
-        kind: 'secret_key',
-        scopes: ['wallets:read', 'keys:export'],
+    await keyExports.createKeyExport(
+      {
+        orgId,
+        actorUserId: 'user-insights-cloudflare-1',
+        roles: ['admin'],
       },
-    });
-    expect(createdExportKey.status).toBe(201);
+      {
+        environmentId,
+        reason: 'Break-glass recovery for production wallet',
+      },
+    );
 
-    const createdNonExportKey = await callCf(handler, {
-      method: 'POST',
-      path: '/console/api-keys',
-      body: {
-        name: 'non-export-key-cf',
-        environmentId,
-        kind: 'secret_key',
-        scopes: ['wallets:read'],
+    const approvedRequest = await keyExports.createKeyExport(
+      {
+        orgId,
+        actorUserId: 'user-insights-cloudflare-approver-1',
+        roles: ['admin'],
       },
-    });
-    expect(createdNonExportKey.status).toBe(201);
+      {
+        environmentId: `${projectId}:stage`,
+        reason: 'Stage export drill',
+        requiredApprovals: 1,
+      },
+    );
+    await keyExports.approveKeyExport(
+      {
+        orgId,
+        actorUserId: 'user-insights-cloudflare-approver-1',
+        roles: ['admin'],
+      },
+      approvedRequest.id,
+      {
+        reason: 'Approved stage export drill',
+        mfaVerified: true,
+      },
+    );
 
     const coverage = await callCf(handler, {
       method: 'GET',
@@ -8060,19 +9844,19 @@ test.describe('console router (cloudflare)', () => {
       path: `/console/export/governance?environmentId=${encodeURIComponent(environmentId)}`,
     });
     expect(governance.status).toBe(200);
-    expect(Number(getPath(governance.json, 'governance', 'totals', 'apiKeyCount') || 0)).toBe(2);
-    expect(
-      Number(getPath(governance.json, 'governance', 'totals', 'exportScopedKeyCount') || 0),
-    ).toBe(1);
+    expect(Number(getPath(governance.json, 'governance', 'totals', 'requestCount') || 0)).toBe(2);
     expect(
       Number(
         getPath(
           governance.json,
           'governance',
           'totals',
-          'selectedEnvironmentExportScopedKeyCount',
+          'selectedEnvironmentRequestCount',
         ) || 0,
       ),
+    ).toBe(1);
+    expect(
+      Number(getPath(governance.json, 'governance', 'totals', 'pendingApprovalCount') || 0),
     ).toBe(1);
   });
 
@@ -8251,6 +10035,316 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(created.status).toBe(400);
     expect(created.json?.code).toBe('invalid_body');
+  });
+
+  test('cloudflare policy create, update, and delete append audit rows', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-audit-cloudflare',
+        'user-policy-audit-cloudflare',
+      ),
+      policies,
+      audit,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Cloudflare audited policy',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          projectId: 'proj_policy_audit_cloudflare',
+          environmentId: 'env_policy_audit_cloudflare',
+          enabled: true,
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    const createdVersion = Number(getPath(created.json, 'policy', 'version') || 0);
+    expect(policyId).toBeTruthy();
+
+    const updated = await callCf(handler, {
+      method: 'PATCH',
+      path: `/console/policies/${encodeURIComponent(policyId)}`,
+      body: {
+        name: 'Cloudflare audited policy updated',
+      },
+    });
+    expect(updated.status).toBe(200);
+
+    const deleted = await callCf(handler, {
+      method: 'DELETE',
+      path: `/console/policies/${encodeURIComponent(policyId)}`,
+    });
+    expect(deleted.status).toBe(200);
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-policy-audit-cloudflare',
+        actorUserId: 'user-policy-audit-cloudflare',
+        roles: ['admin'],
+      },
+      { category: 'POLICY', limit: 20 },
+    );
+    const lifecycleEvents = auditEvents.filter((event) =>
+      ['policy.create', 'policy.update', 'policy.delete'].includes(String(event.action || '')),
+    );
+    expect(lifecycleEvents.map((event) => String(event.action || '')).sort()).toEqual([
+      'policy.create',
+      'policy.delete',
+      'policy.update',
+    ]);
+    expect(lifecycleEvents.every((event) => event.category === 'POLICY')).toBe(true);
+    const lifecycleByAction = Object.fromEntries(
+      lifecycleEvents.map((event) => [String(event.action || ''), event]),
+    );
+    expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyId')).toBe(policyId);
+    expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyName')).toBe(
+      'Cloudflare audited policy updated',
+    );
+    expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'policyKind')).toBe(
+      'GAS_SPONSORSHIP',
+    );
+    expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'environmentId')).toBe(
+      'env_policy_audit_cloudflare',
+    );
+    expect(getPath(lifecycleByAction['policy.delete'], 'metadata', 'projectId')).toBe(
+      'proj_policy_audit_cloudflare',
+    );
+    expect(lifecycleByAction['policy.delete']?.environmentId).toBe(
+      'env_policy_audit_cloudflare',
+    );
+    expect(lifecycleByAction['policy.delete']?.projectId).toBe('proj_policy_audit_cloudflare');
+    expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'policyName')).toBe(
+      'Cloudflare audited policy',
+    );
+    expect(getPath(lifecycleByAction['policy.create'], 'metadata', 'version')).toBe(createdVersion);
+  });
+
+  test('cloudflare successful policy create and Stripe top-up do not append durable observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-observability-success-cf',
+        'user-observability-success-cf',
+      ),
+      policies: createInMemoryConsolePolicyService(),
+      billing: createInMemoryConsoleBillingService(),
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+
+    const createdPolicy = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Healthy observability policy cloudflare',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          projectId: 'proj_obs_success_cf',
+          environmentId: 'env_obs_success_cf',
+          enabled: true,
+        },
+      },
+    });
+    expect(createdPolicy.status).toBe(201);
+    expect(String(getPath(createdPolicy.json, 'policy', 'id') || '')).toBeTruthy();
+
+    const createdCheckout = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session',
+      body: {
+        successUrl: 'https://app.example.com/dashboard/billing/account?checkout=success',
+        cancelUrl: 'https://app.example.com/pricing?checkout=cancel',
+        creditPackId: 'usd_25',
+      },
+    });
+    expect(createdCheckout.status).toBe(201);
+    const checkoutSessionId = String(getPath(createdCheckout.json, 'checkoutSession', 'id') || '');
+    expect(checkoutSessionId).toBeTruthy();
+
+    const reconciled = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/stripe/checkout-session/reconcile',
+      body: { checkoutSessionId },
+    });
+    expect(reconciled.status).toBe(200);
+    expect(getPath(reconciled.json, 'result', 'settled')).toBe(true);
+
+    expect(ingested).toEqual([]);
+  });
+
+  test('cloudflare policy assignment upsert and delete append audit rows', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-assignment-audit-cloudflare',
+        'user-policy-assignment-audit-cloudflare',
+      ),
+      policies,
+      audit,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        name: 'Cloudflare assignment audited policy',
+      },
+    });
+    expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(policyId).toBeTruthy();
+
+    const assignmentUpsert = await callCf(handler, {
+      method: 'PUT',
+      path: '/console/policies/assignments',
+      body: {
+        scopeType: 'ENVIRONMENT',
+        scopeId: 'env_policy_assignment_audit_cloudflare',
+        policyId,
+      },
+    });
+    expect(assignmentUpsert.status).toBe(200);
+    const assignmentId = String(getPath(assignmentUpsert.json, 'assignment', 'id') || '');
+    expect(assignmentId).toBeTruthy();
+
+    const assignmentDelete = await callCf(handler, {
+      method: 'DELETE',
+      path: `/console/policies/assignments/${encodeURIComponent(assignmentId)}`,
+    });
+    expect(assignmentDelete.status).toBe(200);
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-policy-assignment-audit-cloudflare',
+        actorUserId: 'user-policy-assignment-audit-cloudflare',
+        roles: ['admin'],
+      },
+      { category: 'POLICY', limit: 20 },
+    );
+    const assignmentEvents = auditEvents.filter((event) =>
+      ['policy.assignment.upsert', 'policy.assignment.delete'].includes(
+        String(event.action || ''),
+      ),
+    );
+    expect(assignmentEvents.map((event) => String(event.action || '')).sort()).toEqual([
+      'policy.assignment.delete',
+      'policy.assignment.upsert',
+    ]);
+    const assignmentByAction = Object.fromEntries(
+      assignmentEvents.map((event) => [String(event.action || ''), event]),
+    );
+    expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentId')).toBe(
+      assignmentId,
+    );
+    expect(getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'policyId')).toBe(
+      policyId,
+    );
+    expect(
+      getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentScopeType'),
+    ).toBe('ENVIRONMENT');
+    expect(
+      getPath(assignmentByAction['policy.assignment.upsert'], 'metadata', 'assignmentScopeId'),
+    ).toBe('env_policy_assignment_audit_cloudflare');
+    expect(getPath(assignmentByAction['policy.assignment.delete'], 'metadata', 'policyName')).toBe(
+      'Cloudflare assignment audited policy',
+    );
+    expect(assignmentByAction['policy.assignment.upsert']?.environmentId).toBe(
+      'env_policy_assignment_audit_cloudflare',
+    );
+    expect(assignmentByAction['policy.assignment.delete']?.environmentId).toBe(
+      'env_policy_assignment_audit_cloudflare',
+    );
+  });
+
+  test('cloudflare policy publish appends audit row with final version and scope metadata', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-policy-publish-audit-cloudflare',
+        'user-policy-publish-audit-cloudflare',
+      ),
+      policies,
+      audit,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/policies',
+      body: {
+        kind: 'GAS_SPONSORSHIP',
+        name: 'Cloudflare published audit policy',
+        rules: {
+          scopeType: 'ENVIRONMENT',
+          projectId: 'proj_policy_publish_audit_cloudflare',
+          environmentId: 'env_policy_publish_audit_cloudflare',
+          enabled: true,
+          allowedChainIds: [1],
+          spendCap: {
+            mode: 'CHAIN_TOTAL',
+            period: 'MONTHLY',
+            capsByChain: [{ chainId: 1, capMinor: 500000 }],
+          },
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+    const policyId = String(getPath(created.json, 'policy', 'id') || '');
+    expect(policyId).toBeTruthy();
+
+    const published = await callCf(handler, {
+      method: 'POST',
+      path: `/console/policies/${encodeURIComponent(policyId)}/publish`,
+    });
+    expect(published.status).toBe(200);
+    expect(getPath(published.json, 'result', 'published')).toBe(true);
+    expect(getPath(published.json, 'result', 'policy', 'status')).toBe('PUBLISHED');
+    expect(Number(getPath(published.json, 'result', 'policy', 'version') || 0)).toBe(1);
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-policy-publish-audit-cloudflare',
+        actorUserId: 'user-policy-publish-audit-cloudflare',
+        roles: ['admin'],
+      },
+      { category: 'POLICY', limit: 20 },
+    );
+    const publishEvent = auditEvents.find(
+      (event) => String(event.action || '') === 'policy.publish',
+    );
+    expect(publishEvent).toBeTruthy();
+    expect(getPath(publishEvent, 'metadata', 'policyId')).toBe(policyId);
+    expect(getPath(publishEvent, 'metadata', 'policyName')).toBe(
+      'Cloudflare published audit policy',
+    );
+    expect(getPath(publishEvent, 'metadata', 'policyKind')).toBe('GAS_SPONSORSHIP');
+    expect(getPath(publishEvent, 'metadata', 'version')).toBe(1);
+    expect(getPath(publishEvent, 'metadata', 'status')).toBe('PUBLISHED');
+    expect(getPath(publishEvent, 'metadata', 'scopeType')).toBe('ENVIRONMENT');
+    expect(getPath(publishEvent, 'metadata', 'projectId')).toBe(
+      'proj_policy_publish_audit_cloudflare',
+    );
+    expect(getPath(publishEvent, 'metadata', 'environmentId')).toBe(
+      'env_policy_publish_audit_cloudflare',
+    );
+    expect(getPath(publishEvent, 'metadata', 'published')).toBe(true);
+    expect(publishEvent?.projectId).toBe('proj_policy_publish_audit_cloudflare');
+    expect(publishEvent?.environmentId).toBe('env_policy_publish_audit_cloudflare');
   });
 
   test('cloudflare policy assignments support precedence and drive policy coverage', async () => {
@@ -8491,7 +10585,7 @@ test.describe('console router (cloudflare)', () => {
         name: 'cloudflare-key',
         environmentId,
         kind: 'secret_key',
-        scopes: ['wallets:read'],
+        scopes: ['accounts.create'],
         ipAllowlist: ['198.51.100.5/32'],
         expiresAt,
       },
@@ -8500,7 +10594,7 @@ test.describe('console router (cloudflare)', () => {
     const keyId = String(getPath(created.json, 'apiKey', 'id') || '');
     const createdSecret = String(getPath(created.json, 'secret') || '');
     expect(keyId).toBeTruthy();
-    expect(createdSecret).toContain('tsk_');
+    expect(createdSecret).toContain('sk_');
     expect(Number(getPath(created.json, 'apiKey', 'secretVersion') || 0)).toBe(1);
     expect(String(getPath(created.json, 'apiKey', 'expiresAt') || '')).toBe(expiresAt);
 
@@ -8521,7 +10615,7 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(rotated.status).toBe(200);
     const rotatedSecret = String(getPath(rotated.json, 'secret') || '');
-    expect(rotatedSecret).toContain('tsk_');
+    expect(rotatedSecret).toContain('sk_');
     expect(rotatedSecret).not.toBe(createdSecret);
     expect(Number(getPath(rotated.json, 'apiKey', 'secretVersion') || 0)).toBe(2);
 
@@ -8821,6 +10915,329 @@ test.describe('console router (cloudflare)', () => {
     expect(deleted.json?.removed).toBe(true);
   });
 
+  test('cloudflare webhook endpoint create, update, delete, and replay append audit rows', async () => {
+    let dispatchCalls = 0;
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => {
+          dispatchCalls += 1;
+          if (dispatchCalls === 1) {
+            return {
+              ok: false,
+              statusCode: 500,
+              responseBody: 'temporary failure',
+              errorMessage: 'upstream failure',
+            };
+          }
+          return {
+            ok: true,
+            statusCode: 200,
+            responseBody: 'ok',
+          };
+        },
+      },
+    });
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-webhook-audit-cloudflare',
+        'user-webhook-audit-cloudflare',
+      ),
+      webhooks,
+      audit,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/webhooks',
+      body: {
+        url: 'https://example.com/cloudflare-webhook-audit',
+        eventCategories: ['billing'],
+      },
+    });
+    expect(created.status).toBe(201);
+    const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+    expect(endpointId).toBeTruthy();
+
+    const updated = await callCf(handler, {
+      method: 'PATCH',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}`,
+      body: {
+        url: 'https://example.com/cloudflare-webhook-audit-updated',
+      },
+    });
+    expect(updated.status).toBe(200);
+
+    const emitted = await webhooks.emitEvent(
+      {
+        orgId: 'org-webhook-audit-cloudflare',
+        actorUserId: 'system-webhooks-audit-cloudflare',
+        roles: ['ops'],
+      },
+      {
+        eventType: 'billing.invoice.generated',
+        payload: {
+          invoiceId: 'inv_webhook_audit_cloudflare',
+        },
+      },
+    );
+    expect(emitted.attempted).toBe(1);
+    expect(emitted.failed).toBe(1);
+
+    const deliveries = await callCf(handler, {
+      method: 'GET',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+    });
+    expect(deliveries.status).toBe(200);
+    const deliveryId = String(getPath(deliveries.json, 'deliveries', 0, 'id') || '');
+    expect(deliveryId).toBeTruthy();
+
+    const replayed = await callCf(handler, {
+      method: 'POST',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+      body: { deliveryId },
+    });
+    expect(replayed.status).toBe(200);
+    expect(getPath(replayed.json, 'replay', 'delivery', 'status')).toBe('SUCCEEDED');
+
+    const deleted = await callCf(handler, {
+      method: 'DELETE',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}`,
+    });
+    expect(deleted.status).toBe(200);
+    expect(deleted.json?.removed).toBe(true);
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-webhook-audit-cloudflare',
+        actorUserId: 'user-webhook-audit-cloudflare',
+        roles: ['admin'],
+      },
+      { category: 'WEBHOOK', limit: 20 },
+    );
+    const webhookEvents = auditEvents.filter((event) =>
+      [
+        'webhook.endpoint.create',
+        'webhook.endpoint.update',
+        'webhook.endpoint.delete',
+        'webhook.delivery.replay_requested',
+      ].includes(String(event.action || '')),
+    );
+    expect(webhookEvents.map((event) => String(event.action || '')).sort()).toEqual([
+      'webhook.delivery.replay_requested',
+      'webhook.endpoint.create',
+      'webhook.endpoint.delete',
+      'webhook.endpoint.update',
+    ]);
+    expect(webhookEvents.every((event) => event.category === 'WEBHOOK')).toBe(true);
+    expect(
+      webhookEvents.every((event) => event.actorUserId === 'user-webhook-audit-cloudflare'),
+    ).toBe(true);
+
+    const webhookByAction = Object.fromEntries(
+      webhookEvents.map((event) => [String(event.action || ''), event]),
+    );
+    expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointId')).toBe(
+      endpointId,
+    );
+    expect(getPath(webhookByAction['webhook.endpoint.create'], 'metadata', 'endpointUrl')).toBe(
+      'https://example.com/cloudflare-webhook-audit',
+    );
+    expect(
+      getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'endpointUrl'),
+    ).toBe('https://example.com/cloudflare-webhook-audit-updated');
+    expect(
+      getPath(webhookByAction['webhook.endpoint.update'], 'metadata', 'eventCategories'),
+    ).toEqual(['billing']);
+    expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'endpointId')).toBe(
+      endpointId,
+    );
+    expect(getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryId')).toBe(
+      deliveryId,
+    );
+    expect(
+      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'requestedDeliveryId'),
+    ).toBe(deliveryId);
+    expect(
+      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'selectionMode'),
+    ).toBe('explicit_delivery');
+    expect(
+      getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'deliveryEventType'),
+    ).toBe('billing.invoice.generated');
+    expect(
+      Number(
+        getPath(webhookByAction['webhook.delivery.replay_requested'], 'metadata', 'replayCount') || 0,
+      ),
+    ).toBe(1);
+    expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointId')).toBe(
+      endpointId,
+    );
+    expect(getPath(webhookByAction['webhook.endpoint.delete'], 'metadata', 'endpointUrl')).toBe(
+      'https://example.com/cloudflare-webhook-audit-updated',
+    );
+  });
+
+  test('cloudflare webhook delivery failures append dead-letter and endpoint degraded observability events', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const webhooks = createInMemoryConsoleWebhookService({
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+      endpointDegradedThreshold: 2,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: false,
+          statusCode: 500,
+          responseBody: 'temporary failure',
+          errorMessage: 'upstream failure',
+        }),
+      },
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      webhooks,
+    });
+
+    const created = await callCf(handler, {
+      method: 'POST',
+      path: '/console/webhooks',
+      body: {
+        url: 'https://example.com/cloudflare-observability-webhook',
+        eventCategories: ['billing'],
+      },
+    });
+    expect(created.status).toBe(201);
+    const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+    expect(endpointId).toBeTruthy();
+
+    await webhooks.emitEvent(
+      {
+        orgId: 'org-1',
+        actorUserId: 'system-webhooks-observability',
+        roles: ['ops'],
+      },
+      {
+        eventType: 'billing.invoice.failed',
+        payload: { invoiceId: 'inv_obs_webhook_cf_1' },
+      },
+    );
+    await webhooks.emitEvent(
+      {
+        orgId: 'org-1',
+        actorUserId: 'system-webhooks-observability',
+        roles: ['ops'],
+      },
+      {
+        eventType: 'billing.invoice.failed',
+        payload: { invoiceId: 'inv_obs_webhook_cf_2' },
+      },
+    );
+
+    const deadLetterEvents = ingested.filter(
+      (entry) => entry.event.eventType === 'webhook.delivery.dead_letter',
+    );
+    const degradedEvents = ingested.filter(
+      (entry) => entry.event.eventType === 'webhook.endpoint.degraded',
+    );
+    expect(deadLetterEvents).toHaveLength(2);
+    expect(degradedEvents).toHaveLength(1);
+    expect(String(getPath(deadLetterEvents[0]?.event, 'metadata', 'endpointId') || '')).toBe(
+      endpointId,
+    );
+    expect(
+      Number(getPath(degradedEvents[0]?.event, 'metadata', 'unresolvedDeadLetterCount') || 0),
+    ).toBe(2);
+  });
+
+  test('cloudflare webhook mutations require console config mutation role', async () => {
+    const webhooks = createInMemoryConsoleWebhookService();
+    const adminHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      webhooks,
+    });
+    const developerHandler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer']),
+      webhooks,
+    });
+
+    const created = await callCf(adminHandler, {
+      method: 'POST',
+      path: '/console/webhooks',
+      body: {
+        url: 'https://example.com/cloudflare-restricted-webhook',
+        eventCategories: ['billing'],
+      },
+    });
+    expect(created.status).toBe(201);
+    const endpointId = String(getPath(created.json, 'endpoint', 'id') || '');
+    expect(endpointId).toBeTruthy();
+
+    const listed = await callCf(developerHandler, {
+      method: 'GET',
+      path: '/console/webhooks',
+    });
+    expect(listed.status).toBe(200);
+
+    const forbiddenCreate = await callCf(developerHandler, {
+      method: 'POST',
+      path: '/console/webhooks',
+      body: {
+        url: 'https://example.com/cloudflare-forbidden-webhook',
+        eventCategories: ['billing'],
+      },
+    });
+    expect(forbiddenCreate.status).toBe(403);
+    expect(forbiddenCreate.json?.code).toBe('forbidden');
+
+    const emitted = await webhooks.emitEvent(
+      {
+        orgId: 'org-1',
+        actorUserId: 'system-webhooks-rbac-cloudflare',
+        roles: ['ops'],
+      },
+      {
+        eventType: 'billing.invoice.paid',
+        payload: {
+          invoiceId: 'inv_webhook_rbac_cloudflare',
+        },
+      },
+    );
+    expect(emitted.attempted).toBe(1);
+    const deliveries = await callCf(adminHandler, {
+      method: 'GET',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}/deliveries`,
+    });
+    const deliveryId = String(getPath(deliveries.json, 'deliveries', 0, 'id') || '');
+    expect(deliveryId).toBeTruthy();
+
+    const forbiddenUpdate = await callCf(developerHandler, {
+      method: 'PATCH',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}`,
+      body: {
+        status: 'DISABLED',
+      },
+    });
+    expect(forbiddenUpdate.status).toBe(403);
+    expect(forbiddenUpdate.json?.code).toBe('forbidden');
+
+    const forbiddenReplay = await callCf(developerHandler, {
+      method: 'POST',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}/replay`,
+      body: { deliveryId },
+    });
+    expect(forbiddenReplay.status).toBe(403);
+    expect(forbiddenReplay.json?.code).toBe('forbidden');
+
+    const forbiddenDelete = await callCf(developerHandler, {
+      method: 'DELETE',
+      path: `/console/webhooks/${encodeURIComponent(endpointId)}`,
+    });
+    expect(forbiddenDelete.status).toBe(403);
+    expect(forbiddenDelete.json?.code).toBe('forbidden');
+  });
+
   test('cloudflare webhook list endpoints reject malformed cursor', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -8962,9 +11379,11 @@ test.describe('console router (cloudflare)', () => {
   });
 
   test('POST /console/billing/stripe/checkout-session/reconcile settles a paid checkout session', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing: createInMemoryConsoleBillingService(),
+      audit,
     });
     const created = await callCf(handler, {
       method: 'POST',
@@ -9011,6 +11430,190 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(overview.status).toBe(200);
     expect(Number(getPath(overview.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+
+    const auditEvents = await audit.listEvents({
+      orgId: 'org-1',
+      actorUserId: 'user-1',
+      roles: ['admin'],
+    });
+    const settlementEvents = auditEvents.filter(
+      (event) => String(event.action || '') === 'billing.credit_purchase.settled',
+    );
+    expect(settlementEvents).toHaveLength(1);
+    expect(settlementEvents[0]?.actorType).toBe('USER');
+    expect(settlementEvents[0]?.actorUserId).toBe('user-1');
+    expect(getPath(settlementEvents[0], 'metadata', 'purchaseId')).toBe(
+      getPath(reconciled.json, 'result', 'purchase', 'id'),
+    );
+    expect(getPath(settlementEvents[0], 'metadata', 'receiptId')).toBe(
+      getPath(reconciled.json, 'result', 'invoice', 'id'),
+    );
+    expect(getPath(settlementEvents[0], 'metadata', 'settlementSource')).toBe(
+      'stripe_checkout_reconcile',
+    );
+    expect(getPath(settlementEvents[0], 'metadata', 'settlementEventId')).toBe(
+      `stripe_checkout_reconcile:${checkoutSessionId}`,
+    );
+  });
+
+  test('GET /console/platform/billing/account resolves project-scoped lookup for platform_admin', async () => {
+    const billing = createInMemoryConsoleBillingService({
+      now: () => new Date('2026-03-20T00:00:00.000Z'),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const targetCtx = {
+      orgId: 'org-platform-target-cloudflare',
+      actorUserId: 'platform-user-cloudflare',
+      roles: ['platform_admin'],
+    };
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-platform-target-cloudflare',
+      projectId: 'proj-platform-target-cloudflare',
+      actorUserId: 'platform-user-cloudflare',
+    });
+    await billing.grantManualSupportCredit(targetCtx, {
+      amountMinor: 1200,
+      reasonCode: 'incident_credit',
+      note: 'Seed manual credit',
+      idempotencyKey: 'platform-lookup-credit-cloudflare',
+    });
+    await billing.recordUsageEvent(targetCtx, {
+      walletId: 'wallet-platform-cloudflare',
+      action: 'transfer',
+      succeeded: true,
+      occurredAt: '2026-02-15T00:00:00.000Z',
+      sourceEventId: 'usage-platform-cloudflare',
+    });
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-cloudflare',
+        'platform-user-cloudflare',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: `/console/platform/billing/account?projectId=${encodeURIComponent(
+        'proj-platform-target-cloudflare',
+      )}&periodMonthUtc=2026-03&eventType=MANUAL_ADJUSTMENT`,
+    });
+    expect(res.status).toBe(200);
+    expect(String(getPath(res.json, 'result', 'organization', 'id') || '')).toBe(
+      'org-platform-target-cloudflare',
+    );
+    expect(String(getPath(res.json, 'result', 'project', 'id') || '')).toBe(
+      'proj-platform-target-cloudflare',
+    );
+    expect(Number(getPath(res.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(900);
+    const entries = Array.isArray(getPath(res.json, 'result', 'activity', 'entries'))
+      ? (getPath(res.json, 'result', 'activity', 'entries') as any[])
+      : [];
+    expect(entries).toHaveLength(1);
+    expect(String(entries[0]?.type || '')).toBe('MANUAL_ADJUSTMENT');
+    expect(String(entries[0]?.reasonCode || '')).toBe('incident_credit');
+  });
+
+  test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const searchCtx = {
+      orgId: 'org-platform-search-primary-cloudflare',
+      actorUserId: 'platform-user-cloudflare',
+      roles: ['platform_admin'],
+    };
+    await orgProjectEnv.upsertOrganization(searchCtx, {
+      name: 'Watchbook Marketplace',
+      slug: 'watchbook-marketplace',
+    });
+    await orgProjectEnv.createProject(searchCtx, {
+      id: 'proj-platform-search-primary-cloudflare',
+      name: 'Marketplace API',
+      liveEnvironmentsEnabled: true,
+    });
+    await orgProjectEnv.upsertOrganization(
+      {
+        orgId: 'org-platform-search-secondary-cloudflare',
+        actorUserId: 'platform-user-cloudflare',
+        roles: ['platform_admin'],
+      },
+      {
+        name: 'Acme Labs',
+        slug: 'acme-labs',
+      },
+    );
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-cloudflare',
+        'platform-user-cloudflare',
+      ),
+      orgProjectEnv,
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: `/console/platform/billing/search?query=${encodeURIComponent(
+        'watchbook',
+      )}`,
+    });
+    expect(res.status).toBe(200);
+    const organizations = Array.isArray(getPath(res.json, 'organizations'))
+      ? (getPath(res.json, 'organizations') as any[])
+      : [];
+    expect(organizations).toHaveLength(1);
+    expect(String(organizations[0]?.id || '')).toBe('org-platform-search-primary-cloudflare');
+    expect(String(organizations[0]?.name || '')).toBe('Watchbook Marketplace');
+  });
+
+  test('POST /console/platform/billing/adjustments/support-credit applies to target org for platform_admin', async () => {
+    const billing = createInMemoryConsoleBillingService({
+      now: () => new Date('2026-03-20T00:00:00.000Z'),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    await seedOrgProjectEnvironment(orgProjectEnv, {
+      orgId: 'org-platform-adjust-target-cloudflare',
+      projectId: 'proj-platform-adjust-target-cloudflare',
+      actorUserId: 'platform-user-cloudflare',
+    });
+
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['platform_admin'],
+        'org-platform-session-cloudflare',
+        'platform-user-cloudflare',
+      ),
+      billing,
+      orgProjectEnv,
+    });
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/platform/billing/adjustments/support-credit',
+      body: {
+        orgId: 'org-platform-adjust-target-cloudflare',
+        amountMinor: 1500,
+        reasonCode: 'incident_credit',
+        note: 'Applied by platform admin',
+        idempotencyKey: 'platform-adjust-credit-cloudflare',
+      },
+    });
+    expect(res.status).toBe(201);
+    expect(String(getPath(res.json, 'result', 'adjustment', 'orgId') || '')).toBe(
+      'org-platform-adjust-target-cloudflare',
+    );
+    expect(Number(getPath(res.json, 'result', 'creditBalanceMinor') || 0)).toBe(1500);
+
+    const lookup = await callCf(handler, {
+      method: 'GET',
+      path: `/console/platform/billing/account?orgId=${encodeURIComponent(
+        'org-platform-adjust-target-cloudflare',
+      )}`,
+    });
+    expect(lookup.status).toBe(200);
+    expect(Number(getPath(lookup.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(
+      1500,
+    );
   });
 
   test('legacy billing subscription route is removed', async () => {
@@ -9212,10 +11815,12 @@ test.describe('console router (cloudflare)', () => {
 
   test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {
     const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const secret = 'whsec_console_router_cf_projection_test';
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
       billing,
+      audit,
       billingStripeWebhookSecret: secret,
     });
 
@@ -9284,6 +11889,25 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(overviewAfter.status).toBe(200);
     expect(Number(getPath(overviewAfter.json, 'overview', 'creditBalanceMinor') || 0)).toBe(2500);
+
+    const auditEvents = await audit.listEvents({
+      orgId: 'org-1',
+      actorUserId: 'user-1',
+      roles: ['admin'],
+    });
+    const settlementEvents = auditEvents.filter(
+      (event) => String(event.action || '') === 'billing.credit_purchase.settled',
+    );
+    expect(settlementEvents).toHaveLength(1);
+    expect(settlementEvents[0]?.category).toBe('BILLING');
+    expect(settlementEvents[0]?.actorType).toBe('SYSTEM');
+    expect(settlementEvents[0]?.actorUserId).toBe('system-stripe-webhook');
+    expect(getPath(settlementEvents[0], 'metadata', 'purchaseId')).toBe(
+      getPath(projectedPurchase.json, 'purchase', 'id'),
+    );
+    expect(getPath(settlementEvents[0], 'metadata', 'receiptId')).toBe(receiptInvoiceId);
+    expect(getPath(settlementEvents[0], 'metadata', 'settlementSource')).toBe('stripe_webhook');
+    expect(getPath(settlementEvents[0], 'metadata', 'settlementEventId')).toBe(purchaseEventId);
   });
 
   test('GET /console/billing/invoices/:id/pdf returns billing document PDF export', async () => {
@@ -9537,6 +12161,26 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(usage.json, 'usage', 'monthlyActiveWallets') || 0)).toBe(2);
   });
 
+  test('cloudflare POST /console/billing/usage/events requires admin or ops role', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['billing_admin']),
+      billing: createInMemoryConsoleBillingService(),
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/usage/events',
+      body: {
+        walletId: 'wallet_usage_role_cloudflare',
+        action: 'transfer',
+        succeeded: true,
+        sourceEventId: 'usage_role_cloudflare_1',
+      },
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('forbidden');
+  });
+
   test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {
     const billing = createInMemoryConsoleBillingService();
     const handler = createCloudflareConsoleRouter({
@@ -9590,6 +12234,69 @@ test.describe('console router (cloudflare)', () => {
     const items = Array.isArray(lineItems.json?.lineItems) ? lineItems.json?.lineItems : [];
     expect(items.length).toBe(1);
     expect(JSON.stringify(items)).toContain('"itemType":"MAW_USAGE_DEBIT"');
+  });
+
+  test('cloudflare billing invoice generation appends audit rows', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['admin'],
+        'org-billing-invoice-audit-cloudflare',
+        'user-billing-invoice-audit-cloudflare',
+      ),
+      billing,
+      audit,
+    });
+
+    const usage = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/usage/events',
+      body: {
+        walletId: 'wallet_invoice_audit_cloudflare',
+        action: 'transfer',
+        succeeded: true,
+        occurredAt: '2026-03-05T01:00:00.000Z',
+        sourceEventId: 'usage_evt_invoice_audit_cloudflare',
+      },
+    });
+    expect(usage.status).toBe(200);
+
+    const generated = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/invoices/generate',
+      body: {
+        periodMonthUtc: '2026-03',
+      },
+    });
+    expect(generated.status).toBe(200);
+    const invoiceId = String(getPath(generated.json, 'generation', 'invoice', 'id') || '');
+    expect(invoiceId).toBeTruthy();
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-billing-invoice-audit-cloudflare',
+        actorUserId: 'user-billing-invoice-audit-cloudflare',
+        roles: ['admin'],
+      },
+      { category: 'BILLING', limit: 20 },
+    );
+    const invoiceEvent = auditEvents.find(
+      (event) => String(event.action || '') === 'billing.invoice.generated',
+    );
+    expect(invoiceEvent).toBeTruthy();
+    expect(getPath(invoiceEvent, 'metadata', 'invoiceId')).toBe(invoiceId);
+    expect(getPath(invoiceEvent, 'metadata', 'periodMonthUtc')).toBe('2026-03');
+    expect(getPath(invoiceEvent, 'metadata', 'invoiceDocumentType')).toBe('USAGE_STATEMENT');
+    expect(getPath(invoiceEvent, 'metadata', 'monthlyActiveWallets')).toBe(1);
+    expect(getPath(invoiceEvent, 'metadata', 'lineItemCount')).toBe(
+      Array.isArray(getPath(generated.json, 'generation', 'lineItems'))
+        ? (getPath(generated.json, 'generation', 'lineItems') as any[]).length
+        : 0,
+    );
+    expect(getPath(invoiceEvent, 'metadata', 'generated')).toBe(
+      getPath(generated.json, 'generation', 'generated'),
+    );
   });
 
   test('cloudflare billing document generation emits webhook events', async () => {
@@ -11212,7 +13919,7 @@ test.describe('console router (postgres api keys)', () => {
           name: 'owner-postgres-api-key',
           environmentId: ownerEnvironmentId,
           kind: 'secret_key',
-          scopes: ['wallets:read', 'billing:read'],
+          scopes: ['accounts.create'],
           ipAllowlist: ['203.0.113.20/32'],
         }),
       });
@@ -11290,7 +13997,7 @@ test.describe('console router (postgres api keys)', () => {
         name: 'owner-postgres-api-key-cf',
         environmentId: ownerEnvironmentId,
         kind: 'secret_key',
-        scopes: ['wallets:read'],
+        scopes: ['accounts.create'],
         ipAllowlist: ['198.51.100.25/32'],
       },
     });
@@ -11394,6 +14101,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerOrgId = `${authOrgId}:attacker-export`;
     const ownerProjectId = `${ownerOrgId}:api-project`;
     const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    const keyExports = createInMemoryConsoleKeyExportService();
     await seedOrgProjectEnvironment(orgProjectEnv!, {
       orgId: ownerOrgId,
       projectId: ownerProjectId,
@@ -11402,22 +14110,22 @@ test.describe('console router (postgres api keys)', () => {
 
     const ownerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user'),
-      apiKeys: apiKeys!,
+      keyExports,
       orgProjectEnv: orgProjectEnv!,
     });
     const ownerServer = await startExpressRouter(ownerRouter);
     try {
-      const created = await fetchJson(`${ownerServer.baseUrl}/console/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'owner-export-governance-key',
+      await keyExports.createKeyExport(
+        {
+          orgId: ownerOrgId,
+          actorUserId: 'owner-export-user',
+          roles: ['admin'],
+        },
+        {
           environmentId: ownerEnvironmentId,
-          kind: 'secret_key',
-          scopes: ['wallets:read', 'keys:export'],
-        }),
-      });
-      expect(created.status).toBe(201);
+          reason: 'Owner export governance review',
+        },
+      );
 
       const ownerGovernance = await fetchJson(
         `${ownerServer.baseUrl}/console/export/governance?environmentId=${encodeURIComponent(ownerEnvironmentId)}`,
@@ -11430,7 +14138,7 @@ test.describe('console router (postgres api keys)', () => {
             ownerGovernance.json,
             'governance',
             'totals',
-            'selectedEnvironmentExportScopedKeyCount',
+            'selectedEnvironmentRequestCount',
           ) || 0,
         ),
       ).toBeGreaterThanOrEqual(1);
@@ -11440,7 +14148,7 @@ test.describe('console router (postgres api keys)', () => {
 
     const attackerRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user'),
-      apiKeys: apiKeys!,
+      keyExports,
       orgProjectEnv: orgProjectEnv!,
     });
     const attackerServer = await startExpressRouter(attackerRouter);
@@ -11456,7 +14164,7 @@ test.describe('console router (postgres api keys)', () => {
             attackerGovernance.json,
             'governance',
             'totals',
-            'selectedEnvironmentExportScopedKeyCount',
+            'selectedEnvironmentRequestCount',
           ) || 0,
         ),
       ).toBe(0);
@@ -11471,6 +14179,7 @@ test.describe('console router (postgres api keys)', () => {
     const attackerOrgId = `${authOrgId}:attacker-export-cf`;
     const ownerProjectId = `${ownerOrgId}:api-project`;
     const ownerEnvironmentId = `${ownerProjectId}:prod`;
+    const keyExports = createInMemoryConsoleKeyExportService();
     await seedOrgProjectEnvironment(orgProjectEnv!, {
       orgId: ownerOrgId,
       projectId: ownerProjectId,
@@ -11479,20 +14188,20 @@ test.describe('console router (postgres api keys)', () => {
 
     const ownerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], ownerOrgId, 'owner-export-user-cf'),
-      apiKeys: apiKeys!,
+      keyExports,
       orgProjectEnv: orgProjectEnv!,
     });
-    const created = await callCf(ownerHandler, {
-      method: 'POST',
-      path: '/console/api-keys',
-      body: {
-        name: 'owner-export-governance-key-cf',
-        environmentId: ownerEnvironmentId,
-        kind: 'secret_key',
-        scopes: ['wallets:read', 'keys:export'],
+    await keyExports.createKeyExport(
+      {
+        orgId: ownerOrgId,
+        actorUserId: 'owner-export-user-cf',
+        roles: ['admin'],
       },
-    });
-    expect(created.status).toBe(201);
+      {
+        environmentId: ownerEnvironmentId,
+        reason: 'Owner export governance review',
+      },
+    );
 
     const ownerGovernance = await callCf(ownerHandler, {
       method: 'GET',
@@ -11505,14 +14214,14 @@ test.describe('console router (postgres api keys)', () => {
           ownerGovernance.json,
           'governance',
           'totals',
-          'selectedEnvironmentExportScopedKeyCount',
+          'selectedEnvironmentRequestCount',
         ) || 0,
       ),
     ).toBeGreaterThanOrEqual(1);
 
     const attackerHandler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin'], attackerOrgId, 'attacker-export-user-cf'),
-      apiKeys: apiKeys!,
+      keyExports,
       orgProjectEnv: orgProjectEnv!,
     });
     const attackerGovernance = await callCf(attackerHandler, {
@@ -11526,7 +14235,7 @@ test.describe('console router (postgres api keys)', () => {
           attackerGovernance.json,
           'governance',
           'totals',
-          'selectedEnvironmentExportScopedKeyCount',
+          'selectedEnvironmentRequestCount',
         ) || 0,
       ),
     ).toBe(0);

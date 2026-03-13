@@ -35,6 +35,7 @@ test.describe('relay cloudflare worker cron config', () => {
           seenOutboxEvents.push(event);
         },
       },
+      null,
     );
 
     expect(options.enabled).toBe(true);
@@ -84,6 +85,7 @@ test.describe('relay cloudflare worker cron config', () => {
       {
         applyOutboxEvent() {},
       },
+      null,
     );
 
     expect(options.billingMonthlyFinalization).toBeUndefined();
@@ -108,6 +110,7 @@ test.describe('relay cloudflare worker cron config', () => {
       {
         applyOutboxEvent() {},
       },
+      null,
     );
 
     expect(options.enabled).toBe(false);
@@ -115,5 +118,34 @@ test.describe('relay cloudflare worker cron config', () => {
     expect(options.billingMonthlyFinalization).toBeUndefined();
     expect(options.runtimeSnapshotOutbox).toBeUndefined();
     expect(options.webhookRetryDispatch).toBeUndefined();
+  });
+
+  test('forwards webhook retry observability ingestion when provided', async () => {
+    const flags = resolveWorkerCronFeatureFlags({
+      ENABLE_ROTATION: '0',
+      BILLING_FINALIZATION_ENABLED: '0',
+      RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '0',
+      WEBHOOK_RETRY_ENABLED: '1',
+    });
+    const observabilityIngestion = {
+      appendEvent: async () => ({ accepted: 1, deduplicated: 0 }),
+      appendEvents: async (_ctx: unknown, events: unknown[]) => ({
+        accepted: events.length,
+        deduplicated: 0,
+      }),
+    };
+    const options = createWorkerCronOptions(
+      {
+        BILLING_POSTGRES_URL: 'postgres://billing/db',
+        WEBHOOK_RETRY_ORG_IDS: 'org-a',
+      },
+      flags,
+      {
+        applyOutboxEvent() {},
+      },
+      observabilityIngestion as any,
+    );
+
+    expect(options.webhookRetryDispatch?.observabilityIngestion).toBe(observabilityIngestion);
   });
 });

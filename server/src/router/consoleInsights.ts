@@ -1,4 +1,8 @@
-import type { ConsoleApiKeyService, ConsoleApiKeysContext } from '../console/apiKeys';
+import type {
+  ConsoleKeyExportRequestRecord,
+  ConsoleKeyExportService,
+  ConsoleKeyExportsContext,
+} from '../console/keyExports';
 import type { ConsolePolicyKind } from '../console/policies';
 import type { ConsoleWallet, ConsoleWalletService, ConsoleWalletsContext } from '../console/wallets';
 
@@ -82,15 +86,23 @@ export interface ConsoleGasReadinessView {
   truncated: boolean;
 }
 
-export interface ConsoleExportGovernanceKey {
+export interface ConsoleExportGovernanceRequest {
   id: string;
-  name: string;
   environmentId: string;
+  walletId: string | null;
+  mode: string;
   status: string;
-  scopes: string[];
-  lastUsedAt: string | null;
-  anomalyFlags: string[];
-  secretVersion: number;
+  reason: string;
+  requestedByUserId: string;
+  requiredApprovals: number;
+  approvalCount: number;
+  pendingApprovals: number;
+  constraints: {
+    roles: string[];
+    chains: string[];
+    walletTypes: string[];
+    environmentIds: string[];
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -98,13 +110,17 @@ export interface ConsoleExportGovernanceKey {
 export interface ConsoleExportGovernanceView {
   scope: { environmentId: string | null };
   totals: {
-    apiKeyCount: number;
-    exportScopedKeyCount: number;
-    activeExportScopedKeyCount: number;
-    selectedEnvironmentExportScopedKeyCount: number;
+    requestCount: number;
+    pendingApprovalCount: number;
+    approvedRequestCount: number;
+    executedRequestCount: number;
+    rejectedRequestCount: number;
+    canceledRequestCount: number;
+    selectedEnvironmentRequestCount: number;
+    selectedEnvironmentPendingApprovalCount: number;
   };
-  exportScopedKeys: ConsoleExportGovernanceKey[];
-  selectedEnvironmentKeys: ConsoleExportGovernanceKey[];
+  requests: ConsoleExportGovernanceRequest[];
+  selectedEnvironmentRequests: ConsoleExportGovernanceRequest[];
 }
 
 function normalizeScopeValue(raw: unknown): string | undefined {
@@ -175,8 +191,31 @@ function toGasWalletSample(
   };
 }
 
-function hasExportScope(scopes: string[] | undefined): boolean {
-  return (scopes || []).some((scope) => String(scope || '').toLowerCase().includes('export'));
+function toExportGovernanceRequest(
+  record: ConsoleKeyExportRequestRecord,
+): ConsoleExportGovernanceRequest {
+  const approvalCount = Array.isArray(record.approvals) ? record.approvals.length : 0;
+  const requiredApprovals = Math.max(1, Number(record.requiredApprovals || 0));
+  return {
+    id: record.id,
+    environmentId: record.environmentId,
+    walletId: record.walletId,
+    mode: record.mode,
+    status: record.status,
+    reason: record.reason,
+    requestedByUserId: record.requestedByUserId,
+    requiredApprovals,
+    approvalCount,
+    pendingApprovals: Math.max(requiredApprovals - approvalCount, 0),
+    constraints: {
+      roles: [...record.constraints.roles],
+      chains: [...record.constraints.chains],
+      walletTypes: [...record.constraints.walletTypes],
+      environmentIds: [...record.constraints.environmentIds],
+    },
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
 }
 
 export function resolveConsoleInsightsScope(input: {
@@ -406,46 +445,34 @@ export async function buildConsoleGasReadinessView(input: {
 }
 
 export async function buildConsoleExportGovernanceView(input: {
-  apiKeys: ConsoleApiKeyService;
-  apiKeyCtx: ConsoleApiKeysContext;
+  keyExports: ConsoleKeyExportService;
+  keyExportCtx: ConsoleKeyExportsContext;
   environmentIdFilter?: string;
 }): Promise<ConsoleExportGovernanceView> {
-  const rows = await input.apiKeys.listApiKeys(input.apiKeyCtx);
-  const exportScopedKeys = rows.filter((entry) => hasExportScope(entry.scopes));
-  const selectedEnvironmentKeys = input.environmentIdFilter
-    ? exportScopedKeys.filter((entry) => entry.environmentId === input.environmentIdFilter)
-    : exportScopedKeys;
-
-  const normalizedExportKeys = [...exportScopedKeys]
+  const rows = await input.keyExports.listKeyExports(input.keyExportCtx);
+  const normalizedRequests = [...rows]
     .sort((a, b) => compareIsoDesc(a.updatedAt, b.updatedAt))
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      environmentId: entry.environmentId,
-      status: entry.status,
-      scopes: [...(entry.scopes || [])],
-      lastUsedAt: entry.lastUsedAt,
-      anomalyFlags: [...entry.anomalyFlags],
-      secretVersion: entry.secretVersion,
-      createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt,
-    }));
-
-  const normalizedSelected = normalizedExportKeys.filter((entry) =>
+    .map((entry) => toExportGovernanceRequest(entry));
+  const normalizedSelected = normalizedRequests.filter((entry) =>
     input.environmentIdFilter ? entry.environmentId === input.environmentIdFilter : true,
   );
 
   return {
     scope: { environmentId: input.environmentIdFilter || null },
     totals: {
-      apiKeyCount: rows.length,
-      exportScopedKeyCount: normalizedExportKeys.length,
-      activeExportScopedKeyCount: normalizedExportKeys.filter(
-        (entry) => String(entry.status || '').toUpperCase() === 'ACTIVE',
+      requestCount: normalizedRequests.length,
+      pendingApprovalCount: normalizedRequests.filter((entry) => entry.status === 'PENDING_APPROVAL')
+        .length,
+      approvedRequestCount: normalizedRequests.filter((entry) => entry.status === 'APPROVED').length,
+      executedRequestCount: normalizedRequests.filter((entry) => entry.status === 'EXECUTED').length,
+      rejectedRequestCount: normalizedRequests.filter((entry) => entry.status === 'REJECTED').length,
+      canceledRequestCount: normalizedRequests.filter((entry) => entry.status === 'CANCELED').length,
+      selectedEnvironmentRequestCount: normalizedSelected.length,
+      selectedEnvironmentPendingApprovalCount: normalizedSelected.filter(
+        (entry) => entry.status === 'PENDING_APPROVAL',
       ).length,
-      selectedEnvironmentExportScopedKeyCount: normalizedSelected.length,
     },
-    exportScopedKeys: normalizedExportKeys,
-    selectedEnvironmentKeys: normalizedSelected,
+    requests: normalizedRequests,
+    selectedEnvironmentRequests: normalizedSelected,
   };
 }

@@ -1,6 +1,7 @@
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type {
   AuthenticateConsoleApiKeyResult,
+  AuthenticateConsolePublishableKeyResult,
   ConsoleApiKey,
 } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
@@ -8,6 +9,8 @@ import { normalizeSourceIp } from '../console/apiKeys/ipAllowlist';
 import type {
   RelayApiKeyAuthAdapter,
   RelayApiKeyAuthResult,
+  RelayPublishableKeyAuthAdapter,
+  RelayPublishableKeyAuthResult,
   RelayUsageMeterAdapter,
 } from './relay';
 
@@ -45,6 +48,18 @@ function toRelayAuthResult(result: AuthenticateConsoleApiKeyResult): RelayApiKey
   return result;
 }
 
+function toRelayPublishableAuthResult(
+  result: AuthenticateConsolePublishableKeyResult,
+): RelayPublishableKeyAuthResult {
+  if (result.ok) {
+    return {
+      ok: true,
+      principal: toPrincipal(result.apiKey),
+    };
+  }
+  return result;
+}
+
 export function createRelayApiKeyAuthAdapter(apiKeys: ConsoleApiKeyService): RelayApiKeyAuthAdapter {
   const authenticateApiKey = apiKeys.authenticateApiKey;
   if (typeof authenticateApiKey !== 'function') {
@@ -54,6 +69,27 @@ export function createRelayApiKeyAuthAdapter(apiKeys: ConsoleApiKeyService): Rel
     authenticate: async (input) => {
       const result = await authenticateApiKey(input);
       return toRelayAuthResult(result);
+    },
+  };
+}
+
+export function createRelayPublishableKeyAuthAdapter(
+  apiKeys: ConsoleApiKeyService,
+): RelayPublishableKeyAuthAdapter {
+  const authenticatePublishableKey = apiKeys.authenticatePublishableKey;
+  if (typeof authenticatePublishableKey !== 'function') {
+    throw new Error(
+      'ConsoleApiKeyService.authenticatePublishableKey is required for relay publishable key auth',
+    );
+  }
+  return {
+    authenticate: async (input) => {
+      const result = await authenticatePublishableKey({
+        secret: input.secret,
+        origin: input.origin,
+        environmentId: input.environmentId,
+      });
+      return toRelayPublishableAuthResult(result);
     },
   };
 }

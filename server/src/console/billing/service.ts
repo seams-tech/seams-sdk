@@ -781,11 +781,18 @@ export function createInMemoryConsoleBillingService(
       request: BillingAccountActivityRequest = {},
     ): Promise<BillingAccountActivityResult> {
       const store = ensureOrgStore(ctx.orgId);
+      const periodMonthUtc = request.periodMonthUtc
+        ? parseMonthUtcOrThrow(request.periodMonthUtc)
+        : undefined;
+      const eventType = request.eventType || undefined;
       return {
-        entries: sortLedgerEntriesByMostRecent(store.ledgerEntries).slice(
-          0,
-          normalizeAccountActivityLimit(request.limit),
-        ),
+        entries: sortLedgerEntriesByMostRecent(store.ledgerEntries)
+          .filter((entry) => {
+            if (periodMonthUtc && entry.monthUtc !== periodMonthUtc) return false;
+            if (eventType && entry.type !== eventType) return false;
+            return true;
+          })
+          .slice(0, normalizeAccountActivityLimit(request.limit)),
       };
     },
 

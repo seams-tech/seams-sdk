@@ -123,4 +123,45 @@ test.describe('console org/project/environment parser and service semantics', ()
       ),
     ).toBe(true);
   });
+
+  test('in-memory service searches organizations by organization name and id', async () => {
+    const service = createInMemoryConsoleOrgProjectEnvService();
+    const primaryCtx = {
+      orgId: 'org_watchbook_marketplace',
+      actorUserId: 'user-search',
+      roles: ['platform_admin'],
+    };
+    await service.upsertOrganization(primaryCtx, {
+      name: 'Watchbook Marketplace',
+      slug: 'watchbook-marketplace',
+    });
+    await service.createProject(primaryCtx, {
+      id: 'proj_watchbook_marketplace_api',
+      name: 'Marketplace API',
+      liveEnvironmentsEnabled: true,
+    });
+    await service.upsertOrganization(
+      {
+        orgId: 'org_acme_labs',
+        actorUserId: 'user-search',
+        roles: ['platform_admin'],
+      },
+      {
+        name: 'Acme Labs',
+        slug: 'acme-labs',
+      },
+    );
+
+    const nameResults = await service.searchOrganizations({ query: 'watchbook' });
+    expect(nameResults).toHaveLength(1);
+    expect(nameResults[0]?.name).toBe('Watchbook Marketplace');
+    expect(nameResults[0]?.id).toBe('org_watchbook_marketplace');
+
+    const idResults = await service.searchOrganizations({
+      query: 'org_watchbook_marketplace',
+    });
+    expect(idResults).toHaveLength(1);
+    expect(idResults[0]?.id).toBe('org_watchbook_marketplace');
+    expect(idResults[0]?.name).toBe('Watchbook Marketplace');
+  });
 });

@@ -31,11 +31,47 @@ export const CONSOLE_OBSERVABILITY_EVENT_POLICIES = {
     level: 'ERROR',
     eventType: 'webhook.delivery.dead_letter',
   },
-  billingFailure: {
+  webhookDeliveryRetryExhausted: {
+    source: 'WEBHOOK',
+    service: 'webhooks',
+    component: 'delivery_dispatch',
+    level: 'ERROR',
+    eventType: 'webhook.delivery.retry_exhausted',
+  },
+  webhookEndpointDegraded: {
+    source: 'WEBHOOK',
+    service: 'webhooks',
+    component: 'endpoint_health',
+    level: 'WARN',
+    eventType: 'webhook.endpoint.degraded',
+  },
+  billingInvoiceFinalizationFailure: {
     source: 'BILLING',
     service: 'billing',
     component: 'finalization',
     level: 'ERROR',
+    eventType: 'billing.invoice_finalization.failed',
+  },
+  billingPaymentReconcileFailure: {
+    source: 'BILLING',
+    service: 'billing',
+    component: 'checkout_reconcile',
+    level: 'ERROR',
+    eventType: 'billing.payment_reconcile.failed',
+  },
+  billingStripeWebhookInvalidSignature: {
+    source: 'BILLING',
+    service: 'billing',
+    component: 'stripe_webhook',
+    level: 'ERROR',
+    eventType: 'billing.stripe_webhook.invalid_signature',
+  },
+  billingStripeWebhookProcessingFailure: {
+    source: 'BILLING',
+    service: 'billing',
+    component: 'stripe_webhook',
+    level: 'ERROR',
+    eventType: 'billing.stripe_webhook.processing.failed',
   },
   approvalPublishFailure: {
     source: 'APPROVAL',

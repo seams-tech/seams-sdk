@@ -7,8 +7,6 @@ import { BillingInvoiceDetailView } from './BillingInvoiceDetailView';
 import { BillingInvoicesView } from './BillingInvoicesView';
 import { PlatformBillingView } from './PlatformBillingView';
 import {
-  createDashboardBillingManualAdminDebit,
-  createDashboardBillingManualSupportCredit,
   createDashboardStripeCheckoutSession,
   downloadDashboardBillingInvoicePdf,
   formatUsdMinor,
@@ -16,16 +14,13 @@ import {
   getDashboardBillingInvoiceActivity,
   getDashboardBillingMonthlyActiveWallets,
   getDashboardBillingOverview,
-  listDashboardBillingAccountActivity,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
   reconcileDashboardStripeCheckoutSession,
-  type DashboardBillingAccountActivityEntry,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceActivity,
   type DashboardBillingInvoiceLineItem,
   type DashboardBillingInvoiceListSummary,
-  type DashboardBillingManualAdjustmentKind,
   type DashboardBillingOverview,
   type DashboardBillingUsage,
   type DashboardStripeCheckoutSessionRequest,
@@ -156,10 +151,6 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [overview, setOverview] = React.useState<DashboardBillingOverview | null>(null);
   const [usage, setUsage] = React.useState<DashboardBillingUsage | null>(null);
-  const [accountActivity, setAccountActivity] = React.useState<
-    DashboardBillingAccountActivityEntry[]
-  >([]);
-  const [accountActivityError, setAccountActivityError] = React.useState<string>('');
 
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
@@ -170,11 +161,6 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   >('');
   const [checkoutActionError, setCheckoutActionError] = React.useState<string>('');
   const [checkoutReturnMessage, setCheckoutReturnMessage] = React.useState<string>('');
-  const [startingAdjustmentKind, setStartingAdjustmentKind] = React.useState<
-    DashboardBillingManualAdjustmentKind | ''
-  >('');
-  const [adjustmentActionError, setAdjustmentActionError] = React.useState<string>('');
-  const [adjustmentActionMessage, setAdjustmentActionMessage] = React.useState<string>('');
   const [billingWarningMessage, setBillingWarningMessage] = React.useState<string>('');
   const [billingWarningDismissed, setBillingWarningDismissed] = React.useState<boolean>(false);
 
@@ -202,14 +188,11 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setLoading(false);
       setOverview(null);
       setUsage(null);
-      setAccountActivity([]);
-      setAccountActivityError('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
     setLoading(true);
     setErrorMessage('');
-    setAccountActivityError('');
     try {
       const [nextOverview, nextUsage] = await Promise.all([
         getDashboardBillingOverview(),
@@ -217,30 +200,14 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       ]);
       setOverview(nextOverview);
       setUsage(nextUsage);
-      if (!isPlatformBillingPage) {
-        setAccountActivity([]);
-        setAccountActivityError('');
-      } else {
-        try {
-          const nextAccountActivity = await listDashboardBillingAccountActivity(25);
-          setAccountActivity(nextAccountActivity);
-        } catch (activityError: unknown) {
-          setAccountActivity([]);
-          setAccountActivityError(
-            activityError instanceof Error ? activityError.message : String(activityError),
-          );
-        }
-      }
     } catch (error: unknown) {
       setOverview(null);
       setUsage(null);
-      setAccountActivity([]);
-      setAccountActivityError('');
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
-  }, [isPlatformBillingPage, session.claims, session.errorMessage]);
+  }, [session.claims, session.errorMessage]);
 
   const loadInvoiceListPage = React.useCallback(async () => {
     if (!session.claims) return;
@@ -293,19 +260,19 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       setLoading(true);
       return;
     }
-    if (subview.kind !== 'account') {
+    if (subview.kind !== 'account' || isPlatformBillingPage) {
       setLoading(false);
       setErrorMessage('');
       setBillingWarningMessage('');
       return;
     }
     void refreshBillingShellData();
-  }, [refreshBillingShellData, session.loading, subview.kind]);
+  }, [isPlatformBillingPage, refreshBillingShellData, session.loading, subview.kind]);
 
   React.useEffect(() => {
-    if (!session.claims || subview.kind === 'invoice') return;
+    if (!session.claims || subview.kind === 'invoice' || isPlatformBillingPage) return;
     void loadInvoiceListPage();
-  }, [loadInvoiceListPage, session.claims, subview.kind]);
+  }, [isPlatformBillingPage, loadInvoiceListPage, session.claims, subview.kind]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -580,64 +547,6 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     [session.claims, session.errorMessage],
   );
 
-  const onSubmitManualAdjustment = React.useCallback(
-    async (input: {
-      kind: DashboardBillingManualAdjustmentKind;
-      amountMinor: number;
-      reasonCode: string;
-      note: string;
-      relatedInvoiceId?: string;
-    }): Promise<boolean> => {
-      if (!session.claims) {
-        setAdjustmentActionError(session.errorMessage || 'Console session is unavailable');
-        return false;
-      }
-      setStartingAdjustmentKind(input.kind);
-      setAdjustmentActionError('');
-      setAdjustmentActionMessage('');
-      const idempotencyKey = [
-        'manual_adjustment',
-        input.kind,
-        String(Date.now()),
-        Math.random().toString(16).slice(2, 10),
-      ].join(':');
-
-      try {
-        const result =
-          input.kind === 'support_credit'
-            ? await createDashboardBillingManualSupportCredit({
-                amountMinor: input.amountMinor,
-                reasonCode: input.reasonCode,
-                note: input.note,
-                idempotencyKey,
-                ...(input.relatedInvoiceId ? { relatedInvoiceId: input.relatedInvoiceId } : {}),
-              })
-            : await createDashboardBillingManualAdminDebit({
-                amountMinor: input.amountMinor,
-                reasonCode: input.reasonCode,
-                note: input.note,
-                idempotencyKey,
-                ...(input.relatedInvoiceId ? { relatedInvoiceId: input.relatedInvoiceId } : {}),
-              });
-        setAdjustmentActionMessage(
-          result.created
-            ? input.kind === 'support_credit'
-              ? 'Manual support credit recorded.'
-              : 'Manual admin debit recorded.'
-            : 'Manual adjustment was already recorded for this idempotency key.',
-        );
-        await refreshBillingShellData();
-        return true;
-      } catch (error: unknown) {
-        setAdjustmentActionError(error instanceof Error ? error.message : String(error));
-        return false;
-      } finally {
-        setStartingAdjustmentKind('');
-      }
-    },
-    [refreshBillingShellData, session.claims, session.errorMessage],
-  );
-
   const onDownloadInvoicePdf = React.useCallback(
     async (invoiceId: string) => {
       const normalizedInvoiceId = String(invoiceId || '').trim();
@@ -697,17 +606,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       ) : subview.kind === 'account' ? (
         isPlatformBillingPage ? (
           isPlatformAdmin ? (
-            <PlatformBillingView
-              selectedContext={selectedContextDisplay}
-              summaryMetrics={summaryMetrics}
-              currentCreditBalanceMinor={overview?.creditBalanceMinor || 0}
-              startingAdjustmentKind={startingAdjustmentKind}
-              adjustmentActionError={adjustmentActionError}
-              adjustmentActionMessage={adjustmentActionMessage}
-              accountActivity={accountActivity}
-              accountActivityError={accountActivityError}
-              onSubmitManualAdjustment={(request) => onSubmitManualAdjustment(request)}
-            />
+            <PlatformBillingView />
           ) : (
             <section className="dashboard-view__section">
               <p>Platform billing is only available to platform_admin users.</p>

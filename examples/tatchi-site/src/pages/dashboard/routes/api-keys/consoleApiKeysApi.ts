@@ -5,6 +5,10 @@ import {
   parseConsoleJson,
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
+import {
+  isMachineApiKeyScope,
+  type MachineApiKeyScope,
+} from '../../../../../../../shared/src/console/apiKeyScopes';
 
 export interface DashboardConsoleApiKey {
   id: string;
@@ -12,7 +16,7 @@ export interface DashboardConsoleApiKey {
   orgId: string;
   name: string;
   environmentId: string;
-  scopes: string[];
+  scopes: MachineApiKeyScope[];
   ipAllowlist: string[];
   allowedOrigins: string[];
   rateLimitBucket: string | null;
@@ -62,6 +66,10 @@ function readStringArray(raw: unknown): string[] {
   return out;
 }
 
+function readMachineScopeArray(raw: unknown): MachineApiKeyScope[] {
+  return readStringArray(raw).filter((value): value is MachineApiKeyScope => isMachineApiKeyScope(value));
+}
+
 function readEndpointUsageCounts(raw: unknown): Record<string, number> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const row = raw as Record<string, unknown>;
@@ -94,7 +102,7 @@ function decodeApiKey(raw: unknown): DashboardConsoleApiKey | null {
     orgId,
     name: String(row.name || '').trim() || id,
     environmentId: String(row.environmentId || '').trim(),
-    scopes: readStringArray(row.scopes),
+    scopes: readMachineScopeArray(row.scopes),
     ipAllowlist: readStringArray(row.ipAllowlist),
     allowedOrigins: readStringArray(row.allowedOrigins),
     rateLimitBucket: row.rateLimitBucket == null ? null : String(row.rateLimitBucket || '').trim(),
@@ -136,7 +144,7 @@ export type CreateDashboardApiKeyInput =
       kind: 'secret_key';
       name: string;
       environmentId: string;
-      scopes: string[];
+      scopes: MachineApiKeyScope[];
       ipAllowlist?: string[];
     }
   | {
@@ -154,7 +162,7 @@ export type UpdateDashboardApiKeyInput =
   | {
       apiKeyId: string;
       name?: string;
-      scopes?: string[];
+      scopes?: MachineApiKeyScope[];
       ipAllowlist?: string[];
       expiresAt?: string | null;
     }

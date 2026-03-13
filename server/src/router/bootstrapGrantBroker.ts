@@ -1,6 +1,7 @@
 import { normalizeCorsOrigin } from '../core/SessionService';
 import type {
   AuthenticateConsolePublishableKeyResult,
+  ConsoleApiKey,
   ConsoleApiKeyService,
 } from '../console/apiKeys';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
@@ -103,18 +104,6 @@ function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolea
   }
 }
 
-function toAuthFailure(result: AuthenticateConsolePublishableKeyResult): RelayBootstrapGrantIssueResult {
-  if (result.ok) {
-    throw new Error('toAuthFailure must not be called with success results');
-  }
-  return {
-    ok: false,
-    status: result.status,
-    code: result.code,
-    message: result.message,
-  };
-}
-
 export function parseRelayBootstrapGrantIssueBody(
   body: unknown,
 ): Omit<RelayBootstrapGrantIssueRequest, 'publishableKey' | 'origin'> {
@@ -149,8 +138,8 @@ export function parseRelayBootstrapGrantIssueBody(
 export function createRelayBootstrapGrantBroker(
   options: RelayBootstrapGrantBrokerOptions,
 ): RelayBootstrapGrantBroker {
-  const authenticatePublishableKey = options.apiKeys.authenticatePublishableKey;
-  if (typeof authenticatePublishableKey !== 'function') {
+  const authenticatePublishableKeyFn = options.apiKeys.authenticatePublishableKey;
+  if (typeof authenticatePublishableKeyFn !== 'function') {
     throw new Error(
       'ConsoleApiKeyService.authenticatePublishableKey is required for bootstrap grant broker',
     );
@@ -162,130 +151,163 @@ export function createRelayBootstrapGrantBroker(
   const defaultQuota = options.defaultQuota || { maxIssued: 1_000 };
   const tokenStore = options.tokenStore;
 
-  return {
-    async issueGrant(input): Promise<RelayBootstrapGrantIssueResult> {
-      const origin = normalizeOrigin(input.origin);
-      if (!origin) {
-        return {
-          ok: false,
-          status: 403,
-          code: 'publishable_key_origin_blocked',
-          message: 'Origin header is required and must be a valid exact origin',
-        };
-      }
-
-      const authResult = await authenticatePublishableKey({
-        secret: input.publishableKey,
-        origin,
-        environmentId: input.environmentId,
-      });
-      if (!authResult.ok) return toAuthFailure(authResult);
-      if (authResult.apiKey.kind !== 'publishable_key') {
-        return {
-          ok: false,
-          status: 401,
-          code: 'publishable_key_invalid',
-          message: 'Invalid publishable key',
-        };
-      }
-
-      if (!isRpIdAllowedForOrigin({ origin, rpId: input.rpId })) {
-        return {
-          ok: false,
-          status: 400,
-          code: 'invalid_body',
-          message: 'Field rpId must match the origin host or a parent domain',
-        };
-      }
-
-      const orgScope = {
-        orgId: authResult.apiKey.orgId,
-        actorUserId: 'relay-bootstrap-broker',
-        roles: ['system'],
+  async function authenticatePublishableKey(input: {
+    publishableKey: string;
+    origin: string;
+    environmentId?: string;
+  }): Promise<AuthenticateConsolePublishableKeyResult> {
+    const origin = normalizeOrigin(input.origin);
+    if (!origin) {
+      return {
+        ok: false,
+        status: 403,
+        code: 'publishable_key_origin_blocked',
+        message: 'Origin header is required and must be a valid exact origin',
       };
-      const environments = await options.orgProjectEnv.listEnvironments(orgScope);
-      const environment = environments.find((entry) => entry.id === authResult.apiKey.environmentId);
-      if (!environment) {
-        return {
-          ok: false,
-          status: 400,
-          code: 'invalid_environment',
-          message: `Environment ${authResult.apiKey.environmentId} was not found for this organization`,
-        };
-      }
-      if (environment.status !== 'ACTIVE') {
-        return {
-          ok: false,
-          status: 409,
-          code: 'environment_archived',
-          message: `Environment ${environment.id} is archived and cannot issue bootstrap grants`,
-        };
-      }
+    }
+    return await authenticatePublishableKeyFn({
+      secret: input.publishableKey,
+      origin,
+      ...(input.environmentId ? { environmentId: input.environmentId } : {}),
+    });
+  }
 
-      const projects = await options.orgProjectEnv.listProjects(orgScope);
-      const project = projects.find((entry) => entry.id === environment.projectId);
-      if (!project || project.status !== 'ACTIVE') {
-        return {
-          ok: false,
-          status: 409,
-          code: 'environment_archived',
-          message: `Project ${environment.projectId} is archived and cannot issue bootstrap grants`,
-        };
-      }
+  async function issueGrantForAuthenticatedKey(input: {
+    authenticatedApiKey: ConsoleApiKey;
+    origin: string;
+    environmentId: string;
+    newAccountId: string;
+    rpId: string;
+    requestHashSha256: string;
+    clientContext?: RelayBootstrapGrantClientContext;
+  }): Promise<RelayBootstrapGrantIssueResult> {
+    const origin = normalizeOrigin(input.origin);
+    if (!origin) {
+      return {
+        ok: false,
+        status: 403,
+        code: 'publishable_key_origin_blocked',
+        message: 'Origin header is required and must be a valid exact origin',
+      };
+    }
+    const authenticatedApiKey = input.authenticatedApiKey;
+    if (!authenticatedApiKey || authenticatedApiKey.kind !== 'publishable_key') {
+      return {
+        ok: false,
+        status: 401,
+        code: 'publishable_key_invalid',
+        message: 'Invalid publishable key',
+      };
+    }
+    if (String(authenticatedApiKey.environmentId || '').trim() !== String(input.environmentId || '').trim()) {
+      return {
+        ok: false,
+        status: 403,
+        code: 'publishable_key_environment_mismatch',
+        message: 'Publishable key is not valid for this environment',
+      };
+    }
+    if (!isRpIdAllowedForOrigin({ origin, rpId: input.rpId })) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'invalid_body',
+        message: 'Field rpId must match the origin host or a parent domain',
+      };
+    }
 
-      const currentNow = now();
-      const currentNowMs = currentNow.getTime();
-      const rateLimitBucket = normalizeBucketKey(authResult.apiKey.rateLimitBucket || '', 'default');
-      const quotaBucket = normalizeBucketKey(authResult.apiKey.quotaBucket || '', 'default');
-      const rateLimit = options.rateLimitsByBucket?.[rateLimitBucket] || defaultRateLimit;
-      const quota = options.quotasByBucket?.[quotaBucket] || defaultQuota;
-      const recentCount = await tokenStore.countIssued(orgScope, {
-        publishableKeyId: authResult.apiKey.id,
-        issuedSince: new Date(currentNowMs - Math.max(1, rateLimit.windowMs) + 1).toISOString(),
-      });
-      if (recentCount + 1 > rateLimit.maxIssued) {
-        return {
-          ok: false,
-          status: 429,
-          code: 'publishable_key_rate_limited',
-          message: `Rate limit bucket ${rateLimitBucket} exceeded`,
-        };
-      }
+    const orgScope = {
+      orgId: authenticatedApiKey.orgId,
+      actorUserId: 'relay-bootstrap-broker',
+      roles: ['system'],
+    };
+    const environments = await options.orgProjectEnv.listEnvironments(orgScope);
+    const environment = environments.find((entry) => entry.id === authenticatedApiKey.environmentId);
+    if (!environment) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'invalid_environment',
+        message: `Environment ${authenticatedApiKey.environmentId} was not found for this organization`,
+      };
+    }
+    if (environment.status !== 'ACTIVE') {
+      return {
+        ok: false,
+        status: 409,
+        code: 'environment_archived',
+        message: `Environment ${environment.id} is archived and cannot issue bootstrap grants`,
+      };
+    }
 
-      const totalCount = await tokenStore.countIssued(orgScope, {
-        publishableKeyId: authResult.apiKey.id,
-      });
-      if (totalCount + 1 > quota.maxIssued) {
-        return {
-          ok: false,
-          status: 429,
-          code: 'publishable_key_quota_exhausted',
-          message: `Quota bucket ${quotaBucket} exceeded`,
-        };
-      }
+    const projects = await options.orgProjectEnv.listProjects(orgScope);
+    const project = projects.find((entry) => entry.id === environment.projectId);
+    if (!project || project.status !== 'ACTIVE') {
+      return {
+        ok: false,
+        status: 409,
+        code: 'environment_archived',
+        message: `Project ${environment.projectId} is archived and cannot issue bootstrap grants`,
+      };
+    }
 
-      const issued = await tokenStore.createToken(orgScope, {
-        publishableKeyId: authResult.apiKey.id,
-        projectId: environment.projectId,
+    const currentNow = now();
+    const currentNowMs = currentNow.getTime();
+    const rateLimitBucket = normalizeBucketKey(authenticatedApiKey.rateLimitBucket || '', 'default');
+    const quotaBucket = normalizeBucketKey(authenticatedApiKey.quotaBucket || '', 'default');
+    const rateLimit = options.rateLimitsByBucket?.[rateLimitBucket] || defaultRateLimit;
+    const quota = options.quotasByBucket?.[quotaBucket] || defaultQuota;
+    const recentCount = await tokenStore.countIssued(orgScope, {
+      publishableKeyId: authenticatedApiKey.id,
+      issuedSince: new Date(currentNowMs - Math.max(1, rateLimit.windowMs) + 1).toISOString(),
+    });
+    if (recentCount + 1 > rateLimit.maxIssued) {
+      return {
+        ok: false,
+        status: 429,
+        code: 'publishable_key_rate_limited',
+        message: `Rate limit bucket ${rateLimitBucket} exceeded`,
+      };
+    }
+
+    const totalCount = await tokenStore.countIssued(orgScope, {
+      publishableKeyId: authenticatedApiKey.id,
+    });
+    if (totalCount + 1 > quota.maxIssued) {
+      return {
+        ok: false,
+        status: 429,
+        code: 'publishable_key_quota_exhausted',
+        message: `Quota bucket ${quotaBucket} exceeded`,
+      };
+    }
+
+    const issued = await tokenStore.createToken(orgScope, {
+      publishableKeyId: authenticatedApiKey.id,
+      projectId: environment.projectId,
+      environmentId: environment.id,
+      origin,
+      method: 'POST',
+      path: '/registration/bootstrap',
+      requestHashSha256: input.requestHashSha256,
+      ttlMs: tokenTtlMs,
+      riskDecision: 'allow',
+    });
+
+    return {
+      ok: true,
+      grant: {
+        token: issued.token,
+        expiresAt: issued.record.expiresAt,
         environmentId: environment.id,
         origin,
-        method: 'POST',
-        path: '/registration/bootstrap',
-        requestHashSha256: input.requestHashSha256,
-        ttlMs: tokenTtlMs,
-        riskDecision: 'allow',
-      });
+        mode: 'free',
+      },
+    };
+  }
 
-      return {
-        ok: true,
-        grant: {
-          token: issued.token,
-          expiresAt: issued.record.expiresAt,
-          environmentId: environment.id,
-          origin,
-          mode: 'free',
-        },
-      };
-    },
+  return {
+    authenticatePublishableKey,
+    issueGrantForAuthenticatedKey,
   };
 }

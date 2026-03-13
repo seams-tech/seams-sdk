@@ -17,6 +17,7 @@ import type {
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
 import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
 import { createJwtSession } from './jwtSession';
+import { createWorkerCronObservabilityIngestion } from './observability';
 import { createWorkerScheduledHandler } from './scheduledHandler';
 
 export { ThresholdEd25519StoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
@@ -112,6 +113,7 @@ function createAuthService(env: Env): AuthService {
 const runtimeSnapshotCache = createInMemoryRelayRuntimeSnapshotConsumer();
 const scheduledHandler = createWorkerScheduledHandler<Env>({
   createAuthService,
+  createObservabilityIngestion: createWorkerCronObservabilityIngestion,
   outboxSink: runtimeSnapshotCache,
 });
 

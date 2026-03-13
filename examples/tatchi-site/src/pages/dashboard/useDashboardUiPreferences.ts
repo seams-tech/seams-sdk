@@ -12,6 +12,7 @@ import type {
 } from './types';
 
 const UI_STATE_STORAGE_KEY = 'tatchi-dashboard-ui-state-v1';
+const DASHBOARD_SELECTED_CONTEXT_REPLACED_EVENT = 'dashboard:selected-context-replaced';
 
 export const DASHBOARD_UI_QUERY_KEYS = {
   sidebarExpanded: 'db_sb',
@@ -308,6 +309,29 @@ function clearDashboardUiQueryState(pathname: string): void {
   }
 }
 
+function mergeSelectedContextState(
+  current: Partial<TopbarContextState> | undefined,
+  next: Partial<TopbarContextState>,
+): TopbarContextState {
+  const normalize = (value: unknown): string => String(value || '').trim();
+  const hasSelectedContextKey = (key: keyof TopbarContextState): boolean =>
+    Object.prototype.hasOwnProperty.call(next, key);
+  return {
+    organization: hasSelectedContextKey('organization')
+      ? normalize(next.organization)
+      : normalize(current?.organization),
+    project: hasSelectedContextKey('project')
+      ? normalize(next.project)
+      : normalize(current?.project),
+    environment: hasSelectedContextKey('environment')
+      ? normalize(next.environment)
+      : normalize(current?.environment),
+    accountSettings: hasSelectedContextKey('accountSettings')
+      ? normalize(next.accountSettings)
+      : normalize(current?.accountSettings),
+  };
+}
+
 export function clearDashboardUiState(): void {
   if (typeof window === 'undefined') return;
   try {
@@ -321,17 +345,7 @@ export function persistDashboardSelectedContext(
 ): void {
   if (typeof window === 'undefined') return;
   const current = readRawStoredState();
-  const currentSelected = current.selectedContext;
-  const normalize = (value: unknown): string => String(value || '').trim();
-  const nextSelectedContext: TopbarContextState = {
-    organization:
-      normalize(selectedContext.organization) || normalize(currentSelected?.organization),
-    project: normalize(selectedContext.project) || normalize(currentSelected?.project),
-    environment:
-      normalize(selectedContext.environment) || normalize(currentSelected?.environment),
-    accountSettings:
-      normalize(selectedContext.accountSettings) || normalize(currentSelected?.accountSettings),
-  };
+  const nextSelectedContext = mergeSelectedContextState(current.selectedContext, selectedContext);
   const nextState: PersistedUiState = {
     isSidebarExpanded:
       typeof current.isSidebarExpanded === 'boolean' ? current.isSidebarExpanded : true,
@@ -339,6 +353,18 @@ export function persistDashboardSelectedContext(
     selectedContext: nextSelectedContext,
   };
   writeStoredState(nextState);
+}
+
+export function replaceDashboardSelectedContext(
+  selectedContext: Partial<TopbarContextState>,
+): void {
+  if (typeof window === 'undefined') return;
+  persistDashboardSelectedContext(selectedContext);
+  window.dispatchEvent(
+    new CustomEvent<Partial<TopbarContextState>>(DASHBOARD_SELECTED_CONTEXT_REPLACED_EVENT, {
+      detail: selectedContext,
+    }),
+  );
 }
 
 export function readPersistedDashboardSelectedContext(): Partial<TopbarContextState> {
@@ -432,6 +458,26 @@ export function useDashboardUiPreferences(
     });
     setPreferencesHydrated(true);
   }, [defaultContext, dropdownOptions, pathname]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSelectedContextReplaced = (event: Event) => {
+      const custom = event as CustomEvent<Partial<TopbarContextState> | null>;
+      const detail = custom.detail;
+      if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return;
+      setSelectedContext((current) => mergeSelectedContextState(current, detail));
+    };
+    window.addEventListener(
+      DASHBOARD_SELECTED_CONTEXT_REPLACED_EVENT,
+      onSelectedContextReplaced as EventListener,
+    );
+    return () => {
+      window.removeEventListener(
+        DASHBOARD_SELECTED_CONTEXT_REPLACED_EVENT,
+        onSelectedContextReplaced as EventListener,
+      );
+    };
+  }, []);
 
   React.useEffect(() => {
     const fromUrl = readUrlSelectedContext(dropdownOptions, defaultContext);

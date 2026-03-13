@@ -560,7 +560,7 @@ test.describe('sponsored evm call route', () => {
       const invalid = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
         method: 'POST',
         headers: {
-          authorization: 'Bearer pk_live_invalid',
+          authorization: 'Bearer pk_liveinvalid',
           origin: allowedOrigin,
           'x-tatchi-environment-id': environmentId,
           'content-type': 'application/json',

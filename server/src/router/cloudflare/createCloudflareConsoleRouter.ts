@@ -145,7 +145,9 @@ import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
+  emitConsoleBillingStripeWebhookFailureObservabilityEvent,
   observeConsoleRequestMetric,
+  readConsoleStripeWebhookFailureMetadata,
 } from '../consoleObservabilityHooks';
 import {
   buildConsoleContextSwitchSessionClaims,
@@ -163,10 +165,28 @@ import {
   projectConsolePolicyPresentation,
   resolveConsolePolicyPresentation,
 } from '../policyPresentation';
+import {
+  buildConsoleBillingInvoiceGeneratedAuditEvent,
+  buildConsoleBillingCreditPurchaseSettledAuditEvent,
+  buildConsolePolicyAssignmentAuditEvent,
+  buildConsolePolicyAuditEvent,
+  buildConsoleWebhookEndpointAuditEvent,
+  buildConsoleWebhookReplayAuditEvent,
+} from '../consoleAuditMetadata';
+import {
+  parsePlatformBillingLookupRequest,
+  parsePlatformBillingSearchRequest,
+  parsePlatformBillingManualAdjustmentRequest,
+  resolvePlatformBillingLookup,
+  searchPlatformBillingOrganizations,
+} from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
+import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
+import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
+import type { RouteDefinition } from '../routeDefinitions';
 import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { headersToRecord, json, readJson } from './http';
@@ -181,6 +201,7 @@ export interface CloudflareConsoleContext {
 
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
+  routeDefinitions: readonly RouteDefinition[];
   billing: ConsoleBillingService | null;
   orgProjectEnv: ConsoleOrgProjectEnvService | null;
   wallets: ConsoleWalletService | null;
@@ -235,6 +256,20 @@ function readOptionalRequestHeader(request: Request, header: string): string | u
   return value || undefined;
 }
 
+function requireConsoleRoutePolicy(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+): Response | null {
+  const authz = authorizeConsoleRouteRequest({
+    claims,
+    definitions: ctx.routeDefinitions,
+    method: ctx.method,
+    pathname: ctx.pathname,
+  });
+  if (authz.ok) return null;
+  return json(authz.body, { status: authz.status });
+}
+
 async function emitRouterTimingObservabilityEvent(
   ctx: CloudflareConsoleContext,
   startedAtMs: number,
@@ -253,7 +288,7 @@ async function emitBillingFailureObservabilityEvent(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
   input: {
-    operation: 'INVOICE_FINALIZATION';
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
     invoiceId?: string;
     providerRef?: string;
     error: unknown;
@@ -266,6 +301,34 @@ async function emitBillingFailureObservabilityEvent(
     ...(input.providerRef ? { providerRef: input.providerRef } : {}),
     failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
     failureMessage: input.error instanceof Error ? input.error.message : String(input.error),
+    readHeader: (header) => readOptionalRequestHeader(ctx.request, header),
+  });
+}
+
+async function emitStripeWebhookFailureObservabilityEvent(
+  ctx: CloudflareConsoleContext,
+  input: {
+    rawBody: unknown;
+    eventType:
+      | 'billing.stripe_webhook.invalid_signature'
+      | 'billing.stripe_webhook.processing.failed';
+    failureCode: string;
+    failureMessage: string;
+  },
+): Promise<void> {
+  const metadata = readConsoleStripeWebhookFailureMetadata(input.rawBody);
+  if (!metadata.orgId) return;
+  await emitConsoleBillingStripeWebhookFailureObservabilityEvent(ctx, {
+    orgId: metadata.orgId,
+    actorUserId: 'system-stripe-webhook',
+    eventType: input.eventType,
+    ...(metadata.stripeEventId ? { stripeEventId: metadata.stripeEventId } : {}),
+    ...(metadata.stripeEventType ? { stripeEventType: metadata.stripeEventType } : {}),
+    ...(metadata.checkoutSessionId ? { checkoutSessionId: metadata.checkoutSessionId } : {}),
+    ...(metadata.providerRef ? { providerRef: metadata.providerRef } : {}),
+    ...(metadata.providerCustomerRef ? { providerCustomerRef: metadata.providerCustomerRef } : {}),
+    failureCode: input.failureCode,
+    failureMessage: input.failureMessage,
     readHeader: (header) => readOptionalRequestHeader(ctx.request, header),
   });
 }
@@ -1359,182 +1422,6 @@ async function requireApprovedOperationApproval(
   return null;
 }
 
-function requireInvoiceGenerationRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin or ops can generate monthly invoices',
-    },
-    { status: 403 },
-  );
-}
-
-function requirePlatformBillingAdjustmentRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'platform_admin')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only platform_admin can append manual billing adjustments',
-    },
-    { status: 403 },
-  );
-}
-
-function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin or owner can mutate projects and environments',
-    },
-    { status: 403 },
-  );
-}
-
-function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin or ops can view onboarding telemetry',
-    },
-    { status: 403 },
-  );
-}
-
-function requireObservabilityReadRole(claims: ConsoleAuthClaims): Response | null {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin') ||
-    hasConsoleRole(claims, 'ops') ||
-    hasConsoleRole(claims, 'support')
-  ) {
-    return null;
-  }
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner, admin, security_admin, ops, or support can view observability',
-    },
-    { status: 403 },
-  );
-}
-
-function requireApiKeyMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return null;
-  }
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner, admin, or security_admin can mutate API keys',
-    },
-    { status: 403 },
-  );
-}
-
-function requireTeamRbacMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin or owner can mutate org member roles',
-    },
-    { status: 403 },
-  );
-}
-
-function requireApprovalMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return null;
-  }
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner, admin, or security_admin can mutate approval queue requests',
-    },
-    { status: 403 },
-  );
-}
-
-function requirePolicyMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return null;
-  }
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner, admin, or security_admin can mutate policies',
-    },
-    { status: 403 },
-  );
-}
-
-function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return null;
-  }
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner, admin, or security_admin can mutate console configuration',
-    },
-    { status: 403 },
-  );
-}
-
-function requireEnterpriseIsolationMutationRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'owner') || hasConsoleRole(claims, 'admin')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only owner or admin can trigger enterprise isolation',
-    },
-    { status: 403 },
-  );
-}
-
-function requireKeyExportApprovalRole(claims: ConsoleAuthClaims): Response | null {
-  if (hasConsoleRole(claims, 'admin')) return null;
-  return json(
-    {
-      ok: false,
-      code: 'forbidden',
-      message: 'Only admin can approve key export requests',
-    },
-    { status: 403 },
-  );
-}
-
 async function requireActiveApiKeyEnvironmentForCreate(
   ctx: CloudflareConsoleContext,
   claims: ConsoleAuthClaims,
@@ -1656,6 +1543,8 @@ async function emitConsoleAuditEvent(
     action: string;
     summary: string;
     outcome?: 'SUCCESS' | 'FAILURE' | 'PENDING';
+    actorUserId?: string;
+    actorType?: 'USER' | 'SYSTEM';
     projectId?: string;
     environmentId?: string;
     metadata?: Record<string, unknown>;
@@ -1668,6 +1557,8 @@ async function emitConsoleAuditEvent(
       action: input.action,
       outcome: input.outcome || 'SUCCESS',
       summary: input.summary,
+      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
+      ...(input.actorType ? { actorType: input.actorType } : {}),
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.environmentId ? { environmentId: input.environmentId } : {}),
       ...(input.metadata ? { metadata: input.metadata } : {}),
@@ -1675,7 +1566,7 @@ async function emitConsoleAuditEvent(
   } catch (error: unknown) {
     ctx.logger.warn('[console][audit] failed to append audit event', {
       orgId: claims.orgId,
-      userId: claims.userId,
+      userId: input.actorUserId || claims.userId,
       category: input.category,
       action: input.action,
       message: error instanceof Error ? error.message : String(error),
@@ -1755,22 +1646,30 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
 
   try {
     if (ctx.method === 'GET' && ctx.pathname === '/console/account/profile') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const profile = await account.getProfile(toAccountContext(auth.claims));
       return json({ ok: true, profile }, { status: 200 });
     }
 
     if (ctx.method === 'PATCH' && ctx.pathname === '/console/account/profile') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parsePatchConsoleAccountProfileRequest(await readJson(ctx.request));
       const profile = await account.updateProfile(toAccountContext(auth.claims), request);
       return json({ ok: true, profile }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/account/organizations') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const organizations = await account.listOrganizations(toAccountContext(auth.claims));
       return json({ ok: true, organizations }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/account/organizations') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleAccountOrganizationRequest(await readJson(ctx.request));
       const organization = await account.createOrganization(toAccountContext(auth.claims), request);
       await emitConsoleAuditEvent(ctx, auth.claims, {
@@ -1798,6 +1697,8 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'PATCH' && !action) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseUpdateConsoleAccountOrganizationRequest(await readJson(ctx.request));
       const organization = await account.updateOrganization(
         toAccountContext(auth.claims),
@@ -1819,6 +1720,8 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'DELETE' && !action) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const deleted = await account.deleteOrganization(toAccountContext(auth.claims), orgId);
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'ORG_PROJECT_ENV',
@@ -1833,6 +1736,8 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && action === 'transfer-owner') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseTransferConsoleAccountOrganizationOwnerRequest(
         await readJson(ctx.request),
       );
@@ -1856,6 +1761,8 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && action === 'switch-context') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const sessionOrResponse = requireSessionAdapter(ctx);
       if (sessionOrResponse instanceof Response) return sessionOrResponse;
       const session = sessionOrResponse;
@@ -1914,8 +1821,8 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/onboarding/telemetry') {
-      const roleRequired = requireOnboardingTelemetryRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseGetConsoleOnboardingTelemetryRequest({
         windowMinutes: ctx.url.searchParams.get('windowMinutes') || undefined,
       });
@@ -1927,8 +1834,8 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/onboarding/organization') {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleOnboardingOrganizationRequest(await readJson(ctx.request));
       const result = await onboarding.createOnboardingOrganization(
         toOnboardingContext(auth.claims),
@@ -1964,8 +1871,8 @@ async function handleConsoleOnboarding(ctx: CloudflareConsoleContext): Promise<R
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/onboarding/project') {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleOnboardingProjectRequest(await readJson(ctx.request));
       const result = await onboarding.createOnboardingProject(
         toOnboardingContext(auth.claims),
@@ -2015,6 +1922,8 @@ async function handleConsoleOpsCockpit(ctx: CloudflareConsoleContext): Promise<R
 
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
+  const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+  if (routePolicy) return routePolicy;
 
   try {
     const telemetryRequest = parseGetConsoleOnboardingTelemetryRequest({
@@ -2044,7 +1953,7 @@ async function handleConsoleObservability(ctx: CloudflareConsoleContext): Promis
     json,
     isConsoleObservabilityPath,
     requireConsoleAuth,
-    requireObservabilityReadRole,
+    requireConsoleRoutePolicy,
     requireObservabilityService,
     toAuditContext,
     sendObservabilityError,
@@ -2052,7 +1961,10 @@ async function handleConsoleObservability(ctx: CloudflareConsoleContext): Promis
 }
 
 function isConsoleBillingPath(pathname: string): boolean {
-  return pathname.startsWith('/console/billing/');
+  return (
+    pathname.startsWith('/console/billing/') ||
+    pathname.startsWith('/console/platform/billing/')
+  );
 }
 
 function isConsoleAccountPath(pathname: string): boolean {
@@ -2184,16 +2096,16 @@ async function handleConsoleSmartWallets(ctx: CloudflareConsoleContext): Promise
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/smart-wallets') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleSmartWalletRequest(await readJson(ctx.request));
       const config = await smartWallets.createConfig(toBillingContext(auth.claims), request);
       return json({ ok: true, config }, { status: 201 });
     }
 
     if (ctx.method === 'PATCH' && configMatch) {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const configId = decodePathPart(configMatch[1]);
       const request = parseUpdateConsoleSmartWalletRequest(await readJson(ctx.request));
       const config = await smartWallets.updateConfig(
@@ -2242,14 +2154,16 @@ async function handleConsoleKeyExports(ctx: CloudflareConsoleContext): Promise<R
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/key-exports') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleKeyExportRequest(await readJson(ctx.request));
       const keyExport = await keyExports.createKeyExport(toBillingContext(auth.claims), request);
       return json({ ok: true, keyExport }, { status: 201 });
     }
 
     if (ctx.method === 'POST' && approveMatch) {
-      const roleRequired = requireKeyExportApprovalRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const exportId = decodePathPart(approveMatch[1]);
       const rawBody = await readJson(ctx.request);
       const approvalRequired = await requireApprovedOperationApproval(ctx, auth.claims, {
@@ -2335,8 +2249,8 @@ async function handleConsoleRuntimeSnapshots(
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/runtime-snapshots/publish') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parsePublishConsoleRuntimeSnapshotRequest(await readJson(ctx.request));
       const snapshot = await runtimeSnapshots.publishSnapshot(
         toBillingContext(auth.claims),
@@ -2346,8 +2260,8 @@ async function handleConsoleRuntimeSnapshots(
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/runtime-snapshots/publish-current') {
-      const roleRequired = requireConsoleConfigMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parsePublishCurrentConsoleRuntimeSnapshotRequest(await readJson(ctx.request));
       const payload = await resolveConsoleRuntimeSnapshotPayload({
         orgId: auth.claims.orgId,
@@ -2393,8 +2307,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/api-keys') {
-      const roleRequired = requireApiKeyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request));
       const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
         ctx,
@@ -2431,8 +2345,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'DELETE' && apiKeyPathMatch) {
-      const roleRequired = requireApiKeyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
       const request = parseRevokeConsoleApiKeyRequest(await readJson(ctx.request));
       const revoked = await apiKeys.revokeApiKey(apiKeyCtx, apiKeyId, request);
@@ -2468,8 +2382,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'DELETE' && apiKeyPurgePathMatch) {
-      const roleRequired = requireApiKeyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyPurgePathMatch[1]);
       const deleted = await apiKeys.deleteApiKey(apiKeyCtx, apiKeyId);
       if (!deleted.deleted || !deleted.apiKey) {
@@ -2504,8 +2418,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'PATCH' && apiKeyPathMatch) {
-      const roleRequired = requireApiKeyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
       const request = parseUpdateConsoleApiKeyRequest(await readJson(ctx.request));
       const updated = await apiKeys.updateApiKey(apiKeyCtx, apiKeyId, request);
@@ -2544,8 +2458,8 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && apiKeyRotatePathMatch) {
-      const roleRequired = requireApiKeyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyRotatePathMatch[1]);
       const request = parseRotateConsoleApiKeyRequest(await readJson(ctx.request));
       const rotated = await apiKeys.rotateApiKey(apiKeyCtx, apiKeyId, request);
@@ -2625,8 +2539,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/projects') {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleProjectRequest(await readJson(ctx.request));
       const liveEnvironmentsEnabled = ctx.opts.allowLiveEnvironmentBillingBypass
         ? true
@@ -2642,8 +2556,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'PATCH' && projectPatchMatch) {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const projectId = decodePathPart(projectPatchMatch[1]);
       const request = parseUpdateConsoleProjectRequest(await readJson(ctx.request));
       const project = await orgProjectEnv.updateProject(orgProjectEnvCtx, projectId, request);
@@ -2661,8 +2575,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'POST' && projectArchiveMatch) {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const projectId = decodePathPart(projectArchiveMatch[1]);
       const project = await orgProjectEnv.archiveProject(orgProjectEnvCtx, projectId);
       if (!project) {
@@ -2679,8 +2593,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/environments') {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleEnvironmentRequest(await readJson(ctx.request));
       if (request.key !== 'dev' && !ctx.opts.allowLiveEnvironmentBillingBypass) {
         if (!ctx.billing) {
@@ -2699,8 +2613,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'PATCH' && environmentPatchMatch) {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const environmentId = decodePathPart(environmentPatchMatch[1]);
       const request = parseUpdateConsoleEnvironmentRequest(await readJson(ctx.request));
       const environment = await orgProjectEnv.updateEnvironment(
@@ -2722,8 +2636,8 @@ async function handleConsoleOrgProjectEnv(ctx: CloudflareConsoleContext): Promis
     }
 
     if (ctx.method === 'POST' && environmentArchiveMatch) {
-      const forbidden = requireOrgProjectEnvMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const environmentId = decodePathPart(environmentArchiveMatch[1]);
       const environment = await orgProjectEnv.archiveEnvironment(orgProjectEnvCtx, environmentId);
       if (!environment) {
@@ -2769,16 +2683,16 @@ async function handleConsoleTeamRbac(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/members/invite') {
-      const forbidden = requireTeamRbacMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseInviteConsoleTeamMemberRequest(await readJson(ctx.request));
       const member = await teamRbac.inviteMember(teamRbacCtx, request);
       return json({ ok: true, member }, { status: 201 });
     }
 
     if (ctx.method === 'PATCH' && memberRolesPathMatch) {
-      const forbidden = requireTeamRbacMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const memberId = decodePathPart(memberRolesPathMatch[1]);
       const request = parseUpdateConsoleTeamMemberRolesRequest(await readJson(ctx.request));
       const member = await teamRbac.updateMemberRoles(teamRbacCtx, memberId, request);
@@ -2796,8 +2710,8 @@ async function handleConsoleTeamRbac(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'DELETE' && memberDeletePathMatch) {
-      const forbidden = requireTeamRbacMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const memberId = decodePathPart(memberDeletePathMatch[1]);
       const removed = await teamRbac.removeMember(teamRbacCtx, memberId);
       if (!removed.removed || !removed.member) {
@@ -2875,8 +2789,8 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/approvals') {
-      const forbidden = requireApprovalMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const parsedRequest = parseCreateConsoleApprovalRequest(await readJson(ctx.request));
       const request = await enrichPolicyApprovalCreateRequest(ctx, auth.claims, parsedRequest);
       const row = await approvals.createApprovalRequest(approvalCtx, request);
@@ -2934,8 +2848,8 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
     }
 
     if (ctx.method === 'POST' && approvalApprovePathMatch) {
-      const forbidden = requireApprovalMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const approvalId = decodePathPart(approvalApprovePathMatch[1]);
       const request = parseApproveConsoleApprovalRequest(await readJson(ctx.request));
       const row = await approvals.approveApprovalRequest(approvalCtx, approvalId, request);
@@ -2995,8 +2909,8 @@ async function handleConsoleApprovals(ctx: CloudflareConsoleContext): Promise<Re
     }
 
     if (ctx.method === 'POST' && approvalRejectPathMatch) {
-      const forbidden = requireApprovalMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const approvalId = decodePathPart(approvalRejectPathMatch[1]);
       const request = parseRejectConsoleApprovalRequest(await readJson(ctx.request));
       const row = await approvals.rejectApprovalRequest(approvalCtx, approvalId, request);
@@ -3147,8 +3061,8 @@ async function handleConsoleAuditExports(ctx: CloudflareConsoleContext): Promise
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/audit/exports') {
-      const forbidden = requireEnterpriseIsolationMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleAuditExportRequest(await readJson(ctx.request));
       const auditExport = await auditExports.createExport(toAuditContext(auth.claims), request);
       return json({ ok: true, export: auditExport }, { status: 201 });
@@ -3187,8 +3101,8 @@ async function handleConsoleEnterpriseIsolation(
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/isolation/trigger') {
-      const forbidden = requireEnterpriseIsolationMutationRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseTriggerConsoleEnterpriseIsolationRequest(await readJson(ctx.request));
       const isolation = await enterpriseIsolation.triggerIsolation(
         toAuditContext(auth.claims),
@@ -3332,24 +3246,51 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/policies') {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsolePolicyRequest(await readJson(ctx.request));
       const policy = await policies.createPolicy(policyCtx, request);
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.create',
+        policy,
+        assignment: request.assignment,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.create',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, policy }, { status: 201 });
     }
 
     if (ctx.method === 'PUT' && ctx.pathname === '/console/policies/assignments') {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseUpsertConsolePolicyAssignmentRequest(await readJson(ctx.request));
       const assignment = await policies.upsertAssignment(policyCtx, request);
+      const policy = await policies.getPolicy(policyCtx, assignment.policyId);
+      const auditEvent = buildConsolePolicyAssignmentAuditEvent({
+        action: 'policy.assignment.upsert',
+        assignment,
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.assignment.upsert',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, assignment }, { status: 200 });
     }
 
     if (ctx.method === 'DELETE' && assignmentDeleteMatch) {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const assignmentId = decodePathPart(assignmentDeleteMatch[1]);
       const out = await policies.deleteAssignment(policyCtx, assignmentId);
       if (!out.removed || !out.assignment) {
@@ -3362,12 +3303,26 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
           { status: 404 },
         );
       }
+      const policy = await policies.getPolicy(policyCtx, out.assignment.policyId);
+      const auditEvent = buildConsolePolicyAssignmentAuditEvent({
+        action: 'policy.assignment.delete',
+        assignment: out.assignment,
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.assignment.delete',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, removed: true, assignment: out.assignment }, { status: 200 });
     }
 
     if (ctx.method === 'PATCH' && policyPatchMatch) {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const policyId = decodePathPart(policyPatchMatch[1]);
       const request = parseUpdateConsolePolicyRequest(await readJson(ctx.request));
       const policy = await policies.updatePolicy(policyCtx, policyId, request);
@@ -3381,12 +3336,24 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
           { status: 404 },
         );
       }
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.update',
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.update',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, policy }, { status: 200 });
     }
 
     if (ctx.method === 'DELETE' && policyDeleteMatch) {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const policyId = decodePathPart(policyDeleteMatch[1]);
       const result = await policies.deletePolicy(policyCtx, policyId);
       if (!result.removed || !result.policy) {
@@ -3399,12 +3366,24 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
           { status: 404 },
         );
       }
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.delete',
+        policy: result.policy,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'POLICY',
+        action: 'policy.delete',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, removed: true, policy: result.policy }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && policyPublishMatch) {
-      const roleRequired = requirePolicyMutationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const policyId = decodePathPart(policyPublishMatch[1]);
       const rawBody = await readJson(ctx.request);
       const approvalIdForFailure = readApprovalIdFromBody(rawBody);
@@ -3427,16 +3406,20 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
             { status: 404 },
           );
         }
+        const auditEvent = buildConsolePolicyAuditEvent({
+          action: 'policy.publish',
+          policy: result.policy,
+          extraMetadata: {
+            published: result.published,
+          },
+        });
         await emitConsoleAuditEvent(ctx, auth.claims, {
           category: 'POLICY',
           action: 'policy.publish',
-          summary: `Published policy ${policyId}`,
-          metadata: {
-            policyId,
-            policyKind: result.policy.kind,
-            version: result.policy.version,
-            status: result.policy.status,
-          },
+          summary: auditEvent.summary,
+          ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+          ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+          metadata: auditEvent.metadata,
         });
         return json({ ok: true, result }, { status: 200 });
       } catch (error: unknown) {
@@ -3452,6 +3435,8 @@ async function handleConsolePolicies(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'POST' && policySimulateMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const policyId = decodePathPart(policySimulateMatch[1]);
       const request = parseSimulateConsolePolicyRequest(await readJson(ctx.request));
       const simulation = await policies.simulatePolicy(policyCtx, policyId, request);
@@ -3529,19 +3514,19 @@ async function handleConsoleInsights(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/export/governance') {
-      const apiKeysOrResponse = requireApiKeyService(ctx);
-      if (apiKeysOrResponse instanceof Response) return apiKeysOrResponse;
+      const keyExportsOrResponse = requireKeyExportService(ctx);
+      if (keyExportsOrResponse instanceof Response) return keyExportsOrResponse;
       const environmentIdRaw = String(ctx.url.searchParams.get('environmentId') || '').trim();
       const environmentIdFilter = environmentIdRaw || auth.claims.environmentId || undefined;
       const governance = await buildConsoleExportGovernanceView({
-        apiKeys: apiKeysOrResponse,
-        apiKeyCtx: toBillingContext(auth.claims),
+        keyExports: keyExportsOrResponse,
+        keyExportCtx: toBillingContext(auth.claims),
         environmentIdFilter,
       });
       return json({ ok: true, governance }, { status: 200 });
     }
   } catch (error: unknown) {
-    if (ctx.pathname.startsWith('/console/export/')) return sendApiKeyError(error);
+    if (ctx.pathname.startsWith('/console/export/')) return sendKeyExportError(error);
     return sendWalletError(error);
   }
 
@@ -3572,12 +3557,26 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/webhooks') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleWebhookEndpointRequest(await readJson(ctx.request));
       const endpoint = await webhooks.createEndpoint(webhookCtx, request);
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.create',
+        endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.create',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, endpoint }, { status: 201 });
     }
 
     if (ctx.method === 'PATCH' && endpointMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const endpointId = decodePathPart(endpointMatch[1]);
       const request = parseUpdateConsoleWebhookEndpointRequest(await readJson(ctx.request));
       const endpoint = await webhooks.updateEndpoint(webhookCtx, endpointId, request);
@@ -3591,10 +3590,22 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
           { status: 404 },
         );
       }
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.update',
+        endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.update',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, endpoint }, { status: 200 });
     }
 
     if (ctx.method === 'DELETE' && endpointMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const endpointId = decodePathPart(endpointMatch[1]);
       const out = await webhooks.deleteEndpoint(webhookCtx, endpointId);
       if (!out.removed) {
@@ -3606,6 +3617,18 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
           },
           { status: 404 },
         );
+      }
+      if (out.endpoint) {
+        const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+          action: 'webhook.endpoint.delete',
+          endpoint: out.endpoint,
+        });
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'WEBHOOK',
+          action: 'webhook.endpoint.delete',
+          summary: auditEvent.summary,
+          metadata: auditEvent.metadata,
+        });
       }
       return json({ ok: true, removed: true }, { status: 200 });
     }
@@ -3666,6 +3689,8 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
     }
 
     if (ctx.method === 'POST' && replayMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const endpointId = decodePathPart(replayMatch[1]);
       const request = parseReplayConsoleWebhookDeliveryRequest(await readJson(ctx.request));
       const replay = await webhooks.replayDelivery(webhookCtx, endpointId, request);
@@ -3698,6 +3723,19 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
           },
           { status: 409 },
         );
+      }
+      if (replay.delivery) {
+        const auditEvent = buildConsoleWebhookReplayAuditEvent({
+          endpointId,
+          delivery: replay.delivery,
+          requestedDeliveryId: request.deliveryId,
+        });
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'WEBHOOK',
+          action: 'webhook.delivery.replay_requested',
+          summary: auditEvent.summary,
+          metadata: auditEvent.metadata,
+        });
       }
       return json({ ok: true, replay }, { status: 200 });
     }
@@ -3733,12 +3771,23 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
   }
 
   if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/webhook') {
+    const rawBody = await readJson(ctx.request);
     const secretRequired = requireStripeWebhookSecret(ctx);
-    if (secretRequired) return secretRequired;
+    if (secretRequired) {
+      if (secretRequired.status === 401) {
+        await emitStripeWebhookFailureObservabilityEvent(ctx, {
+          rawBody,
+          eventType: 'billing.stripe_webhook.invalid_signature',
+          failureCode: 'invalid_signature',
+          failureMessage: 'Invalid Stripe webhook secret',
+        });
+      }
+      return secretRequired;
+    }
     const billingOrResponse = requireBillingService(ctx);
     if (billingOrResponse instanceof Response) return billingOrResponse;
     try {
-      const request = parseStripeWebhookEventRequest(await readJson(ctx.request));
+      const request = parseStripeWebhookEventRequest(rawBody);
       const result = await billingOrResponse.processStripeWebhookEvent(request);
       if (result.accepted && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
@@ -3754,9 +3803,37 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
             source: 'stripe_webhook',
           },
         });
+        const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
+          purchase: result.purchase,
+          invoice: result.invoice,
+          source: 'stripe_webhook',
+          settlementEventId: request.eventId,
+        });
+        await emitConsoleAuditEvent(
+          ctx,
+          {
+            orgId: result.orgId,
+            userId: 'system-stripe-webhook',
+            roles: ['ops'],
+          },
+          {
+            category: 'BILLING',
+            action: 'billing.credit_purchase.settled',
+            summary: auditEvent.summary,
+            actorUserId: 'system-stripe-webhook',
+            actorType: 'SYSTEM',
+            metadata: auditEvent.metadata,
+          },
+        );
       }
       return json({ ok: true, ...result }, { status: 200 });
     } catch (error: unknown) {
+      await emitStripeWebhookFailureObservabilityEvent(ctx, {
+        rawBody,
+        eventType: 'billing.stripe_webhook.processing.failed',
+        failureCode: isConsoleBillingError(error) ? error.code : 'internal',
+        failureMessage: error instanceof Error ? error.message : String(error),
+      });
       return sendBillingError(error);
     }
   }
@@ -3773,11 +3850,26 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     /^\/console\/billing\/invoices\/([^/]+)\/line-items$/,
   );
   let billingFailureEvent: {
-    operation: 'INVOICE_FINALIZATION';
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
     invoiceId?: string;
+    providerRef?: string;
   } | null = null;
 
   try {
+    if (ctx.method === 'GET' && ctx.pathname === '/console/platform/billing/search') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+      if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+      const organizations = await searchPlatformBillingOrganizations({
+        orgProjectEnv: orgProjectEnvOrResponse,
+        request: parsePlatformBillingSearchRequest(
+          Object.fromEntries(ctx.url.searchParams.entries()),
+        ),
+      });
+      return json({ ok: true, organizations }, { status: 200 });
+    }
+
     const billingOrResponse = requireBillingService(ctx);
     if (billingOrResponse instanceof Response) return billingOrResponse;
     const billing = billingOrResponse;
@@ -3796,6 +3888,22 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, activity }, { status: 200 });
     }
 
+    if (ctx.method === 'GET' && ctx.pathname === '/console/platform/billing/account') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+      if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+      const result = await resolvePlatformBillingLookup({
+        claims: auth.claims,
+        billing,
+        orgProjectEnv: orgProjectEnvOrResponse,
+        request: parsePlatformBillingLookupRequest(
+          Object.fromEntries(ctx.url.searchParams.entries()),
+        ),
+      });
+      return json({ ok: true, result }, { status: 200 });
+    }
+
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/usage/monthly-active-wallets') {
       const monthUtcRaw = String(ctx.url.searchParams.get('monthUtc') || '').trim();
       const monthUtc = monthUtcRaw || undefined;
@@ -3804,14 +3912,16 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/usage/events') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseBillingUsageEventRequest(await readJson(ctx.request));
       const result = await billing.recordUsageEvent(billingCtx, request);
       return json({ ok: true, result }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/invoices/generate') {
-      const roleRequired = requireInvoiceGenerationRole(auth.claims);
-      if (roleRequired) return roleRequired;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseGenerateMonthlyInvoiceRequest(await readJson(ctx.request));
       billingFailureEvent = {
         operation: 'INVOICE_FINALIZATION',
@@ -3831,12 +3941,19 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
           lineItemCount: generation.lineItems.length,
         },
       });
+      const auditEvent = buildConsoleBillingInvoiceGeneratedAuditEvent({ generation });
+      await emitConsoleAuditEvent(ctx, auth.claims, {
+        category: 'BILLING',
+        action: 'billing.invoice.generated',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       return json({ ok: true, generation }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/support-credit') {
-      const forbidden = requirePlatformBillingAdjustmentRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
       const result = await billing.grantManualSupportCredit(billingCtx, request);
       await emitConsoleAuditEvent(ctx, auth.claims, {
@@ -3856,9 +3973,59 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, result }, { status: result.created ? 201 : 200 });
     }
 
+    if (
+      ctx.method === 'POST' &&
+      ctx.pathname === '/console/platform/billing/adjustments/support-credit'
+    ) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+      if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+      const request = parsePlatformBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const { orgId, ...adjustmentRequest } = request;
+      await orgProjectEnvOrResponse.getOrganization({
+        orgId,
+        actorUserId: auth.claims.userId,
+        roles: auth.claims.roles,
+        ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
+        ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
+      });
+      const result = await billing.grantManualSupportCredit(
+        {
+          orgId,
+          actorUserId: auth.claims.userId,
+          roles: auth.claims.roles,
+        },
+        adjustmentRequest,
+      );
+      await emitConsoleAuditEvent(
+        ctx,
+        {
+          ...auth.claims,
+          orgId,
+        },
+        {
+          category: 'BILLING',
+          action: 'billing.adjustment.support_credit',
+          summary: `Appended manual support credit for org ${orgId}`,
+          metadata: {
+            adjustmentId: result.adjustment.id,
+            amountMinor: result.adjustment.amountMinor,
+            resultingBalanceMinor: result.creditBalanceMinor,
+            reasonCode: result.adjustment.reasonCode,
+            relatedInvoiceId: result.adjustment.relatedInvoiceId,
+            idempotencyKey: result.adjustment.idempotencyKey,
+            created: result.created,
+            platformBilling: true,
+          },
+        },
+      );
+      return json({ ok: true, result }, { status: result.created ? 201 : 200 });
+    }
+
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/adjustments/admin-debit') {
-      const forbidden = requirePlatformBillingAdjustmentRole(auth.claims);
-      if (forbidden) return forbidden;
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
       const result = await billing.appendManualAdminDebit(billingCtx, request);
       await emitConsoleAuditEvent(ctx, auth.claims, {
@@ -3875,6 +4042,56 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
           created: result.created,
         },
       });
+      return json({ ok: true, result }, { status: result.created ? 201 : 200 });
+    }
+
+    if (
+      ctx.method === 'POST' &&
+      ctx.pathname === '/console/platform/billing/adjustments/admin-debit'
+    ) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const orgProjectEnvOrResponse = requireOrgProjectEnvService(ctx);
+      if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
+      const request = parsePlatformBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const { orgId, ...adjustmentRequest } = request;
+      await orgProjectEnvOrResponse.getOrganization({
+        orgId,
+        actorUserId: auth.claims.userId,
+        roles: auth.claims.roles,
+        ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
+        ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
+      });
+      const result = await billing.appendManualAdminDebit(
+        {
+          orgId,
+          actorUserId: auth.claims.userId,
+          roles: auth.claims.roles,
+        },
+        adjustmentRequest,
+      );
+      await emitConsoleAuditEvent(
+        ctx,
+        {
+          ...auth.claims,
+          orgId,
+        },
+        {
+          category: 'BILLING',
+          action: 'billing.adjustment.admin_debit',
+          summary: `Appended manual admin debit for org ${orgId}`,
+          metadata: {
+            adjustmentId: result.adjustment.id,
+            amountMinor: result.adjustment.amountMinor,
+            resultingBalanceMinor: result.creditBalanceMinor,
+            reasonCode: result.adjustment.reasonCode,
+            relatedInvoiceId: result.adjustment.relatedInvoiceId,
+            idempotencyKey: result.adjustment.idempotencyKey,
+            created: result.created,
+            platformBilling: true,
+          },
+        },
+      );
       return json({ ok: true, result }, { status: result.created ? 201 : 200 });
     }
 
@@ -3987,6 +4204,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/stripe/checkout-session') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseStripeCheckoutSessionRequest(await readJson(ctx.request));
       const checkoutSession = await billing.createStripeCheckoutSession(billingCtx, request);
       return json({ ok: true, checkoutSession }, { status: 201 });
@@ -3996,7 +4215,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       ctx.method === 'POST' &&
       ctx.pathname === '/console/billing/stripe/checkout-session/reconcile'
     ) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseStripeCheckoutSessionReconcileRequest(await readJson(ctx.request));
+      billingFailureEvent = {
+        operation: 'PAYMENT_RECONCILE',
+        providerRef: request.checkoutSessionId,
+      };
       const result = await billing.reconcileStripeCheckoutSession(billingCtx, request);
       if (result.settledNow && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
@@ -4012,6 +4237,18 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
             source: 'stripe_checkout_reconcile',
           },
         });
+        const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
+          purchase: result.purchase,
+          invoice: result.invoice,
+          source: 'stripe_checkout_reconcile',
+          settlementEventId: `stripe_checkout_reconcile:${request.checkoutSessionId}`,
+        });
+        await emitConsoleAuditEvent(ctx, auth.claims, {
+          category: 'BILLING',
+          action: 'billing.credit_purchase.settled',
+          summary: auditEvent.summary,
+          metadata: auditEvent.metadata,
+        });
       }
       return json({ ok: true, result }, { status: 200 });
     }
@@ -4020,8 +4257,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       await emitBillingFailureObservabilityEvent(ctx, auth.claims, {
         operation: billingFailureEvent.operation,
         ...(billingFailureEvent.invoiceId ? { invoiceId: billingFailureEvent.invoiceId } : {}),
+        ...(billingFailureEvent.providerRef ? { providerRef: billingFailureEvent.providerRef } : {}),
         error,
       });
+    }
+    if (isConsoleOrgProjectEnvError(error)) {
+      return sendOrgProjectEnvError(error);
     }
     return sendBillingError(error);
   }
@@ -4032,6 +4273,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
 export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): FetchHandler {
   const notFound = () => new Response('Not Found', { status: 404 });
   const logger = coerceRouterLogger(opts.logger);
+  const routeSurface = resolveConsoleRouteSurface();
+  const { routeDefinitions } = routeSurface;
   const billing = opts.billing === undefined ? null : opts.billing;
   const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
   const wallets = opts.wallets === undefined ? null : opts.wallets;
@@ -4078,7 +4321,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
     handleConsoleBilling,
   ];
 
-  return async function handler(
+  const handler: FetchHandler = async function handler(
     request: Request,
     env?: CfEnv,
     cfCtx?: CfExecutionContext,
@@ -4103,6 +4346,7 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       cfCtx,
       opts,
       logger,
+      routeDefinitions,
       billing,
       orgProjectEnv,
       wallets,
@@ -4146,4 +4390,6 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       return res;
     }
   };
+
+  return attachConsoleRouteSurface(handler, routeSurface);
 }

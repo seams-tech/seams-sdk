@@ -108,10 +108,10 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
       url: '',
       routes: {
         delegateAction: '/signed-delegate',
-        smartAccountDeploy: '/smart-account/deploy',
+        smartAccountDeploy: '',
       },
       smartAccountDeployment: {
-        mode: 'enforce',
+        mode: 'observe',
         maxAttempts: 2,
       },
       emailRecovery: {

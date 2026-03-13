@@ -10,6 +10,10 @@ import {
   parseApiKeySecret,
 } from './secret';
 import { normalizeCorsOrigin } from '../../core/SessionService';
+import {
+  isMachineApiKeyScope,
+  type MachineApiKeyScope,
+} from '../../../../shared/src/console/apiKeyScopes';
 import type {
   AuthenticateConsoleApiKeyRequest,
   AuthenticateConsoleApiKeyResult,
@@ -116,6 +120,24 @@ function cloneApiKey(apiKey: StoredApiKey): ConsoleApiKey {
   };
 }
 
+function normalizeMachineScopes(input: readonly string[] | undefined): MachineApiKeyScope[] {
+  if (!Array.isArray(input)) return [];
+  const out: MachineApiKeyScope[] = [];
+  const seen = new Set<string>();
+  for (const raw of input) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    if (!isMachineApiKeyScope(value)) {
+      throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
+    }
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push(value);
+  }
+  return out;
+}
+
 function hasAnyDefinedField(input: UpdateConsoleApiKeyRequest): boolean {
   return Object.values(input).some((value) => value !== undefined);
 }
@@ -158,7 +180,7 @@ function applyApiKeyUpdate(apiKey: StoredApiKey, request: UpdateConsoleApiKeyReq
   return {
     ...apiKey,
     ...(request.name !== undefined ? { name: request.name } : {}),
-    ...(request.scopes !== undefined ? { scopes: [...request.scopes] } : {}),
+    ...(request.scopes !== undefined ? { scopes: normalizeMachineScopes(request.scopes) } : {}),
     ...(request.ipAllowlist !== undefined ? { ipAllowlist: [...request.ipAllowlist] } : {}),
     ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
   };
@@ -196,7 +218,10 @@ export function createInMemoryConsoleApiKeyService(
     apiKey.updatedAt = toIso(now());
   }
 
-  function hasRequiredScopes(scopes: string[], requiredScopes: string[]): boolean {
+  function hasRequiredScopes(
+    scopes: MachineApiKeyScope[],
+    requiredScopes: MachineApiKeyScope[],
+  ): boolean {
     if (!requiredScopes.length) return true;
     const available = new Set(
       scopes.map((scope) => String(scope || '').trim().toLowerCase()).filter(Boolean),
@@ -286,7 +311,7 @@ export function createInMemoryConsoleApiKeyService(
           : {
               ...base,
               kind: 'secret_key',
-              scopes: [...request.scopes],
+              scopes: normalizeMachineScopes(request.scopes),
               ipAllowlist: request.ipAllowlist ? [...request.ipAllowlist] : [],
             };
 

@@ -86,6 +86,23 @@ function formatTimestamp(value: string | null): string {
   return date.toLocaleString();
 }
 
+function readWebhooksRouteSelection(): {
+  endpointId: string;
+  deliveryId: string;
+} {
+  if (typeof window === 'undefined') {
+    return {
+      endpointId: '',
+      deliveryId: '',
+    };
+  }
+  const searchParams = new URLSearchParams(window.location.search);
+  return {
+    endpointId: String(searchParams.get('endpointId') || '').trim(),
+    deliveryId: String(searchParams.get('deliveryId') || '').trim(),
+  };
+}
+
 export function WebhooksPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const [endpoints, setEndpoints] = React.useState<DashboardConsoleWebhookEndpoint[]>([]);
@@ -100,6 +117,12 @@ export function WebhooksPage(): React.JSX.Element {
   const [creating, setCreating] = React.useState<boolean>(false);
   const [busyEndpointId, setBusyEndpointId] = React.useState<string>('');
   const [selectedEndpointId, setSelectedEndpointId] = React.useState<string>('');
+  const [requestedEndpointId, setRequestedEndpointId] = React.useState<string>(
+    () => readWebhooksRouteSelection().endpointId,
+  );
+  const [requestedDeliveryId, setRequestedDeliveryId] = React.useState<string>(
+    () => readWebhooksRouteSelection().deliveryId,
+  );
 
   const [deliveries, setDeliveries] = React.useState<DashboardConsoleWebhookDelivery[]>([]);
   const [deliveriesLoading, setDeliveriesLoading] = React.useState<boolean>(false);
@@ -115,6 +138,21 @@ export function WebhooksPage(): React.JSX.Element {
     itemLabel: 'delivery',
     itemLabelPlural: 'deliveries',
   });
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncRequestedRouteSelection = () => {
+      const nextSelection = readWebhooksRouteSelection();
+      setRequestedEndpointId(nextSelection.endpointId);
+      setRequestedDeliveryId(nextSelection.deliveryId);
+    };
+    window.addEventListener('popstate', syncRequestedRouteSelection);
+    window.addEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
+    return () => {
+      window.removeEventListener('popstate', syncRequestedRouteSelection);
+      window.removeEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
+    };
+  }, []);
 
   const loadEndpoints = React.useCallback(() => {
     if (!session.claims) {
@@ -162,9 +200,15 @@ export function WebhooksPage(): React.JSX.Element {
       setSelectedEndpointId('');
       return;
     }
+    if (requestedEndpointId && endpoints.some((entry) => entry.id === requestedEndpointId)) {
+      if (selectedEndpointId !== requestedEndpointId) {
+        setSelectedEndpointId(requestedEndpointId);
+      }
+      return;
+    }
     if (selectedEndpointId && endpoints.some((entry) => entry.id === selectedEndpointId)) return;
     setSelectedEndpointId(endpoints[0]?.id || '');
-  }, [endpoints, selectedEndpointId]);
+  }, [endpoints, requestedEndpointId, selectedEndpointId]);
 
   const loadDeliveries = React.useCallback(
     (input: { endpointId: string }) => {
@@ -206,6 +250,22 @@ export function WebhooksPage(): React.JSX.Element {
   React.useEffect(() => {
     loadDeliveries({ endpointId: selectedEndpointId });
   }, [loadDeliveries, selectedEndpointId]);
+
+  React.useEffect(() => {
+    const deliveryId = String(requestedDeliveryId || '').trim();
+    if (!selectedEndpointId || !deliveryId || deliveries.length === 0) return;
+    const deliveryIndex = deliveries.findIndex((entry) => entry.id === deliveryId);
+    if (deliveryIndex < 0) return;
+    const targetPage = Math.floor(deliveryIndex / deliveriesPagination.rowsPerPage) + 1;
+    if (deliveriesPagination.page !== targetPage) {
+      deliveriesPagination.setPage(targetPage);
+    }
+  }, [
+    deliveries,
+    deliveriesPagination,
+    requestedDeliveryId,
+    selectedEndpointId,
+  ]);
 
   const onOpenCreateModal = React.useCallback(() => {
     setIsCreateModalOpen(true);
@@ -504,7 +564,12 @@ export function WebhooksPage(): React.JSX.Element {
           <>
             {deliveriesPagination.rows.map((delivery) => (
               <DashboardTableRow key={delivery.id}>
-                <DashboardTableCell title={delivery.id}>{delivery.id}</DashboardTableCell>
+                <DashboardTableCell title={delivery.id}>
+                  <strong>{delivery.id}</strong>
+                  {delivery.id === requestedDeliveryId ? (
+                    <span className="dashboard-data-table__subline">Opened from audit</span>
+                  ) : null}
+                </DashboardTableCell>
                 <DashboardTableCell title={delivery.eventId}>
                   {delivery.eventId || '-'}
                 </DashboardTableCell>

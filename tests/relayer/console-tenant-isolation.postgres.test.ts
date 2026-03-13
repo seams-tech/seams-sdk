@@ -309,6 +309,11 @@ test.describe('console postgres tenant-isolation harness', () => {
     expect(ownerScopedToAttackerProject.length).toBe(0);
   });
 
+  test('default organization lookup returns null when the namespace contains multiple orgs', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    await expect(orgProjectEnv!.findDefaultOrganization()).resolves.toBeNull();
+  });
+
   test('org/project/environment tables enforce DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     test.skip(roleBypassesRls, 'Connected Postgres role bypasses RLS (superuser or BYPASSRLS)');
@@ -1022,14 +1027,14 @@ test.describe('console postgres tenant-isolation harness', () => {
       name: 'owner-key',
       environmentId: ownerEnvironmentId,
       kind: 'secret_key',
-      scopes: ['wallets:read'],
+      scopes: ['accounts.create'],
       ipAllowlist: [],
     });
     const attackerCreated = await apiKeys!.createApiKey(attackerCtx, {
       name: 'attacker-key',
       environmentId: attackerEnvironmentId,
       kind: 'secret_key',
-      scopes: ['wallets:read'],
+      scopes: ['accounts.create'],
       ipAllowlist: [],
     });
 
@@ -1125,14 +1130,14 @@ test.describe('console postgres tenant-isolation harness', () => {
       name: 'owner-rls-key',
       environmentId: ownerEnvironmentId,
       kind: 'secret_key',
-      scopes: ['wallets:read'],
+      scopes: ['accounts.create'],
       ipAllowlist: [],
     });
     await apiKeys!.createApiKey(attackerCtx, {
       name: 'attacker-rls-key',
       environmentId: attackerEnvironmentId,
       kind: 'secret_key',
-      scopes: ['wallets:read'],
+      scopes: ['accounts.create'],
       ipAllowlist: [],
     });
 

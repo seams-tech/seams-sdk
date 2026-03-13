@@ -78,7 +78,19 @@ export function ScopePicker(props: ScopePickerProps): React.JSX.Element {
                   )
                 }
               >
-                <strong>{option.value}</strong>
+                <span className="dashboard-scope-picker__segment-top">
+                  <strong>{option.value}</strong>
+                  <span
+                    className={[
+                      'dashboard-scope-picker__segment-state',
+                      active ? 'dashboard-scope-picker__segment-state--active' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {active ? 'On' : 'Off'}
+                  </span>
+                </span>
                 <span>{option.description}</span>
               </button>
             );

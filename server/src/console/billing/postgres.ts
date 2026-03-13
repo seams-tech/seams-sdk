@@ -2360,14 +2360,24 @@ export async function createPostgresConsoleBillingService(
     ): Promise<BillingAccountActivityResult> {
       return withOrgTx(ctx, async (q) => {
         const limit = normalizeAccountActivityLimit(request.limit);
+        const where: string[] = ['namespace = $1', 'org_id = $2'];
+        const values: unknown[] = [namespace, ctx.orgId];
+        if (request.periodMonthUtc) {
+          values.push(parseMonthUtcOrThrow(request.periodMonthUtc));
+          where.push(`month_utc = $${values.length}`);
+        }
+        if (request.eventType) {
+          values.push(request.eventType);
+          where.push(`type = $${values.length}`);
+        }
+        values.push(limit);
         const rows = await q.query(
           `SELECT *
              FROM console_billing_ledger_entries
-            WHERE namespace = $1
-              AND org_id = $2
+            WHERE ${where.join(' AND ')}
             ORDER BY created_at_ms DESC, id DESC
-            LIMIT $3`,
-          [namespace, ctx.orgId, limit],
+            LIMIT $${values.length}`,
+          values,
         );
         return {
           entries: rows.rows.map((row) => parseLedgerEntryRow(row as PgRow)),

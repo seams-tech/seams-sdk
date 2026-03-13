@@ -26,6 +26,7 @@ import {
   truncateResponseBody,
 } from './shared';
 import type {
+  ConsoleWebhooksContext,
   ConsoleWebhookDelivery,
   ConsoleWebhookDeliveryAttempt,
   ConsoleWebhookDeadLetter,
@@ -41,9 +42,14 @@ import type {
   ReplayConsoleWebhookDeliveryResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
+import {
+  appendConsoleWebhookObservabilitySignals,
+  normalizeConsoleWebhookEndpointDegradedThreshold,
+  type ConsoleWebhookObservabilityOptions,
+  type ConsoleWebhookObservabilitySignal,
+} from './observability';
 import type {
   ConsoleWebhookService,
-  ConsoleWebhooksContext,
   WebhookDispatchAdapter,
 } from './service';
 import {
@@ -347,8 +353,12 @@ async function persistDeliveryAttempt(
     isReplay: boolean;
     now: Date;
     attemptResult: DeliveryAttemptResult;
+    endpointDegradedThreshold: number;
   },
-): Promise<StoredWebhookDelivery> {
+): Promise<{
+  delivery: StoredWebhookDelivery;
+  signals: ConsoleWebhookObservabilitySignal[];
+}> {
   const nextAttemptNo = input.delivery.attemptCount + 1;
   await q.query(
     `INSERT INTO console_webhook_attempts
@@ -403,8 +413,30 @@ async function persistDeliveryAttempt(
     );
   }
   const nextDelivery = parseDeliveryRow(updated);
+  const signals: ConsoleWebhookObservabilitySignal[] = [];
 
   if (input.attemptResult.status === 'FAILED') {
+    const existingDeadLetter = await queryOne(
+      q,
+      `SELECT id
+         FROM console_webhook_dead_letters
+        WHERE namespace = $1 AND delivery_id = $2`,
+      [input.namespace, input.delivery.id],
+    );
+    const unresolvedDeadLetterCountBefore = Number(
+      (
+        await queryOne(
+          q,
+          `SELECT COUNT(*)::bigint AS count
+             FROM console_webhook_dead_letters
+            WHERE namespace = $1
+              AND org_id = $2
+              AND endpoint_id = $3
+              AND resolved_at_ms IS NULL`,
+          [input.namespace, input.delivery.orgId, input.endpoint.id],
+        )
+      )?.count || 0,
+    );
     await q.query(
       `INSERT INTO console_webhook_dead_letters
         (namespace, id, org_id, endpoint_id, delivery_id, event_id, event_type,
@@ -434,6 +466,52 @@ async function persistDeliveryAttempt(
         input.attemptResult.attemptedAtMs,
       ],
     );
+    const unresolvedDeadLetterCountAfter = Number(
+      (
+        await queryOne(
+          q,
+          `SELECT COUNT(*)::bigint AS count
+             FROM console_webhook_dead_letters
+            WHERE namespace = $1
+              AND org_id = $2
+              AND endpoint_id = $3
+              AND resolved_at_ms IS NULL`,
+          [input.namespace, input.delivery.orgId, input.endpoint.id],
+        )
+      )?.count || 0,
+    );
+    if (!existingDeadLetter) {
+      signals.push({
+        kind: 'DEAD_LETTER',
+        orgId: input.delivery.orgId,
+        endpointId: input.endpoint.id,
+        deliveryId: input.delivery.id,
+        webhookEventId: input.delivery.eventId,
+        webhookEventType: input.delivery.eventType,
+        failedAttempts: nextDelivery.attemptCount,
+        lastResponseStatus: input.attemptResult.responseStatus,
+        lastErrorMessage: input.attemptResult.errorMessage,
+        movedToDlqAt: toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
+      });
+    }
+    if (
+      unresolvedDeadLetterCountBefore < input.endpointDegradedThreshold &&
+      unresolvedDeadLetterCountAfter >= input.endpointDegradedThreshold
+    ) {
+      signals.push({
+        kind: 'ENDPOINT_DEGRADED',
+        orgId: input.delivery.orgId,
+        endpointId: input.endpoint.id,
+        unresolvedDeadLetterCount: unresolvedDeadLetterCountAfter,
+        degradationThreshold: input.endpointDegradedThreshold,
+        latestDeliveryId: input.delivery.id,
+        latestWebhookEventId: input.delivery.eventId,
+        latestWebhookEventType: input.delivery.eventType,
+        lastResponseStatus: input.attemptResult.responseStatus,
+        lastErrorMessage: input.attemptResult.errorMessage,
+        degradedAt: toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
+      });
+    }
   } else {
     await q.query(
       `UPDATE console_webhook_dead_letters
@@ -443,7 +521,10 @@ async function persistDeliveryAttempt(
     );
   }
 
-  return nextDelivery;
+  return {
+    delivery: nextDelivery,
+    signals,
+  };
 }
 
 export interface PostgresConsoleWebhookSchemaOptions {
@@ -659,7 +740,7 @@ export async function ensureConsoleWebhooksPostgresSchema(
   options.logger.info('[console-webhooks][postgres] Schema ready');
 }
 
-export interface PostgresConsoleWebhookServiceOptions {
+export interface PostgresConsoleWebhookServiceOptions extends ConsoleWebhookObservabilityOptions {
   postgresUrl: string;
   namespace?: string;
   logger?: NormalizedLogger;
@@ -676,6 +757,14 @@ export async function createPostgresConsoleWebhookService(
 
   const namespace = ensureNamespace(options.namespace);
   const logger = options.logger || console;
+  const endpointDegradedThreshold = normalizeConsoleWebhookEndpointDegradedThreshold(
+    options.endpointDegradedThreshold,
+  );
+  const observabilityOptions: ConsoleWebhookObservabilityOptions = {
+    observabilityIngestion: options.observabilityIngestion,
+    observabilityLogger: options.observabilityLogger || logger,
+    endpointDegradedThreshold,
+  };
   const nowFn = options.now || (() => new Date());
   const dispatcher: WebhookDispatchAdapter = options.dispatcher || {
     dispatch: defaultDispatchWebhook,
@@ -828,15 +917,19 @@ export async function createPostgresConsoleWebhookService(
     async deleteEndpoint(
       ctx: ConsoleWebhooksContext,
       endpointId: string,
-    ): Promise<{ removed: boolean }> {
+    ): Promise<{ removed: boolean; endpoint: ConsoleWebhookEndpoint | null }> {
       return withTenantTx(ctx, async (q) => {
         const out = await q.query(
           `DELETE FROM console_webhook_endpoints
             WHERE namespace = $1 AND org_id = $2 AND id = $3
-            RETURNING id`,
+            RETURNING *`,
           [namespace, ctx.orgId, endpointId],
         );
-        return { removed: out.rows.length > 0 };
+        const row = out.rows[0] as PgRow | undefined;
+        return {
+          removed: out.rows.length > 0,
+          endpoint: row ? toPublicEndpoint(parseEndpointRow(row)) : null,
+        };
       });
     },
 
@@ -1078,7 +1171,7 @@ export async function createPostgresConsoleWebhookService(
         dispatcher,
         now,
       });
-      const updated = await withTenantTx(ctx, async (q) =>
+      const persisted = await withTenantTx(ctx, async (q) =>
         persistDeliveryAttempt(q, {
           namespace,
           delivery: target,
@@ -1086,12 +1179,14 @@ export async function createPostgresConsoleWebhookService(
           isReplay: true,
           now,
           attemptResult,
+          endpointDegradedThreshold,
         }),
       );
+      await appendConsoleWebhookObservabilitySignals(observabilityOptions, ctx, persisted.signals);
 
       return {
         replayed: true,
-        delivery: toPublicDelivery(updated),
+        delivery: toPublicDelivery(persisted.delivery),
       };
     },
 
@@ -1175,7 +1270,7 @@ export async function createPostgresConsoleWebhookService(
           now: attemptNow,
         });
 
-        const updated = await withTenantTx(ctx, async (q) =>
+        const persisted = await withTenantTx(ctx, async (q) =>
           persistDeliveryAttempt(q, {
             namespace,
             delivery,
@@ -1183,9 +1278,11 @@ export async function createPostgresConsoleWebhookService(
             isReplay: false,
             now: attemptNow,
             attemptResult,
+            endpointDegradedThreshold,
           }),
         );
-        if (updated.status === 'SUCCEEDED') delivered += 1;
+        await appendConsoleWebhookObservabilitySignals(observabilityOptions, ctx, persisted.signals);
+        if (persisted.delivery.status === 'SUCCEEDED') delivered += 1;
         else failed += 1;
       }
 
@@ -1244,7 +1341,8 @@ function isWebhookRetryDue(input: {
   return anchorMs + backoffMs <= input.nowMs;
 }
 
-export interface PostgresConsoleWebhookRetryDispatchOptions {
+export interface PostgresConsoleWebhookRetryDispatchOptions
+  extends ConsoleWebhookObservabilityOptions {
   postgresUrl: string;
   namespace?: string;
   orgIds?: string[];
@@ -1291,6 +1389,14 @@ export async function runPostgresConsoleWebhookRetryDispatch(
   }
 
   const logger = (options.logger || console) as NormalizedLogger;
+  const endpointDegradedThreshold = normalizeConsoleWebhookEndpointDegradedThreshold(
+    options.endpointDegradedThreshold,
+  );
+  const observabilityOptions: ConsoleWebhookObservabilityOptions = {
+    observabilityIngestion: options.observabilityIngestion,
+    observabilityLogger: options.observabilityLogger || logger,
+    endpointDegradedThreshold,
+  };
   const nowFn = options.now || (() => new Date());
   const dispatcher: WebhookDispatchAdapter = options.dispatcher || {
     dispatch: defaultDispatchWebhook,
@@ -1394,7 +1500,7 @@ export async function runPostgresConsoleWebhookRetryDispatch(
       attemptedForOrg += 1;
 
       try {
-        const updated = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+        const persisted = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
           const currentRow = await queryOne(
             q,
             `SELECT *
@@ -1416,13 +1522,43 @@ export async function runPostgresConsoleWebhookRetryDispatch(
             isReplay: false,
             now,
             attemptResult,
+            endpointDegradedThreshold,
           });
         });
-        if (!updated) {
+        if (!persisted) {
           skippedCount += 1;
           continue;
         }
-        if (updated.status === 'SUCCEEDED') deliveredCount += 1;
+        const signals = [...persisted.signals];
+        if (
+          persisted.delivery.status === 'FAILED' &&
+          persisted.delivery.attemptCount >= maxAttempts
+        ) {
+          signals.push({
+            kind: 'RETRY_EXHAUSTED',
+            orgId,
+            endpointId: endpoint.id,
+            deliveryId: persisted.delivery.id,
+            webhookEventId: persisted.delivery.eventId,
+            webhookEventType: persisted.delivery.eventType,
+            failedAttempts: persisted.delivery.attemptCount,
+            maxAttempts,
+            lastResponseStatus: persisted.delivery.responseStatus,
+            lastErrorMessage: persisted.delivery.errorMessage,
+            exhaustedAt:
+              persisted.delivery.lastAttemptAt || toIso(nowTs) || new Date(nowTs).toISOString(),
+          });
+        }
+        await appendConsoleWebhookObservabilitySignals(
+          observabilityOptions,
+          {
+            orgId,
+            actorUserId: 'system-webhook-retry-dispatch',
+            roles: ['ops'],
+          },
+          signals,
+        );
+        if (persisted.delivery.status === 'SUCCEEDED') deliveredCount += 1;
         else failedCount += 1;
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);

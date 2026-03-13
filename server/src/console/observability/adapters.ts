@@ -1,8 +1,11 @@
 import type {
   ConsoleObservabilityApprovalFailureInput,
   ConsoleObservabilityBillingFailureInput,
+  ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityEventEnvelope,
+  ConsoleObservabilityWebhookEndpointDegradedInput,
   ConsoleObservabilityWebhookDeadLetterInput,
+  ConsoleObservabilityWebhookRetryExhaustedInput,
 } from './types';
 import { CONSOLE_OBSERVABILITY_EVENT_POLICIES } from './policy';
 
@@ -111,11 +114,101 @@ export function buildWebhookDeadLetterObservabilityEvent(
   });
 }
 
+export function buildWebhookRetryExhaustedObservabilityEvent(
+  input: ConsoleObservabilityWebhookRetryExhaustedInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.webhookDeliveryRetryExhausted;
+  return baseEnvelope({
+    eventIdPrefix: 'obs_webhook_retry_exhausted',
+    orgId: input.orgId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.exhaustedAt,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: `Webhook delivery ${input.deliveryId} exhausted retries after ${Math.max(
+      0,
+      Math.floor(normalizeNumber(input.failedAttempts, 0)),
+    )} failed attempts`,
+    metadata: {
+      endpointId: normalizeString(input.endpointId),
+      deliveryId: normalizeString(input.deliveryId),
+      webhookEventId: normalizeString(input.webhookEventId),
+      webhookEventType: normalizeString(input.webhookEventType),
+      failedAttempts: Math.max(0, Math.floor(normalizeNumber(input.failedAttempts, 0))),
+      maxAttempts: Math.max(1, Math.floor(normalizeNumber(input.maxAttempts, 1))),
+      ...(Number.isFinite(Number(input.lastResponseStatus))
+        ? { lastResponseStatus: Number(input.lastResponseStatus) }
+        : {}),
+      ...(normalizeString(input.lastErrorMessage)
+        ? { lastErrorMessage: normalizeString(input.lastErrorMessage) }
+        : {}),
+      exhaustedAt: normalizeIso(input.exhaustedAt, new Date()),
+    },
+  });
+}
+
+export function buildWebhookEndpointDegradedObservabilityEvent(
+  input: ConsoleObservabilityWebhookEndpointDegradedInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.webhookEndpointDegraded;
+  return baseEnvelope({
+    eventIdPrefix: 'obs_webhook_endpoint_degraded',
+    orgId: input.orgId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.degradedAt,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: `Webhook endpoint ${input.endpointId} crossed the degraded failure threshold`,
+    metadata: {
+      endpointId: normalizeString(input.endpointId),
+      unresolvedDeadLetterCount: Math.max(
+        0,
+        Math.floor(normalizeNumber(input.unresolvedDeadLetterCount, 0)),
+      ),
+      degradationThreshold: Math.max(
+        1,
+        Math.floor(normalizeNumber(input.degradationThreshold, 1)),
+      ),
+      ...(normalizeString(input.latestDeliveryId)
+        ? { latestDeliveryId: normalizeString(input.latestDeliveryId) }
+        : {}),
+      ...(normalizeString(input.latestWebhookEventId)
+        ? { latestWebhookEventId: normalizeString(input.latestWebhookEventId) }
+        : {}),
+      ...(normalizeString(input.latestWebhookEventType)
+        ? { latestWebhookEventType: normalizeString(input.latestWebhookEventType) }
+        : {}),
+      ...(Number.isFinite(Number(input.lastResponseStatus))
+        ? { lastResponseStatus: Number(input.lastResponseStatus) }
+        : {}),
+      ...(normalizeString(input.lastErrorMessage)
+        ? { lastErrorMessage: normalizeString(input.lastErrorMessage) }
+        : {}),
+      degradedAt: normalizeIso(input.degradedAt, new Date()),
+    },
+  });
+}
+
 export function buildBillingFailureObservabilityEvent(
   input: ConsoleObservabilityBillingFailureInput,
 ): ConsoleObservabilityEventEnvelope {
   const invoiceId = normalizeString(input.invoiceId);
-  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingFailure;
+  const policy =
+    input.operation === 'PAYMENT_RECONCILE'
+      ? CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingPaymentReconcileFailure
+      : CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingInvoiceFinalizationFailure;
   return baseEnvelope({
     eventIdPrefix: 'obs_billing_failure',
     orgId: input.orgId,
@@ -130,13 +223,53 @@ export function buildBillingFailureObservabilityEvent(
     service: policy.service,
     component: policy.component,
     level: policy.level,
-    eventType: `billing.${normalizeString(input.operation).toLowerCase()}.failed`,
+    eventType: policy.eventType,
     message: normalizeString(input.failureMessage),
     metadata: {
       operation: normalizeString(input.operation),
       failureCode: normalizeString(input.failureCode),
       ...(invoiceId ? { invoiceId } : {}),
       ...(normalizeString(input.providerRef) ? { providerRef: normalizeString(input.providerRef) } : {}),
+    },
+  });
+}
+
+export function buildBillingStripeWebhookFailureObservabilityEvent(
+  input: ConsoleObservabilityBillingStripeWebhookFailureInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy =
+    input.eventType === 'billing.stripe_webhook.invalid_signature'
+      ? CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingStripeWebhookInvalidSignature
+      : CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingStripeWebhookProcessingFailure;
+  return baseEnvelope({
+    eventIdPrefix: 'obs_billing_stripe_webhook_failure',
+    orgId: input.orgId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.timestamp,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: normalizeString(input.failureMessage),
+    metadata: {
+      failureCode: normalizeString(input.failureCode),
+      ...(normalizeString(input.stripeEventId)
+        ? { stripeEventId: normalizeString(input.stripeEventId) }
+        : {}),
+      ...(normalizeString(input.stripeEventType)
+        ? { stripeEventType: normalizeString(input.stripeEventType) }
+        : {}),
+      ...(normalizeString(input.checkoutSessionId)
+        ? { checkoutSessionId: normalizeString(input.checkoutSessionId) }
+        : {}),
+      ...(normalizeString(input.providerRef) ? { providerRef: normalizeString(input.providerRef) } : {}),
+      ...(normalizeString(input.providerCustomerRef)
+        ? { providerCustomerRef: normalizeString(input.providerCustomerRef) }
+        : {}),
     },
   });
 }

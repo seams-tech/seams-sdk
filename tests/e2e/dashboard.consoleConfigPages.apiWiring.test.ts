@@ -856,7 +856,9 @@ test.describe('dashboard console config page api wiring', () => {
       .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
       .last();
     await expect(onboardingForm).toBeVisible();
-    await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Org');
+    const organizationNameInput = onboardingForm.locator('input[placeholder="Acme Wallets"]');
+    await expect(organizationNameInput).toHaveValue('');
+    await organizationNameInput.fill('Acme Org');
     await onboardingForm.locator('button:has-text("Continue to project setup")').click();
 
     await expect
@@ -1472,6 +1474,376 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('proj_mmggz8jp_v9pft0:dev');
   });
 
+  test('topbar organization menu keeps the billing route while switching organizations', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let activeOrgId = 'org_pokopia';
+    let sessionClaims: Record<string, unknown> = {
+      userId: 'user_multi_org',
+      orgId: 'org_pokopia',
+      roles: ['owner', 'admin'],
+      projectId: 'proj_pokopia',
+      environmentId: 'env_pokopia',
+      provider: 'passkey',
+    };
+    const switchBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+    const billingOverviewOrgIds: string[] = [];
+
+    const organizations = [
+      {
+        id: 'org_pokopia',
+        name: 'Pokopia Labs',
+        slug: 'pokopia-labs',
+        status: 'ACTIVE',
+        createdAt: iso('2026-03-01T00:00:00.000Z'),
+        updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        actorRoles: ['owner', 'admin'],
+        actorIsOwner: true,
+        actorIsAdmin: true,
+        onboardingComplete: true,
+        adminCandidates: [],
+      },
+      {
+        id: 'org_watchbook',
+        name: 'Watchbook',
+        slug: 'watch-book',
+        status: 'ACTIVE',
+        createdAt: iso('2026-03-03T00:00:00.000Z'),
+        updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        actorRoles: ['owner', 'admin'],
+        actorIsOwner: true,
+        actorIsAdmin: true,
+        onboardingComplete: true,
+        adminCandidates: [],
+      },
+    ] as const;
+    const projectsByOrg = new Map<string, Record<string, unknown>>([
+      [
+        'org_pokopia',
+        {
+          id: 'proj_pokopia',
+          name: 'Pokopia Core',
+          slug: 'pokopia-core',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-03-01T00:00:00.000Z'),
+          updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'org_watchbook',
+        {
+          id: 'proj_watchbook',
+          name: 'Watchbook Core',
+          slug: 'watchbook-core',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-03-03T00:00:00.000Z'),
+          updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const environmentsByProject = new Map<string, Record<string, unknown>>([
+      [
+        'proj_pokopia',
+        {
+          id: 'env_pokopia',
+          projectId: 'proj_pokopia',
+          key: 'prod',
+          name: 'Production',
+          status: 'ACTIVE',
+          createdAt: iso('2026-03-01T00:00:00.000Z'),
+          updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'proj_watchbook',
+        {
+          id: 'env_watchbook',
+          projectId: 'proj_watchbook',
+          key: 'prod',
+          name: 'Production',
+          status: 'ACTIVE',
+          createdAt: iso('2026-03-03T00:00:00.000Z'),
+          updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        },
+      ],
+    ]);
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            overview: true,
+            administration: true,
+            operationsSecurity: true,
+            integrations: true,
+            billing: true,
+          },
+          selectedContext: {
+            organization: 'org_pokopia',
+            project: 'proj_pokopia',
+            environment: 'env_pokopia',
+            accountSettings: 'Account Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: sessionClaims,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        const project = projectsByOrg.get(activeOrgId) || null;
+        const environment = project
+          ? environmentsByProject.get(String(project.id || '').trim()) || null
+          : null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: activeOrgId,
+              organization: organizations.find((entry) => entry.id === activeOrgId) || null,
+              activeProjectCount: project ? 1 : 0,
+              activeEnvironmentCount: environment ? 1 : 0,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: Boolean(project),
+              hasEnvironment: Boolean(environment),
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: Boolean(project),
+              onboardingComplete: Boolean(project && environment),
+              currentStep: project && environment ? 'complete' : 'project',
+              complete: Boolean(project && environment),
+              selectedProjectId: project ? String(project.id || '').trim() : null,
+              selectedEnvironmentId: environment ? String(environment.id || '').trim() : null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        const project = projectsByOrg.get(activeOrgId) || null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: project ? [project] : [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        const projectId = String(url.searchParams.get('projectId') || '').trim();
+        const environment = environmentsByProject.get(projectId) || null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: environment ? [environment] : [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: organizations.map((organization) => {
+              const isCurrentOrg = organization.id === activeOrgId;
+              const project = isCurrentOrg ? projectsByOrg.get(activeOrgId) || null : null;
+              const environment = project
+                ? environmentsByProject.get(String(project.id || '').trim()) || null
+                : null;
+              return {
+                ...organization,
+                isCurrentOrg,
+                selectedProjectId: project ? String(project.id || '').trim() : null,
+                selectedProjectName: project ? String(project.name || '').trim() : null,
+                selectedEnvironmentId: environment ? String(environment.id || '').trim() : null,
+                selectedEnvironmentName: environment ? String(environment.name || '').trim() : null,
+              };
+            }),
+          }),
+        });
+        return;
+      }
+
+      const accountOrgMatch = pathname.match(
+        /^\/console\/account\/organizations\/([^/]+?)\/switch-context$/,
+      );
+      const orgId = accountOrgMatch?.[1] ? decodeURIComponent(accountOrgMatch[1]) : '';
+      if (orgId && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        switchBodies.push({ orgId, body });
+        activeOrgId = orgId;
+        const project = projectsByOrg.get(orgId) || null;
+        const environment = project
+          ? environmentsByProject.get(String(project.id || '').trim()) || null
+          : null;
+        sessionClaims = {
+          userId: 'user_multi_org',
+          orgId,
+          roles: ['owner', 'admin'],
+          projectId: project ? String(project.id || '').trim() : '',
+          environmentId: environment ? String(environment.id || '').trim() : '',
+          provider: 'passkey',
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            context: {
+              orgId,
+              projectId: project ? String(project.id || '').trim() : null,
+              environmentId: environment ? String(environment.id || '').trim() : null,
+              actorRoles: ['owner', 'admin'],
+              onboardingComplete: true,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/overview' && method === 'GET') {
+        billingOverviewOrgIds.push(activeOrgId);
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              usageMetricVersion: 'v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: activeOrgId === 'org_watchbook' ? 9 : 3,
+              creditBalanceMinor: activeOrgId === 'org_watchbook' ? 37500 : 12000,
+              lowBalanceThresholdMinor: 1000,
+              recentUsageDebitMinor: activeOrgId === 'org_watchbook' ? 1800 : 600,
+              recentCreditPurchasedMinor: activeOrgId === 'org_watchbook' ? 45000 : 15000,
+              documentCount: activeOrgId === 'org_watchbook' ? 2 : 1,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/usage/monthly-active-wallets' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            usage: {
+              usageMetricVersion: 'v1',
+              monthUtc: '2026-03',
+              monthlyActiveWallets: activeOrgId === 'org_watchbook' ? 9 : 3,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/billing/invoices' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            invoices: [],
+            nextCursor: null,
+            totalCount: 0,
+            summary: {
+              totalCount: 0,
+              openCount: 0,
+              overdueCount: 0,
+              paidCount: 0,
+              outstandingAmountMinor: 0,
+              latestPeriodMonthUtc: null,
+              receiptCount: 0,
+              statementCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/billing/account');
+
+    const topbar = page.locator('header[aria-label="Workspace context"]');
+    const organizationButton = topbar.locator('button:has-text("Organization")');
+    await expect(organizationButton).toContainText('Pokopia Labs');
+    await expect(page.locator('[aria-label="Billing account summary metrics"]')).toContainText(
+      '$120.00',
+    );
+
+    await organizationButton.click();
+    const organizationMenu = page.locator('[aria-label="Organization options"]');
+    await expect(organizationMenu.getByRole('menuitemradio', { name: 'Pokopia Labs' })).toBeVisible();
+    await expect(organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' })).toBeVisible();
+
+    await organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' }).click();
+    await expect.poll(() => switchBodies.length).toBe(1);
+    expect(switchBodies[0]).toMatchObject({
+      orgId: 'org_watchbook',
+      body: {},
+    });
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing/account');
+    await expect(organizationButton).toContainText('Watchbook');
+    await expect(topbar.locator('button:has-text("Project")')).toContainText('Watchbook Core');
+    await expect(topbar.locator('button:has-text("Environment")')).toContainText('Production');
+    await expect(page.locator('[aria-label="Billing account summary metrics"]')).toContainText(
+      '$375.00',
+    );
+    await expect
+      .poll(() => billingOverviewOrgIds[billingOverviewOrgIds.length - 1] || '')
+      .toBe('org_watchbook');
+  });
+
   test('account settings remains reachable while onboarding is incomplete', async ({
     page,
     baseURL,
@@ -1606,12 +1978,11 @@ test.describe('dashboard console config page api wiring', () => {
     );
   });
 
-  test('account settings create, rename, transfer, and open flows rehydrate switched context', async ({
+  test('account settings delays organization creation until onboarding name submission', async ({
     page,
     baseURL,
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    let sessionRequestCount = 0;
     const accountProfile = {
       userId: 'user_account_settings_flow',
       displayName: 'Account Flow User',
@@ -1728,18 +2099,6 @@ test.describe('dashboard console config page api wiring', () => {
           updatedAt: iso('2026-01-04T00:00:00.000Z'),
         },
       ],
-      [
-        'org_created',
-        {
-          id: 'proj_created',
-          name: 'Created Project',
-          slug: 'created-project',
-          status: 'ACTIVE',
-          environmentCount: 1,
-          createdAt: iso('2026-01-05T00:00:00.000Z'),
-          updatedAt: iso('2026-01-05T00:00:00.000Z'),
-        },
-      ],
     ]);
     const environmentByProject = new Map<string, Record<string, unknown>>([
       [
@@ -1764,18 +2123,6 @@ test.describe('dashboard console config page api wiring', () => {
           status: 'ACTIVE',
           createdAt: iso('2026-01-03T00:00:00.000Z'),
           updatedAt: iso('2026-01-04T00:00:00.000Z'),
-        },
-      ],
-      [
-        'proj_created',
-        {
-          id: 'env_created',
-          projectId: 'proj_created',
-          key: 'prod',
-          name: 'Created Environment',
-          status: 'ACTIVE',
-          createdAt: iso('2026-01-05T00:00:00.000Z'),
-          updatedAt: iso('2026-01-05T00:00:00.000Z'),
         },
       ],
     ]);
@@ -1894,7 +2241,6 @@ test.describe('dashboard console config page api wiring', () => {
       const { pathname } = url;
 
       if (pathname === '/console/session' && method === 'GET') {
-        sessionRequestCount += 1;
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -1984,26 +2330,33 @@ test.describe('dashboard console config page api wiring', () => {
       if (pathname === '/console/account/organizations' && method === 'POST') {
         const body = parseJsonBody(req.postData());
         createBodies.push(body);
+        const createdOrgId = String(body.id || '').trim() || 'org_created';
+        const createdOrgName = String(body.name || '').trim() || createdOrgId;
         const createdOrganization = {
-          id: 'org_created',
-          name: String(body.name || '').trim() || 'Created Org',
-          slug: String(body.slug || '').trim() || 'created-org',
+          id: createdOrgId,
+          name: createdOrgName,
+          slug:
+            String(body.slug || '').trim() ||
+            createdOrgName
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, ''),
           status: 'ACTIVE',
           createdAt: iso('2026-01-05T00:00:00.000Z'),
           updatedAt: iso('2026-01-05T00:00:00.000Z'),
           actorRoles: ['owner', 'admin'],
           actorIsOwner: true,
           actorIsAdmin: true,
-          onboardingComplete: true,
-          selectedProjectId: 'proj_created',
-          selectedProjectName: 'Created Project',
-          selectedEnvironmentId: 'env_created',
-          selectedEnvironmentName: 'Created Environment',
+          onboardingComplete: false,
+          selectedProjectId: null,
+          selectedProjectName: null,
+          selectedEnvironmentId: null,
+          selectedEnvironmentName: null,
           adminCandidates: [],
         };
-        organizations.set('org_created', createdOrganization);
-        orgDetails.set('org_created', {
-          id: 'org_created',
+        organizations.set(createdOrgId, createdOrganization);
+        orgDetails.set(createdOrgId, {
+          id: createdOrgId,
           name: createdOrganization.name,
           slug: createdOrganization.slug,
           status: 'ACTIVE',
@@ -2110,13 +2463,19 @@ test.describe('dashboard console config page api wiring', () => {
       if (orgId && method === 'POST' && action === 'switch-context') {
         const body = parseJsonBody(req.postData());
         switchBodies.push({ orgId, body });
+        const organization = organizations.get(orgId);
+        const project = projectByOrg.get(orgId);
+        const environment = project ? environmentByProject.get(String(project.id || '').trim()) : null;
         activeOrgId = orgId;
         sessionClaims = {
           userId: 'user_account_settings_flow',
-          orgId: 'org_target',
-          roles: ['admin'],
-          projectId: 'proj_target',
-          environmentId: 'env_target',
+          orgId,
+          roles:
+            organization?.actorRoles.filter((role) => role === 'owner' || role === 'admin') || [
+              'admin',
+            ],
+          projectId: project ? String(project.id || '').trim() : '',
+          environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',
         };
         await route.fulfill({
@@ -2125,11 +2484,11 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             context: {
-              orgId: 'org_target',
-              projectId: 'proj_target',
-              environmentId: 'env_target',
-              actorRoles: ['admin'],
-              onboardingComplete: true,
+              orgId,
+              projectId: project ? String(project.id || '').trim() : null,
+              environmentId: environment ? String(environment.id || '').trim() : null,
+              actorRoles: sessionClaims.roles,
+              onboardingComplete: Boolean(organization?.onboardingComplete),
             },
           }),
         });
@@ -2228,98 +2587,33 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Create organization' }).click();
-    const createOrganizationDialog = page.getByLabel('Create organization modal');
-    await createOrganizationDialog.getByLabel('Organization name').fill('Created Org');
-    await createOrganizationDialog.getByLabel('Slug').fill('created-org');
-    await createOrganizationDialog.getByRole('button', { name: 'Create organization' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+    await expect.poll(() => new URL(page.url()).search).toBe('?createOrganization=1');
+    await expect.poll(() => createBodies.length).toBe(0);
+    await expect.poll(() => switchBodies.length).toBe(0);
+    await expect(page.locator('.dashboard-topbar__focused-value')).toHaveText('Current Org');
+    await expect(page.getByRole('heading', { name: 'Name your organization' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Create your first project' })).toHaveCount(0);
+
+    await page.getByLabel('Organization name').fill('Fresh Org');
+    await page.getByRole('button', { name: 'Continue to project setup' }).click();
+
     await expect.poll(() => createBodies.length).toBe(1);
     expect(createBodies[0]).toMatchObject({
-      name: 'Created Org',
-      slug: 'created-org',
+      name: 'Fresh Org',
+      slug: 'fresh-org',
     });
-    await expect(page.getByRole('status')).toContainText(/organization created/i);
-
-    const organizationsTable = page.getByRole('table', { name: 'Organizations' });
-    const targetRowBeforeTransfer = organizationsTable
-      .getByRole('row')
-      .filter({ hasText: 'Target Org' });
-    await expect(targetRowBeforeTransfer).toContainText('Target Project');
-    await expect(targetRowBeforeTransfer).toContainText('Target Environment');
-    await targetRowBeforeTransfer.getByRole('button', { name: 'Rename' }).click();
-    const renameDialog = page.getByLabel('Rename organization modal');
-    await renameDialog.getByLabel('Organization name').fill('Target Org Renamed');
-    await renameDialog.getByRole('button', { name: 'Rename' }).click();
-    await expect.poll(() => renameBodies.length).toBe(1);
-    expect(renameBodies[0]).toMatchObject({
-      orgId: 'org_target',
-      body: {
-        name: 'Target Org Renamed',
-      },
-    });
-
-    const targetRow = organizationsTable.getByRole('row').filter({ hasText: 'Target Org Renamed' });
-    await expect(targetRow).toBeVisible();
-
-    await targetRow.locator('select').selectOption('member_target_admin');
-    await targetRow.getByRole('button', { name: 'Transfer' }).click();
-    await expect.poll(() => transferBodies.length).toBe(1);
-    expect(transferBodies[0]).toMatchObject({
-      orgId: 'org_target',
-      body: {
-        targetMemberId: 'member_target_admin',
-      },
-    });
-
-    const targetRowAfterTransfer = organizationsTable
-      .getByRole('row')
-      .filter({ hasText: 'Target Org Renamed' });
-    await targetRowAfterTransfer.getByRole('button', { name: 'Open' }).click();
+    expect(String(createBodies[0]?.id || '')).toBe('');
     await expect.poll(() => switchBodies.length).toBe(1);
     expect(switchBodies[0]).toMatchObject({
-      orgId: 'org_target',
+      orgId: 'org_created',
+      body: {},
     });
-
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/overview');
-    await expect.poll(() => sessionRequestCount).toBeGreaterThan(1);
-
-    const topbarContext = page.locator('header[aria-label="Workspace context"]');
-    await expect(topbarContext.locator('button:has-text("Project")')).toContainText(
-      'Target Project',
-    );
-    await expect(topbarContext.locator('button:has-text("Environment")')).toContainText(
-      'Target Environment',
-    );
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const raw = window.localStorage.getItem('tatchi-dashboard-ui-state-v1');
-          const parsed = raw ? JSON.parse(raw) : null;
-          return String(parsed?.selectedContext?.project || '');
-        }),
-      )
-      .toBe('proj_target');
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const raw = window.localStorage.getItem('tatchi-dashboard-ui-state-v1');
-          const parsed = raw ? JSON.parse(raw) : null;
-          return String(parsed?.selectedContext?.environment || '');
-        }),
-      )
-      .toBe('env_target');
-
-    await page.goto('/dashboard/billing/account');
-    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/billing/account');
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/billing account/i);
-    await expect
-      .poll(() => billingOverviewOrgIds[billingOverviewOrgIds.length - 1] || '')
-      .toBe('org_target');
-    await expect
-      .poll(() => billingUsageOrgIds[billingUsageOrgIds.length - 1] || '')
-      .toBe('org_target');
-    await expect
-      .poll(() => billingActivityOrgIds[billingActivityOrgIds.length - 1] || '')
-      .toBe('org_target');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+    await expect.poll(() => new URL(page.url()).search).toBe('');
+    await expect(page.locator('.dashboard-topbar__focused-value')).toHaveText('Fresh Org');
+    await expect(page.getByRole('heading', { name: 'Create your first project' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Name your organization' })).toHaveCount(0);
   });
 
   test('account settings omits primary email updates when provider marks it read-only', async ({
@@ -3677,16 +3971,11 @@ test.describe('dashboard console config page api wiring', () => {
     const onboardingForm = page
       .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
       .last();
-    const projectPanel = page.locator('section[aria-label="Create project"]').first();
-    await expect(projectPanel).toBeVisible();
-    await expect(projectPanel).toHaveAttribute('aria-disabled', 'true');
-    await expect(projectPanel.locator('label:has-text("Project name") input')).toBeDisabled();
-    await expect(projectPanel.locator('button:has-text("Finish onboarding")')).toBeDisabled();
+    const projectPanel = page.locator('section[aria-label="Create project"]');
+    await expect(projectPanel).toHaveCount(0);
     await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toBeVisible();
     await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Wallets');
     await onboardingForm.locator('button:has-text("Continue to project setup")').click();
-    await expect(projectPanel).toHaveAttribute('aria-disabled', 'false');
-    await expect(projectPanel.locator('label:has-text("Project name") input')).toBeEnabled();
 
     await expect
       .poll(() =>
@@ -3699,11 +3988,31 @@ test.describe('dashboard console config page api wiring', () => {
         'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
       )
       .last();
+    await expect(onboardingForm).toHaveCount(0);
     await expect(projectForm.locator('label:has-text("Project name") input')).toBeVisible();
-    await projectForm.locator('label:has-text("Project name") input').fill('Consumer App');
-    await expect(projectForm.locator('text=Project ID (optional)')).toHaveCount(0);
-    await expect(projectForm.locator('text=Environment ID (optional)')).toHaveCount(0);
-    await projectForm.locator('button:has-text("Finish onboarding")').click();
+    await expect(projectForm.locator('button:has-text("Back")')).toBeVisible();
+    await projectForm.locator('button:has-text("Back")').click();
+
+    const organizationFormAfterBack = page
+      .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
+      .last();
+    await expect(organizationFormAfterBack).toBeVisible();
+    await expect(organizationFormAfterBack.locator('input[placeholder="Acme Wallets"]')).toHaveValue(
+      'Acme Wallets',
+    );
+    await expect(page.locator('section[aria-label="Create project"]')).toHaveCount(0);
+    await organizationFormAfterBack.locator('button:has-text("Continue to project setup")').click();
+
+    const projectFormAfterBack = page
+      .locator(
+        'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
+      )
+      .last();
+    await expect(projectFormAfterBack.locator('label:has-text("Project name") input')).toBeVisible();
+    await projectFormAfterBack.locator('label:has-text("Project name") input').fill('Consumer App');
+    await expect(projectFormAfterBack.locator('text=Project ID (optional)')).toHaveCount(0);
+    await expect(projectFormAfterBack.locator('text=Environment ID (optional)')).toHaveCount(0);
+    await projectFormAfterBack.locator('button:has-text("Finish onboarding")').click();
 
     await expect
       .poll(() =>
@@ -3871,17 +4180,17 @@ test.describe('dashboard console config page api wiring', () => {
       .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
       .last();
     await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toBeVisible();
-    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toHaveValue(
-      'Acme Corp',
-    );
+    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toHaveValue('');
     await expect(onboardingForm.locator('label:has-text("Organization slug") input')).toHaveValue(
-      'acme-corp',
+      '',
     );
     await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('Acme Org');
     await expect(onboardingForm.locator('label:has-text("Organization slug") input')).toHaveValue(
       'acme-org',
     );
-    await expect(onboardingForm.locator('label:has-text("Organization slug") input')).toBeDisabled();
+    await expect(
+      onboardingForm.locator('label:has-text("Organization slug") input'),
+    ).toBeDisabled();
     await onboardingForm.locator('button:has-text("Continue to project setup")').click();
 
     await expect
@@ -4038,9 +4347,7 @@ test.describe('dashboard console config page api wiring', () => {
     const onboardingForm = page
       .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
       .last();
-    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toHaveValue(
-      'Acme Corp',
-    );
+    await expect(onboardingForm.locator('input[placeholder="Acme Wallets"]')).toHaveValue('');
     await onboardingForm.locator('input[placeholder="Acme Wallets"]').fill('org_pick_same_name');
     await onboardingForm.locator('button:has-text("Continue to project setup")').click();
 
@@ -4738,7 +5045,10 @@ test.describe('dashboard console config page api wiring', () => {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: true, policies: gasPolicies.map((entry) => toGasPolicy(entry)) }),
+          body: JSON.stringify({
+            ok: true,
+            policies: gasPolicies.map((entry) => toGasPolicy(entry)),
+          }),
         });
         return;
       }
@@ -5007,52 +5317,44 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() =>
         String(
-          (
-            lastGasCreateBody?.rules &&
-            typeof lastGasCreateBody.rules === 'object' &&
-            !Array.isArray(lastGasCreateBody.rules)
-              ? (lastGasCreateBody.rules as Record<string, unknown>).scopeType
-              : ''
-          ) || '',
+          (lastGasCreateBody?.rules &&
+          typeof lastGasCreateBody.rules === 'object' &&
+          !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).scopeType
+            : '') || '',
         ),
       )
       .toBe('ENVIRONMENT');
     await expect
       .poll(() =>
         String(
-          (
-            lastGasCreateBody?.rules &&
-            typeof lastGasCreateBody.rules === 'object' &&
-            !Array.isArray(lastGasCreateBody.rules)
-              ? (lastGasCreateBody.rules as Record<string, unknown>).environmentId
-              : ''
-          ) || '',
+          (lastGasCreateBody?.rules &&
+          typeof lastGasCreateBody.rules === 'object' &&
+          !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).environmentId
+            : '') || '',
         ),
       )
       .toBe(developmentEnvironment.id);
     await expect
       .poll(() =>
         String(
-          (
-            lastGasCreateBody?.rules &&
-            typeof lastGasCreateBody.rules === 'object' &&
-            !Array.isArray(lastGasCreateBody.rules)
-              ? (lastGasCreateBody.rules as Record<string, unknown>).networkClass
-              : ''
-          ) || '',
+          (lastGasCreateBody?.rules &&
+          typeof lastGasCreateBody.rules === 'object' &&
+          !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).networkClass
+            : '') || '',
         ),
       )
       .toBe('TESTNET');
     await expect
       .poll(() =>
         String(
-          (
-            lastGasCreateBody?.rules &&
-            typeof lastGasCreateBody.rules === 'object' &&
-            !Array.isArray(lastGasCreateBody.rules)
-              ? (lastGasCreateBody.rules as Record<string, unknown>).callMode
-              : ''
-          ) || '',
+          (lastGasCreateBody?.rules &&
+          typeof lastGasCreateBody.rules === 'object' &&
+          !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).callMode
+            : '') || '',
         ),
       )
       .toBe('ALLOWLIST');
@@ -5065,12 +5367,7 @@ test.describe('dashboard console config page api wiring', () => {
             ? (lastGasCreateBody.rules as Record<string, unknown>).allowedChainIds
             : null,
         )
-          ? [
-              ...(
-                (lastGasCreateBody!.rules as Record<string, unknown>)
-                  .allowedChainIds as any[]
-              ),
-            ]
+          ? [...((lastGasCreateBody!.rules as Record<string, unknown>).allowedChainIds as any[])]
               .map(String)
               .sort()
               .join(',')
@@ -5113,8 +5410,9 @@ test.describe('dashboard console config page api wiring', () => {
           ? Array.from(
               new Set(
                 (
-                  (lastGasCreateBody!.rules as Record<string, unknown>)
-                    .allowedCalls as Array<{ chainId?: unknown }>
+                  (lastGasCreateBody!.rules as Record<string, unknown>).allowedCalls as Array<{
+                    chainId?: unknown;
+                  }>
                 )
                   .map((entry) => String(entry.chainId || ''))
                   .filter(Boolean),
@@ -6863,6 +7161,270 @@ test.describe('dashboard console config page api wiring', () => {
     );
   });
 
+  test('audit page surfaces actor identifiers and deep links to policy, invoice, and webhook destinations', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const events = [
+      {
+        id: 'aud_policy_link_1',
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        policyId: 'policy_linked_1',
+        policyName: 'Treasury publish policy',
+        policyKind: 'TRANSACTION',
+        actorUserId: 'user_security',
+        actorType: 'USER',
+        category: 'POLICY',
+        action: 'policy.publish',
+        outcome: 'SUCCESS',
+        summary: 'Published policy',
+        metadata: {
+          policyId: 'policy_linked_1',
+          policyName: 'Treasury publish policy',
+          policyKind: 'TRANSACTION',
+          version: 2,
+          status: 'PUBLISHED',
+          approvalId: 'apr_audit_link_1',
+          scopeType: 'ENVIRONMENT',
+        },
+        createdAt: iso('2026-03-10T12:00:00.000Z'),
+      },
+      {
+        id: 'aud_billing_link_1',
+        orgId: 'org_dash_console_pages',
+        actorUserId: 'system_billing',
+        actorType: 'SYSTEM',
+        category: 'BILLING',
+        action: 'billing.credit_purchase.settled',
+        outcome: 'SUCCESS',
+        summary: 'Settled Stripe credit purchase',
+        metadata: {
+          purchaseId: 'purchase_bcp_1',
+          receiptId: 'receipt_bcp_1',
+          amountMinor: 2500,
+          currency: 'USD',
+          providerCheckoutSessionRef: 'cs_test_123',
+          settlementSource: 'STRIPE_WEBHOOK',
+        },
+        createdAt: iso('2026-03-10T11:00:00.000Z'),
+      },
+      {
+        id: 'aud_webhook_link_1',
+        orgId: 'org_dash_console_pages',
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        actorUserId: 'user_ops',
+        actorType: 'USER',
+        category: 'WEBHOOK',
+        action: 'webhook.delivery.replay_requested',
+        outcome: 'SUCCESS',
+        summary: 'Requested webhook replay',
+        metadata: {
+          endpointId: 'wh_ep_link_1',
+          deliveryId: 'dlv_link_1',
+        },
+        createdAt: iso('2026-03-10T10:00:00.000Z'),
+      },
+    ];
+    const approvals = [
+      {
+        id: 'apr_audit_link_1',
+        orgId: 'org_dash_console_pages',
+        operationType: 'POLICY_PUBLISH',
+        status: 'APPROVED',
+        reason: 'Approved for audit deep link test',
+        requestedByUserId: 'user_admin',
+        requiredApprovals: 1,
+        requireMfa: false,
+        projectId: 'proj_active',
+        environmentId: 'env_active',
+        resourceType: 'policy',
+        resourceId: 'policy_linked_1',
+        policyId: 'policy_linked_1',
+        policyName: 'Treasury publish policy',
+        metadata: {
+          policyId: 'policy_linked_1',
+          policyName: 'Treasury publish policy',
+        },
+        decisions: [],
+        createdAt: iso('2026-03-10T09:00:00.000Z'),
+        updatedAt: iso('2026-03-10T09:30:00.000Z'),
+        resolvedAt: iso('2026-03-10T09:30:00.000Z'),
+      },
+    ];
+    const members = [
+      {
+        id: 'mbr_user_security',
+        orgId: 'org_dash_console_pages',
+        userId: 'user_security',
+        email: 'security@example.com',
+        displayName: 'Security Admin',
+        status: 'ACTIVE',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+        invitedByUserId: 'user_owner',
+        invitedAt: iso('2026-01-01T00:00:00.000Z'),
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: 'mbr_user_ops',
+        orgId: 'org_dash_console_pages',
+        userId: 'user_ops',
+        email: 'ops@example.com',
+        displayName: 'Ops Admin',
+        status: 'ACTIVE',
+        roles: [{ role: 'admin', scope: 'ORG' }],
+        invitedByUserId: 'user_owner',
+        invitedAt: iso('2026-01-01T00:00:00.000Z'),
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+    ];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/members' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, members }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/approvals' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, approvals }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/audit/events' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, events }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/audit');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/audit logs/i);
+
+    const policyRow = page.locator('.dashboard-audit-events__row').filter({
+      hasText: 'Published policy',
+    });
+    await policyRow.getByRole('button', { name: 'View' }).click();
+    let detailsPanel = page.locator('.dashboard-audit-events__details-panel.is-expanded');
+    await expect(detailsPanel).toContainText('Security Admin');
+    await expect(detailsPanel).toContainText('user_security');
+    await expect(
+      detailsPanel.getByRole('link', { name: 'Treasury publish policy' }),
+    ).toHaveAttribute('href', '/dashboard/policy-engine?policyId=policy_linked_1');
+    await expect(detailsPanel.getByRole('link', { name: 'apr_audit_link_1' })).toHaveAttribute(
+      'href',
+      '/dashboard/policy-engine?policyId=policy_linked_1&approvalId=apr_audit_link_1',
+    );
+    await expect(detailsPanel).toContainText('Environment');
+    await expect(detailsPanel).toContainText('env_active');
+
+    const billingRow = page.locator('.dashboard-audit-events__row').filter({
+      hasText: 'Settled Stripe credit purchase',
+    });
+    await billingRow.getByRole('button', { name: 'View' }).click();
+    detailsPanel = page.locator('.dashboard-audit-events__details-panel.is-expanded');
+    await expect(detailsPanel).toContainText('purchase_bcp_1');
+    await expect(detailsPanel).toContainText('SYSTEM');
+    await expect(detailsPanel.getByRole('link', { name: 'receipt_bcp_1' })).toHaveAttribute(
+      'href',
+      '/dashboard/invoices/receipt_bcp_1',
+    );
+    await expect(detailsPanel).toContainText('Organization');
+    await expect(detailsPanel).toContainText('org_dash_console_pages');
+
+    const webhookRow = page.locator('.dashboard-audit-events__row').filter({
+      hasText: 'Requested webhook replay',
+    });
+    await webhookRow.getByRole('button', { name: 'View' }).click();
+    detailsPanel = page.locator('.dashboard-audit-events__details-panel.is-expanded');
+    await expect(detailsPanel.getByRole('link', { name: 'wh_ep_link_1' })).toHaveAttribute(
+      'href',
+      '/dashboard/webhooks?endpointId=wh_ep_link_1',
+    );
+    await expect(detailsPanel.getByRole('link', { name: 'dlv_link_1' })).toHaveAttribute(
+      'href',
+      '/dashboard/webhooks?endpointId=wh_ep_link_1&deliveryId=dlv_link_1',
+    );
+  });
+
   test('credentials page supports publishable_key creation and mode-specific snippet wiring', async ({
     page,
     baseURL,
@@ -6884,7 +7446,7 @@ test.describe('dashboard console config page api wiring', () => {
         orgId: 'org_dash_console_pages',
         name: 'existing-server',
         environmentId: 'env_active',
-        scopes: ['accounts.create', 'accounts.sync'],
+        scopes: ['accounts.create'],
         ipAllowlist: ['203.0.113.10/32'],
         status: 'ACTIVE',
         secretVersion: 1,
@@ -7050,7 +7612,7 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             apiKey: created,
-            secret: 'pk_publishable_created',
+            secret: 'pk_publishablecreated',
           }),
         });
         return;
@@ -7141,6 +7703,19 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(credentialsTable.getByRole('columnheader', { name: 'Origins' })).toBeVisible();
     await expect(credentialsTable).toContainText('existing-server');
     await expect(credentialsTable).not.toContainText('sk_abcd...');
+    const existingSecretRow = page
+      .locator('section[aria-label="Credentials table"] .dashboard-data-table__row')
+      .filter({ hasText: 'existing-server' });
+    await existingSecretRow.getByRole('button', { name: 'Edit' }).click();
+    const existingSecretEditModal = page.locator('section[aria-label="Edit credential modal"]');
+    await expect(existingSecretEditModal).toBeVisible();
+    await expect(
+      existingSecretEditModal.getByRole('button', { name: /accounts\.create/i }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(
+      existingSecretEditModal.getByRole('group', { name: 'Scopes toggles' }).getByRole('button'),
+    ).toHaveCount(1);
+    await existingSecretEditModal.getByRole('button', { name: 'Cancel' }).click();
     const revokedRow = page
       .locator('section[aria-label="Credentials table"] .dashboard-data-table__row')
       .filter({ hasText: 'revoked-browser' });
@@ -7205,8 +7780,10 @@ test.describe('dashboard console config page api wiring', () => {
     ).toContainText('Managed browser bootstrap snippet');
     await expect(
       page.locator('section[aria-label="Credential integration snippet"]'),
-    ).toContainText("publishableKey: 'pk_publishable_created'");
-    await expect(page.locator('.dashboard-secret-banner')).toContainText('Save this publishable key now');
+    ).toContainText("publishableKey: 'pk_publishablecreated'");
+    await expect(page.locator('.dashboard-secret-banner')).toContainText(
+      'Save this publishable key now',
+    );
     await expect(page.locator('.dashboard-secret-banner')).toContainText('Credential ID');
     await expect(page.locator('.dashboard-secret-banner')).toContainText('ak_newpublishable');
     await expect(page.getByRole('button', { name: 'Copy publishable_key value' })).toBeVisible();
@@ -7445,13 +8022,36 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('ul[aria-label="Observability status warnings"]')).toContainText(
       'Service health is not available for this role',
     );
-    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'No observability events for this scope.',
+    const serviceControlsSection = page.locator(
+      'section[aria-label="Observability service health controls"]',
     );
-    await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'Default window: last 24 hours.',
-    );
+    const serviceSection = page.locator('section[aria-label="Observability service health"]');
     const eventsSection = page.locator('section[aria-label="Observability events table"]');
+    const eventControlsSection = page.locator('div[aria-label="Observability event controls"]');
+    await expect(serviceControlsSection).toContainText(
+      'Aggregated incident roll-up by service for the selected scope.',
+    );
+    await expect(serviceControlsSection).toContainText('Incident window: Last 24 hours.');
+    await expect(eventsSection).toContainText(
+      'Detailed incident rows behind the service health snapshot.',
+    );
+    await expect(eventControlsSection).toContainText('Incident window: Last 24 hours.');
+    await expect(eventsSection).toContainText(
+      'No incidents in the selected window. Observability is incident-driven, so healthy periods can be empty.',
+    );
+    const [serviceControlsBox, serviceBox, eventControlsBox, eventsBox] = await Promise.all([
+      serviceControlsSection.boundingBox(),
+      serviceSection.boundingBox(),
+      eventControlsSection.boundingBox(),
+      page.locator('section[aria-label="Observability events"]').boundingBox(),
+    ]);
+    expect(serviceControlsBox).not.toBeNull();
+    expect(serviceBox).not.toBeNull();
+    expect(eventControlsBox).not.toBeNull();
+    expect(eventsBox).not.toBeNull();
+    expect(serviceBox!.y).toBeGreaterThan(serviceControlsBox!.y);
+    expect(eventControlsBox!.y).toBeGreaterThan(serviceBox!.y);
+    expect(eventsBox!.y).toBeGreaterThan(eventControlsBox!.y);
     await expect(eventsSection.getByRole('button', { name: 'Load more events' })).toHaveCount(0);
   });
 
@@ -7689,7 +8289,10 @@ test.describe('dashboard console config page api wiring', () => {
     let lastEventsQuery = '';
     let lastEventsLevel = '';
     let lastEventsService = '';
+    let lastEventsComponent = '';
     let lastEventsEventType = '';
+    let lastEventsFrom = '';
+    let lastEventsTo = '';
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -7796,11 +8399,15 @@ test.describe('dashboard console config page api wiring', () => {
         lastEventsQuery = String(url.searchParams.get('query') || '').trim();
         lastEventsLevel = String(url.searchParams.get('level') || '').trim();
         lastEventsService = String(url.searchParams.get('service') || '').trim();
+        lastEventsComponent = String(url.searchParams.get('component') || '').trim();
         lastEventsEventType = String(url.searchParams.get('eventType') || '').trim();
+        lastEventsFrom = String(url.searchParams.get('from') || '').trim();
+        lastEventsTo = String(url.searchParams.get('to') || '').trim();
         const normalizedQuery = lastEventsQuery.toLowerCase();
         const filteredEvents = allEvents.filter((entry) => {
           if (lastEventsLevel && entry.level !== lastEventsLevel) return false;
           if (lastEventsService && entry.service !== lastEventsService) return false;
+          if (lastEventsComponent && entry.component !== lastEventsComponent) return false;
           if (lastEventsEventType && entry.eventType !== lastEventsEventType) return false;
           if (!normalizedQuery) return true;
           const haystack = [
@@ -7857,6 +8464,18 @@ test.describe('dashboard console config page api wiring', () => {
     await page.goto('/dashboard/observability');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/observability/i);
 
+    await page
+      .locator('select[aria-label="Filter observability events by time window"]')
+      .selectOption('1h');
+    await expect.poll(() => lastEventsFrom).not.toBe('');
+    await expect.poll(() => lastEventsTo).not.toBe('');
+    await expect
+      .poll(() => Date.parse(lastEventsTo) - Date.parse(lastEventsFrom))
+      .toBeGreaterThan(1000 * 60 * 55);
+    await expect
+      .poll(() => Date.parse(lastEventsTo) - Date.parse(lastEventsFrom))
+      .toBeLessThan(1000 * 60 * 65);
+
     await page.locator('input[aria-label="Search observability events"]').fill('invoice');
     await expect.poll(() => lastEventsQuery).toBe('invoice');
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
@@ -7872,9 +8491,15 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => lastEventsLevel).toBe('ERROR');
 
     await page
-      .locator('input[aria-label="Filter observability events by service"]')
-      .fill('billing');
+      .locator('div[aria-label="Observability event controls"]')
+      .getByRole('button', { name: 'Billing' })
+      .click();
     await expect.poll(() => lastEventsService).toBe('billing');
+
+    await page
+      .locator('input[aria-label="Filter observability events by component"]')
+      .fill('invoice');
+    await expect.poll(() => lastEventsComponent).toBe('invoice');
 
     await page
       .locator('input[aria-label="Filter observability events by event type"]')
@@ -7887,7 +8512,7 @@ test.describe('dashboard console config page api wiring', () => {
     await page.locator('input[aria-label="Search observability events"]').fill('missing-token');
     await expect.poll(() => lastEventsQuery).toBe('missing-token');
     await expect(page.locator('section[aria-label="Observability events table"]')).toContainText(
-      'No observability events match the current filters.',
+      'No observability incidents match the current filters.',
     );
   });
 

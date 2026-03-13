@@ -5,6 +5,12 @@ export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 
 export type ConsoleWebhookDeliveryStatus = 'SUCCEEDED' | 'FAILED';
 
+export interface ConsoleWebhooksContext {
+  orgId: string;
+  actorUserId: string;
+  roles: string[];
+}
+
 export interface ConsoleWebhookEndpoint {
   id: string;
   orgId: string;

@@ -1,6 +1,5 @@
 import type { AuthService } from '../../core/AuthService';
 import type { DelegateActionPolicy } from '../../delegateAction';
-import { ensureLeadingSlash } from '@shared/utils/validation';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -30,11 +29,12 @@ import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
-import { handleSmartAccountDeploy } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { handlePrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
+import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
+import type { RouteDefinition } from '../routeDefinitions';
 
 export interface CloudflareRelayContext {
   request: Request;
@@ -49,6 +49,7 @@ export interface CloudflareRelayContext {
   logger: NormalizedRouterLogger;
 
   mePath: string;
+  routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
   signedDelegatePolicy?: DelegateActionPolicy;
 }
@@ -67,13 +68,9 @@ export function createCloudflareRouter(
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
-  const mePath = effectiveOpts.sessionRoutes?.state || '/session/state';
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  let signedDelegatePath = '';
-  if (effectiveOpts.signedDelegate) {
-    signedDelegatePath =
-      ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
-  }
+  const routeSurface = resolveRelayRouteSurface(effectiveOpts);
+  const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
   const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 
   const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
@@ -82,7 +79,6 @@ export function createCloudflareRouter(
     handleCreateAccountAndRegisterUser,
     handleSignedDelegate,
     handleAuth,
-    handleSmartAccountDeploy,
     handleSyncAccount,
     handleLinkDevice,
     handleEmailRecoveryPrepare,
@@ -112,7 +108,7 @@ export function createCloudflareRouter(
     handleReady,
   ];
 
-  return async function handler(
+  const handler: FetchHandler = async function handler(
     request: Request,
     env?: CfEnv,
     cfCtx?: CfExecutionContext,
@@ -135,6 +131,7 @@ export function createCloudflareRouter(
       opts: effectiveOpts,
       logger,
       mePath,
+      routeDefinitions,
       signedDelegatePath,
       signedDelegatePolicy,
     };
@@ -166,4 +163,5 @@ export function createCloudflareRouter(
       return res;
     }
   };
+  return attachRelayRouteSurface(handler, routeSurface);
 }

@@ -1,5 +1,6 @@
 export type {
   ConsoleWebhookEventCategory,
+  ConsoleWebhooksContext,
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookDeliveryStatus,
   ConsoleWebhookEndpoint,
@@ -18,7 +19,6 @@ export type {
   EmitConsoleWebhookEventResult,
 } from './types';
 export type {
-  ConsoleWebhooksContext,
   WebhookDispatchRequest,
   WebhookDispatchResult,
   WebhookDispatchAdapter,

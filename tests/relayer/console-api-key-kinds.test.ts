@@ -19,7 +19,7 @@ import {
 const authOrgId = 'org-api-key-kinds';
 const authUserId = 'user-api-key-kinds';
 const projectId = 'project-api-key-kinds';
-const environmentId = `${authOrgId}:${projectId}:prod`;
+const environmentId = `${projectId}:prod`;
 
 function makeConsoleAuthAdapter(roles: string[]): ConsoleAuthAdapter {
   return {
@@ -216,17 +216,42 @@ test.describe('console API key kinds', () => {
       path: `/console/api-keys/${encodeURIComponent(apiKeyId)}`,
       body: {
         name: 'server-app-updated',
-        scopes: ['accounts.create', 'accounts.sync'],
+        scopes: ['accounts.create', 'accounts.create'],
         ipAllowlist: ['203.0.113.10/32'],
       },
     });
     expect(updated.status, updated.text).toBe(200);
     expect(getPath(updated.json, 'apiKey', 'name')).toBe('server-app-updated');
-    expect(getPath(updated.json, 'apiKey', 'scopes')).toEqual([
-      'accounts.create',
-      'accounts.sync',
-    ]);
+    expect(getPath(updated.json, 'apiKey', 'scopes')).toEqual(['accounts.create']);
     expect(getPath(updated.json, 'apiKey', 'ipAllowlist')).toEqual(['203.0.113.10/32']);
+  });
+
+  test('express console router rejects unknown secret_key scopes', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const orgProjectEnv = await seedActiveEnvironment();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['admin']),
+      apiKeys,
+      orgProjectEnv,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const created = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'secret_key',
+          name: 'invalid-scope-key',
+          environmentId,
+          scopes: ['accounts.sync'],
+        }),
+      });
+      expect(created.status, created.text).toBe(400);
+      expect(created.json?.code).toBe('invalid_body');
+      expect(String(created.json?.message || '')).toContain('Invalid secret_key scope');
+    } finally {
+      await srv.close();
+    }
   });
 
   test('express console router deletes revoked API keys and blocks deleting active keys', async () => {
@@ -246,7 +271,7 @@ test.describe('console API key kinds', () => {
           kind: 'secret_key',
           name: 'delete-target',
           environmentId,
-          scopes: ['wallets:read'],
+          scopes: ['accounts.create'],
         }),
       });
       expect(created.status, created.text).toBe(201);
@@ -306,7 +331,7 @@ test.describe('console API key kinds', () => {
         kind: 'secret_key',
         name: 'delete-target-cf',
         environmentId,
-        scopes: ['wallets:read'],
+        scopes: ['accounts.create'],
       },
     });
     expect(created.status, created.text).toBe(201);

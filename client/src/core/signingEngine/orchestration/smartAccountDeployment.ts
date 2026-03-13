@@ -11,9 +11,12 @@ function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): stri
   if (!relayerUrl) {
     throw new Error('[deployment] missing relayer url (configs.network.relayer.url)');
   }
-  const routeRaw = String(
-    configs.network.relayer?.routes?.smartAccountDeploy || '/smart-account/deploy',
-  ).trim();
+  const routeRaw = String(configs.network.relayer?.routes?.smartAccountDeploy || '').trim();
+  if (!routeRaw) {
+    throw new Error(
+      '[deployment] no smart-account deploy endpoint configured; built-in relay routers do not expose one',
+    );
+  }
   const route = routeRaw.startsWith('/') ? routeRaw : `/${routeRaw}`;
   return joinNormalizedUrl(relayerUrl, route);
 }

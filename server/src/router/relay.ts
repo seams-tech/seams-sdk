@@ -12,6 +12,7 @@ import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots'
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
+import type { MachineApiKeyScope } from '../../../shared/src/console/apiKeyScopes';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -137,7 +138,7 @@ export type RelayApiKeyAuthFailureCode =
 export interface RelayApiKeyAuthRequest {
   secret: string;
   endpoint: string;
-  requiredScopes: string[];
+  requiredScopes: MachineApiKeyScope[];
   sourceIp?: string;
   environmentId?: string;
 }
@@ -146,7 +147,7 @@ export interface RelayApiKeyPrincipal {
   apiKeyId: string;
   orgId: string;
   environmentId: string;
-  scopes: string[];
+  scopes: MachineApiKeyScope[];
 }
 
 export type RelayApiKeyAuthResult =
@@ -160,6 +161,32 @@ export type RelayApiKeyAuthResult =
 
 export interface RelayApiKeyAuthAdapter {
   authenticate(input: RelayApiKeyAuthRequest): Promise<RelayApiKeyAuthResult>;
+}
+
+export type RelayPublishableKeyAuthFailureCode =
+  | 'publishable_key_missing'
+  | 'publishable_key_invalid'
+  | 'publishable_key_revoked'
+  | 'publishable_key_origin_blocked'
+  | 'publishable_key_environment_mismatch';
+
+export interface RelayPublishableKeyAuthRequest {
+  secret: string;
+  origin: string;
+  environmentId: string;
+}
+
+export type RelayPublishableKeyAuthResult =
+  | { ok: true; principal: RelayApiKeyPrincipal }
+  | {
+      ok: false;
+      status: 401 | 403;
+      code: RelayPublishableKeyAuthFailureCode;
+      message: string;
+    };
+
+export interface RelayPublishableKeyAuthAdapter {
+  authenticate(input: RelayPublishableKeyAuthRequest): Promise<RelayPublishableKeyAuthResult>;
 }
 
 export type RelayUsageMeterAction = 'wallet_created';
@@ -260,7 +287,14 @@ export interface RelayBootstrapTokenRecord {
 }
 
 export interface RelayBootstrapGrantBroker {
-  issueGrant(input: RelayBootstrapGrantIssueRequest): Promise<RelayBootstrapGrantIssueResult>;
+  authenticatePublishableKey(input: {
+    publishableKey: string;
+    origin: string;
+    environmentId?: string;
+  }): Promise<import('../console/apiKeys').AuthenticateConsolePublishableKeyResult>;
+  issueGrantForAuthenticatedKey(input: Omit<RelayBootstrapGrantIssueRequest, 'publishableKey'> & {
+    authenticatedApiKey: import('../console/apiKeys').ConsoleApiKey;
+  }): Promise<RelayBootstrapGrantIssueResult>;
 }
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';
@@ -334,6 +368,8 @@ export interface RelayRouterOptions {
   signedDelegate?: {
     route: string;
     policy?: DelegateActionPolicy;
+    billing?: ConsoleBillingService | null;
+    ledger?: ConsoleSponsoredCallService | null;
   };
   // Optional: customize canonical app-session read route.
   sessionRoutes?: { state?: string };
@@ -356,6 +392,11 @@ export interface RelayRouterOptions {
    * When omitted, runtime routes do not enforce API key auth.
    */
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
+  /**
+   * Optional publishable-key authentication adapter for browser-safe
+   * machine routes like signed delegate execution.
+   */
+  publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
   /**
    * Optional relay usage-meter adapter used to emit runtime events for
    * billing linkage.
@@ -380,11 +421,10 @@ export interface RelayRouterOptions {
    */
   prfSessionSeal?: PrfSessionSealRoutesOptions | null;
   /**
-   * Optional smart-account deploy hook used by `POST /smart-account/deploy`.
+   * Optional internal smart-account deploy hook.
    *
-   * When omitted, the route returns `{ ok: true, code: 'assumed_deployed' }`
-   * so clients in deployment-enforce mode can proceed in relayers that do not
-   * yet run an explicit deploy pipeline.
+   * This hook is for internal registration or provisioning flows.
+   * It is not exposed as a public relay route.
    */
   smartAccountDeploy?:
     | ((

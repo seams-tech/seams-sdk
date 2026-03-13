@@ -7,6 +7,7 @@ import type {
   ConsoleProject,
   ListConsoleProjectsRequest,
   ListConsoleEnvironmentsRequest,
+  SearchConsoleOrganizationsRequest,
   UpsertConsoleOrganizationRequest,
   UpdateConsoleEnvironmentRequest,
   UpdateConsoleProjectRequest,
@@ -22,6 +23,8 @@ export interface ConsoleOrgProjectEnvContext {
 
 export interface ConsoleOrgProjectEnvService {
   getOrganization(ctx: ConsoleOrgProjectEnvContext): Promise<ConsoleOrganization>;
+  findDefaultOrganization(): Promise<ConsoleOrganization | null>;
+  searchOrganizations(request: SearchConsoleOrganizationsRequest): Promise<ConsoleOrganization[]>;
   findOrganizationForScope(request: {
     projectId?: string;
     environmentId?: string;
@@ -141,6 +144,56 @@ function sortEnvironments(items: ConsoleEnvironment[]): ConsoleEnvironment[] {
   });
 }
 
+function sortOrganizations(items: ConsoleOrganization[]): ConsoleOrganization[] {
+  return [...items].sort((a, b) => {
+    const nameDiff = a.name.localeCompare(b.name);
+    if (nameDiff !== 0) return nameDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function normalizeOrganizationSearchValue(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function scoreOrganizationSearchCandidate(query: string, value: string, offset: number): number {
+  const normalized = normalizeOrganizationSearchValue(value);
+  if (!normalized) return Number.POSITIVE_INFINITY;
+  if (normalized === query) return offset;
+  if (normalized.startsWith(query)) {
+    return offset + 10 + Math.max(0, normalized.length - query.length);
+  }
+  const tokens = normalized.split(/[\s_-]+/).filter(Boolean);
+  const tokenIndex = tokens.findIndex((token) => token.startsWith(query));
+  if (tokenIndex >= 0) return offset + 30 + tokenIndex;
+  const containsIndex = normalized.indexOf(query);
+  if (containsIndex >= 0) return offset + 60 + containsIndex;
+  return Number.POSITIVE_INFINITY;
+}
+
+function scoreOrganizationSearchResult(query: string, organization: ConsoleOrganization): number {
+  return Math.min(
+    scoreOrganizationSearchCandidate(query, organization.name, 0),
+    scoreOrganizationSearchCandidate(query, organization.id, 20),
+  );
+}
+
+function sortOrganizationSearchResults(
+  items: ConsoleOrganization[],
+  query: string,
+): ConsoleOrganization[] {
+  return [...items].sort((left, right) => {
+    const scoreDiff =
+      scoreOrganizationSearchResult(query, left) - scoreOrganizationSearchResult(query, right);
+    if (scoreDiff !== 0) return scoreDiff;
+    const primaryDiff = left.name.localeCompare(right.name);
+    if (primaryDiff !== 0) return primaryDiff;
+    return left.id.localeCompare(right.id);
+  });
+}
+
 function cloneOrg(org: ConsoleOrganization): ConsoleOrganization {
   return { ...org };
 }
@@ -209,6 +262,32 @@ export function createInMemoryConsoleOrgProjectEnvService(
         );
       }
       return cloneOrg(store.org);
+    },
+
+    async findDefaultOrganization(): Promise<ConsoleOrganization | null> {
+      const organizations = sortOrganizations(
+        Array.from(stores.values()).map((store) => cloneOrg(store.org)),
+      );
+      if (organizations.length !== 1) return null;
+      return cloneOrg(organizations[0]!);
+    },
+
+    async searchOrganizations(request): Promise<ConsoleOrganization[]> {
+      const query = normalizeOrganizationSearchValue(request.query);
+      const rawLimit = Number(request.limit || 0);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(1, Math.floor(rawLimit)) : 10;
+      if (!query) return [];
+      const organizations: ConsoleOrganization[] = [];
+      for (const store of stores.values()) {
+        const organization = cloneOrg(store.org);
+        const score = scoreOrganizationSearchResult(query, organization);
+        if (!Number.isFinite(score)) continue;
+        organizations.push(organization);
+      }
+      return sortOrganizationSearchResults(organizations, query)
+        .slice(0, limit)
+        .map((organization) => cloneOrg(organization));
     },
 
     async findOrganizationForScope(request): Promise<ConsoleOrganization | null> {

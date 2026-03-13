@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   createPostgresConsoleWebhookService,
   runPostgresConsoleWebhookRetryDispatch,
+  type ConsoleObservabilityIngestionService,
   type ConsoleWebhookService,
 } from '@server/router/express-adaptor';
 import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
@@ -56,6 +57,7 @@ test.describe('console webhooks postgres service', () => {
       'org-webhooks-postgres-pagination-tie',
       'org-webhooks-postgres-invalid-attempt-cursor',
       'org-webhooks-postgres-retry-dispatch',
+      'org-webhooks-postgres-retry-exhausted',
     ];
     for (const orgId of cleanupOrgIds) {
       await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
@@ -278,6 +280,100 @@ test.describe('console webhooks postgres service', () => {
     });
     expect(resolvedDeadLetters.items.length).toBe(2);
     expect(resolvedDeadLetters.items.every((entry) => Boolean(entry.resolvedAt))).toBe(true);
+  });
+
+  test('retry dispatch emits terminal retry exhausted observability event once max attempts is reached', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const observabilityIngestion: ConsoleObservabilityIngestionService = {
+      appendEvent: async (ingestCtx, event) => {
+        ingested.push({
+          ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+          event: event as unknown as Record<string, unknown>,
+        });
+        return { accepted: 1, deduplicated: 0 };
+      },
+      appendEvents: async (ingestCtx, events) => {
+        for (const event of events) {
+          ingested.push({
+            ingestCtx: ingestCtx as unknown as Record<string, unknown>,
+            event: event as unknown as Record<string, unknown>,
+          });
+        }
+        return { accepted: events.length, deduplicated: 0 };
+      },
+    };
+    const ctx = {
+      orgId: 'org-webhooks-postgres-retry-exhausted',
+      actorUserId: 'ops-webhooks-retry-exhausted',
+      roles: ['ops'],
+    };
+
+    const seedService = await createPostgresConsoleWebhookService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      observabilityIngestion,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: false,
+          statusCode: 500,
+          responseBody: 'seed failure',
+          errorMessage: 'seed upstream unavailable',
+        }),
+      },
+    });
+
+    const endpoint = await seedService.createEndpoint(ctx, {
+      url: 'https://example.com/webhooks/postgres-retry-exhausted',
+      eventCategories: ['billing'],
+    });
+
+    const emitted = await seedService.emitEvent(ctx, {
+      eventType: 'billing.invoice.failed',
+      payload: { invoiceId: 'inv_pg_retry_exhausted' },
+    });
+    expect(emitted.failed).toBe(1);
+
+    const retryResult = await runPostgresConsoleWebhookRetryDispatch({
+      postgresUrl,
+      namespace,
+      orgIds: [ctx.orgId],
+      limit: 10,
+      maxAttempts: 2,
+      initialBackoffMs: 0,
+      maxBackoffMs: 0,
+      ensureSchema: false,
+      observabilityIngestion,
+      dispatcher: {
+        dispatch: async () => ({
+          ok: false,
+          statusCode: 500,
+          responseBody: 'retry failure',
+          errorMessage: 'retry upstream unavailable',
+        }),
+      },
+    });
+    expect(retryResult.orgCount).toBe(1);
+    expect(retryResult.attemptedCount).toBe(1);
+    expect(retryResult.failedCount).toBe(1);
+
+    const deadLetterEvents = ingested.filter(
+      (entry) => entry.event.eventType === 'webhook.delivery.dead_letter',
+    );
+    const retryExhaustedEvents = ingested.filter(
+      (entry) => entry.event.eventType === 'webhook.delivery.retry_exhausted',
+    );
+    expect(deadLetterEvents).toHaveLength(1);
+    expect(retryExhaustedEvents).toHaveLength(1);
+    expect(String((retryExhaustedEvents[0]?.event as any)?.metadata?.endpointId || '')).toBe(
+      endpoint.id,
+    );
+    expect(Number((retryExhaustedEvents[0]?.event as any)?.metadata?.failedAttempts || 0)).toBe(2);
   });
 
   test('pagination cursors advance consistently across deliveries, attempts, and dead letters', async () => {

@@ -5,6 +5,7 @@ test.describe('relay cloudflare worker scheduled handler', () => {
   test('builds cron options from env and forwards scheduled invocation', async () => {
     const seen = {
       authServiceEnv: undefined as any,
+      observabilityIngestionEnv: undefined as any,
       cronOptions: undefined as any,
       event: undefined as any,
       env: undefined as any,
@@ -16,6 +17,16 @@ test.describe('relay cloudflare worker scheduled handler', () => {
       createAuthService: (env) => {
         seen.authServiceEnv = env;
         return {} as any;
+      },
+      createObservabilityIngestion: async (env) => {
+        seen.observabilityIngestionEnv = env;
+        return {
+          appendEvent: async () => ({ accepted: 1, deduplicated: 0 }),
+          appendEvents: async (_ctx: unknown, events: unknown[]) => ({
+            accepted: events.length,
+            deduplicated: 0,
+          }),
+        } as any;
       },
       outboxSink: {
         applyOutboxEvent(event) {
@@ -52,6 +63,7 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     await scheduled(event, env, ctx);
 
     expect(seen.authServiceEnv).toBe(env);
+    expect(seen.observabilityIngestionEnv).toBe(env);
     expect(seen.event).toBe(event);
     expect(seen.env).toBe(env);
     expect(seen.ctx).toBe(ctx);
@@ -63,6 +75,7 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     expect(seen.cronOptions?.runtimeSnapshotOutbox?.cronExpressions).toEqual(['*/5 * * * *']);
     expect(seen.cronOptions?.webhookRetryDispatch?.orgIds).toEqual(['org-c']);
     expect(seen.cronOptions?.webhookRetryDispatch?.cronExpressions).toEqual(['*/10 * * * *']);
+    expect(seen.cronOptions?.webhookRetryDispatch?.observabilityIngestion).toBeTruthy();
 
     await seen.cronOptions?.runtimeSnapshotOutbox?.dispatch?.({
       payload: { snapshotId: 'snap_scheduled' },

@@ -1,5 +1,6 @@
 import { ConsoleWebhookError } from './errors';
 import type {
+  ConsoleWebhooksContext,
   ConsoleWebhookDelivery,
   ConsoleWebhookDeliveryAttempt,
   ConsoleWebhookDeadLetter,
@@ -15,6 +16,12 @@ import type {
   ReplayConsoleWebhookDeliveryResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
+import {
+  appendConsoleWebhookObservabilitySignals,
+  normalizeConsoleWebhookEndpointDegradedThreshold,
+  type ConsoleWebhookObservabilityOptions,
+  type ConsoleWebhookObservabilitySignal,
+} from './observability';
 import {
   coerceIsoDate,
   defaultDispatchWebhook,
@@ -51,12 +58,6 @@ interface OrgWebhookStore {
   deadLettersByDelivery: Map<string, StoredWebhookDeadLetter>;
 }
 
-export interface ConsoleWebhooksContext {
-  orgId: string;
-  actorUserId: string;
-  roles: string[];
-}
-
 export interface WebhookDispatchRequest {
   endpointId: string;
   endpointUrl: string;
@@ -77,7 +78,7 @@ export interface WebhookDispatchAdapter {
   dispatch(input: WebhookDispatchRequest): Promise<WebhookDispatchResult> | WebhookDispatchResult;
 }
 
-export interface InMemoryConsoleWebhookServiceOptions {
+export interface InMemoryConsoleWebhookServiceOptions extends ConsoleWebhookObservabilityOptions {
   now?: () => Date;
   dispatcher?: WebhookDispatchAdapter;
 }
@@ -93,7 +94,10 @@ export interface ConsoleWebhookService {
     endpointId: string,
     request: UpdateConsoleWebhookEndpointRequest,
   ): Promise<ConsoleWebhookEndpoint | null>;
-  deleteEndpoint(ctx: ConsoleWebhooksContext, endpointId: string): Promise<{ removed: boolean }>;
+  deleteEndpoint(
+    ctx: ConsoleWebhooksContext,
+    endpointId: string,
+  ): Promise<{ removed: boolean; endpoint: ConsoleWebhookEndpoint | null }>;
   listDeliveries(
     ctx: ConsoleWebhooksContext,
     endpointId: string,
@@ -214,6 +218,14 @@ export function createInMemoryConsoleWebhookService(
   const dispatchAdapter: WebhookDispatchAdapter = opts.dispatcher || {
     dispatch: defaultDispatchWebhook,
   };
+  const endpointDegradedThreshold = normalizeConsoleWebhookEndpointDegradedThreshold(
+    opts.endpointDegradedThreshold,
+  );
+  const observabilityOptions: ConsoleWebhookObservabilityOptions = {
+    observabilityIngestion: opts.observabilityIngestion,
+    observabilityLogger: opts.observabilityLogger || (console as Pick<Console, 'warn'>),
+    endpointDegradedThreshold,
+  };
 
   const stores = new Map<string, OrgWebhookStore>();
 
@@ -270,6 +282,16 @@ export function createInMemoryConsoleWebhookService(
     return created;
   }
 
+  function countUnresolvedDeadLettersForEndpoint(store: OrgWebhookStore, endpointId: string): number {
+    let count = 0;
+    for (const delivery of getEndpointDeliveries(store, endpointId)) {
+      const deadLetter = store.deadLettersByDelivery.get(delivery.id);
+      if (!deadLetter || deadLetter.resolvedAt) continue;
+      count += 1;
+    }
+    return count;
+  }
+
   function findDelivery(
     store: OrgWebhookStore,
     endpointId: string,
@@ -287,6 +309,7 @@ export function createInMemoryConsoleWebhookService(
 
   async function deliver(
     store: OrgWebhookStore,
+    ctx: ConsoleWebhooksContext,
     endpoint: StoredWebhookEndpoint,
     delivery: StoredWebhookDelivery,
     isReplay: boolean,
@@ -348,6 +371,11 @@ export function createInMemoryConsoleWebhookService(
       isReplay,
     };
     getDeliveryAttempts(store, delivery.id).push(attempt);
+    const signals: ConsoleWebhookObservabilitySignal[] = [];
+    const unresolvedDeadLettersBeforeFailure = countUnresolvedDeadLettersForEndpoint(
+      store,
+      endpoint.id,
+    );
 
     delivery.attemptCount += 1;
     delivery.replayCount += isReplay ? 1 : 0;
@@ -389,7 +417,44 @@ export function createInMemoryConsoleWebhookService(
           resolvedAt: null,
         });
       }
+      const unresolvedDeadLettersAfterFailure = countUnresolvedDeadLettersForEndpoint(
+        store,
+        endpoint.id,
+      );
+      if (!existingDeadLetter || existingDeadLetter.resolvedAt) {
+        signals.push({
+          kind: 'DEAD_LETTER',
+          orgId: delivery.orgId,
+          endpointId: endpoint.id,
+          deliveryId: delivery.id,
+          webhookEventId: delivery.eventId,
+          webhookEventType: delivery.eventType,
+          failedAttempts: delivery.attemptCount,
+          lastResponseStatus: responseStatus,
+          lastErrorMessage: errorMessage,
+          movedToDlqAt: attemptedAt,
+        });
+      }
+      if (
+        unresolvedDeadLettersBeforeFailure < endpointDegradedThreshold &&
+        unresolvedDeadLettersAfterFailure >= endpointDegradedThreshold
+      ) {
+        signals.push({
+          kind: 'ENDPOINT_DEGRADED',
+          orgId: delivery.orgId,
+          endpointId: endpoint.id,
+          unresolvedDeadLetterCount: unresolvedDeadLettersAfterFailure,
+          degradationThreshold: endpointDegradedThreshold,
+          latestDeliveryId: delivery.id,
+          latestWebhookEventId: delivery.eventId,
+          latestWebhookEventType: delivery.eventType,
+          lastResponseStatus: responseStatus,
+          lastErrorMessage: errorMessage,
+          degradedAt: attemptedAt,
+        });
+      }
     }
+    await appendConsoleWebhookObservabilitySignals(observabilityOptions, ctx, signals);
   }
 
   return {
@@ -444,8 +509,9 @@ export function createInMemoryConsoleWebhookService(
     async deleteEndpoint(
       ctx: ConsoleWebhooksContext,
       endpointId: string,
-    ): Promise<{ removed: boolean }> {
+    ): Promise<{ removed: boolean; endpoint: ConsoleWebhookEndpoint | null }> {
       const store = requireOrgStore(ctx.orgId);
+      const endpoint = getEndpoint(store, endpointId);
       const deliveryIds = getEndpointDeliveries(store, endpointId).map((entry) => entry.id);
       const removed = store.endpoints.delete(endpointId);
       if (removed) {
@@ -455,7 +521,10 @@ export function createInMemoryConsoleWebhookService(
           store.deadLettersByDelivery.delete(deliveryId);
         }
       }
-      return { removed };
+      return {
+        removed,
+        endpoint: endpoint ? cloneEndpoint(endpoint) : null,
+      };
     },
 
     async listDeliveries(
@@ -585,7 +654,7 @@ export function createInMemoryConsoleWebhookService(
         };
       }
 
-      await deliver(store, endpoint, target, true);
+      await deliver(store, ctx, endpoint, target, true);
       return {
         replayed: true,
         delivery: cloneDelivery(target),
@@ -636,8 +705,8 @@ export function createInMemoryConsoleWebhookService(
           updatedAt: createdAt,
           payload: { ...request.payload },
         };
-        await deliver(store, endpoint, delivery, false);
         getEndpointDeliveries(store, endpoint.id).push(delivery);
+        await deliver(store, ctx, endpoint, delivery, false);
         if (delivery.status === 'SUCCEEDED') delivered += 1;
         else failed += 1;
       }

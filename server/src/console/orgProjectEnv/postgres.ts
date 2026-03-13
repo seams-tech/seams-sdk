@@ -18,6 +18,7 @@ import type {
   ConsoleProject,
   ListConsoleProjectsRequest,
   ListConsoleEnvironmentsRequest,
+  SearchConsoleOrganizationsRequest,
   UpsertConsoleOrganizationRequest,
   UpdateConsoleEnvironmentRequest,
   UpdateConsoleProjectRequest,
@@ -110,6 +111,48 @@ function parseEnvironmentRow(row: PgRow): ConsoleEnvironment {
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
   };
+}
+
+function normalizeOrganizationSearchValue(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function scoreOrganizationSearchCandidate(query: string, value: string, offset: number): number {
+  const normalized = normalizeOrganizationSearchValue(value);
+  if (!normalized) return Number.POSITIVE_INFINITY;
+  if (normalized === query) return offset;
+  if (normalized.startsWith(query)) {
+    return offset + 10 + Math.max(0, normalized.length - query.length);
+  }
+  const tokens = normalized.split(/[\s_-]+/).filter(Boolean);
+  const tokenIndex = tokens.findIndex((token) => token.startsWith(query));
+  if (tokenIndex >= 0) return offset + 30 + tokenIndex;
+  const containsIndex = normalized.indexOf(query);
+  if (containsIndex >= 0) return offset + 60 + containsIndex;
+  return Number.POSITIVE_INFINITY;
+}
+
+function scoreOrganizationSearchResult(query: string, organization: ConsoleOrganization): number {
+  return Math.min(
+    scoreOrganizationSearchCandidate(query, organization.name, 0),
+    scoreOrganizationSearchCandidate(query, organization.id, 20),
+  );
+}
+
+function sortOrganizationSearchResults(
+  items: ConsoleOrganization[],
+  query: string,
+): ConsoleOrganization[] {
+  return [...items].sort((left, right) => {
+    const scoreDiff =
+      scoreOrganizationSearchResult(query, left) - scoreOrganizationSearchResult(query, right);
+    if (scoreDiff !== 0) return scoreDiff;
+    const primaryDiff = left.name.localeCompare(right.name);
+    if (primaryDiff !== 0) return primaryDiff;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
@@ -363,6 +406,46 @@ export async function createPostgresConsoleOrgProjectEnvService(
         }
         return parseOrgRow(row);
       });
+    },
+
+    async findDefaultOrganization(): Promise<ConsoleOrganization | null> {
+      const out = await pool.query(
+        `SELECT *
+           FROM console_organizations
+          WHERE namespace = $1
+            AND status = 'ACTIVE'
+          ORDER BY created_at_ms ASC, id ASC
+          LIMIT 2`,
+        [namespace],
+      );
+      if (out.rows.length !== 1) return null;
+      return parseOrgRow(out.rows[0] as PgRow);
+    },
+
+    async searchOrganizations(
+      request: SearchConsoleOrganizationsRequest,
+    ): Promise<ConsoleOrganization[]> {
+      const query = normalizeOrganizationSearchValue(request.query);
+      const rawLimit = Number(request.limit || 0);
+      const limit =
+        Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(1, Math.floor(rawLimit)) : 10;
+      if (!query) return [];
+      const candidateLimit = Math.max(limit * 5, 25);
+      const organizationRows = await pool.query(
+        `SELECT *
+           FROM console_organizations
+          WHERE namespace = $1
+            AND (
+              LOWER(name) LIKE $2
+              OR LOWER(id) LIKE $2
+            )
+          LIMIT $3`,
+        [namespace, `%${query}%`, candidateLimit],
+      );
+      return sortOrganizationSearchResults(
+        organizationRows.rows.map((row) => parseOrgRow(row as PgRow)),
+        query,
+      ).slice(0, limit);
     },
 
     async findOrganizationForScope(request): Promise<ConsoleOrganization | null> {

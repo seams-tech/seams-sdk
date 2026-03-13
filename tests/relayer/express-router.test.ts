@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { createInMemoryConsoleSponsoredCallService } from '@server';
 import {
   createAppSessionConsoleAuthAdapter,
   createConsoleRouter,
+  createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
+  createRelayPublishableKeyAuthAdapter,
   createRelayRouter,
 } from '@server/router/express-adaptor';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
@@ -42,18 +45,6 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
   };
 }
 
-function validSmartAccountDeployBody(overrides?: Partial<any>): any {
-  return {
-    nearAccountId: 'bob.testnet',
-    chain: 'tempo',
-    chainId: 'tempo:42431',
-    accountAddress: '0xabc123',
-    accountModel: 'tempo-native',
-    counterfactualAddress: '0xabc123',
-    ...overrides,
-  };
-}
-
 function makeUnsignedJwtWithExp(expSeconds: number): string {
   const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }), 'utf8').toString('base64url');
   const payload = Buffer.from(
@@ -61,6 +52,40 @@ function makeUnsignedJwtWithExp(expSeconds: number): string {
     'utf8',
   ).toString('base64url');
   return `${header}.${payload}.signature`;
+}
+
+function makeSignedDelegateBillingSpy() {
+  const events: Array<Record<string, unknown>> = [];
+  return {
+    events,
+    service: {
+      async recordUsageEvent(
+        _ctx: unknown,
+        request: {
+          walletId: string;
+          action: string;
+          succeeded: boolean;
+          sourceEventId?: string;
+        },
+      ) {
+        events.push({
+          walletId: request.walletId,
+          action: request.action,
+          succeeded: request.succeeded,
+          ...(request.sourceEventId ? { sourceEventId: request.sourceEventId } : {}),
+        });
+        return {
+          accepted: true,
+          counted: true,
+          monthUtc: '2026-03',
+          monthlyActiveWallets: 1,
+          debitAppliedMinor: 0,
+          creditBalanceMinor: 0,
+          statementId: null,
+        };
+      },
+    },
+  };
 }
 
 function makeEd25519ThresholdAdapter(input: {
@@ -138,6 +163,143 @@ test.describe('relayer router (express) – P0', () => {
       });
       expect(res.status).toBe(400);
       expect(res.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /signed-delegate requires publishable key auth', async () => {
+    const service = makeFakeAuthService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const router = createRelayRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/signed-delegate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://example.localhost',
+          'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+        },
+        body: JSON.stringify({
+          hash: 'a'.repeat(64),
+          signedDelegate: { delegateAction: { receiverId: 'contract.testnet' }, signature: 'sig' },
+        }),
+      });
+      expect(res.status, res.text).toBe(401);
+      expect(res.json?.code).toBe('publishable_key_missing');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /signed-delegate accepts valid publishable key and forwards server policy', async () => {
+    let received: Record<string, unknown> | null = null;
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async (input) => {
+        received = input as Record<string, unknown>;
+        return {
+          ok: true,
+          transactionHash: 'delegate-tx-123',
+          outcome: {
+            transaction_outcome: {
+              outcome: {
+                gas_burnt: 1000,
+                tokens_burnt: '250',
+              },
+            },
+            receipts_outcome: [
+              {
+                outcome: {
+                  gas_burnt: 2000,
+                  tokens_burnt: '750',
+                },
+              },
+            ],
+          },
+        };
+      },
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const created = await apiKeys.createApiKey(
+      {
+        orgId: 'org_delegate',
+        actorUserId: 'user_delegate',
+        roles: ['admin'],
+      },
+      {
+        kind: 'publishable_key',
+        name: 'delegate-browser',
+        environmentId: 'proj_delegate:prod',
+        allowedOrigins: ['https://example.localhost'],
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
+      },
+    );
+    const router = createRelayRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        policy: { allowedReceivers: ['contract.testnet'] },
+        billing: billing.service as any,
+        ledger,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/signed-delegate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${created.secret}`,
+          Origin: 'https://example.localhost',
+          'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+        },
+        body: JSON.stringify({
+          hash: 'b'.repeat(64),
+          signedDelegate: {
+            delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+            signature: 'sig',
+          },
+        }),
+      });
+      expect(res.status, res.text).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(res.json?.relayerTxHash).toBe('delegate-tx-123');
+      expect((received?.policy as Record<string, unknown> | undefined)?.allowedReceivers).toEqual([
+        'contract.testnet',
+      ]);
+      const record = await ledger.getRecordBySourceEventId(
+        {
+          orgId: 'org_delegate',
+          actorUserId: 'user_delegate',
+          roles: ['admin'],
+        },
+        `signed_delegate:${created.apiKey.id}:${'b'.repeat(64)}`,
+      );
+      expect(record?.intentKind).toBe('near_delegate');
+      expect(record?.feeUnit).toBe('yocto_near');
+      expect(record?.feeAmount).toBe('1000');
+      expect(record?.txOrExecutionRef).toBe('delegate-tx-123');
+      expect(record?.receiptStatus).toBe('success');
+      expect(billing.events).toEqual([
+        expect.objectContaining({
+          walletId: 'alice.testnet',
+          action: 'contract_call',
+          succeeded: true,
+        }),
+      ]);
     } finally {
       await srv.close();
     }
@@ -416,7 +578,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /smart-account/deploy: default route returns assumed_deployed', async () => {
+  test('POST /smart-account/deploy: removed (404)', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {});
     const srv = await startExpressRouter(router);
@@ -424,35 +586,9 @@ test.describe('relayer router (express) – P0', () => {
       const res = await fetchJson(`${srv.baseUrl}/smart-account/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validSmartAccountDeployBody()),
+        body: JSON.stringify({}),
       });
-      expect(res.status).toBe(200);
-      expect(res.json?.ok).toBe(true);
-      expect(res.json?.code).toBe('assumed_deployed');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('POST /smart-account/deploy: custom hook response is returned', async () => {
-    const service = makeFakeAuthService();
-    const router = createRelayRouter(service, {
-      smartAccountDeploy: async (req) => {
-        expect(req.nearAccountId).toBe('bob.testnet');
-        expect(req.chain).toBe('tempo');
-        return { ok: true, deploymentTxHash: '0xdeploytx' };
-      },
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/smart-account/deploy`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validSmartAccountDeployBody()),
-      });
-      expect(res.status).toBe(200);
-      expect(res.json?.ok).toBe(true);
-      expect(res.json?.deploymentTxHash).toBe('0xdeploytx');
+      expect(res.status).toBe(404);
     } finally {
       await srv.close();
     }

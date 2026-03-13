@@ -1,7 +1,47 @@
 import React from 'react';
-import type { TopbarContextState } from '../../types';
+import type { BillingMetric } from './billingShared';
+import {
+  DashboardTable,
+  DashboardTableCell,
+  DashboardTableHeader,
+  DashboardTableHeaderCell,
+  DashboardTableIntro,
+  DashboardTableRow,
+  DashboardTableState,
+  DashboardTableStatus,
+  dashboardTableColumns,
+  useDashboardTablePagination,
+} from '../../components/DashboardTable';
 import type { DashboardBillingAccountActivityEntry } from './consoleBillingApi';
 import { formatUsdMinor } from './consoleBillingApi';
+
+const BILLING_ACCOUNT_ACTIVITY_TABLE_COLUMNS = dashboardTableColumns(
+  '1.2fr',
+  '1.05fr',
+  '0.8fr',
+  '1.1fr',
+  '1fr',
+  '1.7fr',
+);
+
+function formatTimestampUtcParts(value: string): {
+  primary: string;
+  secondary: string | null;
+} {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      primary: '-',
+      secondary: null,
+    };
+  }
+  const iso = date.toISOString();
+  const [day, time = ''] = iso.split('T');
+  return {
+    primary: day || '-',
+    secondary: `${time.replace('Z', '')} UTC`,
+  };
+}
 
 export function describeAccountActivityType(input: DashboardBillingAccountActivityEntry): string {
   if (input.type === 'MANUAL_ADJUSTMENT') {
@@ -12,13 +52,71 @@ export function describeAccountActivityType(input: DashboardBillingAccountActivi
   return input.type;
 }
 
+function getAccountActivityTone(input: DashboardBillingAccountActivityEntry) {
+  if (
+    input.type === 'USAGE_DEBIT' ||
+    (input.type === 'MANUAL_ADJUSTMENT' && input.amountMinor < 0)
+  ) {
+    return 'warning' as const;
+  }
+  if (input.type === 'REFUND' || input.type === 'REVERSAL') {
+    return 'neutral' as const;
+  }
+  return 'success' as const;
+}
+
+function getAccountActivityDocument(entry: DashboardBillingAccountActivityEntry): {
+  id: string;
+  label: string;
+} | null {
+  if (entry.relatedInvoiceId) {
+    return { id: entry.relatedInvoiceId, label: 'Document' };
+  }
+  if (entry.relatedPurchaseId) {
+    return { id: entry.relatedPurchaseId, label: 'Purchase' };
+  }
+  return null;
+}
+
+function getAccountActivityReasonDetail(
+  entry: DashboardBillingAccountActivityEntry,
+): string | null {
+  if (entry.actorUserId) return `Actor ${entry.actorUserId}`;
+  if (entry.actorType && entry.actorType !== 'SYSTEM') return `Actor ${entry.actorType}`;
+  if (entry.sourceEventId) return `Event ${entry.sourceEventId}`;
+  return null;
+}
+
+function getAccountActivitySummary(entry: DashboardBillingAccountActivityEntry): {
+  primary: string;
+  secondary: string | null;
+} {
+  const primary = entry.description || '-';
+  const secondary =
+    entry.note && entry.note !== entry.description
+      ? entry.note
+      : entry.sourceEventId && entry.sourceEventId !== entry.description
+        ? entry.sourceEventId
+        : null;
+  return {
+    primary,
+    secondary,
+  };
+}
+
 export function BillingContextSummarySection(props: {
-  selectedContext: TopbarContextState;
+  context: {
+    organization: string;
+    project: string;
+    thirdLabel?: string;
+    thirdValue?: string;
+  };
   title: string;
   description: string;
   ariaLabel: string;
+  metrics?: BillingMetric[];
 }): React.JSX.Element {
-  const { selectedContext, title, description, ariaLabel } = props;
+  const { context, title, description, ariaLabel, metrics = [] } = props;
   return (
     <section className="dashboard-view__section dashboard-billing-overview" aria-label={ariaLabel}>
       <div className="dashboard-billing-overview__header">
@@ -30,17 +128,28 @@ export function BillingContextSummarySection(props: {
       <dl className="dashboard-billing-overview__context">
         <div>
           <dt>Organization</dt>
-          <dd title={selectedContext.organization || '-'}>{selectedContext.organization || '-'}</dd>
+          <dd title={context.organization || '-'}>{context.organization || '-'}</dd>
         </div>
         <div>
           <dt>Project</dt>
-          <dd title={selectedContext.project || '-'}>{selectedContext.project || '-'}</dd>
+          <dd title={context.project || '-'}>{context.project || '-'}</dd>
         </div>
         <div>
-          <dt>Environment</dt>
-          <dd title={selectedContext.environment || '-'}>{selectedContext.environment || '-'}</dd>
+          <dt>{context.thirdLabel || 'Environment'}</dt>
+          <dd title={context.thirdValue || '-'}>{context.thirdValue || '-'}</dd>
         </div>
       </dl>
+      {metrics.length > 0 ? (
+        <div className="dashboard-kpi-grid dashboard-kpi-grid--content dashboard-billing-overview__metrics">
+          {metrics.map((metric) => (
+            <article className="dashboard-kpi-card" key={metric.label}>
+              <p className="dashboard-kpi-card__label">{metric.label}</p>
+              <p className="dashboard-kpi-card__value">{metric.value}</p>
+              <p className="dashboard-kpi-card__hint">{metric.hint}</p>
+            </article>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -48,45 +157,125 @@ export function BillingContextSummarySection(props: {
 export function BillingAccountActivitySection(props: {
   accountActivity: DashboardBillingAccountActivityEntry[];
   accountActivityError: string;
-  description: string;
+  controls?: React.ReactNode;
+  emptyStateText?: string;
 }): React.JSX.Element {
-  const { accountActivity, accountActivityError, description } = props;
+  const { accountActivity, accountActivityError, controls, emptyStateText } = props;
+  const activityPagination = useDashboardTablePagination(accountActivity, {
+    initialRowsPerPage: 10,
+    itemLabel: 'event',
+    itemLabelPlural: 'events',
+  });
   return (
-    <section className="dashboard-table-wrapper" aria-label="Billing account activity">
-      <div className="dashboard-table-limit dashboard-billing-table__intro">
-        <h3 className="dashboard-billing-table__title">Account activity</h3>
-        <p className="dashboard-billing-table__description">{description}</p>
-      </div>
+    <DashboardTable
+      ariaLabel="Customer account activity"
+      className="dashboard-billing-activity-table"
+      columns={BILLING_ACCOUNT_ACTIVITY_TABLE_COLUMNS}
+      pagination={accountActivityError ? undefined : activityPagination.pagination}
+    >
+      <DashboardTableIntro className="dashboard-billing-table__intro">
+        <div className="dashboard-billing-activity-table__heading">
+          <h3 className="dashboard-billing-table__title">Customer Account activity</h3>
+          <p className="dashboard-billing-table__description">
+            Latest ledger events for the resolved billing account.
+          </p>
+        </div>
+        {controls}
+      </DashboardTableIntro>
       {accountActivityError ? (
-        <p className="dashboard-table-limit">{accountActivityError}</p>
+        <DashboardTableState>{accountActivityError}</DashboardTableState>
       ) : accountActivity.length === 0 ? (
-        <p className="dashboard-table-limit">No billing activity has been recorded yet.</p>
+        <DashboardTableState>
+          {emptyStateText || 'No billing activity has been recorded yet.'}
+        </DashboardTableState>
       ) : (
-        <table className="dashboard-table">
-          <thead>
-            <tr>
-              <th scope="col">When (UTC)</th>
-              <th scope="col">Type</th>
-              <th scope="col">Amount</th>
-              <th scope="col">Document</th>
-              <th scope="col">Reason</th>
-              <th scope="col">Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            {accountActivity.map((entry) => (
-              <tr key={entry.id}>
-                <td>{entry.createdAt || '-'}</td>
-                <td>{describeAccountActivityType(entry)}</td>
-                <td>{formatUsdMinor(entry.amountMinor)}</td>
-                <td>{entry.relatedInvoiceId || '-'}</td>
-                <td>{entry.reasonCode || '-'}</td>
-                <td>{entry.note || entry.description || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <>
+          <DashboardTableHeader>
+            <DashboardTableHeaderCell>When (UTC)</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Type</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Amount</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Document</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Reason</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell>Summary</DashboardTableHeaderCell>
+          </DashboardTableHeader>
+          {activityPagination.rows.map((entry) => {
+            const document = getAccountActivityDocument(entry);
+            const reasonDetail = getAccountActivityReasonDetail(entry);
+            const summary = getAccountActivitySummary(entry);
+            const createdAt = formatTimestampUtcParts(entry.createdAt);
+            return (
+              <DashboardTableRow key={entry.id}>
+                <DashboardTableCell title={entry.createdAt}>
+                  <div className="dashboard-billing-activity-table__stack">
+                    <strong className="dashboard-data-table__summary dashboard-billing-activity-table__timestamp">
+                      {createdAt.primary}
+                    </strong>
+                    {createdAt.secondary ? (
+                      <span className="dashboard-data-table__subline dashboard-data-table__subline--muted dashboard-billing-activity-table__timestamp-detail">
+                        {createdAt.secondary}
+                      </span>
+                    ) : null}
+                  </div>
+                  {entry.monthUtc ? (
+                    <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
+                      Period {entry.monthUtc}
+                    </span>
+                  ) : null}
+                </DashboardTableCell>
+                <DashboardTableCell>
+                  <DashboardTableStatus tone={getAccountActivityTone(entry)}>
+                    {describeAccountActivityType(entry)}
+                  </DashboardTableStatus>
+                </DashboardTableCell>
+                <DashboardTableCell title={formatUsdMinor(entry.amountMinor)} align="end">
+                  <strong className="dashboard-data-table__summary">
+                    {formatUsdMinor(entry.amountMinor)}
+                  </strong>
+                </DashboardTableCell>
+                <DashboardTableCell title={document?.id || undefined}>
+                  {document ? (
+                    <div className="dashboard-billing-activity-table__stack">
+                      <code className="dashboard-billing-activity-table__token" title={document.id}>
+                        {document.id}
+                      </code>
+                      <span className="dashboard-data-table__subline dashboard-data-table__subline--muted">
+                        {document.label}
+                      </span>
+                    </div>
+                  ) : (
+                    '-'
+                  )}
+                </DashboardTableCell>
+                <DashboardTableCell title={entry.reasonCode || reasonDetail || undefined}>
+                  <div className="dashboard-billing-activity-table__stack">
+                    <strong className="dashboard-data-table__summary">
+                      {entry.reasonCode || '-'}
+                    </strong>
+                    {reasonDetail ? (
+                      <span className="dashboard-data-table__subline dashboard-data-table__subline--muted dashboard-billing-activity-table__detail">
+                        {reasonDetail}
+                      </span>
+                    ) : null}
+                  </div>
+                </DashboardTableCell>
+                <DashboardTableCell title={summary.secondary || summary.primary}>
+                  <div className="dashboard-billing-activity-table__stack">
+                    <strong className="dashboard-data-table__summary">{summary.primary}</strong>
+                    {summary.secondary ? (
+                      <code
+                        className="dashboard-billing-activity-table__token dashboard-billing-activity-table__token--muted"
+                        title={summary.secondary}
+                      >
+                        {summary.secondary}
+                      </code>
+                    ) : null}
+                  </div>
+                </DashboardTableCell>
+              </DashboardTableRow>
+            );
+          })}
+        </>
       )}
-    </section>
+    </DashboardTable>
   );
 }

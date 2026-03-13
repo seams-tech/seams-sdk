@@ -29,6 +29,12 @@ import { CopyButton } from '../../../../components/CopyButton';
 import { UriListEditor } from '../../components/UriListEditor';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { getDashboardEnvironmentLabel } from '../../utils/scopeLabels';
+import {
+  MACHINE_API_KEY_SCOPES,
+  MACHINE_API_KEY_SCOPE_OPTIONS,
+  isMachineApiKeyScope,
+  type MachineApiKeyScope,
+} from '../../../../../../../shared/src/console/apiKeyScopes';
 
 const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
 const DEFAULT_QUOTA_BUCKET = 'free_registrations_v1';
@@ -61,37 +67,17 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
   },
 ] as const;
 
-const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = [
-  {
-    value: 'accounts.create',
-    label: 'Create accounts',
-    description: 'Allows backend bootstrap flows to create accounts.',
-  },
-  {
-    value: 'accounts.sync',
-    label: 'Sync accounts',
-    description: 'Allows backend bootstrap flows to sync account state.',
-  },
-  {
-    value: 'wallets:read',
-    label: 'Read wallets',
-    description: 'Allows read-only wallet access in console APIs.',
-  },
-  {
-    value: 'billing:read',
-    label: 'Read billing',
-    description: 'Allows read-only billing access in console APIs.',
-  },
-  {
-    value: 'sessions.refresh',
-    label: 'Refresh sessions',
-    description: 'Allows session refresh operations.',
-  },
-] as const;
+const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = MACHINE_API_KEY_SCOPE_OPTIONS;
 const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
-const DEFAULT_SECRET_SCOPES = ['accounts.create', 'accounts.sync'];
+const DEFAULT_SECRET_SCOPES = [...MACHINE_API_KEY_SCOPES];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
+type PendingCredentialAction =
+  | {
+      type: 'rotate' | 'revoke';
+      apiKey: DashboardConsoleApiKey;
+    }
+  | null;
 
 function parseCsvValues(raw: string): string[] {
   const out: string[] = [];
@@ -117,6 +103,18 @@ function parseEditableList(values: string[]): string[] {
     const key = value.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+function parseMachineScopeSelection(values: string[]): MachineApiKeyScope[] {
+  const selections = parseEditableList(values);
+  const out: MachineApiKeyScope[] = [];
+  for (const value of selections) {
+    if (!isMachineApiKeyScope(value)) {
+      throw new Error(`Unsupported machine scope: ${value}`);
+    }
     out.push(value);
   }
   return out;
@@ -305,6 +303,10 @@ function formatCredentialEnvironmentLabel(environmentId: string): string {
   return getDashboardEnvironmentLabel({ environmentId });
 }
 
+function formatCredentialActionLabel(action: 'rotate' | 'revoke'): string {
+  return action === 'rotate' ? 'Rotate' : 'Revoke';
+}
+
 export function ApiKeyManagementPage(): React.JSX.Element {
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
@@ -349,6 +351,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
   const [editingExpiresAtInput, setEditingExpiresAtInput] = React.useState<string>('');
   const [editingBusy, setEditingBusy] = React.useState<boolean>(false);
   const [editingError, setEditingError] = React.useState<string>('');
+  const [pendingAction, setPendingAction] = React.useState<PendingCredentialAction>(null);
 
   const loadApiKeys = React.useCallback(() => {
     if (!session.claims) {
@@ -407,6 +410,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
 
   const onOpenCreateModal = React.useCallback(() => {
     setEditingApiKeyId('');
+    setPendingAction(null);
     setAllowedOriginsInput(defaultPublishableOrigins);
     setIsCreateModalOpen(true);
     setMutationError('');
@@ -420,6 +424,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
 
   const onOpenEditApiKey = React.useCallback((apiKey: DashboardConsoleApiKey) => {
     setIsCreateModalOpen(false);
+    setPendingAction(null);
     setEditingApiKeyId(apiKey.id);
     setEditingNameInput(apiKey.name || '');
     setEditingScopesInput(apiKey.kind === 'secret_key' ? [...apiKey.scopes] : []);
@@ -441,6 +446,23 @@ export function ApiKeyManagementPage(): React.JSX.Element {
     setEditingApiKeyId('');
     setEditingError('');
   }, [editingBusy]);
+
+  const onOpenCredentialAction = React.useCallback(
+    (action: 'rotate' | 'revoke', apiKey: DashboardConsoleApiKey) => {
+      setIsCreateModalOpen(false);
+      setEditingApiKeyId('');
+      setEditingError('');
+      setMutationError('');
+      setPendingAction({ type: action, apiKey });
+    },
+    [],
+  );
+
+  const onClosePendingAction = React.useCallback(() => {
+    if (pendingAction && busyApiKeyId === pendingAction.apiKey.id) return;
+    setPendingAction(null);
+    setMutationError('');
+  }, [busyApiKeyId, pendingAction]);
 
   const onCreateApiKey = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -490,7 +512,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             paymentPolicy: toPaymentPolicyObject(paymentPolicyInput),
           };
         } else {
-          const scopes = parseEditableList(scopesInput);
+          const scopes = parseMachineScopeSelection(scopesInput);
           const ipAllowlist = parseCsvValues(ipAllowlistInput);
           if (scopes.length === 0) {
             setMutationError('At least one scope is required.');
@@ -602,7 +624,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           });
         } else {
-          const scopes = parseEditableList(editingScopesInput);
+          const scopes = parseMachineScopeSelection(editingScopesInput);
           if (scopes.length === 0) {
             setEditingError('At least one scope is required.');
             return;
@@ -658,6 +680,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
           credential: rotated.credential,
         });
         setCopyCredentialStatus('');
+        setPendingAction(null);
         loadApiKeys();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -674,11 +697,11 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         setMutationError(session.errorMessage || 'Console session is unavailable');
         return;
       }
-      if (!window.confirm(`Revoke ${apiKey.kind} ${apiKey.id}? This cannot be undone.`)) return;
       setBusyApiKeyId(apiKey.id);
       setMutationError('');
       try {
         await revokeDashboardApiKey({ apiKeyId: apiKey.id });
+        setPendingAction(null);
         loadApiKeys();
       } catch (error: unknown) {
         setMutationError(error instanceof Error ? error.message : String(error));
@@ -749,7 +772,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
         </div>
       </section>
 
-      {mutationError && !isCreateModalOpen ? (
+      {mutationError && !isCreateModalOpen && pendingAction === null ? (
         <p className="dashboard-form-alert" role="alert">
           {mutationError}
         </p>
@@ -902,15 +925,17 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                     {formatTimestamp(apiKey.lastUsedAt)}
                   </DashboardTableCell>
                   <DashboardTableCell>
-                    <DashboardTableActionGroup>
+                    <DashboardTableActionGroup className="dashboard-credential-table__actions">
                       <DashboardTableActionButton
+                        className="dashboard-credential-table__action-button"
                         onClick={() => onOpenEditApiKey(apiKey)}
                         disabled={busyApiKeyId === apiKey.id}
                       >
                         Edit
                       </DashboardTableActionButton>
                       <DashboardTableActionButton
-                        onClick={() => onRotateApiKey(apiKey)}
+                        className="dashboard-credential-table__action-button"
+                        onClick={() => onOpenCredentialAction('rotate', apiKey)}
                         disabled={busyApiKeyId === apiKey.id || apiKey.status === 'REVOKED'}
                       >
                         Rotate
@@ -918,6 +943,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       {apiKey.status === 'REVOKED' ? (
                         <DashboardTableActionButton
                           tone="danger"
+                          className="dashboard-credential-table__action-button"
                           onClick={() => onDeleteRevokedApiKey(apiKey)}
                           disabled={busyApiKeyId === apiKey.id}
                         >
@@ -926,7 +952,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       ) : (
                         <DashboardTableActionButton
                           tone="danger"
-                          onClick={() => onRevokeApiKey(apiKey)}
+                          className="dashboard-credential-table__action-button"
+                          onClick={() => onOpenCredentialAction('revoke', apiKey)}
                           disabled={busyApiKeyId === apiKey.id}
                         >
                           Revoke
@@ -1023,19 +1050,24 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                   options={SECRET_KEY_SCOPE_OPTIONS}
                   values={scopesInput}
                   onChange={setScopesInput}
+                  variant="segmented"
                   disabled={creating}
                 />
               </div>
 
               <label className="dashboard-form-field">
-                <span>IP allowlist (optional, comma separated)</span>
+                <span>Whitelisted source IPs (optional)</span>
                 <input
                   className="dashboard-input"
                   value={ipAllowlistInput}
                   onChange={(event) => setIpAllowlistInput(event.target.value)}
-                  placeholder="198.51.100.24/32,198.51.100.0/24"
+                  placeholder="203.0.113.10/32, 203.0.113.0/24"
                   disabled={creating}
                 />
+                <p className="dashboard-pagination-note">
+                  Only requests from these source IPs can use this <code>secret_key</code>. Use IP
+                  addresses or CIDR ranges, not domains.
+                </p>
               </label>
             </>
           )}
@@ -1130,19 +1162,24 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                       options={SECRET_KEY_SCOPE_OPTIONS}
                       values={editingScopesInput}
                       onChange={setEditingScopesInput}
+                      variant="segmented"
                       disabled={editingBusy}
                     />
                   </div>
 
                   <label className="dashboard-form-field">
-                    <span>IP allowlist (optional, comma separated)</span>
+                    <span>Whitelisted source IPs (optional)</span>
                     <input
                       className="dashboard-input"
                       value={editingIpAllowlistInput}
                       onChange={(event) => setEditingIpAllowlistInput(event.target.value)}
-                      placeholder="198.51.100.24/32"
+                      placeholder="203.0.113.10/32, 203.0.113.0/24"
                       disabled={editingBusy}
                     />
+                    <p className="dashboard-pagination-note">
+                      Only requests from these source IPs can use this <code>secret_key</code>. Use
+                      IP addresses or CIDR ranges, not domains.
+                    </p>
                   </label>
                 </>
               )}
@@ -1163,6 +1200,68 @@ export function ApiKeyManagementPage(): React.JSX.Element {
                 </button>
               </div>
             </form>
+          </>
+        ) : null}
+      </DashboardInlineModal>
+
+      <DashboardInlineModal
+        isOpen={pendingAction !== null}
+        ariaLabel="Credential action confirmation modal"
+        onRequestClose={onClosePendingAction}
+      >
+        {pendingAction ? (
+          <>
+            <h2>Are you sure?</h2>
+            <p className="dashboard-pagination-note">
+              {pendingAction.type === 'rotate'
+                ? 'Rotating this credential will replace the current key value immediately. Update any systems using it after the new key is shown.'
+                : 'Revoking this credential blocks any further use immediately. This cannot be undone.'}
+            </p>
+            <div className="dashboard-view-grid">
+              <div className="dashboard-form-field">
+                <span>Credential</span>
+                <strong>{pendingAction.apiKey.name}</strong>
+                <p className="dashboard-pagination-note">
+                  {formatCredentialKindLabel(pendingAction.apiKey.kind)} ·{' '}
+                  {formatCredentialEnvironmentLabel(pendingAction.apiKey.environmentId)}
+                </p>
+                <p className="dashboard-pagination-note">
+                  <code>{pendingAction.apiKey.id}</code>
+                </p>
+              </div>
+            </div>
+
+            {mutationError ? <p className="dashboard-form-alert">{mutationError}</p> : null}
+
+            <div className="dashboard-form-actions">
+              <button
+                type="button"
+                className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                onClick={onClosePendingAction}
+                disabled={busyApiKeyId === pendingAction.apiKey.id}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={[
+                  'dashboard-pagination-button',
+                  pendingAction.type === 'revoke' ? 'dashboard-pagination-button--danger' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                onClick={() =>
+                  pendingAction.type === 'rotate'
+                    ? onRotateApiKey(pendingAction.apiKey)
+                    : onRevokeApiKey(pendingAction.apiKey)
+                }
+                disabled={busyApiKeyId === pendingAction.apiKey.id}
+              >
+                {busyApiKeyId === pendingAction.apiKey.id
+                  ? `${formatCredentialActionLabel(pendingAction.type)}...`
+                  : formatCredentialActionLabel(pendingAction.type)}
+              </button>
+            </div>
           </>
         ) : null}
       </DashboardInlineModal>

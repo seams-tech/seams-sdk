@@ -96,7 +96,7 @@ export interface DashboardBillingInvoiceActivity {
 export interface DashboardBillingAccountActivityEntry {
   id: string;
   orgId: string;
-  type: string;
+  type: DashboardBillingAccountActivityEventType;
   amountMinor: number;
   currency: 'USD';
   description: string;
@@ -111,6 +111,13 @@ export interface DashboardBillingAccountActivityEntry {
   idempotencyKey: string | null;
   createdAt: string;
 }
+
+export type DashboardBillingAccountActivityEventType =
+  | 'CREDIT_PURCHASE'
+  | 'USAGE_DEBIT'
+  | 'MANUAL_ADJUSTMENT'
+  | 'REFUND'
+  | 'REVERSAL';
 
 export interface DashboardBillingCreditPurchase {
   id: string;
@@ -135,6 +142,10 @@ export interface DashboardBillingManualAdjustmentRequest {
   note: string;
   idempotencyKey: string;
   relatedInvoiceId?: string;
+}
+
+export interface DashboardPlatformBillingManualAdjustmentRequest extends DashboardBillingManualAdjustmentRequest {
+  orgId: string;
 }
 
 export interface DashboardBillingManualAdjustmentResult {
@@ -172,6 +183,43 @@ export interface DashboardStripeCheckoutSessionReconcileResult {
   checkoutStatus: string | null;
   purchase: DashboardBillingCreditPurchase | null;
   invoice: DashboardBillingInvoice | null;
+}
+
+export interface DashboardPlatformBillingOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+}
+
+export interface DashboardPlatformBillingProject {
+  id: string;
+  orgId: string;
+  name: string;
+  slug: string;
+  status: string;
+  environmentCount: number;
+}
+
+export interface DashboardPlatformBillingLookupRequest {
+  orgId?: string;
+  projectId?: string;
+  limit?: number;
+  periodMonthUtc?: string;
+  eventType?: DashboardBillingAccountActivityEventType;
+}
+
+export interface DashboardPlatformBillingSearchRequest {
+  query: string;
+  limit?: number;
+}
+
+export interface DashboardPlatformBillingLookupResult {
+  resolvedBy: 'org_id' | 'project_id';
+  organization: DashboardPlatformBillingOrganization;
+  project: DashboardPlatformBillingProject | null;
+  overview: DashboardBillingOverview;
+  activity: DashboardBillingAccountActivityEntry[];
 }
 
 interface ConsoleOverviewResponse {
@@ -235,6 +283,18 @@ interface ConsoleStripeCheckoutSessionReconcileResponse {
   ok?: boolean;
   message?: string;
   result?: unknown;
+}
+
+interface ConsolePlatformBillingLookupResponse {
+  ok?: boolean;
+  message?: string;
+  result?: unknown;
+}
+
+interface ConsolePlatformBillingSearchResponse {
+  ok?: boolean;
+  message?: string;
+  organizations?: unknown;
 }
 
 interface ConsoleBillingErrorBody {
@@ -412,15 +472,14 @@ function decodeCreditPurchase(raw: unknown): DashboardBillingCreditPurchase | nu
   const creditPackId = String(row.creditPackId || '').trim();
   const providerCheckoutSessionRef = String(row.providerCheckoutSessionRef || '').trim();
   if (!id || !orgId || !creditPackId || !providerCheckoutSessionRef) return null;
-  const status = String(row.status || '').trim().toUpperCase();
+  const status = String(row.status || '')
+    .trim()
+    .toUpperCase();
   return {
     id,
     orgId,
     creditPackId: creditPackId as DashboardBillingCreditPurchase['creditPackId'],
-    status:
-      status === 'SETTLED' || status === 'CANCELED'
-        ? status
-        : 'PENDING',
+    status: status === 'SETTLED' || status === 'CANCELED' ? status : 'PENDING',
     amountMinor: Number(row.amountMinor || 0),
     currency: 'USD',
     providerCheckoutSessionRef,
@@ -442,7 +501,8 @@ function decodeStripeCheckoutSessionReconcileResult(
   return {
     settled: Boolean(row.settled),
     settledNow: Boolean(row.settledNow),
-    paymentStatus: row.paymentStatus == null ? null : String(row.paymentStatus || '').trim() || null,
+    paymentStatus:
+      row.paymentStatus == null ? null : String(row.paymentStatus || '').trim() || null,
     checkoutStatus:
       row.checkoutStatus == null ? null : String(row.checkoutStatus || '').trim() || null,
     purchase: decodeCreditPurchase(row.purchase),
@@ -508,10 +568,19 @@ function decodeAccountActivityEntry(raw: unknown): DashboardBillingAccountActivi
   const actorType = String(row.actorType || '')
     .trim()
     .toUpperCase();
+  const eventType = String(row.type || '')
+    .trim()
+    .toUpperCase();
   return {
     id,
     orgId,
-    type: String(row.type || '').trim() || 'MANUAL_ADJUSTMENT',
+    type:
+      eventType === 'CREDIT_PURCHASE' ||
+      eventType === 'USAGE_DEBIT' ||
+      eventType === 'REFUND' ||
+      eventType === 'REVERSAL'
+        ? eventType
+        : 'MANUAL_ADJUSTMENT',
     amountMinor: Number(row.amountMinor || 0),
     currency: 'USD',
     description: String(row.description || '').trim(),
@@ -529,6 +598,36 @@ function decodeAccountActivityEntry(raw: unknown): DashboardBillingAccountActivi
     idempotencyKey:
       row.idempotencyKey == null ? null : String(row.idempotencyKey || '').trim() || null,
     createdAt: String(row.createdAt || '').trim(),
+  };
+}
+
+function decodePlatformBillingOrganization(
+  raw: unknown,
+): DashboardPlatformBillingOrganization | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    name: String(row.name || '').trim() || id,
+    slug: String(row.slug || '').trim(),
+    status: String(row.status || '').trim() || 'ACTIVE',
+  };
+}
+
+function decodePlatformBillingProject(raw: unknown): DashboardPlatformBillingProject | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id || '').trim();
+  if (!id) return null;
+  return {
+    id,
+    orgId: String(row.orgId || '').trim(),
+    name: String(row.name || '').trim() || id,
+    slug: String(row.slug || '').trim(),
+    status: String(row.status || '').trim() || 'ACTIVE',
+    environmentCount: Number(row.environmentCount || 0),
   };
 }
 
@@ -557,6 +656,36 @@ function decodeBillingManualAdjustmentResult(
     adjustment,
     creditBalanceMinor: Number(row.creditBalanceMinor || 0),
   };
+}
+
+function decodePlatformBillingLookupResult(
+  raw: unknown,
+): DashboardPlatformBillingLookupResult | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const row = raw as Record<string, unknown>;
+  const organization = decodePlatformBillingOrganization(row.organization);
+  const overview = decodeOverview(row.overview);
+  const activity = decodeAccountActivity(row.activity);
+  if (!organization || !overview || !activity) return null;
+  const resolvedByRaw = String(row.resolvedBy || '')
+    .trim()
+    .toLowerCase();
+  return {
+    resolvedBy: resolvedByRaw === 'project_id' ? 'project_id' : 'org_id',
+    organization,
+    project: row.project == null ? null : decodePlatformBillingProject(row.project),
+    overview,
+    activity: activity.entries,
+  };
+}
+
+function decodePlatformBillingOrganizations(
+  raw: unknown,
+): DashboardPlatformBillingOrganization[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .map((entry) => decodePlatformBillingOrganization(entry))
+    .filter((entry): entry is DashboardPlatformBillingOrganization => entry !== null);
 }
 
 async function fetchJson(path: string): Promise<Record<string, unknown>> {
@@ -617,12 +746,18 @@ export async function getDashboardBillingMonthlyActiveWallets(
 }
 
 export async function listDashboardBillingAccountActivity(
-  limit = 25,
+  input: {
+    limit?: number;
+    periodMonthUtc?: string;
+    eventType?: DashboardBillingAccountActivityEventType;
+  } = {},
 ): Promise<DashboardBillingAccountActivityEntry[]> {
   const params = new URLSearchParams();
-  if (Number.isFinite(limit) && limit > 0) {
-    params.set('limit', String(Math.floor(limit)));
+  if (Number.isFinite(input.limit) && Number(input.limit) > 0) {
+    params.set('limit', String(Math.floor(Number(input.limit))));
   }
+  if (input.periodMonthUtc) params.set('periodMonthUtc', input.periodMonthUtc);
+  if (input.eventType) params.set('eventType', input.eventType);
   const suffix = params.toString();
   const body = (await fetchJson(
     `/console/billing/account/activity${suffix ? `?${suffix}` : ''}`,
@@ -667,6 +802,80 @@ export async function createDashboardBillingManualAdminDebit(
   input: DashboardBillingManualAdjustmentRequest,
 ): Promise<DashboardBillingManualAdjustmentResult> {
   return postBillingManualAdjustment('admin_debit', input);
+}
+
+export async function getDashboardPlatformBillingAccount(
+  input: DashboardPlatformBillingLookupRequest,
+): Promise<DashboardPlatformBillingLookupResult> {
+  const params = new URLSearchParams();
+  if (input.orgId) params.set('orgId', input.orgId);
+  if (input.projectId) params.set('projectId', input.projectId);
+  if (input.periodMonthUtc) params.set('periodMonthUtc', input.periodMonthUtc);
+  if (input.eventType) params.set('eventType', input.eventType);
+  if (input.limit && Number.isFinite(input.limit) && input.limit > 0) {
+    params.set('limit', String(Math.floor(input.limit)));
+  }
+  const suffix = params.toString();
+  const body = (await fetchJson(
+    `/console/platform/billing/account${suffix ? `?${suffix}` : ''}`,
+  )) as ConsolePlatformBillingLookupResponse;
+  const result = decodePlatformBillingLookupResult(body.result);
+  if (!result) throw new Error('Platform billing lookup response was invalid');
+  return result;
+}
+
+export async function searchDashboardPlatformBillingOrganizations(
+  input: DashboardPlatformBillingSearchRequest,
+): Promise<DashboardPlatformBillingOrganization[]> {
+  const params = new URLSearchParams();
+  params.set('query', String(input.query || '').trim());
+  if (input.limit && Number.isFinite(input.limit) && input.limit > 0) {
+    params.set('limit', String(Math.floor(input.limit)));
+  }
+  const suffix = params.toString();
+  const body = (await fetchJson(
+    `/console/platform/billing/search${suffix ? `?${suffix}` : ''}`,
+  )) as ConsolePlatformBillingSearchResponse;
+  const organizations = decodePlatformBillingOrganizations(body.organizations);
+  if (!organizations) throw new Error('Platform billing organization search response was invalid');
+  return organizations;
+}
+
+async function postPlatformBillingManualAdjustment(
+  kind: DashboardBillingManualAdjustmentKind,
+  input: DashboardPlatformBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  const base = requireConsoleBaseUrl();
+  const endpoint =
+    kind === 'support_credit'
+      ? '/console/platform/billing/adjustments/support-credit'
+      : '/console/platform/billing/adjustments/admin-debit';
+  const response = await fetch(`${base}${endpoint}`, {
+    method: 'POST',
+    headers: buildConsoleJsonHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+    body: JSON.stringify(input),
+  });
+  const body = (await parseConsoleJson(response)) as ConsoleBillingManualAdjustmentResponse | null;
+  if (!response.ok || body?.ok !== true) {
+    throw buildBillingApiError(response, body, 'Platform billing manual adjustment request failed');
+  }
+  const result = decodeBillingManualAdjustmentResult(body.result);
+  if (!result) throw new Error('Platform billing manual adjustment response was invalid');
+  return result;
+}
+
+export async function createDashboardPlatformBillingManualSupportCredit(
+  input: DashboardPlatformBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  return postPlatformBillingManualAdjustment('support_credit', input);
+}
+
+export async function createDashboardPlatformBillingManualAdminDebit(
+  input: DashboardPlatformBillingManualAdjustmentRequest,
+): Promise<DashboardBillingManualAdjustmentResult> {
+  return postPlatformBillingManualAdjustment('admin_debit', input);
 }
 
 export async function listDashboardBillingInvoices(
@@ -808,9 +1017,15 @@ export async function reconcileDashboardStripeCheckoutSession(
     cache: 'no-store',
     body: JSON.stringify(input),
   });
-  const body = (await parseConsoleJson(response)) as ConsoleStripeCheckoutSessionReconcileResponse | null;
+  const body = (await parseConsoleJson(
+    response,
+  )) as ConsoleStripeCheckoutSessionReconcileResponse | null;
   if (!response.ok || body?.ok !== true) {
-    throw buildBillingApiError(response, body as ConsoleBillingErrorBody | null, 'Stripe checkout reconciliation failed');
+    throw buildBillingApiError(
+      response,
+      body as ConsoleBillingErrorBody | null,
+      'Stripe checkout reconciliation failed',
+    );
   }
   const result = decodeStripeCheckoutSessionReconcileResult(body.result);
   if (!result) throw new Error('Stripe checkout reconciliation response was invalid');

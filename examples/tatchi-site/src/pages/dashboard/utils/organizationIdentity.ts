@@ -1,3 +1,8 @@
+import {
+  deriveConsoleOrganizationSlug,
+  generateConsoleOrganizationId,
+} from '../../../../../../shared/src/console/organizationIdentity';
+
 export function normalizeDashboardOrganizationIdentity(value: string): string {
   return String(value || '')
     .trim()
@@ -8,11 +13,7 @@ export function normalizeDashboardOrganizationIdentity(value: string): string {
 }
 
 export function deriveDashboardOrganizationSlug(value: string): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return deriveConsoleOrganizationSlug(value);
 }
 
 export function isDashboardDefaultOrganizationName(input: {
@@ -23,4 +24,8 @@ export function isDashboardDefaultOrganizationName(input: {
   const normalizedOrgId = normalizeDashboardOrganizationIdentity(input.orgId);
   if (!normalizedName || !normalizedOrgId) return false;
   return normalizedName === normalizedOrgId;
+}
+
+export function generateDashboardOrganizationId(): string {
+  return generateConsoleOrganizationId();
 }

@@ -83,15 +83,23 @@ export interface DashboardGasReadiness {
   truncated: boolean;
 }
 
-export interface DashboardExportGovernanceKey {
+export interface DashboardExportGovernanceRequest {
   id: string;
-  name: string;
   environmentId: string;
+  walletId: string | null;
+  mode: string;
   status: string;
-  scopes: string[];
-  lastUsedAt: string | null;
-  anomalyFlags: string[];
-  secretVersion: number;
+  reason: string;
+  requestedByUserId: string;
+  requiredApprovals: number;
+  approvalCount: number;
+  pendingApprovals: number;
+  constraints: {
+    roles: string[];
+    chains: string[];
+    walletTypes: string[];
+    environmentIds: string[];
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -99,13 +107,17 @@ export interface DashboardExportGovernanceKey {
 export interface DashboardExportGovernance {
   scope: { environmentId: string | null };
   totals: {
-    apiKeyCount: number;
-    exportScopedKeyCount: number;
-    activeExportScopedKeyCount: number;
-    selectedEnvironmentExportScopedKeyCount: number;
+    requestCount: number;
+    pendingApprovalCount: number;
+    approvedRequestCount: number;
+    executedRequestCount: number;
+    rejectedRequestCount: number;
+    canceledRequestCount: number;
+    selectedEnvironmentRequestCount: number;
+    selectedEnvironmentPendingApprovalCount: number;
   };
-  exportScopedKeys: DashboardExportGovernanceKey[];
-  selectedEnvironmentKeys: DashboardExportGovernanceKey[];
+  requests: DashboardExportGovernanceRequest[];
+  selectedEnvironmentRequests: DashboardExportGovernanceRequest[];
 }
 
 interface ConsolePolicyCoverageResponse {
@@ -289,24 +301,38 @@ function decodeExportGovernance(raw: unknown): DashboardExportGovernance | null 
     row.scope && typeof row.scope === 'object' && !Array.isArray(row.scope)
       ? (row.scope as Record<string, unknown>)
       : {};
-  const exportKeysRaw = Array.isArray(row.exportScopedKeys) ? row.exportScopedKeys : [];
-  const selectedKeysRaw = Array.isArray(row.selectedEnvironmentKeys) ? row.selectedEnvironmentKeys : [];
-  const decodeKey = (entry: unknown): DashboardExportGovernanceKey | null => {
+  const requestRows = Array.isArray(row.requests) ? row.requests : [];
+  const selectedRequestRows = Array.isArray(row.selectedEnvironmentRequests)
+    ? row.selectedEnvironmentRequests
+    : [];
+  const decodeRequest = (entry: unknown): DashboardExportGovernanceRequest | null => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-    const key = entry as Record<string, unknown>;
-    const id = String(key.id || '').trim();
+    const request = entry as Record<string, unknown>;
+    const id = String(request.id || '').trim();
     if (!id) return null;
     return {
       id,
-      name: String(key.name || '').trim(),
-      environmentId: String(key.environmentId || '').trim(),
-      status: String(key.status || '').trim(),
-      scopes: decodeStringArray(key.scopes),
-      lastUsedAt: key.lastUsedAt == null ? null : String(key.lastUsedAt || '').trim() || null,
-      anomalyFlags: decodeStringArray(key.anomalyFlags),
-      secretVersion: Number(key.secretVersion || 0),
-      createdAt: String(key.createdAt || '').trim(),
-      updatedAt: String(key.updatedAt || '').trim(),
+      environmentId: String(request.environmentId || '').trim(),
+      walletId: request.walletId == null ? null : String(request.walletId || '').trim() || null,
+      mode: String(request.mode || '').trim(),
+      status: String(request.status || '').trim(),
+      reason: String(request.reason || '').trim(),
+      requestedByUserId: String(request.requestedByUserId || '').trim(),
+      requiredApprovals: Number(request.requiredApprovals || 0),
+      approvalCount: Number(request.approvalCount || 0),
+      pendingApprovals: Number(request.pendingApprovals || 0),
+      constraints: {
+        roles: decodeStringArray((request.constraints as Record<string, unknown> | undefined)?.roles),
+        chains: decodeStringArray((request.constraints as Record<string, unknown> | undefined)?.chains),
+        walletTypes: decodeStringArray(
+          (request.constraints as Record<string, unknown> | undefined)?.walletTypes,
+        ),
+        environmentIds: decodeStringArray(
+          (request.constraints as Record<string, unknown> | undefined)?.environmentIds,
+        ),
+      },
+      createdAt: String(request.createdAt || '').trim(),
+      updatedAt: String(request.updatedAt || '').trim(),
     };
   };
   return {
@@ -315,19 +341,23 @@ function decodeExportGovernance(raw: unknown): DashboardExportGovernance | null 
         scopeRaw.environmentId == null ? null : String(scopeRaw.environmentId || '').trim() || null,
     },
     totals: {
-      apiKeyCount: Number(totalsRaw.apiKeyCount || 0),
-      exportScopedKeyCount: Number(totalsRaw.exportScopedKeyCount || 0),
-      activeExportScopedKeyCount: Number(totalsRaw.activeExportScopedKeyCount || 0),
-      selectedEnvironmentExportScopedKeyCount: Number(
-        totalsRaw.selectedEnvironmentExportScopedKeyCount || 0,
+      requestCount: Number(totalsRaw.requestCount || 0),
+      pendingApprovalCount: Number(totalsRaw.pendingApprovalCount || 0),
+      approvedRequestCount: Number(totalsRaw.approvedRequestCount || 0),
+      executedRequestCount: Number(totalsRaw.executedRequestCount || 0),
+      rejectedRequestCount: Number(totalsRaw.rejectedRequestCount || 0),
+      canceledRequestCount: Number(totalsRaw.canceledRequestCount || 0),
+      selectedEnvironmentRequestCount: Number(totalsRaw.selectedEnvironmentRequestCount || 0),
+      selectedEnvironmentPendingApprovalCount: Number(
+        totalsRaw.selectedEnvironmentPendingApprovalCount || 0,
       ),
     },
-    exportScopedKeys: exportKeysRaw
-      .map((entry) => decodeKey(entry))
-      .filter((entry): entry is DashboardExportGovernanceKey => entry !== null),
-    selectedEnvironmentKeys: selectedKeysRaw
-      .map((entry) => decodeKey(entry))
-      .filter((entry): entry is DashboardExportGovernanceKey => entry !== null),
+    requests: requestRows
+      .map((entry) => decodeRequest(entry))
+      .filter((entry): entry is DashboardExportGovernanceRequest => entry !== null),
+    selectedEnvironmentRequests: selectedRequestRows
+      .map((entry) => decodeRequest(entry))
+      .filter((entry): entry is DashboardExportGovernanceRequest => entry !== null),
   };
 }
 

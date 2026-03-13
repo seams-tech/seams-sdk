@@ -103,6 +103,7 @@ export interface ListConsoleObservabilityEventsRequest {
   query?: string;
   level?: ConsoleObservabilityLevel;
   service?: string;
+  component?: string;
   eventType?: string;
   projectId?: string;
   environmentId?: string;
@@ -176,6 +177,40 @@ export interface ConsoleObservabilityWebhookDeadLetterInput {
   redactionVersion?: number;
 }
 
+export interface ConsoleObservabilityWebhookRetryExhaustedInput {
+  orgId: string;
+  endpointId: string;
+  deliveryId: string;
+  webhookEventId: string;
+  webhookEventType: string;
+  failedAttempts: number;
+  maxAttempts: number;
+  lastResponseStatus?: number;
+  lastErrorMessage?: string;
+  exhaustedAt: string;
+  requestId?: string;
+  traceId?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
+export interface ConsoleObservabilityWebhookEndpointDegradedInput {
+  orgId: string;
+  endpointId: string;
+  unresolvedDeadLetterCount: number;
+  degradationThreshold: number;
+  latestDeliveryId?: string;
+  latestWebhookEventId?: string;
+  latestWebhookEventType?: string;
+  lastResponseStatus?: number;
+  lastErrorMessage?: string;
+  degradedAt: string;
+  requestId?: string;
+  traceId?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
 export interface ConsoleObservabilityBillingFailureInput {
   orgId: string;
   projectId?: string;
@@ -185,6 +220,25 @@ export interface ConsoleObservabilityBillingFailureInput {
   failureCode: string;
   failureMessage: string;
   providerRef?: string;
+  requestId?: string;
+  traceId?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
+export interface ConsoleObservabilityBillingStripeWebhookFailureInput {
+  orgId: string;
+  stripeEventId?: string;
+  stripeEventType?: string;
+  checkoutSessionId?: string;
+  providerRef?: string;
+  providerCustomerRef?: string;
+  eventType:
+    | 'billing.stripe_webhook.invalid_signature'
+    | 'billing.stripe_webhook.processing.failed';
+  failureCode: string;
+  failureMessage: string;
   requestId?: string;
   traceId?: string;
   timestamp?: string;

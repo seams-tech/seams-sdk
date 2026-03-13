@@ -58,6 +58,7 @@ const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
 
 const OUTCOME_OPTIONS: readonly DashboardConsoleAuditOutcome[] = ['SUCCESS', 'FAILURE', 'PENDING'];
 const AUDIT_EVENTS_TABLE_COLUMNS = dashboardTableColumns(1.05, 2.1, 0.95, 1.1, 0.8, 0.75);
+const AUDIT_EVENTS_LIMIT = 100;
 
 function formatTimestamp(value: string): string {
   const date = new Date(value);
@@ -95,6 +96,235 @@ function humanizeMachineLabel(value: string): string {
   return [firstWord, ...rest].join(' ');
 }
 
+function formatPolicyKindLabel(value: string): string {
+  const normalized = readText(value).toUpperCase();
+  if (normalized === 'GAS_SPONSORSHIP') return 'Gas sponsorship';
+  if (normalized === 'TRANSACTION') return 'Transaction';
+  return humanizeMachineLabel(value);
+}
+
+function formatVersionLabel(value: unknown): string {
+  const version = Number(value);
+  if (!Number.isFinite(version) || version < 0) return '';
+  return `v${Math.floor(version)}`;
+}
+
+function formatAmountMinorLabel(amountMinorRaw: unknown, currencyRaw: unknown): string {
+  const amountMinor = Number(amountMinorRaw);
+  const currency = readText(currencyRaw).toUpperCase() || 'USD';
+  if (!Number.isFinite(amountMinor)) return '';
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+    }).format(amountMinor / 100);
+  } catch {
+    return `${(amountMinor / 100).toFixed(2)} ${currency}`;
+  }
+}
+
+function appendDetail(details: string[], value: unknown): void {
+  const normalized = readText(value);
+  if (!normalized || details.includes(normalized)) return;
+  details.push(normalized);
+}
+
+function readFirstText(...values: unknown[]): string {
+  for (const value of values) {
+    const normalized = readText(value);
+    if (normalized) return normalized;
+  }
+  return '';
+}
+
+function buildDashboardPath(basePath: string, query: Record<string, unknown>): string {
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    const normalized = readText(value);
+    if (!normalized) continue;
+    searchParams.set(key, normalized);
+  }
+  const queryString = searchParams.toString();
+  return queryString ? `${basePath}?${queryString}` : basePath;
+}
+
+function formatPolicyAuditEventTitle(row: DashboardConsoleAuditEvent): {
+  title: string;
+  detailParts: string[];
+} | null {
+  const action = readText(row.action).toLowerCase();
+  if (!action.startsWith('policy.')) return null;
+
+  const policyName = readText(row.policyName) || readText(row.metadata?.policyName);
+  const policyKind = formatPolicyKindLabel(readText(row.policyKind) || readText(row.metadata?.policyKind));
+  const versionLabel = formatVersionLabel(row.metadata?.version);
+  const details: string[] = [];
+
+  if (action === 'policy.create') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, versionLabel);
+    return {
+      title: 'Created policy',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'policy.update') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, versionLabel);
+    return {
+      title: 'Updated policy',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'policy.delete') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, versionLabel);
+    return {
+      title: 'Deleted policy',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'policy.publish') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, versionLabel);
+    appendDetail(details, readText(row.metadata?.status));
+    return {
+      title: 'Published policy',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'policy.assignment.upsert') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, humanizeMachineLabel(readText(row.metadata?.assignmentScopeType)));
+    return {
+      title: 'Updated policy assignment',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'policy.assignment.delete') {
+    appendDetail(details, policyName);
+    appendDetail(details, policyKind);
+    appendDetail(details, humanizeMachineLabel(readText(row.metadata?.assignmentScopeType)));
+    return {
+      title: 'Removed policy assignment',
+      detailParts: details,
+    };
+  }
+
+  return null;
+}
+
+function formatBillingAuditEventTitle(row: DashboardConsoleAuditEvent): {
+  title: string;
+  detailParts: string[];
+} | null {
+  const action = readText(row.action).toLowerCase();
+  if (!action.startsWith('billing.')) return null;
+
+  const details: string[] = [];
+
+  if (action === 'billing.credit_purchase.settled') {
+    appendDetail(details, readText(row.metadata?.purchaseId));
+    appendDetail(
+      details,
+      formatAmountMinorLabel(row.metadata?.amountMinor, row.metadata?.currency),
+    );
+    appendDetail(details, readText(row.metadata?.receiptId));
+    appendDetail(details, readText(row.metadata?.providerCheckoutSessionRef));
+    appendDetail(details, humanizeMachineLabel(readText(row.metadata?.settlementSource)));
+    return {
+      title: 'Settled Stripe credit purchase',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'billing.invoice.generated') {
+    appendDetail(details, readText(row.metadata?.invoiceId));
+    appendDetail(details, readText(row.metadata?.periodMonthUtc));
+    appendDetail(
+      details,
+      formatAmountMinorLabel(row.metadata?.amountDueMinor, row.metadata?.currency),
+    );
+    appendDetail(details, humanizeMachineLabel(readText(row.metadata?.invoiceDocumentType)));
+    return {
+      title: readText(row.metadata?.generated) === 'true' ? 'Generated invoice' : 'Refreshed invoice',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'billing.invoice.pdf_export') {
+    appendDetail(details, readText(row.metadata?.invoiceId));
+    appendDetail(details, readText(row.metadata?.periodMonthUtc));
+    return {
+      title: 'Exported invoice PDF',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'billing.adjustment.support_credit') {
+    appendDetail(
+      details,
+      formatAmountMinorLabel(row.metadata?.amountMinor, row.metadata?.currency),
+    );
+    appendDetail(details, readText(row.metadata?.reasonCode));
+    appendDetail(details, readText(row.metadata?.adjustmentId));
+    return {
+      title: 'Granted support credit',
+      detailParts: details,
+    };
+  }
+
+  if (action === 'billing.adjustment.admin_debit') {
+    appendDetail(
+      details,
+      formatAmountMinorLabel(row.metadata?.amountMinor, row.metadata?.currency),
+    );
+    appendDetail(details, readText(row.metadata?.reasonCode));
+    appendDetail(details, readText(row.metadata?.adjustmentId));
+    return {
+      title: 'Applied admin debit',
+      detailParts: details,
+    };
+  }
+
+  return null;
+}
+
+function formatWebhookAuditEventTitle(row: DashboardConsoleAuditEvent): {
+  title: string;
+  detailParts: string[];
+} | null {
+  const action = readText(row.action).toLowerCase();
+  if (!action.startsWith('webhook.')) return null;
+  const details: string[] = [];
+  appendDetail(details, readText(row.metadata?.endpointId));
+  appendDetail(details, readText(row.metadata?.deliveryId));
+
+  if (action === 'webhook.endpoint.create') {
+    return { title: 'Created webhook endpoint', detailParts: details };
+  }
+  if (action === 'webhook.endpoint.update') {
+    return { title: 'Updated webhook endpoint', detailParts: details };
+  }
+  if (action === 'webhook.endpoint.delete') {
+    return { title: 'Deleted webhook endpoint', detailParts: details };
+  }
+  if (action === 'webhook.delivery.replay_requested') {
+    return { title: 'Requested webhook replay', detailParts: details };
+  }
+  return null;
+}
+
 function formatAuditEventTitle(row: DashboardConsoleAuditEvent): {
   title: string;
   detailParts: string[];
@@ -116,6 +346,15 @@ function formatAuditEventTitle(row: DashboardConsoleAuditEvent): {
       detailParts: [humanizeMachineLabel(operationType), approvalId].filter(Boolean),
     };
   }
+
+  const policyDisplay = formatPolicyAuditEventTitle(row);
+  if (policyDisplay) return policyDisplay;
+
+  const billingDisplay = formatBillingAuditEventTitle(row);
+  if (billingDisplay) return billingDisplay;
+
+  const webhookDisplay = formatWebhookAuditEventTitle(row);
+  if (webhookDisplay) return webhookDisplay;
 
   const title = readText(row.summary) || humanizeMachineLabel(row.action) || row.id;
   const detail = humanizeMachineLabel(row.action);
@@ -218,6 +457,63 @@ function resolveAuditScopeLabels(input: {
     projectLabel,
     environmentLabel,
   };
+}
+
+function parseAuditEventTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isOrgScopedAuditEvent(row: DashboardConsoleAuditEvent): boolean {
+  return !readText(row.projectId) && !readText(row.environmentId);
+}
+
+function mergeAuditEvents(
+  batches: ReadonlyArray<ReadonlyArray<DashboardConsoleAuditEvent>>,
+): DashboardConsoleAuditEvent[] {
+  const deduped = new Map<string, DashboardConsoleAuditEvent>();
+  for (const batch of batches) {
+    for (const row of batch) {
+      const id = readText(row.id);
+      if (!id || deduped.has(id)) continue;
+      deduped.set(id, row);
+    }
+  }
+  return [...deduped.values()]
+    .sort((a, b) => {
+      const tsDiff = parseAuditEventTimestamp(b.createdAt) - parseAuditEventTimestamp(a.createdAt);
+      if (tsDiff !== 0) return tsDiff;
+      return b.id.localeCompare(a.id);
+    })
+    .slice(0, AUDIT_EVENTS_LIMIT);
+}
+
+function renderAuditLinkedIdentifier(input: {
+  id: string;
+  label?: string;
+  href?: string;
+  onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+}): React.JSX.Element {
+  const id = readText(input.id);
+  if (!id) return <span>-</span>;
+  const label = readText(input.label) || id;
+  return (
+    <div>
+      {input.href ? (
+        <a className="dashboard-inline-link" href={input.href} onClick={input.onClick} title={id}>
+          {label}
+        </a>
+      ) : (
+        <span>{label}</span>
+      )}
+      {label !== id ? (
+        <>
+          <br />
+          <code>{id}</code>
+        </>
+      ) : null}
+    </div>
+  );
 }
 
 export function AuditLogsPage(): React.JSX.Element {
@@ -420,9 +716,7 @@ export function AuditLogsPage(): React.JSX.Element {
     setLoading(true);
     setErrorMessage('');
 
-    listDashboardAuditEvents({
-      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
-      ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
+    const baseRequest = {
       ...(eventCategoryFilter
         ? { category: eventCategoryFilter as DashboardConsoleAuditCategory }
         : {}),
@@ -432,8 +726,22 @@ export function AuditLogsPage(): React.JSX.Element {
       ...(debouncedSearchInput ? { q: debouncedSearchInput } : {}),
       ...(toIsoTimestamp(fromInput) ? { from: toIsoTimestamp(fromInput) } : {}),
       ...(toIsoTimestamp(toInput) ? { to: toIsoTimestamp(toInput) } : {}),
-      limit: 100,
-    })
+      limit: AUDIT_EVENTS_LIMIT,
+    };
+    const scopedRequest = {
+      ...baseRequest,
+      ...(selectedProjectId ? { projectId: selectedProjectId } : {}),
+      ...(selectedEnvironmentId ? { environmentId: selectedEnvironmentId } : {}),
+    };
+    const shouldIncludeOrgScopedRows = Boolean(selectedProjectId || selectedEnvironmentId);
+    const request = shouldIncludeOrgScopedRows
+      ? Promise.all([
+          listDashboardAuditEvents(scopedRequest),
+          listDashboardAuditEvents(baseRequest).then((rows) => rows.filter(isOrgScopedAuditEvent)),
+        ]).then(([scopedRows, orgScopedRows]) => mergeAuditEvents([scopedRows, orgScopedRows]))
+      : listDashboardAuditEvents(scopedRequest);
+
+    request
       .then((nextEvents) => {
         if (cancelled) return;
         setEvents(nextEvents);
@@ -592,16 +900,88 @@ export function AuditLogsPage(): React.JSX.Element {
                 selectedEnvironmentId,
                 selectedEnvironmentLabel,
               });
+              const actorUserId = readText(row.actorUserId);
               const approvalId = readText(row.metadata?.approvalId);
               const approval = approvalId ? approvalDirectory[approvalId] : null;
-              const linkedPolicyId = readText(row.policyId) || (approval ? readText(approval.policyId) : '');
+              const linkedPolicyId = readFirstText(
+                row.policyId,
+                row.metadata?.policyId,
+                approval?.policyId,
+                approval?.resourceId,
+              );
               const linkedPolicyLabel =
-                readText(row.policyName) ||
-                (approval ? readText(approval.policyName) : '') ||
+                readFirstText(row.policyName, row.metadata?.policyName, approval?.policyName) ||
                 linkedPolicyId;
               const policyLink = linkedPolicyId
-                ? linkProps(`/dashboard/policy-engine?policyId=${encodeURIComponent(linkedPolicyId)}`)
+                ? linkProps(buildDashboardPath('/dashboard/policy-engine', { policyId: linkedPolicyId }))
                 : null;
+              const approvalLink =
+                approvalId && linkedPolicyId
+                  ? linkProps(
+                      buildDashboardPath('/dashboard/policy-engine', {
+                        policyId: linkedPolicyId,
+                        approvalId,
+                      }),
+                    )
+                  : null;
+              const invoiceId = readText(row.metadata?.invoiceId);
+              const invoiceLink = invoiceId
+                ? linkProps(`/dashboard/invoices/${encodeURIComponent(invoiceId)}`)
+                : null;
+              const receiptId = readText(row.metadata?.receiptId);
+              const receiptLink = receiptId
+                ? linkProps(`/dashboard/invoices/${encodeURIComponent(receiptId)}`)
+                : null;
+              const purchaseId = readText(row.metadata?.purchaseId);
+              const webhookEndpointId = readText(row.metadata?.endpointId);
+              const webhookDeliveryId = readText(row.metadata?.deliveryId);
+              const webhookEndpointLink = webhookEndpointId
+                ? linkProps(
+                    buildDashboardPath('/dashboard/webhooks', {
+                      endpointId: webhookEndpointId,
+                    }),
+                  )
+                : null;
+              const webhookDeliveryLink =
+                webhookEndpointId && webhookDeliveryId
+                  ? linkProps(
+                      buildDashboardPath('/dashboard/webhooks', {
+                        endpointId: webhookEndpointId,
+                        deliveryId: webhookDeliveryId,
+                      }),
+                    )
+                  : null;
+              const scopeType =
+                readFirstText(row.metadata?.scopeType, row.metadata?.assignmentScopeType) ||
+                (readText(row.environmentId)
+                  ? 'ENVIRONMENT'
+                  : readText(row.projectId)
+                    ? 'PROJECT'
+                    : 'ORG');
+              const scopeId =
+                readFirstText(
+                  row.metadata?.scopeId,
+                  row.metadata?.assignmentScopeId,
+                  row.environmentId,
+                  row.projectId,
+                  row.orgId,
+                ) || '';
+              const projectLabel = row.projectId
+                ? resolveAuditProjectLabel({
+                    projectId: readText(row.projectId),
+                    projectDirectory,
+                    selectedProjectId,
+                    selectedProjectLabel,
+                  })
+                : '';
+              const environmentLabel = row.environmentId
+                ? resolveAuditEnvironmentLabel({
+                    environmentId: readText(row.environmentId),
+                    environmentDirectory,
+                    selectedEnvironmentId,
+                    selectedEnvironmentLabel,
+                  })
+                : '';
               return (
                 <React.Fragment key={row.id}>
                   <DashboardTableRow
@@ -684,56 +1064,125 @@ export function AuditLogsPage(): React.JSX.Element {
                         <DashboardTableDetailsItem label="Action">
                           <span>{row.action || '-'}</span>
                         </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Actor">
+                          <span>{actorDisplay.primary || '-'}</span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Actor ID">
+                          {actorUserId ? <code>{actorUserId}</code> : <span>-</span>}
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Actor Type">
+                          <span>{row.actorType || '-'}</span>
+                        </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Policy">
-                          {linkedPolicyId && policyLink ? (
-                            <a
-                              className="dashboard-inline-link"
-                              href={policyLink.href}
-                              onClick={policyLink.onClick}
-                              title={linkedPolicyId}
-                            >
-                              {linkedPolicyLabel}
-                            </a>
-                          ) : (
-                            <span>-</span>
-                          )}
+                          {renderAuditLinkedIdentifier({
+                            id: linkedPolicyId,
+                            label: linkedPolicyLabel,
+                            href: policyLink?.href,
+                            onClick: policyLink?.onClick,
+                          })}
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Approval">
+                          {renderAuditLinkedIdentifier({
+                            id: approvalId,
+                            href: approvalLink?.href,
+                            onClick: approvalLink?.onClick,
+                          })}
+                        </DashboardTableDetailsItem>
+                        {purchaseId ? (
+                          <DashboardTableDetailsItem label="Purchase">
+                            <code>{purchaseId}</code>
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {invoiceId ? (
+                          <DashboardTableDetailsItem label="Invoice">
+                            {renderAuditLinkedIdentifier({
+                              id: invoiceId,
+                              href: invoiceLink?.href,
+                              onClick: invoiceLink?.onClick,
+                            })}
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {receiptId ? (
+                          <DashboardTableDetailsItem label="Receipt">
+                            {renderAuditLinkedIdentifier({
+                              id: receiptId,
+                              href: receiptLink?.href,
+                              onClick: receiptLink?.onClick,
+                            })}
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {webhookEndpointId ? (
+                          <DashboardTableDetailsItem label="Webhook Endpoint">
+                            {renderAuditLinkedIdentifier({
+                              id: webhookEndpointId,
+                              href: webhookEndpointLink?.href,
+                              onClick: webhookEndpointLink?.onClick,
+                            })}
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {webhookDeliveryId ? (
+                          <DashboardTableDetailsItem label="Webhook Delivery">
+                            {renderAuditLinkedIdentifier({
+                              id: webhookDeliveryId,
+                              href: webhookDeliveryLink?.href,
+                              onClick: webhookDeliveryLink?.onClick,
+                            })}
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        <DashboardTableDetailsItem label="Scope Type">
+                          <span>
+                            {scopeType === 'ORG'
+                              ? 'Organization'
+                              : scopeType
+                                ? humanizeMachineLabel(scopeType)
+                                : 'Organization'}
+                          </span>
+                        </DashboardTableDetailsItem>
+                        <DashboardTableDetailsItem label="Scope ID">
+                          {scopeId ? <code>{scopeId}</code> : <span>-</span>}
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Project">
                           {row.projectId ? (
-                            <button
-                              type="button"
-                              className="dashboard-audit-events__copy-value"
-                              title={row.projectId}
-                              onClick={() => void copyAuditScopeValue(row.projectId || '', 'Project')}
-                            >
-                              {resolveAuditProjectLabel({
-                                projectId: readText(row.projectId),
-                                projectDirectory,
-                                selectedProjectId,
-                                selectedProjectLabel,
-                              })}
-                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                className="dashboard-audit-events__copy-value"
+                                title={row.projectId}
+                                onClick={() => void copyAuditScopeValue(row.projectId || '', 'Project')}
+                              >
+                                {projectLabel}
+                              </button>
+                              {projectLabel !== readText(row.projectId) ? (
+                                <>
+                                  <br />
+                                  <code>{row.projectId}</code>
+                                </>
+                              ) : null}
+                            </div>
                           ) : (
                             <span>-</span>
                           )}
                         </DashboardTableDetailsItem>
                         <DashboardTableDetailsItem label="Environment">
                           {row.environmentId ? (
-                            <button
-                              type="button"
-                              className="dashboard-audit-events__copy-value"
-                              title={row.environmentId}
-                              onClick={() =>
-                                void copyAuditScopeValue(row.environmentId || '', 'Environment')
-                              }
-                            >
-                              {resolveAuditEnvironmentLabel({
-                                environmentId: readText(row.environmentId),
-                                environmentDirectory,
-                                selectedEnvironmentId,
-                                selectedEnvironmentLabel,
-                              })}
-                            </button>
+                            <div>
+                              <button
+                                type="button"
+                                className="dashboard-audit-events__copy-value"
+                                title={row.environmentId}
+                                onClick={() =>
+                                  void copyAuditScopeValue(row.environmentId || '', 'Environment')
+                                }
+                              >
+                                {environmentLabel}
+                              </button>
+                              {environmentLabel !== readText(row.environmentId) ? (
+                                <>
+                                  <br />
+                                  <code>{row.environmentId}</code>
+                                </>
+                              ) : null}
+                            </div>
                           ) : (
                             <span>-</span>
                           )}

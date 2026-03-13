@@ -230,4 +230,131 @@ test.describe('dashboard webhooks console api wiring', () => {
     );
     await expect(page.getByLabel('Webhook endpoints table')).toContainText('billing, wallet');
   });
+
+  test('query params select the requested endpoint and page the linked delivery into view', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const deliveryRequests: string[] = [];
+    const endpoints = [
+      {
+        id: 'wh_ep_dash_primary',
+        orgId: 'org_dash_webhooks',
+        url: 'https://example.com/webhooks/primary',
+        eventCategories: ['billing'],
+        status: 'ACTIVE',
+        secretVersion: 1,
+        secretPreview: 'whsec_...1111',
+        createdAt: iso('2026-03-01T00:00:00.000Z'),
+        updatedAt: iso('2026-03-02T00:00:00.000Z'),
+      },
+      {
+        id: 'wh_ep_dash_secondary',
+        orgId: 'org_dash_webhooks',
+        url: 'https://example.com/webhooks/secondary',
+        eventCategories: ['billing', 'policy'],
+        status: 'ACTIVE',
+        secretVersion: 2,
+        secretPreview: 'whsec_...2222',
+        createdAt: iso('2026-03-03T00:00:00.000Z'),
+        updatedAt: iso('2026-03-04T00:00:00.000Z'),
+      },
+    ];
+    const deliveriesByEndpoint: Record<string, Record<string, unknown>[]> = {
+      wh_ep_dash_primary: [
+        {
+          id: 'dlv_primary_1',
+          orgId: 'org_dash_webhooks',
+          endpointId: 'wh_ep_dash_primary',
+          eventId: 'evt_primary_1',
+          eventType: 'billing.invoice.generated',
+          status: 'DELIVERED',
+          attemptCount: 1,
+          replayCount: 0,
+          responseStatus: 200,
+          errorMessage: '',
+          deliveredAt: iso('2026-03-04T12:00:00.000Z'),
+          lastAttemptAt: iso('2026-03-04T12:00:00.000Z'),
+          createdAt: iso('2026-03-04T11:59:00.000Z'),
+          updatedAt: iso('2026-03-04T12:00:00.000Z'),
+        },
+      ],
+      wh_ep_dash_secondary: Array.from({ length: 14 }, (_, index) => ({
+        id: `dlv_secondary_${index + 1}`,
+        orgId: 'org_dash_webhooks',
+        endpointId: 'wh_ep_dash_secondary',
+        eventId: `evt_secondary_${index + 1}`,
+        eventType: index % 2 === 0 ? 'billing.credit_purchase.settled' : 'policy.publish',
+        status: 'DELIVERED',
+        attemptCount: 1,
+        replayCount: 0,
+        responseStatus: 200,
+        errorMessage: '',
+        deliveredAt: iso(`2026-03-${String(5 + index).padStart(2, '0')}T12:00:00.000Z`),
+        lastAttemptAt: iso(`2026-03-${String(5 + index).padStart(2, '0')}T12:00:00.000Z`),
+        createdAt: iso(`2026-03-${String(5 + index).padStart(2, '0')}T11:59:00.000Z`),
+        updatedAt: iso(`2026-03-${String(5 + index).padStart(2, '0')}T12:00:00.000Z`),
+      })),
+    };
+
+    await routeWorkspaceScaffold(page, consoleOrigin, {
+      userId: 'user_dash_webhooks',
+      org: {
+        id: 'org_dash_webhooks',
+        name: 'Dashboard Webhooks Org',
+        slug: 'dashboard-webhooks-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      project: {
+        id: 'proj_dash_webhooks',
+        name: 'Webhooks Project',
+        slug: 'webhooks-project',
+        status: 'ACTIVE',
+        environmentCount: 1,
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      environment: {
+        id: 'env_dash_webhooks',
+        projectId: 'proj_dash_webhooks',
+        key: 'prod',
+        name: 'Production',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      handleWebhookRequest: async (route, pathname, method, url) => {
+        if (method === 'GET' && pathname === '/console/webhooks') {
+          await fulfillJson(route, { ok: true, endpoints });
+          return true;
+        }
+
+        const deliveriesMatch = pathname.match(/^\/console\/webhooks\/([^/]+)\/deliveries$/);
+        if (method === 'GET' && deliveriesMatch) {
+          const endpointId = decodeURIComponent(String(deliveriesMatch[1] || ''));
+          if (url.searchParams.get('limit') === '100') {
+            deliveryRequests.push(endpointId);
+            await fulfillJson(route, {
+              ok: true,
+              deliveries: deliveriesByEndpoint[endpointId] || [],
+              nextCursor: null,
+            });
+            return true;
+          }
+        }
+
+        return false;
+      },
+    });
+
+    await page.goto('/dashboard/webhooks?endpointId=wh_ep_dash_secondary&deliveryId=dlv_secondary_14');
+    await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
+    await expect.poll(() => deliveryRequests.join(',')).toContain('wh_ep_dash_secondary');
+    await expect(page.getByLabel('Webhook deliveries table')).toContainText('dlv_secondary_14');
+    await expect(page.getByLabel('Webhook deliveries table')).toContainText('Opened from audit');
+    await expect(page.getByLabel('Webhook deliveries table')).not.toContainText('dlv_primary_1');
+  });
 });

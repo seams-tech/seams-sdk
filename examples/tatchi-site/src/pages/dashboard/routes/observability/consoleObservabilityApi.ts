@@ -76,6 +76,7 @@ export interface GetDashboardObservabilitySnapshotRequest
   eventsQuery?: string;
   eventsLevel?: DashboardConsoleObservabilityLevel;
   eventsService?: string;
+  eventsComponent?: string;
   eventsEventType?: string;
 }
 
@@ -128,6 +129,7 @@ export interface ListDashboardConsoleObservabilityEventsRequest
   query?: string;
   level?: DashboardConsoleObservabilityLevel;
   service?: string;
+  component?: string;
   eventType?: string;
   cursor?: string;
   limit?: number;
@@ -329,6 +331,7 @@ export async function listDashboardObservabilityEvents(
   applyScope(url, input);
   appendOptionalQuery(url, 'query', input?.query);
   appendOptionalQuery(url, 'service', input?.service);
+  appendOptionalQuery(url, 'component', input?.component);
   appendOptionalQuery(url, 'eventType', input?.eventType);
   appendOptionalQuery(url, 'cursor', input?.cursor);
   if (input?.level && OBSERVABILITY_LEVEL_SET.has(input.level)) {
@@ -429,6 +432,7 @@ export async function getDashboardObservabilitySnapshot(
     : 50;
   const eventsQuery = toTrimmedString(input?.eventsQuery);
   const eventsService = toTrimmedString(input?.eventsService);
+  const eventsComponent = toTrimmedString(input?.eventsComponent);
   const eventsEventType = toTrimmedString(input?.eventsEventType);
 
   const [summary, events, services] = await Promise.all([
@@ -438,6 +442,7 @@ export async function getDashboardObservabilitySnapshot(
       ...(eventsQuery ? { query: eventsQuery } : {}),
       ...(input?.eventsLevel ? { level: input.eventsLevel } : {}),
       ...(eventsService ? { service: eventsService } : {}),
+      ...(eventsComponent ? { component: eventsComponent } : {}),
       ...(eventsEventType ? { eventType: eventsEventType } : {}),
       ...(eventsCursor ? { cursor: eventsCursor } : {}),
       limit: eventsLimit,

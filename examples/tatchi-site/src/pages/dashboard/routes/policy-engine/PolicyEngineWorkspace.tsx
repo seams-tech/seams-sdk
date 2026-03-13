@@ -9,7 +9,6 @@ import {
   DashboardTableCell,
   DashboardTableDetailsGrid,
   DashboardTableDetailsItem,
-  DashboardTableDetailsPanel,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
@@ -52,7 +51,7 @@ import {
 
 type PolicyScopeType = 'ORG' | 'PROJECT' | 'ENVIRONMENT' | 'WALLET';
 type PolicyCreateMode = 'STANDARD' | 'WALLET_OVERRIDE';
-type PolicyModalKind = 'create' | 'edit' | 'delete' | 'simulate' | 'publish';
+type PolicyModalKind = 'create' | 'details' | 'edit' | 'delete' | 'simulate' | 'publish';
 type PolicyStatusFilter = 'ALL' | 'DRAFT' | 'PUBLISHED';
 type PolicyImpactFilter = 'ALL' | 'USED' | 'UNUSED';
 const POLICY_TABLE_COLUMNS = dashboardTableColumns(1.2, 0.8, 1.2, 0.75, 0.85, 1.3);
@@ -507,15 +506,33 @@ function describePolicyDraftComparison(input: {
   } from the live version.`;
 }
 
+function readPolicyEngineRouteSelection(): {
+  policyId: string;
+  approvalId: string;
+} {
+  if (typeof window === 'undefined') {
+    return {
+      policyId: '',
+      approvalId: '',
+    };
+  }
+  const searchParams = new URLSearchParams(window.location.search);
+  return {
+    policyId: String(searchParams.get('policyId') || '').trim(),
+    approvalId: String(searchParams.get('approvalId') || '').trim(),
+  };
+}
+
 export function PolicyEnginePage(): React.JSX.Element {
-  const viewRef = React.useRef<HTMLDivElement | null>(null);
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
   const { go } = useSiteRouter();
-  const [requestedPolicyId, setRequestedPolicyId] = React.useState<string>(() => {
-    if (typeof window === 'undefined') return '';
-    return String(new URLSearchParams(window.location.search).get('policyId') || '').trim();
-  });
+  const [requestedPolicyId, setRequestedPolicyId] = React.useState<string>(
+    () => readPolicyEngineRouteSelection().policyId,
+  );
+  const [requestedApprovalId, setRequestedApprovalId] = React.useState<string>(
+    () => readPolicyEngineRouteSelection().approvalId,
+  );
 
   const orgScopeId =
     String(selectedContext.organization || session.claims?.orgId || '').trim() ||
@@ -556,7 +573,6 @@ export function PolicyEnginePage(): React.JSX.Element {
   const [creatingNewPolicy, setCreatingNewPolicy] = React.useState<boolean>(false);
   const [policyCreateMode, setPolicyCreateMode] = React.useState<PolicyCreateMode>('STANDARD');
   const [selectedPolicyId, setSelectedPolicyId] = React.useState<string>('');
-  const [expandedPolicyId, setExpandedPolicyId] = React.useState<string>('');
   const [policyQuery, setPolicyQuery] = React.useState<string>('');
   const [statusFilter, setStatusFilter] = React.useState<PolicyStatusFilter>('ALL');
   const [impactFilter, setImpactFilter] = React.useState<PolicyImpactFilter>('ALL');
@@ -588,14 +604,16 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    const syncRequestedPolicyId = () => {
-      setRequestedPolicyId(String(new URLSearchParams(window.location.search).get('policyId') || '').trim());
+    const syncRequestedRouteSelection = () => {
+      const nextSelection = readPolicyEngineRouteSelection();
+      setRequestedPolicyId(nextSelection.policyId);
+      setRequestedApprovalId(nextSelection.approvalId);
     };
-    window.addEventListener('popstate', syncRequestedPolicyId);
-    window.addEventListener('site:navigate', syncRequestedPolicyId as EventListener);
+    window.addEventListener('popstate', syncRequestedRouteSelection);
+    window.addEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
     return () => {
-      window.removeEventListener('popstate', syncRequestedPolicyId);
-      window.removeEventListener('site:navigate', syncRequestedPolicyId as EventListener);
+      window.removeEventListener('popstate', syncRequestedRouteSelection);
+      window.removeEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
     };
   }, []);
 
@@ -622,10 +640,6 @@ export function PolicyEnginePage(): React.JSX.Element {
   const selectedPolicy = React.useMemo(
     () => policies.find((entry) => entry.id === selectedPolicyId) || null,
     [policies, selectedPolicyId],
-  );
-  const expandedPolicy = React.useMemo(
-    () => policies.find((entry) => entry.id === expandedPolicyId) || null,
-    [expandedPolicyId, policies],
   );
 
   const policyById = React.useMemo(() => {
@@ -701,13 +715,12 @@ export function PolicyEnginePage(): React.JSX.Element {
       if (entry.policyId) scopedPolicyIds.add(entry.policyId);
     }
     if (requestedPolicyId) scopedPolicyIds.add(requestedPolicyId);
-    if (expandedPolicyId) scopedPolicyIds.add(expandedPolicyId);
     for (const policy of policies) {
       if (policy.status === 'DRAFT') scopedPolicyIds.add(policy.id);
     }
     const rows = policies.filter((policy) => scopedPolicyIds.has(policy.id));
     return rows.length > 0 ? rows : policies;
-  }, [assignmentsByScope, coverage, expandedPolicyId, policies, requestedPolicyId]);
+  }, [assignmentsByScope, coverage, policies, requestedPolicyId]);
 
   const relevantApprovals = React.useMemo(() => {
     if (!selectedPolicyId) return [];
@@ -748,8 +761,10 @@ export function PolicyEnginePage(): React.JSX.Element {
     restoredDraftToastKeyRef.current = '';
   }, [policyEditorModalOpen]);
 
+  const policyVersionsTargetId = String(activeModal?.policyId || '').trim();
+
   React.useEffect(() => {
-    const policyId = String(expandedPolicyId || '').trim();
+    const policyId = policyVersionsTargetId;
     if (!policyId) {
       setPolicyVersionsLoading(false);
       setPolicyVersionsErrorMessage('');
@@ -777,20 +792,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [expandedPolicyId]);
-
-  React.useEffect(() => {
-    const scrollHost = viewRef.current?.closest('.dashboard-main');
-    if (!scrollHost) return undefined;
-    if (activeModal) {
-      scrollHost.classList.add('dashboard-main--modal-open');
-    } else {
-      scrollHost.classList.remove('dashboard-main--modal-open');
-    }
-    return () => {
-      scrollHost.classList.remove('dashboard-main--modal-open');
-    };
-  }, [activeModal]);
+  }, [policyVersionsTargetId]);
 
   const loadPolicies = React.useCallback(async (): Promise<void> => {
     if (!session.claims) {
@@ -841,13 +843,7 @@ export function PolicyEnginePage(): React.JSX.Element {
     } catch (error: unknown) {
       setAssignmentsByScope(EMPTY_ASSIGNMENTS);
     }
-  }, [
-    environmentScopeId,
-    orgScopeId,
-    projectScopeId,
-    session.claims,
-    session.errorMessage,
-  ]);
+  }, [environmentScopeId, orgScopeId, projectScopeId, session.claims, session.errorMessage]);
 
   const loadCoverage = React.useCallback(async (): Promise<void> => {
     if (!session.claims) {
@@ -962,22 +958,40 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   React.useEffect(() => {
     if (!selectedPolicyId) {
-      const fallbackApprovalId = approvedApprovals[0]?.id || '';
+      const fallbackApprovalId =
+        approvedApprovals.find((entry) => entry.id === requestedApprovalId)?.id ||
+        approvedApprovals[0]?.id ||
+        '';
       if (selectedApprovalId !== fallbackApprovalId) setSelectedApprovalId(fallbackApprovalId);
       return;
     }
-    const stillSelected = relevantApprovals.some((entry) => entry.id === selectedApprovalId);
-    if (stillSelected) return;
+    const requestedApproval = relevantApprovals.find((entry) => entry.id === requestedApprovalId) || null;
+    if (requestedApproval?.status === 'APPROVED') {
+      if (selectedApprovalId !== requestedApproval.id) setSelectedApprovalId(requestedApproval.id);
+      return;
+    }
+    const stillSelectedApproved = approvedApprovals.some((entry) => entry.id === selectedApprovalId);
+    if (stillSelectedApproved) return;
     setSelectedApprovalId(approvedApprovals[0]?.id || '');
-  }, [approvedApprovals, relevantApprovals, selectedApprovalId, selectedPolicyId]);
+  }, [
+    approvedApprovals,
+    relevantApprovals,
+    requestedApprovalId,
+    selectedApprovalId,
+    selectedPolicyId,
+  ]);
 
   React.useEffect(() => {
     if (!requestedPolicyId) return;
     setPolicyQuery((current) => (current === requestedPolicyId ? current : requestedPolicyId));
     setStatusFilter('ALL');
     setImpactFilter('ALL');
-    setExpandedPolicyId((current) => (current === requestedPolicyId ? current : requestedPolicyId));
     setSelectedPolicyId((current) => (current === requestedPolicyId ? current : requestedPolicyId));
+    setActiveModal((current) =>
+      current?.kind === 'details' && current.policyId === requestedPolicyId
+        ? current
+        : { kind: 'details', policyId: requestedPolicyId },
+    );
   }, [requestedPolicyId]);
 
   const openCreatePolicyModal = React.useCallback(() => {
@@ -1019,7 +1033,6 @@ export function PolicyEnginePage(): React.JSX.Element {
       setCreatingNewPolicy(false);
       setPolicyCreateMode('STANDARD');
       setSelectedPolicyId(policyId);
-      setExpandedPolicyId(policyId);
       if (kind === 'edit') {
         setPolicyDraftScope({
           orgId: orgScopeId,
@@ -1055,21 +1068,10 @@ export function PolicyEnginePage(): React.JSX.Element {
 
   const closePolicyModal = React.useCallback(() => {
     clearPolicyModalState();
-  }, [clearPolicyModalState]);
-
-  const toggleExpandedPolicy = React.useCallback(
-    (policyId: string) => {
-      setSelectedPolicyId(policyId);
-      setExpandedPolicyId((current) => {
-        const nextExpandedPolicyId = current === policyId ? '' : policyId;
-        return nextExpandedPolicyId;
-      });
-      if (requestedPolicyId) {
-        go('/dashboard/policy-engine');
-      }
-    },
-    [go, requestedPolicyId],
-  );
+    if (activeModal?.kind === 'details' && requestedPolicyId) {
+      go('/dashboard/policy-engine');
+    }
+  }, [activeModal, clearPolicyModalState, go, requestedPolicyId]);
 
   const selectedContextScopeKey = `${orgScopeId}:${projectScopeId}:${environmentScopeId}`;
   const previousSelectedContextScopeKeyRef = React.useRef<string>(selectedContextScopeKey);
@@ -1468,9 +1470,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   ]);
   const activeModalPolicy = activeModal?.policyId
     ? policyById.get(activeModal.policyId) || null
-    : creatingNewPolicy
-      ? null
-      : selectedPolicy;
+    : null;
   const policiesPagination = useDashboardTablePagination(filteredPolicies, {
     disabled: policiesLoading,
     itemLabel: 'policy',
@@ -1576,36 +1576,6 @@ export function PolicyEnginePage(): React.JSX.Element {
       policyVersionsErrorMessage,
       policyVersionsLoading,
     ],
-  );
-  const expandedPolicyRuleReviewRows = React.useMemo(
-    () =>
-      expandedPolicy
-        ? buildPolicyRuleReviewRows(latestPublishedVersion?.rules || null, expandedPolicy.rules)
-        : [],
-    [expandedPolicy, latestPublishedVersion],
-  );
-  const changedExpandedPolicyRuleReviewRows = React.useMemo(
-    () => expandedPolicyRuleReviewRows.filter((entry) => entry.changed),
-    [expandedPolicyRuleReviewRows],
-  );
-  const expandedPolicyScopeUsageLabels = React.useMemo(
-    () => (expandedPolicy ? policyScopeUsageLabels(expandedPolicy) : []),
-    [expandedPolicy, policyScopeUsageLabels],
-  );
-  const expandedPolicyCoverageEntry = React.useMemo(
-    () => (expandedPolicy ? coverageByPolicyId.get(expandedPolicy.id) || null : null),
-    [coverageByPolicyId, expandedPolicy],
-  );
-  const expandedPolicyDraftComparisonSummary = React.useMemo(
-    () =>
-      expandedPolicy
-        ? describePolicyDraftComparison({
-            policy: expandedPolicy,
-            latestPublishedVersion,
-            changedRows: changedExpandedPolicyRuleReviewRows,
-          })
-        : '',
-    [changedExpandedPolicyRuleReviewRows, expandedPolicy, latestPublishedVersion],
   );
   const policyActionToggleOptions = POLICY_ACTIONS.filter((entry) => entry !== 'contract_call');
   const addContractCallRule = React.useCallback(() => {
@@ -1765,7 +1735,7 @@ export function PolicyEnginePage(): React.JSX.Element {
   }, [closePolicyModal, policyEditorDraftDiffersFromInitial, resetPolicyEditorDraftToInitial]);
 
   return (
-    <div ref={viewRef} className="dashboard-view" aria-label="Policy engine page">
+    <div className="dashboard-view" aria-label="Policy engine page">
       <section className="dashboard-view__section" aria-label="Policy setup">
         <h2>Create policy</h2>
         <p className="dashboard-pagination-note">
@@ -1884,16 +1854,9 @@ export function PolicyEnginePage(): React.JSX.Element {
               {policiesPagination.rows.map((policy) => {
                 const isDefaultPolicy = policy.isSystemDefault;
                 const coverageEntry = coverageByPolicyId.get(policy.id) || null;
-                const isExpanded = expandedPolicyId === policy.id;
                 return (
                   <React.Fragment key={policy.id}>
-                    <DashboardTableRow
-                      className={
-                        isExpanded
-                          ? 'dashboard-policy-table__row dashboard-policy-table__row--expanded'
-                          : 'dashboard-policy-table__row'
-                      }
-                    >
+                    <DashboardTableRow className="dashboard-policy-table__row">
                       <DashboardTableCell title={policy.id}>
                         <div className="dashboard-policy-table__policy">
                           <strong className="dashboard-data-table__summary">
@@ -1926,11 +1889,11 @@ export function PolicyEnginePage(): React.JSX.Element {
                       <DashboardTableCell>
                         <DashboardTableActionGroup>
                           <DashboardTableActionButton
-                            className="dashboard-policy-table__toggle"
-                            aria-expanded={isExpanded}
-                            onClick={() => toggleExpandedPolicy(policy.id)}
+                            className="dashboard-policy-table__details-button"
+                            aria-haspopup="dialog"
+                            onClick={() => setPolicyModalState('details', policy.id)}
                           >
-                            {isExpanded ? 'Hide' : 'Details'}
+                            Details
                           </DashboardTableActionButton>
                           <DashboardTableActionButton
                             onClick={() => setPolicyModalState('edit', policy.id)}
@@ -1964,156 +1927,6 @@ export function PolicyEnginePage(): React.JSX.Element {
                         </DashboardTableActionGroup>
                       </DashboardTableCell>
                     </DashboardTableRow>
-                    <DashboardTableDetailsPanel
-                      className={
-                        isExpanded
-                          ? 'dashboard-policy-table__details-panel is-expanded'
-                          : 'dashboard-policy-table__details-panel'
-                      }
-                      aria-hidden={!isExpanded}
-                    >
-                      <div className="dashboard-policy-table__details-content">
-                        {expandedPolicy?.id === policy.id ? (
-                          <div className="dashboard-policy-view">
-                            <header className="dashboard-policy-view__hero">
-                              <div className="dashboard-policy-view__hero-copy">
-                                <p className="dashboard-policy-view__eyebrow">Policy details</p>
-                                <h3>{expandedPolicy.name || expandedPolicy.id}</h3>
-                                <p className="dashboard-pagination-note">
-                                  {expandedPolicy.description
-                                    ? expandedPolicy.description
-                                    : expandedPolicy.isSystemDefault
-                                      ? 'Default live policy for this organization.'
-                                      : expandedPolicyDraftComparisonSummary}
-                                </p>
-                              </div>
-                              <div className="dashboard-policy-view__badges">
-                                <DashboardTableBadge
-                                  tone={policyStatusBadgeTone(expandedPolicy.status)}
-                                >
-                                  {formatPolicyStatusLabel(expandedPolicy.status)}
-                                </DashboardTableBadge>
-                                <DashboardTableBadge tone="neutral">
-                                  v{expandedPolicy.version}
-                                </DashboardTableBadge>
-                                {expandedPolicy.isSystemDefault ? (
-                                  <DashboardTableBadge tone="neutral">
-                                    System default
-                                  </DashboardTableBadge>
-                                ) : null}
-                              </div>
-                            </header>
-
-                            <DashboardTableDetailsGrid>
-                              <DashboardTableDetailsItem label="Policy ID">
-                                <code>{expandedPolicy.id}</code>
-                              </DashboardTableDetailsItem>
-                              <DashboardTableDetailsItem label="Live version">
-                                <span>
-                                  {policyVersionsLoading
-                                    ? 'Loading...'
-                                    : policyVersionsErrorMessage
-                                      ? `Unavailable: ${policyVersionsErrorMessage}`
-                                      : latestPublishedVersion
-                                        ? `v${latestPublishedVersion.version} published ${formatTimestamp(
-                                            latestPublishedVersion.publishedAt,
-                                          )}`
-                                        : 'Not live yet'}
-                                </span>
-                              </DashboardTableDetailsItem>
-                              <DashboardTableDetailsItem label="Current scope">
-                                <span>
-                                  {expandedPolicyScopeUsageLabels.length > 0
-                                    ? expandedPolicyScopeUsageLabels.join(', ')
-                                    : 'Draft only'}
-                                </span>
-                              </DashboardTableDetailsItem>
-                              <DashboardTableDetailsItem label="Coverage">
-                                <span>
-                                  {coverageLoading
-                                    ? 'Loading current impact...'
-                                    : coverageErrorMessage
-                                      ? `Unavailable: ${coverageErrorMessage}`
-                                      : policyCoverageSummary(expandedPolicyCoverageEntry)}
-                                </span>
-                              </DashboardTableDetailsItem>
-                              <DashboardTableDetailsItem label="Published">
-                                <span>{formatTimestamp(expandedPolicy.publishedAt)}</span>
-                              </DashboardTableDetailsItem>
-                              <DashboardTableDetailsItem label="Updated">
-                                <span>{formatTimestamp(expandedPolicy.updatedAt)}</span>
-                              </DashboardTableDetailsItem>
-                            </DashboardTableDetailsGrid>
-
-                            <section className="dashboard-view-card dashboard-policy-view__section">
-                              <div className="dashboard-policy-view__section-header">
-                                <div>
-                                  <h3>Rules</h3>
-                                  <p className="dashboard-pagination-note">
-                                    Current policy behavior by rule section.
-                                  </p>
-                                </div>
-                                <p className="dashboard-policy-view__summary">
-                                  {rulesSummary(expandedPolicy)}
-                                </p>
-                              </div>
-                              <div className="dashboard-policy-view__rule-grid">
-                                {expandedPolicyRuleReviewRows.map((entry) => (
-                                  <article
-                                    key={`${expandedPolicy.id}:${entry.label}`}
-                                    className={`dashboard-policy-view__rule-card${
-                                      entry.changed
-                                        ? ' dashboard-policy-view__rule-card--changed'
-                                        : ''
-                                    }`}
-                                  >
-                                    <div className="dashboard-policy-view__rule-card-header">
-                                      <p className="dashboard-policy-view__rule-label">
-                                        {entry.label}
-                                      </p>
-                                      <DashboardTableBadge
-                                        tone={entry.changed ? 'warning' : 'neutral'}
-                                      >
-                                        {entry.changed ? 'Changed' : 'Current'}
-                                      </DashboardTableBadge>
-                                    </div>
-                                    <p className="dashboard-policy-view__rule-value">{entry.next}</p>
-                                    {expandedPolicy.status !== 'PUBLISHED' &&
-                                    latestPublishedVersion ? (
-                                      <p className="dashboard-policy-view__rule-compare">
-                                        Live: {entry.live}
-                                      </p>
-                                    ) : null}
-                                  </article>
-                                ))}
-                              </div>
-                            </section>
-
-                            <section className="dashboard-view-card dashboard-policy-view__section">
-                              <div className="dashboard-policy-view__section-header">
-                                <div>
-                                  <h3>Change summary</h3>
-                                  <p className="dashboard-pagination-note">
-                                    {expandedPolicyDraftComparisonSummary}
-                                  </p>
-                                </div>
-                              </div>
-                              {expandedPolicy.status !== 'PUBLISHED' &&
-                              latestPublishedVersion &&
-                              changedExpandedPolicyRuleReviewRows.length > 0 ? (
-                                <ul className="dashboard-view-list dashboard-policy-view__changes">
-                                  {changedExpandedPolicyRuleReviewRows.map((entry) => (
-                                    <li key={`${expandedPolicy.id}:change:${entry.label}`}>
-                                      <strong>{entry.label}</strong> {entry.live} {'->'} {entry.next}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </section>
-                          </div>
-                        ) : null}
-                      </div>
-                    </DashboardTableDetailsPanel>
                   </React.Fragment>
                 );
               })}
@@ -2130,498 +1943,442 @@ export function PolicyEnginePage(): React.JSX.Element {
           ariaLabel={
             activeModal.kind === 'create'
               ? 'Create policy modal'
-              : activeModal.kind === 'edit'
-                ? 'Edit policy modal'
-                : activeModal.kind === 'delete'
-                  ? 'Delete policy modal'
-                  : activeModal.kind === 'simulate'
-                    ? 'Simulate policy modal'
-                    : 'Schedule live policy change modal'
+              : activeModal.kind === 'details'
+                ? 'Policy details modal'
+                : activeModal.kind === 'edit'
+                  ? 'Edit policy modal'
+                  : activeModal.kind === 'delete'
+                    ? 'Delete policy modal'
+                    : activeModal.kind === 'simulate'
+                      ? 'Simulate policy modal'
+                      : 'Schedule live policy change modal'
           }
         >
-            {activeModal.kind === 'create' || activeModal.kind === 'edit' ? (
-              <>
-                <h2>
-                  {activeModal.kind === 'create'
-                    ? policyCreateMode === 'WALLET_OVERRIDE'
-                      ? 'Create wallet override'
-                      : 'Create policy'
-                    : 'Edit policy'}
-                </h2>
-                <p className="dashboard-pagination-note dashboard-policy-modal-intro">
-                  {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
-                    ? 'Create a wallet-specific draft for one wallet in the current dashboard context, then use Go live to publish it.'
-                    : 'Create a draft for the current dashboard context, then use Go live to publish it.'}
-                </p>
-                {mutationErrorMessage ? (
-                  <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
-                ) : null}
-                <form
-                  className="dashboard-view-grid dashboard-view-grid--two"
-                  onSubmit={savePolicy}
-                >
-                  <div className="dashboard-policy-form-row dashboard-form-field dashboard-form-field--full">
-                    <label className="dashboard-form-field dashboard-policy-form-row__field">
-                      <span>Policy name</span>
-                      <input
-                        className="dashboard-input"
-                        value={policyEditorForm.policyName}
-                        onChange={(event) =>
-                          setPolicyEditorForm((current) => ({
-                            ...current,
-                            policyName: event.target.value,
-                          }))
-                        }
-                        placeholder={defaultPolicyName(policyCreateMode)}
-                        disabled={!canMutatePolicies || mutationBusy === 'save'}
-                      />
-                    </label>
+          {activeModal.kind === 'create' || activeModal.kind === 'edit' ? (
+            <>
+              <h2>
+                {activeModal.kind === 'create'
+                  ? policyCreateMode === 'WALLET_OVERRIDE'
+                    ? 'Create wallet override'
+                    : 'Create policy'
+                  : 'Edit policy'}
+              </h2>
+              <p className="dashboard-pagination-note dashboard-policy-modal-intro">
+                {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
+                  ? 'Create a wallet-specific draft for one wallet in the current dashboard context, then use Go live to publish it.'
+                  : 'Create a draft for the current dashboard context, then use Go live to publish it.'}
+              </p>
+              {mutationErrorMessage ? (
+                <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
+              ) : null}
+              <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={savePolicy}>
+                <div className="dashboard-policy-form-row dashboard-form-field dashboard-form-field--full">
+                  <label className="dashboard-form-field dashboard-policy-form-row__field">
+                    <span>Policy name</span>
+                    <input
+                      className="dashboard-input"
+                      value={policyEditorForm.policyName}
+                      onChange={(event) =>
+                        setPolicyEditorForm((current) => ({
+                          ...current,
+                          policyName: event.target.value,
+                        }))
+                      }
+                      placeholder={defaultPolicyName(policyCreateMode)}
+                      disabled={!canMutatePolicies || mutationBusy === 'save'}
+                    />
+                  </label>
 
-                    <label className="dashboard-form-field dashboard-policy-form-row__field">
-                      <span>Max amount per transaction (minor units)</span>
-                      <input
-                        className="dashboard-input"
-                        value={policyEditorForm.maxAmountMinor}
-                        onChange={(event) =>
-                          setPolicyEditorForm((current) => ({
-                            ...current,
-                            maxAmountMinor: event.target.value,
-                          }))
-                        }
-                        placeholder="100000"
-                        disabled={!canMutatePolicies || mutationBusy === 'save'}
-                      />
-                    </label>
+                  <label className="dashboard-form-field dashboard-policy-form-row__field">
+                    <span>Max amount per transaction (minor units)</span>
+                    <input
+                      className="dashboard-input"
+                      value={policyEditorForm.maxAmountMinor}
+                      onChange={(event) =>
+                        setPolicyEditorForm((current) => ({
+                          ...current,
+                          maxAmountMinor: event.target.value,
+                        }))
+                      }
+                      placeholder="100000"
+                      disabled={!canMutatePolicies || mutationBusy === 'save'}
+                    />
+                  </label>
+                </div>
+                {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
+                  ? renderWalletOverrideFields(
+                      policyEditorForm.walletId,
+                      onPolicyEditorWalletIdChange,
+                    )
+                  : null}
+
+                <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--first dashboard-form-field dashboard-form-field--full">
+                  <div className="dashboard-policy-rule-panel__header">
+                    <span>Blocked actions</span>
+                    <p className="dashboard-pagination-note">Deny high-risk operations entirely.</p>
                   </div>
-                  {activeModal.kind === 'create' && policyCreateMode === 'WALLET_OVERRIDE'
-                    ? renderWalletOverrideFields(
-                        policyEditorForm.walletId,
-                        onPolicyEditorWalletIdChange,
-                      )
-                    : null}
-
-                  <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--first dashboard-form-field dashboard-form-field--full">
-                    <div className="dashboard-policy-rule-panel__header">
-                      <span>Blocked actions</span>
-                      <p className="dashboard-pagination-note">
-                        Deny high-risk operations entirely.
-                      </p>
-                    </div>
-                    <div className="dashboard-policy-toggle-grid">
-                      {policyActionToggleOptions.map((action) => {
-                        const checked = policyEditorForm.blockedActions.some(
-                          (entry) => entry.toLowerCase() === action.toLowerCase(),
-                        );
-                        return (
-                          <button
-                            key={action}
-                            type="button"
-                            aria-pressed={checked}
-                            className={[
-                              'dashboard-policy-segment',
-                              checked ? 'dashboard-policy-segment--active' : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() =>
-                              setPolicyEditorForm((current) => ({
-                                ...current,
-                                blockedActions: toggleStringValue(current.blockedActions, action),
-                              }))
-                            }
-                            disabled={!canMutatePolicies || mutationBusy === 'save'}
-                          >
-                            {action}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
-                    <div className="dashboard-policy-rule-panel__header">
-                      <span>Allowed chains</span>
-                      <p className="dashboard-pagination-note">
-                        Limit the policy to specific networks.
-                      </p>
-                    </div>
-                    <div className="dashboard-policy-toggle-grid">
-                      {POLICY_CHAINS.map((chain) => {
-                        const checked = policyEditorForm.allowedChains.some(
-                          (entry) => entry.toLowerCase() === chain.toLowerCase(),
-                        );
-                        return (
-                          <button
-                            key={chain}
-                            type="button"
-                            aria-pressed={checked}
-                            className={[
-                              'dashboard-policy-segment',
-                              checked ? 'dashboard-policy-segment--active' : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() =>
-                              setPolicyEditorForm((current) => ({
-                                ...current,
-                                allowedChains: toggleStringValue(current.allowedChains, chain),
-                              }))
-                            }
-                            disabled={!canMutatePolicies || mutationBusy === 'save'}
-                          >
-                            {chain}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </section>
-
-                  <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--contract-calls dashboard-form-field dashboard-form-field--full">
-                    <div className="dashboard-policy-rule-panel__header">
-                      <span>Contract calls</span>
-                      <p className="dashboard-pagination-note">
-                        Choose whether contract calls stay open, or restrict them to an allowlist of
-                        contracts and functions.
-                      </p>
-                    </div>
-                    <div className="dashboard-policy-contract-call-mode">
-                      <button
-                        type="button"
-                        aria-pressed={policyEditorForm.contractCalls.mode === 'ALLOW_ALL'}
-                        className={[
-                          'dashboard-policy-segment',
-                          policyEditorForm.contractCalls.mode === 'ALLOW_ALL'
-                            ? 'dashboard-policy-segment--active'
-                            : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        onClick={() =>
-                          setPolicyEditorForm((current) => ({
-                            ...current,
-                            contractCalls: {
-                              ...current.contractCalls,
-                              mode: 'ALLOW_ALL',
-                            },
-                          }))
-                        }
-                        disabled={!canMutatePolicies || mutationBusy === 'save'}
-                      >
-                        Allow All
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={policyEditorForm.contractCalls.mode === 'ALLOWLIST'}
-                        className={[
-                          'dashboard-policy-segment',
-                          policyEditorForm.contractCalls.mode === 'ALLOWLIST'
-                            ? 'dashboard-policy-segment--active'
-                            : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' ')}
-                        onClick={() =>
-                          setPolicyEditorForm((current) => ({
-                            ...current,
-                            contractCalls: {
-                              ...current.contractCalls,
-                              mode: 'ALLOWLIST',
-                            },
-                          }))
-                        }
-                        disabled={!canMutatePolicies || mutationBusy === 'save'}
-                      >
-                        Allowlist
-                      </button>
-                    </div>
-
-                    {policyEditorForm.contractCalls.mode === 'ALLOWLIST' ? (
-                      <div className="dashboard-policy-contract-calls">
-                        {policyEditorForm.contractCalls.rules.length === 0 ? (
-                          <p className="dashboard-pagination-note">
-                            Add one or more contracts to define the contract-call allowlist.
-                          </p>
-                        ) : null}
-                        {policyEditorForm.contractCalls.rules.map((rule) => (
-                          <div key={rule.id} className="dashboard-policy-contract-card">
-                            <div className="dashboard-policy-contract-card__header">
-                              <strong>Allowed contract</strong>
-                              <button
-                                type="button"
-                                className="dashboard-inline-link dashboard-inline-link--danger"
-                                onClick={() => removeContractCallRule(rule.id)}
-                                disabled={!canMutatePolicies || mutationBusy === 'save'}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                            <label className="dashboard-form-field">
-                              <span>Contract address</span>
-                              <input
-                                className="dashboard-input"
-                                value={rule.contractAddress}
-                                onChange={(event) =>
-                                  updateContractCallRuleAddress(rule.id, event.target.value)
-                                }
-                                placeholder="0x..."
-                                disabled={!canMutatePolicies || mutationBusy === 'save'}
-                              />
-                            </label>
-                            <div className="dashboard-uri-list-editor__rows">
-                              {rule.functions.map((functionEntry, index) => (
-                                <div
-                                  key={`${rule.id}:${index}`}
-                                  className="dashboard-uri-list-editor__row"
-                                >
-                                  <label className="dashboard-form-field dashboard-uri-list-editor__field">
-                                    <span>{index === 0 ? 'Allowed functions' : 'Function'}</span>
-                                    <input
-                                      className="dashboard-input"
-                                      value={functionEntry}
-                                      onChange={(event) =>
-                                        updateContractFunction(rule.id, index, event.target.value)
-                                      }
-                                      placeholder="transfer(address,uint256) or 0xa9059cbb"
-                                      disabled={!canMutatePolicies || mutationBusy === 'save'}
-                                    />
-                                  </label>
-                                  <div className="dashboard-uri-list-editor__actions">
-                                    <button
-                                      type="button"
-                                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                                      onClick={() => removeContractFunction(rule.id, index)}
-                                      disabled={!canMutatePolicies || mutationBusy === 'save'}
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              className="dashboard-inline-link"
-                              onClick={() => addContractFunction(rule.id)}
-                              disabled={!canMutatePolicies || mutationBusy === 'save'}
-                            >
-                              Add function
-                            </button>
-                          </div>
-                        ))}
+                  <div className="dashboard-policy-toggle-grid">
+                    {policyActionToggleOptions.map((action) => {
+                      const checked = policyEditorForm.blockedActions.some(
+                        (entry) => entry.toLowerCase() === action.toLowerCase(),
+                      );
+                      return (
                         <button
+                          key={action}
                           type="button"
-                          className="dashboard-pagination-button dashboard-policy-contract-add-button"
-                          onClick={addContractCallRule}
+                          aria-pressed={checked}
+                          className={[
+                            'dashboard-policy-segment',
+                            checked ? 'dashboard-policy-segment--active' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setPolicyEditorForm((current) => ({
+                              ...current,
+                              blockedActions: toggleStringValue(current.blockedActions, action),
+                            }))
+                          }
                           disabled={!canMutatePolicies || mutationBusy === 'save'}
                         >
-                          Add contract
+                          {action}
                         </button>
-                      </div>
-                    ) : (
-                      <p className="dashboard-pagination-note">
-                        Contract calls are allowed on any contract for the selected chains.
-                      </p>
-                    )}
-                  </section>
+                      );
+                    })}
+                  </div>
+                </section>
 
-                  <div className="dashboard-form-actions">
+                <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
+                  <div className="dashboard-policy-rule-panel__header">
+                    <span>Allowed chains</span>
+                    <p className="dashboard-pagination-note">
+                      Limit the policy to specific networks.
+                    </p>
+                  </div>
+                  <div className="dashboard-policy-toggle-grid">
+                    {POLICY_CHAINS.map((chain) => {
+                      const checked = policyEditorForm.allowedChains.some(
+                        (entry) => entry.toLowerCase() === chain.toLowerCase(),
+                      );
+                      return (
+                        <button
+                          key={chain}
+                          type="button"
+                          aria-pressed={checked}
+                          className={[
+                            'dashboard-policy-segment',
+                            checked ? 'dashboard-policy-segment--active' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setPolicyEditorForm((current) => ({
+                              ...current,
+                              allowedChains: toggleStringValue(current.allowedChains, chain),
+                            }))
+                          }
+                          disabled={!canMutatePolicies || mutationBusy === 'save'}
+                        >
+                          {chain}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className="dashboard-policy-rule-panel dashboard-policy-rule-panel--contract-calls dashboard-form-field dashboard-form-field--full">
+                  <div className="dashboard-policy-rule-panel__header">
+                    <span>Contract calls</span>
+                    <p className="dashboard-pagination-note">
+                      Choose whether contract calls stay open, or restrict them to an allowlist of
+                      contracts and functions.
+                    </p>
+                  </div>
+                  <div className="dashboard-policy-contract-call-mode">
                     <button
                       type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={discardPolicyEditorDraft}
-                      disabled={mutationBusy === 'save'}
-                    >
-                      Discard draft
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                      disabled={mutationBusy === 'save'}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      className="dashboard-pagination-button"
+                      aria-pressed={policyEditorForm.contractCalls.mode === 'ALLOW_ALL'}
+                      className={[
+                        'dashboard-policy-segment',
+                        policyEditorForm.contractCalls.mode === 'ALLOW_ALL'
+                          ? 'dashboard-policy-segment--active'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() =>
+                        setPolicyEditorForm((current) => ({
+                          ...current,
+                          contractCalls: {
+                            ...current.contractCalls,
+                            mode: 'ALLOW_ALL',
+                          },
+                        }))
+                      }
                       disabled={!canMutatePolicies || mutationBusy === 'save'}
                     >
-                      {mutationBusy === 'save'
-                        ? 'Saving...'
-                        : activeModal.kind === 'create'
-                          ? 'Create draft'
-                          : 'Save draft'}
-                    </button>
-                  </div>
-                </form>
-              </>
-            ) : null}
-
-            {activeModal.kind === 'simulate' ? (
-              activeModalPolicy ? (
-                <>
-                  <h2>Simulate policy</h2>
-                  <p className="dashboard-pagination-note">
-                    Test {activeModalPolicy.name || activeModalPolicy.id} before publishing it.
-                  </p>
-                  <div className="dashboard-view-grid dashboard-view-grid--two">
-                    <label className="dashboard-form-field">
-                      <span>Action</span>
-                      <select
-                        className="dashboard-input"
-                        value={simulationAction}
-                        onChange={(event) => setSimulationAction(event.target.value)}
-                      >
-                        {POLICY_ACTIONS.map((action) => (
-                          <option key={action} value={action}>
-                            {action}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="dashboard-form-field">
-                      <span>Chain</span>
-                      <select
-                        className="dashboard-input"
-                        value={simulationChain}
-                        onChange={(event) => setSimulationChain(event.target.value)}
-                      >
-                        {POLICY_CHAINS.map((chain) => (
-                          <option key={chain} value={chain}>
-                            {chain}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="dashboard-form-field">
-                      <span>Amount (minor units)</span>
-                      <input
-                        className="dashboard-input"
-                        value={simulationAmountMinor}
-                        onChange={(event) => setSimulationAmountMinor(event.target.value)}
-                        placeholder="10000"
-                      />
-                    </label>
-                    {simulationAction === 'contract_call' ? (
-                      <>
-                        <label className="dashboard-form-field">
-                          <span>Contract address</span>
-                          <input
-                            className="dashboard-input"
-                            value={simulationContractAddress}
-                            onChange={(event) => setSimulationContractAddress(event.target.value)}
-                            placeholder="0x..."
-                          />
-                        </label>
-                        <label className="dashboard-form-field">
-                          <span>Function selector</span>
-                          <input
-                            className="dashboard-input"
-                            value={simulationFunctionSelector}
-                            onChange={(event) => setSimulationFunctionSelector(event.target.value)}
-                            placeholder="transfer(address,uint256) or 0xa9059cbb"
-                          />
-                        </label>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                      disabled={simulationBusy}
-                    >
-                      Close
+                      Allow All
                     </button>
                     <button
                       type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void runSimulation()}
-                      disabled={simulationBusy || !selectedPolicyId}
-                    >
-                      {simulationBusy ? 'Simulating...' : 'Run simulation'}
-                    </button>
-                  </div>
-                  {simulationErrorMessage ? (
-                    <p className="dashboard-pagination-note">{simulationErrorMessage}</p>
-                  ) : null}
-                  {simulationResult ? (
-                    <p className="dashboard-pagination-note">
-                      Decision {simulationResult.decision} on policy {simulationResult.policyId} v
-                      {simulationResult.policyVersion}. {simulationSummary(simulationResult)}
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <p className="dashboard-pagination-note">Select a policy before simulating it.</p>
-              )
-            ) : null}
-
-            {activeModal.kind === 'delete' ? (
-              activeModalPolicy ? (
-                <>
-                  <h2>Delete policy</h2>
-                  <p className="dashboard-pagination-note">
-                    Delete <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> and
-                    remove it from the registry. This does not delete wallet activity history.
-                  </p>
-                  {activeModalPolicy.isSystemDefault ? (
-                    <p className="dashboard-pagination-note">
-                      The organization default policy is protected and cannot be deleted.
-                    </p>
-                  ) : null}
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                      disabled={mutationBusy === 'delete'}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void deleteSelectedPolicy()}
-                      disabled={
-                        !canMutatePolicies ||
-                        mutationBusy === 'delete' ||
-                        activeModalPolicy.isSystemDefault
+                      aria-pressed={policyEditorForm.contractCalls.mode === 'ALLOWLIST'}
+                      className={[
+                        'dashboard-policy-segment',
+                        policyEditorForm.contractCalls.mode === 'ALLOWLIST'
+                          ? 'dashboard-policy-segment--active'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onClick={() =>
+                        setPolicyEditorForm((current) => ({
+                          ...current,
+                          contractCalls: {
+                            ...current.contractCalls,
+                            mode: 'ALLOWLIST',
+                          },
+                        }))
                       }
+                      disabled={!canMutatePolicies || mutationBusy === 'save'}
                     >
-                      {mutationBusy === 'delete' ? 'Deleting...' : 'Delete policy'}
+                      Allowlist
                     </button>
                   </div>
-                </>
-              ) : (
-                <p className="dashboard-pagination-note">Policy details are unavailable.</p>
-              )
-            ) : null}
 
-            {activeModal.kind === 'publish' ? (
-              activeModalPolicy ? (
-                <>
-                  <h2>Go live review</h2>
-                  <p className="dashboard-pagination-note">
-                    Review what will change for this policy in the current dashboard context before
-                    requesting approvals or publishing it live.
-                  </p>
-                  <section className="dashboard-policy-view__section dashboard-policy-go-live__section">
+                  {policyEditorForm.contractCalls.mode === 'ALLOWLIST' ? (
+                    <div className="dashboard-policy-contract-calls">
+                      {policyEditorForm.contractCalls.rules.length === 0 ? (
+                        <p className="dashboard-pagination-note">
+                          Add one or more contracts to define the contract-call allowlist.
+                        </p>
+                      ) : null}
+                      {policyEditorForm.contractCalls.rules.map((rule) => (
+                        <div key={rule.id} className="dashboard-policy-contract-card">
+                          <div className="dashboard-policy-contract-card__header">
+                            <strong>Allowed contract</strong>
+                            <button
+                              type="button"
+                              className="dashboard-inline-link dashboard-inline-link--danger"
+                              onClick={() => removeContractCallRule(rule.id)}
+                              disabled={!canMutatePolicies || mutationBusy === 'save'}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <label className="dashboard-form-field">
+                            <span>Contract address</span>
+                            <input
+                              className="dashboard-input"
+                              value={rule.contractAddress}
+                              onChange={(event) =>
+                                updateContractCallRuleAddress(rule.id, event.target.value)
+                              }
+                              placeholder="0x..."
+                              disabled={!canMutatePolicies || mutationBusy === 'save'}
+                            />
+                          </label>
+                          <div className="dashboard-uri-list-editor__rows">
+                            {rule.functions.map((functionEntry, index) => (
+                              <div
+                                key={`${rule.id}:${index}`}
+                                className="dashboard-uri-list-editor__row"
+                              >
+                                <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                  <span>{index === 0 ? 'Allowed functions' : 'Function'}</span>
+                                  <input
+                                    className="dashboard-input"
+                                    value={functionEntry}
+                                    onChange={(event) =>
+                                      updateContractFunction(rule.id, index, event.target.value)
+                                    }
+                                    placeholder="transfer(address,uint256) or 0xa9059cbb"
+                                    disabled={!canMutatePolicies || mutationBusy === 'save'}
+                                  />
+                                </label>
+                                <div className="dashboard-uri-list-editor__actions">
+                                  <button
+                                    type="button"
+                                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                                    onClick={() => removeContractFunction(rule.id, index)}
+                                    disabled={!canMutatePolicies || mutationBusy === 'save'}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            className="dashboard-inline-link"
+                            onClick={() => addContractFunction(rule.id)}
+                            disabled={!canMutatePolicies || mutationBusy === 'save'}
+                          >
+                            Add function
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="dashboard-pagination-button dashboard-policy-contract-add-button"
+                        onClick={addContractCallRule}
+                        disabled={!canMutatePolicies || mutationBusy === 'save'}
+                      >
+                        Add contract
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="dashboard-pagination-note">
+                      Contract calls are allowed on any contract for the selected chains.
+                    </p>
+                  )}
+                </section>
+
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={discardPolicyEditorDraft}
+                    disabled={mutationBusy === 'save'}
+                  >
+                    Discard draft
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={closePolicyModal}
+                    disabled={mutationBusy === 'save'}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="dashboard-pagination-button"
+                    disabled={!canMutatePolicies || mutationBusy === 'save'}
+                  >
+                    {mutationBusy === 'save'
+                      ? 'Saving...'
+                      : activeModal.kind === 'create'
+                        ? 'Create draft'
+                        : 'Save draft'}
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : null}
+
+          {activeModal.kind === 'details' ? (
+            activeModalPolicy ? (
+              <>
+                <h2>Policy details</h2>
+                <p className="dashboard-pagination-note">
+                  Review the current scope, live version, and rule behavior for this policy.
+                </p>
+                <div className="dashboard-policy-view">
+                  <header className="dashboard-policy-view__hero">
+                    <div className="dashboard-policy-view__hero-copy">
+                      <p className="dashboard-policy-view__eyebrow">Policy details</p>
+                      <h3>{activeModalPolicy.name || activeModalPolicy.id}</h3>
+                      <p className="dashboard-pagination-note">
+                        {activeModalPolicy.description
+                          ? activeModalPolicy.description
+                          : activeModalPolicy.isSystemDefault
+                            ? 'Default live policy for this organization.'
+                            : activeModalDraftComparisonSummary}
+                      </p>
+                    </div>
+                    <div className="dashboard-policy-view__badges">
+                      <DashboardTableBadge tone={policyStatusBadgeTone(activeModalPolicy.status)}>
+                        {formatPolicyStatusLabel(activeModalPolicy.status)}
+                      </DashboardTableBadge>
+                      <DashboardTableBadge tone="neutral">
+                        v{activeModalPolicy.version}
+                      </DashboardTableBadge>
+                      {activeModalPolicy.isSystemDefault ? (
+                        <DashboardTableBadge tone="neutral">System default</DashboardTableBadge>
+                      ) : null}
+                    </div>
+                  </header>
+
+                  <DashboardTableDetailsGrid>
+                    <DashboardTableDetailsItem label="Policy ID">
+                      <code>{activeModalPolicy.id}</code>
+                    </DashboardTableDetailsItem>
+                    <DashboardTableDetailsItem label="Live version">
+                      <span>
+                        {policyVersionsLoading
+                          ? 'Loading...'
+                          : policyVersionsErrorMessage
+                            ? `Unavailable: ${policyVersionsErrorMessage}`
+                            : latestPublishedVersion
+                              ? `v${latestPublishedVersion.version} published ${formatTimestamp(
+                                  latestPublishedVersion.publishedAt,
+                                )}`
+                              : 'Not live yet'}
+                      </span>
+                    </DashboardTableDetailsItem>
+                    <DashboardTableDetailsItem label="Current scope">
+                      <span>
+                        {activeModalScopeUsageLabels.length > 0
+                          ? activeModalScopeUsageLabels.join(', ')
+                          : 'Draft only'}
+                      </span>
+                    </DashboardTableDetailsItem>
+                    <DashboardTableDetailsItem label="Coverage">
+                      <span>
+                        {coverageLoading
+                          ? 'Loading current impact...'
+                          : coverageErrorMessage
+                            ? `Unavailable: ${coverageErrorMessage}`
+                            : policyCoverageSummary(activeModalCoverageEntry)}
+                      </span>
+                    </DashboardTableDetailsItem>
+                    <DashboardTableDetailsItem label="Published">
+                      <span>{formatTimestamp(activeModalPolicy.publishedAt)}</span>
+                    </DashboardTableDetailsItem>
+                    <DashboardTableDetailsItem label="Updated">
+                      <span>{formatTimestamp(activeModalPolicy.updatedAt)}</span>
+                    </DashboardTableDetailsItem>
+                  </DashboardTableDetailsGrid>
+
+                  <section className="dashboard-view-card dashboard-policy-view__section">
                     <div className="dashboard-policy-view__section-header">
                       <div>
-                        <h3>Release context</h3>
+                        <h3>Rules</h3>
                         <p className="dashboard-pagination-note">
-                          The policy, scope, and current live baseline for this publish.
+                          Current policy behavior by rule section.
                         </p>
                       </div>
+                      <p className="dashboard-policy-view__summary">
+                        {rulesSummary(activeModalPolicy)}
+                      </p>
                     </div>
-                    <PolicyReviewTable
-                      ariaLabel="Go live review context"
-                      rows={activeModalReviewRows}
-                    />
+                    <div className="dashboard-policy-view__rule-grid">
+                      {activeModalRuleReviewRows.map((entry) => (
+                        <article
+                          key={`${activeModalPolicy.id}:${entry.label}`}
+                          className={`dashboard-policy-view__rule-card${
+                            entry.changed ? ' dashboard-policy-view__rule-card--changed' : ''
+                          }`}
+                        >
+                          <div className="dashboard-policy-view__rule-card-header">
+                            <p className="dashboard-policy-view__rule-label">{entry.label}</p>
+                            <DashboardTableBadge tone={entry.changed ? 'warning' : 'neutral'}>
+                              {entry.changed ? 'Changed' : 'Current'}
+                            </DashboardTableBadge>
+                          </div>
+                          <p className="dashboard-policy-view__rule-value">{entry.next}</p>
+                          {activeModalPolicy.status !== 'PUBLISHED' && latestPublishedVersion ? (
+                            <p className="dashboard-policy-view__rule-compare">
+                              Live: {entry.live}
+                            </p>
+                          ) : null}
+                        </article>
+                      ))}
+                    </div>
                   </section>
-                  <div className="dashboard-modal-divider">
+
+                  <section className="dashboard-view-card dashboard-policy-view__section">
                     <div className="dashboard-policy-view__section-header">
                       <div>
                         <h3>Change summary</h3>
@@ -2630,177 +2387,375 @@ export function PolicyEnginePage(): React.JSX.Element {
                         </p>
                       </div>
                     </div>
-                    {policyVersionsLoading ? (
-                      <p className="dashboard-pagination-note">Loading live-rule comparison...</p>
-                    ) : policyVersionsErrorMessage ? (
-                      <p className="dashboard-pagination-note">
-                        Live-rule comparison unavailable: {policyVersionsErrorMessage}
-                      </p>
-                    ) : latestPublishedVersion ? (
-                      changedActiveModalRuleReviewRows.length > 0 ? (
-                        <PolicyRuleComparisonTable
-                          ariaLabel="Go live rule changes"
-                          rows={changedActiveModalRuleReviewRows}
-                          nextColumnLabel="Go live"
-                          showLiveColumn
-                        />
-                      ) : (
-                        <p className="dashboard-pagination-note">
-                          This draft matches the current live rule set. Publishing again will not
-                          change the policy rules.
-                        </p>
-                      )
-                    ) : (
-                      <PolicyRuleComparisonTable
-                        ariaLabel="Initial live rule set"
-                        rows={activeModalRuleReviewRows}
-                        nextColumnLabel="Go live"
-                        showLiveColumn={false}
-                      />
-                    )}
-                  </div>
-                  <div className="dashboard-modal-divider">
-                    <p className="dashboard-pagination-note">
-                      Queue approvals here before the change is allowed to go live.
-                    </p>
-                  </div>
-                  <div className="dashboard-view-grid dashboard-view-grid--two">
-                    <label className="dashboard-form-field">
-                      <span>New approval request reason</span>
-                      <input
-                        className="dashboard-input"
-                        value={approvalCreateReason}
-                        onChange={(event) => setApprovalCreateReason(event.target.value)}
-                        placeholder="Policy reviewed for publish."
-                        disabled={!canMutatePolicies || mutationBusy === 'approval-create'}
-                      />
-                    </label>
-                    <label className="dashboard-form-field">
-                      <span>Approval decision reason</span>
-                      <input
-                        className="dashboard-input"
-                        value={approvalDecisionReason}
-                        onChange={(event) => setApprovalDecisionReason(event.target.value)}
-                        placeholder="Reviewed in policy engine."
-                        disabled={!canMutatePolicies}
-                      />
-                    </label>
-                    <label className="dashboard-form-field dashboard-form-field--full">
-                      <span>Approved request for live publish</span>
-                      <select
-                        className="dashboard-input"
-                        value={selectedApprovalId}
-                        onChange={(event) => setSelectedApprovalId(event.target.value)}
-                        disabled={approvalsLoading || approvedApprovals.length === 0}
-                      >
-                        <option value="">No approved request selected</option>
-                        {approvedApprovals.map((approval) => (
-                          <option key={approval.id} value={approval.id}>
-                            {approval.id} ({approval.status})
-                          </option>
+                    {activeModalPolicy.status !== 'PUBLISHED' &&
+                    latestPublishedVersion &&
+                    changedActiveModalRuleReviewRows.length > 0 ? (
+                      <ul className="dashboard-view-list dashboard-policy-view__changes">
+                        {changedActiveModalRuleReviewRows.map((entry) => (
+                          <li key={`${activeModalPolicy.id}:change:${entry.label}`}>
+                            <strong>{entry.label}</strong> {entry.live} {'->'} {entry.next}
+                          </li>
                         ))}
-                      </select>
-                    </label>
-                  </div>
+                      </ul>
+                    ) : null}
+                  </section>
+                </div>
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={closePolicyModal}
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="dashboard-pagination-note">Policy details are unavailable.</p>
+            )
+          ) : null}
 
-                  <div className="dashboard-form-actions">
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                      onClick={closePolicyModal}
-                      disabled={mutationBusy === 'approval-create' || mutationBusy === 'publish'}
-                    >
-                      Close
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void createPublishApproval()}
-                      disabled={
-                        !canMutatePolicies ||
-                        !selectedPolicyId ||
-                        mutationBusy === 'approval-create'
-                      }
-                    >
-                      {mutationBusy === 'approval-create'
-                        ? 'Creating request...'
-                        : 'Create approval request'}
-                    </button>
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button"
-                      onClick={() => void publishSelectedPolicy()}
-                      disabled={
-                        !canMutatePolicies ||
-                        !selectedPolicyId ||
-                        activeModalPolicy.status === 'PUBLISHED' ||
-                        mutationBusy === 'publish' ||
-                        (!approvalsErrorMessage &&
-                          relevantApprovals.length > 0 &&
-                          approvedApprovals.length === 0)
-                      }
-                    >
-                      {mutationBusy === 'publish' ? 'Publishing...' : 'Publish live'}
-                    </button>
-                  </div>
-
-                  {approvalsLoading ? (
-                    <p className="dashboard-pagination-note">Loading live-change approvals...</p>
-                  ) : approvalsErrorMessage ? (
-                    <p className="dashboard-pagination-note">
-                      Approvals unavailable: {approvalsErrorMessage}
-                    </p>
-                  ) : relevantApprovals.length === 0 ? (
-                    <p className="dashboard-pagination-note">
-                      No approval requests are linked to this policy yet.
-                    </p>
-                  ) : (
-                    <ul className="dashboard-view-list">
-                      {relevantApprovals.map((approval) => (
-                        <li key={approval.id}>
-                          <strong>{approval.id}</strong> {approval.status} requested by{' '}
-                          <code>{approval.requestedByUserId}</code> at{' '}
-                          {formatTimestamp(approval.createdAt)}. {approval.reason}
-                          {approval.status === 'PENDING' ? (
-                            <>
-                              {' '}
-                              <button
-                                type="button"
-                                className="dashboard-inline-link"
-                                onClick={() => void approveRequest(approval)}
-                                disabled={
-                                  !canMutatePolicies || mutationBusy === `approve:${approval.id}`
-                                }
-                              >
-                                {mutationBusy === `approve:${approval.id}`
-                                  ? 'Approving...'
-                                  : 'Approve'}
-                              </button>{' '}
-                              <button
-                                type="button"
-                                className="dashboard-inline-link dashboard-inline-link--danger"
-                                onClick={() => void rejectRequest(approval)}
-                                disabled={
-                                  !canMutatePolicies || mutationBusy === `reject:${approval.id}`
-                                }
-                              >
-                                {mutationBusy === `reject:${approval.id}`
-                                  ? 'Rejecting...'
-                                  : 'Reject'}
-                              </button>
-                            </>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
+          {activeModal.kind === 'simulate' ? (
+            activeModalPolicy ? (
+              <>
+                <h2>Simulate policy</h2>
                 <p className="dashboard-pagination-note">
-                  Select a policy before scheduling it live.
+                  Test {activeModalPolicy.name || activeModalPolicy.id} before publishing it.
                 </p>
-              )
-            ) : null}
+                <div className="dashboard-view-grid dashboard-view-grid--two">
+                  <label className="dashboard-form-field">
+                    <span>Action</span>
+                    <select
+                      className="dashboard-input"
+                      value={simulationAction}
+                      onChange={(event) => setSimulationAction(event.target.value)}
+                    >
+                      {POLICY_ACTIONS.map((action) => (
+                        <option key={action} value={action}>
+                          {action}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="dashboard-form-field">
+                    <span>Chain</span>
+                    <select
+                      className="dashboard-input"
+                      value={simulationChain}
+                      onChange={(event) => setSimulationChain(event.target.value)}
+                    >
+                      {POLICY_CHAINS.map((chain) => (
+                        <option key={chain} value={chain}>
+                          {chain}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="dashboard-form-field">
+                    <span>Amount (minor units)</span>
+                    <input
+                      className="dashboard-input"
+                      value={simulationAmountMinor}
+                      onChange={(event) => setSimulationAmountMinor(event.target.value)}
+                      placeholder="10000"
+                    />
+                  </label>
+                  {simulationAction === 'contract_call' ? (
+                    <>
+                      <label className="dashboard-form-field">
+                        <span>Contract address</span>
+                        <input
+                          className="dashboard-input"
+                          value={simulationContractAddress}
+                          onChange={(event) => setSimulationContractAddress(event.target.value)}
+                          placeholder="0x..."
+                        />
+                      </label>
+                      <label className="dashboard-form-field">
+                        <span>Function selector</span>
+                        <input
+                          className="dashboard-input"
+                          value={simulationFunctionSelector}
+                          onChange={(event) => setSimulationFunctionSelector(event.target.value)}
+                          placeholder="transfer(address,uint256) or 0xa9059cbb"
+                        />
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={closePolicyModal}
+                    disabled={simulationBusy}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => void runSimulation()}
+                    disabled={simulationBusy || !selectedPolicyId}
+                  >
+                    {simulationBusy ? 'Simulating...' : 'Run simulation'}
+                  </button>
+                </div>
+                {simulationErrorMessage ? (
+                  <p className="dashboard-pagination-note">{simulationErrorMessage}</p>
+                ) : null}
+                {simulationResult ? (
+                  <p className="dashboard-pagination-note">
+                    Decision {simulationResult.decision} on policy {simulationResult.policyId} v
+                    {simulationResult.policyVersion}. {simulationSummary(simulationResult)}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="dashboard-pagination-note">Select a policy before simulating it.</p>
+            )
+          ) : null}
+
+          {activeModal.kind === 'delete' ? (
+            activeModalPolicy ? (
+              <>
+                <h2>Delete policy</h2>
+                <p className="dashboard-pagination-note">
+                  Delete <strong>{activeModalPolicy.name || activeModalPolicy.id}</strong> and
+                  remove it from the registry. This does not delete wallet activity history.
+                </p>
+                {activeModalPolicy.isSystemDefault ? (
+                  <p className="dashboard-pagination-note">
+                    The organization default policy is protected and cannot be deleted.
+                  </p>
+                ) : null}
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={closePolicyModal}
+                    disabled={mutationBusy === 'delete'}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => void deleteSelectedPolicy()}
+                    disabled={
+                      !canMutatePolicies ||
+                      mutationBusy === 'delete' ||
+                      activeModalPolicy.isSystemDefault
+                    }
+                  >
+                    {mutationBusy === 'delete' ? 'Deleting...' : 'Delete policy'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="dashboard-pagination-note">Policy details are unavailable.</p>
+            )
+          ) : null}
+
+          {activeModal.kind === 'publish' ? (
+            activeModalPolicy ? (
+              <>
+                <h2>Go live review</h2>
+                <p className="dashboard-pagination-note">
+                  Review what will change for this policy in the current dashboard context before
+                  requesting approvals or publishing it live.
+                </p>
+                <section className="dashboard-policy-view__section dashboard-policy-go-live__section">
+                  <div className="dashboard-policy-view__section-header">
+                    <div>
+                      <h3>Release context</h3>
+                      <p className="dashboard-pagination-note">
+                        The policy, scope, and current live baseline for this publish.
+                      </p>
+                    </div>
+                  </div>
+                  <PolicyReviewTable
+                    ariaLabel="Go live review context"
+                    rows={activeModalReviewRows}
+                  />
+                </section>
+                <div className="dashboard-modal-divider">
+                  <div className="dashboard-policy-view__section-header">
+                    <div>
+                      <h3>Change summary</h3>
+                      <p className="dashboard-pagination-note">
+                        {activeModalDraftComparisonSummary}
+                      </p>
+                    </div>
+                  </div>
+                  {policyVersionsLoading ? (
+                    <p className="dashboard-pagination-note">Loading live-rule comparison...</p>
+                  ) : policyVersionsErrorMessage ? (
+                    <p className="dashboard-pagination-note">
+                      Live-rule comparison unavailable: {policyVersionsErrorMessage}
+                    </p>
+                  ) : latestPublishedVersion ? (
+                    changedActiveModalRuleReviewRows.length > 0 ? (
+                      <PolicyRuleComparisonTable
+                        ariaLabel="Go live rule changes"
+                        rows={changedActiveModalRuleReviewRows}
+                        nextColumnLabel="Go live"
+                        showLiveColumn
+                      />
+                    ) : (
+                      <p className="dashboard-pagination-note">
+                        This draft matches the current live rule set. Publishing again will not
+                        change the policy rules.
+                      </p>
+                    )
+                  ) : (
+                    <PolicyRuleComparisonTable
+                      ariaLabel="Initial live rule set"
+                      rows={activeModalRuleReviewRows}
+                      nextColumnLabel="Go live"
+                      showLiveColumn={false}
+                    />
+                  )}
+                </div>
+                <div className="dashboard-modal-divider">
+                  <p className="dashboard-pagination-note">
+                    Queue approvals here before the change is allowed to go live.
+                  </p>
+                </div>
+                <div className="dashboard-view-grid dashboard-view-grid--two">
+                  <label className="dashboard-form-field">
+                    <span>New approval request reason</span>
+                    <input
+                      className="dashboard-input"
+                      value={approvalCreateReason}
+                      onChange={(event) => setApprovalCreateReason(event.target.value)}
+                      placeholder="Policy reviewed for publish."
+                      disabled={!canMutatePolicies || mutationBusy === 'approval-create'}
+                    />
+                  </label>
+                  <label className="dashboard-form-field">
+                    <span>Approval decision reason</span>
+                    <input
+                      className="dashboard-input"
+                      value={approvalDecisionReason}
+                      onChange={(event) => setApprovalDecisionReason(event.target.value)}
+                      placeholder="Reviewed in policy engine."
+                      disabled={!canMutatePolicies}
+                    />
+                  </label>
+                  <label className="dashboard-form-field dashboard-form-field--full">
+                    <span>Approved request for live publish</span>
+                    <select
+                      className="dashboard-input"
+                      value={selectedApprovalId}
+                      onChange={(event) => setSelectedApprovalId(event.target.value)}
+                      disabled={approvalsLoading || approvedApprovals.length === 0}
+                    >
+                      <option value="">No approved request selected</option>
+                      {approvedApprovals.map((approval) => (
+                        <option key={approval.id} value={approval.id}>
+                          {approval.id} ({approval.status})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={closePolicyModal}
+                    disabled={mutationBusy === 'approval-create' || mutationBusy === 'publish'}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => void createPublishApproval()}
+                    disabled={
+                      !canMutatePolicies || !selectedPolicyId || mutationBusy === 'approval-create'
+                    }
+                  >
+                    {mutationBusy === 'approval-create'
+                      ? 'Creating request...'
+                      : 'Create approval request'}
+                  </button>
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button"
+                    onClick={() => void publishSelectedPolicy()}
+                    disabled={
+                      !canMutatePolicies ||
+                      !selectedPolicyId ||
+                      activeModalPolicy.status === 'PUBLISHED' ||
+                      mutationBusy === 'publish' ||
+                      (!approvalsErrorMessage &&
+                        relevantApprovals.length > 0 &&
+                        approvedApprovals.length === 0)
+                    }
+                  >
+                    {mutationBusy === 'publish' ? 'Publishing...' : 'Publish live'}
+                  </button>
+                </div>
+
+                {approvalsLoading ? (
+                  <p className="dashboard-pagination-note">Loading live-change approvals...</p>
+                ) : approvalsErrorMessage ? (
+                  <p className="dashboard-pagination-note">
+                    Approvals unavailable: {approvalsErrorMessage}
+                  </p>
+                ) : relevantApprovals.length === 0 ? (
+                  <p className="dashboard-pagination-note">
+                    No approval requests are linked to this policy yet.
+                  </p>
+                ) : (
+                  <ul className="dashboard-view-list">
+                    {relevantApprovals.map((approval) => (
+                      <li key={approval.id}>
+                        <strong>{approval.id}</strong> {approval.status} requested by{' '}
+                        <code>{approval.requestedByUserId}</code> at{' '}
+                        {formatTimestamp(approval.createdAt)}. {approval.reason}
+                        {approval.id === requestedApprovalId ? ' Opened from audit.' : ''}
+                        {approval.status === 'PENDING' ? (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className="dashboard-inline-link"
+                              onClick={() => void approveRequest(approval)}
+                              disabled={
+                                !canMutatePolicies || mutationBusy === `approve:${approval.id}`
+                              }
+                            >
+                              {mutationBusy === `approve:${approval.id}`
+                                ? 'Approving...'
+                                : 'Approve'}
+                            </button>{' '}
+                            <button
+                              type="button"
+                              className="dashboard-inline-link dashboard-inline-link--danger"
+                              onClick={() => void rejectRequest(approval)}
+                              disabled={
+                                !canMutatePolicies || mutationBusy === `reject:${approval.id}`
+                              }
+                            >
+                              {mutationBusy === `reject:${approval.id}` ? 'Rejecting...' : 'Reject'}
+                            </button>
+                          </>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <p className="dashboard-pagination-note">
+                Select a policy before scheduling it live.
+              </p>
+            )
+          ) : null}
         </DashboardInlineModal>
       ) : null}
     </div>

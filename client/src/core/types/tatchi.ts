@@ -593,8 +593,10 @@ export interface TatchiRelayerConfigInput {
    */
   delegateActionRoute?: string;
   /**
-   * Relative path on the relayer used for smart-account deployment.
-   * Defaults to '/smart-account/deploy'.
+   * Relative path for a custom smart-account deployment endpoint.
+   *
+   * Built-in relay routers do not expose a public smart-account deployment route.
+   * Leave this unset unless your integration intentionally provides one.
    */
   smartAccountDeployRoute?: string;
   /**
@@ -602,7 +604,7 @@ export interface TatchiRelayerConfigInput {
    * - `observe`: stamp checks and continue signing without blocking undeployed accounts.
    * - `enforce`: require successful deploy-on-first-use before signing proceeds.
    *
-   * Defaults to `enforce`.
+   * Defaults to `observe`.
    */
   smartAccountDeploymentMode?: 'observe' | 'enforce';
   /**

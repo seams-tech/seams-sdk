@@ -22,7 +22,7 @@ export interface CloudflareConsoleObservabilityRouteDeps<
   requireConsoleAuth: (
     ctx: TContext,
   ) => Promise<{ ok: true; claims: ConsoleAuthClaims } | { ok: false; response: Response }>;
-  requireObservabilityReadRole: (claims: ConsoleAuthClaims) => Response | null;
+  requireConsoleRoutePolicy: (ctx: TContext, claims: ConsoleAuthClaims) => Response | null;
   requireObservabilityService: (ctx: TContext) => ConsoleObservabilityService | Response;
   toAuditContext: (
     claims: ConsoleAuthClaims,
@@ -41,7 +41,7 @@ export async function handleConsoleObservabilityRoutes<
   const auth = await deps.requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
 
-  const roleRequired = deps.requireObservabilityReadRole(auth.claims);
+  const roleRequired = deps.requireConsoleRoutePolicy(ctx, auth.claims);
   if (roleRequired) return roleRequired;
 
   const observabilityOrResponse = deps.requireObservabilityService(ctx);
@@ -64,8 +64,10 @@ export async function handleConsoleObservabilityRoutes<
       const request = parseListConsoleObservabilityEventsRequest({
         from: ctx.url.searchParams.get('from') || undefined,
         to: ctx.url.searchParams.get('to') || undefined,
+        query: ctx.url.searchParams.get('query') || undefined,
         level: ctx.url.searchParams.get('level') || undefined,
         service: ctx.url.searchParams.get('service') || undefined,
+        component: ctx.url.searchParams.get('component') || undefined,
         eventType: ctx.url.searchParams.get('eventType') || undefined,
         projectId: ctx.url.searchParams.get('projectId') || undefined,
         environmentId: ctx.url.searchParams.get('environmentId') || undefined,

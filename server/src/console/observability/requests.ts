@@ -128,6 +128,9 @@ export function parseListConsoleObservabilityEventsRequest(
     ...(readOptionalQueryString(obj, 'service')
       ? { service: readOptionalQueryString(obj, 'service') }
       : {}),
+    ...(readOptionalQueryString(obj, 'component')
+      ? { component: readOptionalQueryString(obj, 'component') }
+      : {}),
     ...(readOptionalQueryString(obj, 'eventType')
       ? { eventType: readOptionalQueryString(obj, 'eventType') }
       : {}),

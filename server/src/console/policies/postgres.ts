@@ -161,7 +161,6 @@ async function tableExists(q: Queryable, tableName: string): Promise<boolean> {
 interface PolicyReferenceTables {
   approvals: boolean;
   auditEvents: boolean;
-  gasSponsorshipConfigs: boolean;
   smartWalletConfigs: boolean;
   sponsoredCallRecords: boolean;
   sponsorshipSpendCapReservations: boolean;
@@ -190,7 +189,6 @@ async function detectPolicyReferenceTables(q: Queryable): Promise<PolicyReferenc
   const [
     approvals,
     auditEvents,
-    gasSponsorshipConfigs,
     smartWalletConfigs,
     sponsoredCallRecords,
     sponsorshipSpendCapReservations,
@@ -199,7 +197,6 @@ async function detectPolicyReferenceTables(q: Queryable): Promise<PolicyReferenc
   ] = await Promise.all([
     tableExists(q, 'console_approvals'),
     tableExists(q, 'console_audit_events'),
-    tableExists(q, 'console_gas_sponsorship_configs'),
     tableExists(q, 'console_smart_wallet_configs'),
     tableExists(q, 'console_sponsored_call_records'),
     tableExists(q, 'console_sponsorship_spend_cap_reservations'),
@@ -209,7 +206,6 @@ async function detectPolicyReferenceTables(q: Queryable): Promise<PolicyReferenc
   return {
     approvals,
     auditEvents,
-    gasSponsorshipConfigs,
     smartWalletConfigs,
     sponsoredCallRecords,
     sponsorshipSpendCapReservations,
@@ -372,16 +368,6 @@ async function rewritePolicyIdReferences(
   if (tables.smartWalletConfigs) {
     await q.query(
       `UPDATE console_smart_wallet_configs
-          SET policy_id = $4,
-              updated_at_ms = GREATEST(updated_at_ms, $5)
-        WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,
-      [namespace, orgId, sourcePolicyId, targetPolicyId, migratedAtMs],
-    );
-  }
-
-  if (tables.gasSponsorshipConfigs) {
-    await q.query(
-      `UPDATE console_gas_sponsorship_configs
           SET policy_id = $4,
               updated_at_ms = GREATEST(updated_at_ms, $5)
         WHERE namespace = $1 AND org_id = $2 AND policy_id = $3`,

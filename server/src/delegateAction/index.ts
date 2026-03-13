@@ -179,6 +179,7 @@ export async function executeSignedDelegateWithRelayer(params: {
   relayerPrivateKey: string;
   hash: string;
   signedDelegate: CoreSignedDelegate;
+  policy?: DelegateActionPolicy;
   signWithPrivateKey: (input: {
     nearPrivateKey: string;
     signerAccountId: string;
@@ -195,12 +196,14 @@ export async function executeSignedDelegateWithRelayer(params: {
     relayerPrivateKey,
     hash,
     signedDelegate,
+    policy,
     signWithPrivateKey,
   } = params;
 
   try {
     // Basic expiry check (max_block_height) before submitting
     await validateDelegateExpiryAndNonce({ nearClient, signedDelegate });
+    await enforceDelegatePolicy({ hash, signedDelegate, policy });
 
     // Normalize delegateAction shape for the signer worker.
     // Browser SDK currently returns a WasmSignedDelegate where

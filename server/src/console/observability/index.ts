@@ -21,7 +21,10 @@ export type {
   ConsoleObservabilityRequestMetricInput,
   ConsoleObservabilityMetadataRedactionPolicy,
   ConsoleObservabilityWebhookDeadLetterInput,
+  ConsoleObservabilityWebhookRetryExhaustedInput,
+  ConsoleObservabilityWebhookEndpointDegradedInput,
   ConsoleObservabilityBillingFailureInput,
+  ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityApprovalFailureInput,
 } from './types';
 
@@ -84,7 +87,10 @@ export type { NormalizedConsoleObservabilityRequestMetric } from './requestRollu
 
 export {
   buildWebhookDeadLetterObservabilityEvent,
+  buildWebhookRetryExhaustedObservabilityEvent,
+  buildWebhookEndpointDegradedObservabilityEvent,
   buildBillingFailureObservabilityEvent,
+  buildBillingStripeWebhookFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
 } from './adapters';
 

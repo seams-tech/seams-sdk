@@ -181,7 +181,7 @@ const sidebarGroups: SidebarGroup[] = [
     items: [
       {
         key: 'platform-billing',
-        label: 'Platform billing',
+        label: 'Platform Customer Accounts',
         path: '/platform/billing',
         icon: CreditCardIcon,
         component: PlatformBillingPage,

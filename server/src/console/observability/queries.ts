@@ -471,6 +471,7 @@ export async function createPostgresConsoleObservabilityService(
 
     pushEq('level', request.level);
     pushEq('service', request.service);
+    pushEq('component', request.component);
     pushEq('event_type', request.eventType);
     pushEq('project_id', request.projectId);
     pushEq('environment_id', request.environmentId);

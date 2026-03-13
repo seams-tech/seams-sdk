@@ -1,53 +1,31 @@
-import type { Router as ExpressRouter } from 'express';
+import type { Request, Response, Router as ExpressRouter } from 'express';
+import { handleRelaySignedDelegate } from '../../relaySignedDelegate';
+import { findRouteDefinitionById } from '../../routeDefinitions';
+import { sendExpressRouteResponse } from '../../routeResponses';
 import type { ExpressRelayContext } from '../createRelayRouter';
 
 export function registerSignedDelegateRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
 ): void {
-  if (!ctx.signedDelegatePath) return;
+  const route = findRouteDefinitionById(ctx.routeDefinitions, 'signed_delegate');
+  if (!route) return;
 
-  router.options(ctx.signedDelegatePath, (_req: any, res: any) => {
-    res.sendStatus(204);
-  });
-
-  router.post(ctx.signedDelegatePath, async (req: any, res: any) => {
-    try {
-      const { hash, signedDelegate } = req.body || {};
-      if (typeof hash !== 'string' || !hash || !signedDelegate) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Expected { hash, signedDelegate }' });
-        return;
-      }
-
-      const result = await ctx.service.executeSignedDelegate({
-        hash,
-        signedDelegate,
-        policy: ctx.signedDelegatePolicy,
-      });
-
-      if (!result || !result.ok) {
-        res.status(400).json({
-          ok: false,
-          code: result?.code || 'delegate_execution_failed',
-          message: result?.error || 'Failed to execute delegate action',
-        });
-        return;
-      }
-
-      res.status(200).json({
-        ok: true,
-        relayerTxHash: result.transactionHash || null,
-        status: 'submitted',
-        outcome: result.outcome ?? null,
-      });
-    } catch (e: any) {
-      res.status(500).json({
-        ok: false,
-        code: 'internal',
-        message: e?.message || 'Internal error while executing delegate action',
-      });
-    }
+  router.post(route.path, async (req: Request, res: Response) => {
+    const response = await handleRelaySignedDelegate({
+      body: req.body,
+      headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
+      logger: ctx.logger,
+      origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
+      policy: ctx.signedDelegatePolicy,
+      route,
+      services: {
+        authService: ctx.service,
+        billing: ctx.opts.signedDelegate?.billing,
+        publishableKeyAuth: ctx.opts.publishableKeyAuth,
+        sponsoredCalls: ctx.opts.signedDelegate?.ledger,
+      },
+    });
+    sendExpressRouteResponse(res, response);
   });
 }

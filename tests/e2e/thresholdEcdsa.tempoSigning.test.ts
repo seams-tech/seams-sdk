@@ -1286,6 +1286,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               relayerAccount: 'web3-authn-v4.testnet',
               relayer: {
                 url: relayerUrl,
+                smartAccountDeployRoute: '/smart-account/deploy',
                 smartAccountDeploymentMode: 'enforce',
               },
               iframeWallet: {

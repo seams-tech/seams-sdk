@@ -325,6 +325,13 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
   test('runs webhook retry dispatch when lock is acquired and releases lock', async () => {
     let releaseCalled = false;
     let runnerInput: any = null;
+    const observabilityIngestion = {
+      appendEvent: async () => ({ accepted: 1, deduplicated: 0 }),
+      appendEvents: async (_ctx: unknown, events: unknown[]) => ({
+        accepted: events.length,
+        deduplicated: 0,
+      }),
+    };
     const cron = createCloudflareCron({} as any, {
       enabled: true,
       webhookRetryDispatch: {
@@ -337,6 +344,7 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
         initialBackoffMs: 1000,
         maxBackoffMs: 60000,
         ensureSchema: false,
+        observabilityIngestion: observabilityIngestion as any,
         runner: async (input) => {
           runnerInput = input;
           return {
@@ -369,6 +377,7 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
     expect(runnerInput?.initialBackoffMs).toBe(1000);
     expect(runnerInput?.maxBackoffMs).toBe(60000);
     expect(runnerInput?.ensureSchema).toBe(false);
+    expect(runnerInput?.observabilityIngestion).toBe(observabilityIngestion);
     expect(releaseCalled).toBe(true);
   });
 });

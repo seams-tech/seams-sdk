@@ -348,6 +348,19 @@ async function reconcileConsoleScopeClaims(input: {
   }
 }
 
+async function resolveDefaultConsoleOrgId(input: {
+  defaultOrgId: string;
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+}): Promise<string> {
+  const configuredOrgId = String(input.defaultOrgId || '').trim();
+  if (configuredOrgId || !input.orgProjectEnv) return configuredOrgId;
+  try {
+    return String((await input.orgProjectEnv.findDefaultOrganization())?.id || '').trim();
+  } catch {
+    return '';
+  }
+}
+
 const consoleSsoProvisioningLocks = new Map<string, Promise<ConsoleOrgScopedTeamRole[]>>();
 
 async function runConsoleSsoProvisioningWithLock(
@@ -379,6 +392,7 @@ async function ensureConsoleSsoProvisioning(input: {
 }): Promise<ConsoleOrgScopedTeamRole[]> {
   const teamRbac = input.teamRbac;
   if (!teamRbac) return [];
+  if (!String(input.orgId || '').trim()) return [];
 
   const lockKey = `${input.orgId}:${input.userId}`;
   return runConsoleSsoProvisioningWithLock(lockKey, async () => {
@@ -534,12 +548,16 @@ export function createAppSessionConsoleAuthAdapter(
         };
       }
 
+      const resolvedDefaultOrgId = await resolveDefaultConsoleOrgId({
+        defaultOrgId,
+        orgProjectEnv: provisioning?.orgProjectEnv || null,
+      });
       const scopedClaims = await reconcileConsoleScopeClaims({
         orgProjectEnv: provisioning?.orgProjectEnv || null,
         userId,
         claims,
-        defaultOrgId,
-        orgId: String(claims.orgId || '').trim() || defaultOrgId,
+        defaultOrgId: resolvedDefaultOrgId,
+        orgId: String(claims.orgId || '').trim() || resolvedDefaultOrgId,
         projectId: String(claims.projectId || '').trim() || defaultProjectId,
         environmentId: String(claims.environmentId || '').trim() || defaultEnvironmentId,
       });
@@ -549,6 +567,14 @@ export function createAppSessionConsoleAuthAdapter(
       const claimedEmail = readConsoleSsoEmailClaim(claims);
 
       let roles: string[] = [...fallbackRoles];
+      if (provisioning?.teamRbac && !orgId) {
+        return {
+          ok: false,
+          code: 'forbidden',
+          message: 'No console organization available',
+          status: 403,
+        };
+      }
       if (provisioning?.teamRbac) {
         roles = await ensureConsoleSsoProvisioning({
           userId,

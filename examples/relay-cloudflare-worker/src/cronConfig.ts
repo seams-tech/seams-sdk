@@ -1,4 +1,5 @@
 import type { CloudflareCronOptions } from '@tatchi-xyz/sdk/server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@tatchi-xyz/sdk/server/router/express';
 import type { WorkerCronFeatureFlags } from './cronFlags';
 
 export interface WorkerCronConfigEnv {
@@ -48,6 +49,7 @@ export function createWorkerCronOptions(
   env: WorkerCronConfigEnv,
   cronFlags: WorkerCronFeatureFlags,
   runtimeSnapshotOutboxSink: RuntimeSnapshotOutboxSink,
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null,
 ): CloudflareCronOptions {
   return {
     enabled: cronFlags.cronEnabled,
@@ -88,6 +90,7 @@ export function createWorkerCronOptions(
           maxAttempts: parseOptionalPositiveInt(env.WEBHOOK_RETRY_MAX_ATTEMPTS),
           initialBackoffMs: parseOptionalPositiveInt(env.WEBHOOK_RETRY_INITIAL_BACKOFF_MS),
           maxBackoffMs: parseOptionalPositiveInt(env.WEBHOOK_RETRY_MAX_BACKOFF_MS),
+          observabilityIngestion: observabilityIngestion || null,
         }
       : undefined,
   };

@@ -1,5 +1,10 @@
 import { ConsoleApiKeyError } from './errors';
 import {
+  MACHINE_API_KEY_SCOPES,
+  isMachineApiKeyScope,
+  type MachineApiKeyScope,
+} from '../../../../shared/src/console/apiKeyScopes';
+import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,
   requireBodyObject as requireObject,
@@ -11,12 +16,12 @@ import type {
   UpdateConsoleApiKeyRequest,
 } from './types';
 
-function parseScopesOrThrow(raw: unknown): string[] {
+function parseScopesOrThrow(raw: unknown): MachineApiKeyScope[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new ConsoleApiKeyError('invalid_body', 400, 'Field scopes must be a non-empty array');
   }
 
-  const out: string[] = [];
+  const out: MachineApiKeyScope[] = [];
   const seen = new Set<string>();
   for (const valueRaw of raw) {
     const value = String(valueRaw || '').trim();
@@ -25,6 +30,13 @@ function parseScopesOrThrow(raw: unknown): string[] {
         'invalid_body',
         400,
         'Field scopes must contain non-empty strings',
+      );
+    }
+    if (!isMachineApiKeyScope(value)) {
+      throw new ConsoleApiKeyError(
+        'invalid_body',
+        400,
+        `Invalid secret_key scope: ${value}. Allowed scopes: ${MACHINE_API_KEY_SCOPES.join(', ')}`,
       );
     }
     const key = value.toLowerCase();

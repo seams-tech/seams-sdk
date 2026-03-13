@@ -42,6 +42,11 @@ export interface ListConsoleEnvironmentsRequest {
   status?: ConsoleEnvironmentStatus;
 }
 
+export interface SearchConsoleOrganizationsRequest {
+  query: string;
+  limit?: number;
+}
+
 export interface UpsertConsoleOrganizationRequest {
   name?: string;
   slug?: string;

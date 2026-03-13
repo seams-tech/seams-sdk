@@ -1,6 +1,7 @@
 import {
   buildApprovalFailureObservabilityEvent,
   buildBillingFailureObservabilityEvent,
+  buildBillingStripeWebhookFailureObservabilityEvent,
   type ConsoleObservabilityIngestionService,
 } from '../console/observability';
 import type { ConsoleAuthClaims } from './console';
@@ -126,7 +127,7 @@ export async function emitConsoleBillingFailureObservabilityEvent(
   ctx: ConsoleObservabilityHookContext,
   input: {
     claims: ConsoleAuthClaims;
-    operation: 'INVOICE_FINALIZATION';
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
     invoiceId?: string;
     providerRef?: string;
     failureCode: string;
@@ -148,6 +149,75 @@ export async function emitConsoleBillingFailureObservabilityEvent(
   await appendConsoleObservabilityEvent(
     ctx,
     buildConsoleObservabilityIngestContext(input.claims, input.claims.userId),
+    event,
+  );
+}
+
+export function readConsoleStripeWebhookFailureMetadata(raw: unknown): {
+  orgId?: string;
+  stripeEventId?: string;
+  stripeEventType?: string;
+  checkoutSessionId?: string;
+  providerRef?: string;
+  providerCustomerRef?: string;
+} {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const row = raw as Record<string, unknown>;
+  const orgId = normalizeString(row.orgId);
+  const stripeEventId = normalizeString(row.eventId);
+  const stripeEventType = normalizeString(row.eventType);
+  const checkoutSessionId = normalizeString(row.checkoutSessionId);
+  const providerRef = normalizeString(row.providerRef);
+  const providerCustomerRef = normalizeString(row.providerCustomerRef);
+  return {
+    ...(orgId ? { orgId } : {}),
+    ...(stripeEventId ? { stripeEventId } : {}),
+    ...(stripeEventType ? { stripeEventType } : {}),
+    ...(checkoutSessionId ? { checkoutSessionId } : {}),
+    ...(providerRef ? { providerRef } : {}),
+    ...(providerCustomerRef ? { providerCustomerRef } : {}),
+  };
+}
+
+export async function emitConsoleBillingStripeWebhookFailureObservabilityEvent(
+  ctx: ConsoleObservabilityHookContext,
+  input: {
+    orgId: string;
+    actorUserId?: string;
+    eventType:
+      | 'billing.stripe_webhook.invalid_signature'
+      | 'billing.stripe_webhook.processing.failed';
+    stripeEventId?: string;
+    stripeEventType?: string;
+    checkoutSessionId?: string;
+    providerRef?: string;
+    providerCustomerRef?: string;
+    failureCode: string;
+    failureMessage: string;
+    readHeader: (header: string) => string | undefined;
+  },
+): Promise<void> {
+  const orgId = normalizeString(input.orgId);
+  if (!orgId) return;
+  const event = buildBillingStripeWebhookFailureObservabilityEvent({
+    orgId,
+    eventType: input.eventType,
+    ...(input.stripeEventId ? { stripeEventId: input.stripeEventId } : {}),
+    ...(input.stripeEventType ? { stripeEventType: input.stripeEventType } : {}),
+    ...(input.checkoutSessionId ? { checkoutSessionId: input.checkoutSessionId } : {}),
+    ...(input.providerRef ? { providerRef: input.providerRef } : {}),
+    ...(input.providerCustomerRef ? { providerCustomerRef: input.providerCustomerRef } : {}),
+    failureCode: input.failureCode,
+    failureMessage: input.failureMessage,
+    ...readConsoleRequestTraceContext(input.readHeader),
+  });
+  await appendConsoleObservabilityEvent(
+    ctx,
+    {
+      orgId,
+      actorUserId: normalizeString(input.actorUserId) || 'system-stripe-webhook',
+      roles: ['ops'],
+    },
     event,
   );
 }

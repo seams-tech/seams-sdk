@@ -783,9 +783,6 @@ Target `paymentPolicy` fields on `publishable_key`:
 
 - [ ] Lock scope taxonomy for relay-protected actions:
   - `accounts.create`
-  - `accounts.sync`
-  - `webauthn.link`
-  - `sessions.refresh`
 - [ ] Lock onboarding API contracts and response payloads.
 - [ ] Lock credential vocabulary in all public surfaces:
   - `secret_key`

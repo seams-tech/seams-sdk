@@ -407,11 +407,12 @@ This example server also mounts console/admin routes at `/console/*`.
     - `console-admin` (`admin`)
     - `console-operator` (`overview_read`, `wallet_operations_read`, `integrations_read`)
   - Seed controls:
-    - `CONSOLE_DEMO_ORG_ID`
+    - `CONSOLE_DEMO_ORG_ID` (optional explicit org override; otherwise the relay resolves the only persisted org from storage)
     - `CONSOLE_DEMO_PROJECT_ID`
     - `CONSOLE_DEMO_ENVIRONMENT_ID`
     - `CONSOLE_SSO_DEFAULT_ROLES` (optional additional bootstrap roles)
     - `CONSOLE_DEMO_ROLES` (fallback additional bootstrap roles)
+    - `CONSOLE_PLATFORM_ADMIN_EMAILS` (optional CSV allowlist for additive `platform_admin` claims)
   - First-login SSO provisioning behavior:
     - ensures org context exists,
     - bootstraps missing active membership with `owner` + `admin` + configured additional roles,

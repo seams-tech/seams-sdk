@@ -1,47 +1,29 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
-import { isObject, json, readJson } from '../http';
+import { handleRelaySignedDelegate } from '../../relaySignedDelegate';
+import { findRouteDefinitionById } from '../../routeDefinitions';
+import { toFetchRouteResponse } from '../../routeResponses';
+import { readJson } from '../http';
 
 export async function handleSignedDelegate(ctx: CloudflareRelayContext): Promise<Response | null> {
-  if (!ctx.signedDelegatePath || ctx.pathname !== ctx.signedDelegatePath) return null;
-  if (ctx.method !== 'POST') return null;
+  const route = findRouteDefinitionById(ctx.routeDefinitions, 'signed_delegate');
+  if (!route) return null;
+  if (ctx.method !== route.method || ctx.pathname !== route.path) return null;
 
-  const body = await readJson(ctx.request);
-  const valid =
-    isObject(body) &&
-    typeof (body as any).hash === 'string' &&
-    Boolean((body as any).hash) &&
-    Boolean((body as any).signedDelegate);
-  if (!valid) {
-    return json(
-      { ok: false, code: 'invalid_body', message: 'Expected { hash, signedDelegate }' },
-      { status: 400 },
-    );
-  }
-
-  const result = await ctx.service.executeSignedDelegate({
-    hash: String((body as any).hash),
-    signedDelegate: (body as any).signedDelegate,
+  const response = await handleRelaySignedDelegate({
+    body: await readJson(ctx.request),
+    headers: Object.fromEntries(ctx.request.headers.entries()),
+    logger: ctx.logger,
+    origin:
+      String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() ||
+      undefined,
     policy: ctx.signedDelegatePolicy,
-  });
-
-  if (!result || !result.ok) {
-    return json(
-      {
-        ok: false,
-        code: result?.code || 'delegate_execution_failed',
-        message: result?.error || 'Failed to execute delegate action',
-      },
-      { status: 400 },
-    );
-  }
-
-  return json(
-    {
-      ok: true,
-      relayerTxHash: result.transactionHash || null,
-      status: 'submitted',
-      outcome: result.outcome ?? null,
+    route,
+    services: {
+      authService: ctx.service,
+      billing: ctx.opts.signedDelegate?.billing,
+      publishableKeyAuth: ctx.opts.publishableKeyAuth,
+      sponsoredCalls: ctx.opts.signedDelegate?.ledger,
     },
-    { status: 200 },
-  );
+  });
+  return toFetchRouteResponse(response);
 }

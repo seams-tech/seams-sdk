@@ -3992,6 +3992,7 @@ export class AuthService {
           relayerPrivateKey: this.config.relayerPrivateKey,
           hash: input.hash,
           signedDelegate: input.signedDelegate,
+          policy: input.policy,
           signWithPrivateKey: (args) => this.signWithPrivateKey(args),
         }),
       `execute signed delegate for ${senderId}`,

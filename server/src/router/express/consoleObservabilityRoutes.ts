@@ -20,7 +20,12 @@ export interface ExpressConsoleObservabilityRouteDeps<
     res: Response,
     ctx: TContext,
   ) => Promise<ConsoleAuthClaims | null>;
-  requireObservabilityReadRole: (claims: ConsoleAuthClaims, res: Response) => boolean;
+  requireConsoleRoutePolicy: (
+    req: Request,
+    res: Response,
+    ctx: TContext,
+    claims: ConsoleAuthClaims,
+  ) => boolean;
   requireObservabilityService: (
     res: Response,
     ctx: TContext,
@@ -40,7 +45,7 @@ export function registerConsoleObservabilityRoutes<
 ): void {
   router.get('/console/observability/summary', async (req: Request, res: Response) => {
     const claims = await deps.requireConsoleAuth(req, res, ctx);
-    if (!claims || !deps.requireObservabilityReadRole(claims, res)) return;
+    if (!claims || !deps.requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const observability = deps.requireObservabilityService(res, ctx);
     if (!observability) return;
     try {
@@ -54,7 +59,7 @@ export function registerConsoleObservabilityRoutes<
 
   router.get('/console/observability/events', async (req: Request, res: Response) => {
     const claims = await deps.requireConsoleAuth(req, res, ctx);
-    if (!claims || !deps.requireObservabilityReadRole(claims, res)) return;
+    if (!claims || !deps.requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const observability = deps.requireObservabilityService(res, ctx);
     if (!observability) return;
     try {
@@ -74,7 +79,7 @@ export function registerConsoleObservabilityRoutes<
 
   router.get('/console/observability/timeseries', async (req: Request, res: Response) => {
     const claims = await deps.requireConsoleAuth(req, res, ctx);
-    if (!claims || !deps.requireObservabilityReadRole(claims, res)) return;
+    if (!claims || !deps.requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const observability = deps.requireObservabilityService(res, ctx);
     if (!observability) return;
     try {
@@ -92,7 +97,7 @@ export function registerConsoleObservabilityRoutes<
 
   router.get('/console/observability/services', async (req: Request, res: Response) => {
     const claims = await deps.requireConsoleAuth(req, res, ctx);
-    if (!claims || !deps.requireObservabilityReadRole(claims, res)) return;
+    if (!claims || !deps.requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const observability = deps.requireObservabilityService(res, ctx);
     if (!observability) return;
     try {

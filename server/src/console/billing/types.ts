@@ -206,6 +206,8 @@ export interface BillingManualAdjustmentResult {
 
 export interface BillingAccountActivityRequest {
   limit?: number;
+  periodMonthUtc?: string;
+  eventType?: BillingLedgerEntryType;
 }
 
 export interface BillingAccountActivityResult {

@@ -156,6 +156,49 @@ test.describe('console app-session auth adapter', () => {
     });
   });
 
+  test('authenticate resolves default org from storage when there is one persisted organization', async () => {
+    const persistedOrg = {
+      id: 'org_watchbook',
+      name: 'Watchbook',
+      slug: 'watchbook',
+      status: 'ACTIVE' as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    };
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims(),
+        }),
+      }),
+      authService: {
+        validateAppSessionVersion: async () => ({ ok: true }),
+      },
+      fallbackRoles: ['admin'],
+      provisioning: {
+        orgProjectEnv: {
+          findDefaultOrganization: async () => persistedOrg,
+          getOrganization: async () => persistedOrg,
+          findOrganizationForScope: async () => null,
+          listProjects: async () => [],
+          listEnvironments: async () => [],
+        } as any,
+        logger: { warn() {} },
+      },
+    });
+
+    const out = await auth.authenticate({});
+    expect(out).toEqual({
+      ok: true,
+      claims: {
+        orgId: 'org_watchbook',
+        userId: 'oidc:https://accounts.google.com:user-123',
+        roles: ['admin'],
+      },
+    });
+  });
+
   test('authenticate appends platform_admin for allowlisted SSO email', async () => {
     const auth = createAppSessionConsoleAuthAdapter({
       session: makeSessionAdapter({
@@ -461,6 +504,37 @@ test.describe('console app-session auth adapter', () => {
     expect(listMembersCalls).toBe(1);
     expect(auditEvents).toHaveLength(1);
     expect(auditEvents[0]?.action).toBe('member.owner.bootstrap');
+  });
+
+  test('authenticate returns 403 when provisioning cannot resolve an organization from storage', async () => {
+    const auth = createAppSessionConsoleAuthAdapter({
+      session: makeSessionAdapter({
+        parse: async () => ({
+          ok: true,
+          claims: makeAppSessionClaims(),
+        }),
+      }),
+      authService: {
+        validateAppSessionVersion: async () => ({ ok: true }),
+      },
+      provisioning: {
+        bootstrapRoles: ['admin'],
+        orgProjectEnv: {
+          findDefaultOrganization: async () => null,
+          findOrganizationForScope: async () => null,
+        } as any,
+        teamRbac: {} as any,
+        logger: { warn() {} },
+      },
+    });
+
+    const out = await auth.authenticate({});
+    expect(out).toEqual({
+      ok: false,
+      code: 'forbidden',
+      message: 'No console organization available',
+      status: 403,
+    });
   });
 
   test('concurrent provisioning requests for same user/org use one in-flight invite', async () => {

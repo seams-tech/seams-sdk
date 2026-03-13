@@ -5,6 +5,7 @@ import {
   type CfScheduledEvent,
   type RelayCloudflareWorkerEnv,
 } from '@tatchi-xyz/sdk/server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@tatchi-xyz/sdk/server/router/express';
 import { createWorkerCronOptions, type WorkerCronConfigEnv } from './cronConfig';
 import { resolveWorkerCronFeatureFlags } from './cronFlags';
 import { collectWorkerCronConfigIssues } from './cronValidation';
@@ -22,6 +23,14 @@ export interface WorkerRuntimeSnapshotOutboxSink {
 
 export interface WorkerScheduledHandlerDependencies<Env extends WorkerScheduledEnv> {
   createAuthService: (env: Env) => AuthService;
+  createObservabilityIngestion?:
+    | ((
+        env: Env,
+      ) =>
+        | Promise<ConsoleObservabilityIngestionService | null>
+        | ConsoleObservabilityIngestionService
+        | null)
+    | null;
   outboxSink: WorkerRuntimeSnapshotOutboxSink;
   createCron?: typeof createCloudflareCron;
   logger?: {
@@ -40,12 +49,18 @@ export function createWorkerScheduledHandler<Env extends WorkerScheduledEnv>(
   };
   return async (event: CfScheduledEvent, env: Env, ctx: Ctx): Promise<void> => {
     const authService = deps.createAuthService(env);
+    const observabilityIngestion = deps.createObservabilityIngestion
+      ? await deps.createObservabilityIngestion(env)
+      : null;
     const cronFlags = resolveWorkerCronFeatureFlags(env);
     const issues = collectWorkerCronConfigIssues(env, cronFlags);
     for (const issue of issues) {
       logger.warn('[cron][worker-config] configuration issue detected', issue);
     }
-    const cron = createCron(authService, createWorkerCronOptions(env, cronFlags, deps.outboxSink));
+    const cron = createCron(
+      authService,
+      createWorkerCronOptions(env, cronFlags, deps.outboxSink, observabilityIngestion),
+    );
     await cron(event, env, ctx);
   };
 }

@@ -1,11 +1,10 @@
-import { base64UrlEncode } from '@shared/utils/encoders';
-
 const SECRET_PREFIX_BY_KIND = {
   secret_key: 'sk_',
   publishable_key: 'pk_',
 } as const;
 const LOOKUP_PREFIX_LENGTH = 24;
-const SECRET_RANDOM_BYTES = 24;
+const SECRET_BODY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const SECRET_BODY_LENGTH = 32;
 
 function requireCrypto(): Crypto {
   if (!globalThis.crypto?.getRandomValues) {
@@ -41,17 +40,30 @@ export function makeApiKeyId(now: Date): string {
   return `ak_${suffix}`;
 }
 
-function randomNonceB64u(): string {
-  const bytes = new Uint8Array(SECRET_RANDOM_BYTES);
-  requireCrypto().getRandomValues(bytes);
-  return base64UrlEncode(bytes);
+function randomAlphaNumeric(length: number): string {
+  const crypto = requireCrypto();
+  const out: string[] = [];
+  const maxAcceptedValue =
+    Math.floor(256 / SECRET_BODY_ALPHABET.length) * SECRET_BODY_ALPHABET.length;
+
+  while (out.length < length) {
+    const bytes = new Uint8Array(Math.max(16, (length - out.length) * 2));
+    crypto.getRandomValues(bytes);
+    for (const value of bytes) {
+      if (value >= maxAcceptedValue) continue;
+      out.push(SECRET_BODY_ALPHABET[value % SECRET_BODY_ALPHABET.length] || 'a');
+      if (out.length >= length) break;
+    }
+  }
+
+  return out.join('');
 }
 
 export function makeApiKeySecret(input: {
   kind?: 'secret_key' | 'publishable_key';
 }): string {
   const kind = input.kind === 'publishable_key' ? 'publishable_key' : 'secret_key';
-  return `${SECRET_PREFIX_BY_KIND[kind]}${randomNonceB64u()}`;
+  return `${SECRET_PREFIX_BY_KIND[kind]}${randomAlphaNumeric(SECRET_BODY_LENGTH)}`;
 }
 
 export function parseApiKeySecret(
@@ -69,7 +81,7 @@ export function parseApiKeySecret(
   const body = secret.slice(SECRET_PREFIX_BY_KIND[kind].length).trim();
   if (!body) return null;
   if (body.includes('.')) return null;
-  if (!/^[A-Za-z0-9_-]+$/.test(body)) return null;
+  if (!/^[A-Za-z0-9]+$/.test(body)) return null;
   return { kind };
 }
 

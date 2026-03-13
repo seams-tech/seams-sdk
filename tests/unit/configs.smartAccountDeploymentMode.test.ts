@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 
 test.describe('buildConfigsFromEnv smart-account deployment mode defaults', () => {
-  test('defaults to enforce when relayer mode override is omitted', async () => {
+  test('defaults to observe when relayer mode override is omitted', async () => {
     const cfg = buildConfigsFromEnv({
       relayer: { url: 'https://relay.example' },
     });
-    expect(cfg.network.relayer.smartAccountDeployment.mode).toBe('enforce');
+    expect(cfg.network.relayer.smartAccountDeployment.mode).toBe('observe');
   });
 
   test('respects explicit observe override', async () => {

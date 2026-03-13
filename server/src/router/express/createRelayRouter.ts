@@ -2,7 +2,6 @@ import type { Router as ExpressRouter } from 'express';
 import express from 'express';
 import type { AuthService } from '../../core/AuthService';
 import type { DelegateActionPolicy } from '../../delegateAction';
-import { ensureLeadingSlash } from '@shared/utils/validation';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -23,17 +22,19 @@ import { registerAuthRoutes } from './routes/auth';
 import { registerNearPublicKeysRoutes } from './routes/nearPublicKeys';
 import { registerSponsoredEvmCallRoutes } from './routes/sponsoredEvmCall';
 import { registerWellKnownRoutes } from './routes/wellKnown';
-import { registerSmartAccountDeployRoute } from './routes/smartAccountDeploy';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
 import { registerPrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
+import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
+import type { RouteDefinition } from '../routeDefinitions';
 
 export interface ExpressRelayContext {
   service: AuthService;
   opts: RelayRouterOptions;
   logger: NormalizedRouterLogger;
   mePath: string;
+  routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
   signedDelegatePolicy?: DelegateActionPolicy;
 }
@@ -52,13 +53,9 @@ export function createRelayRouter(
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
-  const mePath = effectiveOpts.sessionRoutes?.state || '/session/state';
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  let signedDelegatePath = '';
-  if (effectiveOpts.signedDelegate) {
-    signedDelegatePath =
-      ensureLeadingSlash(effectiveOpts.signedDelegate.route) || '/signed-delegate';
-  }
+  const routeSurface = resolveRelayRouteSurface(effectiveOpts);
+  const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
   const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 
   installCors(router, effectiveOpts);
@@ -68,6 +65,7 @@ export function createRelayRouter(
     opts: effectiveOpts,
     logger,
     mePath,
+    routeDefinitions,
     signedDelegatePath,
     signedDelegatePolicy,
   };
@@ -77,7 +75,6 @@ export function createRelayRouter(
   registerSponsoredEvmCallRoutes(router, ctx);
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);
-  registerSmartAccountDeployRoute(router, ctx);
   registerSyncAccountRoutes(router, ctx);
   registerLinkDeviceRoutes(router, ctx);
   registerEmailRecoveryRoutes(router, ctx);
@@ -95,5 +92,5 @@ export function createRelayRouter(
   registerHealthRoutes(router, ctx);
   registerWellKnownRoutes(router, ctx);
 
-  return router;
+  return attachRelayRouteSurface(router, routeSurface);
 }

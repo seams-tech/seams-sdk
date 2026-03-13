@@ -12,6 +12,7 @@ import {
   type RelayUsageMeterEvent,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
+import type { MachineApiKeyScope } from '@shared/console/apiKeyScopes';
 import { callCf, fetchJson, getPath, makeCfCtx, makeFakeAuthService, startExpressRouter } from './helpers';
 
 const apiKeyCtx = {
@@ -57,7 +58,7 @@ function makeSerializedRegistrationCredential() {
 
 async function createActiveSecret(
   apiKeys: ConsoleApiKeyService,
-  input: { scopes: string[]; ipAllowlist?: string[]; expiresAt?: string },
+  input: { scopes: MachineApiKeyScope[]; ipAllowlist?: string[]; expiresAt?: string },
 ): Promise<{ apiKeyId: string; secret: string }> {
   const created = await apiKeys.createApiKey(apiKeyCtx, {
     kind: 'secret_key',
@@ -101,7 +102,7 @@ test.describe('relay API key auth (express)', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer sk_invalid_secret',
+          Authorization: 'Bearer sk_invalidsecret',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
@@ -141,7 +142,7 @@ test.describe('relay API key auth (express)', () => {
   test('rejects key missing required scope', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const { secret } = await createActiveSecret(apiKeys, {
-      scopes: ['accounts.sync'],
+      scopes: [],
     });
     const router = createRelayRouter(makeRelayService(), {
       apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
@@ -438,7 +439,7 @@ test.describe('relay API key auth (cloudflare)', () => {
     const res = await callCf(handler, {
       method: 'POST',
       path: '/registration/bootstrap',
-      headers: { Authorization: 'Bearer sk_invalid_secret' },
+      headers: { Authorization: 'Bearer sk_invalidsecret' },
       body: makeRegistrationBody(),
       ctx,
     });
@@ -470,7 +471,7 @@ test.describe('relay API key auth (cloudflare)', () => {
   test('rejects key missing required scope', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const { secret } = await createActiveSecret(apiKeys, {
-      scopes: ['accounts.sync'],
+      scopes: [],
     });
     const handler = createCloudflareRouter(makeRelayService(), {
       apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),

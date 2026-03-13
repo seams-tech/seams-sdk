@@ -13,7 +13,7 @@ import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './he
 const authOrgId = 'org-bootstrap-grants';
 const authUserId = 'user-bootstrap-grants';
 const projectId = 'project-bootstrap-grants';
-const environmentId = `${authOrgId}:${projectId}:prod`;
+const environmentId = `${projectId}:prod`;
 const allowedOrigin = 'https://app.example.com';
 
 async function seedEnvironment(input?: { liveEnvironmentsEnabled?: boolean }) {

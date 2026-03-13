@@ -31,6 +31,13 @@ function createParseError(code: string, status: number, message: string): Consol
 
 const BILLING_INVOICE_STATUSES = new Set(['OPEN', 'PAID', 'VOID', 'UNCOLLECTIBLE']);
 const BILLING_DOCUMENT_TYPES = new Set(['PURCHASE_RECEIPT', 'USAGE_STATEMENT']);
+const BILLING_LEDGER_ENTRY_TYPES = new Set([
+  'CREDIT_PURCHASE',
+  'USAGE_DEBIT',
+  'MANUAL_ADJUSTMENT',
+  'REFUND',
+  'REVERSAL',
+]);
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
 const MAX_INVOICE_LIST_LIMIT = 100;
 const DEFAULT_ACCOUNT_ACTIVITY_LIMIT = 25;
@@ -123,8 +130,24 @@ export function parseBillingInvoiceListRequest(query: unknown): BillingInvoiceLi
 export function parseBillingAccountActivityRequest(query: unknown): BillingAccountActivityRequest {
   const obj = requireQuery(query, createParseError);
   const rawLimit = readOptionalQueryPositiveInteger(obj, 'limit', createParseError);
+  const rawPeriodMonthUtc = readOptionalQueryString(obj, 'periodMonthUtc');
+  const rawEventType = readOptionalQueryString(obj, 'eventType');
+  let eventType: BillingAccountActivityRequest['eventType'];
+  if (rawEventType) {
+    const normalized = rawEventType.toUpperCase();
+    if (!BILLING_LEDGER_ENTRY_TYPES.has(normalized)) {
+      throw new ConsoleBillingError(
+        'invalid_query',
+        400,
+        `Query parameter eventType must be one of: ${Array.from(BILLING_LEDGER_ENTRY_TYPES).join(', ')}`,
+      );
+    }
+    eventType = normalized as BillingAccountActivityRequest['eventType'];
+  }
   return {
     limit: normalizeAccountActivityLimit(rawLimit),
+    ...(rawPeriodMonthUtc ? { periodMonthUtc: parseOptionalMonthUtc(rawPeriodMonthUtc) } : {}),
+    ...(eventType ? { eventType } : {}),
   };
 }
 

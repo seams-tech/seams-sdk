@@ -86,6 +86,7 @@ extra requirements and limitations compared to the Express example.
   - `WEBHOOK_RETRY_MAX_ATTEMPTS=<int>` (optional; default `5`)
   - `WEBHOOK_RETRY_INITIAL_BACKOFF_MS=<int>` (optional; default `60000`)
   - `WEBHOOK_RETRY_MAX_BACKOFF_MS=<int>` (optional; default `3600000`)
+  - Webhook retry observability incidents are written through the console observability ingestion schema using the same Postgres URL and namespace chain (`WEBHOOK_RETRY_*` first, then `BILLING_*`).
 
 ### Threshold signing (optional)
 

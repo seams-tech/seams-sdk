@@ -71,7 +71,11 @@ export function BillingAccountView(props: BillingAccountViewProps): React.JSX.El
   return (
     <>
       <BillingContextSummarySection
-        selectedContext={selectedContext}
+        context={{
+          organization: selectedContext.organization || '-',
+          project: selectedContext.project || '-',
+          thirdValue: selectedContext.environment || '-',
+        }}
         title="Billing account"
         description="Billing is organization-scoped. Use prepaid balance for usage and top up credits with one-time checkout."
         ariaLabel="Billing scope and actions"

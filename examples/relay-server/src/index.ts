@@ -172,6 +172,25 @@ function hasConsoleErrorCode(error: unknown, code: string): boolean {
   return String((error as { code?: unknown }).code || '').trim() === code;
 }
 
+async function resolveConsoleDemoOrgId(input: {
+  configuredOrgId: string;
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  logger: Pick<Console, 'warn'>;
+}): Promise<string> {
+  const configuredOrgId = String(input.configuredOrgId || '').trim();
+  if (configuredOrgId) return configuredOrgId;
+  try {
+    return String((await input.orgProjectEnv.findDefaultOrganization())?.id || '').trim();
+  } catch (error: unknown) {
+    input.logger.warn(
+      `[console-demo-seed] failed to resolve persisted organization: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return '';
+  }
+}
+
 async function seedDemoConsoleOrgAndMembers(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService;
   teamRbac: ConsoleTeamRbacService;
@@ -920,7 +939,7 @@ async function main() {
 
   const app: Express = express();
   const consoleDemoSeedEnabled = parseBooleanFlagWithDefault(env.CONSOLE_DEMO_SEED_ENABLED, true);
-  const consoleDemoOrgId = String(env.CONSOLE_DEMO_ORG_ID || 'org-dev').trim() || 'org-dev';
+  const configuredConsoleDemoOrgId = String(env.CONSOLE_DEMO_ORG_ID || '').trim();
   const consoleDemoProjectId =
     String(env.CONSOLE_DEMO_PROJECT_ID || 'proj_console_core').trim() || 'proj_console_core';
   const consoleDemoEnvironmentId =
@@ -966,11 +985,8 @@ async function main() {
   let consoleSponsoredCalls: ConsoleSponsoredCallService;
   let consoleAccount: ConsoleAccountService;
   const consoleCoreNamespace = consoleBillingNamespace;
-  const demoWalletSeeds = buildDemoConsoleWalletSeeds({
-    orgId: consoleDemoOrgId,
-    projectId: consoleDemoProjectId,
-    environmentId: consoleDemoEnvironmentId,
-  });
+  let consoleDemoOrgId = '';
+  let demoWalletSeeds: ConsoleWallet[] = [];
   if (consoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
       throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
@@ -1037,6 +1053,18 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
+    consoleDemoOrgId = await resolveConsoleDemoOrgId({
+      configuredOrgId: configuredConsoleDemoOrgId,
+      orgProjectEnv: consoleOrgProjectEnvBase,
+      logger: console,
+    });
+    demoWalletSeeds = consoleDemoOrgId
+      ? buildDemoConsoleWalletSeeds({
+          orgId: consoleDemoOrgId,
+          projectId: consoleDemoProjectId,
+          environmentId: consoleDemoEnvironmentId,
+        })
+      : [];
     consoleWallets = await createPostgresConsoleWalletService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
@@ -1060,6 +1088,18 @@ async function main() {
     consoleApprovals = createInMemoryConsoleApprovalService();
     consoleRuntimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     consoleTeamRbac = createInMemoryConsoleTeamRbacService();
+    consoleDemoOrgId = await resolveConsoleDemoOrgId({
+      configuredOrgId: configuredConsoleDemoOrgId,
+      orgProjectEnv: consoleOrgProjectEnvBase,
+      logger: console,
+    });
+    demoWalletSeeds = consoleDemoOrgId
+      ? buildDemoConsoleWalletSeeds({
+          orgId: consoleDemoOrgId,
+          projectId: consoleDemoProjectId,
+          environmentId: consoleDemoEnvironmentId,
+        })
+      : [];
     consoleWallets = createInMemoryConsoleWalletService({
       seedWallets: demoWalletSeeds,
     });
@@ -1078,20 +1118,6 @@ async function main() {
     runtimeSnapshots: consoleRuntimeSnapshots,
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
-
-  if (consoleWebhooksBackend === 'postgres') {
-    if (!consolePostgresUrl) {
-      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
-    }
-    consoleWebhooks = await createPostgresConsoleWebhookService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleWebhooksNamespace,
-      logger: console as any,
-      ensureSchema: consoleWebhooksEnsureSchema,
-    });
-  } else {
-    consoleWebhooks = createInMemoryConsoleWebhookService();
-  }
 
   if (consoleObservabilityBackend === 'postgres') {
     if (!consolePostgresUrl) {
@@ -1118,6 +1144,24 @@ async function main() {
   } else {
     consoleObservability = createInMemoryConsoleObservabilityService();
     consoleObservabilityIngestion = null;
+  }
+  if (consoleWebhooksBackend === 'postgres') {
+    if (!consolePostgresUrl) {
+      throw new Error('CONSOLE_WEBHOOKS_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
+    }
+    consoleWebhooks = await createPostgresConsoleWebhookService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleWebhooksNamespace,
+      logger: console as any,
+      ensureSchema: consoleWebhooksEnsureSchema,
+      observabilityIngestion: consoleObservabilityIngestion,
+      observabilityLogger: console as any,
+    } as any);
+  } else {
+    consoleWebhooks = createInMemoryConsoleWebhookService({
+      observabilityIngestion: consoleObservabilityIngestion,
+      observabilityLogger: console as any,
+    } as any);
   }
   const relayApiKeyAuth = relayApiKeyAuthEnabled
     ? createRelayApiKeyAuthAdapter(consoleApiKeys)
@@ -1165,7 +1209,7 @@ async function main() {
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session: jwtSession,
     authService,
-    defaultOrgId: consoleDemoOrgId,
+    ...(consoleDemoOrgId ? { defaultOrgId: consoleDemoOrgId } : {}),
     fallbackRoles: consoleSsoBootstrapRoles,
     platformAdminEmails: env.CONSOLE_PLATFORM_ADMIN_EMAILS,
     provisioning: {
@@ -1177,45 +1221,53 @@ async function main() {
     },
   });
   if (consoleDemoSeedEnabled) {
-    await seedDemoConsoleOrgAndMembers({
-      orgProjectEnv: consoleOrgProjectEnv,
-      teamRbac: consoleTeamRbac,
-      orgId: consoleDemoOrgId,
-      projectId: consoleDemoProjectId,
-      environmentId: consoleDemoEnvironmentId,
-      logger: console,
-    });
-    if (consolePostgresUrl) {
-      await seedDemoConsoleWalletsInPostgres({
-        postgresUrl: consolePostgresUrl,
-        namespace: consoleCoreNamespace,
-        wallets: demoWalletSeeds,
+    if (!consoleDemoOrgId) {
+      console.warn(
+        '[console-demo-seed] skipped: CONSOLE_DEMO_ORG_ID is unset and storage does not contain exactly one organization',
+      );
+    } else {
+      await seedDemoConsoleOrgAndMembers({
+        orgProjectEnv: consoleOrgProjectEnv,
+        teamRbac: consoleTeamRbac,
+        orgId: consoleDemoOrgId,
+        projectId: consoleDemoProjectId,
+        environmentId: consoleDemoEnvironmentId,
+        logger: console,
+      });
+      if (consolePostgresUrl) {
+        await seedDemoConsoleWalletsInPostgres({
+          postgresUrl: consolePostgresUrl,
+          namespace: consoleCoreNamespace,
+          wallets: demoWalletSeeds,
+          logger: console,
+        });
+      }
+      await seedDemoConsolePoliciesAndApprovals({
+        policies: consolePolicies,
+        approvals: consoleApprovals,
+        orgId: consoleDemoOrgId,
+        projectId: consoleDemoProjectId,
+        environmentId: consoleDemoEnvironmentId,
+        walletIds: demoWalletSeeds.map((wallet) => wallet.id),
         logger: console,
       });
     }
-    await seedDemoConsolePoliciesAndApprovals({
+  }
+  if (consoleDemoOrgId) {
+    await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+      orgProjectEnv: consoleOrgProjectEnv,
       policies: consolePolicies,
-      approvals: consoleApprovals,
-      orgId: consoleDemoOrgId,
-      projectId: consoleDemoProjectId,
-      environmentId: consoleDemoEnvironmentId,
-      walletIds: demoWalletSeeds.map((wallet) => wallet.id),
-      logger: console,
+      runtimeSnapshots: consoleRuntimeSnapshots,
+      ctx: {
+        orgId: consoleDemoOrgId,
+        actorUserId: 'tempo-onboarding-seed',
+        roles: ['owner', 'admin'],
+        projectId: consoleDemoProjectId,
+        environmentId: consoleDemoEnvironmentId,
+      },
+      faucetContractAddress: normalizedOnboardingContractAddress,
     });
   }
-  await ensureTempoOnboardingSponsorshipForExistingEnvironments({
-    orgProjectEnv: consoleOrgProjectEnv,
-    policies: consolePolicies,
-    runtimeSnapshots: consoleRuntimeSnapshots,
-    ctx: {
-      orgId: consoleDemoOrgId,
-      actorUserId: 'tempo-onboarding-seed',
-      roles: ['owner', 'admin'],
-      projectId: consoleDemoProjectId,
-      environmentId: consoleDemoEnvironmentId,
-    },
-    faucetContractAddress: normalizedOnboardingContractAddress,
-  });
 
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
@@ -1321,7 +1373,7 @@ async function main() {
       `Console session auth: app_session_v1 cookie/JWT (bootstrap roles: ${consoleSsoBootstrapRoles.join(', ') || 'none'})`,
     );
     console.log(
-      `Console demo seed: ${consoleDemoSeedEnabled ? 'enabled' : 'disabled'} (org=${consoleDemoOrgId})`,
+      `Console demo seed: ${consoleDemoSeedEnabled ? 'enabled' : 'disabled'} (org=${consoleDemoOrgId || 'unresolved'})`,
     );
     console.log(
       `Console Stripe provider mode: ${stripeApiSecretKey ? 'live_api' : 'mock'}${

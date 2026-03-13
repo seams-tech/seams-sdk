@@ -147,7 +147,9 @@ import { authenticateConsoleRequest, hasConsoleRole } from '../console';
 import {
   emitConsoleApprovalFailureObservabilityEvent,
   emitConsoleBillingFailureObservabilityEvent,
+  emitConsoleBillingStripeWebhookFailureObservabilityEvent,
   observeConsoleRequestMetric,
+  readConsoleStripeWebhookFailureMetadata,
 } from '../consoleObservabilityHooks';
 import {
   buildConsoleContextSwitchSessionClaims,
@@ -165,16 +167,35 @@ import {
   projectConsolePolicyPresentation,
   resolveConsolePolicyPresentation,
 } from '../policyPresentation';
+import {
+  buildConsoleBillingInvoiceGeneratedAuditEvent,
+  buildConsoleBillingCreditPurchaseSettledAuditEvent,
+  buildConsolePolicyAssignmentAuditEvent,
+  buildConsolePolicyAuditEvent,
+  buildConsoleWebhookEndpointAuditEvent,
+  buildConsoleWebhookReplayAuditEvent,
+} from '../consoleAuditMetadata';
+import {
+  parsePlatformBillingLookupRequest,
+  parsePlatformBillingSearchRequest,
+  parsePlatformBillingManualAdjustmentRequest,
+  resolvePlatformBillingLookup,
+  searchPlatformBillingOrganizations,
+} from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 import type { SessionAdapter } from '../relay';
+import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
+import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
+import type { RouteDefinition } from '../routeDefinitions';
 import { registerConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
 
 export interface ExpressConsoleContext {
   opts: ConsoleRouterOptions;
   logger: NormalizedRouterLogger;
+  routeDefinitions: readonly RouteDefinition[];
   billing: ConsoleBillingService | null;
   orgProjectEnv: ConsoleOrgProjectEnvService | null;
   wallets: ConsoleWalletService | null;
@@ -291,7 +312,7 @@ async function emitBillingFailureObservabilityEvent(
   req: Request,
   claims: ConsoleAuthClaims,
   input: {
-    operation: 'INVOICE_FINALIZATION';
+    operation: 'INVOICE_FINALIZATION' | 'PAYMENT_RECONCILE';
     invoiceId?: string;
     providerRef?: string;
     error: unknown;
@@ -304,6 +325,35 @@ async function emitBillingFailureObservabilityEvent(
     ...(input.providerRef ? { providerRef: input.providerRef } : {}),
     failureCode: isConsoleBillingError(input.error) ? input.error.code : 'internal',
     failureMessage: input.error instanceof Error ? input.error.message : String(input.error),
+    readHeader: (header) => readOptionalExpressHeader(req, header),
+  });
+}
+
+async function emitStripeWebhookFailureObservabilityEvent(
+  ctx: ExpressConsoleContext,
+  req: Request,
+  input: {
+    rawBody: unknown;
+    eventType:
+      | 'billing.stripe_webhook.invalid_signature'
+      | 'billing.stripe_webhook.processing.failed';
+    failureCode: string;
+    failureMessage: string;
+  },
+): Promise<void> {
+  const metadata = readConsoleStripeWebhookFailureMetadata(input.rawBody);
+  if (!metadata.orgId) return;
+  await emitConsoleBillingStripeWebhookFailureObservabilityEvent(ctx, {
+    orgId: metadata.orgId,
+    actorUserId: 'system-stripe-webhook',
+    eventType: input.eventType,
+    ...(metadata.stripeEventId ? { stripeEventId: metadata.stripeEventId } : {}),
+    ...(metadata.stripeEventType ? { stripeEventType: metadata.stripeEventType } : {}),
+    ...(metadata.checkoutSessionId ? { checkoutSessionId: metadata.checkoutSessionId } : {}),
+    ...(metadata.providerRef ? { providerRef: metadata.providerRef } : {}),
+    ...(metadata.providerCustomerRef ? { providerCustomerRef: metadata.providerCustomerRef } : {}),
+    failureCode: input.failureCode,
+    failureMessage: input.failureMessage,
     readHeader: (header) => readOptionalExpressHeader(req, header),
   });
 }
@@ -1301,156 +1351,27 @@ function readPathParam(req: Request, key: string): string {
   return String((req as any)?.params?.[key] || '').trim();
 }
 
-function requireInvoiceGenerationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or ops can generate monthly invoices',
-  });
-  return false;
+function readRoutePattern(req: Request): string {
+  const routePath = (req as any)?.route?.path;
+  if (typeof routePath === 'string' && routePath.trim()) return routePath;
+  return String((req as any)?.path || '').trim();
 }
 
-function requirePlatformBillingAdjustmentRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'platform_admin')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only platform_admin can append manual billing adjustments',
+function requireConsoleRoutePolicy(
+  req: Request,
+  res: Response,
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+): RouteDefinition | null {
+  const authz = authorizeConsoleRouteRequest({
+    claims,
+    definitions: ctx.routeDefinitions,
+    method: String((req as any)?.method || '').trim().toUpperCase(),
+    pathname: readRoutePattern(req),
   });
-  return false;
-}
-
-function requireOrgProjectEnvMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or owner can mutate projects and environments',
-  });
-  return false;
-}
-
-function requireOnboardingTelemetryRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'ops')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or ops can view onboarding telemetry',
-  });
-  return false;
-}
-
-function requireObservabilityReadRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin') ||
-    hasConsoleRole(claims, 'ops') ||
-    hasConsoleRole(claims, 'support')
-  ) {
-    return true;
-  }
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner, admin, security_admin, ops, or support can view observability',
-  });
-  return false;
-}
-
-function requireApiKeyMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return true;
-  }
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner, admin, or security_admin can mutate API keys',
-  });
-  return false;
-}
-
-function requireTeamRbacMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin') || hasConsoleRole(claims, 'owner')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin or owner can mutate org member roles',
-  });
-  return false;
-}
-
-function requireApprovalMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return true;
-  }
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner, admin, or security_admin can mutate approval queue requests',
-  });
-  return false;
-}
-
-function requirePolicyMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return true;
-  }
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner, admin, or security_admin can mutate policies',
-  });
-  return false;
-}
-
-function requireConsoleConfigMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (
-    hasConsoleRole(claims, 'owner') ||
-    hasConsoleRole(claims, 'admin') ||
-    hasConsoleRole(claims, 'security_admin')
-  ) {
-    return true;
-  }
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner, admin, or security_admin can mutate console configuration',
-  });
-  return false;
-}
-
-function requireEnterpriseIsolationMutationRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'owner') || hasConsoleRole(claims, 'admin')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only owner or admin can trigger enterprise isolation',
-  });
-  return false;
-}
-
-function requireKeyExportApprovalRole(claims: ConsoleAuthClaims, res: Response): boolean {
-  if (hasConsoleRole(claims, 'admin')) return true;
-  res.status(403).json({
-    ok: false,
-    code: 'forbidden',
-    message: 'Only admin can approve key export requests',
-  });
-  return false;
+  if (authz.ok) return authz.route;
+  res.status(authz.status).json(authz.body);
+  return null;
 }
 
 async function requireActiveApiKeyEnvironmentForCreate(
@@ -1570,6 +1491,8 @@ async function emitConsoleAuditEvent(
     action: string;
     summary: string;
     outcome?: 'SUCCESS' | 'FAILURE' | 'PENDING';
+    actorUserId?: string;
+    actorType?: 'USER' | 'SYSTEM';
     projectId?: string;
     environmentId?: string;
     metadata?: Record<string, unknown>;
@@ -1582,6 +1505,8 @@ async function emitConsoleAuditEvent(
       action: input.action,
       outcome: input.outcome || 'SUCCESS',
       summary: input.summary,
+      ...(input.actorUserId ? { actorUserId: input.actorUserId } : {}),
+      ...(input.actorType ? { actorType: input.actorType } : {}),
       ...(input.projectId ? { projectId: input.projectId } : {}),
       ...(input.environmentId ? { environmentId: input.environmentId } : {}),
       ...(input.metadata ? { metadata: input.metadata } : {}),
@@ -1589,7 +1514,7 @@ async function emitConsoleAuditEvent(
   } catch (error: unknown) {
     ctx.logger.warn('[console][audit] failed to append audit event', {
       orgId: claims.orgId,
-      userId: claims.userId,
+      userId: input.actorUserId || claims.userId,
       category: input.category,
       action: input.action,
       message: error instanceof Error ? error.message : String(error),
@@ -1643,6 +1568,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/account/profile', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     try {
@@ -1656,6 +1583,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.patch('/console/account/profile', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     try {
@@ -1670,6 +1599,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/account/organizations', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     try {
@@ -1683,6 +1614,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.post('/console/account/organizations', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     try {
@@ -1708,6 +1641,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.patch('/console/account/organizations/:orgId', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     const orgId = readPathParam(req, 'orgId');
@@ -1742,6 +1677,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.delete('/console/account/organizations/:orgId', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const account = requireAccountService(res, ctx);
     if (!account) return;
     const orgId = readPathParam(req, 'orgId');
@@ -1771,6 +1708,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
       if (!claims) return;
+      const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+      if (!routePolicy) return;
       const account = requireAccountService(res, ctx);
       if (!account) return;
       const orgId = readPathParam(req, 'orgId');
@@ -1812,6 +1751,8 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
       if (!claims) return;
+      const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+      if (!routePolicy) return;
       const account = requireAccountService(res, ctx);
       if (!account) return;
       const session = requireSessionAdapter(res, ctx);
@@ -1870,7 +1811,9 @@ function registerConsoleOnboardingRoutes(router: ExpressRouter, ctx: ExpressCons
 
   router.get('/console/onboarding/telemetry', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireOnboardingTelemetryRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const onboarding = requireOnboardingService(res, ctx);
     if (!onboarding) return;
     try {
@@ -1887,7 +1830,9 @@ function registerConsoleOnboardingRoutes(router: ExpressRouter, ctx: ExpressCons
 
   router.post('/console/onboarding/organization', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireOrgProjectEnvMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const onboarding = requireOnboardingService(res, ctx);
     if (!onboarding) return;
     try {
@@ -1930,7 +1875,9 @@ function registerConsoleOnboardingRoutes(router: ExpressRouter, ctx: ExpressCons
 
   router.post('/console/onboarding/project', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireOrgProjectEnvMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const onboarding = requireOnboardingService(res, ctx);
     if (!onboarding) return;
     try {
@@ -1977,6 +1924,8 @@ function registerConsoleOpsCockpitRoutes(router: ExpressRouter, ctx: ExpressCons
   router.get('/console/ops-cockpit/summary', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     try {
       const telemetryRequest = parseGetConsoleOnboardingTelemetryRequest((req as any).query || {});
       const summary = await buildConsoleOpsCockpitSummary({
@@ -2033,7 +1982,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.post('/console/projects', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     try {
@@ -2061,7 +2011,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.patch('/console/projects/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     const projectId = readPathParam(req, 'id');
@@ -2093,7 +2044,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.post('/console/projects/:id/archive', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     const projectId = readPathParam(req, 'id');
@@ -2137,7 +2089,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.post('/console/environments', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     try {
@@ -2173,7 +2126,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.patch('/console/environments/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     const environmentId = readPathParam(req, 'id');
@@ -2205,7 +2159,8 @@ function registerConsoleOrgProjectEnvRoutes(
   router.post('/console/environments/:id/archive', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    if (!requireOrgProjectEnvMutationRole(claims, res)) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
     if (!orgProjectEnv) return;
     const environmentId = readPathParam(req, 'id');
@@ -2250,7 +2205,9 @@ function registerConsoleTeamRbacRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.post('/console/members/invite', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const teamRbac = requireTeamRbacService(res, ctx);
     if (!teamRbac) return;
     try {
@@ -2264,7 +2221,9 @@ function registerConsoleTeamRbacRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.patch('/console/members/:id/roles', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const teamRbac = requireTeamRbacService(res, ctx);
     if (!teamRbac) return;
     const memberId = readPathParam(req, 'id');
@@ -2291,7 +2250,9 @@ function registerConsoleTeamRbacRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.delete('/console/members/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireTeamRbacMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const teamRbac = requireTeamRbacService(res, ctx);
     if (!teamRbac) return;
     const memberId = readPathParam(req, 'id');
@@ -2361,7 +2322,9 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.post('/console/approvals', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const approvals = requireApprovalService(res, ctx);
     if (!approvals) return;
     try {
@@ -2423,7 +2386,9 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.post('/console/approvals/:id/approve', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const approvals = requireApprovalService(res, ctx);
     if (!approvals) return;
     const approvalId = readPathParam(req, 'id');
@@ -2493,7 +2458,9 @@ function registerConsoleApprovalRoutes(router: ExpressRouter, ctx: ExpressConsol
 
   router.post('/console/approvals/:id/reject', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApprovalMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const approvals = requireApprovalService(res, ctx);
     if (!approvals) return;
     const approvalId = readPathParam(req, 'id');
@@ -2632,7 +2599,9 @@ function registerConsoleAuditExportRoutes(router: ExpressRouter, ctx: ExpressCon
 
   router.post('/console/audit/exports', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireEnterpriseIsolationMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const auditExports = requireAuditExportsService(res, ctx);
     if (!auditExports) return;
     try {
@@ -2668,7 +2637,9 @@ function registerConsoleEnterpriseIsolationRoutes(
 
   router.post('/console/isolation/trigger', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireEnterpriseIsolationMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const enterpriseIsolation = requireEnterpriseIsolationService(res, ctx);
     if (!enterpriseIsolation) return;
     try {
@@ -2816,12 +2787,27 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/policies', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     try {
       const request = parseCreateConsolePolicyRequest((req as any).body || {});
       const policy = await policies.createPolicy(toBillingContext(claims), request);
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.create',
+        policy,
+        assignment: request.assignment,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.create',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       res.status(201).json({ ok: true, policy });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2830,12 +2816,28 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.put('/console/policies/assignments', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     try {
       const request = parseUpsertConsolePolicyAssignmentRequest((req as any).body || {});
       const assignment = await policies.upsertAssignment(toBillingContext(claims), request);
+      const policy = await policies.getPolicy(toBillingContext(claims), assignment.policyId);
+      const auditEvent = buildConsolePolicyAssignmentAuditEvent({
+        action: 'policy.assignment.upsert',
+        assignment,
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.assignment.upsert',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, assignment });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2844,7 +2846,9 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.delete('/console/policies/assignments/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     const assignmentId = readPathParam(req, 'id');
@@ -2862,6 +2866,20 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      const policy = await policies.getPolicy(toBillingContext(claims), out.assignment.policyId);
+      const auditEvent = buildConsolePolicyAssignmentAuditEvent({
+        action: 'policy.assignment.delete',
+        assignment: out.assignment,
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.assignment.delete',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, removed: true, assignment: out.assignment });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2870,7 +2888,9 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.patch('/console/policies/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     const policyId = readPathParam(req, 'id');
@@ -2889,6 +2909,18 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.update',
+        policy,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.update',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, policy });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2897,7 +2929,9 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.delete('/console/policies/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     const policyId = readPathParam(req, 'id');
@@ -2915,6 +2949,18 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.delete',
+        policy: result.policy,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'POLICY',
+        action: 'policy.delete',
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, removed: true, policy: result.policy });
     } catch (error: unknown) {
       sendPolicyError(res, error);
@@ -2923,7 +2969,9 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/policies/:id/publish', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePolicyMutationRole(claims, res)) return;
+    if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     const policyId = readPathParam(req, 'id');
@@ -2954,16 +3002,20 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
         });
         return;
       }
+      const auditEvent = buildConsolePolicyAuditEvent({
+        action: 'policy.publish',
+        policy: result.policy,
+        extraMetadata: {
+          published: result.published,
+        },
+      });
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'POLICY',
         action: 'policy.publish',
-        summary: `Published policy ${policyId}`,
-        metadata: {
-          policyId,
-          policyKind: result.policy.kind,
-          version: result.policy.version,
-          status: result.policy.status,
-        },
+        summary: auditEvent.summary,
+        ...(auditEvent.projectId ? { projectId: auditEvent.projectId } : {}),
+        ...(auditEvent.environmentId ? { environmentId: auditEvent.environmentId } : {}),
+        metadata: auditEvent.metadata,
       });
       res.status(200).json({ ok: true, result });
     } catch (error: unknown) {
@@ -2981,6 +3033,8 @@ function registerConsolePolicyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
   router.post('/console/policies/:id/simulate', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
+    if (!routePolicy) return;
     const policies = requirePolicyService(res, ctx);
     if (!policies) return;
     const policyId = readPathParam(req, 'id');
@@ -3069,19 +3123,19 @@ function registerConsoleInsightsRoutes(router: ExpressRouter, ctx: ExpressConsol
   router.get('/console/export/governance', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const apiKeys = requireApiKeyService(res, ctx);
-    if (!apiKeys) return;
+    const keyExports = requireKeyExportService(res, ctx);
+    if (!keyExports) return;
     const environmentIdRaw = String((req as any)?.query?.environmentId || '').trim();
     const environmentIdFilter = environmentIdRaw || claims.environmentId || undefined;
     try {
       const governance = await buildConsoleExportGovernanceView({
-        apiKeys,
-        apiKeyCtx: toBillingContext(claims),
+        keyExports,
+        keyExportCtx: toBillingContext(claims),
         environmentIdFilter,
       });
       res.status(200).json({ ok: true, governance });
     } catch (error: unknown) {
-      sendApiKeyError(res, error);
+      sendKeyExportError(res, error);
     }
   });
 }
@@ -3103,7 +3157,8 @@ function registerConsoleSmartWalletRoutes(router: ExpressRouter, ctx: ExpressCon
 
   router.post('/console/smart-wallets', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const smartWallets = requireSmartWalletService(res, ctx);
     if (!smartWallets) return;
     try {
@@ -3117,7 +3172,8 @@ function registerConsoleSmartWalletRoutes(router: ExpressRouter, ctx: ExpressCon
 
   router.patch('/console/smart-wallets/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const smartWallets = requireSmartWalletService(res, ctx);
     if (!smartWallets) return;
     const configId = readPathParam(req, 'id');
@@ -3163,6 +3219,7 @@ function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConso
   router.post('/console/key-exports', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const keyExports = requireKeyExportService(res, ctx);
     if (!keyExports) return;
     try {
@@ -3176,7 +3233,8 @@ function registerConsoleKeyExportRoutes(router: ExpressRouter, ctx: ExpressConso
 
   router.post('/console/key-exports/:id/approve', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireKeyExportApprovalRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const keyExports = requireKeyExportService(res, ctx);
     if (!keyExports) return;
     const exportId = readPathParam(req, 'id');
@@ -3263,7 +3321,8 @@ function registerConsoleRuntimeSnapshotRoutes(
 
   router.post('/console/runtime-snapshots/publish', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
     if (!runtimeSnapshots) return;
     try {
@@ -3277,7 +3336,8 @@ function registerConsoleRuntimeSnapshotRoutes(
 
   router.post('/console/runtime-snapshots/publish-current', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireConsoleConfigMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const runtimeSnapshots = requireRuntimeSnapshotService(res, ctx);
     if (!runtimeSnapshots) return;
     try {
@@ -3318,7 +3378,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/api-keys', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     try {
@@ -3360,7 +3421,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.delete('/console/api-keys/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -3398,7 +3460,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.delete('/console/api-keys/:id/purge', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -3435,7 +3498,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.patch('/console/api-keys/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -3477,7 +3541,8 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
 
   router.post('/console/api-keys/:id/rotate', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireApiKeyMutationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     const apiKeyId = readPathParam(req, 'id');
@@ -3535,11 +3600,22 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.post('/console/webhooks', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     try {
       const request = parseCreateConsoleWebhookEndpointRequest((req as any).body);
       const endpoint = await webhooks.createEndpoint(toBillingContext(claims), request);
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.create',
+        endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.create',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       res.status(201).json({ ok: true, endpoint });
     } catch (error: unknown) {
       sendWebhookError(res, error);
@@ -3549,6 +3625,7 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.patch('/console/webhooks/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
@@ -3569,6 +3646,16 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
         });
         return;
       }
+      const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+        action: 'webhook.endpoint.update',
+        endpoint,
+      });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'WEBHOOK',
+        action: 'webhook.endpoint.update',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, endpoint });
     } catch (error: unknown) {
       sendWebhookError(res, error);
@@ -3578,6 +3665,7 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.delete('/console/webhooks/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
@@ -3596,6 +3684,18 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
           message: `Webhook endpoint ${endpointId} was not found`,
         });
         return;
+      }
+      if (out.endpoint) {
+        const auditEvent = buildConsoleWebhookEndpointAuditEvent({
+          action: 'webhook.endpoint.delete',
+          endpoint: out.endpoint,
+        });
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'WEBHOOK',
+          action: 'webhook.endpoint.delete',
+          summary: auditEvent.summary,
+          metadata: auditEvent.metadata,
+        });
       }
       res.status(200).json({ ok: true, removed: true });
     } catch (error: unknown) {
@@ -3681,6 +3781,7 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.post('/console/webhooks/:id/replay', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     const endpointId = readPathParam(req, 'id');
@@ -3717,6 +3818,19 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
         });
         return;
       }
+      if (replay.delivery) {
+        const auditEvent = buildConsoleWebhookReplayAuditEvent({
+          endpointId,
+          delivery: replay.delivery,
+          requestedDeliveryId: request.deliveryId,
+        });
+        await emitConsoleAuditEvent(ctx, claims, {
+          category: 'WEBHOOK',
+          action: 'webhook.delivery.replay_requested',
+          summary: auditEvent.summary,
+          metadata: auditEvent.metadata,
+        });
+      }
       res.status(200).json({ ok: true, replay });
     } catch (error: unknown) {
       sendWebhookError(res, error);
@@ -3726,11 +3840,22 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
 
 function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsoleContext): void {
   router.post('/console/billing/stripe/webhook', async (req: Request, res: Response) => {
-    if (!requireStripeWebhookSecret(req, res, ctx)) return;
+    const rawBody = (req as any).body;
+    if (!requireStripeWebhookSecret(req, res, ctx)) {
+      if (Number((res as any).statusCode || 0) === 401) {
+        await emitStripeWebhookFailureObservabilityEvent(ctx, req, {
+          rawBody,
+          eventType: 'billing.stripe_webhook.invalid_signature',
+          failureCode: 'invalid_signature',
+          failureMessage: 'Invalid Stripe webhook secret',
+        });
+      }
+      return;
+    }
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
-      const request = parseStripeWebhookEventRequest((req as any).body);
+      const request = parseStripeWebhookEventRequest(rawBody);
       const result = await billing.processStripeWebhookEvent(request);
       if (result.accepted && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
@@ -3746,9 +3871,37 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
             source: 'stripe_webhook',
           },
         });
+        const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
+          purchase: result.purchase,
+          invoice: result.invoice,
+          source: 'stripe_webhook',
+          settlementEventId: request.eventId,
+        });
+        await emitConsoleAuditEvent(
+          ctx,
+          {
+            orgId: result.orgId,
+            userId: 'system-stripe-webhook',
+            roles: ['ops'],
+          },
+          {
+            category: 'BILLING',
+            action: 'billing.credit_purchase.settled',
+            summary: auditEvent.summary,
+            actorUserId: 'system-stripe-webhook',
+            actorType: 'SYSTEM',
+            metadata: auditEvent.metadata,
+          },
+        );
       }
       res.status(200).json({ ok: true, ...result });
     } catch (error: unknown) {
+      await emitStripeWebhookFailureObservabilityEvent(ctx, req, {
+        rawBody,
+        eventType: 'billing.stripe_webhook.processing.failed',
+        failureCode: isConsoleBillingError(error) ? error.code : 'internal',
+        failureMessage: error instanceof Error ? error.message : String(error),
+      });
       sendBillingError(res, error);
     }
   });
@@ -3780,6 +3933,49 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
+  router.get('/console/platform/billing/search', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const organizations = await searchPlatformBillingOrganizations({
+        orgProjectEnv,
+        request: parsePlatformBillingSearchRequest((req as any).query),
+      });
+      res.status(200).json({ ok: true, organizations });
+    } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.get('/console/platform/billing/account', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+    if (!orgProjectEnv) return;
+    try {
+      const request = parsePlatformBillingLookupRequest((req as any).query);
+      const result = await resolvePlatformBillingLookup({
+        claims,
+        billing,
+        orgProjectEnv,
+        request,
+      });
+      res.status(200).json({ ok: true, result });
+    } catch (error: unknown) {
+      if (isConsoleOrgProjectEnvError(error)) {
+        sendOrgProjectEnvError(res, error);
+        return;
+      }
+      sendBillingError(res, error);
+    }
+  });
+
   router.get(
     '/console/billing/usage/monthly-active-wallets',
     async (req: Request, res: Response) => {
@@ -3801,6 +3997,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.post('/console/billing/usage/events', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -3814,7 +4011,8 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
 
   router.post('/console/billing/invoices/generate', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requireInvoiceGenerationRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     let invoiceScopeId = 'monthly:unknown';
@@ -3835,6 +4033,13 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           lineItemCount: generation.lineItems.length,
         },
       });
+      const auditEvent = buildConsoleBillingInvoiceGeneratedAuditEvent({ generation });
+      await emitConsoleAuditEvent(ctx, claims, {
+        category: 'BILLING',
+        action: 'billing.invoice.generated',
+        summary: auditEvent.summary,
+        metadata: auditEvent.metadata,
+      });
       res.status(200).json({ ok: true, generation });
     } catch (error: unknown) {
       await emitBillingFailureObservabilityEvent(ctx, req, claims, {
@@ -3850,7 +4055,8 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     '/console/billing/adjustments/support-credit',
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
-      if (!claims || !requirePlatformBillingAdjustmentRole(claims, res)) return;
+      if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
       const billing = requireBillingService(res, ctx);
       if (!billing) return;
       try {
@@ -3877,9 +4083,71 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     },
   );
 
+  router.post(
+    '/console/platform/billing/adjustments/support-credit',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+      if (!orgProjectEnv) return;
+      try {
+        const request = parsePlatformBillingManualAdjustmentRequest((req as any).body);
+        const { orgId, ...adjustmentRequest } = request;
+        await orgProjectEnv.getOrganization({
+          orgId,
+          actorUserId: claims.userId,
+          roles: claims.roles,
+          ...(claims.projectId ? { projectId: claims.projectId } : {}),
+          ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+        });
+        const result = await billing.grantManualSupportCredit(
+          {
+            orgId,
+            actorUserId: claims.userId,
+            roles: claims.roles,
+          },
+          adjustmentRequest,
+        );
+        await emitConsoleAuditEvent(
+          ctx,
+          {
+            ...claims,
+            orgId,
+          },
+          {
+            category: 'BILLING',
+            action: 'billing.adjustment.support_credit',
+            summary: `Appended manual support credit for org ${orgId}`,
+            metadata: {
+              adjustmentId: result.adjustment.id,
+              amountMinor: result.adjustment.amountMinor,
+              resultingBalanceMinor: result.creditBalanceMinor,
+              reasonCode: result.adjustment.reasonCode,
+              relatedInvoiceId: result.adjustment.relatedInvoiceId,
+              idempotencyKey: result.adjustment.idempotencyKey,
+              created: result.created,
+              platformBilling: true,
+            },
+          },
+        );
+        res.status(result.created ? 201 : 200).json({ ok: true, result });
+      } catch (error: unknown) {
+        if (isConsoleOrgProjectEnvError(error)) {
+          sendOrgProjectEnvError(res, error);
+          return;
+        }
+        sendBillingError(res, error);
+      }
+    },
+  );
+
   router.post('/console/billing/adjustments/admin-debit', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims || !requirePlatformBillingAdjustmentRole(claims, res)) return;
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -3904,6 +4172,67 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       sendBillingError(res, error);
     }
   });
+
+  router.post(
+    '/console/platform/billing/adjustments/admin-debit',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      const orgProjectEnv = requireOrgProjectEnvService(res, ctx);
+      if (!orgProjectEnv) return;
+      try {
+        const request = parsePlatformBillingManualAdjustmentRequest((req as any).body);
+        const { orgId, ...adjustmentRequest } = request;
+        await orgProjectEnv.getOrganization({
+          orgId,
+          actorUserId: claims.userId,
+          roles: claims.roles,
+          ...(claims.projectId ? { projectId: claims.projectId } : {}),
+          ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
+        });
+        const result = await billing.appendManualAdminDebit(
+          {
+            orgId,
+            actorUserId: claims.userId,
+            roles: claims.roles,
+          },
+          adjustmentRequest,
+        );
+        await emitConsoleAuditEvent(
+          ctx,
+          {
+            ...claims,
+            orgId,
+          },
+          {
+            category: 'BILLING',
+            action: 'billing.adjustment.admin_debit',
+            summary: `Appended manual admin debit for org ${orgId}`,
+            metadata: {
+              adjustmentId: result.adjustment.id,
+              amountMinor: result.adjustment.amountMinor,
+              resultingBalanceMinor: result.creditBalanceMinor,
+              reasonCode: result.adjustment.reasonCode,
+              relatedInvoiceId: result.adjustment.relatedInvoiceId,
+              idempotencyKey: result.adjustment.idempotencyKey,
+              created: result.created,
+              platformBilling: true,
+            },
+          },
+        );
+        res.status(result.created ? 201 : 200).json({ ok: true, result });
+      } catch (error: unknown) {
+        if (isConsoleOrgProjectEnvError(error)) {
+          sendOrgProjectEnvError(res, error);
+          return;
+        }
+        sendBillingError(res, error);
+      }
+    },
+  );
 
   router.get('/console/billing/invoices', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -4057,6 +4386,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.post('/console/billing/stripe/checkout-session', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -4076,10 +4406,13 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
       if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
       const billing = requireBillingService(res, ctx);
       if (!billing) return;
+      let checkoutSessionId = '';
       try {
         const request = parseStripeCheckoutSessionReconcileRequest((req as any).body);
+        checkoutSessionId = request.checkoutSessionId;
         const result = await billing.reconcileStripeCheckoutSession(
           toBillingContext(claims),
           request,
@@ -4098,9 +4431,26 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
               source: 'stripe_checkout_reconcile',
             },
           });
+          const auditEvent = buildConsoleBillingCreditPurchaseSettledAuditEvent({
+            purchase: result.purchase,
+            invoice: result.invoice,
+            source: 'stripe_checkout_reconcile',
+            settlementEventId: `stripe_checkout_reconcile:${request.checkoutSessionId}`,
+          });
+          await emitConsoleAuditEvent(ctx, claims, {
+            category: 'BILLING',
+            action: 'billing.credit_purchase.settled',
+            summary: auditEvent.summary,
+            metadata: auditEvent.metadata,
+          });
         }
         res.status(200).json({ ok: true, result });
       } catch (error: unknown) {
+        await emitBillingFailureObservabilityEvent(ctx, req, claims, {
+          operation: 'PAYMENT_RECONCILE',
+          ...(checkoutSessionId ? { providerRef: checkoutSessionId } : {}),
+          error,
+        });
         sendBillingError(res, error);
       }
     },
@@ -4110,6 +4460,8 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
 export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRouter {
   const router = express.Router();
   const logger = coerceRouterLogger(opts.logger);
+  const routeSurface = resolveConsoleRouteSurface();
+  const { routeDefinitions } = routeSurface;
   const billing = opts.billing === undefined ? null : opts.billing;
   const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
   const wallets = opts.wallets === undefined ? null : opts.wallets;
@@ -4136,6 +4488,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const ctx: ExpressConsoleContext = {
     opts,
     logger,
+    routeDefinitions,
     billing,
     orgProjectEnv,
     wallets,
@@ -4164,7 +4517,8 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   registerConsoleOpsCockpitRoutes(router, ctx);
   registerConsoleObservabilityRoutes(router, ctx, {
     requireConsoleAuth,
-    requireObservabilityReadRole,
+    requireConsoleRoutePolicy: (req, res, routeCtx, claims) =>
+      Boolean(requireConsoleRoutePolicy(req, res, routeCtx as ExpressConsoleContext, claims)),
     requireObservabilityService,
     toAuditContext,
     sendObservabilityError,
@@ -4185,5 +4539,5 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   registerConsoleWebhookRoutes(router, ctx);
   registerConsoleBillingRoutes(router, ctx);
 
-  return router;
+  return attachConsoleRouteSurface(router, routeSurface);
 }

@@ -21,6 +21,7 @@ export type {
   ConsolePolicyDenyReason,
   ConsolePolicy,
   ConsolePolicyVersion,
+  CreateConsolePolicyAssignmentInput,
   CreateConsolePolicyRequest,
   DeleteConsolePolicyResult,
   UpdateConsolePolicyRequest,

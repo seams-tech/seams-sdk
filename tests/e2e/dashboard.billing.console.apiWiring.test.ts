@@ -253,7 +253,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           return true;
         }
 
-        if (method === 'POST' && pathname === '/console/billing/stripe/checkout-session/reconcile') {
+        if (
+          method === 'POST' &&
+          pathname === '/console/billing/stripe/checkout-session/reconcile'
+        ) {
           checkoutReconcileBodies.push(parseJsonBody(route.request().postData()));
           creditBalanceMinor = 2500;
           recentCreditPurchasedMinor = 2500;
@@ -301,9 +304,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await page.goto('/dashboard/billing/account');
 
     const billingScope = page.locator('section[aria-label="Billing scope and actions"]');
-    await expect(billingScope).toContainText(project.name);
+    await expect(billingScope).toContainText('Billing is organization-scoped');
+    await expect(billingScope).toContainText(org.id);
+    await expect(billingScope).toContainText(project.id);
     await expect(billingScope).toContainText(environment.name);
-    await expect(billingScope).not.toContainText(project.id);
     await expect(billingScope).not.toContainText(environment.id);
     await expect(page.getByText(/subscription/i)).toHaveCount(0);
 
@@ -312,7 +316,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(metrics).toContainText('$0.00');
     await expect(metrics).toContainText('Recent top-ups');
 
-    await expect(page.locator('.dashboard-warning-banner')).toContainText('Prepaid balance is depleted');
+    await expect(page.locator('.dashboard-warning-banner')).toContainText(
+      'Prepaid balance is depleted',
+    );
 
     const topUpSection = page.locator('section[aria-label="Prepaid top-up actions"]');
     await expect(topUpSection).toContainText('Top up credits');
@@ -330,13 +336,70 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(metrics).toContainText('$25.00');
   });
 
-  test('wires internal manual adjustments on platform billing for platform admin role', async ({
+  test('wires platform billing lookup, filters, and target-org adjustments for platform admin role', async ({
     page,
     baseURL,
   }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const platformSearchRequests: Array<Record<string, string>> = [];
+    const lookupRequests: Array<Record<string, string>> = [];
     const manualRequests: Record<string, unknown>[] = [];
-    const activityEntries: Record<string, unknown>[] = [];
+    const activityEntries: Record<string, unknown>[] = [
+      {
+        id: 'ble_purchase_platform_1',
+        orgId: 'org_dash_billing_adjustments_target',
+        type: 'CREDIT_PURCHASE',
+        amountMinor: 2500,
+        currency: 'USD',
+        description: 'Initial purchase settled',
+        monthUtc: '2026-03',
+        relatedInvoiceId: 'receipt_platform_1',
+        relatedPurchaseId: 'bcp_platform_1',
+        sourceEventId: null,
+        actorType: 'PROVIDER',
+        actorUserId: null,
+        reasonCode: null,
+        note: null,
+        idempotencyKey: null,
+        createdAt: iso('2026-03-19T00:00:00.000Z'),
+      },
+      {
+        id: 'ble_usage_platform_1',
+        orgId: 'org_dash_billing_adjustments_target',
+        type: 'USAGE_DEBIT',
+        amountMinor: -300,
+        currency: 'USD',
+        description: 'Monthly active wallet usage',
+        monthUtc: '2026-02',
+        relatedInvoiceId: 'inv_usage_202602',
+        relatedPurchaseId: null,
+        sourceEventId: null,
+        actorType: 'SYSTEM',
+        actorUserId: null,
+        reasonCode: null,
+        note: null,
+        idempotencyKey: null,
+        createdAt: iso('2026-02-28T00:00:00.000Z'),
+      },
+      {
+        id: 'ble_adjustment_platform_1',
+        orgId: 'org_dash_billing_adjustments_target',
+        type: 'MANUAL_ADJUSTMENT',
+        amountMinor: 500,
+        currency: 'USD',
+        description: 'Manual support credit (incident_credit)',
+        monthUtc: '2026-03',
+        relatedInvoiceId: 'inv_202603_001',
+        relatedPurchaseId: null,
+        sourceEventId: null,
+        actorType: 'USER',
+        actorUserId: 'user_dash_billing_adjustments_admin',
+        reasonCode: 'incident_credit',
+        note: 'Applied goodwill credit',
+        idempotencyKey: 'manual-adjustment-seed',
+        createdAt: iso('2026-03-18T00:00:00.000Z'),
+      },
+    ];
     let creditBalanceMinor = 5000;
 
     await routeWorkspaceScaffold(page, consoleOrigin, {
@@ -368,67 +431,79 @@ test.describe('dashboard billing prepaid console api wiring', () => {
         createdAt: iso('2026-01-01T00:00:00.000Z'),
         updatedAt: iso('2026-01-01T00:00:00.000Z'),
       },
-      handleBillingRequest: async (route, pathname, method, _url) => {
-        if (method === 'GET' && pathname === '/console/billing/overview') {
+      handleBillingRequest: async (route, pathname, method, url) => {
+        if (method === 'GET' && pathname === '/console/platform/billing/search') {
+          platformSearchRequests.push({
+            query: String(url.searchParams.get('query') || ''),
+          });
           await fulfillJson(route, {
             ok: true,
-            overview: {
-              usageMetricVersion: 'maw_v1',
-              currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 0,
-              creditBalanceMinor,
-              lowBalanceThresholdMinor: 2000,
-              recentUsageDebitMinor: 0,
-              recentCreditPurchasedMinor: 0,
-              documentCount: activityEntries.length,
+            organizations: [
+              {
+                id: 'org_dash_billing_adjustments_target',
+                name: 'Target Billing Org',
+                slug: 'target-billing-org',
+                status: 'ACTIVE',
+              },
+            ],
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/platform/billing/account') {
+          lookupRequests.push({
+            orgId: String(url.searchParams.get('orgId') || ''),
+            projectId: String(url.searchParams.get('projectId') || ''),
+            periodMonthUtc: String(url.searchParams.get('periodMonthUtc') || ''),
+            eventType: String(url.searchParams.get('eventType') || ''),
+          });
+          const periodMonthUtc = String(url.searchParams.get('periodMonthUtc') || '').trim();
+          const eventType = String(url.searchParams.get('eventType') || '')
+            .trim()
+            .toUpperCase();
+          const filteredEntries = activityEntries.filter((entry) => {
+            const entryMonthUtc = String(entry.monthUtc || '').trim();
+            const entryType = String(entry.type || '')
+              .trim()
+              .toUpperCase();
+            if (periodMonthUtc && entryMonthUtc !== periodMonthUtc) return false;
+            if (eventType && entryType !== eventType) return false;
+            return true;
+          });
+          await fulfillJson(route, {
+            ok: true,
+            result: {
+              resolvedBy: 'org_id',
+              organization: {
+                id: 'org_dash_billing_adjustments_target',
+                name: 'Target Billing Org',
+                slug: 'target-billing-org',
+                status: 'ACTIVE',
+              },
+              project: null,
+              overview: {
+                usageMetricVersion: 'maw_v1',
+                currentMonthUtc: '2026-03',
+                monthlyActiveWallets: 2,
+                creditBalanceMinor,
+                lowBalanceThresholdMinor: 2000,
+                recentUsageDebitMinor: 300,
+                recentCreditPurchasedMinor: 2500,
+                documentCount: 2,
+                liveEnvironmentState: 'HEALTHY',
+              },
+              activity: {
+                entries: filteredEntries,
+              },
             },
           });
           return true;
         }
 
-        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
-          await fulfillJson(route, {
-            ok: true,
-            usage: {
-              usageMetricVersion: 'maw_v1',
-              monthUtc: '2026-03',
-              monthlyActiveWallets: 0,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/account/activity') {
-          await fulfillJson(route, {
-            ok: true,
-            activity: {
-              entries: activityEntries,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/invoices') {
-          await fulfillJson(route, {
-            ok: true,
-            invoices: [],
-            nextCursor: null,
-            totalCount: 0,
-            summary: {
-              totalCount: 0,
-              openCount: 0,
-              overdueCount: 0,
-              paidCount: 0,
-              outstandingAmountMinor: 0,
-              latestPeriodMonthUtc: null,
-              receiptCount: 0,
-              statementCount: 0,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'POST' && pathname === '/console/billing/adjustments/support-credit') {
+        if (
+          method === 'POST' &&
+          pathname === '/console/platform/billing/adjustments/support-credit'
+        ) {
           const body = parseJsonBody(route.request().postData());
           manualRequests.push(body);
           const amountMinor = Number(body.amountMinor || 0);
@@ -436,7 +511,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           creditBalanceMinor += amountMinor;
           activityEntries.unshift({
             id: `ble_adj_${manualRequests.length}`,
-            orgId: 'org_dash_billing_adjustments',
+            orgId: 'org_dash_billing_adjustments_target',
             type: 'MANUAL_ADJUSTMENT',
             amountMinor,
             currency: 'USD',
@@ -473,8 +548,66 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.goto('/platform/billing');
 
-    const adjustmentSection = page.locator('section[aria-label="Internal billing adjustments"]');
+    await expect(
+      page.getByText(
+        'Search for an organization name or organization ID to load platform billing data.',
+      ),
+    ).toBeVisible();
+    await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
+    const searchCard = page.locator('.dashboard-platform-billing-search-card');
+    await expect(searchCard.getByRole('button', { name: 'Clear' })).toHaveCount(0);
+    await expect(searchCard.getByRole('button', { name: /^Load account$/ })).toHaveCount(0);
+
+    await page.getByLabel('Search').type('org_dash_billing_adjustments_target', { delay: 20 });
+    await expect.poll(() => platformSearchRequests.length).toBeGreaterThan(3);
+    await expect
+      .poll(() =>
+        String(platformSearchRequests[platformSearchRequests.length - 1]?.query || ''),
+      )
+      .toBe('org_dash_billing_adjustments_target');
+
+    const platformSearchDropdown = page.getByRole('listbox', {
+      name: 'Platform billing search suggestions',
+    });
+    await expect(platformSearchDropdown).toContainText('Target Billing Org');
+
+    await platformSearchDropdown
+      .getByRole('option', { name: /Target Billing Org/i })
+      .click();
+    await expect.poll(() => lookupRequests.length).toBe(1);
+    expect(String(lookupRequests[0]?.orgId || '')).toBe('org_dash_billing_adjustments_target');
+    expect(String(lookupRequests[0]?.projectId || '')).toBe('');
+
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Target Billing Org');
+    await expect(page.getByText('$50.00').first()).toBeVisible();
+    const activitySection = page.locator('section[aria-label="Customer account activity"]');
+    await expect(activitySection).toHaveAttribute('role', 'table');
+    await expect(activitySection).toContainText(
+      'Latest ledger events for the resolved billing account.',
+    );
+    await expect(activitySection.getByRole('columnheader', { name: 'When (UTC)' })).toBeVisible();
+    await expect(activitySection).toContainText('Credit purchase settled');
+
+    await page.getByLabel('Period').fill('2026-03');
+    await page.getByLabel('Event type').selectOption('MANUAL_ADJUSTMENT');
+    await page.getByRole('button', { name: 'Apply filters' }).click();
+    await expect.poll(() => lookupRequests.length).toBe(2);
+    expect(String(lookupRequests[1]?.periodMonthUtc || '')).toBe('2026-03');
+    expect(String(lookupRequests[1]?.eventType || '')).toBe('MANUAL_ADJUSTMENT');
+
+    await expect(activitySection).toContainText('incident_credit');
+    await expect(activitySection).not.toContainText('receipt_platform_1');
+
+    const adjustmentSection = page.locator('section[aria-label="Customer billing adjustments"]');
     await expect(adjustmentSection).toBeVisible();
+    const activityBox = await activitySection.boundingBox();
+    const adjustmentBox = await adjustmentSection.boundingBox();
+    if (!activityBox || !adjustmentBox) {
+      throw new Error('Expected account activity and internal adjustment sections to be visible');
+    }
+    expect(activityBox.y).toBeLessThan(adjustmentBox.y);
 
     await adjustmentSection.getByLabel('Amount (USD)').fill('15.00');
     await adjustmentSection.getByLabel('Reason code').fill('incident_credit');
@@ -485,17 +618,15 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await adjustmentSection.getByRole('button', { name: 'Apply support credit' }).click();
     await expect.poll(() => manualRequests.length).toBe(1);
+    expect(String(manualRequests[0]?.orgId || '')).toBe('org_dash_billing_adjustments_target');
     expect(Number(manualRequests[0]?.amountMinor || 0)).toBe(1500);
     expect(String(manualRequests[0]?.reasonCode || '')).toBe('incident_credit');
     expect(String(manualRequests[0]?.relatedInvoiceId || '')).toBe('inv_202603_001');
 
     await expect(adjustmentSection).toContainText('Manual support credit recorded.');
-    await expect(
-      page.locator('section[aria-label="Platform billing summary metrics"]'),
-    ).toContainText('$65.00');
-    await expect(page.locator('section[aria-label="Billing account activity"]')).toContainText(
-      'incident_credit',
-    );
+    await expect.poll(() => lookupRequests.length).toBe(3);
+    await expect(page.getByText('$65.00').first()).toBeVisible();
+    await expect(activitySection).toContainText('Applied goodwill credit');
   });
 
   test('billing account page no longer renders platform-only or duplicate activity sections', async ({
@@ -703,7 +834,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     });
 
     await page.goto('/platform/billing');
-    await expect(page.getByText('Platform billing is only available to platform_admin users.')).toBeVisible();
+    await expect(
+      page.getByText('Platform billing is only available to platform_admin users.'),
+    ).toBeVisible();
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
   });
 

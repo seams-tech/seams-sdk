@@ -1,7 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
   buildBillingFailureObservabilityEvent,
+  buildBillingStripeWebhookFailureObservabilityEvent,
+  buildWebhookEndpointDegradedObservabilityEvent,
   buildWebhookDeadLetterObservabilityEvent,
+  buildWebhookRetryExhaustedObservabilityEvent,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
   redactConsoleObservabilityMetadata,
@@ -70,6 +73,59 @@ test.describe('console observability ingestion scaffolding', () => {
     expect(String(nested.token || '')).toBe('[REDACTED]');
     expect(String(output.metadata.safe || '')).toBe('ok');
     expect(String(nested.keep || '')).toBe('value');
+  });
+
+  test('billing builders emit operation-specific and webhook-specific event types', async () => {
+    const reconcileFailure = buildBillingFailureObservabilityEvent({
+      orgId: 'org-observability-billing-builder',
+      operation: 'PAYMENT_RECONCILE',
+      providerRef: 'cs_obs_builder',
+      failureCode: 'checkout_reconcile_failed',
+      failureMessage: 'checkout reconcile failed',
+    });
+    expect(reconcileFailure.eventType).toBe('billing.payment_reconcile.failed');
+    expect(reconcileFailure.component).toBe('checkout_reconcile');
+    expect(String(reconcileFailure.metadata.providerRef || '')).toBe('cs_obs_builder');
+
+    const webhookFailure = buildBillingStripeWebhookFailureObservabilityEvent({
+      orgId: 'org-observability-billing-builder',
+      eventType: 'billing.stripe_webhook.invalid_signature',
+      stripeEventId: 'evt_obs_builder',
+      checkoutSessionId: 'cs_obs_builder',
+      failureCode: 'invalid_signature',
+      failureMessage: 'invalid stripe webhook secret',
+    });
+    expect(webhookFailure.eventType).toBe('billing.stripe_webhook.invalid_signature');
+    expect(webhookFailure.component).toBe('stripe_webhook');
+    expect(String(webhookFailure.metadata.stripeEventId || '')).toBe('evt_obs_builder');
+
+    const retryExhausted = buildWebhookRetryExhaustedObservabilityEvent({
+      orgId: 'org-observability-billing-builder',
+      endpointId: 'wh_obs_builder',
+      deliveryId: 'whd_obs_builder',
+      webhookEventId: 'evt_obs_builder',
+      webhookEventType: 'billing.invoice.failed',
+      failedAttempts: 5,
+      maxAttempts: 5,
+      exhaustedAt: '2026-03-12T12:00:00.000Z',
+    });
+    expect(retryExhausted.eventType).toBe('webhook.delivery.retry_exhausted');
+    expect(retryExhausted.component).toBe('delivery_dispatch');
+    expect(String(retryExhausted.metadata.endpointId || '')).toBe('wh_obs_builder');
+
+    const endpointDegraded = buildWebhookEndpointDegradedObservabilityEvent({
+      orgId: 'org-observability-billing-builder',
+      endpointId: 'wh_obs_builder',
+      unresolvedDeadLetterCount: 3,
+      degradationThreshold: 3,
+      latestDeliveryId: 'whd_obs_builder',
+      latestWebhookEventId: 'evt_obs_builder',
+      latestWebhookEventType: 'billing.invoice.failed',
+      degradedAt: '2026-03-12T12:05:00.000Z',
+    });
+    expect(endpointDegraded.eventType).toBe('webhook.endpoint.degraded');
+    expect(endpointDegraded.component).toBe('endpoint_health');
+    expect(endpointDegraded.level).toBe('WARN');
   });
 });
 
@@ -333,6 +389,80 @@ test.describe('console observability postgres ingestion service', () => {
     }
     expect(caught).toBeTruthy();
     expect(String(caught?.code || '')).toBe('invalid_query');
+  });
+
+  test('postgres observability service filters events by exact component', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+
+    const ingestService = await createPostgresConsoleObservabilityIngestionService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date('2026-03-05T12:00:00.000Z'),
+    });
+    const queryService = await createPostgresConsoleObservabilityService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date('2026-03-05T12:00:00.000Z'),
+    });
+
+    const finalizationEvent = buildBillingFailureObservabilityEvent({
+      orgId,
+      operation: 'INVOICE_FINALIZATION',
+      failureCode: 'finalization_failed',
+      failureMessage: 'invoice finalization failed',
+    });
+    finalizationEvent.eventId = 'evt_obs_component_finalization';
+    finalizationEvent.ingestedAtMs = Date.parse('2026-03-05T11:00:00.000Z');
+    finalizationEvent.timestamp = new Date(finalizationEvent.ingestedAtMs).toISOString();
+
+    const reconcileEvent = buildBillingFailureObservabilityEvent({
+      orgId,
+      operation: 'PAYMENT_RECONCILE',
+      failureCode: 'reconcile_failed',
+      failureMessage: 'checkout reconcile failed',
+    });
+    reconcileEvent.eventId = 'evt_obs_component_reconcile';
+    reconcileEvent.ingestedAtMs = Date.parse('2026-03-05T11:05:00.000Z');
+    reconcileEvent.timestamp = new Date(reconcileEvent.ingestedAtMs).toISOString();
+
+    await ingestService.appendEvent(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      finalizationEvent,
+    );
+    await ingestService.appendEvent(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      reconcileEvent,
+    );
+
+    const page = await queryService.listEvents(
+      {
+        orgId,
+        actorUserId: 'ops-observability',
+        roles: ['ops'],
+      },
+      {
+        component: 'checkout_reconcile',
+        from: '2026-03-05T00:00:00.000Z',
+        to: '2026-03-06T00:00:00.000Z',
+        limit: 10,
+      },
+    );
+
+    expect(page.status.state).toBe('ok');
+    expect(page.events.map((entry) => entry.id)).toEqual(['evt_obs_component_reconcile']);
+    expect(page.events[0]?.component).toBe('checkout_reconcile');
   });
 
   test('postgres observability events query applies strict default bounded window', async () => {

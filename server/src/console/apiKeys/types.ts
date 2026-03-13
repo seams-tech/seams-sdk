@@ -1,3 +1,5 @@
+import type { MachineApiKeyScope } from '../../../../shared/src/console/apiKeyScopes';
+
 export type ConsoleApiKeyStatus = 'ACTIVE' | 'REVOKED';
 export type ConsoleCredentialKind = 'secret_key' | 'publishable_key';
 
@@ -9,7 +11,7 @@ export interface ConsoleApiKey {
   orgId: string;
   name: string;
   environmentId: string;
-  scopes?: string[];
+  scopes?: MachineApiKeyScope[];
   ipAllowlist?: string[];
   allowedOrigins?: string[];
   rateLimitBucket?: string | null;
@@ -32,7 +34,7 @@ export interface CreateConsoleSecretKeyRequest {
   kind: 'secret_key';
   name: string;
   environmentId: string;
-  scopes: string[];
+  scopes: MachineApiKeyScope[];
   ipAllowlist?: string[];
   expiresAt?: string;
 }
@@ -59,7 +61,7 @@ export interface RotateConsoleApiKeyRequest {
 
 export interface UpdateConsoleApiKeyRequest {
   name?: string;
-  scopes?: string[];
+  scopes?: MachineApiKeyScope[];
   ipAllowlist?: string[];
   allowedOrigins?: string[];
   rateLimitBucket?: string;
@@ -101,7 +103,7 @@ export type ConsolePublishableKeyAuthFailureCode =
 export interface AuthenticateConsoleApiKeyRequest {
   secret: string;
   endpoint: string;
-  requiredScopes: string[];
+  requiredScopes: MachineApiKeyScope[];
   sourceIp?: string;
   environmentId?: string;
 }

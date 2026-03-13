@@ -180,6 +180,7 @@ export function makeFakeAuthService(
     createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
     verifyWebAuthnSyncAccount: AuthService['verifyWebAuthnSyncAccount'];
     createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
+    executeSignedDelegate: AuthService['executeSignedDelegate'];
     getOrCreateAppSessionVersion: AuthService['getOrCreateAppSessionVersion'];
     validateAppSessionVersion: AuthService['validateAppSessionVersion'];
     rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
@@ -222,6 +223,9 @@ export function makeFakeAuthService(
     createAccountAndRegisterUser:
       overrides.createAccountAndRegisterUser ||
       (async () => ({ success: false, error: 'not implemented' })),
+    executeSignedDelegate:
+      overrides.executeSignedDelegate ||
+      (async () => ({ ok: false, code: 'not_implemented', error: 'not implemented' })),
     getOrCreateAppSessionVersion:
       overrides.getOrCreateAppSessionVersion ||
       (async () => ({ ok: true, appSessionVersion: 'v1' })),

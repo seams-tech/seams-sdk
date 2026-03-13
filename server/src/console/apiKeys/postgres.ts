@@ -2,6 +2,11 @@ import type { NormalizedLogger } from '../../core/logger';
 import { normalizeCorsOrigin } from '../../core/SessionService';
 import { getPostgresPool } from '../../storage/postgres';
 import {
+  MACHINE_API_KEY_SCOPES,
+  isMachineApiKeyScope,
+  type MachineApiKeyScope,
+} from '../../../../shared/src/console/apiKeyScopes';
+import {
   ensureConsoleNamespace as ensureNamespace,
   toConsoleIso as toIso,
   toConsoleNumber as toNumber,
@@ -42,6 +47,8 @@ const CONSOLE_API_KEYS_MIGRATION_LOCK_ID = 9452360123585;
 const CONSOLE_API_KEY_LOOKUP_KIND_GUC = 'app.console_api_key_lookup_kind';
 const CONSOLE_API_KEY_LOOKUP_PREFIX_GUC = 'app.console_api_key_lookup_prefix';
 const CONSOLE_API_KEY_LOOKUP_HASH_GUC = 'app.console_api_key_lookup_hash';
+const MACHINE_API_KEY_SCOPES_JSON = JSON.stringify(MACHINE_API_KEY_SCOPES);
+const MACHINE_API_KEY_SCOPES_SQL = `'${MACHINE_API_KEY_SCOPES_JSON.replace(/'/g, "''")}'::jsonb`;
 
 interface StoredApiKey extends ConsoleApiKey {
   secretHash: string;
@@ -74,6 +81,36 @@ function parseStringArray(raw: unknown): string[] {
     const key = value.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+function parseMachineApiKeyScopes(raw: unknown): MachineApiKeyScope[] {
+  const scopes = parseStringArray(raw);
+  const out: MachineApiKeyScope[] = [];
+  for (const scope of scopes) {
+    if (!isMachineApiKeyScope(scope)) {
+      throw new Error(`Unexpected persisted machine API key scope: ${scope}`);
+    }
+    out.push(scope);
+  }
+  return out;
+}
+
+function normalizeMachineApiKeyScopes(input: readonly string[] | undefined): MachineApiKeyScope[] {
+  if (!Array.isArray(input)) return [];
+  const out: MachineApiKeyScope[] = [];
+  const seen = new Set<string>();
+  for (const raw of input) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    if (!isMachineApiKeyScope(value)) {
+      throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
+    }
+    const dedupeKey = value.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     out.push(value);
   }
   return out;
@@ -176,7 +213,7 @@ function parseApiKeyRow(row: PgRow): StoredApiKey {
   }
   return {
     ...common,
-    scopes: parseStringArray(row.scopes),
+    scopes: parseMachineApiKeyScopes(row.scopes),
     ipAllowlist: parseStringArray(row.ip_allowlist),
   };
 }
@@ -299,6 +336,18 @@ export async function ensureConsoleApiKeysPostgresSchema(
       ALTER TABLE console_api_keys
       ADD COLUMN IF NOT EXISTS payment_policy JSONB
     `);
+    await pool.query(
+      `
+      UPDATE console_api_keys
+         SET scopes = CASE
+               WHEN kind = 'secret_key' AND scopes @> $1::jsonb THEN $1::jsonb
+               ELSE '[]'::jsonb
+             END
+       WHERE kind = 'publishable_key'
+          OR NOT (scopes <@ $1::jsonb)
+      `,
+      [MACHINE_API_KEY_SCOPES_JSON],
+    );
     await pool.query(`
       UPDATE console_api_keys
          SET kind = 'secret_key'
@@ -389,6 +438,18 @@ export async function ensureConsoleApiKeysPostgresSchema(
     await pool.query(`
       ALTER TABLE console_api_keys
       ALTER COLUMN payment_policy SET NOT NULL
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      DROP CONSTRAINT IF EXISTS console_api_keys_scope_catalog_check
+    `);
+    await pool.query(`
+      ALTER TABLE console_api_keys
+      ADD CONSTRAINT console_api_keys_scope_catalog_check
+      CHECK (
+        (kind = 'publishable_key' AND scopes = '[]'::jsonb)
+        OR (kind = 'secret_key' AND scopes <@ ${MACHINE_API_KEY_SCOPES_SQL})
+      )
     `);
     await pool.query(`
       ALTER TABLE console_api_keys
@@ -554,7 +615,10 @@ export async function createPostgresConsoleApiKeyService(
     });
   }
 
-  function hasRequiredScopes(scopes: string[], requiredScopes: string[]): boolean {
+  function hasRequiredScopes(
+    scopes: MachineApiKeyScope[],
+    requiredScopes: MachineApiKeyScope[],
+  ): boolean {
     if (!requiredScopes.length) return true;
     const available = new Set(
       scopes.map((scope) => String(scope || '').trim().toLowerCase()).filter(Boolean),
@@ -617,7 +681,8 @@ export async function createPostgresConsoleApiKeyService(
         const secret = makeApiKeySecret({ kind: request.kind });
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const expiresAtMs = request.expiresAt ? Date.parse(request.expiresAt) : NaN;
-        const scopes = request.kind === 'secret_key' ? request.scopes : [];
+        const scopes =
+          request.kind === 'secret_key' ? normalizeMachineApiKeyScopes(request.scopes) : [];
         const ipAllowlist = request.kind === 'secret_key' ? (request.ipAllowlist || []) : [];
         const allowedOrigins = request.kind === 'publishable_key' ? request.allowedOrigins : [];
         const rateLimitBucket =
@@ -839,7 +904,9 @@ export async function createPostgresConsoleApiKeyService(
             ctx.orgId,
             apiKeyId,
             request.name ?? null,
-            request.scopes !== undefined ? JSON.stringify(request.scopes) : null,
+            request.scopes !== undefined
+              ? JSON.stringify(normalizeMachineApiKeyScopes(request.scopes))
+              : null,
             request.ipAllowlist !== undefined ? JSON.stringify(request.ipAllowlist) : null,
             request.allowedOrigins !== undefined ? JSON.stringify(request.allowedOrigins) : null,
             request.rateLimitBucket ?? null,
