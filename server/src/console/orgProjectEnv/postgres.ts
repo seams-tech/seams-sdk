@@ -429,7 +429,17 @@ export async function createPostgresConsoleOrgProjectEnvService(
       const rawLimit = Number(request.limit || 0);
       const limit =
         Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(1, Math.floor(rawLimit)) : 10;
-      if (!query) return [];
+      if (!query) {
+        const organizationRows = await pool.query(
+          `SELECT *
+             FROM console_organizations
+            WHERE namespace = $1
+            ORDER BY created_at_ms DESC, id ASC
+            LIMIT $2`,
+          [namespace, limit],
+        );
+        return organizationRows.rows.map((row) => parseOrgRow(row as PgRow));
+      }
       const candidateLimit = Math.max(limit * 5, 25);
       const organizationRows = await pool.query(
         `SELECT *

@@ -152,6 +152,14 @@ function sortOrganizations(items: ConsoleOrganization[]): ConsoleOrganization[] 
   });
 }
 
+function sortOrganizationsByCreatedAtDesc(items: ConsoleOrganization[]): ConsoleOrganization[] {
+  return [...items].sort((a, b) => {
+    const createdAtDiff = b.createdAt.localeCompare(a.createdAt);
+    if (createdAtDiff !== 0) return createdAtDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 function normalizeOrganizationSearchValue(value: string): string {
   return String(value || '')
     .trim()
@@ -277,7 +285,13 @@ export function createInMemoryConsoleOrgProjectEnvService(
       const rawLimit = Number(request.limit || 0);
       const limit =
         Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(1, Math.floor(rawLimit)) : 10;
-      if (!query) return [];
+      if (!query) {
+        return sortOrganizationsByCreatedAtDesc(
+          Array.from(stores.values()).map((store) => cloneOrg(store.org)),
+        )
+          .slice(0, limit)
+          .map((organization) => cloneOrg(organization));
+      }
       const organizations: ConsoleOrganization[] = [];
       for (const store of stores.values()) {
         const organization = cloneOrg(store.org);
