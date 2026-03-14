@@ -2,7 +2,6 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite';
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 /**
  * Do NOT use optional chaining or dynamic access such as `import.meta?.env`
@@ -16,6 +15,7 @@ export default defineConfig(({ mode }) => {
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
   const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const workspaceNodeModules = fileURLToPath(new URL('../../node_modules', import.meta.url));
   // Bitwarden and other password managers inject extension iframes/scripts that are blocked
   // by COEP=require-corp on the host page. Default to COEP off for the docs site; switch
   // back on explicitly when you need cross-origin isolation testing.
@@ -47,14 +47,6 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      // Polyfill Node globals and built-ins required by browser-side tooling deps.
-      nodePolyfills({
-        protocolImports: true,
-        globals: {
-          Buffer: true,
-          process: true,
-        },
-      }),
       // Web3Authn dev integration: wallet server (serve SDK + wallet HTML + headers)
       // Build: emit _headers for COOP + Permissions‑Policy (and optional COEP/CORP when enabled); wallet HTML gets strict CSP.
       tatchiWallet({
@@ -69,32 +61,25 @@ export default defineConfig(({ mode }) => {
         // If your CI already writes a _headers file, this plugin will no-op.
       }),
     ],
-    define: {
-      // Shim minimal globals some legacy/browserified deps expect
-      global: 'globalThis',
-      'process.env': {},
-    },
-    optimizeDeps: {
-      include: ['buffer', 'events', 'util', 'stream-browserify', 'crypto-browserify'],
-      esbuildOptions: {
-        define: {
-          global: 'globalThis',
-          'process.env': '{}',
-          'process.browser': 'true',
-          'process.version': '"v0.0.0"',
-        },
-      },
-    },
     resolve: {
-      alias: {
-        '@': appSrc,
-        stream: 'stream-browserify',
-        crypto: 'crypto-browserify',
-        util: 'util',
-        events: 'events',
-        buffer: 'buffer',
-        process: 'process/browser',
-      },
+      alias: [
+        { find: '@', replacement: appSrc },
+        { find: /^react$/, replacement: `${workspaceNodeModules}/react/index.js` },
+        {
+          find: /^react\/jsx-runtime$/,
+          replacement: `${workspaceNodeModules}/react/jsx-runtime.js`,
+        },
+        {
+          find: /^react\/jsx-dev-runtime$/,
+          replacement: `${workspaceNodeModules}/react/jsx-dev-runtime.js`,
+        },
+        { find: /^react-dom$/, replacement: `${workspaceNodeModules}/react-dom/index.js` },
+        {
+          find: /^react-dom\/client$/,
+          replacement: `${workspaceNodeModules}/react-dom/client.js`,
+        },
+      ],
+      dedupe: ['react', 'react-dom'],
     },
   };
 });

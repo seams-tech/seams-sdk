@@ -6,6 +6,7 @@
     "dev": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 3600\" \"bash run_caddy.sh\"",
     "dev:iphone": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 3600\" \"bash run_caddy.sh\"",
     "build": "vite build",
+    "typecheck": "pnpm -C ../../sdk exec tsc -p tsconfig.client-types.json && tsc --noEmit",
     "preview": "vite preview --host localhost --port 3600"
   },
   "dependencies": {
@@ -25,23 +26,9 @@
     "@types/node": "^22.15.21",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
-    "@vitejs/plugin-react": "^4.4.1",
-    "@vue/compiler-sfc": "^3.5.22",
-    "buffer": "^6.0.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.1.2",
-    "crypto-browserify": "^3.12.1",
-    "events": "^3.3.0",
-    "globals": "^16.0.0",
-    "mermaid": "^11.12.1",
-    "process": "^0.11.10",
-    "shiki": "^2.5.0",
-    "stream-browserify": "^3.0.0",
     "typescript": "~5.8.3",
-    "unenv": "^1.10.0",
-    "util": "^0.12.5",
-    "vite": "^6.3.5",
-    "vite-plugin-mkcert": "^1.17.8",
-    "vite-plugin-node-polyfills": "^0.24.0",
-    "vue": "^3.5.22"
+    "vite": "^8.0.0"
   }
 }
