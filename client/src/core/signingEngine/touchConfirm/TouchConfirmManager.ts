@@ -31,7 +31,6 @@ import {
 import {
   resolveThresholdSessionSealTransportByThresholdSessionId,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
-import { emitThresholdSessionMetric } from '../api/thresholdLifecycle/thresholdSessionMetrics';
 import {
   UserConfirmMessageType,
   type UserConfirmDecision,
@@ -304,29 +303,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     });
 
     const inFlight = thresholdPrfRehydrateSingleFlight.get(singleFlightKey);
-    if (inFlight) {
-      emitThresholdSessionMetric({
-        metric: 'cache_hit',
-        curve: 'ecdsa',
-        source: 'prf-sealed-record',
-        sessionId: thresholdSessionId,
-        reason: 'rehydrate_singleflight',
-      });
-      return await inFlight;
-    }
+    if (inFlight) return await inFlight;
 
     const task = (async (): Promise<ThresholdPrfCachePeekResult | null> => {
       const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
       if (!sealedRecord) return null;
       if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
         deletePrfSessionSealedRecord(thresholdSessionId);
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
-          reason: 'sealed_record_expired_or_exhausted',
-        });
         return {
           ok: false,
           code: 'expired',
@@ -335,26 +318,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       }
 
       const transport = this.resolveSealTransportInput(thresholdSessionId);
-      if (!transport) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
-          reason: 'seal_transport_missing',
-        });
-        return null;
-      }
-      if (!transport.shamirPrimeB64u) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
-          reason: 'shamir_prime_missing',
-        });
-        return null;
-      }
+      if (!transport) return null;
+      if (!transport.shamirPrimeB64u) return null;
 
       const rehydrated = await this.rehydratePrfFirstForThresholdSession({
         sessionId: thresholdSessionId,
@@ -371,13 +336,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       });
       if (!rehydrated.ok) {
         deletePrfSessionSealedRecord(thresholdSessionId);
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
-          reason: String(rehydrated.code || 'rehydrate_failed'),
-        });
         return { ok: false, code: rehydrated.code, message: rehydrated.message };
       }
 
@@ -395,25 +353,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       });
       const parsed = parseThresholdPrfCachePeekResult(rehydratedPeek?.data);
       if (rehydratedPeek?.success !== true || !parsed) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'prf-sealed-record',
-          sessionId: thresholdSessionId,
-          reason: 'worker_peek_after_rehydrate_failed',
-        });
         return {
           ok: false,
           code: 'worker_error',
           message: String(rehydratedPeek?.error || 'PRF.first cache peek failed after rehydrate'),
         };
       }
-      emitThresholdSessionMetric({
-        metric: 'rehydrate_hit',
-        curve: 'ecdsa',
-        source: 'prf-sealed-record',
-        sessionId: thresholdSessionId,
-      });
       return parsed;
     })().finally(() => {
       thresholdPrfRehydrateSingleFlight.delete(singleFlightKey);
@@ -505,12 +450,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       };
     }
     if (parsed.ok) {
-      emitThresholdSessionMetric({
-        metric: 'cache_hit',
-        curve: 'ecdsa',
-        source: 'prf-warm-cache',
-        sessionId: String(args.sessionId || '').trim(),
-      });
       // Guarantee refresh persistence before returning readiness.
       // A fire-and-forget seal can race with page refresh and lose warm-session continuity.
       await this.ensureSealedRecordPersistedBestEffort(args.sessionId).catch(() => undefined);
@@ -603,16 +542,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       thresholdSessionId,
     });
     const inFlight = thresholdPrfSealPersistSingleFlight.get(singleFlightKey);
-    if (inFlight) {
-      emitThresholdSessionMetric({
-        metric: 'cache_hit',
-        curve: 'ecdsa',
-        source: 'prf-sealed-record',
-        sessionId: thresholdSessionId,
-        reason: 'persist_singleflight',
-      });
-      return await inFlight;
-    }
+    if (inFlight) return await inFlight;
 
     const task = (async (): Promise<ThresholdPrfFirstCacheSealAndPersistResult> => {
       const existingRecord = readPrfSessionSealedRecord(thresholdSessionId);

@@ -4,7 +4,6 @@ import {
   resolveEd25519AuthSessionBySessionId,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
-import { emitThresholdSessionMetric } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionMetrics';
 
 export type ResolvedThresholdSessionAuth = {
   sessionKind: 'jwt' | 'cookie';
@@ -29,13 +28,6 @@ export async function resolveThresholdSessionAuth(args: {
   if (cachedAuthSession) {
     const cachedSessionId = String(cachedAuthSession.policy?.sessionId || '').trim();
     if (thresholdSessionId && cachedSessionId && cachedSessionId !== thresholdSessionId) {
-      emitThresholdSessionMetric({
-        metric: 'session_mismatch',
-        curve: 'ed25519',
-        source: 'auth-session-cache',
-        sessionId: thresholdSessionId,
-        reason: 'cache_key_session_id_mismatch',
-      });
       clearCachedEd25519AuthSession(args.thresholdSessionCacheKey);
     } else if (cachedAuthSession.sessionKind === 'cookie') {
       return { sessionKind: 'cookie' };

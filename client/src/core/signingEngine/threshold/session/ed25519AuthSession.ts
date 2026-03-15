@@ -13,7 +13,6 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
-import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
 export type Ed25519SessionKind = 'jwt' | 'cookie';
 
@@ -243,53 +242,20 @@ export async function resolveEd25519AuthSessionBySessionId(
   if (!sessionId) return null;
 
   const cached = toResolvedEd25519AuthSession(getCachedEd25519AuthSessionBySessionId(sessionId));
-  if (cached) {
-    emitThresholdSessionMetric({
-      metric: 'cache_hit',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-    });
-    return cached;
-  }
+  if (cached) return cached;
 
   const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-  if (!record) {
-    emitThresholdSessionMetric({
-      metric: 'rehydrate_fail',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-      reason: 'canonical_record_missing',
-    });
-    return null;
-  }
+  if (!record) return null;
   const recordSessionKind: Ed25519SessionKind =
     record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
   const recordJwt = normalizeOptionalNonEmptyString(record.thresholdSessionJwt);
-  if (recordSessionKind === 'jwt' && !recordJwt) {
-    emitThresholdSessionMetric({
-      metric: 'rehydrate_fail',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-      reason: 'jwt_missing',
-    });
-    return null;
-  }
+  if (recordSessionKind === 'jwt' && !recordJwt) return null;
   if (
     typeof record.expiresAtMs !== 'number' ||
     !Number.isFinite(record.expiresAtMs) ||
     record.expiresAtMs <= 0 ||
     Date.now() >= record.expiresAtMs
   ) {
-    emitThresholdSessionMetric({
-      metric: 'rehydrate_fail',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-      reason: 'expired',
-    });
     return null;
   }
 
@@ -315,13 +281,6 @@ export async function resolveEd25519AuthSessionBySessionId(
       source: record.source,
     });
   } catch {
-    emitThresholdSessionMetric({
-      metric: 'rehydrate_fail',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-      reason: 'build_cache_failed',
-    });
     return null;
   }
 
@@ -335,23 +294,7 @@ export async function resolveEd25519AuthSessionBySessionId(
       : recordJwt
         ? { sessionKind: 'jwt', jwt: recordJwt }
         : null);
-  if (resolved) {
-    emitThresholdSessionMetric({
-      metric: 'rehydrate_hit',
-      curve: 'ed25519',
-      source: 'auth-session',
-      sessionId,
-    });
-    return resolved;
-  }
-  emitThresholdSessionMetric({
-    metric: 'rehydrate_fail',
-    curve: 'ed25519',
-    source: 'auth-session',
-    sessionId,
-    reason: 'auth_unavailable_after_rehydrate',
-  });
-  return null;
+  return resolved;
 }
 
 /**

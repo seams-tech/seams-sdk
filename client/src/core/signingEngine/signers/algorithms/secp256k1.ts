@@ -17,7 +17,6 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import {
   resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
-import { emitThresholdSessionMetric } from '../../api/thresholdLifecycle/thresholdSessionMetrics';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -132,7 +131,6 @@ export class Secp256k1Engine implements Signer {
         nearAccountIdFallback: keyRef.userId,
       });
       const canonicalRecord = resolvedAuthMaterial?.record || null;
-      const hasCanonicalRecord = !!canonicalRecord;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
       const canonicalRecordMatchesKeyRefLane =
         !!canonicalRecord &&
@@ -143,31 +141,6 @@ export class Secp256k1Engine implements Signer {
         String(canonicalRecord.clientVerifyingShareB64u || '') ===
           String(keyRef.clientVerifyingShareB64u || '');
 
-      if (canonicalRecordMatchesKeyRefLane) {
-        emitThresholdSessionMetric({
-          metric: 'cache_hit',
-          curve: 'ecdsa',
-          source: 'canonical-session-record',
-          sessionId: keyRefThresholdSessionId,
-        });
-      } else if (hasCanonicalRecord) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'canonical-session-record',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'canonical_record_lane_mismatch_ignored',
-        });
-      } else {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'canonical-session-record',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'canonical_record_missing_keyref_fallback',
-        });
-      }
-
       const keyRefSessionKind = keyRef.thresholdSessionKind;
       const recordSessionKind: EcdsaSessionKind = canonicalRecord?.thresholdSessionKind || 'jwt';
       if (
@@ -175,13 +148,6 @@ export class Secp256k1Engine implements Signer {
         keyRefSessionKind &&
         keyRefSessionKind !== recordSessionKind
       ) {
-        emitThresholdSessionMetric({
-          metric: 'session_mismatch',
-          curve: 'ecdsa',
-          source: 'session-kind',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'keyref_vs_record_session_kind',
-        });
         throw new Error(
           '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
         );
@@ -197,13 +163,6 @@ export class Secp256k1Engine implements Signer {
         canonicalRecordMatchesKeyRefLane &&
         (!recordSessionId || recordSessionId !== keyRefThresholdSessionId)
       ) {
-        emitThresholdSessionMetric({
-          metric: 'session_mismatch',
-          curve: 'ecdsa',
-          source: 'session-id',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'keyref_vs_record_session_id',
-        });
         throw new Error(
           '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
         );
@@ -219,38 +178,15 @@ export class Secp256k1Engine implements Signer {
           ? resolvedAuthMaterial?.thresholdSessionJwt || ''
           : '',
       ).trim();
-      if (resolvedAuthMaterial?.thresholdSessionJwtSource === 'ed25519' && resolvedJwt) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_hit',
-          curve: 'ecdsa',
-          source: 'session-jwt',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'ed25519_fallback',
-        });
-      }
       const thresholdSessionJwt = keyRefJwt || resolvedJwt || undefined;
 
       if (sessionKind === 'jwt' && !thresholdSessionJwt) {
-        emitThresholdSessionMetric({
-          metric: 'rehydrate_fail',
-          curve: 'ecdsa',
-          source: 'session-jwt',
-          sessionId: keyRefThresholdSessionId,
-          reason: 'jwt_unavailable',
-        });
         throw new Error(
           '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
       if (sessionKind === 'jwt') {
         if (canonicalRecordMatchesKeyRefLane && keyRefJwt && recordJwt && keyRefJwt !== recordJwt) {
-          emitThresholdSessionMetric({
-            metric: 'session_mismatch',
-            curve: 'ecdsa',
-            source: 'session-jwt',
-            sessionId: keyRefThresholdSessionId,
-            reason: 'keyref_vs_record_jwt',
-          });
           throw new Error(
             '[multichain] threshold-ecdsa keyRef JWT does not match session record; reconnect threshold session',
           );
