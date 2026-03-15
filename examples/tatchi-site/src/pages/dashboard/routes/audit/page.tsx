@@ -41,6 +41,7 @@ import {
   resolveDashboardIdentityPrimaryLabel,
   type DashboardIdentitySource,
 } from '../../utils/userIdentity';
+import { listDashboardAccountOrganizations } from '../account-settings/consoleAccountApi';
 
 const CATEGORY_OPTIONS: readonly DashboardConsoleAuditCategory[] = [
   'POLICY',
@@ -137,6 +138,47 @@ function readFirstText(...values: unknown[]): string {
   return '';
 }
 
+function buildAuditOrganizationDirectoryEntries(
+  row: DashboardConsoleAuditEvent,
+  organizationDirectory: Record<string, string>,
+): Array<{ id: string; label: string }> {
+  const candidates = [
+    {
+      id: readFirstText(row.metadata?.organizationId),
+      label: readFirstText(row.metadata?.organizationName),
+    },
+    {
+      id: readText(row.orgId),
+      label: readFirstText(
+        row.metadata?.organizationName,
+        organizationDirectory[readText(row.orgId)],
+      ),
+    },
+  ];
+  const deduped = new Map<string, string>();
+  for (const candidate of candidates) {
+    const id = readText(candidate.id);
+    if (!id || deduped.has(id)) continue;
+    const label = readFirstText(candidate.label, organizationDirectory[id]);
+    if (!label || label === id) continue;
+    deduped.set(id, label);
+  }
+  return [...deduped.entries()].map(([id, label]) => ({ id, label }));
+}
+
+function replaceAuditOrganizationIdsInText(
+  value: string,
+  row: DashboardConsoleAuditEvent,
+  organizationDirectory: Record<string, string>,
+): string {
+  let nextValue = readText(value);
+  if (!nextValue) return '';
+  for (const reference of buildAuditOrganizationDirectoryEntries(row, organizationDirectory)) {
+    nextValue = nextValue.split(reference.id).join(reference.label);
+  }
+  return nextValue;
+}
+
 function buildDashboardPath(basePath: string, query: Record<string, unknown>): string {
   const searchParams = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -224,7 +266,10 @@ function formatPolicyAuditEventTitle(row: DashboardConsoleAuditEvent): {
   return null;
 }
 
-function formatBillingAuditEventTitle(row: DashboardConsoleAuditEvent): {
+function formatBillingAuditEventTitle(
+  row: DashboardConsoleAuditEvent,
+  organizationDirectory: Record<string, string>,
+): {
   title: string;
   detailParts: string[];
 } | null {
@@ -272,27 +317,75 @@ function formatBillingAuditEventTitle(row: DashboardConsoleAuditEvent): {
   }
 
   if (action === 'billing.adjustment.support_credit') {
+    const orgLabel = replaceAuditOrganizationIdsInText(
+      readFirstText(
+        row.metadata?.organizationName,
+        organizationDirectory[readText(row.orgId)],
+        row.orgId,
+      ),
+      row,
+      organizationDirectory,
+    );
+    const resultingBalance = formatAmountMinorLabel(
+      row.metadata?.resultingBalanceMinor,
+      row.metadata?.currency,
+    );
+    const created = readText(row.metadata?.created);
     appendDetail(
       details,
       formatAmountMinorLabel(row.metadata?.amountMinor, row.metadata?.currency),
     );
+    appendDetail(details, orgLabel);
     appendDetail(details, readText(row.metadata?.reasonCode));
+    appendDetail(details, readFirstText(row.metadata?.relatedInvoiceId, row.metadata?.invoiceId));
+    appendDetail(details, resultingBalance ? `Balance ${resultingBalance}` : '');
     appendDetail(details, readText(row.metadata?.adjustmentId));
     return {
-      title: 'Granted support credit',
+      title:
+        created === 'false'
+          ? readText(row.metadata?.platformBilling) === 'true'
+            ? 'Reused customer support credit'
+            : 'Reused support credit'
+          : readText(row.metadata?.platformBilling) === 'true'
+            ? 'Granted customer support credit'
+            : 'Granted support credit',
       detailParts: details,
     };
   }
 
   if (action === 'billing.adjustment.admin_debit') {
+    const orgLabel = replaceAuditOrganizationIdsInText(
+      readFirstText(
+        row.metadata?.organizationName,
+        organizationDirectory[readText(row.orgId)],
+        row.orgId,
+      ),
+      row,
+      organizationDirectory,
+    );
+    const resultingBalance = formatAmountMinorLabel(
+      row.metadata?.resultingBalanceMinor,
+      row.metadata?.currency,
+    );
+    const created = readText(row.metadata?.created);
     appendDetail(
       details,
       formatAmountMinorLabel(row.metadata?.amountMinor, row.metadata?.currency),
     );
+    appendDetail(details, orgLabel);
     appendDetail(details, readText(row.metadata?.reasonCode));
+    appendDetail(details, readFirstText(row.metadata?.relatedInvoiceId, row.metadata?.invoiceId));
+    appendDetail(details, resultingBalance ? `Balance ${resultingBalance}` : '');
     appendDetail(details, readText(row.metadata?.adjustmentId));
     return {
-      title: 'Applied admin debit',
+      title:
+        created === 'false'
+          ? readText(row.metadata?.platformBilling) === 'true'
+            ? 'Reused customer admin debit'
+            : 'Reused admin debit'
+          : readText(row.metadata?.platformBilling) === 'true'
+            ? 'Applied customer admin debit'
+            : 'Applied admin debit',
       detailParts: details,
     };
   }
@@ -325,7 +418,10 @@ function formatWebhookAuditEventTitle(row: DashboardConsoleAuditEvent): {
   return null;
 }
 
-function formatAuditEventTitle(row: DashboardConsoleAuditEvent): {
+function formatAuditEventTitle(
+  row: DashboardConsoleAuditEvent,
+  organizationDirectory: Record<string, string>,
+): {
   title: string;
   detailParts: string[];
 } {
@@ -350,13 +446,16 @@ function formatAuditEventTitle(row: DashboardConsoleAuditEvent): {
   const policyDisplay = formatPolicyAuditEventTitle(row);
   if (policyDisplay) return policyDisplay;
 
-  const billingDisplay = formatBillingAuditEventTitle(row);
+  const billingDisplay = formatBillingAuditEventTitle(row, organizationDirectory);
   if (billingDisplay) return billingDisplay;
 
   const webhookDisplay = formatWebhookAuditEventTitle(row);
   if (webhookDisplay) return webhookDisplay;
 
-  const title = readText(row.summary) || humanizeMachineLabel(row.action) || row.id;
+  const title =
+    replaceAuditOrganizationIdsInText(readText(row.summary), row, organizationDirectory) ||
+    humanizeMachineLabel(row.action) ||
+    row.id;
   const detail = humanizeMachineLabel(row.action);
   return {
     title,
@@ -539,12 +638,23 @@ export function AuditLogsPage(): React.JSX.Element {
   const [memberDirectory, setMemberDirectory] = React.useState<Record<string, DashboardIdentitySource>>(
     {},
   );
+  const [organizationDirectory, setOrganizationDirectory] = React.useState<Record<string, string>>({});
   const [projectDirectory, setProjectDirectory] = React.useState<Record<string, string>>({});
   const [environmentDirectory, setEnvironmentDirectory] = React.useState<Record<string, string>>({});
   const [approvalDirectory, setApprovalDirectory] = React.useState<
     Record<string, DashboardConsoleApprovalRequest>
   >({});
   const [copyNotice, setCopyNotice] = React.useState<string>('');
+  const resolvedOrganizationDirectory = React.useMemo(() => {
+    const nextDirectory = { ...organizationDirectory };
+    for (const row of events) {
+      const organizationId = readText(row.metadata?.organizationId);
+      const organizationName = readText(row.metadata?.organizationName);
+      if (!organizationId || !organizationName) continue;
+      nextDirectory[organizationId] = organizationName;
+    }
+    return nextDirectory;
+  }, [events, organizationDirectory]);
   const eventsPagination = useDashboardTablePagination(events, {
     disabled: loading,
     initialRowsPerPage: 10,
@@ -589,13 +699,25 @@ export function AuditLogsPage(): React.JSX.Element {
   React.useEffect(() => {
     if (session.loading) return;
     if (!session.claims) {
+      setOrganizationDirectory({});
       setMemberDirectory({});
       return;
     }
     let cancelled = false;
-    listDashboardTeamMembers()
-      .then((members) => {
+    Promise.allSettled([listDashboardAccountOrganizations(), listDashboardTeamMembers()])
+      .then((results) => {
         if (cancelled) return;
+        const organizations =
+          results[0]?.status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+        const members =
+          results[1]?.status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+        const nextOrganizationDirectory: Record<string, string> = {};
+        for (const organization of organizations) {
+          const organizationId = readText(organization.id);
+          if (!organizationId) continue;
+          nextOrganizationDirectory[organizationId] = readText(organization.name) || organizationId;
+        }
+        setOrganizationDirectory(nextOrganizationDirectory);
         const nextDirectory: Record<string, DashboardIdentitySource> = {};
         for (const member of members) {
           const userId = readText(member.userId);
@@ -610,12 +732,13 @@ export function AuditLogsPage(): React.JSX.Element {
       })
       .catch(() => {
         if (cancelled) return;
+        setOrganizationDirectory({});
         setMemberDirectory({});
       });
     return () => {
       cancelled = true;
     };
-  }, [session.claims?.orgId, session.loading]);
+  }, [session.claims?.orgId, session.claims?.userId, session.loading]);
 
   React.useEffect(() => {
     if (session.loading) return;
@@ -889,7 +1012,7 @@ export function AuditLogsPage(): React.JSX.Element {
           ) : (
             eventsPagination.rows.map((row) => {
               const isExpanded = expandedEventId === row.id;
-              const eventDisplay = formatAuditEventTitle(row);
+              const eventDisplay = formatAuditEventTitle(row, resolvedOrganizationDirectory);
               const actorDisplay = formatAuditActor(row, memberDirectory, session.claims);
               const scopeDisplay = resolveAuditScopeLabels({
                 row,
@@ -924,7 +1047,10 @@ export function AuditLogsPage(): React.JSX.Element {
                       }),
                     )
                   : null;
-              const invoiceId = readText(row.metadata?.invoiceId);
+              const invoiceId = readFirstText(
+                row.metadata?.invoiceId,
+                row.metadata?.relatedInvoiceId,
+              );
               const invoiceLink = invoiceId
                 ? linkProps(`/dashboard/invoices/${encodeURIComponent(invoiceId)}`)
                 : null;
@@ -933,6 +1059,23 @@ export function AuditLogsPage(): React.JSX.Element {
                 ? linkProps(`/dashboard/invoices/${encodeURIComponent(receiptId)}`)
                 : null;
               const purchaseId = readText(row.metadata?.purchaseId);
+              const adjustmentId = readText(row.metadata?.adjustmentId);
+              const reasonCode = readText(row.metadata?.reasonCode);
+              const adjustmentNote = readText(row.metadata?.note);
+              const resultingBalanceLabel = formatAmountMinorLabel(
+                row.metadata?.resultingBalanceMinor,
+                row.metadata?.currency,
+              );
+              const linkedOrganizationId = readFirstText(row.metadata?.organizationId, row.orgId);
+              const linkedOrganizationLabel = replaceAuditOrganizationIdsInText(
+                readFirstText(
+                  row.metadata?.organizationName,
+                  resolvedOrganizationDirectory[linkedOrganizationId],
+                  linkedOrganizationId,
+                ),
+                row,
+                resolvedOrganizationDirectory,
+              );
               const webhookEndpointId = readText(row.metadata?.endpointId);
               const webhookDeliveryId = readText(row.metadata?.deliveryId);
               const webhookEndpointLink = webhookEndpointId
@@ -1093,6 +1236,11 @@ export function AuditLogsPage(): React.JSX.Element {
                             <code>{purchaseId}</code>
                           </DashboardTableDetailsItem>
                         ) : null}
+                        {adjustmentId ? (
+                          <DashboardTableDetailsItem label="Adjustment">
+                            <code>{adjustmentId}</code>
+                          </DashboardTableDetailsItem>
+                        ) : null}
                         {invoiceId ? (
                           <DashboardTableDetailsItem label="Invoice">
                             {renderAuditLinkedIdentifier({
@@ -1100,6 +1248,35 @@ export function AuditLogsPage(): React.JSX.Element {
                               href: invoiceLink?.href,
                               onClick: invoiceLink?.onClick,
                             })}
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {reasonCode ? (
+                          <DashboardTableDetailsItem label="Reason Code">
+                            <code>{reasonCode}</code>
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {resultingBalanceLabel ? (
+                          <DashboardTableDetailsItem label="Resulting Balance">
+                            <span>{resultingBalanceLabel}</span>
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {adjustmentNote ? (
+                          <DashboardTableDetailsItem label="Note">
+                            <span>{adjustmentNote}</span>
+                          </DashboardTableDetailsItem>
+                        ) : null}
+                        {linkedOrganizationId ? (
+                          <DashboardTableDetailsItem label="Organization">
+                            <div>
+                              <span>{linkedOrganizationLabel || linkedOrganizationId}</span>
+                              {linkedOrganizationLabel &&
+                              linkedOrganizationLabel !== linkedOrganizationId ? (
+                                <>
+                                  <br />
+                                  <code>{linkedOrganizationId}</code>
+                                </>
+                              ) : null}
+                            </div>
                           </DashboardTableDetailsItem>
                         ) : null}
                         {receiptId ? (
