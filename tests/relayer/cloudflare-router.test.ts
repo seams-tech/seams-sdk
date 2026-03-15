@@ -273,7 +273,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect((received?.policy as Record<string, unknown> | undefined)?.allowedReceivers).toEqual([
       'contract.testnet',
     ]);
-    const record = await ledger.getRecordBySourceEventId(
+    const record = await ledger.getRecordByIdempotencyKey(
       {
         orgId: 'org_delegate',
         actorUserId: 'user_delegate',
@@ -291,6 +291,115 @@ test.describe('relayer router (cloudflare) – P0', () => {
         walletId: 'alice.testnet',
         action: 'contract_call',
         succeeded: true,
+      }),
+    ]);
+  });
+
+  test('POST /signed-delegate records reverted NEAR execution as failed metered spend', async () => {
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async () => ({
+        ok: true,
+        transactionHash: 'delegate-tx-reverted-456',
+        outcome: {
+          final_execution_status: 'Failure',
+          status: {
+            Failure: {
+              error_type: 'ActionError',
+              error_message: 'Delegate failed on-chain',
+            },
+          },
+          transaction: {
+            hash: 'delegate-tx-reverted-456',
+          },
+          transaction_outcome: {
+            outcome: {
+              gas_burnt: 1000,
+              tokens_burnt: '250',
+            },
+          },
+          receipts_outcome: [
+            {
+              outcome: {
+                gas_burnt: 2000,
+                tokens_burnt: '750',
+                status: {
+                  Failure: {
+                    error_type: 'ActionError',
+                    error_message: 'Delegate failed on-chain',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const created = await apiKeys.createApiKey(
+      {
+        orgId: 'org_delegate',
+        actorUserId: 'user_delegate',
+        roles: ['admin'],
+      },
+      {
+        kind: 'publishable_key',
+        name: 'delegate-browser',
+        environmentId: 'proj_delegate:prod',
+        allowedOrigins: ['https://example.localhost'],
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
+      },
+    );
+    const handler = createCloudflareRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/signed-delegate',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: `Bearer ${created.secret}`,
+        'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+      },
+      body: {
+        hash: 'c'.repeat(64),
+        signedDelegate: {
+          delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+          signature: 'sig',
+        },
+      },
+    });
+
+    expect(res.status, res.text).toBe(502);
+    expect(res.json?.code).toBe('delegate_execution_failed');
+    expect(res.json?.message).toBe('Delegate failed on-chain');
+    expect(res.json?.relayerTxHash).toBe('delegate-tx-reverted-456');
+    const record = await ledger.getRecordByIdempotencyKey(
+      {
+        orgId: 'org_delegate',
+        actorUserId: 'user_delegate',
+        roles: ['admin'],
+      },
+      `signed_delegate:${created.apiKey.id}:${'c'.repeat(64)}`,
+    );
+    expect(record?.receiptStatus).toBe('reverted');
+    expect(record?.feeAmount).toBe('1000');
+    expect(record?.txOrExecutionRef).toBe('delegate-tx-reverted-456');
+    expect(record?.errorCode).toBe('ActionError');
+    expect(record?.errorMessage).toBe('Delegate failed on-chain');
+    expect(billing.events).toEqual([
+      expect.objectContaining({
+        walletId: 'alice.testnet',
+        action: 'contract_call',
+        succeeded: false,
       }),
     ]);
   });

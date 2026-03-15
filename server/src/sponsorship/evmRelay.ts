@@ -6,21 +6,21 @@ import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots'
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import {
   type SponsoredEvmCall,
-  type SponsoredEvmCallRequest,
   type ServerEip1559UnsignedTx,
   computeEip1559TxHash,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
 } from '../index';
+import { createRelayPublishableKeyAuthAdapter } from '../router/relayApiKeyAuth';
+import { coerceRouterLogger, type RouterLogger } from '../router/logger';
+import { handleRelaySponsoredEvmCall } from '../router/relaySponsoredEvmCall';
+import type { RouteDefinition } from '../router/routeDefinitions';
+import { sendExpressRouteResponse } from '../router/routeResponses';
 import {
   normalizeEvmAddress,
   normalizeHex32,
   parseOptionalPositiveInteger,
   parseBigIntWithFallback,
-  parseSponsoredEvmCallRequest,
-  parseResolvedSponsoredEvmCallPolicies,
-  matchResolvedSponsoredEvmCallPolicy,
-  createSponsoredEvmSourceEventId,
 } from './evm';
 
 const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';
@@ -49,7 +49,7 @@ export type RegisterSponsoredEvmCallRouteArgs = {
   corsOrigins: string[];
   config: SponsoredEvmCallExecutorConfig | null;
   route?: string;
-  logger?: Pick<Console, 'info' | 'warn' | 'error'>;
+  logger?: RouterLogger;
 };
 
 type SponsoredEvmExecution = {
@@ -58,57 +58,6 @@ type SponsoredEvmExecution = {
   effectiveGasPrice: string;
   feeAmount: string;
 };
-
-type SponsoredEvmCallDetails = {
-  nearAccountId: string;
-  walletAddress: `0x${string}`;
-  chainId: number;
-  call: {
-    to: `0x${string}`;
-    data: `0x${string}`;
-    gasLimit: string;
-    valueWei: string;
-    selector: `0x${string}`;
-  };
-  execution: {
-    txHash: string | null;
-    gasUsed: string | null;
-    effectiveGasPrice: string | null;
-    feeAmount: string;
-  };
-};
-
-function normalizeOrigin(value: unknown): string {
-  try {
-    const parsed = new URL(String(value || '').trim());
-    parsed.hash = '';
-    parsed.search = '';
-    parsed.pathname = '/';
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return '';
-  }
-}
-
-function extractBearerCredential(headers: Request['headers'] | undefined): string | null {
-  const raw = String(headers?.authorization || '').trim();
-  if (!raw) return null;
-  if (!raw.toLowerCase().startsWith('bearer ')) return null;
-  const value = raw.slice('bearer '.length).trim();
-  return value || null;
-}
-
-function applyCorsHeaders(res: Response, requestOrigin: string, allowedOrigins: readonly string[]): void {
-  const headers: Record<string, string> = {
-    'access-control-allow-methods': 'POST, OPTIONS',
-    'access-control-allow-headers': 'authorization, content-type, x-tatchi-environment-id',
-  };
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-    headers['access-control-allow-origin'] = requestOrigin;
-    headers.vary = 'Origin';
-  }
-  res.set(headers);
-}
 
 function normalizeTxHashOrThrow(value: unknown): `0x${string}` {
   const normalized = String(value || '').trim();
@@ -132,94 +81,6 @@ function bytesToHex(bytes: Uint8Array): `0x${string}` {
 
 function privateKeyHexToBytes(value: `0x${string}`): Uint8Array {
   return Uint8Array.from(Buffer.from(value.slice(2), 'hex'));
-}
-
-function buildAccountRef(nearAccountId: string): string {
-  return `near:${nearAccountId}`;
-}
-
-function buildTargetRef(chainId: number, to: `0x${string}`): string {
-  return `evm:${chainId}:${to.toLowerCase()}`;
-}
-
-function buildSponsorRef(chainId: number, sponsorAddress: `0x${string}`): string {
-  return `evm:${chainId}:${sponsorAddress.toLowerCase()}`;
-}
-
-function buildDetailsJson(input: {
-  request: SponsoredEvmCallRequest;
-  selector: `0x${string}`;
-  execution: {
-    txHash: string | null;
-    gasUsed: string | null;
-    effectiveGasPrice: string | null;
-    feeAmount: string;
-  };
-}): string {
-  const details: SponsoredEvmCallDetails = {
-    nearAccountId: input.request.nearAccountId,
-    walletAddress: input.request.walletAddress,
-    chainId: input.request.chainId,
-    call: {
-      to: input.request.call.to,
-      data: input.request.call.data,
-      gasLimit: input.request.call.gasLimit.toString(10),
-      valueWei: input.request.call.value.toString(10),
-      selector: input.selector,
-    },
-    execution: {
-      txHash: input.execution.txHash,
-      gasUsed: input.execution.gasUsed,
-      effectiveGasPrice: input.execution.effectiveGasPrice,
-      feeAmount: input.execution.feeAmount,
-    },
-  };
-  return JSON.stringify(details);
-}
-
-function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    const nearAccountId = String(parsed.nearAccountId || '').trim();
-    const walletAddress = normalizeEvmAddress(parsed.walletAddress);
-    const chainId = parseOptionalPositiveInteger(parsed.chainId);
-    const call =
-      parsed.call && typeof parsed.call === 'object' && !Array.isArray(parsed.call)
-        ? (parsed.call as Record<string, unknown>)
-        : null;
-    const execution =
-      parsed.execution && typeof parsed.execution === 'object' && !Array.isArray(parsed.execution)
-        ? (parsed.execution as Record<string, unknown>)
-        : null;
-    const to = normalizeEvmAddress(call?.to);
-    const data = /^0x(?:[0-9a-fA-F]{2})*$/.test(String(call?.data || '').trim())
-      ? (String(call?.data || '').trim() as `0x${string}`)
-      : null;
-    const selector = /^0x[0-9a-fA-F]{8}$/.test(String(call?.selector || '').trim())
-      ? (String(call?.selector || '').trim().toLowerCase() as `0x${string}`)
-      : null;
-    if (!nearAccountId || !walletAddress || !chainId || !to || !data || !selector) return null;
-    return {
-      nearAccountId,
-      walletAddress,
-      chainId,
-      call: {
-        to,
-        data,
-        gasLimit: String(call?.gasLimit || '').trim() || '0',
-        valueWei: String(call?.valueWei || '').trim() || '0',
-        selector,
-      },
-      execution: {
-        txHash: String(execution?.txHash || '').trim() || null,
-        gasUsed: String(execution?.gasUsed || '').trim() || null,
-        effectiveGasPrice: String(execution?.effectiveGasPrice || '').trim() || null,
-        feeAmount: String(execution?.feeAmount || '').trim() || '0',
-      },
-    };
-  } catch {
-    return null;
-  }
 }
 
 async function resolveFeeCaps(args: {
@@ -416,297 +277,50 @@ export function resolveSponsoredEvmCallConfigFromEnv(
 }
 
 export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRouteArgs): void {
-  const logger = args.logger || console;
-  const route = String(args.route || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
+  const logger = coerceRouterLogger(args.logger || console);
+  const routePath = String(args.route || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
+  const route: RouteDefinition = {
+    id: 'sponsored_evm_call',
+    surface: 'relay',
+    method: 'POST',
+    path: routePath,
+    auth: {
+      plane: 'machine',
+      credentials: ['publishable_key'],
+      environmentBinding: 'required',
+      originBinding: 'required',
+    },
+    metering: { kind: 'gas', ledger: 'evm' },
+    requiredServices: ['relaySponsoredEvmCall'],
+    summary: 'Execute a sponsored EVM call',
+  };
+  const publishableKeyAuth =
+    typeof args.apiKeys.authenticatePublishableKey === 'function'
+      ? createRelayPublishableKeyAuthAdapter(args.apiKeys)
+      : null;
 
-  args.router.options(route, (req: Request, res: Response) => {
-    const origin = normalizeOrigin(req.headers?.origin);
-    applyCorsHeaders(res, origin, args.corsOrigins);
+  args.router.options(route.path, (_req: Request, res: Response) => {
     res.status(204).send();
   });
 
-  args.router.post(route, async (req: Request, res: Response) => {
-    const origin = normalizeOrigin(req.headers?.origin);
-    applyCorsHeaders(res, origin, args.corsOrigins);
-
-    if (!origin || !args.corsOrigins.includes(origin)) {
-      res.status(403).json({ ok: false, code: 'origin_not_allowed', message: 'Origin is not allowed' });
-      return;
-    }
-    if (!args.config?.enabled) {
-      res.status(503).json({
-        ok: false,
-        code: 'sponsored_evm_call_disabled',
-        message: 'Sponsored EVM execution is not configured on this server',
-      });
-      return;
-    }
-    if (!args.runtimeSnapshots) {
-      res.status(503).json({
-        ok: false,
-        code: 'runtime_snapshots_unavailable',
-        message: 'Runtime snapshots are not configured on this server',
-      });
-      return;
-    }
-    if (typeof args.apiKeys.authenticatePublishableKey !== 'function') {
-      res.status(503).json({
-        ok: false,
-        code: 'publishable_key_auth_unavailable',
-        message: 'Publishable key authentication is not configured on this server',
-      });
-      return;
-    }
-
-    const authorization = extractBearerCredential(req.headers);
-    if (!authorization) {
-      res.status(401).json({
-        ok: false,
-        code: 'publishable_key_missing',
-        message: 'Missing publishable key',
-      });
-      return;
-    }
-
-    let parsedBody: SponsoredEvmCallRequest;
-    try {
-      const body =
-        req.body && typeof req.body === 'object' && !Array.isArray(req.body)
-          ? ({
-              ...(req.body as Record<string, unknown>),
-              environmentId:
-                req.headers?.['x-tatchi-environment-id'] ||
-                req.headers?.['x-environment-id'] ||
-                (req.body as Record<string, unknown>).environmentId,
-            } as Record<string, unknown>)
-          : req.body;
-      parsedBody = parseSponsoredEvmCallRequest(body);
-    } catch (error: unknown) {
-      res.status(400).json({
-        ok: false,
-        code: 'invalid_body',
-        message: error instanceof Error ? error.message : 'Invalid request body',
-      });
-      return;
-    }
-
-    const authResult = await args.apiKeys.authenticatePublishableKey({
-      secret: authorization,
-      origin,
-      environmentId: parsedBody.environmentId,
+  args.router.post(route.path, async (req: Request, res: Response) => {
+    const response = await handleRelaySponsoredEvmCall({
+      body: req.body,
+      headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
+      logger,
+      origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
+      route,
+      services: {
+        relaySponsoredEvmCall: {
+          billing: args.billing,
+          config: args.config,
+          corsOrigins: args.corsOrigins,
+          publishableKeyAuth,
+          runtimeSnapshots: args.runtimeSnapshots,
+          sponsoredCalls: args.ledger,
+        },
+      },
     });
-    if (!authResult.ok) {
-      res.status(authResult.status).json({
-        ok: false,
-        code: authResult.code,
-        message: authResult.message,
-      });
-      return;
-    }
-
-    const sponsorshipCtx = {
-      orgId: authResult.apiKey.orgId,
-      actorUserId: 'sponsored-call-executor',
-      roles: ['system'],
-    };
-
-    const latestSnapshot = await args.runtimeSnapshots.getLatestSnapshot(sponsorshipCtx, {
-      environmentId: parsedBody.environmentId,
-    });
-    if (!latestSnapshot) {
-      res.status(503).json({
-        ok: false,
-        code: 'runtime_snapshot_not_found',
-        message: 'No runtime snapshot is available for this environment',
-      });
-      return;
-    }
-
-    const policies = parseResolvedSponsoredEvmCallPolicies(latestSnapshot.payload);
-    const matched = matchResolvedSponsoredEvmCallPolicy({
-      policies,
-      chainId: parsedBody.chainId,
-      call: parsedBody.call,
-    });
-    if (!matched) {
-      res.status(403).json({
-        ok: false,
-        code: 'sponsorship_policy_not_matched',
-        message: 'Requested call is not sponsorable under the active policy',
-      });
-      return;
-    }
-    if (parsedBody.chainId !== args.config.chainId) {
-      res.status(503).json({
-        ok: false,
-        code: 'sponsor_chain_misconfigured',
-        message: `Sponsor executor is configured for chain ${args.config.chainId}, not ${parsedBody.chainId}`,
-      });
-      return;
-    }
-
-    const sourceEventId =
-      parsedBody.sourceEventId ||
-      createSponsoredEvmSourceEventId(
-        parsedBody.nearAccountId,
-        parsedBody.walletAddress,
-        parsedBody.chainId,
-        parsedBody.call,
-      );
-
-    const existing = await args.ledger.getRecordBySourceEventId(sponsorshipCtx, sourceEventId);
-    if (existing) {
-      const details = parseDetailsJson(existing.detailsJson);
-      const existingFeeAmount = String(existing.feeAmount || '').trim() || '0';
-      res.status(existing.receiptStatus === 'success' ? 200 : 409).json({
-        ok: existing.receiptStatus === 'success',
-        replayed: true,
-        recordId: existing.id,
-        policyId: String(existing.policyId || '').trim() || null,
-        txHash: existing.txOrExecutionRef,
-        spendWei: existingFeeAmount,
-        gasUsed: details?.execution.gasUsed || null,
-        effectiveGasPrice: details?.execution.effectiveGasPrice || null,
-        receiptStatus: existing.receiptStatus,
-        errorCode: existing.errorCode,
-        message:
-          existing.receiptStatus === 'success'
-            ? 'Sponsored EVM call already finalized for this request'
-            : existing.errorMessage || 'Sponsored EVM call already failed for this request',
-      });
-      return;
-    }
-
-    try {
-      const execution = await executeSponsoredEvmCall({
-        config: args.config,
-        chainId: parsedBody.chainId,
-        call: parsedBody.call,
-      });
-      const record = await args.ledger.createRecord(sponsorshipCtx, {
-        environmentId: parsedBody.environmentId,
-        apiKeyId: authResult.apiKey.id,
-        apiKeyKind: 'publishable_key',
-        route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-        policyId: matched.policy.policyId,
-        policyNameAtEvent: matched.policy.policyName,
-        chainFamily: 'evm',
-        intentKind: 'evm_call',
-        accountRef: buildAccountRef(parsedBody.nearAccountId),
-        targetRef: buildTargetRef(parsedBody.chainId, parsedBody.call.to),
-        sponsorRef: buildSponsorRef(parsedBody.chainId, args.config.sponsorAddress),
-        txOrExecutionRef: execution.txHash,
-        receiptStatus: 'success',
-        feeUnit: 'wei',
-        feeAmount: execution.feeAmount,
-        detailsJson: buildDetailsJson({
-          request: parsedBody,
-          selector: matched.selector,
-          execution: {
-            txHash: execution.txHash,
-            gasUsed: execution.gasUsed,
-            effectiveGasPrice: execution.effectiveGasPrice,
-            feeAmount: execution.feeAmount,
-          },
-        }),
-        sourceEventId,
-      });
-      await args.billing.recordUsageEvent(sponsorshipCtx, {
-        walletId: parsedBody.nearAccountId,
-        action: 'contract_call',
-        succeeded: true,
-        occurredAt: new Date().toISOString(),
-        sourceEventId: `sponsored_evm_call_usage:${record.id}`,
-      });
-      res.status(200).json({
-        ok: true,
-        replayed: false,
-        recordId: record.id,
-        policyId: matched.policy.policyId,
-        txHash: execution.txHash,
-        spendWei: execution.feeAmount,
-        gasUsed: execution.gasUsed,
-        effectiveGasPrice: execution.effectiveGasPrice,
-      });
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : String(error || 'Sponsored EVM call failed');
-      const errorCode =
-        error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
-      const txHash =
-        error && typeof error === 'object' && 'txHash' in error
-          ? normalizeTxHashOrNull((error as { txHash?: unknown }).txHash)
-          : null;
-      const gasUsed =
-        error && typeof error === 'object' && 'gasUsed' in error
-          ? String((error as { gasUsed?: unknown }).gasUsed || '').trim() || null
-          : null;
-      const effectiveGasPrice =
-        error && typeof error === 'object' && 'effectiveGasPrice' in error
-          ? String((error as { effectiveGasPrice?: unknown }).effectiveGasPrice || '').trim() || null
-          : null;
-      const feeAmount =
-        error && typeof error === 'object' && 'feeAmount' in error
-          ? String((error as { feeAmount?: unknown }).feeAmount || '').trim() || '0'
-          : '0';
-      const record = await args.ledger.createRecord(sponsorshipCtx, {
-        environmentId: parsedBody.environmentId,
-        apiKeyId: authResult.apiKey.id,
-        apiKeyKind: 'publishable_key',
-        route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-        policyId: matched.policy.policyId,
-        policyNameAtEvent: matched.policy.policyName,
-        chainFamily: 'evm',
-        intentKind: 'evm_call',
-        accountRef: buildAccountRef(parsedBody.nearAccountId),
-        targetRef: buildTargetRef(parsedBody.chainId, parsedBody.call.to),
-        sponsorRef: buildSponsorRef(parsedBody.chainId, args.config.sponsorAddress),
-        txOrExecutionRef: txHash,
-        receiptStatus:
-          errorCode === 'tx_reverted'
-            ? 'reverted'
-            : txHash
-              ? 'broadcast_failed'
-              : 'rpc_rejected',
-        feeUnit: 'wei',
-        feeAmount,
-        detailsJson: buildDetailsJson({
-          request: parsedBody,
-          selector: matched.selector,
-          execution: {
-            txHash,
-            gasUsed,
-            effectiveGasPrice,
-            feeAmount,
-          },
-        }),
-        errorCode: errorCode || null,
-        errorMessage: message,
-        sourceEventId,
-      });
-      await args.billing.recordUsageEvent(sponsorshipCtx, {
-        walletId: parsedBody.nearAccountId,
-        action: 'contract_call',
-        succeeded: false,
-        occurredAt: new Date().toISOString(),
-        sourceEventId: `sponsored_evm_call_usage:${record.id}`,
-      });
-      logger.error('[sponsored-evm-call] request failed', {
-        environmentId: parsedBody.environmentId,
-        apiKeyId: authResult.apiKey.id,
-        nearAccountId: parsedBody.nearAccountId,
-        walletAddress: parsedBody.walletAddress,
-        txHash,
-        message,
-      });
-      res.status(502).json({
-        ok: false,
-        code: errorCode || 'sponsored_evm_call_failed',
-        message,
-        txHash,
-        recordId: record.id,
-        policyId: matched.policy.policyId,
-      });
-    }
+    sendExpressRouteResponse(res, response);
   });
 }

@@ -30,7 +30,7 @@ export interface ConsoleSponsoredCallRecord {
   detailsJson: string;
   errorCode: string | null;
   errorMessage: string | null;
-  sourceEventId: string | null;
+  idempotencyKey: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,5 +55,5 @@ export interface CreateConsoleSponsoredCallRecordRequest {
   detailsJson: string;
   errorCode?: string | null;
   errorMessage?: string | null;
-  sourceEventId?: string | null;
+  idempotencyKey?: string | null;
 }

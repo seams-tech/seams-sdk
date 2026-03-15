@@ -205,7 +205,7 @@ test.describe('console policy id postgres migration', () => {
       feeUnit: 'wei',
       feeAmount: '10',
       detailsJson: JSON.stringify({ ok: true }),
-      sourceEventId: 'source-event-manual-policy-1',
+      idempotencyKey: 'source-event-manual-policy-1',
     });
 
     await ensureConsolePoliciesPostgresSchema({
@@ -306,7 +306,7 @@ test.describe('console policy id postgres migration', () => {
       const sponsoredCalls = await q.query(
         `SELECT policy_id
            FROM console_sponsored_call_records
-          WHERE namespace = $1 AND org_id = $2 AND source_event_id = $3`,
+          WHERE namespace = $1 AND org_id = $2 AND idempotency_key = $3`,
         [namespace, ctx.orgId, 'source-event-manual-policy-1'],
       );
       expect(

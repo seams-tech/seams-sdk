@@ -200,15 +200,34 @@ test.describe('demo threshold action hooks', () => {
         refreshFundingAddressCalls: 0,
         refreshBalanceCalls: 0,
         requestChainIds: [] as number[],
+        dripIdempotencyKeys: [] as string[],
       };
       const thresholdSender = '0x1111111111111111111111111111111111111111';
       const txHashBase = `0x${'33'.repeat(31)}`;
       const tempoGreetingInput = 'Hello from extracted tempo hook';
       let txCounter = 0;
+      let dripCounter = 0;
       const originalFetch = window.fetch.bind(window);
       window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes('/sponsorships/evm/call') && String(init?.method || 'GET').toUpperCase() === 'POST') {
+          let body: Record<string, unknown> = {};
+          try {
+            body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          } catch {}
+          counters.dripIdempotencyKeys.push(String(body.idempotencyKey || ''));
+          dripCounter += 1;
+          const dripTxHash = `${`0x${'44'.repeat(31)}`}${String(dripCounter).padStart(2, '0')}`.slice(0, 66);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              txHash: dripTxHash,
+              policyId: 'policy_tempo_drip',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
         if (!url.includes(tempoRpcHost) || String(init?.method || 'GET').toUpperCase() !== 'POST') {
           return await originalFetch(input, init);
         }
@@ -280,6 +299,16 @@ test.describe('demo threshold action hooks', () => {
             },
           },
           canSignTempo: true,
+          frontendConfig: {
+            managedRegistration: {
+              mode: 'managed',
+              environmentId: 'env-tempo-sponsor-prod',
+              publishableKey: 'pk_test_tempo',
+            },
+            relayerUrl: 'https://localhost:9444',
+            tempoExplorerUrl: 'https://explore.tempo.xyz',
+            tempoRpcUrl: `https://${tempoRpcHost}`,
+          },
           tempoGreetingInput,
           tempoEip1559FeeCaps: {
             maxPriorityFeePerGas: 2_000_000_000n,
@@ -311,6 +340,7 @@ test.describe('demo threshold action hooks', () => {
       });
 
       await hookApi.handleTempoDripToken();
+      await hookApi.handleTempoDripToken();
       await hookApi.handleSignTempoThresholdTx();
       await new Promise((resolve) => window.setTimeout(resolve, 0));
       const stateAfter = {
@@ -321,11 +351,15 @@ test.describe('demo threshold action hooks', () => {
       return { counters, stateAfter };
     }, { paths: IMPORT_PATHS, tempoRpcHost: TEMPO_RPC });
 
-    expect(result.counters.executeEvmFamilyTransactionCalls).toBe(2);
-    expect(result.counters.refreshBalanceCalls).toBeGreaterThanOrEqual(1);
+    expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
+    expect(result.counters.refreshBalanceCalls).toBeGreaterThanOrEqual(2);
     expect(result.counters.fetchTempoGreetingCalls).toBe(1);
     expect(result.counters.refreshFundingAddressCalls).toBe(1);
-    expect(result.counters.requestChainIds).toEqual([42431, 42431]);
+    expect(result.counters.requestChainIds).toEqual([42431]);
+    expect(result.counters.dripIdempotencyKeys).toHaveLength(2);
+    expect(result.counters.dripIdempotencyKeys[0]).toContain('tempo_drip_click:');
+    expect(result.counters.dripIdempotencyKeys[1]).toContain('tempo_drip_click:');
+    expect(result.counters.dripIdempotencyKeys[0]).not.toBe(result.counters.dripIdempotencyKeys[1]);
     expect(result.stateAfter.tempoDripLoading).toBe(false);
     expect(result.stateAfter.tempoThresholdSignLoading).toBe(false);
   });

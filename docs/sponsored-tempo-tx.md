@@ -52,6 +52,7 @@ The current implementation now matches the policy-backed direction:
 - execution backend: relay-owned EOA
 - accounting:
   - exact spend ledger row keyed by `apiKeyId`
+  - explicit caller-provided `idempotencyKey` per intent
   - `policyId` persisted with each sponsorship record
   - billing usage event recorded for the org
 - demo integration:

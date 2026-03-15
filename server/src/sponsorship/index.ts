@@ -12,7 +12,6 @@ export {
   parseBigIntWithFallback,
   parseRequiredUnsignedBigInt,
   extractEvmFunctionSelector,
-  createSponsoredEvmSourceEventId,
   parseResolvedSponsoredEvmCallPolicies,
   matchResolvedSponsoredEvmCallPolicy,
   parseSponsoredEvmCallRequest,

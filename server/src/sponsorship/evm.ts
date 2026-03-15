@@ -11,7 +11,7 @@ export type SponsoredEvmCallRequest = {
   walletAddress: `0x${string}`;
   chainId: number;
   call: SponsoredEvmCall;
-  sourceEventId: string | null;
+  idempotencyKey: string;
 };
 
 export type ResolvedSponsoredEvmCallSpendCap = {
@@ -142,24 +142,6 @@ export function extractEvmFunctionSelector(data: `0x${string}`): `0x${string}` |
   return data.length >= 10 ? (`0x${data.slice(2, 10).toLowerCase()}` as `0x${string}`) : null;
 }
 
-export function createSponsoredEvmSourceEventId(
-  nearAccountId: string,
-  walletAddress: `0x${string}`,
-  chainId: number,
-  call: SponsoredEvmCall,
-): string {
-  return [
-    'sponsored_evm_call',
-    nearAccountId,
-    walletAddress.toLowerCase(),
-    String(chainId),
-    call.to.toLowerCase(),
-    call.data.toLowerCase(),
-    call.gasLimit.toString(10),
-    call.value.toString(10),
-  ].join(':');
-}
-
 export function parseResolvedSponsoredEvmCallPolicies(snapshot: unknown): ResolvedSponsoredEvmCallPolicy[] {
   if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return [];
   const payload = snapshot as Record<string, unknown>;
@@ -279,6 +261,7 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
   const data = normalizeHexData(callRaw?.data);
   const gasLimit = callRaw ? parseRequiredUnsignedBigInt(callRaw.gasLimit, 'call.gasLimit') : null;
   const value = callRaw ? parseRequiredUnsignedBigInt(callRaw.value ?? '0', 'call.value') : null;
+  const idempotencyKey = String(body.idempotencyKey || '').trim();
   if (!environmentId) {
     throw new Error('Missing environmentId');
   }
@@ -293,6 +276,9 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
   }
   if (!to || !data || gasLimit === null || value === null) {
     throw new Error('Missing or invalid call');
+  }
+  if (!idempotencyKey) {
+    throw new Error('Field idempotencyKey is required');
   }
   const selector = extractEvmFunctionSelector(data);
   if (!selector) {
@@ -309,6 +295,6 @@ export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCall
       gasLimit,
       value,
     },
-    sourceEventId: String(body.sourceEventId || '').trim() || null,
+    idempotencyKey,
   };
 }

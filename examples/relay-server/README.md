@@ -30,6 +30,24 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 
 This route is consumed internally by the SDK’s registration flows.
 
+Current live secret-key machine scopes in this example are:
+
+- `accounts.create` for `POST /registration/bootstrap`
+- `wallets.read` for the machine wallet read routes below
+
+### `GET /v1/wallets`, `GET /v1/wallets/search`, `GET /v1/wallets/:id`
+
+Read wallet data through the machine API surface without reusing `/console/wallets*`.
+
+- Required headers:
+  - `Authorization: Bearer <secret_key>`
+- Required scope:
+  - `wallets.read`
+- Behavior:
+  - the authenticated key determines the effective org + environment scope
+  - list, search, and detail requests cannot escape that environment scope
+  - this surface is read-only; wallet signing is not exposed as a secret-key route
+
 ### `POST /sponsorships/evm/call`
 
 Executes a generic sponsored single-call EVM transaction for the demo onboarding flow.
@@ -43,6 +61,7 @@ The route itself is generic, but the active runtime snapshot seeds a default `Te
     "nearAccountId": "<near-account-id>",
     "walletAddress": "0x...",
     "chainId": 42431,
+    "idempotencyKey": "<new-key-per-click>",
     "call": {
       "to": "0x...",
       "data": "0x...",
@@ -58,6 +77,7 @@ The route itself is generic, but the active runtime snapshot seeds a default `Te
   - authenticates the publishable key against origin + environment
   - loads the latest runtime snapshot for the environment
   - matches the requested call against the resolved sponsored-call policy
+  - requires an explicit `idempotencyKey` and replays terminal results only when that same key is reused
   - broadcasts a relay-owned EIP-1559 transaction when policy allows the call
   - records exact finalized gas spend in the console sponsored-call ledger
   - records a billing usage event for the associated org

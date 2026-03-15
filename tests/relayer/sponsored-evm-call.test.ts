@@ -39,7 +39,7 @@ const tokenAddress = '0x20c0000000000000000000000000000000000001' as const;
 const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
 const sponsorPrivateKeyHex =
   '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
-const contractAddress = '0xbb85080E6953f25197ec68798360667140EbAf4b' as const;
+const contractAddress = '0xe1Ab123D238AF74F77BfD59450e2428c9214123C' as const;
 const selector = '0x428dc451' as const;
 const txHash = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
 const gasUsedHex = '0x5208';
@@ -113,7 +113,7 @@ async function createPublishableKey(
   };
 }
 
-function makeSourceEventId(id: string): string {
+function makeIdempotencyKey(id: string): string {
   return `sponsored-evm-call-test:${id}`;
 }
 
@@ -255,8 +255,12 @@ function makeLogger() {
   };
 }
 
-async function publishAllowedPolicy(runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>) {
+async function publishAllowedPolicy(
+  runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>,
+  opts?: { projectId?: string },
+) {
   await runtimeSnapshots.publishSnapshot(apiKeyCtx, {
+    ...(opts?.projectId ? { projectId: opts.projectId } : {}),
     environmentId,
     payload: {
       policy: {},
@@ -314,7 +318,7 @@ async function startSponsoredCallRouteServer(input: {
 }
 
 test.describe('sponsored evm call route', () => {
-  test('in-memory ledger deduplicates by sourceEventId per org', async () => {
+  test('in-memory ledger deduplicates by idempotencyKey per org', async () => {
     const service = createInMemoryConsoleSponsoredCallService();
     const first = await service.createRecord(
       {
@@ -355,7 +359,7 @@ test.describe('sponsored evm call route', () => {
             feeAmount: spendWeiDec,
           },
         }),
-        sourceEventId: 'source-1',
+        idempotencyKey: 'source-1',
       },
     );
     const second = await service.createRecord(
@@ -379,7 +383,7 @@ test.describe('sponsored evm call route', () => {
         feeUnit: 'wei',
         feeAmount: '0',
         detailsJson: '{}',
-        sourceEventId: 'source-1',
+        idempotencyKey: 'source-1',
       },
     );
     expect(second.id).toBe(first.id);
@@ -402,7 +406,7 @@ test.describe('sponsored evm call route', () => {
       runtimeSnapshots,
       config: makeRouteConfig(rpc.url),
     });
-    const sourceEventId = makeSourceEventId('success');
+    const idempotencyKey = makeIdempotencyKey('success');
     const callData = encodeTempoDripInput([tokenAddress]);
     try {
       const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
@@ -424,7 +428,7 @@ test.describe('sponsored evm call route', () => {
             gasLimit: '300000',
             value: '0',
           },
-          sourceEventId,
+          idempotencyKey,
         }),
       });
       const body = response.json || {};
@@ -436,7 +440,7 @@ test.describe('sponsored evm call route', () => {
       expect(body.effectiveGasPrice).toBe(effectiveGasPriceDec);
       expect(body.spendWei).toBe(spendWeiDec);
 
-      const record = await ledger.getRecordBySourceEventId(apiKeyCtx, sourceEventId);
+      const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
       const details = parseRecordDetails(record?.detailsJson);
       expect(record?.policyId).toBe('policy_gs_onboarding');
       expect(record?.chainFamily).toBe('evm');
@@ -468,7 +472,7 @@ test.describe('sponsored evm call route', () => {
     }
   });
 
-  test('replays idempotently for the same sourceEventId', async () => {
+  test('replays idempotently for the same idempotencyKey', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const ledger = createInMemoryConsoleSponsoredCallService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -483,7 +487,7 @@ test.describe('sponsored evm call route', () => {
       runtimeSnapshots,
       config: makeRouteConfig(rpc.url),
     });
-    const sourceEventId = makeSourceEventId('replay');
+    const idempotencyKey = makeIdempotencyKey('replay');
     const requestBody = {
       environmentId,
       nearAccountId: 'alice.testnet',
@@ -495,7 +499,7 @@ test.describe('sponsored evm call route', () => {
         gasLimit: '300000',
         value: '0',
       },
-      sourceEventId,
+      idempotencyKey,
     };
     try {
       const first = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
@@ -521,8 +525,74 @@ test.describe('sponsored evm call route', () => {
       const replayed = second.json || {};
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
+      expect(replayed.ok).toBe(true);
       expect(replayed.replayed).toBe(true);
       expect(replayed.txHash).toBe(txHash);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('treats identical payloads with different idempotency keys as fresh attempts', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    const baseBody = {
+      environmentId,
+      nearAccountId: 'alice.testnet',
+      walletAddress,
+      chainId: 42_431,
+      call: {
+        to: contractAddress,
+        data: encodeTempoDripInput([tokenAddress]),
+        gasLimit: '300000',
+        value: '0',
+      },
+    };
+    try {
+      const first = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...baseBody,
+          idempotencyKey: makeIdempotencyKey('fresh-attempt-1'),
+        }),
+      });
+      const second = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...baseBody,
+          idempotencyKey: makeIdempotencyKey('fresh-attempt-2'),
+        }),
+      });
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect((first.json || {}).replayed).toBe(false);
+      expect((second.json || {}).replayed).toBe(false);
+      expect(rpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(2);
     } finally {
       await server.close();
       await rpc.close();
@@ -549,6 +619,7 @@ test.describe('sponsored evm call route', () => {
       nearAccountId: 'alice.testnet',
       walletAddress,
       chainId: 42_431,
+      idempotencyKey: makeIdempotencyKey('invalid-auth'),
       call: {
         to: contractAddress,
         data: encodeTempoDripInput([tokenAddress]),
@@ -619,6 +690,7 @@ test.describe('sponsored evm call route', () => {
           nearAccountId: 'alice.testnet',
           walletAddress,
           chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('policy-mismatch'),
           call: {
             to: contractAddress,
             data: '0xdeadbeef',
@@ -630,6 +702,53 @@ test.describe('sponsored evm call route', () => {
       const mismatchBody = mismatch.json || {};
       expect(mismatch.status).toBe(403);
       expect(mismatchBody.code).toBe('sponsorship_policy_not_matched');
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('requires an explicit idempotencyKey', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'alice.testnet',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripInput([tokenAddress]),
+            gasLimit: '300000',
+            value: '0',
+          },
+        }),
+      });
+      const body = response.json || {};
+      expect(response.status).toBe(400);
+      expect(body.code).toBe('invalid_body');
+      expect(body.message).toBe('Field idempotencyKey is required');
     } finally {
       await server.close();
       await rpc.close();
@@ -651,7 +770,7 @@ test.describe('sponsored evm call route', () => {
       runtimeSnapshots,
       config: makeRouteConfig(rpc.url),
     });
-    const sourceEventId = makeSourceEventId('reverted');
+    const idempotencyKey = makeIdempotencyKey('reverted');
     try {
       const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
         method: 'POST',
@@ -672,14 +791,14 @@ test.describe('sponsored evm call route', () => {
             gasLimit: '300000',
             value: '0',
           },
-          sourceEventId,
+          idempotencyKey,
         }),
       });
       const body = response.json || {};
       expect(response.status).toBe(502);
       expect(body.code).toBe('tx_reverted');
 
-      const record = await ledger.getRecordBySourceEventId(apiKeyCtx, sourceEventId);
+      const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
       const details = parseRecordDetails(record?.detailsJson);
       expect(record?.receiptStatus).toBe('reverted');
       expect(record?.txOrExecutionRef).toBe(txHash);
@@ -694,6 +813,69 @@ test.describe('sponsored evm call route', () => {
           succeeded: false,
         }),
       ]);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('replays reverted attempts with the original failure status', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x0' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    const requestBody = {
+      environmentId,
+      nearAccountId: 'alice.testnet',
+      walletAddress,
+      chainId: 42_431,
+      idempotencyKey: makeIdempotencyKey('reverted-replay'),
+      call: {
+        to: contractAddress,
+        data: encodeTempoDripInput([tokenAddress]),
+        gasLimit: '300000',
+        value: '0',
+      },
+    };
+    try {
+      const first = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      const second = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      const replayed = second.json || {};
+      expect(first.status).toBe(502);
+      expect(second.status).toBe(502);
+      expect(replayed.ok).toBe(false);
+      expect(replayed.replayed).toBe(true);
+      expect(replayed.code).toBe('tx_reverted');
+      expect(replayed.txHash).toBe(txHash);
+      expect(replayed.receiptStatus).toBe('reverted');
     } finally {
       await server.close();
       await rpc.close();
@@ -728,6 +910,7 @@ test.describe('sponsored evm call route', () => {
           nearAccountId: 'alice.testnet',
           walletAddress,
           chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('missing-snapshot'),
           call: {
             to: contractAddress,
             data: encodeTempoDripInput([tokenAddress]),
@@ -739,6 +922,54 @@ test.describe('sponsored evm call route', () => {
       const body = response.json || {};
       expect(response.status).toBe(503);
       expect(body.code).toBe('runtime_snapshot_not_found');
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('resolves a project-scoped runtime snapshot when the route only provides environmentId', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, { projectId: 'project-alpha' });
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'alice.testnet',
+          walletAddress,
+          chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('project-snapshot'),
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripInput([tokenAddress]),
+            gasLimit: '300000',
+            value: '0',
+          },
+        }),
+      });
+      const body = response.json || {};
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.policyId).toBe('policy_gs_onboarding');
     } finally {
       await server.close();
       await rpc.close();

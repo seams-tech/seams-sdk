@@ -329,7 +329,7 @@ Todo:
   - `data`
   - `gasLimit`
   - `value`
-  - `sourceEventId`
+  - `idempotencyKey`
 - [x] Keep selector extraction and matching in the EVM matcher
 - [x] Preserve exact spend measurement and billing attribution
 - [x] Remove remaining Tempo-specific route logic and naming from the generic path

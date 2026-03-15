@@ -48,6 +48,7 @@ export type {
 } from './core/types/sdkSentEvents';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
+export { createIntentId } from './core/idempotency/createIntentId';
 export {
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,

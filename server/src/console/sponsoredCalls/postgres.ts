@@ -61,7 +61,7 @@ function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
     detailsJson: String(row.details_json || '{}'),
     errorCode: normalizeString(row.error_code),
     errorMessage: normalizeString(row.error_message),
-    sourceEventId: normalizeString(row.source_event_id),
+    idempotencyKey: normalizeString(row.idempotency_key),
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
   };
@@ -93,12 +93,20 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     `);
     await pool.query(`
       ALTER INDEX IF EXISTS console_tempo_sponsorship_source_event_idx
-      RENAME TO console_sponsored_call_source_event_idx
+      RENAME TO console_sponsored_call_idempotency_key_idx
     `);
     await pool.query(`
       ALTER INDEX IF EXISTS console_tempo_sponsorship_org_created_idx
       RENAME TO console_sponsored_call_org_created_idx
     `);
+    await pool.query(`
+      ALTER INDEX IF EXISTS console_sponsored_call_source_event_idx
+      RENAME TO console_sponsored_call_idempotency_key_idx
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      RENAME COLUMN source_event_id TO idempotency_key
+    `).catch(() => {});
     await pool.query(`
       CREATE TABLE IF NOT EXISTS console_sponsored_call_records (
         namespace TEXT NOT NULL,
@@ -108,33 +116,21 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
         api_key_id TEXT NOT NULL,
         api_key_kind TEXT NOT NULL,
         route TEXT NOT NULL,
-        policy_id TEXT NOT NULL,
-        policy_name_at_event TEXT,
         chain_family TEXT NOT NULL DEFAULT 'evm',
         intent_kind TEXT NOT NULL DEFAULT 'evm_call',
         account_ref TEXT NOT NULL DEFAULT '',
         target_ref TEXT NOT NULL DEFAULT '',
         sponsor_ref TEXT NOT NULL DEFAULT '',
         tx_or_execution_ref TEXT,
+        policy_id TEXT NOT NULL DEFAULT '',
+        policy_name_at_event TEXT,
+        receipt_status TEXT NOT NULL,
         fee_unit TEXT NOT NULL DEFAULT 'wei',
         fee_amount TEXT NOT NULL DEFAULT '0',
         details_json TEXT NOT NULL DEFAULT '{}',
-        near_account_id TEXT,
-        wallet_address TEXT NOT NULL,
-        call_data TEXT NOT NULL,
-        call_value_wei TEXT NOT NULL,
-        contract_address TEXT NOT NULL,
-        function_selector TEXT NOT NULL,
-        chain_id INTEGER NOT NULL,
-        sponsor_address TEXT NOT NULL,
-        tx_hash TEXT,
-        receipt_status TEXT NOT NULL,
-        gas_used TEXT,
-        effective_gas_price TEXT,
-        spend_wei TEXT NOT NULL,
         error_code TEXT,
         error_message TEXT,
-        source_event_id TEXT,
+        idempotency_key TEXT,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, org_id, id),
@@ -148,39 +144,6 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
       ADD COLUMN IF NOT EXISTS policy_id TEXT NOT NULL DEFAULT ''
-    `);
-    await pool.query(`
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1
-            FROM information_schema.columns
-           WHERE table_name = 'console_sponsored_call_records'
-             AND column_name = 'sponsorship_config_id'
-        ) AND NOT EXISTS (
-          SELECT 1
-            FROM information_schema.columns
-           WHERE table_name = 'console_sponsored_call_records'
-             AND column_name = 'policy_id'
-        ) THEN
-          ALTER TABLE console_sponsored_call_records
-          RENAME COLUMN sponsorship_config_id TO policy_id;
-        END IF;
-        IF EXISTS (
-          SELECT 1
-            FROM information_schema.columns
-           WHERE table_name = 'console_sponsored_call_records'
-             AND column_name = 'sponsorship_config_name_at_event'
-        ) AND NOT EXISTS (
-          SELECT 1
-            FROM information_schema.columns
-           WHERE table_name = 'console_sponsored_call_records'
-             AND column_name = 'policy_name_at_event'
-        ) THEN
-          ALTER TABLE console_sponsored_call_records
-          RENAME COLUMN sponsorship_config_name_at_event TO policy_name_at_event;
-        END IF;
-      END $$;
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
@@ -224,83 +187,187 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
-      ADD COLUMN IF NOT EXISTS near_account_id TEXT
+      ADD COLUMN IF NOT EXISTS idempotency_key TEXT
     `);
-    await pool.query(`
-      UPDATE console_sponsored_call_records
-      SET
-        chain_family = CASE WHEN coalesce(trim(chain_family), '') = '' THEN 'evm' ELSE chain_family END,
-        intent_kind = CASE WHEN coalesce(trim(intent_kind), '') = '' THEN 'evm_call' ELSE intent_kind END,
-        account_ref = CASE
-          WHEN coalesce(trim(account_ref), '') <> '' THEN account_ref
-          WHEN coalesce(trim(near_account_id), '') <> '' THEN 'near:' || trim(near_account_id)
-          WHEN coalesce(trim(wallet_address), '') <> '' THEN 'evm_wallet:' || lower(trim(wallet_address))
-          ELSE ''
-        END,
-        target_ref = CASE
-          WHEN coalesce(trim(target_ref), '') <> '' THEN target_ref
-          WHEN coalesce(trim(contract_address), '') <> '' AND coalesce(chain_id, 0) > 0
-            THEN 'evm:' || chain_id::text || ':' || lower(trim(contract_address))
-          ELSE ''
-        END,
-        sponsor_ref = CASE
-          WHEN coalesce(trim(sponsor_ref), '') <> '' THEN sponsor_ref
-          WHEN coalesce(trim(sponsor_address), '') <> '' AND coalesce(chain_id, 0) > 0
-            THEN 'evm:' || chain_id::text || ':' || lower(trim(sponsor_address))
-          ELSE ''
-        END,
-        tx_or_execution_ref = CASE
-          WHEN tx_or_execution_ref IS NOT NULL AND trim(tx_or_execution_ref) <> '' THEN tx_or_execution_ref
-          WHEN tx_hash IS NOT NULL AND trim(tx_hash) <> '' THEN tx_hash
-          ELSE NULL
-        END,
-        fee_unit = CASE WHEN coalesce(trim(fee_unit), '') = '' THEN 'wei' ELSE fee_unit END,
-        fee_amount = CASE
-          WHEN coalesce(trim(fee_amount), '') <> '' THEN fee_amount
-          WHEN coalesce(trim(spend_wei), '') <> '' THEN spend_wei
-          ELSE '0'
-        END,
-        details_json = CASE
-          WHEN coalesce(trim(details_json), '') <> '' AND details_json <> '{}' THEN details_json
-          ELSE jsonb_build_object(
-            'nearAccountId', near_account_id,
-            'walletAddress', wallet_address,
-            'chainId', chain_id,
-            'call', jsonb_build_object(
-              'to', contract_address,
-              'data', call_data,
-              'valueWei', call_value_wei,
-              'selector', function_selector
-            ),
-            'execution', jsonb_build_object(
-              'txHash', tx_hash,
-              'gasUsed', gas_used,
-              'effectiveGasPrice', effective_gas_price,
-              'feeAmount', spend_wei
-            )
-          )::text
+    const idempotencyLegacyColumnsResult = await pool.query(
+      `
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'console_sponsored_call_records'
+           AND column_name = ANY($1::text[])
+      `,
+      [['source_event_id', 'idempotency_key']],
+    );
+    const idempotencyLegacyColumns = new Set(
+      idempotencyLegacyColumnsResult.rows.map((row) =>
+        String((row as { column_name?: unknown }).column_name || ''),
+      ),
+    );
+    if (idempotencyLegacyColumns.has('source_event_id')) {
+      await pool.query(`
+        UPDATE console_sponsored_call_records
+        SET idempotency_key = CASE
+          WHEN coalesce(trim(idempotency_key), '') <> '' THEN idempotency_key
+          ELSE nullif(trim(source_event_id), '')
         END
-      WHERE
-        coalesce(trim(account_ref), '') = ''
-        OR coalesce(trim(target_ref), '') = ''
-        OR coalesce(trim(sponsor_ref), '') = ''
-        OR (tx_or_execution_ref IS NULL AND tx_hash IS NOT NULL AND trim(tx_hash) <> '')
-        OR coalesce(trim(fee_amount), '') = ''
-        OR coalesce(trim(details_json), '') = ''
-        OR details_json = '{}'
-    `);
+        WHERE source_event_id IS NOT NULL
+      `);
+      await pool.query(`
+        ALTER TABLE console_sponsored_call_records
+        DROP COLUMN IF EXISTS source_event_id
+      `);
+    }
+    const legacyColumnsResult = await pool.query(
+      `
+        SELECT column_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'console_sponsored_call_records'
+           AND column_name = ANY($1::text[])
+      `,
+      [
+        [
+          'wallet_id',
+          'wallet_address',
+          'token_addresses',
+          'contract_address',
+          'function_selector',
+          'chain_id',
+          'sponsor_address',
+          'tx_hash',
+          'gas_used',
+          'effective_gas_price',
+          'spend_wei',
+          'near_account_id',
+          'call_data',
+          'call_value_wei',
+          'sponsorship_config_id',
+        ],
+      ],
+    );
+    const legacyColumns = new Set(
+      legacyColumnsResult.rows.map((row) => String((row as { column_name?: unknown }).column_name || '')),
+    );
+    if (legacyColumns.has('sponsorship_config_id')) {
+      await pool.query(`
+        UPDATE console_sponsored_call_records
+        SET policy_id = CASE
+          WHEN coalesce(trim(policy_id), '') <> '' THEN policy_id
+          ELSE coalesce(nullif(trim(sponsorship_config_id), ''), policy_id)
+        END
+        WHERE coalesce(trim(policy_id), '') = ''
+      `);
+    }
+    const legacyEvmShapeColumns = [
+      'wallet_address',
+      'contract_address',
+      'function_selector',
+      'chain_id',
+      'sponsor_address',
+      'tx_hash',
+      'gas_used',
+      'effective_gas_price',
+      'spend_wei',
+      'near_account_id',
+      'call_data',
+      'call_value_wei',
+    ];
+    if (legacyEvmShapeColumns.every((column) => legacyColumns.has(column))) {
+      await pool.query(`
+        UPDATE console_sponsored_call_records
+        SET
+          chain_family = CASE WHEN coalesce(trim(chain_family), '') = '' THEN 'evm' ELSE chain_family END,
+          intent_kind = CASE WHEN coalesce(trim(intent_kind), '') = '' THEN 'evm_call' ELSE intent_kind END,
+          account_ref = CASE
+            WHEN coalesce(trim(account_ref), '') <> '' THEN account_ref
+            WHEN coalesce(trim(near_account_id), '') <> '' THEN 'near:' || trim(near_account_id)
+            WHEN coalesce(trim(wallet_address), '') <> '' THEN 'evm_wallet:' || lower(trim(wallet_address))
+            ELSE ''
+          END,
+          target_ref = CASE
+            WHEN coalesce(trim(target_ref), '') <> '' THEN target_ref
+            WHEN coalesce(trim(contract_address), '') <> '' AND coalesce(chain_id, 0) > 0
+              THEN 'evm:' || chain_id::text || ':' || lower(trim(contract_address))
+            ELSE ''
+          END,
+          sponsor_ref = CASE
+            WHEN coalesce(trim(sponsor_ref), '') <> '' THEN sponsor_ref
+            WHEN coalesce(trim(sponsor_address), '') <> '' AND coalesce(chain_id, 0) > 0
+              THEN 'evm:' || chain_id::text || ':' || lower(trim(sponsor_address))
+            ELSE ''
+          END,
+          tx_or_execution_ref = CASE
+            WHEN tx_or_execution_ref IS NOT NULL AND trim(tx_or_execution_ref) <> '' THEN tx_or_execution_ref
+            WHEN tx_hash IS NOT NULL AND trim(tx_hash) <> '' THEN tx_hash
+            ELSE NULL
+          END,
+          fee_unit = CASE WHEN coalesce(trim(fee_unit), '') = '' THEN 'wei' ELSE fee_unit END,
+          fee_amount = CASE
+            WHEN coalesce(trim(fee_amount), '') <> '' THEN fee_amount
+            WHEN coalesce(trim(spend_wei), '') <> '' THEN spend_wei
+            ELSE '0'
+          END,
+          details_json = CASE
+            WHEN coalesce(trim(details_json), '') <> '' AND details_json <> '{}' THEN details_json
+            ELSE jsonb_build_object(
+              'nearAccountId', near_account_id,
+              'walletAddress', wallet_address,
+              'chainId', chain_id,
+              'call', jsonb_build_object(
+                'to', contract_address,
+                'data', call_data,
+                'valueWei', call_value_wei,
+                'selector', function_selector
+              ),
+              'execution', jsonb_build_object(
+                'txHash', tx_hash,
+                'gasUsed', gas_used,
+                'effectiveGasPrice', effective_gas_price,
+                'feeAmount', spend_wei
+              )
+            )::text
+          END
+        WHERE
+          coalesce(trim(account_ref), '') = ''
+          OR coalesce(trim(target_ref), '') = ''
+          OR coalesce(trim(sponsor_ref), '') = ''
+          OR (tx_or_execution_ref IS NULL AND tx_hash IS NOT NULL AND trim(tx_hash) <> '')
+          OR coalesce(trim(fee_amount), '') = ''
+          OR coalesce(trim(details_json), '') = ''
+          OR details_json = '{}'
+      `);
+    }
+    const legacyDropColumns = Array.from(legacyColumns).filter((column) =>
+      [
+        'wallet_id',
+        'wallet_address',
+        'token_addresses',
+        'contract_address',
+        'function_selector',
+        'chain_id',
+        'sponsor_address',
+        'tx_hash',
+        'gas_used',
+        'effective_gas_price',
+        'spend_wei',
+        'near_account_id',
+        'call_data',
+        'call_value_wei',
+        'sponsorship_config_id',
+      ].includes(column),
+    );
+    if (legacyDropColumns.length > 0) {
+      await pool.query(
+        `ALTER TABLE console_sponsored_call_records\n${legacyDropColumns
+          .map((column, index) => `${index === 0 ? '' : ','}DROP COLUMN IF EXISTS ${column}`)
+          .join('\n')}`,
+      );
+    }
     await pool.query(`
-      ALTER TABLE console_sponsored_call_records
-      ADD COLUMN IF NOT EXISTS call_data TEXT NOT NULL DEFAULT ''
-    `);
-    await pool.query(`
-      ALTER TABLE console_sponsored_call_records
-      ADD COLUMN IF NOT EXISTS call_value_wei TEXT NOT NULL DEFAULT '0'
-    `);
-    await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS console_sponsored_call_source_event_idx
-      ON console_sponsored_call_records (namespace, org_id, source_event_id)
-      WHERE source_event_id IS NOT NULL
+      CREATE UNIQUE INDEX IF NOT EXISTS console_sponsored_call_idempotency_key_idx
+      ON console_sponsored_call_records (namespace, org_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_sponsored_call_org_created_idx
@@ -348,8 +415,8 @@ export async function createPostgresConsoleSponsoredCallService(
   const pool = await getPostgresPool(postgresUrl);
 
   return {
-    async getRecordBySourceEventId(ctx, sourceEventId): Promise<ConsoleSponsoredCallRecord | null> {
-      const normalized = normalizeString(sourceEventId);
+    async getRecordByIdempotencyKey(ctx, idempotencyKey): Promise<ConsoleSponsoredCallRecord | null> {
+      const normalized = normalizeString(idempotencyKey);
       if (!normalized) return null;
       return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
         const row = await queryOne(
@@ -359,7 +426,7 @@ export async function createPostgresConsoleSponsoredCallService(
             FROM console_sponsored_call_records
             WHERE namespace = $1
               AND org_id = $2
-              AND source_event_id = $3
+              AND idempotency_key = $3
             LIMIT 1
           `,
           [namespace, ctx.orgId, normalized],
@@ -372,9 +439,9 @@ export async function createPostgresConsoleSponsoredCallService(
       const createdAt = now();
       const createdAtMs = nowMs(createdAt);
       const recordId = normalizeString(request.id) || makeId('scr', createdAt);
-      const sourceEventId = normalizeString(request.sourceEventId);
+      const idempotencyKey = normalizeString(request.idempotencyKey);
       return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
-        if (sourceEventId) {
+        if (idempotencyKey) {
           const existing = await queryOne(
             tx,
             `
@@ -382,10 +449,10 @@ export async function createPostgresConsoleSponsoredCallService(
               FROM console_sponsored_call_records
               WHERE namespace = $1
                 AND org_id = $2
-                AND source_event_id = $3
+                AND idempotency_key = $3
               LIMIT 1
             `,
-            [namespace, ctx.orgId, sourceEventId],
+            [namespace, ctx.orgId, idempotencyKey],
           );
           if (existing) return parseRecord(existing);
         }
@@ -415,7 +482,7 @@ export async function createPostgresConsoleSponsoredCallService(
                 details_json,
                 error_code,
                 error_message,
-                source_event_id,
+                idempotency_key,
                 created_at_ms,
                 updated_at_ms
               ) VALUES (
@@ -445,7 +512,7 @@ export async function createPostgresConsoleSponsoredCallService(
               String(request.detailsJson || '{}').trim() || '{}',
               normalizeString(request.errorCode),
               normalizeString(request.errorMessage),
-              sourceEventId,
+              idempotencyKey,
               createdAtMs,
               createdAtMs,
             ],
@@ -453,7 +520,7 @@ export async function createPostgresConsoleSponsoredCallService(
           if (!row) throw new Error('Failed to insert sponsored-call record');
           return parseRecord(row);
         } catch (error: unknown) {
-          if (!sourceEventId || !isUniqueViolation(error)) throw error;
+          if (!idempotencyKey || !isUniqueViolation(error)) throw error;
           const existing = await queryOne(
             tx,
             `
@@ -461,10 +528,10 @@ export async function createPostgresConsoleSponsoredCallService(
               FROM console_sponsored_call_records
               WHERE namespace = $1
                 AND org_id = $2
-                AND source_event_id = $3
+                AND idempotency_key = $3
               LIMIT 1
             `,
-            [namespace, ctx.orgId, sourceEventId],
+            [namespace, ctx.orgId, idempotencyKey],
           );
           if (!existing) throw error;
           return parseRecord(existing);

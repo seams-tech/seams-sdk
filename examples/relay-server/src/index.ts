@@ -10,7 +10,7 @@ import {
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
-  ensureTempoOnboardingSponsorshipForExistingEnvironments,
+  ensureTempoOnboardingSponsorshipForAllOrganizations,
   resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
@@ -1257,21 +1257,12 @@ async function main() {
       });
     }
   }
-  if (consoleDemoOrgId) {
-    await ensureTempoOnboardingSponsorshipForExistingEnvironments({
-      orgProjectEnv: consoleOrgProjectEnv,
-      policies: consolePolicies,
-      runtimeSnapshots: consoleRuntimeSnapshots,
-      ctx: {
-        orgId: consoleDemoOrgId,
-        actorUserId: 'tempo-onboarding-seed',
-        roles: ['owner', 'admin'],
-        projectId: consoleDemoProjectId,
-        environmentId: consoleDemoEnvironmentId,
-      },
-      faucetContractAddress: normalizedOnboardingContractAddress,
-    });
-  }
+  await ensureTempoOnboardingSponsorshipForAllOrganizations({
+    orgProjectEnv: consoleOrgProjectEnv,
+    policies: consolePolicies,
+    runtimeSnapshots: consoleRuntimeSnapshots,
+    faucetContractAddress: normalizedOnboardingContractAddress,
+  });
 
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');

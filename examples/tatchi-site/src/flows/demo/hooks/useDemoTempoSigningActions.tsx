@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { createIntentId } from '@tatchi-xyz/sdk';
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 import { toast } from 'sonner';
 
@@ -103,6 +104,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       if (!isEvmAddress(thresholdSender)) {
         throw new Error('Unable to resolve the Tempo threshold sender address.');
       }
+      const idempotencyKey = createIntentId('tempo_drip_click');
       const response = await fetch(buildTempoSponsoredCallUrl(relayerUrl), {
         method: 'POST',
         headers: {
@@ -121,6 +123,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
             gasLimit: TEMPO_DRIP_GAS_LIMIT.toString(10),
             value: '0',
           },
+          idempotencyKey,
         }),
       });
       let payload: TempoSponsoredCallResponse | null = null;

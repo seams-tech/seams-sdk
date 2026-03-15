@@ -14,9 +14,9 @@ export interface InMemoryConsoleSponsoredCallServiceOptions {
 }
 
 export interface ConsoleSponsoredCallService {
-  getRecordBySourceEventId(
+  getRecordByIdempotencyKey(
     ctx: ConsoleSponsoredCallContext,
-    sourceEventId: string,
+    idempotencyKey: string,
   ): Promise<ConsoleSponsoredCallRecord | null>;
   createRecord(
     ctx: ConsoleSponsoredCallContext,
@@ -63,12 +63,12 @@ export function createInMemoryConsoleSponsoredCallService(
   }
 
   return {
-    async getRecordBySourceEventId(ctx, sourceEventId): Promise<ConsoleSponsoredCallRecord | null> {
-      const normalized = normalizeString(sourceEventId);
+    async getRecordByIdempotencyKey(ctx, idempotencyKey): Promise<ConsoleSponsoredCallRecord | null> {
+      const normalized = normalizeString(idempotencyKey);
       if (!normalized) return null;
       const store = requireOrgStore(ctx.orgId);
       for (const record of store.values()) {
-        if (record.sourceEventId === normalized) return cloneRecord(record);
+        if (record.idempotencyKey === normalized) return cloneRecord(record);
       }
       return null;
     },
@@ -77,10 +77,10 @@ export function createInMemoryConsoleSponsoredCallService(
       const createdAt = now();
       const iso = toIso(createdAt);
       const store = requireOrgStore(ctx.orgId);
-      const sourceEventId = normalizeString(request.sourceEventId);
-      if (sourceEventId) {
+      const idempotencyKey = normalizeString(request.idempotencyKey);
+      if (idempotencyKey) {
         for (const record of store.values()) {
-          if (record.sourceEventId === sourceEventId) return cloneRecord(record);
+          if (record.idempotencyKey === idempotencyKey) return cloneRecord(record);
         }
       }
       const record: ConsoleSponsoredCallRecord = {
@@ -104,7 +104,7 @@ export function createInMemoryConsoleSponsoredCallService(
         detailsJson: normalizeRequiredString(request.detailsJson) || '{}',
         errorCode: normalizeString(request.errorCode),
         errorMessage: normalizeString(request.errorMessage),
-        sourceEventId,
+        idempotencyKey,
         createdAt: iso,
         updatedAt: iso,
       };
