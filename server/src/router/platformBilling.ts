@@ -97,6 +97,7 @@ export interface PlatformBillingOrganizationMember {
   displayName: string;
   status: PlatformBillingOrganizationMemberStatus;
   access: PlatformBillingOrganizationMemberAccess;
+  addedAt: string;
 }
 
 const DEFAULT_PLATFORM_BILLING_ORGANIZATION_SEARCH_LIMIT = 10;
@@ -262,6 +263,7 @@ function toPlatformBillingOrganizationMember(
     displayName: String(member.displayName || '').trim() || member.email || member.userId,
     status: member.status,
     access: toPlatformBillingOrganizationMemberAccess(member),
+    addedAt: member.status === 'INVITED' ? member.invitedAt : member.createdAt,
   };
 }
 

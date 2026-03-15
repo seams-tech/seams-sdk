@@ -214,6 +214,7 @@ export interface DashboardPlatformBillingOrganizationMember {
   displayName: string;
   status: DashboardPlatformBillingOrganizationMemberStatus;
   access: DashboardPlatformBillingOrganizationMemberAccess;
+  addedAt: string;
 }
 
 export interface DashboardPlatformBillingLookupRequest {
@@ -669,11 +670,13 @@ function decodePlatformBillingOrganizationMember(
   const access = String(row.access || '')
     .trim()
     .toUpperCase() as DashboardPlatformBillingOrganizationMemberAccess;
+  const addedAt = String(row.addedAt || '').trim();
   if (
     !id ||
     !userId ||
     !email ||
     !displayName ||
+    !addedAt ||
     !PLATFORM_BILLING_MEMBER_STATUS_SET.has(status) ||
     !PLATFORM_BILLING_MEMBER_ACCESS_SET.has(access)
   ) {
@@ -686,6 +689,7 @@ function decodePlatformBillingOrganizationMember(
     displayName,
     status,
     access,
+    addedAt,
   };
 }
 
