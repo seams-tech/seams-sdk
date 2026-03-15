@@ -79,7 +79,16 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           feeCaps,
           feeToken: tempoFeeToken,
         });
-        const firstCall = request.tx.calls[0];
+        const payloadExpectation =
+          request.chain === 'evm'
+            ? {
+                to: request.tx.to,
+                input: request.tx.data || '0x',
+              }
+            : {
+                to: request.tx.calls[0]?.to,
+                input: request.tx.calls[0]?.input || '0x',
+              };
         const thresholdSenderPromise = resolveThresholdSenderForEvmFamily()
           .then((sender) => {
             thresholdSenderForAttempt = sender;
@@ -107,10 +116,7 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
             pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
           },
-          payloadExpectation: {
-            to: firstCall?.to,
-            input: firstCall?.input || '0x',
-          },
+          payloadExpectation,
           postFinalizationCheck: async () => {
             const thresholdSender = await thresholdSenderPromise;
             const refreshedFeeToken = thresholdSender

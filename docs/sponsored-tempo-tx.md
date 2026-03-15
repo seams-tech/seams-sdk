@@ -25,7 +25,7 @@ The next version should treat Tempo onboarding sponsorship as a normal policy-ba
 - initial allowed call:
   - chain `42431`
   - contract = Tempo faucet contract
-  - selector = `drip(address[])`
+  - selector = `dripTo(address,address[])`
   - `value = 0`
   - bounded gas limit
 - execution backend: relay-owned EOA for now
@@ -46,7 +46,7 @@ The current implementation now matches the policy-backed direction:
 - initial allowed call:
   - chain `42431`
   - contract = Tempo faucet contract
-  - selector = `drip(address[])`
+  - selector = `dripTo(address,address[])`
   - `value = 0`
   - bounded gas limit
 - execution backend: relay-owned EOA
@@ -71,7 +71,7 @@ In scope:
 
 - one policy-backed sponsorship type for EVM single-call relay-paid transactions
 - one default onboarding policy seeded for new testnet environments
-- one initial allowed call: Tempo faucet `drip(address[])`
+- one initial allowed call: Tempo faucet `dripTo(address,address[])`
 - one generic relay execution path that consumes resolved policy
 - one exact finalized spend ledger used for usage and billing attribution
 
@@ -204,7 +204,7 @@ Todo:
 - [x] Model the initial allowed call as:
   - Tempo chain `42431`
   - faucet contract address
-  - selector `drip(address[])`
+  - selector `dripTo(address,address[])`
   - `value = 0`
   - bounded gas limit
 - [x] Store a stable `policyId` that can flow through runtime snapshots and spend records
@@ -274,7 +274,7 @@ Todo:
 Exit criteria:
 
 - the relay no longer contains a special-case faucet execution path
-- `drip(address[])` succeeds because policy allows it, not because code hardcodes it
+- `dripTo(address,address[])` succeeds because policy allows it, not because code hardcodes it
 
 ## Phase 4: Reconnect the demo to the policy-backed route
 
@@ -341,7 +341,7 @@ Todo:
 - [ ] Add quotas or budget enforcement on top of the exact spend ledger
 - [ ] Surface sponsorship spend in console reporting and billing views
 - [ ] Decide whether later flows need Tempo sender-signed sponsorship instead of relay-owned execution
-- [ ] Extend beyond `drip(address[])` only after the generic policy-backed route is stable
+- [ ] Extend beyond `dripTo(address,address[])` only after the generic policy-backed route is stable
 
 Exit criteria:
 

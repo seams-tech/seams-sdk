@@ -7,6 +7,10 @@ import type {
   ConsoleSponsoredCallService,
 } from '../console/sponsoredCalls';
 import {
+  TEMPO_DRIP_TO_SELECTOR,
+  TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
+} from '../console/gasSponsorship/onboarding';
+import {
   matchResolvedSponsoredEvmCallPolicy,
   normalizeEvmAddress,
   parseOptionalPositiveInteger,
@@ -210,6 +214,13 @@ function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
   }
 }
 
+function extractFirstAddressArgument(data: `0x${string}`): `0x${string}` | null {
+  const hex = String(data || '').trim();
+  if (!/^0x[0-9a-fA-F]{8}[0-9a-fA-F]{64,}$/.test(hex)) return null;
+  const firstArgStart = 2 + 8;
+  return normalizeEvmAddress(`0x${hex.slice(firstArgStart + 24, firstArgStart + 64)}`);
+}
+
 function parseSponsoredEvmRequestBody(
   body: unknown,
   headers: HeaderRecord,
@@ -408,6 +419,19 @@ export async function handleRelaySponsoredEvmCall(
       code: 'sponsorship_policy_not_matched',
       message: 'Requested call is not sponsorable under the active policy',
     });
+  }
+  if (
+    matched.policy.templateId === TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID &&
+    matched.selector.toLowerCase() === TEMPO_DRIP_TO_SELECTOR
+  ) {
+    const recipient = extractFirstAddressArgument(parsedBody.call.data);
+    if (!recipient || recipient.toLowerCase() !== parsedBody.walletAddress.toLowerCase()) {
+      return routeJson(403, {
+        ok: false,
+        code: 'sponsorship_recipient_mismatch',
+        message: 'Onboarding sponsorship recipient must match walletAddress',
+      });
+    }
   }
   if (parsedBody.chainId !== relaySponsoredEvmCall.config.chainId) {
     return routeJson(503, {

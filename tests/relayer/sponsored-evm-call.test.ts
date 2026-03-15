@@ -39,8 +39,8 @@ const tokenAddress = '0x20c0000000000000000000000000000000000001' as const;
 const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
 const sponsorPrivateKeyHex =
   '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
-const contractAddress = '0xe1Ab123D238AF74F77BfD59450e2428c9214123C' as const;
-const selector = '0x428dc451' as const;
+const contractAddress = '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483' as const;
+const selector = '0x867ae9d4' as const;
 const txHash = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
 const gasUsedHex = '0x5208';
 const gasUsedDec = '21000';
@@ -55,13 +55,17 @@ type BillingUsageEventSpy = {
   sourceEventId?: string;
 };
 
-function encodeTempoDripInput(tokenAddresses: readonly `0x${string}`[]): `0x${string}` {
+function encodeTempoDripToInput(
+  recipient: `0x${string}`,
+  tokenAddresses: readonly `0x${string}`[],
+): `0x${string}` {
   const encodedAddresses = tokenAddresses
     .map((address) => address.slice(2).toLowerCase().padStart(64, '0'))
     .join('');
-  const offsetHex = (32).toString(16).padStart(64, '0');
+  const recipientHex = recipient.slice(2).toLowerCase().padStart(64, '0');
+  const offsetHex = (64).toString(16).padStart(64, '0');
   const lengthHex = tokenAddresses.length.toString(16).padStart(64, '0');
-  return `0x${selector.slice(2)}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
+  return `0x${selector.slice(2)}${recipientHex}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
 }
 
 function makeBillingSpy() {
@@ -348,7 +352,7 @@ test.describe('sponsored evm call route', () => {
           chainId: 42_431,
           call: {
             to: contractAddress,
-            data: encodeTempoDripInput([tokenAddress]),
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
             valueWei: '0',
             selector,
           },
@@ -407,7 +411,7 @@ test.describe('sponsored evm call route', () => {
       config: makeRouteConfig(rpc.url),
     });
     const idempotencyKey = makeIdempotencyKey('success');
-    const callData = encodeTempoDripInput([tokenAddress]);
+    const callData = encodeTempoDripToInput(walletAddress, [tokenAddress]);
     try {
       const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
         method: 'POST',
@@ -495,7 +499,7 @@ test.describe('sponsored evm call route', () => {
       chainId: 42_431,
       call: {
         to: contractAddress,
-        data: encodeTempoDripInput([tokenAddress]),
+        data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
         gasLimit: '300000',
         value: '0',
       },
@@ -556,7 +560,7 @@ test.describe('sponsored evm call route', () => {
       chainId: 42_431,
       call: {
         to: contractAddress,
-        data: encodeTempoDripInput([tokenAddress]),
+        data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
         gasLimit: '300000',
         value: '0',
       },
@@ -622,7 +626,7 @@ test.describe('sponsored evm call route', () => {
       idempotencyKey: makeIdempotencyKey('invalid-auth'),
       call: {
         to: contractAddress,
-        data: encodeTempoDripInput([tokenAddress]),
+        data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
         gasLimit: '300000',
         value: '0',
       },
@@ -708,6 +712,56 @@ test.describe('sponsored evm call route', () => {
     }
   });
 
+  test('rejects onboarding dripTo calls whose recipient does not match walletAddress', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'alice.testnet',
+          walletAddress,
+          chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('recipient-mismatch'),
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(
+              '0x3333333333333333333333333333333333333333',
+              [tokenAddress],
+            ),
+            gasLimit: '300000',
+            value: '0',
+          },
+        }),
+      });
+      const body = response.json || {};
+      expect(response.status).toBe(403);
+      expect(body.code).toBe('sponsorship_recipient_mismatch');
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
   test('requires an explicit idempotencyKey', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const ledger = createInMemoryConsoleSponsoredCallService();
@@ -739,7 +793,7 @@ test.describe('sponsored evm call route', () => {
           chainId: 42_431,
           call: {
             to: contractAddress,
-            data: encodeTempoDripInput([tokenAddress]),
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
             gasLimit: '300000',
             value: '0',
           },
@@ -787,7 +841,7 @@ test.describe('sponsored evm call route', () => {
           chainId: 42_431,
           call: {
             to: contractAddress,
-            data: encodeTempoDripInput([tokenAddress]),
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
             gasLimit: '300000',
             value: '0',
           },
@@ -842,7 +896,7 @@ test.describe('sponsored evm call route', () => {
       idempotencyKey: makeIdempotencyKey('reverted-replay'),
       call: {
         to: contractAddress,
-        data: encodeTempoDripInput([tokenAddress]),
+        data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
         gasLimit: '300000',
         value: '0',
       },
@@ -913,7 +967,7 @@ test.describe('sponsored evm call route', () => {
           idempotencyKey: makeIdempotencyKey('missing-snapshot'),
           call: {
             to: contractAddress,
-            data: encodeTempoDripInput([tokenAddress]),
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
             gasLimit: '300000',
             value: '0',
           },
@@ -960,7 +1014,7 @@ test.describe('sponsored evm call route', () => {
           idempotencyKey: makeIdempotencyKey('project-snapshot'),
           call: {
             to: contractAddress,
-            data: encodeTempoDripInput([tokenAddress]),
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
             gasLimit: '300000',
             value: '0',
           },

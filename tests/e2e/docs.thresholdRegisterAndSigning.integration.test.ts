@@ -495,7 +495,6 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                     mode: 'managed',
                     environmentId: 'env_test_docs',
                     publishableKey: 'pk_docsregisterflow',
-                    brokerUrl: 'https://relay.example/v1/registration/bootstrap-grants',
                   },
                 },
               },
@@ -641,9 +640,9 @@ test.describe('docs frontend register + threshold signing integration', () => {
     });
     expect(
       String(finalCounters.lastTempoSponsoredCallRequest.call.to || '').toLowerCase(),
-    ).toBe('0xbb85080e6953f25197ec68798360667140ebaf4b');
+    ).toBe('0xbb442b54c85efba2d7b81ea52990ad638cdba483');
     expect(String(finalCounters.lastTempoSponsoredCallRequest.call.data || '')).toMatch(
-      /^0x428dc451/i,
+      /^0x867ae9d4/i,
     );
   });
 });

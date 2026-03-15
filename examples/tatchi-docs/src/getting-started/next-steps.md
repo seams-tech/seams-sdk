@@ -148,7 +148,7 @@ Nonce management is engine-owned for default Tempo/EVM signing flows. Do not fet
 ```tsx
 import { useTatchi } from '@tatchi-xyz/sdk/react';
 
-const TEMPO_GREETING_CONTRACT = '0xbb85080E6953f25197ec68798360667140EbAf4b';
+const TEMPO_GREETING_CONTRACT = '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483';
 const SET_GREETING_SELECTOR = '0xa4136862';
 
 function utf8ToHex(value: string): string {
@@ -223,21 +223,19 @@ export function SetTempoFeeToken(props: { nearAccountId: string }) {
     const signed = await tatchi.tempo.signTempo({
       nearAccountId: props.nearAccountId,
       request: {
-        chain: 'tempo',
-        kind: 'tempoTransaction',
+        chain: 'evm',
+        kind: 'eip1559',
         senderSignatureAlgorithm: 'secp256k1',
         tx: {
           chainId: 42431,
           maxPriorityFeePerGas: 1n,
           maxFeePerGas: 2n,
           gasLimit: 1_000_000n,
-          calls: [setUserTokenCall],
+          to: setUserTokenCall.to,
+          value: 0n,
+          data: setUserTokenCall.input || '0x',
+          abi: setUserTokenCall.abi,
           accessList: [],
-          nonceKey: 0n,
-          validBefore: null,
-          validAfter: null,
-          feePayerSignature: { kind: 'none' },
-          aaAuthorizationList: [],
         },
       },
     });

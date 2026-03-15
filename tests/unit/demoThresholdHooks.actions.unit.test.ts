@@ -46,6 +46,8 @@ test.describe('demo threshold action hooks', () => {
         requestChain: '',
         requestKind: '',
         requestChainId: 0,
+        requestTo: '',
+        requestData: '',
       };
 
       const thresholdSender = '0x1111111111111111111111111111111111111111';
@@ -116,6 +118,8 @@ test.describe('demo threshold action hooks', () => {
                 counters.requestChain = String(args?.request?.chain || '');
                 counters.requestKind = String(args?.request?.kind || '');
                 counters.requestChainId = Number(args?.request?.tx?.chainId || 0);
+                counters.requestTo = String(args?.request?.tx?.to || '');
+                counters.requestData = String(args?.request?.tx?.data || '');
                 await args?.postFinalizationCheck?.();
                 return {
                   txHash,
@@ -166,9 +170,14 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.executeEvmFamilyTransactionCalls).toBe(1);
     expect(result.counters.refreshTokenCalls).toBeGreaterThanOrEqual(1);
     expect(result.counters.refreshBalanceCalls).toBeGreaterThanOrEqual(1);
-    expect(result.counters.requestChain).toBe('tempo');
-    expect(result.counters.requestKind).toBe('tempoTransaction');
+    expect(result.counters.requestChain).toBe('evm');
+    expect(result.counters.requestKind).toBe('eip1559');
     expect(result.counters.requestChainId).toBe(42431);
+    expect(result.counters.requestTo).toBe('0xfeec000000000000000000000000000000000000');
+    expect(result.counters.requestData).toMatch(/^0xe7897444/i);
+    expect(result.counters.requestData.toLowerCase()).toContain(
+      '20c0000000000000000000000000000000000001',
+    );
     expect(result.stateAfter.loading).toBe(false);
     expect(result.stateAfter.target).toBeNull();
   });
@@ -201,6 +210,8 @@ test.describe('demo threshold action hooks', () => {
         refreshBalanceCalls: 0,
         requestChainIds: [] as number[],
         dripIdempotencyKeys: [] as string[],
+        dripWalletAddresses: [] as string[],
+        dripCallData: [] as string[],
       };
       const thresholdSender = '0x1111111111111111111111111111111111111111';
       const txHashBase = `0x${'33'.repeat(31)}`;
@@ -217,6 +228,10 @@ test.describe('demo threshold action hooks', () => {
             body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
           } catch {}
           counters.dripIdempotencyKeys.push(String(body.idempotencyKey || ''));
+          counters.dripWalletAddresses.push(String(body.walletAddress || ''));
+          const call =
+            body.call && typeof body.call === 'object' ? (body.call as Record<string, unknown>) : {};
+          counters.dripCallData.push(String(call.data || ''));
           dripCounter += 1;
           const dripTxHash = `${`0x${'44'.repeat(31)}`}${String(dripCounter).padStart(2, '0')}`.slice(0, 66);
           return new Response(
@@ -360,6 +375,14 @@ test.describe('demo threshold action hooks', () => {
     expect(result.counters.dripIdempotencyKeys[0]).toContain('tempo_drip_click:');
     expect(result.counters.dripIdempotencyKeys[1]).toContain('tempo_drip_click:');
     expect(result.counters.dripIdempotencyKeys[0]).not.toBe(result.counters.dripIdempotencyKeys[1]);
+    expect(result.counters.dripWalletAddresses).toEqual([
+      '0x1111111111111111111111111111111111111111',
+      '0x1111111111111111111111111111111111111111',
+    ]);
+    expect(result.counters.dripCallData[0]).toMatch(/^0x867ae9d4/i);
+    expect(result.counters.dripCallData[0]?.toLowerCase()).toContain(
+      '1111111111111111111111111111111111111111',
+    );
     expect(result.stateAfter.tempoDripLoading).toBe(false);
     expect(result.stateAfter.tempoThresholdSignLoading).toBe(false);
   });

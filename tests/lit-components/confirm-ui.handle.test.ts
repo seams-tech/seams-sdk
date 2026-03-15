@@ -117,7 +117,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           },
         };
 
-        const contractAddress = '0xbb85080e6953f25197ec68798360667140ebaf4b';
+        const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
         const model = {
           chain: 'evm',
           intentDigest: '0x22',
@@ -262,7 +262,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           },
         };
 
-        const contractAddress = '0xbb85080e6953f25197ec68798360667140ebaf4b';
+        const contractAddress = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
         const model = {
           chain: 'evm',
           intentDigest: '0x33',
@@ -281,7 +281,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
                   label: 'Calling contract function using 300k gas',
                   to: contractAddress,
                   value: '0',
-                  selector: '0x428dc451',
+                  selector: '0x867ae9d4',
                   fields: [
                     {
                       label: 'Data',

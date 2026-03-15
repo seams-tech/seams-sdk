@@ -52,7 +52,7 @@ Read wallet data through the machine API surface without reusing `/console/walle
 
 Executes a generic sponsored single-call EVM transaction for the demo onboarding flow.
 
-The route itself is generic, but the active runtime snapshot seeds a default `Tempo Testnet Onboarding` policy that only allows the Tempo faucet call `drip(address[])` on chain `42431`.
+The route itself is generic, but the active runtime snapshot seeds a default `Tempo Testnet Onboarding` policy that only allows the Tempo faucet call `dripTo(address,address[])` on chain `42431`.
 
 - Request body:
   ```json

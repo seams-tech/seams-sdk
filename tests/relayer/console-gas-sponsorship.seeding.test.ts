@@ -20,7 +20,7 @@ import {
 } from '../../server/src/console/gasSponsorship/seeding';
 import {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
-  TEMPO_DRIP_SELECTOR,
+  TEMPO_DRIP_TO_SELECTOR,
   TEMPO_TESTNET_CHAIN_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
   TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
@@ -96,7 +96,7 @@ test.describe('console gas sponsorship seeding', () => {
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
         to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
-        selector: TEMPO_DRIP_SELECTOR,
+        selector: TEMPO_DRIP_TO_SELECTOR,
       },
     ]);
   });
@@ -136,7 +136,7 @@ test.describe('console gas sponsorship seeding', () => {
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
         to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
-        selector: TEMPO_DRIP_SELECTOR,
+        selector: TEMPO_DRIP_TO_SELECTOR,
       },
     ]);
   });

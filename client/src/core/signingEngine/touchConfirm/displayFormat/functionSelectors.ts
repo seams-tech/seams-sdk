@@ -2,7 +2,7 @@ import { deriveSelectorFromHexData, normalizeHexSelector } from './normalization
 
 const EVM_ADDRESS_RE = /^0x[0-9a-f]{40}$/;
 
-const TEMPO_GREETING_CONTRACT = '0xbb85080e6953f25197ec68798360667140ebaf4b';
+const TEMPO_GREETING_CONTRACT = '0xbb442b54c85efba2d7b81ea52990ad638cdba483';
 const ARC_GREETING_CONTRACT = '0xeb7ab5a6f761072c96147a54b8a15f012e836691';
 
 // Best-effort mapping for common EVM selectors.
@@ -38,7 +38,7 @@ const KNOWN_CONTRACT_FUNCTION_SIGNATURES: Readonly<
   [TEMPO_GREETING_CONTRACT]: Object.freeze({
     '0xa4136862': 'setGreeting(string)',
     '0xef690cc0': 'greeting()',
-    '0x428dc451': 'drip(address[])',
+    '0x867ae9d4': 'dripTo(address,address[])',
   }),
   [ARC_GREETING_CONTRACT]: Object.freeze({
     '0xa4136862': 'setGreeting(string)',

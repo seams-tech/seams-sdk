@@ -11,7 +11,7 @@ import {
   buildEvmExplorerTxUrl,
   buildTempoEip1559GreetingRequest,
   compactHex,
-  encodeTempoDripInput,
+  encodeTempoDripToInput,
   formatWeiToEth,
   isEvmAddress,
   isUserCancellationError,
@@ -119,7 +119,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
           chainId: 42_431,
           call: {
             to: TEMPO_GREETING_CONTRACT,
-            data: encodeTempoDripInput(dripTokensForAttempt),
+            data: encodeTempoDripToInput(thresholdSender, dripTokensForAttempt),
             gasLimit: TEMPO_DRIP_GAS_LIMIT.toString(10),
             value: '0',
           },

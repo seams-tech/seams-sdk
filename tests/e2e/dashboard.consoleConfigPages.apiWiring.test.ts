@@ -5935,8 +5935,8 @@ test.describe('dashboard console config page api wiring', () => {
         allowedCalls: [
           {
             chainId: 42431,
-            to: '0xe1Ab123D238AF74F77BfD59450e2428c9214123C',
-            selector: '0x428dc451',
+            to: '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483',
+            selector: '0x867ae9d4',
           },
         ],
         updatedAt: iso('2026-01-10T00:00:00.000Z'),
@@ -6300,10 +6300,10 @@ test.describe('dashboard console config page api wiring', () => {
     await gasCreateModalAfterRefresh.getByRole('button', { name: 'Add contract' }).click();
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Contract address") input')
-      .fill('0xe1Ab123D238AF74F77BfD59450e2428c9214123C');
+      .fill('0xBB442B54c85efBa2D7B81eA52990ad638cDbA483');
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Allowed functions") input')
-      .fill('0x428dc451');
+      .fill('0x867ae9d4');
     await expect(
       gasCreateModalAfterRefresh.locator('label:has-text("Max gas limit") input'),
     ).toHaveCount(0);

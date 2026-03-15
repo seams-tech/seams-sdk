@@ -14,9 +14,9 @@ import type {
 export const TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID = 'tempo_testnet_onboarding';
 export const TEMPO_TESTNET_ONBOARDING_POLICY_NAME = 'Tempo Testnet Onboarding';
 export const TEMPO_TESTNET_CHAIN_ID = 42_431;
-export const TEMPO_DRIP_SELECTOR = '0x428dc451';
+export const TEMPO_DRIP_TO_SELECTOR = '0x867ae9d4';
 export const DEFAULT_TEMPO_ONBOARDING_CONTRACT =
-  '0xe1Ab123D238AF74F77BfD59450e2428c9214123C' as `0x${string}`;
+  '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483' as `0x${string}`;
 
 export interface ResolvedSponsoredCallPolicy {
   policyId: string;
@@ -57,7 +57,7 @@ export function buildTempoTestnetOnboardingGasPolicyRules(input: {
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
         to: input.contractAddress,
-        selector: TEMPO_DRIP_SELECTOR,
+        selector: TEMPO_DRIP_TO_SELECTOR,
       },
     ],
   };
@@ -84,7 +84,7 @@ function hasDesiredTempoOnboardingProjection(input: {
     Boolean(allowedCall) &&
     allowedCall.chainId === TEMPO_TESTNET_CHAIN_ID &&
     String(allowedCall.to || '').toLowerCase() === input.contractAddress.toLowerCase() &&
-    String(allowedCall.selector || '').toLowerCase() === TEMPO_DRIP_SELECTOR
+    String(allowedCall.selector || '').toLowerCase() === TEMPO_DRIP_TO_SELECTOR
   );
 }
 
