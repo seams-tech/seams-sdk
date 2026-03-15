@@ -3,9 +3,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 3600\" \"bash run_caddy.sh\"",
-    "dev:iphone": "concurrently --kill-others --names site,caddy \"vite --host localhost --port 3600\" \"bash run_caddy.sh\"",
-    "build": "vite build",
+    "prepare:sdk": "pnpm -C ../.. -s server:prepare-sdk",
+    "vite": "vite --host localhost --port 3600",
+    "caddy": "bash run_caddy.sh",
+    "dev": "pnpm run prepare:sdk && concurrently --kill-others --names site,caddy \"pnpm run vite\" \"pnpm run caddy\"",
+    "build": "pnpm run prepare:sdk && vite build",
     "typecheck": "pnpm -C ../../sdk exec tsc -p tsconfig.client-types.json && tsc --noEmit",
     "preview": "vite preview --host localhost --port 3600"
   },

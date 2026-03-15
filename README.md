@@ -13,9 +13,12 @@ Run examples from the repo root:
 
 ```bash
 pnpm examples:vite
+pnpm run server
 ```
 
-- `pnpm examples:vite` is the canonical local-dev entrypoint. It starts relay + site and runs Caddy for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- Run the commands above in separate terminals.
+- `pnpm examples:vite` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- `pnpm run server` starts the relay server.
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
