@@ -384,6 +384,43 @@ test.describe('console config modules postgres services', () => {
     expect(listed[0].version).toBeGreaterThanOrEqual(listed[1].version);
   });
 
+  test('runtime snapshots postgres service resolves project-scoped snapshots without an explicit projectId filter', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const service = await createPostgresConsoleRuntimeSnapshotService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
+
+    const environmentId = 'env-project-scoped-latest';
+    const projectId = 'project-scoped-latest';
+
+    const published = await service.publishSnapshot(adminCtx, {
+      projectId,
+      environmentId,
+      payload: {
+        policy: {
+          defaultPolicyId: 'policy-project-scoped',
+        },
+        gasSponsorship: {
+          enabled: true,
+        },
+        smartWallets: {
+          mode: 'REQUIRED',
+        },
+      },
+    });
+
+    const latest = await service.getLatestSnapshot(adminCtx, { environmentId });
+    expect(latest?.snapshotId).toBe(published.snapshotId);
+    expect(latest?.projectId).toBe(projectId);
+
+    const listed = await service.listSnapshots(adminCtx, { environmentId, limit: 10 });
+    expect(listed[0]?.snapshotId).toBe(published.snapshotId);
+    expect(listed[0]?.projectId).toBe(projectId);
+  });
+
   test('runtime snapshots table enforces DB-level tenant RLS policies', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const service = await createPostgresConsoleRuntimeSnapshotService({

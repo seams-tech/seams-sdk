@@ -58,6 +58,49 @@ async function listProjectedGasPolicies(
 }
 
 test.describe('console gas sponsorship seeding', () => {
+  test('startup seeding reconciles an existing onboarding template policy to the configured contract', async () => {
+    const policies = createInMemoryConsolePolicyService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const staleContract = '0xbb85080E6953f25197ec68798360667140EbAf4b' as const;
+
+    await orgProjectEnv.upsertOrganization(ctx, {});
+    await orgProjectEnv.createProject(ctx, {
+      id: 'proj_stale_onboarding',
+      name: 'Stale Onboarding',
+    });
+
+    await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+      orgProjectEnv,
+      policies,
+      runtimeSnapshots,
+      ctx,
+      faucetContractAddress: staleContract,
+    });
+
+    await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+      orgProjectEnv,
+      policies,
+      runtimeSnapshots,
+      ctx,
+      faucetContractAddress: DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+    });
+
+    const configs = await listProjectedGasPolicies(policies, {
+      projectId: 'proj_stale_onboarding',
+      environmentId: 'proj_stale_onboarding:dev',
+    });
+
+    expect(configs).toHaveLength(1);
+    expect(configs[0]?.allowedCalls).toEqual([
+      {
+        chainId: TEMPO_TESTNET_CHAIN_ID,
+        to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
+        selector: TEMPO_DRIP_SELECTOR,
+      },
+    ]);
+  });
+
   test('createProject seeds the Tempo onboarding policy into default project environments', async () => {
     const policies = createInMemoryConsolePolicyService();
     const orgProjectEnv = createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship({

@@ -16,7 +16,7 @@ export const TEMPO_TESTNET_ONBOARDING_POLICY_NAME = 'Tempo Testnet Onboarding';
 export const TEMPO_TESTNET_CHAIN_ID = 42_431;
 export const TEMPO_DRIP_SELECTOR = '0x428dc451';
 export const DEFAULT_TEMPO_ONBOARDING_CONTRACT =
-  '0xbb85080E6953f25197ec68798360667140EbAf4b' as `0x${string}`;
+  '0xe1Ab123D238AF74F77BfD59450e2428c9214123C' as `0x${string}`;
 
 export interface ResolvedSponsoredCallPolicy {
   policyId: string;
@@ -63,6 +63,31 @@ export function buildTempoTestnetOnboardingGasPolicyRules(input: {
   };
 }
 
+function hasDesiredTempoOnboardingProjection(input: {
+  policy: ConsoleGasSponsorshipPolicyProjection;
+  projectId?: string | null;
+  environmentId: string;
+  contractAddress: `0x${string}`;
+}): boolean {
+  const allowedCall = input.policy.allowedCalls[0];
+  return (
+    input.policy.templateId === TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID &&
+    input.policy.scopeType === 'ENVIRONMENT' &&
+    input.policy.projectId === (input.projectId || null) &&
+    input.policy.environmentId === input.environmentId &&
+    input.policy.enabled &&
+    input.policy.networkClass === 'TESTNET' &&
+    input.policy.callMode === 'ALLOWLIST' &&
+    input.policy.allowedChainIds.length === 1 &&
+    input.policy.allowedChainIds[0] === TEMPO_TESTNET_CHAIN_ID &&
+    input.policy.allowedCalls.length === 1 &&
+    Boolean(allowedCall) &&
+    allowedCall.chainId === TEMPO_TESTNET_CHAIN_ID &&
+    String(allowedCall.to || '').toLowerCase() === input.contractAddress.toLowerCase() &&
+    String(allowedCall.selector || '').toLowerCase() === TEMPO_DRIP_SELECTOR
+  );
+}
+
 async function listProjectedGasPolicies(input: {
   policies: ConsolePolicyService;
   ctx: { orgId: string; actorUserId: string; roles: string[] };
@@ -89,7 +114,53 @@ export async function ensureTempoTestnetOnboardingPolicyForEnvironment(input: {
     ctx: input.ctx,
   });
   const matched = existing.find((policy) => policy.environmentId === input.environmentId);
-  if (matched && matched.templateId === TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID) return matched;
+  if (matched && matched.templateId === TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID) {
+    if (
+      hasDesiredTempoOnboardingProjection({
+        policy: matched,
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        environmentId: input.environmentId,
+        contractAddress: input.contractAddress,
+      })
+    ) {
+      return matched;
+    }
+    const updated = await input.policies.updatePolicy(input.ctx, matched.id, {
+      rules: buildTempoTestnetOnboardingGasPolicyRules({
+        ...(input.projectId ? { projectId: input.projectId } : {}),
+        environmentId: input.environmentId,
+        contractAddress: input.contractAddress,
+      }),
+    });
+    if (!updated) {
+      throw new ConsoleGasSponsorshipError(
+        'internal',
+        500,
+        `Gas sponsorship policy ${matched.id} was not found for update`,
+      );
+    }
+    const published = await input.policies.publishPolicy(input.ctx, updated.id);
+    if (!published) {
+      throw new ConsoleGasSponsorshipError(
+        'internal',
+        500,
+        `Gas sponsorship policy ${updated.id} was not found after update`,
+      );
+    }
+    const projection = await projectConsoleGasSponsorshipPolicyProjection(
+      input.policies,
+      input.ctx,
+      published.policy,
+    );
+    if (!projection) {
+      throw new ConsoleGasSponsorshipError(
+        'internal',
+        500,
+        `Policy ${published.policy.id} did not project as a gas sponsorship policy`,
+      );
+    }
+    return projection;
+  }
 
   const created = await input.policies.createPolicy(input.ctx, {
     kind: 'GAS_SPONSORSHIP',

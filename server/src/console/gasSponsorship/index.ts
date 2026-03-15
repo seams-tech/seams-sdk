@@ -29,6 +29,7 @@ export {
 } from './onboarding';
 export {
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
+  ensureTempoOnboardingSponsorshipForAllOrganizations,
   ensureTempoOnboardingSponsorshipForExistingEnvironments,
 } from './seeding';
 

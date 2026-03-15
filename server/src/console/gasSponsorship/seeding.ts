@@ -128,3 +128,29 @@ export async function ensureTempoOnboardingSponsorshipForExistingEnvironments(in
     });
   }
 }
+
+export async function ensureTempoOnboardingSponsorshipForAllOrganizations(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService;
+  policies: ConsolePolicyService;
+  runtimeSnapshots: ConsoleRuntimeSnapshotService;
+  faucetContractAddress: `0x${string}`;
+  actorUserId?: string;
+  roles?: string[];
+  smartWallets?: ConsoleSmartWalletService | null;
+}): Promise<void> {
+  const organizations = await input.orgProjectEnv.searchOrganizations({ query: '', limit: 1_000 });
+  for (const organization of organizations) {
+    await ensureTempoOnboardingSponsorshipForExistingEnvironments({
+      orgProjectEnv: input.orgProjectEnv,
+      policies: input.policies,
+      runtimeSnapshots: input.runtimeSnapshots,
+      ctx: {
+        orgId: organization.id,
+        actorUserId: String(input.actorUserId || 'tempo-onboarding-seed'),
+        roles: input.roles ? [...input.roles] : ['owner', 'admin'],
+      },
+      faucetContractAddress: input.faucetContractAddress,
+      ...(input.smartWallets ? { smartWallets: input.smartWallets } : {}),
+    });
+  }
+}

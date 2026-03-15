@@ -304,19 +304,28 @@ export async function createPostgresConsoleRuntimeSnapshotService(
 
   async function listRows(
     q: Queryable,
-    input: { orgId: string; projectId: string; environmentId: string; limit: number },
+    input: { orgId: string; projectId?: string | null; environmentId: string; limit: number },
   ): Promise<ConsoleRuntimeSnapshot[]> {
-    const result = await q.query(
-      `SELECT *
+    const values: unknown[] = [namespace, input.orgId, input.environmentId];
+    let sql = `SELECT *
          FROM console_runtime_snapshots
         WHERE namespace = $1
           AND org_id = $2
-          AND project_id = $3
-          AND environment_id = $4
+          AND environment_id = $3`;
+    if (input.projectId) {
+      values.push(input.projectId);
+      sql += `
+          AND project_id = $4
         ORDER BY version DESC, created_at_ms DESC
-        LIMIT $5`,
-      [namespace, input.orgId, input.projectId, input.environmentId, input.limit],
-    );
+        LIMIT $5`;
+      values.push(input.limit);
+    } else {
+      sql += `
+        ORDER BY version DESC, created_at_ms DESC
+        LIMIT $4`;
+      values.push(input.limit);
+    }
+    const result = await q.query(sql, values);
     return result.rows.map((row) => parseSnapshotRow(row as PgRow));
   }
 
@@ -331,7 +340,7 @@ export async function createPostgresConsoleRuntimeSnapshotService(
         async (q) =>
           listRows(q, {
             orgId: ctx.orgId,
-            projectId: normalizeProjectId(request.projectId),
+            projectId: normalizeProjectId(request.projectId) || null,
             environmentId: request.environmentId,
             limit: request.limit || 20,
           }),
@@ -346,22 +355,30 @@ export async function createPostgresConsoleRuntimeSnapshotService(
       ctx: ConsoleRuntimeSnapshotContext,
       request: GetLatestConsoleRuntimeSnapshotRequest,
     ): Promise<ConsoleRuntimeSnapshot | null> {
+      const projectId = normalizeProjectId(request.projectId) || null;
       const row = await withConsoleTenantContextTx(
         pool,
         { namespace, orgId: ctx.orgId },
-        async (q) =>
-          queryOne(
-            q,
-            `SELECT *
+        async (q) => {
+          const values: unknown[] = [namespace, ctx.orgId, request.environmentId];
+          let sql = `SELECT *
                FROM console_runtime_snapshots
               WHERE namespace = $1
                 AND org_id = $2
-                AND project_id = $3
-                AND environment_id = $4
+                AND environment_id = $3`;
+          if (projectId) {
+            values.push(projectId);
+            sql += `
+                AND project_id = $4
               ORDER BY version DESC, created_at_ms DESC
-              LIMIT 1`,
-            [namespace, ctx.orgId, normalizeProjectId(request.projectId), request.environmentId],
-          ),
+              LIMIT 1`;
+          } else {
+            sql += `
+              ORDER BY version DESC, created_at_ms DESC
+              LIMIT 1`;
+          }
+          return await queryOne(q, sql, values);
+        },
       );
       if (!row) return null;
       const snapshot = parseSnapshotRow(row);

@@ -176,16 +176,35 @@ export function createInMemoryConsoleRuntimeSnapshotService(
     return sortByVersionDesc(scope.rows).map((row) => cloneSnapshot(row));
   }
 
+  function listEnvironmentRows(orgId: string, environmentId: string): ConsoleRuntimeSnapshot[] {
+    const orgStore = stores.get(orgId);
+    if (!orgStore) return [];
+    const rows: ConsoleRuntimeSnapshot[] = [];
+    for (const scope of orgStore.values()) {
+      for (const row of scope.rows) {
+        if (row.environmentId === environmentId) {
+          rows.push(row);
+        }
+      }
+    }
+    return sortByVersionDesc(rows).map((row) => cloneSnapshot(row));
+  }
+
   return {
     async listSnapshots(ctx, request): Promise<ConsoleRuntimeSnapshot[]> {
       const projectId = normalizeProjectId(request.projectId);
       const limit = request.limit || 20;
-      return listScopeRows(ctx.orgId, request.environmentId, projectId).slice(0, limit);
+      const rows = projectId
+        ? listScopeRows(ctx.orgId, request.environmentId, projectId)
+        : listEnvironmentRows(ctx.orgId, request.environmentId);
+      return rows.slice(0, limit);
     },
 
     async getLatestSnapshot(ctx, request): Promise<ConsoleRuntimeSnapshot | null> {
       const projectId = normalizeProjectId(request.projectId);
-      const rows = listScopeRows(ctx.orgId, request.environmentId, projectId);
+      const rows = projectId
+        ? listScopeRows(ctx.orgId, request.environmentId, projectId)
+        : listEnvironmentRows(ctx.orgId, request.environmentId);
       return rows[0] || null;
     },
 
