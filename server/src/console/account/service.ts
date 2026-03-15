@@ -333,7 +333,7 @@ export function createInMemoryConsoleAccountService(
   async function assertOrganizationDeletionAllowed(
     ctx: ConsoleAccountContext,
     orgId: string,
-  ): Promise<void> {
+  ): Promise<ConsoleAccountOrganization> {
     const current = await requireOrganizationAccess(ctx, orgId);
     if (!current.actorIsOwner) {
       throw createAccountContextError(
@@ -389,6 +389,7 @@ export function createInMemoryConsoleAccountService(
         'Organizations cannot be deleted after wallets have been created',
       );
     }
+    return current;
   }
 
   return {
@@ -507,7 +508,7 @@ export function createInMemoryConsoleAccountService(
     },
 
     async deleteOrganization(ctx, orgId): Promise<DeleteConsoleAccountOrganizationResult> {
-      await assertOrganizationDeletionAllowed(ctx, orgId);
+      const current = await assertOrganizationDeletionAllowed(ctx, orgId);
       const teamRbac = options.teamRbac as ConsoleTeamRbacService & {
         purgeOrganization?: (ctx: {
           orgId: string;
@@ -550,7 +551,10 @@ export function createInMemoryConsoleAccountService(
       for (const orgIds of createdOrgIdsByUser.values()) {
         orgIds.delete(orgId);
       }
-      return { orgId };
+      return {
+        orgId,
+        organizationName: current.name || orgId,
+      };
     },
 
     async transferOrganizationOwner(

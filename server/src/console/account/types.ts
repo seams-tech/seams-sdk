@@ -78,6 +78,7 @@ export interface TransferConsoleAccountOrganizationOwnerResult {
 
 export interface DeleteConsoleAccountOrganizationResult {
   orgId: string;
+  organizationName: string;
 }
 
 export interface SwitchConsoleAccountOrganizationContextResult {

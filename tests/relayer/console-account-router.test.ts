@@ -671,6 +671,7 @@ for (const mode of ['express', 'cloudflare'] as const) {
       expect(deleteResponse.status).toBe(200);
       expect(deleteResponse.json?.deleted).toMatchObject({
         orgId: 'org_empty_delete',
+        organizationName: 'Delete Me',
       });
 
       const listResponse = await callConsoleRoute(mode, {

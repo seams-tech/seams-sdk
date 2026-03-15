@@ -329,7 +329,7 @@ export async function createPostgresConsoleAccountService(
   async function assertOrganizationDeletionAllowed(
     ctx: ConsoleAccountContext,
     orgId: string,
-  ): Promise<void> {
+  ): Promise<ConsoleAccountOrganization> {
     const current = await requireOrganizationAccess(ctx, orgId);
     if (!current.actorIsOwner) {
       throw accountError('forbidden', 403, 'Only the current owner can delete an organization');
@@ -374,6 +374,7 @@ export async function createPostgresConsoleAccountService(
         'Organizations cannot be deleted after wallets have been created',
       );
     }
+    return current;
   }
 
   async function loadOrganizationSummary(
@@ -658,7 +659,7 @@ export async function createPostgresConsoleAccountService(
     },
 
     async deleteOrganization(ctx, orgId): Promise<DeleteConsoleAccountOrganizationResult> {
-      await assertOrganizationDeletionAllowed(ctx, orgId);
+      const current = await assertOrganizationDeletionAllowed(ctx, orgId);
       const deleted = await withTenantTx(orgId, async (q) => {
         const tables = await listOrgScopedConsoleTables(q);
         for (const tableName of tables) {
@@ -680,7 +681,10 @@ export async function createPostgresConsoleAccountService(
       if (!deleted) {
         throw accountError('organization_not_found', 404, `Organization ${orgId} was not found`);
       }
-      return { orgId };
+      return {
+        orgId,
+        organizationName: current.name || orgId,
+      };
     },
 
     async transferOrganizationOwner(
