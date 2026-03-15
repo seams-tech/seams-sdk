@@ -11,6 +11,7 @@ import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleLinkDevice } from './routes/linkDevice';
 import { handleRecoverEmail } from './routes/recoverEmail';
+import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
   handleSessionState,
   handleSessionExchange,
@@ -78,6 +79,7 @@ export function createCloudflareRouter(
     handleBootstrapGrant,
     handleCreateAccountAndRegisterUser,
     handleSignedDelegate,
+    handleSponsoredEvmCall,
     handleAuth,
     handleSyncAccount,
     handleLinkDevice,
