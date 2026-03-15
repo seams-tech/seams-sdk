@@ -1056,7 +1056,7 @@ test.describe('console router (express)', () => {
       teamRbac: createInMemoryConsoleTeamRbacService(),
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(['security_admin'], orgId, actorUserId),
       onboarding,
     });
     const srv = await startExpressRouter(router);
@@ -1071,6 +1071,32 @@ test.describe('console router (express)', () => {
       expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'code')).toBe(
         'forbidden',
       );
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/ops-cockpit/summary requires ops cockpit read role', async () => {
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-ops-cockpit-summary-forbidden-express',
+        'user-ops-cockpit-summary-forbidden-express',
+      ),
+      onboarding: createInMemoryConsoleOnboardingService({
+        orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+        apiKeys: createInMemoryConsoleApiKeyService(),
+        billing: createInMemoryConsoleBillingService(),
+        teamRbac: createInMemoryConsoleTeamRbacService(),
+      }),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/console/ops-cockpit/summary`, {
+        method: 'GET',
+      });
+      expect(res.status).toBe(403);
+      expect(res.json?.code).toBe('forbidden');
     } finally {
       await srv.close();
     }
@@ -1750,6 +1776,31 @@ test.describe('console router (express)', () => {
       const evidenceRows = Array.isArray(evidence.json?.evidence) ? evidence.json?.evidence : [];
       expect(evidenceRows.length).toBeGreaterThan(0);
       expect(String(getPath(evidenceRows[0], 'domain'))).toBe('BILLING');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('audit read routes require audit read role', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-audit-read-role-1', 'user-audit-read-role-1'),
+      audit,
+      auditExports,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      for (const path of [
+        '/console/audit/events?limit=5',
+        '/console/audit/evidence?limit=5',
+        '/console/audit/exports',
+        '/console/audit/exports/aexp_missing',
+      ]) {
+        const res = await fetchJson(`${srv.baseUrl}${path}`, { method: 'GET' });
+        expect(res.status, path).toBe(403);
+        expect(res.json?.code, path).toBe('forbidden');
+      }
     } finally {
       await srv.close();
     }
@@ -3683,6 +3734,37 @@ test.describe('console router (express)', () => {
       });
       expect(missing.status).toBe(404);
       expect(missing.json?.code).toBe('wallet_not_found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('wallet read routes require wallet read role', async () => {
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_express_forbidden_1',
+          orgId: 'org-wallet-read-role-1',
+          projectId: 'proj_wallet_read_role_1',
+          environmentId: 'env_wallet_read_role_1',
+        }),
+      ],
+    });
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-wallet-read-role-1', 'user-wallet-read-role-1'),
+      wallets,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      for (const path of [
+        '/console/wallets?limit=5',
+        '/console/wallets/search?q=wallet_express',
+        '/console/wallets/wallet_express_forbidden_1',
+      ]) {
+        const res = await fetchJson(`${srv.baseUrl}${path}`, { method: 'GET' });
+        expect(res.status, path).toBe(403);
+        expect(res.json?.code, path).toBe('forbidden');
+      }
     } finally {
       await srv.close();
     }
@@ -5852,6 +5934,7 @@ test.describe('console router (express)', () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -5867,6 +5950,7 @@ test.describe('console router (express)', () => {
         'platform-user-express',
       ),
       billing,
+      audit,
       orgProjectEnv,
       teamRbac,
     });
@@ -5902,6 +5986,26 @@ test.describe('console router (express)', () => {
       expect(Number(getPath(lookup.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(
         1500,
       );
+
+      const auditEvents = await audit.listEvents(
+        {
+          orgId: 'org-platform-adjust-target-express',
+          actorUserId: 'platform-user-express',
+          roles: ['platform_admin'],
+        },
+        { limit: 10 },
+      );
+      const adjustmentAudit = auditEvents.find(
+        (event) => String(event.action || '') === 'billing.adjustment.support_credit',
+      );
+      expect(String(adjustmentAudit?.metadata?.organizationId || '')).toBe(
+        'org-platform-adjust-target-express',
+      );
+      expect(String(adjustmentAudit?.metadata?.organizationName || '')).toBe(
+        'Default Organization',
+      );
+      expect(String(adjustmentAudit?.metadata?.note || '')).toBe('Applied by platform admin');
+      expect(String(adjustmentAudit?.metadata?.platformBilling || '')).toBe('true');
     } finally {
       await srv.close();
     }
@@ -6554,6 +6658,55 @@ test.describe('console router (express)', () => {
       });
       expect(res.status).toBe(403);
       expect(res.json?.code).toBe('forbidden');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing read routes require billing read role', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['developer'], 'org-billing-read-role-1', 'user-billing-read-role-1'),
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      for (const path of [
+        '/console/billing/overview',
+        '/console/billing/account/activity?limit=5',
+        '/console/billing/usage/monthly-active-wallets?monthUtc=2026-03',
+        '/console/billing/invoices',
+        '/console/billing/invoices/inv_missing',
+        '/console/billing/invoices/inv_missing/pdf',
+        '/console/billing/invoices/inv_missing/activity',
+        '/console/billing/invoices/inv_missing/line-items',
+      ]) {
+        const res = await fetchJson(`${srv.baseUrl}${path}`, { method: 'GET' });
+        expect(res.status, path).toBe(403);
+        expect(res.json?.code, path).toBe('forbidden');
+      }
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('billing_admin can access billing read routes', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['billing_admin'], 'org-1', 'user-billing-admin-read-1'),
+      billing,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const overview = await fetchJson(`${srv.baseUrl}/console/billing/overview`, {
+        method: 'GET',
+      });
+      expect(overview.status).toBe(200);
+
+      const invoices = await fetchJson(`${srv.baseUrl}/console/billing/invoices`, {
+        method: 'GET',
+      });
+      expect(invoices.status).toBe(200);
     } finally {
       await srv.close();
     }
@@ -7469,7 +7622,7 @@ test.describe('console router (cloudflare)', () => {
       teamRbac: createInMemoryConsoleTeamRbacService(),
     });
     const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], orgId, actorUserId),
+      auth: makeConsoleAuthAdapter(['security_admin'], orgId, actorUserId),
       onboarding,
     });
     const res = await callCf(handler, {
@@ -7481,6 +7634,28 @@ test.describe('console router (cloudflare)', () => {
       'forbidden',
     );
     expect(getPath(res.json, 'summary', 'onboardingTelemetry', 'status', 'code')).toBe('forbidden');
+  });
+
+  test('cloudflare GET /console/ops-cockpit/summary requires ops cockpit read role', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-ops-cockpit-summary-forbidden-cf',
+        'user-ops-cockpit-summary-forbidden-cf',
+      ),
+      onboarding: createInMemoryConsoleOnboardingService({
+        orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
+        apiKeys: createInMemoryConsoleApiKeyService(),
+        billing: createInMemoryConsoleBillingService(),
+        teamRbac: createInMemoryConsoleTeamRbacService(),
+      }),
+    });
+    const res = await callCf(handler, {
+      method: 'GET',
+      path: '/console/ops-cockpit/summary',
+    });
+    expect(res.status).toBe(403);
+    expect(res.json?.code).toBe('forbidden');
   });
 
   test('cloudflare onboarding organization and project steps are idempotent and auditable', async () => {
@@ -8112,6 +8287,34 @@ test.describe('console router (cloudflare)', () => {
     const evidenceRows = Array.isArray(evidence.json?.evidence) ? evidence.json?.evidence : [];
     expect(evidenceRows.length).toBeGreaterThan(0);
     expect(String(getPath(evidenceRows[0], 'domain'))).toBe('BILLING');
+  });
+
+  test('cloudflare audit read routes require audit read role', async () => {
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
+    const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-audit-read-role-cf-1',
+        'user-audit-read-role-cf-1',
+      ),
+      audit,
+      auditExports,
+    });
+
+    for (const path of [
+      '/console/audit/events?limit=5',
+      '/console/audit/evidence?limit=5',
+      '/console/audit/exports',
+      '/console/audit/exports/aexp_missing',
+    ]) {
+      const res = await callCf(handler, {
+        method: 'GET',
+        path,
+      });
+      expect(res.status, path).toBe(403);
+      expect(res.json?.code, path).toBe('forbidden');
+    }
   });
 
   test('cloudflare in-memory audit service filters events by free-text query', async () => {
@@ -9868,6 +10071,40 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(missing.status).toBe(404);
     expect(missing.json?.code).toBe('wallet_not_found');
+  });
+
+  test('cloudflare wallet read routes require wallet read role', async () => {
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeSeedWallet({
+          id: 'wallet_cf_forbidden_1',
+          orgId: 'org-wallet-read-role-cf-1',
+          projectId: 'proj_wallet_read_role_cf_1',
+          environmentId: 'env_wallet_read_role_cf_1',
+        }),
+      ],
+    });
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-wallet-read-role-cf-1',
+        'user-wallet-read-role-cf-1',
+      ),
+      wallets,
+    });
+
+    for (const path of [
+      '/console/wallets?limit=5',
+      '/console/wallets/search?q=wallet_cf',
+      '/console/wallets/wallet_cf_forbidden_1',
+    ]) {
+      const res = await callCf(handler, {
+        method: 'GET',
+        path,
+      });
+      expect(res.status, path).toBe(403);
+      expect(res.json?.code, path).toBe('forbidden');
+    }
   });
 
   test('cloudflare policy/gas/export insight routes return aggregated views', async () => {
@@ -11789,6 +12026,7 @@ test.describe('console router (cloudflare)', () => {
     const billing = createInMemoryConsoleBillingService({
       now: () => new Date('2026-03-20T00:00:00.000Z'),
     });
+    const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const teamRbac = createInMemoryConsoleTeamRbacService();
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -11804,6 +12042,7 @@ test.describe('console router (cloudflare)', () => {
         'platform-user-cloudflare',
       ),
       billing,
+      audit,
       orgProjectEnv,
       teamRbac,
     });
@@ -11834,6 +12073,26 @@ test.describe('console router (cloudflare)', () => {
     expect(Number(getPath(lookup.json, 'result', 'overview', 'creditBalanceMinor') || 0)).toBe(
       1500,
     );
+
+    const auditEvents = await audit.listEvents(
+      {
+        orgId: 'org-platform-adjust-target-cloudflare',
+        actorUserId: 'platform-user-cloudflare',
+        roles: ['platform_admin'],
+      },
+      { limit: 10 },
+    );
+    const adjustmentAudit = auditEvents.find(
+      (event) => String(event.action || '') === 'billing.adjustment.support_credit',
+    );
+    expect(String(adjustmentAudit?.metadata?.organizationId || '')).toBe(
+      'org-platform-adjust-target-cloudflare',
+    );
+    expect(String(adjustmentAudit?.metadata?.organizationName || '')).toBe(
+      'Default Organization',
+    );
+    expect(String(adjustmentAudit?.metadata?.note || '')).toBe('Applied by platform admin');
+    expect(String(adjustmentAudit?.metadata?.platformBilling || '')).toBe('true');
   });
 
   test('legacy billing subscription route is removed', async () => {
@@ -12399,6 +12658,54 @@ test.describe('console router (cloudflare)', () => {
     });
     expect(res.status).toBe(403);
     expect(res.json?.code).toBe('forbidden');
+  });
+
+  test('cloudflare billing read routes require billing read role', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-billing-read-role-cf-1',
+        'user-billing-read-role-cf-1',
+      ),
+      billing: createInMemoryConsoleBillingService(),
+    });
+
+    for (const path of [
+      '/console/billing/overview',
+      '/console/billing/account/activity?limit=5',
+      '/console/billing/usage/monthly-active-wallets?monthUtc=2026-03',
+      '/console/billing/invoices',
+      '/console/billing/invoices/inv_missing',
+      '/console/billing/invoices/inv_missing/pdf',
+      '/console/billing/invoices/inv_missing/activity',
+      '/console/billing/invoices/inv_missing/line-items',
+    ]) {
+      const res = await callCf(handler, {
+        method: 'GET',
+        path,
+      });
+      expect(res.status, path).toBe(403);
+      expect(res.json?.code, path).toBe('forbidden');
+    }
+  });
+
+  test('cloudflare billing_admin can access billing read routes', async () => {
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['billing_admin'], 'org-1', 'user-billing-admin-read-cf-1'),
+      billing: createInMemoryConsoleBillingService(),
+    });
+
+    const overview = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/overview',
+    });
+    expect(overview.status).toBe(200);
+
+    const invoices = await callCf(handler, {
+      method: 'GET',
+      path: '/console/billing/invoices',
+    });
+    expect(invoices.status).toBe(200);
   });
 
   test('invoice generation endpoint returns deterministic prepaid statement line items', async () => {

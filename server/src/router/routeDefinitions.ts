@@ -79,6 +79,18 @@ const CONSOLE_PLATFORM_BILLING_ADJUSTMENT_ROLES: NonNullable<
 const CONSOLE_ONBOARDING_TELEMETRY_READ_ROLES: NonNullable<
   Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
 > = ['admin', 'ops'];
+const CONSOLE_OPS_COCKPIT_READ_ROLES: NonNullable<
+  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
+> = ['owner', 'admin', 'security_admin', 'ops'];
+const CONSOLE_AUDIT_READ_ROLES: NonNullable<
+  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
+> = ['owner', 'admin', 'security_admin', 'ops'];
+const CONSOLE_WALLET_READ_ROLES: NonNullable<
+  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
+> = ['owner', 'admin', 'security_admin', 'ops', 'support'];
+const CONSOLE_BILLING_READ_ROLES: NonNullable<
+  Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
+> = ['owner', 'admin', 'billing_admin', 'ops'];
 const CONSOLE_OBSERVABILITY_READ_ROLES: NonNullable<
   Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
 > = ['owner', 'admin', 'security_admin', 'ops', 'support'];
@@ -465,6 +477,10 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       'GET',
       '/console/ops-cockpit/summary',
       'Read ops cockpit summary',
+      {
+        roles: CONSOLE_OPS_COCKPIT_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view ops cockpit',
+      },
     ),
     consoleRoute('console_org_get', 'GET', '/console/org', 'Read organization', {
       requiredServices: ['orgProjectEnv'],
@@ -485,6 +501,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       requiredServices: ['approvals'],
     }),
     consoleRoute('console_audit_events_list', 'GET', '/console/audit/events', 'List audit events', {
+      roles: CONSOLE_AUDIT_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit events',
       requiredServices: ['audit'],
     }),
     consoleRoute(
@@ -493,10 +511,14 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/audit/evidence',
       'List audit evidence',
       {
+        roles: CONSOLE_AUDIT_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit evidence',
         requiredServices: ['audit'],
       },
     ),
     consoleRoute('console_audit_exports_list', 'GET', '/console/audit/exports', 'List audit exports', {
+      roles: CONSOLE_AUDIT_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
       requiredServices: ['auditExports'],
     }),
     consoleRoute(
@@ -505,6 +527,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/audit/exports/:id',
       'Get audit export',
       {
+        roles: CONSOLE_AUDIT_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
         requiredServices: ['auditExports'],
       },
     ),
@@ -523,6 +547,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/wallets',
       'List wallets',
       {
+        roles: CONSOLE_WALLET_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
         requiredServices: ['wallets'],
       },
     ),
@@ -532,10 +558,14 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/wallets/search',
       'Search wallets',
       {
+        roles: CONSOLE_WALLET_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
         requiredServices: ['wallets'],
       },
     ),
     consoleRoute('console_wallets_get', 'GET', '/console/wallets/:id', 'Get wallet', {
+      roles: CONSOLE_WALLET_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
       requiredServices: ['wallets'],
     }),
     consoleRoute('console_policies_list', 'GET', '/console/policies', 'List policies', {
@@ -634,6 +664,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       },
     ),
     consoleRoute('console_billing_overview_get', 'GET', '/console/billing/overview', 'Read billing overview', {
+      roles: CONSOLE_BILLING_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
       requiredServices: ['billing'],
     }),
     consoleRoute(
@@ -642,6 +674,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/account/activity',
       'Read billing account activity',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -668,6 +702,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       },
     ),
     consoleRoute('console_billing_invoices_list', 'GET', '/console/billing/invoices', 'List billing invoices', {
+      roles: CONSOLE_BILLING_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
       requiredServices: ['billing'],
     }),
     consoleRoute(
@@ -676,6 +712,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/invoices/:id',
       'Get billing invoice',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -685,6 +723,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/invoices/:id/pdf',
       'Get billing invoice PDF',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -694,6 +734,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/invoices/:id/activity',
       'Get billing invoice activity',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -703,6 +745,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/invoices/:id/line-items',
       'Get billing invoice line items',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -1010,6 +1054,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       '/console/billing/usage/monthly-active-wallets',
       'Read monthly active wallet usage',
       {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
         requiredServices: ['billing'],
       },
     ),
@@ -1310,6 +1356,45 @@ export function createRelayRouteDefinitions(
       },
       { kind: 'event', action: 'wallet_created' },
       ['authService'],
+    ),
+    machineRoute(
+      'machine_wallets_list',
+      'GET',
+      '/v1/wallets',
+      'List wallets for the authenticated machine environment',
+      {
+        plane: 'machine',
+        credentials: ['secret_key'],
+        scopes: ['wallets.read'],
+      },
+      { kind: 'none' },
+      ['apiKeyAuth', 'wallets'],
+    ),
+    machineRoute(
+      'machine_wallets_search',
+      'GET',
+      '/v1/wallets/search',
+      'Search wallets for the authenticated machine environment',
+      {
+        plane: 'machine',
+        credentials: ['secret_key'],
+        scopes: ['wallets.read'],
+      },
+      { kind: 'none' },
+      ['apiKeyAuth', 'wallets'],
+    ),
+    machineRoute(
+      'machine_wallets_get',
+      'GET',
+      '/v1/wallets/:id',
+      'Get a wallet for the authenticated machine environment',
+      {
+        plane: 'machine',
+        credentials: ['secret_key'],
+        scopes: ['wallets.read'],
+      },
+      { kind: 'none' },
+      ['apiKeyAuth', 'wallets'],
     ),
     publicRoute(
       'auth_provider_action',

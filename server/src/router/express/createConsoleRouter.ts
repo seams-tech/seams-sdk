@@ -1624,7 +1624,7 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.create',
-        summary: `Created organization ${organization.id} from account settings`,
+        summary: `Created organization ${organization.name || organization.id} from account settings`,
         metadata: {
           organizationId: organization.id,
           organizationName: organization.name,
@@ -1660,7 +1660,7 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.update',
-        summary: `Updated organization ${organization.id} from account settings`,
+        summary: `Updated organization ${organization.name || organization.id} from account settings`,
         metadata: {
           organizationId: organization.id,
           organizationName: organization.name,
@@ -1691,9 +1691,10 @@ function registerConsoleAccountRoutes(router: ExpressRouter, ctx: ExpressConsole
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.delete',
-        summary: `Deleted organization ${deleted.orgId} from account settings`,
+        summary: `Deleted organization ${deleted.organizationName || deleted.orgId} from account settings`,
         metadata: {
           organizationId: deleted.orgId,
+          organizationName: deleted.organizationName,
           source: 'account_settings',
         },
       });
@@ -2530,6 +2531,7 @@ function registerConsoleAuditRoutes(router: ExpressRouter, ctx: ExpressConsoleCo
   router.get('/console/audit/events', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const audit = requireAuditService(res, ctx);
     if (!audit) return;
     try {
@@ -2544,6 +2546,7 @@ function registerConsoleAuditRoutes(router: ExpressRouter, ctx: ExpressConsoleCo
   router.get('/console/audit/evidence', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const audit = requireAuditService(res, ctx);
     if (!audit) return;
     try {
@@ -2560,6 +2563,7 @@ function registerConsoleAuditExportRoutes(router: ExpressRouter, ctx: ExpressCon
   router.get('/console/audit/exports', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const auditExports = requireAuditExportsService(res, ctx);
     if (!auditExports) return;
     try {
@@ -2574,6 +2578,7 @@ function registerConsoleAuditExportRoutes(router: ExpressRouter, ctx: ExpressCon
   router.get('/console/audit/exports/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const auditExports = requireAuditExportsService(res, ctx);
     if (!auditExports) return;
     const exportId = readPathParam(req, 'id');
@@ -2600,8 +2605,7 @@ function registerConsoleAuditExportRoutes(router: ExpressRouter, ctx: ExpressCon
   router.post('/console/audit/exports', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
-    const routePolicy = requireConsoleRoutePolicy(req, res, ctx, claims);
-    if (!routePolicy) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const auditExports = requireAuditExportsService(res, ctx);
     if (!auditExports) return;
     try {
@@ -2670,6 +2674,7 @@ function registerConsoleWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleC
   router.get('/console/wallets', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const wallets = requireWalletService(res, ctx);
     if (!wallets) return;
     try {
@@ -2688,6 +2693,7 @@ function registerConsoleWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleC
   router.get('/console/wallets/search', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const wallets = requireWalletService(res, ctx);
     if (!wallets) return;
     try {
@@ -2706,6 +2712,7 @@ function registerConsoleWalletRoutes(router: ExpressRouter, ctx: ExpressConsoleC
   router.get('/console/wallets/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const wallets = requireWalletService(res, ctx);
     if (!wallets) return;
     const walletId = readPathParam(req, 'id');
@@ -3909,6 +3916,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/overview', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -3922,6 +3930,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/account/activity', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -3984,6 +3993,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     async (req: Request, res: Response) => {
       const claims = await requireConsoleAuth(req, res, ctx);
       if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
       const billing = requireBillingService(res, ctx);
       if (!billing) return;
       const monthUtcRaw = String((req as any)?.query?.monthUtc || '').trim();
@@ -4070,10 +4080,12 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           action: 'billing.adjustment.support_credit',
           summary: `Appended manual support credit for org ${claims.orgId}`,
           metadata: {
+            organizationId: claims.orgId,
             adjustmentId: result.adjustment.id,
             amountMinor: result.adjustment.amountMinor,
             resultingBalanceMinor: result.creditBalanceMinor,
             reasonCode: result.adjustment.reasonCode,
+            note: result.adjustment.note,
             relatedInvoiceId: result.adjustment.relatedInvoiceId,
             idempotencyKey: result.adjustment.idempotencyKey,
             created: result.created,
@@ -4099,7 +4111,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       try {
         const request = parsePlatformBillingManualAdjustmentRequest((req as any).body);
         const { orgId, ...adjustmentRequest } = request;
-        await orgProjectEnv.getOrganization({
+        const organization = await orgProjectEnv.getOrganization({
           orgId,
           actorUserId: claims.userId,
           roles: claims.roles,
@@ -4125,10 +4137,13 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
             action: 'billing.adjustment.support_credit',
             summary: `Appended manual support credit for org ${orgId}`,
             metadata: {
+              organizationId: orgId,
+              organizationName: organization.name,
               adjustmentId: result.adjustment.id,
               amountMinor: result.adjustment.amountMinor,
               resultingBalanceMinor: result.creditBalanceMinor,
               reasonCode: result.adjustment.reasonCode,
+              note: result.adjustment.note,
               relatedInvoiceId: result.adjustment.relatedInvoiceId,
               idempotencyKey: result.adjustment.idempotencyKey,
               created: result.created,
@@ -4151,20 +4166,22 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
     if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseBillingManualAdjustmentRequest((req as any).body);
-      const result = await billing.appendManualAdminDebit(toBillingContext(claims), request);
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseBillingManualAdjustmentRequest((req as any).body);
+        const result = await billing.appendManualAdminDebit(toBillingContext(claims), request);
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'BILLING',
         action: 'billing.adjustment.admin_debit',
         summary: `Appended manual admin debit for org ${claims.orgId}`,
         metadata: {
+          organizationId: claims.orgId,
           adjustmentId: result.adjustment.id,
           amountMinor: result.adjustment.amountMinor,
           resultingBalanceMinor: result.creditBalanceMinor,
           reasonCode: result.adjustment.reasonCode,
+          note: result.adjustment.note,
           relatedInvoiceId: result.adjustment.relatedInvoiceId,
           idempotencyKey: result.adjustment.idempotencyKey,
           created: result.created,
@@ -4189,7 +4206,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       try {
         const request = parsePlatformBillingManualAdjustmentRequest((req as any).body);
         const { orgId, ...adjustmentRequest } = request;
-        await orgProjectEnv.getOrganization({
+        const organization = await orgProjectEnv.getOrganization({
           orgId,
           actorUserId: claims.userId,
           roles: claims.roles,
@@ -4215,10 +4232,13 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
             action: 'billing.adjustment.admin_debit',
             summary: `Appended manual admin debit for org ${orgId}`,
             metadata: {
+              organizationId: orgId,
+              organizationName: organization.name,
               adjustmentId: result.adjustment.id,
               amountMinor: result.adjustment.amountMinor,
               resultingBalanceMinor: result.creditBalanceMinor,
               reasonCode: result.adjustment.reasonCode,
+              note: result.adjustment.note,
               relatedInvoiceId: result.adjustment.relatedInvoiceId,
               idempotencyKey: result.adjustment.idempotencyKey,
               created: result.created,
@@ -4240,6 +4260,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/invoices', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
@@ -4260,6 +4281,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/invoices/:id', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     const invoiceId = readPathParam(req, 'id');
@@ -4286,6 +4308,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/invoices/:id/pdf', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     const invoiceId = readPathParam(req, 'id');
@@ -4336,6 +4359,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/invoices/:id/activity', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     const invoiceId = readPathParam(req, 'id');
@@ -4362,6 +4386,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
   router.get('/console/billing/invoices/:id/line-items', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     const invoiceId = readPathParam(req, 'id');

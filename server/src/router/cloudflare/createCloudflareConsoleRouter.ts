@@ -1675,7 +1675,7 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.create',
-        summary: `Created organization ${organization.id} from account settings`,
+        summary: `Created organization ${organization.name || organization.id} from account settings`,
         metadata: {
           organizationId: organization.id,
           organizationName: organization.name,
@@ -1708,7 +1708,7 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.update',
-        summary: `Updated organization ${organization.id} from account settings`,
+        summary: `Updated organization ${organization.name || organization.id} from account settings`,
         metadata: {
           organizationId: organization.id,
           organizationName: organization.name,
@@ -1726,9 +1726,10 @@ async function handleConsoleAccount(ctx: CloudflareConsoleContext): Promise<Resp
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'ORG_PROJECT_ENV',
         action: 'organization.delete',
-        summary: `Deleted organization ${deleted.orgId} from account settings`,
+        summary: `Deleted organization ${deleted.organizationName || deleted.orgId} from account settings`,
         metadata: {
           organizationId: deleted.orgId,
+          organizationName: deleted.organizationName,
           source: 'account_settings',
         },
       });
@@ -2977,6 +2978,8 @@ async function handleConsoleAudit(ctx: CloudflareConsoleContext): Promise<Respon
 
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
+  const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+  if (routePolicy) return routePolicy;
 
   const auditOrResponse = requireAuditService(ctx);
   if (auditOrResponse instanceof Response) return auditOrResponse;
@@ -3026,6 +3029,8 @@ async function handleConsoleAuditExports(ctx: CloudflareConsoleContext): Promise
 
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
+  const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+  if (routePolicy) return routePolicy;
 
   const auditExportsOrResponse = requireAuditExportsService(ctx);
   if (auditExportsOrResponse instanceof Response) return auditExportsOrResponse;
@@ -3061,8 +3066,6 @@ async function handleConsoleAuditExports(ctx: CloudflareConsoleContext): Promise
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/audit/exports') {
-      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
-      if (routePolicy) return routePolicy;
       const request = parseCreateConsoleAuditExportRequest(await readJson(ctx.request));
       const auditExport = await auditExports.createExport(toAuditContext(auth.claims), request);
       return json({ ok: true, export: auditExport }, { status: 201 });
@@ -3136,6 +3139,8 @@ async function handleConsoleWallets(ctx: CloudflareConsoleContext): Promise<Resp
 
   const auth = await requireConsoleAuth(ctx);
   if (!auth.ok) return auth.response;
+  const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+  if (routePolicy) return routePolicy;
 
   const walletsOrResponse = requireWalletService(ctx);
   if (walletsOrResponse instanceof Response) return walletsOrResponse;
@@ -3876,11 +3881,15 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     const billingCtx = toBillingContext(auth.claims);
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/overview') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const overview = await billing.getOverview(billingCtx);
       return json({ ok: true, overview }, { status: 200 });
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/account/activity') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseBillingAccountActivityRequest(
         Object.fromEntries(ctx.url.searchParams.entries()),
       );
@@ -3908,6 +3917,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/usage/monthly-active-wallets') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const monthUtcRaw = String(ctx.url.searchParams.get('monthUtc') || '').trim();
       const monthUtc = monthUtcRaw || undefined;
       const usage = await billing.getMonthlyActiveWallets(billingCtx, monthUtc);
@@ -3964,10 +3975,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         action: 'billing.adjustment.support_credit',
         summary: `Appended manual support credit for org ${auth.claims.orgId}`,
         metadata: {
+          organizationId: auth.claims.orgId,
           adjustmentId: result.adjustment.id,
           amountMinor: result.adjustment.amountMinor,
           resultingBalanceMinor: result.creditBalanceMinor,
           reasonCode: result.adjustment.reasonCode,
+          note: result.adjustment.note,
           relatedInvoiceId: result.adjustment.relatedInvoiceId,
           idempotencyKey: result.adjustment.idempotencyKey,
           created: result.created,
@@ -3986,7 +3999,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
       const request = parsePlatformBillingManualAdjustmentRequest(await readJson(ctx.request));
       const { orgId, ...adjustmentRequest } = request;
-      await orgProjectEnvOrResponse.getOrganization({
+      const organization = await orgProjectEnvOrResponse.getOrganization({
         orgId,
         actorUserId: auth.claims.userId,
         roles: auth.claims.roles,
@@ -4012,10 +4025,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
           action: 'billing.adjustment.support_credit',
           summary: `Appended manual support credit for org ${orgId}`,
           metadata: {
+            organizationId: orgId,
+            organizationName: organization.name,
             adjustmentId: result.adjustment.id,
             amountMinor: result.adjustment.amountMinor,
             resultingBalanceMinor: result.creditBalanceMinor,
             reasonCode: result.adjustment.reasonCode,
+            note: result.adjustment.note,
             relatedInvoiceId: result.adjustment.relatedInvoiceId,
             idempotencyKey: result.adjustment.idempotencyKey,
             created: result.created,
@@ -4036,10 +4052,12 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         action: 'billing.adjustment.admin_debit',
         summary: `Appended manual admin debit for org ${auth.claims.orgId}`,
         metadata: {
+          organizationId: auth.claims.orgId,
           adjustmentId: result.adjustment.id,
           amountMinor: result.adjustment.amountMinor,
           resultingBalanceMinor: result.creditBalanceMinor,
           reasonCode: result.adjustment.reasonCode,
+          note: result.adjustment.note,
           relatedInvoiceId: result.adjustment.relatedInvoiceId,
           idempotencyKey: result.adjustment.idempotencyKey,
           created: result.created,
@@ -4058,7 +4076,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (orgProjectEnvOrResponse instanceof Response) return orgProjectEnvOrResponse;
       const request = parsePlatformBillingManualAdjustmentRequest(await readJson(ctx.request));
       const { orgId, ...adjustmentRequest } = request;
-      await orgProjectEnvOrResponse.getOrganization({
+      const organization = await orgProjectEnvOrResponse.getOrganization({
         orgId,
         actorUserId: auth.claims.userId,
         roles: auth.claims.roles,
@@ -4084,10 +4102,13 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
           action: 'billing.adjustment.admin_debit',
           summary: `Appended manual admin debit for org ${orgId}`,
           metadata: {
+            organizationId: orgId,
+            organizationName: organization.name,
             adjustmentId: result.adjustment.id,
             amountMinor: result.adjustment.amountMinor,
             resultingBalanceMinor: result.creditBalanceMinor,
             reasonCode: result.adjustment.reasonCode,
+            note: result.adjustment.note,
             relatedInvoiceId: result.adjustment.relatedInvoiceId,
             idempotencyKey: result.adjustment.idempotencyKey,
             created: result.created,
@@ -4099,6 +4120,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/invoices') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const request = parseBillingInvoiceListRequest(
         Object.fromEntries(ctx.url.searchParams.entries()),
       );
@@ -4116,6 +4139,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && invoiceMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const invoiceId = decodePathPart(invoiceMatch[1]);
       const invoice = await billing.getInvoice(billingCtx, invoiceId);
       if (!invoice) {
@@ -4132,6 +4157,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && invoicePdfMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const invoiceId = decodePathPart(invoicePdfMatch[1]);
       const invoice = await billing.getInvoice(billingCtx, invoiceId);
       if (!invoice) {
@@ -4174,6 +4201,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && invoiceActivityMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const invoiceId = decodePathPart(invoiceActivityMatch[1]);
       const activity = await billing.getInvoiceActivity(billingCtx, invoiceId);
       if (!activity) {
@@ -4190,6 +4219,8 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     }
 
     if (ctx.method === 'GET' && invoiceLineItemsMatch) {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
       const invoiceId = decodePathPart(invoiceLineItemsMatch[1]);
       const invoice = await billing.getInvoice(billingCtx, invoiceId);
       if (!invoice) {
