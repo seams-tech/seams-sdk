@@ -12,11 +12,14 @@ import {
   type DashboardPlatformBillingLookupResult,
 } from './consoleBillingApi';
 import type { BillingMetric } from './billingShared';
+import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { BillingAccountActivitySection, BillingContextSummarySection } from './billingSections';
 
 const PLATFORM_BILLING_ACTIVITY_LIMIT = 50;
 const PLATFORM_BILLING_SEARCH_LIMIT = 10;
 const PLATFORM_BILLING_RECENT_ORGANIZATION_LIMIT = 5;
+const PLATFORM_BILLING_ROUTE_ORG_ID_QUERY_KEY = 'billingOrgId';
+const PLATFORM_BILLING_ROUTE_ORG_NAME_QUERY_KEY = 'billingOrgName';
 const PLATFORM_BILLING_EVENT_TYPE_OPTIONS: Array<{
   value: 'all' | DashboardBillingAccountActivityEventType;
   label: string;
@@ -39,6 +42,10 @@ function parseUsdAmountInputToMinor(input: string): number | null {
 
 function describeManualAdjustmentKind(input: DashboardBillingManualAdjustmentKind): string {
   return input === 'support_credit' ? 'Manual support credit' : 'Manual admin debit';
+}
+
+function describePlatformAdjustmentAction(input: DashboardBillingManualAdjustmentKind): string {
+  return input === 'support_credit' ? 'support credit' : 'admin debit';
 }
 
 function normalizePlatformBillingSearchValue(value: string): string {
@@ -131,8 +138,54 @@ function describeOrganizationMeta(organization: DashboardPlatformBillingOrganiza
   return [organization.id, organization.status || 'ACTIVE'].filter(Boolean).join(' • ');
 }
 
+function readPlatformBillingRouteSelection(): { orgId: string; orgName: string } {
+  if (typeof window === 'undefined') {
+    return {
+      orgId: '',
+      orgName: '',
+    };
+  }
+  const searchParams = new URLSearchParams(window.location.search);
+  return {
+    orgId: String(searchParams.get(PLATFORM_BILLING_ROUTE_ORG_ID_QUERY_KEY) || '').trim(),
+    orgName: String(searchParams.get(PLATFORM_BILLING_ROUTE_ORG_NAME_QUERY_KEY) || '').trim(),
+  };
+}
+
+function writePlatformBillingRouteSelection(input: {
+  orgId: string;
+  orgName?: string;
+  historyMode?: 'push' | 'replace';
+}): void {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.search);
+  const normalizedOrgId = String(input.orgId || '').trim();
+  const normalizedOrgName = String(input.orgName || '').trim();
+  if (normalizedOrgId) {
+    params.set(PLATFORM_BILLING_ROUTE_ORG_ID_QUERY_KEY, normalizedOrgId);
+    if (normalizedOrgName) {
+      params.set(PLATFORM_BILLING_ROUTE_ORG_NAME_QUERY_KEY, normalizedOrgName);
+    } else {
+      params.delete(PLATFORM_BILLING_ROUTE_ORG_NAME_QUERY_KEY);
+    }
+  } else {
+    params.delete(PLATFORM_BILLING_ROUTE_ORG_ID_QUERY_KEY);
+    params.delete(PLATFORM_BILLING_ROUTE_ORG_NAME_QUERY_KEY);
+  }
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (nextUrl !== currentUrl) {
+    const historyMethod = input.historyMode === 'push' ? 'pushState' : 'replaceState';
+    window.history[historyMethod]({}, '', nextUrl);
+  }
+}
+
 export function PlatformBillingView(): React.JSX.Element {
-  const [searchInput, setSearchInput] = React.useState<string>('');
+  const initialRouteSelection = readPlatformBillingRouteSelection();
+  const [searchInput, setSearchInput] = React.useState<string>(
+    () => initialRouteSelection.orgName || initialRouteSelection.orgId,
+  );
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = React.useState<boolean>(false);
   const [activeSearchIndex, setActiveSearchIndex] = React.useState<number>(-1);
   const [searchResultsMode, setSearchResultsMode] = React.useState<'recent' | 'search'>('search');
@@ -152,6 +205,15 @@ export function PlatformBillingView(): React.JSX.Element {
     React.useState<DashboardPlatformBillingLookupResult | null>(null);
   const [activeLookupRequest, setActiveLookupRequest] =
     React.useState<DashboardPlatformBillingLookupRequest | null>(null);
+  const [requestedRouteSelection, setRequestedRouteSelection] = React.useState<{
+    orgId: string;
+    orgName: string;
+  }>(() => initialRouteSelection);
+  const requestedSearchValue = React.useMemo(
+    () => requestedRouteSelection.orgName || requestedRouteSelection.orgId,
+    [requestedRouteSelection.orgId, requestedRouteSelection.orgName],
+  );
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = React.useState<boolean>(false);
   const [startingAdjustmentKind, setStartingAdjustmentKind] = React.useState<
     DashboardBillingManualAdjustmentKind | ''
   >('');
@@ -164,8 +226,21 @@ export function PlatformBillingView(): React.JSX.Element {
   const [adjustmentRelatedInvoiceId, setAdjustmentRelatedInvoiceId] = React.useState<string>('');
   const [adjustmentNote, setAdjustmentNote] = React.useState<string>('');
   const searchRequestIdRef = React.useRef<number>(0);
-  const suppressSearchValueRef = React.useRef<string>('');
+  const skipRequestedRouteSelectionEffectRef = React.useRef<boolean>(false);
+  const suppressSearchValueRef = React.useRef<string>(
+    initialRouteSelection.orgName || initialRouteSelection.orgId,
+  );
   const searchListboxId = React.useId();
+  const createAdjustmentButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const wasAdjustmentModalOpenRef = React.useRef<boolean>(false);
+
+  const resetAdjustmentDraft = React.useCallback(() => {
+    setAdjustmentKind('support_credit');
+    setAdjustmentAmountInput('');
+    setAdjustmentReasonCode('');
+    setAdjustmentRelatedInvoiceId('');
+    setAdjustmentNote('');
+  }, []);
 
   const loadLookup = React.useCallback(async (request: DashboardPlatformBillingLookupRequest) => {
     setLoading(true);
@@ -231,8 +306,65 @@ export function PlatformBillingView(): React.JSX.Element {
   );
 
   React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncRequestedRouteSelection = () => {
+      setRequestedRouteSelection(readPlatformBillingRouteSelection());
+    };
+    window.addEventListener('popstate', syncRequestedRouteSelection);
+    window.addEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
+    return () => {
+      window.removeEventListener('popstate', syncRequestedRouteSelection);
+      window.removeEventListener('site:navigate', syncRequestedRouteSelection as EventListener);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (skipRequestedRouteSelectionEffectRef.current) {
+      skipRequestedRouteSelectionEffectRef.current = false;
+      return;
+    }
+    searchRequestIdRef.current += 1;
+    suppressSearchValueRef.current = requestedSearchValue;
+    setSearchInput(requestedSearchValue);
+    setSearchLoading(false);
+    setSearchError('');
+    setSearchResults([]);
+    setSearchPerformed(false);
+    setSearchResultsMode('search');
+    setLookupError('');
+    setAdjustmentActionError('');
+    setAdjustmentActionMessage('');
+    setPeriodMonthUtcFilter('');
+    setEventTypeFilter('all');
+    setIsAdjustmentModalOpen(false);
+    setIsSearchDropdownOpen(false);
+    setActiveSearchIndex(-1);
+    resetAdjustmentDraft();
+
+    if (!requestedRouteSelection.orgId) {
+      setLookupResult(null);
+      setActiveLookupRequest(null);
+      return;
+    }
+
+    void loadLookup(
+      buildLookupRequest({
+        orgId: requestedRouteSelection.orgId,
+        periodMonthUtc: '',
+        eventType: 'all',
+      }),
+    );
+  }, [
+    loadLookup,
+    requestedRouteSelection.orgId,
+    requestedSearchValue,
+    resetAdjustmentDraft,
+  ]);
+
+  React.useEffect(() => {
     if (!normalizedSearchInput) {
       searchRequestIdRef.current += 1;
+      writePlatformBillingRouteSelection({ orgId: '' });
       setSearchLoading(false);
       setSearchError('');
       setSearchResults([]);
@@ -245,9 +377,11 @@ export function PlatformBillingView(): React.JSX.Element {
       setAdjustmentActionMessage('');
       setPeriodMonthUtcFilter('');
       setEventTypeFilter('all');
+      setIsAdjustmentModalOpen(false);
       setIsSearchDropdownOpen(false);
       setActiveSearchIndex(-1);
       suppressSearchValueRef.current = '';
+      resetAdjustmentDraft();
       return;
     }
 
@@ -264,7 +398,7 @@ export function PlatformBillingView(): React.JSX.Element {
     }
 
     void runSearchRequest(normalizedSearchInput, 'search', PLATFORM_BILLING_SEARCH_LIMIT);
-  }, [normalizedSearchInput, runSearchRequest]);
+  }, [normalizedSearchInput, resetAdjustmentDraft, runSearchRequest]);
 
   React.useEffect(() => {
     if (!searchResults.length) {
@@ -296,9 +430,23 @@ export function PlatformBillingView(): React.JSX.Element {
       setLookupError('');
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
-      await loadLookup(request);
+      setIsAdjustmentModalOpen(false);
+      resetAdjustmentDraft();
+      const result = await loadLookup(request);
+      if (result) {
+        skipRequestedRouteSelectionEffectRef.current = true;
+        setRequestedRouteSelection({
+          orgId: organization.id,
+          orgName: describeOrganizationTitle(organization),
+        });
+        writePlatformBillingRouteSelection({
+          orgId: organization.id,
+          orgName: describeOrganizationTitle(organization),
+          historyMode: 'push',
+        });
+      }
     },
-    [eventTypeFilter, loadLookup, periodMonthUtcFilter],
+    [eventTypeFilter, loadLookup, periodMonthUtcFilter, resetAdjustmentDraft],
   );
 
   const onSearchInputChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -397,6 +545,20 @@ export function PlatformBillingView(): React.JSX.Element {
     );
   }, [activeLookupRequest, loadLookup]);
 
+  const onOpenAdjustmentModal = React.useCallback(() => {
+    if (!lookupResult?.organization.id) return;
+    setAdjustmentActionError('');
+    resetAdjustmentDraft();
+    setIsAdjustmentModalOpen(true);
+  }, [lookupResult?.organization.id, resetAdjustmentDraft]);
+
+  const onCloseAdjustmentModal = React.useCallback(() => {
+    if (startingAdjustmentKind) return;
+    setIsAdjustmentModalOpen(false);
+    setAdjustmentActionError('');
+    resetAdjustmentDraft();
+  }, [resetAdjustmentDraft, startingAdjustmentKind]);
+
   const adjustmentAmountMinor = React.useMemo(
     () => parseUsdAmountInputToMinor(adjustmentAmountInput),
     [adjustmentAmountInput],
@@ -446,6 +608,7 @@ export function PlatformBillingView(): React.JSX.Element {
       setStartingAdjustmentKind(adjustmentKind);
       setAdjustmentActionError('');
       setAdjustmentActionMessage('');
+      const organizationLabel = lookupResult.organization.name || lookupResult.organization.id;
       const idempotencyKey = [
         'platform_billing_adjustment',
         lookupResult.organization.id,
@@ -476,22 +639,23 @@ export function PlatformBillingView(): React.JSX.Element {
                   ? { relatedInvoiceId: normalizedAdjustmentRelatedInvoiceId }
                   : {}),
               });
+        const resultingBalanceLabel = formatUsdMinor(result.creditBalanceMinor);
+        const amountLabel = formatUsdMinor(adjustmentAmountMinor);
         setAdjustmentActionMessage(
           result.created
             ? adjustmentKind === 'support_credit'
-              ? 'Manual support credit recorded.'
-              : 'Manual admin debit recorded.'
-            : 'Manual adjustment was already recorded for this idempotency key.',
+              ? `Granted ${amountLabel} customer ${describePlatformAdjustmentAction(adjustmentKind)} to ${organizationLabel}. Balance is now ${resultingBalanceLabel}.`
+              : `Applied ${amountLabel} customer ${describePlatformAdjustmentAction(adjustmentKind)} to ${organizationLabel}. Balance is now ${resultingBalanceLabel}.`
+            : `Existing customer ${describePlatformAdjustmentAction(adjustmentKind)} kept for ${organizationLabel}. Balance remains ${resultingBalanceLabel}.`,
         );
-        setAdjustmentAmountInput('');
-        setAdjustmentReasonCode('');
-        setAdjustmentRelatedInvoiceId('');
-        setAdjustmentNote('');
+        resetAdjustmentDraft();
+        setIsAdjustmentModalOpen(false);
         if (activeLookupRequest) {
           await loadLookup(activeLookupRequest);
         }
       } catch (error: unknown) {
-        setAdjustmentActionError(error instanceof Error ? error.message : String(error));
+        const message = error instanceof Error ? error.message : String(error);
+        setAdjustmentActionError(`Failed to apply bill adjustment: ${message}`);
       } finally {
         setStartingAdjustmentKind('');
       }
@@ -506,6 +670,7 @@ export function PlatformBillingView(): React.JSX.Element {
       normalizedAdjustmentNote,
       normalizedAdjustmentReasonCode,
       normalizedAdjustmentRelatedInvoiceId,
+      resetAdjustmentDraft,
     ],
   );
 
@@ -540,6 +705,16 @@ export function PlatformBillingView(): React.JSX.Element {
       },
     ];
   }, [lookupResult?.overview]);
+
+  React.useEffect(() => {
+    const wasOpen = wasAdjustmentModalOpenRef.current;
+    wasAdjustmentModalOpenRef.current = isAdjustmentModalOpen;
+    if (!wasOpen || isAdjustmentModalOpen) return;
+    const frameId = window.requestAnimationFrame(() => {
+      createAdjustmentButtonRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isAdjustmentModalOpen]);
 
   const accountActivityControls = (
     <div className="dashboard-billing-filters" role="group" aria-label="Platform billing filters">
@@ -608,7 +783,7 @@ export function PlatformBillingView(): React.JSX.Element {
       <section className="dashboard-view__section dashboard-billing-filters-panel dashboard-platform-billing-search-card">
         <div className="dashboard-billing-table__intro">
           <h3 className="dashboard-billing-table__title">
-            Find Customer Organisation Bill Account
+            Find Customer Organisation Billing Account
           </h3>
           <div className="dashboard-billing-filters dashboard-platform-billing-search-form">
             <div
@@ -650,7 +825,7 @@ export function PlatformBillingView(): React.JSX.Element {
                     </p>
                   ) : searchError ? (
                     <p className="dashboard-platform-billing-search-dropdown__state">
-                      Search failed. Refine the query and try again.
+                      Search failed. Refine the customer lookup and try again.
                     </p>
                   ) : searchResults.length === 0 ? (
                     <p className="dashboard-platform-billing-search-dropdown__state">
@@ -658,7 +833,7 @@ export function PlatformBillingView(): React.JSX.Element {
                         'No organisations have been created yet.'
                       ) : (
                         <>
-                          No billing accounts matched <code>{normalizedSearchInput || '-'}</code>.
+                          No customer accounts matched <code>{normalizedSearchInput || '-'}</code>.
                         </>
                       )}
                     </p>
@@ -732,19 +907,52 @@ export function PlatformBillingView(): React.JSX.Element {
             aria-label="Customer billing adjustments"
           >
             <div className="dashboard-table-limit dashboard-billing-table__intro dashboard-platform-billing-adjustment-shell__intro">
-              <h3 className="dashboard-billing-table__title">Customer billing adjustments</h3>
-              <p className="dashboard-billing-table__description">
+              <div className="dashboard-platform-billing-adjustment-shell__copy">
+                <h3 className="dashboard-billing-table__title">Customer billing adjustments</h3>
+                <p className="dashboard-billing-table__description">
+                  Apply manual support credits or admin debits to{' '}
+                  <code>{lookupResult.organization.id}</code>.
+                </p>
+              </div>
+              <div className="dashboard-form-actions">
+                <button
+                  type="button"
+                  className="dashboard-pagination-button"
+                  ref={createAdjustmentButtonRef}
+                  onClick={onOpenAdjustmentModal}
+                >
+                  Create Bill Adjustment
+                </button>
+              </div>
+              {adjustmentActionMessage ? (
+                <p className="dashboard-info-banner">{adjustmentActionMessage}</p>
+              ) : null}
+            </div>
+          </section>
+
+          <DashboardInlineModal
+            isOpen={isAdjustmentModalOpen}
+            ariaLabel="Create Bill Adjustment modal"
+            ariaLabelledBy="platform-billing-adjustment-dialog-title"
+            ariaDescribedBy="platform-billing-adjustment-dialog-description"
+            onRequestClose={onCloseAdjustmentModal}
+            className="dashboard-billing-adjustment-card dashboard-billing-meta-card"
+          >
+              <h2 id="platform-billing-adjustment-dialog-title">Create Bill Adjustment</h2>
+              <p
+                className="dashboard-pagination-note"
+                id="platform-billing-adjustment-dialog-description"
+              >
                 Apply manual support credits or admin debits to{' '}
                 <code>{lookupResult.organization.id}</code>.
               </p>
-            </div>
-            <article className="dashboard-view-card dashboard-view-grid dashboard-billing-meta-card dashboard-billing-adjustment-card">
               <form className="dashboard-billing-adjustment-form" onSubmit={onAdjustmentSubmit}>
                 <div className="dashboard-billing-adjustment-grid">
                   <label className="dashboard-form-field">
                     <span>Adjustment type</span>
                     <select
                       className="dashboard-input"
+                      autoFocus
                       value={adjustmentKind}
                       onChange={(event) =>
                         setAdjustmentKind(
@@ -808,13 +1016,20 @@ export function PlatformBillingView(): React.JSX.Element {
                 <p className="dashboard-form-hint">
                   Link a document ID to surface this adjustment on that document timeline.
                 </p>
-                {adjustmentActionMessage ? (
-                  <p className="dashboard-info-banner">{adjustmentActionMessage}</p>
-                ) : null}
                 {adjustmentActionError ? (
-                  <p className="dashboard-form-alert">{adjustmentActionError}</p>
+                  <p className="dashboard-form-alert" role="alert">
+                    {adjustmentActionError}
+                  </p>
                 ) : null}
                 <div className="dashboard-form-actions">
+                  <button
+                    type="button"
+                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                    onClick={onCloseAdjustmentModal}
+                    disabled={Boolean(startingAdjustmentKind)}
+                  >
+                    Cancel
+                  </button>
                   <button
                     type="submit"
                     className="dashboard-pagination-button"
@@ -824,12 +1039,14 @@ export function PlatformBillingView(): React.JSX.Element {
                   </button>
                 </div>
               </form>
-            </article>
-          </section>
+          </DashboardInlineModal>
         </>
       ) : (
         <section className="dashboard-view__section">
-          <p>Search for an organization name or organization ID to load platform billing data.</p>
+          <p>
+            Search for a customer organisation name or organisation ID to review account activity
+            and apply bill adjustments.
+          </p>
         </section>
       )}
     </>

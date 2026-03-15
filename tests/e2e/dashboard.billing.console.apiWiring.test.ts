@@ -531,6 +531,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   displayName: 'Tina Owner',
                   status: 'ACTIVE',
                   access: 'OWNER',
+                  addedAt: iso('2026-03-01T00:00:00.000Z'),
                 },
                 {
                   id: 'tm_target_admin',
@@ -539,6 +540,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   displayName: 'Alex Admin',
                   status: 'INVITED',
                   access: 'ADMIN',
+                  addedAt: iso('2026-03-02T00:00:00.000Z'),
                 },
               ],
               project: null,
@@ -611,7 +613,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await expect(
       page.getByText(
-        'Search for an organization name or organization ID to load platform billing data.',
+        'Search for a customer organisation name or organisation ID to review account activity and apply bill adjustments.',
       ),
     ).toBeVisible();
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
@@ -647,6 +649,12 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect.poll(() => lookupRequests.length).toBe(1);
     expect(String(lookupRequests[0]?.orgId || '')).toBe('org_dash_billing_adjustments_target');
     expect(String(lookupRequests[0]?.projectId || '')).toBe('');
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('billingOrgId') || '')
+      .toBe('org_dash_billing_adjustments_target');
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('billingOrgName') || '')
+      .toBe('Target Billing Org');
 
     await expect(
       page.locator('section[aria-label="Customer organisation account summary"]'),
@@ -660,7 +668,23 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(
       page.locator('section[aria-label="Customer organisation account summary"]'),
     ).toContainText('Alex Admin');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Added 2026-03-01');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Invited 2026-03-02');
     await expect(page.getByText('$50.00').first()).toBeVisible();
+
+    await page.reload();
+    await expect.poll(() => lookupRequests.length).toBe(2);
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue(
+      'Target Billing Org',
+    );
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Target Billing Org');
+
     const activitySection = page.locator('section[aria-label="Customer account activity"]');
     await expect(activitySection).toHaveAttribute('role', 'table');
     await expect(activitySection).toContainText(
@@ -672,9 +696,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await page.getByLabel('Period').fill('2026-03');
     await page.getByLabel('Event type').selectOption('MANUAL_ADJUSTMENT');
     await page.getByRole('button', { name: 'Apply filters' }).click();
-    await expect.poll(() => lookupRequests.length).toBe(2);
-    expect(String(lookupRequests[1]?.periodMonthUtc || '')).toBe('2026-03');
-    expect(String(lookupRequests[1]?.eventType || '')).toBe('MANUAL_ADJUSTMENT');
+    await expect.poll(() => lookupRequests.length).toBe(3);
+    expect(String(lookupRequests[2]?.periodMonthUtc || '')).toBe('2026-03');
+    expect(String(lookupRequests[2]?.eventType || '')).toBe('MANUAL_ADJUSTMENT');
 
     await expect(activitySection).toContainText('incident_credit');
     await expect(activitySection).not.toContainText('receipt_platform_1');
@@ -688,24 +712,202 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     }
     expect(activityBox.y).toBeLessThan(adjustmentBox.y);
 
-    await adjustmentSection.getByLabel('Amount (USD)').fill('15.00');
-    await adjustmentSection.getByLabel('Reason code').fill('incident_credit');
-    await adjustmentSection.getByLabel('Related document ID (optional)').fill('inv_202603_001');
-    await adjustmentSection.getByLabel('Operator note').fill('Applied goodwill credit');
+    await adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' }).click();
+    const adjustmentModal = page.locator('[role="dialog"]').filter({ hasText: 'Create Bill Adjustment' });
+    await expect(adjustmentModal).toBeVisible();
+    await expect(adjustmentModal).toHaveAttribute('aria-modal', 'true');
+    await expect(adjustmentModal).toContainText('Create Bill Adjustment');
+    await expect(adjustmentModal.getByLabel('Adjustment type')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(adjustmentModal).toHaveCount(0);
+    await expect(adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' })).toBeFocused();
 
-    await expect(adjustmentSection).toContainText('Impact preview: $50.00 -> $65.00 (+$15.00).');
+    await adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' }).click();
+    await expect(adjustmentModal).toBeVisible();
+    await adjustmentModal.getByLabel('Amount (USD)').fill('15.00');
+    await adjustmentModal.getByLabel('Reason code').fill('incident_credit');
+    await adjustmentModal
+      .getByLabel('Related document ID (optional)')
+      .fill('inv_202603_001');
+    await adjustmentModal.getByLabel('Operator note').fill('Applied goodwill credit');
 
-    await adjustmentSection.getByRole('button', { name: 'Apply support credit' }).click();
+    await expect(adjustmentModal).toContainText('Impact preview: $50.00 -> $65.00 (+$15.00).');
+
+    await adjustmentModal.locator('button[type="submit"]').click();
     await expect.poll(() => manualRequests.length).toBe(1);
     expect(String(manualRequests[0]?.orgId || '')).toBe('org_dash_billing_adjustments_target');
     expect(Number(manualRequests[0]?.amountMinor || 0)).toBe(1500);
     expect(String(manualRequests[0]?.reasonCode || '')).toBe('incident_credit');
     expect(String(manualRequests[0]?.relatedInvoiceId || '')).toBe('inv_202603_001');
 
-    await expect(adjustmentSection).toContainText('Manual support credit recorded.');
-    await expect.poll(() => lookupRequests.length).toBe(3);
+    await expect(adjustmentModal).toHaveCount(0);
+    await expect(adjustmentSection).toContainText(
+      'Granted $15.00 customer support credit to Target Billing Org. Balance is now $65.00.',
+    );
+    await expect.poll(() => lookupRequests.length).toBe(4);
     await expect(page.getByText('$65.00').first()).toBeVisible();
     await expect(activitySection).toContainText('Applied goodwill credit');
+  });
+
+  test('platform billing restores selected account from query string and browser history', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const lookupRequests: Array<Record<string, string>> = [];
+    const organizations = [
+      {
+        id: 'org_watchbook',
+        name: 'Watchbook',
+        slug: 'watch-book',
+        status: 'ACTIVE',
+      },
+      {
+        id: 'org_pokopia',
+        name: 'Pokopia Labs',
+        slug: 'pokopia-labs',
+        status: 'ACTIVE',
+      },
+    ];
+
+    await routeWorkspaceScaffold(page, consoleOrigin, {
+      userId: 'user_dash_platform_billing_restore',
+      roles: ['platform_admin'],
+      org: {
+        id: 'org_platform_admin_home',
+        name: 'Platform Admin Org',
+        slug: 'platform-admin-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      project: {
+        id: 'proj_platform_admin_home',
+        name: 'Platform Admin Project',
+        slug: 'platform-admin-project',
+        status: 'ACTIVE',
+        environmentCount: 1,
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      environment: {
+        id: 'env_platform_admin_home',
+        projectId: 'proj_platform_admin_home',
+        key: 'prod',
+        name: 'Production',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+      handleBillingRequest: async (route, pathname, method, url) => {
+        if (method === 'GET' && pathname === '/console/platform/billing/search') {
+          const query = String(url.searchParams.get('query') || '')
+            .trim()
+            .toLowerCase();
+          const limit = Number(url.searchParams.get('limit') || 0);
+          const matches = organizations.filter((organization) => {
+            if (!query) return true;
+            return (
+              organization.name.toLowerCase().includes(query) ||
+              organization.id.toLowerCase().includes(query)
+            );
+          });
+          await fulfillJson(route, {
+            ok: true,
+            organizations: matches.slice(0, limit > 0 ? limit : 10),
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/platform/billing/account') {
+          const orgId = String(url.searchParams.get('orgId') || '').trim();
+          lookupRequests.push({
+            orgId,
+            periodMonthUtc: String(url.searchParams.get('periodMonthUtc') || ''),
+            eventType: String(url.searchParams.get('eventType') || ''),
+          });
+          const organization = organizations.find((entry) => entry.id === orgId) || organizations[0]!;
+          await fulfillJson(route, {
+            ok: true,
+            result: {
+              resolvedBy: 'org_id',
+              organization,
+              teamMembers: [
+                {
+                  id: `${organization.id}_owner`,
+                  userId: `${organization.id}_owner_user`,
+                  email: `owner@${organization.slug}.example`,
+                  displayName: `${organization.name} Owner`,
+                  status: 'ACTIVE',
+                  access: 'OWNER',
+                  addedAt: iso('2026-02-01T00:00:00.000Z'),
+                },
+              ],
+              project: null,
+              overview: {
+                usageMetricVersion: 'maw_v1',
+                currentMonthUtc: '2026-03',
+                monthlyActiveWallets: organization.id === 'org_watchbook' ? 14 : 9,
+                creditBalanceMinor: organization.id === 'org_watchbook' ? 2200 : 4100,
+                lowBalanceThresholdMinor: 2000,
+                recentUsageDebitMinor: organization.id === 'org_watchbook' ? 800 : 500,
+                recentCreditPurchasedMinor: organization.id === 'org_watchbook' ? 1200 : 2400,
+                documentCount: organization.id === 'org_watchbook' ? 2 : 1,
+                liveEnvironmentState: 'HEALTHY',
+              },
+              activity: {
+                entries: [],
+              },
+            },
+          });
+          return true;
+        }
+
+        return false;
+      },
+    });
+
+    await page.goto('/platform/billing?billingOrgId=org_watchbook&billingOrgName=Watchbook');
+
+    await expect.poll(() => lookupRequests.length).toBe(1);
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Watchbook');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Watchbook');
+
+    const searchInput = page.getByRole('combobox', { name: 'Search' });
+    await searchInput.fill('Pokopia');
+    const searchDropdown = page.getByRole('listbox', {
+      name: 'Platform billing search suggestions',
+    });
+    await expect(searchDropdown).toContainText('Pokopia Labs');
+    await searchDropdown.getByRole('option', { name: /Pokopia Labs/i }).click();
+
+    await expect.poll(() => lookupRequests.length).toBe(2);
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('billingOrgId') || '')
+      .toBe('org_pokopia');
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get('billingOrgName') || '')
+      .toBe('Pokopia Labs');
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Pokopia Labs');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Pokopia Labs');
+
+    await page.goBack();
+    await expect.poll(() => lookupRequests.length).toBe(3);
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Watchbook');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Watchbook');
+
+    await page.goForward();
+    await expect.poll(() => lookupRequests.length).toBe(4);
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Pokopia Labs');
+    await expect(
+      page.locator('section[aria-label="Customer organisation account summary"]'),
+    ).toContainText('Pokopia Labs');
   });
 
   test('billing account page no longer renders platform-only or duplicate activity sections', async ({
@@ -914,7 +1116,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.goto('/platform/billing');
     await expect(
-      page.getByText('Platform billing is only available to platform_admin users.'),
+      page.getByText('Customer Accounts is only available to platform admin users.'),
     ).toBeVisible();
     await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
   });

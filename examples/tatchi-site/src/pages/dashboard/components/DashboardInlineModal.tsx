@@ -5,6 +5,8 @@ import { useDashboardInlineModalEscape } from '../useDashboardInlineModalEscape'
 interface DashboardInlineModalProps {
   isOpen: boolean;
   ariaLabel: string;
+  ariaLabelledBy?: string;
+  ariaDescribedBy?: string;
   onRequestClose: () => void;
   children: React.ReactNode;
   className?: string;
@@ -13,6 +15,8 @@ interface DashboardInlineModalProps {
 export function DashboardInlineModal({
   isOpen,
   ariaLabel,
+  ariaLabelledBy,
+  ariaDescribedBy,
   onRequestClose,
   children,
   className,
@@ -95,6 +99,8 @@ export function DashboardInlineModal({
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
