@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ed25519 } from '@noble/curves/ed25519.js';
+import { signThresholdEd25519CosignerGrantV1 } from '../../server/src/core/ThresholdService/coordinatorGrant';
 import {
   createThresholdSigningServiceForUnitTests,
   verifyThresholdEd25519CoordinatorGrantHmac,
@@ -62,6 +63,40 @@ function sumPointsB64u(aB64u: string, bB64u: string): string {
   const a = pointCtor.fromHex(bytesToHex(Buffer.from(aB64u, 'base64url')));
   const b = pointCtor.fromHex(bytesToHex(Buffer.from(bB64u, 'base64url')));
   return Buffer.from(ed25519PointToBytes(a.add(b))).toString('base64url');
+}
+
+async function createCosignerGrant(input: {
+  cosignerId: number;
+  mpcSession: {
+    expiresAtMs: number;
+    relayerKeyId: string;
+    purpose: string;
+    intentDigestB64u: string;
+    signingDigestB64u: string;
+    userId: string;
+    rpId: string;
+    clientVerifyingShareB64u: string;
+    participantIds: number[];
+  };
+  mpcSessionId: string;
+  secretB64u: string;
+}): Promise<string> {
+  const secretBytes = Buffer.from(input.secretB64u, 'base64url');
+  const signed = await signThresholdEd25519CosignerGrantV1({
+    secretBytes,
+    keyPromise: null,
+    payload: {
+      v: 1,
+      typ: 'threshold_ed25519_cosigner_grant_v1',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 60,
+      mpcSessionId: input.mpcSessionId,
+      cosignerId: input.cosignerId,
+      mpcSession: input.mpcSession,
+    },
+  });
+  if (!signed.token) throw new Error('failed to create coordinator grant');
+  return signed.token;
 }
 
 test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigner outputs', async () => {
@@ -259,4 +294,91 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('threshold-ed25519 cosign finalize rejects coordinatorGrant reused across a different mpc session', async () => {
+  const secretB64u = Buffer.alloc(32, 9).toString('base64url');
+  const relayerSigningShareB64u = Buffer.alloc(32, 13).toString('base64url');
+  const relayerVerifyingShareB64u = Buffer.alloc(32, 14).toString('base64url');
+  const relayerKeyId = 'ed25519:dummy';
+  const signingDigestA = Buffer.alloc(32, 21).toString('base64url');
+  const signingDigestB = Buffer.alloc(32, 22).toString('base64url');
+  const clientVerifyingShareB64u = Buffer.alloc(32, 23).toString('base64url');
+
+  const { svc, sessionStore } = createThresholdSigningServiceForUnitTests({
+    config: {
+      THRESHOLD_NODE_ROLE: 'cosigner',
+      THRESHOLD_ED25519_SHARE_MODE: 'kv',
+      THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: secretB64u,
+      THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '2',
+    },
+    keyRecord: {
+      publicKey: 'ed25519:test-key',
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+    },
+  });
+
+  const schemeAny = svc.getSchemeModule('threshold-ed25519-frost-2p-v1');
+  if (!schemeAny || schemeAny.schemeId !== 'threshold-ed25519-frost-2p-v1') {
+    throw new Error('threshold-ed25519 scheme is not enabled on this server');
+  }
+
+  const mpcSessionA = {
+    expiresAtMs: Date.now() + 60_000,
+    relayerKeyId,
+    purpose: 'near_tx',
+    intentDigestB64u: Buffer.alloc(32, 31).toString('base64url'),
+    signingDigestB64u: signingDigestA,
+    userId: 'alice.testnet',
+    rpId: 'example.com',
+    clientVerifyingShareB64u,
+    participantIds: [1, 2],
+  };
+  const mpcSessionB = {
+    ...mpcSessionA,
+    signingDigestB64u: signingDigestB,
+    userId: 'mallory.testnet',
+  };
+
+  const coordinatorGrantA = await createCosignerGrant({
+    cosignerId: 2,
+    mpcSession: mpcSessionA,
+    mpcSessionId: 'mpc-session-a',
+    secretB64u,
+  });
+  const coordinatorGrantB = await createCosignerGrant({
+    cosignerId: 2,
+    mpcSession: mpcSessionB,
+    mpcSessionId: 'mpc-session-b',
+    secretB64u,
+  });
+
+  const init = await schemeAny.protocol.internalCosignInit!({
+    coordinatorGrant: coordinatorGrantA,
+    signingSessionId: 'signing-session-a',
+    cosignerShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+    clientCommitments: { hiding: pointB64u(10n), binding: pointB64u(11n) },
+  });
+  expect(init.ok, JSON.stringify(init)).toBe(true);
+
+  const mismatchedFinalize = await schemeAny.protocol.internalCosignFinalize!({
+    coordinatorGrant: coordinatorGrantB,
+    signingSessionId: 'signing-session-a',
+    cosignerIds: [2],
+    groupPublicKey: 'ed25519:test-key',
+    relayerCommitments: init.relayerCommitments,
+  });
+  expect(mismatchedFinalize.ok).toBe(false);
+  if (mismatchedFinalize.ok) {
+    throw new Error('expected mismatched finalize to fail');
+  }
+  expect(mismatchedFinalize.code).toBe('unauthorized');
+  expect(mismatchedFinalize.message).toBe('signingSessionId does not match coordinatorGrant scope');
+
+  const restored = await sessionStore.takeSigningSession('signing-session-a');
+  expect(restored).not.toBeNull();
+  expect(restored?.mpcSessionId).toBe('mpc-session-a');
+  expect(restored?.signingDigestB64u).toBe(signingDigestA);
+  expect(restored?.userId).toBe('alice.testnet');
 });

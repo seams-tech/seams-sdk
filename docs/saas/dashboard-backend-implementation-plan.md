@@ -486,6 +486,13 @@ Key outputs:
   - `api_keys`
   - `api_key_scopes`
   - `api_key_usage_stats`
+- Current product scope surface:
+  - `accounts.create`
+  - `wallets.read`
+- Not in the current product surface:
+  - `wallets.sign`
+  - `accounts.sync`
+  - `billing.read`
 - Jobs:
   - key-usage anomaly detector
 

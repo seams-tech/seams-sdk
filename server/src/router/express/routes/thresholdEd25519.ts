@@ -343,7 +343,8 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  // Internal coordinator → cosigner route (feature-gated by shared secret).
+  // Low-level cosign continuation route. It is intentionally auth-free and
+  // relies on threshold protocol state plus the coordinator grant payload.
   router.post('/threshold-ed25519/internal/cosign/init', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ThresholdEd25519CosignInitRequest;
     await handle(

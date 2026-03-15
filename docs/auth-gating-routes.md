@@ -157,11 +157,11 @@ The target architecture is:
 - one declarative route-definition layer shared by Express and Cloudflare
 - one central policy-enforcement layer that resolves auth, service dependencies, and metering
 - thin transport adapters for Express and Cloudflare
-- business handlers that receive a prevalidated route context instead of reading headers directly
+- shared route handlers and auth helpers that receive a prevalidated route context instead of re-parsing credentials in each transport
 
 ### Decision 1: define routes as typed policy objects
 
-Each route should be declared once as data, with path, auth plane, metering stance, and handler metadata.
+Each route should be declared once as data, with path, auth plane, metering stance, required services, and a human-readable summary.
 
 Target files:
 
@@ -172,43 +172,62 @@ Target files:
 Example:
 
 ```ts
-export type RouteDefinition = {
+export interface RouteDefinition {
   id: string;
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  surface: 'console' | 'relay';
+  method: RouteMethod;
   path: string;
+  aliases?: readonly string[];
   auth: RouteAuthPolicy;
   metering: RouteMeteringPolicy;
-  requiredServices?: RouteServiceKey[];
-  handler: RouteHandler;
-};
+  requiredServices?: readonly RouteServiceKey[];
+  summary: string;
+}
 
 export type RouteAuthPolicy =
   | { plane: 'console'; roles?: ConsoleRouteRole[] }
   | {
       plane: 'machine';
-      credentials: Array<'publishable_key' | 'secret_key' | 'bootstrap_token'>;
-      scopes?: string[];
+      credentials: MachineCredentialType[];
+      scopes?: MachineRouteScope[];
       environmentBinding?: 'required' | 'optional';
       originBinding?: 'required' | 'optional';
+      ipBinding?: 'required' | 'optional';
     }
   | { plane: 'app_session' }
-  | { plane: 'threshold_session' }
+  | { plane: 'threshold_session'; scheme?: 'any' | 'ecdsa' | 'ed25519' }
   | {
       plane: 'public';
-      proof?: 'webauthn' | 'threshold_protocol_state' | 'signed_payload';
+      proof?: PublicProofType;
       rationale: string;
     }
-  | { plane: 'internal'; mechanism: 'hmac' | 'mtls' | 'signed_token' };
+  | { plane: 'internal'; mechanism: 'hmac' | 'mtls' | 'signed_token'; rationale?: string };
 
 export type RouteMeteringPolicy =
   | { kind: 'none' }
   | { kind: 'event'; action: 'wallet_created' }
   | { kind: 'gas'; ledger: 'evm' | 'near_delegate' };
+
+const registrationBootstrapRoute = defineRoute({
+  id: 'registration_bootstrap',
+  surface: 'relay',
+  method: 'POST',
+  path: '/registration/bootstrap',
+  summary: 'Create and register a user account',
+  auth: {
+    plane: 'machine',
+    credentials: ['secret_key', 'bootstrap_token'],
+    scopes: ['accounts.create'],
+    environmentBinding: 'required',
+  },
+  metering: { kind: 'event', action: 'wallet_created' },
+  requiredServices: ['authService'],
+});
 ```
 
 ### Decision 2: handlers must receive resolved auth context, not parse auth themselves
 
-Today some handlers do header parsing, auth branching, and metering inline. For example, `POST /registration/bootstrap` does that directly in [createAccountAndRegisterUser.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/routes/createAccountAndRegisterUser.ts#L21). We should move that logic into a shared route executor.
+The transport wrappers should not each parse `Authorization`, environment headers, or origin/auth binding rules. Shared helpers like [relayMachineAuth.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineAuth.ts) should own that once per auth plane, and the business handler should consume the resolved principal.
 
 Target files:
 
@@ -220,24 +239,45 @@ Example:
 ```ts
 export type RoutePrincipal =
   | { kind: 'console'; claims: ConsoleAuthClaims }
-  | { kind: 'machine'; principal: RelayApiKeyPrincipal }
+  | {
+      kind: 'machine';
+      principal: RelayApiKeyPrincipal;
+      credentialType: MachineCredentialType;
+    }
   | { kind: 'app_session'; claims: SessionClaims }
   | { kind: 'threshold_session'; claims: ThresholdSessionClaims }
   | { kind: 'public' }
   | { kind: 'internal'; service: string };
 
-export type RouteExecutionContext = {
-  principal: RoutePrincipal;
-  services: RouteServices;
+export interface RouteExecutionContext<TServices extends RouteServices = RouteServices> {
+  headers: HeaderRecord;
   logger: NormalizedRouterLogger;
-  headers: Record<string, string | string[] | undefined>;
+  principal: RoutePrincipal;
+  services: TServices;
   sourceIp?: string;
-};
+}
 
-export type RouteHandler = (input: {
-  request: RouteRequest;
-  context: RouteExecutionContext;
-}) => Promise<RouteResponse>;
+const resolved = await enforceRoutePolicy({
+  headers,
+  logger,
+  request: { body, headers },
+  route,
+  services,
+  resolvers: {
+    machine: async () =>
+      await resolvePublishableKeyMachineAuth({
+        environmentId,
+        headers,
+        origin,
+        publishableKeyAuth,
+        route,
+        missingEnvironmentMessage: 'Environment header is required',
+        missingOriginMessage: 'Origin header is required',
+        missingPublishableKeyMessage: 'Missing publishable key',
+        routeAuthNotConfiguredMessage: 'Route requires machine auth policy',
+      }),
+  },
+});
 ```
 
 Rule:
@@ -257,46 +297,46 @@ Target files:
 Example:
 
 ```ts
-export function registerExpressRoute(
-  router: ExpressRouter,
-  ctx: ExpressRelayContext,
-  def: RouteDefinition,
-): void {
-  router[def.method.toLowerCase() as 'get'](def.path, async (req, res) => {
-    const execution = await enforceRoutePolicy({
-      route: def,
-      transport: 'express',
-      headers: req.headers as Record<string, string | string[] | undefined>,
+registerExpressRoute({
+  router,
+  route,
+  context: ctx,
+  handler: async ({ context, req, res, route }) => {
+    const response = await handleRelayBootstrapGrant({
       body: req.body,
-      ctx,
-      sourceIp: req.ip,
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      logger: context.logger,
+      origin: String(req.headers.origin || '').trim() || undefined,
+      route,
+      services: {
+        bootstrapGrantBroker: context.opts.bootstrapGrantBroker,
+      },
     });
-    if (!execution.ok) {
-      res.status(execution.status).json(execution.body);
-      return;
-    }
+    sendExpressRouteResponse(res, response);
+  },
+});
 
-    const response = await def.handler({
-      request: execution.request,
-      context: execution.context,
-    });
-
-    await applyRouteMetering({
-      route: def,
-      execution: execution.context,
-      response,
-    });
-
-    res.status(response.status).json(response.body);
+const handleBootstrapGrant = registerCloudflareRoute(route, async ({ context, route }) => {
+  if (context.method !== route.method || context.pathname !== route.path) return null;
+  const response = await handleRelayBootstrapGrant({
+    body: await readJson(context.request),
+    headers: Object.fromEntries(context.request.headers.entries()),
+    logger: context.logger,
+    origin: String(context.request.headers.get('origin') || '').trim() || undefined,
+    route,
+    services: {
+      bootstrapGrantBroker: context.opts.bootstrapGrantBroker,
+    },
   });
-}
+  return toFetchRouteResponse(response);
+});
 ```
 
 ### Decision 4: make metering a first-class post-handler hook
 
 Metering should not be embedded ad hoc inside route bodies. It should run from a route policy so routes like `signedDelegatePath` can be billed consistently.
 
-Today `POST /registration/bootstrap` records usage inline in [createAccountAndRegisterUser.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/routes/createAccountAndRegisterUser.ts#L129). That should move behind a shared metering hook.
+The route handler can attach usage metadata, and the post-handler metering layer can dispatch to the right event or gas ledger recorder.
 
 Target files:
 
@@ -308,12 +348,20 @@ Example:
 ```ts
 await applyRouteMetering({
   route,
-  execution,
+  context,
   response,
-  usage: {
-    walletId: response.body.walletId,
-    gasUsed: response.body.gasUsed,
-    transactionHash: response.body.relayerTxHash,
+  handlers: {
+    event: async ({ action, context, response, route }) => {
+      if (action !== 'wallet_created') return;
+      await usageMeter.recordEvent({
+        orgId: context.principal.principal.orgId,
+        environmentId: context.principal.principal.environmentId,
+        apiKeyId: context.principal.principal.apiKeyId,
+        endpoint: `${route.method} ${route.path}`,
+        walletId: String(response.usage?.walletId || ''),
+        action: 'wallet_created',
+      });
+    },
   },
 });
 ```
@@ -333,10 +381,12 @@ That applies to:
 Example:
 
 ```ts
-export const thresholdEcdsaSignInitRoute: RouteDefinition = {
+const thresholdEcdsaSignInitRoute = defineRoute({
   id: 'threshold_ecdsa_sign_init',
+  surface: 'relay',
   method: 'POST',
   path: '/threshold-ecdsa/sign/init',
+  summary: 'Begin threshold ECDSA signing continuation',
   auth: {
     plane: 'public',
     proof: 'threshold_protocol_state',
@@ -345,8 +395,7 @@ export const thresholdEcdsaSignInitRoute: RouteDefinition = {
   },
   metering: { kind: 'none' },
   requiredServices: ['authService'],
-  handler: handleThresholdEcdsaSignInit,
-};
+});
 ```
 
 ### Decision 6: console RBAC should be expressed as route policy, not scattered helper calls
@@ -356,18 +405,19 @@ We already have reusable helpers like `requireConsoleAuth()` in [createConsoleRo
 Example:
 
 ```ts
-export const consoleApiKeysCreateRoute: RouteDefinition = {
+const consoleApiKeysCreateRoute = defineRoute({
   id: 'console_api_keys_create',
+  surface: 'console',
   method: 'POST',
   path: '/console/api-keys',
+  summary: 'Create a console API key',
   auth: {
     plane: 'console',
     roles: ['owner', 'admin', 'security_admin'],
   },
   metering: { kind: 'none' },
-  requiredServices: ['apiKeys', 'orgProjectEnv'],
-  handler: handleConsoleApiKeysCreate,
-};
+  requiredServices: ['apiKeys'],
+});
 ```
 
 ### Decision 7: machine route policy should declare accepted credential types explicitly
@@ -377,10 +427,12 @@ This matters for routes like `POST /registration/bootstrap`, which currently bra
 Example:
 
 ```ts
-export const registrationBootstrapRoute: RouteDefinition = {
+const registrationBootstrapRoute = defineRoute({
   id: 'registration_bootstrap',
+  surface: 'relay',
   method: 'POST',
   path: '/registration/bootstrap',
+  summary: 'Create and register a user account',
   auth: {
     plane: 'machine',
     credentials: ['secret_key', 'bootstrap_token'],
@@ -388,9 +440,8 @@ export const registrationBootstrapRoute: RouteDefinition = {
     environmentBinding: 'required',
   },
   metering: { kind: 'event', action: 'wallet_created' },
-  requiredServices: ['authService', 'apiKeyAuth', 'bootstrapTokenStore'],
-  handler: handleRegistrationBootstrap,
-};
+  requiredServices: ['authService'],
+});
 ```
 
 ### Decision 8: route inventory tests should derive from the definitions, not handwritten route lists
@@ -422,12 +473,18 @@ Allowed unauthenticated exceptions:
 
 All other `/console/*` routes should remain in the console auth plane.
 
+The canonical source of route auth and metering policy is [routeDefinitions.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeDefinitions.ts). Router handlers should enforce those policies through the shared route-policy helpers, not invent route-local auth decisions.
+
 #### Target console RBAC matrix
 
 | Route family | Target gate | Notes |
 | --- | --- | --- |
 | Account/session/profile/org context reads | Console session only | Human dashboard context reads |
 | Onboarding telemetry reads | `admin` or `ops` | Already modeled |
+| Ops cockpit reads | `owner`, `admin`, `security_admin`, or `ops` | Already modeled; onboarding telemetry stays partial for `owner` / `security_admin` viewers |
+| Audit reads | `owner`, `admin`, `security_admin`, or `ops` | Already modeled |
+| Wallet reads | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled |
+| Billing reads | `owner`, `admin`, `billing_admin`, or `ops` | Already modeled |
 | Org/project/environment mutation | `owner` or `admin` | Already modeled |
 | Team member and RBAC mutation | `owner` or `admin` | Already modeled |
 | Approval queue mutation | `owner`, `admin`, or `security_admin` | Already modeled |
@@ -435,14 +492,14 @@ All other `/console/*` routes should remain in the console auth plane.
 | API key mutation | `owner`, `admin`, or `security_admin` | Already modeled |
 | Smart-wallet config mutation | `owner`, `admin`, or `security_admin` | Already modeled |
 | Runtime snapshot publish | `owner`, `admin`, or `security_admin` | Already modeled |
-| Webhook endpoint mutation and replay | `owner`, `admin`, or `security_admin` | Should use console config mutation guard or dedicated webhook guard |
+| Webhook endpoint mutation and replay | `owner`, `admin`, or `security_admin` | Already modeled |
 | Observability reads | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled |
 | Invoice generation | `admin` or `ops` | Already modeled |
-| Billing adjustments | `admin` | Already modeled |
-| Billing usage event writes | internal billing role, or remove from console plane | Current route is too open |
+| Billing adjustments | `platform_admin` | Already modeled |
+| Billing usage event writes | `admin` or `ops` | Already modeled |
 | Enterprise isolation actions | `owner` or `admin` | Already modeled |
 | Key export approval | `admin` | Already modeled |
-| Key export request creation | explicit decision required | Sensitive route; decide whether request creation is broad or privileged |
+| Key export request creation | `owner`, `admin`, or `security_admin` | Already modeled |
 
 ### Machine API routes
 
@@ -454,19 +511,25 @@ These are the routes that should use API-key auth or bootstrap credentials.
 | --- | --- | --- | --- |
 | `POST /registration/bootstrap` | secret key or bootstrap token | `accounts.create` | Existing scoped secret-key route |
 | `POST /v1/registration/bootstrap-grants` | publishable key | none | Capability is controlled by publishable key, origin, environment, quota, and payment policy |
+| `GET /v1/wallets` / `GET /v1/wallets/search` / `GET /v1/wallets/:id` | secret key | `wallets.read` | Machine wallet read surface; environment scope comes from the authenticated key and does not reuse `/console/wallets*` |
 | `POST /sponsorships/evm/call` | publishable key | none | Capability is controlled by publishable key, origin, environment, and active sponsorship policy |
 | `POST <signedDelegatePath>` | publishable key | none | When configured, treat as an auth-gated relay execution route and meter based on exact gas used or equivalent relayer spend |
 
-#### Planned machine routes if backend wallet APIs are needed
+#### Possible future machine routes if product scope expands
 
-These do not all exist today. The point is to create explicit machine endpoints instead of abusing console routes or low-level protocol routes.
+These do not exist today. The point is to create explicit machine endpoints instead of abusing console routes or low-level protocol routes.
 
 | Proposed route family | Target auth | Target scope | Notes |
 | --- | --- | --- | --- |
 | `POST /v1/accounts/sync` | secret key | `accounts.sync` | New machine route; do not map this scope to current `/sync-account/*` WebAuthn routes |
-| `GET /v1/wallets` / `GET /v1/wallets/:id` | secret key | `wallets.read` | New machine read surface; do not map to `/console/wallets*` |
-| `POST /v1/wallets/:id/sign` | secret key | `wallets.sign` | New high-level backend signing endpoint |
 | `GET /v1/billing/*` | secret key | `billing.read` | Only if non-console machine billing reads are actually needed |
+
+Current decision:
+
+- do not add a secret-key-backed wallet signing route in the current product surface
+- wallet execution remains either:
+  - end-user app-session or threshold-session driven, or
+  - the dedicated publishable-key `signedDelegatePath` execution surface
 
 ### End-user wallet and session routes
 
@@ -561,25 +624,27 @@ Target policy:
 These need explicit implementation work:
 
 - `ctx.signedDelegatePath`
-- `smartAccountDeploy` internal hook
 
 Target policy:
 
 - `ctx.signedDelegatePath` is a machine execution route, not a public proof route
 - `ctx.signedDelegatePath` must be API-auth-gated and billed or metered based on actual gas used or equivalent relayer spend
 - `ctx.signedDelegatePath` should not use console RBAC and does not need a machine scope unless we later expose a broader dedicated wallet execution API
-- `smartAccountDeploy` remains internal-only and should be invoked from registration or provisioning flows, not exposed as a public route
+- `smartAccountDeploy` remains internal-only and stays out of the public route registry
+- future rollout decisions for `smartAccountDeploy` are deferred to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md)
 
 ## Scope taxonomy
 
 We should clean up scope naming as part of this effort instead of preserving the current mixed format.
 
-Target machine scope set:
+Current supported machine scope set:
 
 - `accounts.create`
-- `accounts.sync`
 - `wallets.read`
-- `wallets.sign`
+
+Possible future scope candidates only if real machine routes are added:
+
+- `accounts.sync`
 - `billing.read`
 
 Scopes to delete unless a real machine route is added:
@@ -598,7 +663,7 @@ Rules:
 2. Webhook endpoint mutation and replay routes are missing console RBAC.
 3. Billing usage event writes are exposed as a generic console route instead of a privileged or internal route.
 4. Low-level threshold continuation and cosign routes need explicit documentation and tests for their intentional auth-free, unmetered design.
-5. Registration-triggered smart-account deployment for EVM and Tempo is not yet wired to the internal deploy hook.
+5. High-level machine wallet signing must stay out of scope unless we first define a policy and audit model above MPC.
 6. Sensitive route families are classified by convention in code rather than by one explicit policy manifest.
 
 ## Implementation plan
@@ -698,12 +763,20 @@ Deliverables:
 - bind them to secret-key scopes
 - keep all policy evaluation, auditability, and environment checks at the high-level route
 
-Possible endpoints:
+Current scope:
+
+- `GET /v1/wallets`
+- `GET /v1/wallets/search`
+- `GET /v1/wallets/:id`
+
+Explicitly out of scope for now:
+
+- any secret-key-backed `/v1/wallets/:id/sign` route
+- any route that exposes low-level threshold signing steps to machine credentials
+
+Possible future endpoints only if product scope expands:
 
 - `POST /v1/accounts/sync`
-- `GET /v1/wallets`
-- `GET /v1/wallets/:id`
-- `POST /v1/wallets/:id/sign`
 - `GET /v1/billing/*`
 
 Required outcome:
@@ -786,49 +859,50 @@ Required outcome:
 - [x] Decide whether key export request creation is broad or privileged.
 - [x] Audit remaining side-effecting `/console/*` routes for session-only protection.
 - [x] Add regression coverage for every fixed console RBAC gap.
-- [ ] Confirm `/console/*` routes stay unmetered and do not emit customer billing usage.
+- [x] Confirm `/console/*` routes stay unmetered and do not emit customer billing usage.
 
 ### Phase 4: Threshold route documentation and validation
 
 - [x] Document `/threshold-*/sign/*` and `/threshold-*/internal/cosign/*` as intentionally auth-free protocol routes.
 - [x] Document which threshold routes are public proof routes, threshold-session routes, and low-level continuation routes.
-- [ ] Add replay and malformed-state coverage for low-level signing continuations.
-- [ ] Add cross-session misuse coverage for cosign and continuation routes.
-- [ ] Remove or rewrite misleading comments that imply an internal auth boundary where none exists.
+- [x] Add replay and malformed-state coverage for low-level signing continuations.
+- [x] Add cross-session misuse coverage for cosign and continuation routes.
+- [x] Remove or rewrite misleading comments that imply an internal auth boundary where none exists.
 
 ### Phase 5: High-level machine wallet APIs
 
-- [ ] Decide whether backend wallet read APIs are a supported product surface.
-- [ ] Decide whether backend signing by secret key is a supported product surface.
-- [ ] If yes, add explicit `/v1/*` machine endpoints instead of reusing console or threshold routes.
-- [ ] Bind new machine wallet routes to `wallets.read`, `wallets.sign`, and any needed account or billing scopes.
-- [ ] Add audit and policy enforcement at the high-level machine route, not only inside the MPC protocol.
+- [x] Decide whether backend wallet read APIs are a supported product surface.
+- [x] Decide whether backend signing by secret key is a supported product surface. Current decision: no.
+- [x] If yes, add explicit `/v1/*` machine endpoints instead of reusing console or threshold routes.
+- [x] Bind the live machine wallet routes to `wallets.read` and keep unsupported signing scopes out of the product surface.
+- [x] Keep audit-emitting wallet mutation work out of scope until a future high-level machine mutation route is intentionally introduced.
 
 ### Phase 6: Adjacent wallet execution route policy
 
 - [x] Gate `signedDelegatePath` with non-console API auth.
-- [ ] Meter `signedDelegatePath` on actual gas used or equivalent relayer spend.
-- [ ] Decide whether `signedDelegatePath` stays publishable-key-only or also supports another API credential model.
-- [ ] Wire EVM and Tempo registration or provisioning flows to the internal `smartAccountDeploy` hook.
-- [ ] Document the chosen auth and metering policy for each adjacent execution route.
-- [ ] Move any privileged route that lacks a real proof behind a stronger auth plane.
-- [ ] Add route-level tests for the chosen classification.
+- [x] Meter `signedDelegatePath` on actual gas used or equivalent relayer spend.
+- [x] Keep `signedDelegatePath` publishable-key-only for now; treat any future x402 support as a payment layer, not a second API credential model.
+- [x] Keep `smartAccountDeploy` out of the public route registry entirely.
+- [x] Move deferred `smartAccountDeploy` product questions to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
+- [x] Document the chosen auth and metering policy for each adjacent execution route.
+- [x] Confirm the remaining proofless public relay routes are limited to explicit allowlisted discovery or operational-ingress surfaces and remain unmetered.
+- [x] Add route-level tests for the chosen classification.
 
 ### Phase 7: Route-policy tests and parity coverage
 
 - [x] Add route-policy tests that enumerate registered Express routes.
 - [x] Assert that all `/console/*` routes are console-authenticated except explicit allowlisted exceptions.
-- [ ] Assert that only machine routes reference scopes.
-- [ ] Assert that public routes are intentionally allowlisted.
+- [x] Assert that only machine routes reference scopes.
+- [x] Assert that public routes are intentionally allowlisted.
 - [x] Add Cloudflare parity coverage for shared route families.
 
 ### Phase 8: Docs and legacy cleanup
 
 - [x] Update `docs/saas/api-keys.md` to match the new auth model.
 - [x] Remove stale dashboard copy that describes console APIs as machine-scope targets.
-- [ ] Remove stale route comments and legacy scope references from server code.
+- [x] Remove stale route comments and legacy scope references from server code.
 - [x] Delete tests that assert obsolete scope names or obsolete route auth behavior.
-- [ ] Re-read the route surface after cleanup and confirm the docs still match reality.
+- [x] Re-read the route surface after cleanup and confirm the docs still match reality.
 
 ## Detailed Todo Breakdown
 
@@ -854,7 +928,7 @@ Required outcome:
 - [x] Rename any remaining colon-style scope names in server code, tests, fixtures, and docs.
 - [x] Remove dead scopes from the persisted API key model and scope validators.
 - [x] Update machine route definitions to reference only real scopes.
-- [x] Confirm `accounts.create` remains the only currently enforced secret-key scope unless new machine routes land.
+- [x] Confirm the live secret-key scope set is `accounts.create` and `wallets.read`, and block any new scope until a real machine route lands.
 - [x] Add tests that fail if a machine route references an unknown scope.
 - [x] Add tests that fail if a listed scope does not map to any machine route definition.
 - [x] Tighten API key services, relay auth types, and persisted scope parsing so secret-key scopes are canonical `MachineApiKeyScope[]` end-to-end.
@@ -871,8 +945,8 @@ Required outcome:
 - [x] Convert policy create, update, assignment, and publish routes to policy-defined console roles.
 - [x] Convert audit export creation and enterprise isolation trigger routes to policy-defined console roles.
 - [x] Convert invoice generation and platform billing adjustment routes to policy-defined console roles.
-- [ ] Audit console read routes that may need dedicated read roles instead of membership-only access.
-- [ ] Centralize console role-to-response mapping so authorization failures are uniform.
+- [x] Audit console read routes that may need dedicated read roles instead of membership-only access.
+- [x] Centralize console role-to-response mapping so authorization failures are uniform.
 - [x] Remove inline role checks from migrated console handlers once the route policy enforcer owns them.
 - [x] Move onboarding telemetry and observability read-role checks onto the shared console route policy layer.
 - [x] Move account settings routes and policy simulation onto the shared console route policy layer with explicit route definitions.
@@ -885,30 +959,40 @@ Required outcome:
 - [x] Add route definitions for every threshold route, including explicit `public` proof metadata for auth-free continuations.
 - [x] Document the proof rationale for `/threshold-*/sign/*` and `/threshold-*/internal/cosign/*` in the route definition itself.
 - [x] Ensure threshold continuation routes declare `metering: { kind: 'none' }`.
-- [ ] Add protocol misuse tests for replay, wrong-session continuation, and malformed transcript input.
-- [ ] Remove comments or helper names that imply internal auth where the route is intentionally public.
-- [ ] Add tests that fail if any threshold continuation route accidentally gets machine scope or console auth attached.
+- [x] Add protocol misuse tests for replay, wrong-session continuation, and malformed transcript input.
+- [x] Add protocol misuse tests for cross-session cosign misuse.
+- [x] Remove comments or helper names that imply internal auth where the route is intentionally public.
+- [x] Add tests that fail if any threshold continuation route accidentally gets machine scope or console auth attached.
+
+Current coverage includes:
+
+- [threshold-ed25519.scope.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/relayer/threshold-ed25519.scope.test.ts) for one-shot `mpcSessionId`, one-shot `signingSessionId`, digest mismatch, and malformed finalize inputs.
+- [thresholdEd25519.frostTamper.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/e2e/thresholdEd25519.frostTamper.test.ts) for tampered continuation transcripts.
+- [threshold-ecdsa.signature-harness.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/relayer/threshold-ecdsa.signature-harness.test.ts) and [thresholdEcdsa.presignDistributed.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEcdsa.presignDistributed.unit.test.ts) for stale-session and cross-instance continuation misuse.
+- [thresholdEd25519.relayerCosigners.stub.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.relayerCosigners.stub.test.ts) for Ed25519 relayer-cosigner cross-session `coordinatorGrant` misuse against a live internal cosign session.
 
 ### Phase 5 detailed tasks: High-level machine wallet APIs
 
-- [ ] Decide whether `wallets.read` should exist in the product surface.
-- [ ] Decide whether `wallets.sign` should exist in the product surface.
-- [ ] If yes, add route definitions, request schemas, response schemas, and metering policy for each new `/v1/*` wallet route.
-- [ ] Add audit-event emission for every high-level machine wallet mutation route.
-- [ ] Ensure high-level wallet routes call into application services instead of exposing low-level MPC steps directly.
-- [ ] Add tests for scope enforcement, environment binding, IP/origin rules where applicable, and audit emission.
+- [x] Decide whether `wallets.read` should exist in the product surface.
+- [x] Decide whether `wallets.sign` should exist in the product surface. Current decision: no.
+- [x] Add route definitions, request schemas, response schemas, and metering policy for the supported `/v1/*` wallet read routes.
+- [x] Bind the supported wallet read routes to `wallets.read` and reject unsupported signing scopes from API-key management.
+- [x] Ensure high-level wallet routes call into application services instead of exposing low-level MPC steps directly.
+- [x] Add tests for scope enforcement, environment binding, and IP rules where applicable.
+- [x] Defer audit emission until or unless high-level machine wallet mutation routes are introduced.
 
 ### Phase 6 detailed tasks: Adjacent wallet execution route policy
 
 - [x] Add a route definition for `signedDelegatePath` with `machine` auth and `gas` metering.
 - [x] Route `signedDelegatePath` through shared publishable-key auth enforcement in both Express and Cloudflare.
-- [ ] Decide whether `signedDelegatePath` accepts only publishable keys or also a second API credential type.
-- [ ] Add a reusable gas-metering abstraction that can record both `evm_call` and `near_delegate` spend.
-- [ ] Ensure `signedDelegatePath` emits consistent billing records even for reverted or partially failed execution.
-- [ ] Wire EVM and Tempo account registration or provisioning flows to the internal `smartAccountDeploy` hook.
-- [ ] Keep `smartAccountDeploy` out of the public route registry entirely.
+- [x] Keep `signedDelegatePath` publishable-key-only; revisit x402 as payment support rather than a new API credential.
+- [x] Add a reusable gas-metering abstraction that can record both `evm_call` and `near_delegate` spend.
+- [x] Ensure `signedDelegatePath` emits consistent billing records even for reverted or partially failed execution.
+- [x] Keep `smartAccountDeploy` out of the public route registry entirely.
+- [x] Move deferred `smartAccountDeploy` rollout questions to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
+- [x] Confirm the only proofless public relay routes left are health or readiness probes, well-known discovery, `link-device/*`, and `/recover-email`, and that they remain `metering: { kind: 'none' }`.
 - [x] Add Express and Cloudflare parity tests for `signedDelegatePath` auth behavior.
-- [ ] Extend `signedDelegatePath` parity tests to cover gas metering behavior.
+- [x] Extend `signedDelegatePath` parity tests to cover gas metering behavior.
 
 ### Phase 7 detailed tasks: Route-policy tests and parity coverage
 
@@ -926,14 +1010,21 @@ Required outcome:
 
 ### Phase 8 detailed tasks: Docs and legacy cleanup
 
-- [ ] Update docs to describe route definitions as the canonical source of auth policy.
-- [ ] Remove stale comments that instruct developers to add auth inside handlers.
-- [ ] Delete direct per-handler header parsing where the route executor now resolves auth.
+- [x] Update docs to describe route definitions as the canonical source of auth policy.
+- [x] Remove stale comments that instruct developers to add auth inside handlers.
+- [x] Delete direct per-handler header parsing where the route executor now resolves auth.
 - [x] Delete transport-specific publishable-key parsing and auth duplication from `POST /v1/registration/bootstrap-grants`.
 - [x] Delete transport-specific auth duplication from `POST <signedDelegatePath>`.
-- [ ] Delete transport-specific auth duplication that is replaced by shared route definitions.
-- [ ] Re-run the route inventory after cleanup and confirm there are no orphaned route modules.
-- [ ] Reconcile examples in docs with the final file names and type names used in the implementation.
+- [x] Delete transport-specific auth duplication that is replaced by shared route definitions.
+- [x] Re-run the route inventory after cleanup and confirm there are no orphaned route modules.
+- [x] Reconcile examples in docs with the final file names and type names used in the implementation.
+
+Route inventory rerun on 2026-03-14:
+
+- relay route-module scan found `17/17` Express relay route modules referenced by [createRelayRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createRelayRouter.ts)
+- relay route-module scan found `17/17` Cloudflare relay route modules referenced by [createCloudflareRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareRouter.ts)
+- live route-surface guardrails passed for [router.relayRouteSurface.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/router.relayRouteSurface.unit.test.ts) and [router.consoleRouteSurface.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/router.consoleRouteSurface.unit.test.ts)
+- proofless public relay routes are now constrained by test to the explicit allowlist of health or readiness probes, well-known discovery, `link-device/*`, and `/recover-email`, and all remain `metering: { kind: 'none' }`
 
 ## Validation checklist
 
@@ -961,20 +1052,17 @@ Required outcome:
 
 These need explicit product and security decisions during implementation:
 
-- should key export request creation be broad or privileged
 - should billing usage event ingestion be a console route at all
-- do we want backend wallet signing as a supported machine capability
-- if backend wallet signing is supported, what policy and audit model must sit above the MPC protocol
-- should `signedDelegatePath` be publishable-key-only or accept an additional non-console API credential
-- where should EVM and Tempo registration trigger the internal `smartAccountDeploy` hook
+- when to add x402-style paid execution to `signedDelegatePath` without changing its publishable-key auth model
+- should any `smartAccountDeploy` trigger happen outside recovery or first-use flows, or should initial registration stay gas-free for EVM
 
 ## Progress tracker
 
-- [ ] Phase 1 complete
-- [ ] Phase 2 complete
-- [ ] Phase 3 complete
-- [ ] Phase 4 complete
-- [ ] Phase 5 complete
-- [ ] Phase 6 complete
-- [ ] Phase 7 complete
-- [ ] Phase 8 complete
+- [x] Phase 1 complete
+- [x] Phase 2 complete
+- [x] Phase 3 complete
+- [x] Phase 4 complete
+- [x] Phase 5 complete
+- [x] Phase 6 complete
+- [x] Phase 7 complete
+- [x] Phase 8 complete

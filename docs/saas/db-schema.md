@@ -223,6 +223,11 @@ Tables:
 Notes:
 
 - API key secret is shown once, then only stored as hash.
+- `api_key_scopes` should store canonical scope identifiers, not free-form legacy strings.
+- Current secret-key machine scope catalog is:
+  - `accounts.create`
+  - `wallets.read`
+- Adding a new machine scope should require adding a real machine route plus an explicit catalog update.
 - Webhook secrets are encrypted at rest and rotate with versioning.
 
 ### 7) Governance, Audit, and Approvals

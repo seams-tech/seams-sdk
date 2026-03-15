@@ -1,17 +1,13 @@
 import type { ConsoleApiKey } from '../console/apiKeys';
 import { RelayBootstrapGrantError, parseRelayBootstrapGrantIssueBody } from './bootstrapGrantBroker';
-import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
+import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
+import { resolveBootstrapGrantMachineAuth } from './relayMachineAuth';
 import type { RelayBootstrapGrantBroker } from './relay';
-import { extractBearerCredential } from './relayApiKeyAuth';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 export interface RelayBootstrapGrantInput {
   body: unknown;
@@ -24,10 +20,7 @@ export interface RelayBootstrapGrantInput {
   };
 }
 
-function parsePolicyFailureMessage(message: string): {
-  code: string;
-  detail: string;
-} {
+function parsePolicyFailureMessage(message: string): { code: string; detail: string } {
   const normalized = String(message || '').trim();
   const separatorIndex = normalized.indexOf(':');
   if (separatorIndex <= 0) {
@@ -39,77 +32,6 @@ function parsePolicyFailureMessage(message: string): {
   return {
     code: normalized.slice(0, separatorIndex).trim() || 'unauthorized',
     detail: normalized.slice(separatorIndex + 1).trim() || 'Unauthorized',
-  };
-}
-
-async function resolveBootstrapGrantMachineAuth(input: {
-  body: unknown;
-  headers: HeaderRecord;
-  origin?: string;
-  route: RouteDefinition;
-  broker: RelayBootstrapGrantBroker;
-  onAuthenticated(apiKey: ConsoleApiKey): void;
-}): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
-    return {
-      ok: false,
-      status: 500,
-      code: 'route_auth_not_configured',
-      message: 'Bootstrap grants require machine auth policy',
-    };
-  }
-
-  const publishableKey = extractBearerCredential(input.headers);
-  if (!publishableKey) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'publishable_key_missing: Missing publishable key',
-    };
-  }
-
-  const origin = String(input.origin || '').trim();
-  if (!origin) {
-    return {
-      ok: false,
-      status: 403,
-      code: 'forbidden',
-      message: 'publishable_key_origin_blocked: Origin header is required and must be a valid exact origin',
-    };
-  }
-
-  const environmentId =
-    isObject(input.body) && typeof input.body.environmentId === 'string'
-      ? String(input.body.environmentId || '').trim()
-      : undefined;
-  const authResult = await input.broker.authenticatePublishableKey({
-    publishableKey,
-    origin,
-    ...(environmentId ? { environmentId } : {}),
-  });
-  if (!authResult.ok) {
-    return {
-      ok: false,
-      status: authResult.status,
-      code: authResult.status === 403 ? 'forbidden' : 'unauthorized',
-      message: `${authResult.code}: ${authResult.message}`,
-    };
-  }
-
-  input.onAuthenticated(authResult.apiKey);
-  return {
-    ok: true,
-    principal: {
-      kind: 'machine',
-      credentialType: 'publishable_key',
-      principal: {
-        apiKeyId: authResult.apiKey.id,
-        orgId: authResult.apiKey.orgId,
-        environmentId: authResult.apiKey.environmentId,
-        scopes: [],
-      },
-    },
   };
 }
 

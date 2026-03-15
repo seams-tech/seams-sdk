@@ -138,12 +138,15 @@ export function parseRelayBootstrapGrantIssueBody(
 export function createRelayBootstrapGrantBroker(
   options: RelayBootstrapGrantBrokerOptions,
 ): RelayBootstrapGrantBroker {
-  const authenticatePublishableKeyFn = options.apiKeys.authenticatePublishableKey;
-  if (typeof authenticatePublishableKeyFn !== 'function') {
+  const maybeAuthenticatePublishableKey = options.apiKeys.authenticatePublishableKey;
+  if (typeof maybeAuthenticatePublishableKey !== 'function') {
     throw new Error(
       'ConsoleApiKeyService.authenticatePublishableKey is required for bootstrap grant broker',
     );
   }
+  const authenticatePublishableKeyFn: NonNullable<
+    ConsoleApiKeyService['authenticatePublishableKey']
+  > = maybeAuthenticatePublishableKey;
 
   const tokenTtlMs = Math.max(1_000, Math.floor(options.tokenTtlMs || 60_000));
   const now = options.now || (() => new Date());
