@@ -29,6 +29,7 @@ export function registerCreateAccountAndRegisterUser(
           apiKeyUsageMeter: ctx.opts.apiKeyUsageMeter,
           bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
           session: ctx.opts.session,
+          smartAccountDeploy: ctx.opts.smartAccountDeploy,
         },
         sourceIp:
           resolveSourceIpFromExpressRequest({

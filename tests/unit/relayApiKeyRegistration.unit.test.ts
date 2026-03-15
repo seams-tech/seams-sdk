@@ -31,7 +31,6 @@ function buildMinimalContext(input: {
   registrationBootstrapUrl?: string;
   managed?: {
     environmentId: string;
-    brokerUrl: string;
     publishableKey: string;
   };
 }): PasskeyManagerContext {
@@ -46,7 +45,6 @@ function buildMinimalContext(input: {
         ? {
             mode: 'managed',
             environmentId: input.managed.environmentId,
-            brokerUrl: input.managed.brokerUrl,
             publishableKey: input.managed.publishableKey,
           }
         : {
@@ -156,7 +154,7 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
         authorization: String(new Headers(init?.headers).get('authorization') || ''),
         body,
       });
-      if (url === 'https://broker.example/v1/registration/bootstrap-grants') {
+      if (url === 'https://relay.example.test/v1/registration/bootstrap-grants') {
         return new Response(
           JSON.stringify({
             ok: true,
@@ -192,7 +190,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           relayUrl: 'https://relay.example.test',
           managed: {
             environmentId: 'env_prod',
-            brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
             publishableKey: 'pk_publishable',
           },
         }),
@@ -204,7 +201,7 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
 
       expect(result.success).toBe(true);
       expect(calls).toHaveLength(2);
-      expect(calls[0]?.url).toBe('https://broker.example/v1/registration/bootstrap-grants');
+      expect(calls[0]?.url).toBe('https://relay.example.test/v1/registration/bootstrap-grants');
       expect(calls[0]?.authorization).toBe('Bearer pk_publishable');
       expect(calls[0]?.body.environmentId).toBe('env_prod');
       expect(calls[0]?.body.newAccountId).toBe('alice.w3a-relayer.testnet');
@@ -243,7 +240,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           relayUrl: 'https://relay.example.test',
           managed: {
             environmentId: 'env_prod',
-            brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
             publishableKey: 'pk_publishable',
           },
         }),

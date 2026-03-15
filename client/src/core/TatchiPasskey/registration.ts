@@ -71,6 +71,32 @@ function toSmartAccountBootstrapInput(
   return { ...smartAccount };
 }
 
+function toRegistrationSmartAccountTarget(
+  chain: ThresholdEcdsaActivationChain,
+  smartAccount: EcdsaSignerProvisioningPolicy['smartAccount'] | undefined,
+):
+  | {
+      chain: ThresholdEcdsaActivationChain;
+      chain_id: number;
+      factory?: string;
+      entry_point?: string;
+      salt?: string;
+      counterfactual_address?: string;
+    }
+  | undefined {
+  if (!smartAccount) return undefined;
+  return {
+    chain,
+    chain_id: smartAccount.chainId,
+    ...(smartAccount.factory ? { factory: smartAccount.factory } : {}),
+    ...(smartAccount.entryPoint ? { entry_point: smartAccount.entryPoint } : {}),
+    ...(smartAccount.salt ? { salt: smartAccount.salt } : {}),
+    ...(smartAccount.counterfactualAddress
+      ? { counterfactual_address: smartAccount.counterfactualAddress }
+      : {}),
+  };
+}
+
 /**
  * Core registration function that handles passkey registration
  *
@@ -158,6 +184,9 @@ export async function registerPasskeyInternal(
       ? listThresholdEcdsaProvisionTargets(provisioningDefaults)
       : [];
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
+    const thresholdEcdsaSmartAccountTargetsForRegistration = thresholdEcdsaProvisionTargets
+      .map((target) => toRegistrationSmartAccountTarget(target.chain, target.options.smartAccount))
+      .filter((target): target is NonNullable<typeof target> => Boolean(target));
 
     const deviceNumber = 1;
     let accountNearPublicKey: string | null = null;
@@ -367,6 +396,9 @@ export async function registerPasskeyInternal(
                 clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
                 sessionPolicy: thresholdEcdsaSessionPolicyForRegistration,
                 sessionKind: thresholdEcdsaSessionKindForRegistration,
+                ...(thresholdEcdsaSmartAccountTargetsForRegistration.length > 0
+                  ? { smartAccountTargets: thresholdEcdsaSmartAccountTargetsForRegistration }
+                  : {}),
               }
             : undefined,
       },
@@ -419,6 +451,9 @@ export async function registerPasskeyInternal(
     const thresholdEcdsaEthereumAddress = String(
       accountAndRegistrationResult?.thresholdEcdsa?.ethereumAddress || '',
     ).trim();
+    const thresholdEcdsaDeployments = Array.isArray(accountAndRegistrationResult?.smartAccountDeployments)
+      ? accountAndRegistrationResult.smartAccountDeployments
+      : [];
 
     if (thresholdEd25519SessionPolicyForRegistration) {
       const sessionKind = String(thresholdEd25519Session?.sessionKind || '')
@@ -792,11 +827,32 @@ export async function registerPasskeyInternal(
         }
 
         for (const target of thresholdEcdsaProvisionTargets) {
+          const smartAccountBootstrap = toSmartAccountBootstrapInput(
+            target.chain,
+            target.options.smartAccount,
+          );
+          const smartAccountDeployment =
+            smartAccountBootstrap &&
+            thresholdEcdsaDeployments.find(
+              (deployment) =>
+                deployment.chain === target.chain &&
+                Number(deployment.chainId) === Number(smartAccountBootstrap.chainId),
+            );
           await signingEngine.persistThresholdEcdsaBootstrapChainAccount({
             nearAccountId,
             chain: target.chain,
             bootstrap: bootstrapProjection,
-            smartAccount: toSmartAccountBootstrapInput(target.chain, target.options.smartAccount),
+            smartAccount: smartAccountBootstrap,
+            ...(smartAccountDeployment
+              ? {
+                  deployment: {
+                    deployed: smartAccountDeployment.deployed === true,
+                    ...(smartAccountDeployment.deploymentTxHash
+                      ? { deploymentTxHash: smartAccountDeployment.deploymentTxHash }
+                      : {}),
+                  },
+                }
+              : {}),
           });
         }
       }

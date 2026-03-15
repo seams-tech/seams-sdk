@@ -128,7 +128,6 @@ export interface SigningSessionSealConfig {
  *   } | {
  *     mode: 'managed';
  *     environmentId: string;
- *     brokerUrl?: string;
  *     publishableKey: string;
  *     paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
  *   };
@@ -138,6 +137,8 @@ export interface SigningSessionSealConfig {
  *
  * Notes:
  * - `relayer.url` is required after defaults are merged; missing values fail fast.
+ * - Managed registration uses `${relayer.url}/v1/registration/bootstrap-grants`
+ *   to obtain a one-time bootstrap token before calling `/registration/bootstrap`.
  * - `iframeWallet.walletOrigin` controls iframe-wallet mode:
  *   - provided non-empty: iframe mode
  *   - provided empty string: force direct mode
@@ -259,7 +260,6 @@ export interface TatchiConfigsInput {
  *       | {
  *           mode: 'managed';
  *           environmentId: string;
- *           brokerUrl: string;
  *           publishableKey: string;
  *           paymentMode: 'disabled' | 'quota_then_x402' | 'always_x402';
  *         };
@@ -580,7 +580,6 @@ export type TatchiRegistrationConfigInput =
   | {
       mode: 'managed';
       environmentId: string;
-      brokerUrl?: string;
       publishableKey: string;
       paymentMode?: TatchiRegistrationPaymentMode;
     };
@@ -661,7 +660,6 @@ export type TatchiRegistrationConfig =
   | {
       mode: 'managed';
       environmentId: string;
-      brokerUrl: string;
       publishableKey: string;
       paymentMode: TatchiRegistrationPaymentMode;
     };

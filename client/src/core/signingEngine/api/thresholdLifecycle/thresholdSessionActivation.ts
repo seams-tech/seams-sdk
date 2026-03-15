@@ -58,6 +58,10 @@ export type ThresholdSessionActivationDeps = {
     chain: ThresholdEcdsaActivationChain;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+    deployment?: {
+      deployed: boolean;
+      deploymentTxHash?: string;
+    };
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (args: {
     nearAccountId: AccountId | string;

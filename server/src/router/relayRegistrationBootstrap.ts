@@ -2,23 +2,25 @@ import type { AuthService } from '../core/AuthService';
 import type {
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
+  CreateAccountAndRegisterSmartAccountDeployment,
+  CreateAccountAndRegisterSmartAccountTarget,
 } from '../core/types';
-import { parseBootstrapToken, type ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
-import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
+import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import { signThresholdSessionJwt } from './commonRouterUtils';
 import { applyRouteMetering } from './applyRouteMetering';
-import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
+import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
+import { resolveRegistrationBootstrapMachineAuth } from './relayMachineAuth';
 import {
   type RelayApiKeyAuthAdapter,
   type RelayUsageMeterAdapter,
   type SessionAdapter,
 } from './relay';
-import { extractBearerCredential, extractRelayEnvironmentId } from './relayApiKeyAuth';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
+import { executeSmartAccountDeploy } from './smartAccountDeploy';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -30,6 +32,7 @@ interface RelayRegistrationBootstrapServices {
   apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   session?: SessionAdapter | null;
+  smartAccountDeploy?: ((request: import('./relay').SmartAccountDeployRequest) => Promise<import('./relay').SmartAccountDeployResult> | import('./relay').SmartAccountDeployResult) | null;
 }
 
 export interface RelayRegistrationBootstrapInput {
@@ -40,124 +43,6 @@ export interface RelayRegistrationBootstrapInput {
   route: RouteDefinition;
   services: RelayRegistrationBootstrapServices;
   sourceIp?: string;
-}
-
-async function resolveRegistrationBootstrapMachineAuth(
-  input: RelayRegistrationBootstrapInput,
-): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
-    return {
-      ok: false,
-      status: 500,
-      code: 'route_auth_not_configured',
-      message: 'Registration bootstrap requires machine auth policy',
-    };
-  }
-
-  const { apiKeyAuth, bootstrapTokenStore } = input.services;
-  if (!apiKeyAuth && !bootstrapTokenStore) {
-    return {
-      ok: false,
-      status: 500,
-      code: 'route_auth_not_configured',
-      message: 'Relay machine auth is not configured for this route',
-    };
-  }
-
-  const credential = extractBearerCredential(input.headers);
-  if (!credential) {
-    if (bootstrapTokenStore && !apiKeyAuth) {
-      return {
-        ok: false,
-        status: 401,
-        code: 'unauthorized',
-        message: 'bootstrap_token_missing: Missing bootstrap token',
-      };
-    }
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'secret_key_missing: Missing secret key',
-    };
-  }
-
-  const tokenCandidate = parseBootstrapToken(credential);
-  if (tokenCandidate) {
-    if (!bootstrapTokenStore) {
-      return {
-        ok: false,
-        status: 401,
-        code: 'unauthorized',
-        message: 'bootstrap_token_invalid: Invalid bootstrap token',
-      };
-    }
-    const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(
-      isObject(input.body) ? input.body : {},
-    );
-    const redeemResult = await bootstrapTokenStore.redeemToken({
-      token: credential,
-      origin: String(input.origin || '').trim(),
-      method: input.route.method,
-      path: input.route.path,
-      requestHashSha256,
-    });
-    if (!redeemResult.ok) {
-      return {
-        ok: false,
-        status: redeemResult.status,
-        code: redeemResult.status === 403 ? 'forbidden' : 'unauthorized',
-        message: `${redeemResult.code}: ${redeemResult.message}`,
-      };
-    }
-    return {
-      ok: true,
-      principal: {
-        kind: 'machine',
-        credentialType: 'bootstrap_token',
-        principal: {
-          apiKeyId: redeemResult.record.publishableKeyId,
-          orgId: redeemResult.record.orgId,
-          environmentId: redeemResult.record.environmentId,
-          scopes: [...(input.route.auth.scopes || [])],
-        },
-      },
-    };
-  }
-
-  if (!apiKeyAuth) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'secret_key_invalid: Invalid secret key',
-    };
-  }
-
-  const environmentId = extractRelayEnvironmentId(input.headers);
-  const authResult = await apiKeyAuth.authenticate({
-    secret: credential,
-    endpoint: `${input.route.method} ${input.route.path}`,
-    requiredScopes: [...(input.route.auth.scopes || [])],
-    ...(input.sourceIp ? { sourceIp: input.sourceIp } : {}),
-    ...(environmentId ? { environmentId } : {}),
-  });
-  if (!authResult.ok) {
-    return {
-      ok: false,
-      status: authResult.status,
-      code: authResult.status === 403 ? 'forbidden' : 'unauthorized',
-      message: `${authResult.code}: ${authResult.message}`,
-    };
-  }
-  return {
-    ok: true,
-    principal: {
-      kind: 'machine',
-      credentialType: 'secret_key',
-      principal: authResult.principal,
-    },
-  };
 }
 
 function parsePolicyFailureMessage(message: string): {
@@ -176,6 +61,168 @@ function parsePolicyFailureMessage(message: string): {
     code: normalized.slice(0, separatorIndex).trim() || 'unauthorized',
     detail: normalized.slice(separatorIndex + 1).trim() || 'Unauthorized',
   };
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+}
+
+function normalizeRegistrationSmartAccountTargets(
+  raw: unknown,
+): { ok: true; targets: CreateAccountAndRegisterSmartAccountTarget[] } | { ok: false; message: string } {
+  if (raw == null) return { ok: true, targets: [] };
+  if (!Array.isArray(raw)) {
+    return { ok: false, message: 'threshold_ecdsa.smart_account_targets must be an array' };
+  }
+  const targets: CreateAccountAndRegisterSmartAccountTarget[] = [];
+  const seenChains = new Set<string>();
+  for (let index = 0; index < raw.length; index += 1) {
+    const entry = raw[index];
+    if (!isObject(entry)) {
+      return {
+        ok: false,
+        message: `threshold_ecdsa.smart_account_targets[${index}] must be an object`,
+      };
+    }
+    const chain = String(entry.chain || '')
+      .trim()
+      .toLowerCase();
+    if (chain !== 'evm' && chain !== 'tempo') {
+      return {
+        ok: false,
+        message: `threshold_ecdsa.smart_account_targets[${index}].chain must be "evm" or "tempo"`,
+      };
+    }
+    if (seenChains.has(chain)) {
+      return {
+        ok: false,
+        message: `threshold_ecdsa.smart_account_targets contains duplicate chain "${chain}"`,
+      };
+    }
+    const chainId = Math.floor(Number(entry.chain_id));
+    if (!Number.isFinite(chainId) || chainId <= 0) {
+      return {
+        ok: false,
+        message: `threshold_ecdsa.smart_account_targets[${index}].chain_id must be a positive integer`,
+      };
+    }
+    seenChains.add(chain);
+    targets.push({
+      chain,
+      chain_id: chainId,
+      ...(normalizeOptionalString(entry.factory) ? { factory: normalizeOptionalString(entry.factory) } : {}),
+      ...(normalizeOptionalString(entry.entry_point)
+        ? { entry_point: normalizeOptionalString(entry.entry_point) }
+        : {}),
+      ...(normalizeOptionalString(entry.salt) ? { salt: normalizeOptionalString(entry.salt) } : {}),
+      ...(normalizeOptionalString(entry.counterfactual_address)
+        ? { counterfactual_address: normalizeOptionalString(entry.counterfactual_address) }
+        : {}),
+    });
+  }
+  return { ok: true, targets };
+}
+
+async function deployRegistrationSmartAccounts(input: {
+  logger: NormalizedRouterLogger;
+  nearAccountId: string;
+  services: RelayRegistrationBootstrapServices;
+  targets: CreateAccountAndRegisterSmartAccountTarget[];
+  response: CreateAccountAndRegisterResult;
+}): Promise<CreateAccountAndRegisterSmartAccountDeployment[]> {
+  if (input.targets.length === 0) return [];
+  const thresholdEcdsa = input.response.thresholdEcdsa;
+  const derivedAccountAddress = normalizeOptionalString(thresholdEcdsa?.ethereumAddress);
+  const deployments: CreateAccountAndRegisterSmartAccountDeployment[] = [];
+
+  for (const target of input.targets) {
+    const accountModel = target.chain === 'evm' ? 'erc4337' : 'tempo-native';
+    const counterfactualAddress = normalizeOptionalString(target.counterfactual_address);
+    const accountAddress = counterfactualAddress || derivedAccountAddress || '';
+    if (!thresholdEcdsa || !derivedAccountAddress) {
+      deployments.push({
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountModel,
+        accountAddress,
+        deployed: false,
+        code: 'threshold_ecdsa_not_available',
+        message: 'threshold ECDSA registration key material was not returned',
+        ...(counterfactualAddress ? { counterfactualAddress } : {}),
+      });
+      continue;
+    }
+    if (!accountAddress) {
+      deployments.push({
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountModel,
+        accountAddress: '',
+        deployed: false,
+        code: 'missing_account_address',
+        message: 'smart-account target did not resolve to an account address',
+      });
+      continue;
+    }
+
+    const result = await executeSmartAccountDeploy(
+      { smartAccountDeploy: input.services.smartAccountDeploy },
+      {
+        nearAccountId: input.nearAccountId,
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountAddress,
+        accountModel,
+        ...(counterfactualAddress ? { counterfactualAddress } : {}),
+        ...(normalizeOptionalString(target.factory) ? { factory: normalizeOptionalString(target.factory) } : {}),
+        ...(normalizeOptionalString(target.entry_point)
+          ? { entryPoint: normalizeOptionalString(target.entry_point) }
+          : {}),
+        ...(normalizeOptionalString(target.salt) ? { salt: normalizeOptionalString(target.salt) } : {}),
+      },
+    );
+
+    const assumedDeployed = result.ok && result.code === 'assumed_deployed';
+    const deployment: CreateAccountAndRegisterSmartAccountDeployment = {
+      chain: target.chain,
+      chainId: target.chain_id,
+      accountAddress,
+      accountModel,
+      deployed: result.ok && !assumedDeployed,
+      ...(normalizeOptionalString(result.deploymentTxHash)
+        ? { deploymentTxHash: normalizeOptionalString(result.deploymentTxHash) }
+        : {}),
+      ...(normalizeOptionalString(result.code) ? { code: normalizeOptionalString(result.code) } : {}),
+      ...(normalizeOptionalString(result.message)
+        ? { message: normalizeOptionalString(result.message) }
+        : {}),
+      ...(counterfactualAddress ? { counterfactualAddress } : {}),
+    };
+    deployments.push(deployment);
+
+    if (deployment.deployed) {
+      input.logger.info('[relay][registration] smart-account deployed during registration', {
+        nearAccountId: input.nearAccountId,
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountAddress,
+        ...(deployment.deploymentTxHash ? { deploymentTxHash: deployment.deploymentTxHash } : {}),
+      });
+      continue;
+    }
+
+    input.logger.warn('[relay][registration] smart-account deployment did not complete during registration', {
+      nearAccountId: input.nearAccountId,
+      chain: target.chain,
+      chainId: target.chain_id,
+      accountAddress,
+      ...(deployment.code ? { code: deployment.code } : {}),
+      ...(deployment.message ? { message: deployment.message } : {}),
+    });
+  }
+
+  return deployments;
 }
 
 async function meterRegistrationBootstrap(input: {
@@ -259,6 +306,12 @@ export async function handleRelayRegistrationBootstrap(
   if (!webauthn_registration) {
     return routeError(400, 'invalid_body', 'Missing or invalid webauthn_registration');
   }
+  const smartAccountTargetsResult = normalizeRegistrationSmartAccountTargets(
+    isObject(body.threshold_ecdsa) ? body.threshold_ecdsa.smart_account_targets : undefined,
+  );
+  if (!smartAccountTargetsResult.ok) {
+    return routeError(400, 'invalid_body', smartAccountTargetsResult.message);
+  }
 
   const resolved = await enforceRoutePolicy({
     headers: input.headers,
@@ -268,7 +321,16 @@ export async function handleRelayRegistrationBootstrap(
     services: { authService: input.services.authService },
     sourceIp: input.sourceIp,
     resolvers: {
-      machine: async () => await resolveRegistrationBootstrapMachineAuth(input),
+      machine: async () =>
+        await resolveRegistrationBootstrapMachineAuth({
+          apiKeyAuth: input.services.apiKeyAuth,
+          body,
+          bootstrapTokenStore: input.services.bootstrapTokenStore,
+          headers: input.headers,
+          origin: input.origin,
+          route: input.route,
+          sourceIp: input.sourceIp,
+        }),
     },
   });
   if (!resolved.ok) {
@@ -311,6 +373,15 @@ export async function handleRelayRegistrationBootstrap(
 
   const session = input.services.session;
   if (!session) {
+    if (smartAccountTargetsResult.targets.length > 0) {
+      response.smartAccountDeployments = await deployRegistrationSmartAccounts({
+        logger: input.logger,
+        nearAccountId: new_account_id,
+        services: input.services,
+        targets: smartAccountTargetsResult.targets,
+        response,
+      });
+    }
     return routeJson(200, response, { usage: { walletId: new_account_id } });
   }
 
@@ -348,6 +419,16 @@ export async function handleRelayRegistrationBootstrap(
       return routeJson(signed.status, { success: false, error: signed.message });
     }
     response.thresholdEcdsa.session.jwt = signed.jwt;
+  }
+
+  if (smartAccountTargetsResult.targets.length > 0) {
+    response.smartAccountDeployments = await deployRegistrationSmartAccounts({
+      logger: input.logger,
+      nearAccountId: new_account_id,
+      services: input.services,
+      targets: smartAccountTargetsResult.targets,
+      response,
+    });
   }
 
   return routeJson(200, response, { usage: { walletId: new_account_id } });

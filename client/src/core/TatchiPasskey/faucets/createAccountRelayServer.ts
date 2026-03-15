@@ -14,7 +14,11 @@ import {
   cloneAuthenticatorOptions,
   type AuthenticatorOptions,
 } from '../../types/authenticatorOptions';
-import type { CreateAccountAndRegisterResult } from '@server/core/types';
+import type {
+  CreateAccountAndRegisterResult,
+  CreateAccountAndRegisterSmartAccountDeployment,
+  CreateAccountAndRegisterSmartAccountTarget,
+} from '@server/core/types';
 import type {
   EcdsaSessionPolicy,
   Ed25519SessionPolicy,
@@ -127,8 +131,8 @@ type ResolvedRegistrationTransport =
     }
   | {
       mode: 'managed';
+      relayerUrl: string;
       environmentId: string;
-      brokerUrl: string;
       publishableKey: string;
       paymentMode?: string;
     };
@@ -141,23 +145,23 @@ function resolveRegistrationTransport(context: PasskeyManagerContext): ResolvedR
   if (registration && typeof registration === 'object' && !Array.isArray(registration)) {
     const mode = String((registration as { mode?: unknown }).mode || 'backend_proxy').trim();
     if (mode === 'managed') {
+      const relayerUrl = String(context.configs.network.relayer.url || '').trim();
       const environmentId = String(
         (registration as { environmentId?: unknown }).environmentId || '',
       ).trim();
-      const brokerUrl = String((registration as { brokerUrl?: unknown }).brokerUrl || '').trim();
       const publishableKey = String(
         (registration as { publishableKey?: unknown }).publishableKey || '',
       ).trim();
       const paymentMode = String((registration as { paymentMode?: unknown }).paymentMode || '').trim();
+      if (!relayerUrl) throw new Error('Managed registration requires relayer.url');
       if (!environmentId) throw new Error('Managed registration requires registration.environmentId');
-      if (!brokerUrl) throw new Error('Managed registration requires registration.brokerUrl');
       if (!publishableKey) {
         throw new Error('Managed registration requires registration.publishableKey');
       }
       return {
         mode: 'managed',
+        relayerUrl,
         environmentId,
-        brokerUrl,
         publishableKey,
         ...(paymentMode ? { paymentMode } : {}),
       };
@@ -225,6 +229,7 @@ export interface CreateAccountAndRegisterUserRequest {
     client_verifying_share_b64u: string;
     session_policy: ThresholdEcdsaRegistrationSessionPolicy;
     session_kind: 'jwt' | 'cookie';
+    smart_account_targets?: CreateAccountAndRegisterSmartAccountTarget[];
   };
   rp_id: string;
   webauthn_registration: WebAuthnRegistrationCredential;
@@ -253,6 +258,7 @@ export async function createAccountAndRegisterWithRelayServer(
       clientVerifyingShareB64u: string;
       sessionPolicy: ThresholdEcdsaRegistrationSessionPolicy;
       sessionKind: 'jwt' | 'cookie';
+      smartAccountTargets?: CreateAccountAndRegisterSmartAccountTarget[];
     };
   },
 ): Promise<{
@@ -291,6 +297,7 @@ export async function createAccountAndRegisterWithRelayServer(
       jwt?: string;
     };
   };
+  smartAccountDeployments?: CreateAccountAndRegisterSmartAccountDeployment[];
   error?: string;
   errorCode?: RegistrationErrorCode;
 }> {
@@ -343,6 +350,10 @@ export async function createAccountAndRegisterWithRelayServer(
               client_verifying_share_b64u: opts.thresholdEcdsa.clientVerifyingShareB64u,
               session_policy: opts.thresholdEcdsa.sessionPolicy,
               session_kind: opts.thresholdEcdsa.sessionKind,
+              ...(Array.isArray(opts.thresholdEcdsa.smartAccountTargets) &&
+              opts.thresholdEcdsa.smartAccountTargets.length > 0
+                ? { smart_account_targets: opts.thresholdEcdsa.smartAccountTargets }
+                : {}),
             },
           }
         : {}),
@@ -371,7 +382,11 @@ export async function createAccountAndRegisterWithRelayServer(
 
     if (registrationTransport.mode === 'managed') {
       const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestData);
-      const brokerResponse = await fetch(registrationTransport.brokerUrl, {
+      const bootstrapGrantUrl = joinUrlPath(
+        registrationTransport.relayerUrl,
+        '/v1/registration/bootstrap-grants',
+      );
+      const brokerResponse = await fetch(bootstrapGrantUrl, {
         method: 'POST',
         headers: {
           ...headers,
@@ -513,6 +528,9 @@ export async function createAccountAndRegisterWithRelayServer(
                 }
               : undefined,
           }
+        : undefined,
+      smartAccountDeployments: Array.isArray(result.smartAccountDeployments)
+        ? result.smartAccountDeployments
         : undefined,
     };
   } catch (error: unknown) {

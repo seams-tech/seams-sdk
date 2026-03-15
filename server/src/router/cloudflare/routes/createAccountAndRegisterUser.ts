@@ -26,6 +26,7 @@ export async function handleCreateAccountAndRegisterUser(
       apiKeyUsageMeter: ctx.opts.apiKeyUsageMeter,
       bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
       session: ctx.opts.session,
+      smartAccountDeploy: ctx.opts.smartAccountDeploy,
     },
     sourceIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
   });

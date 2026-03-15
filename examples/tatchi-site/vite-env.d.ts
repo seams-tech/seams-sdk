@@ -8,7 +8,6 @@ interface ImportMetaEnv {
   readonly VITE_GOOGLE_OIDC_CLIENT_ID?: string;
   readonly VITE_TATCHI_ENVIRONMENT_ID?: string;
   readonly VITE_TATCHI_PUBLISHABLE_KEY?: string;
-  readonly VITE_TATCHI_BROKER_URL?: string;
   readonly VITE_RELAYER_ACCOUNT_ID?: string;
 
   readonly VITE_NEAR_NETWORK?: 'testnet' | 'mainnet';

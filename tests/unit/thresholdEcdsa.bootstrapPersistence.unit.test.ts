@@ -86,4 +86,39 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(calls[0]?.chainIdKey).toBe('evm:unknown');
     expect(calls[1]?.chainIdKey).toBe('tempo:42431');
   });
+
+  test('persists deployed state when registration already deployed the smart account', async () => {
+    const calls: UpsertCall[] = [];
+
+    await persistThresholdEcdsaBootstrapChainAccount({
+      indexedDB: createIndexedDbPort(calls),
+      nearAccountId: 'alice.testnet' as any,
+      chain: 'tempo',
+      bootstrap: {
+        keygen: {
+          chainId: 42431,
+          counterfactualAddress: `0x${'12'.repeat(20)}`,
+          ethereumAddress: `0x${'12'.repeat(20)}`,
+        },
+      } as any,
+      deployment: {
+        deployed: true,
+        deploymentTxHash: '0xdeploytempo',
+      },
+    });
+
+    expect(calls.length).toBe(2);
+
+    const primary = calls[0]!;
+    expect(primary.chainIdKey).toBe('tempo:42431');
+    expect(primary.deployed).toBe(true);
+    expect(primary.deploymentTxHash).toBe('0xdeploytempo');
+    expect(typeof primary.lastDeploymentCheckAt).toBe('number');
+
+    const mirror = calls[1]!;
+    expect(mirror.chainIdKey).toBe('evm:unknown');
+    expect(mirror.deployed).toBe(false);
+    expect(mirror.deploymentTxHash).toBeNull();
+    expect(mirror.lastDeploymentCheckAt).toBeNull();
+  });
 });

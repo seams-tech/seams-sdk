@@ -78,10 +78,6 @@ function resolveRegistrationConfig(args: {
     ('backend_proxy' as const);
 
   if (mode === 'managed') {
-    const brokerUrl =
-      toTrimmedString(managedOverrides?.brokerUrl) ||
-      toTrimmedString(managedDefaults?.brokerUrl) ||
-      joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
     const environmentId =
       toTrimmedString(managedOverrides?.environmentId) ||
       toTrimmedString(managedDefaults?.environmentId);
@@ -92,9 +88,6 @@ function resolveRegistrationConfig(args: {
       managedOverrides?.paymentMode ??
       managedDefaults?.paymentMode ??
       'disabled';
-    if (!brokerUrl) {
-      throw new Error('[configPresets] Missing required config: registration.brokerUrl');
-    }
     if (!environmentId) {
       throw new Error('[configPresets] Missing required config: registration.environmentId');
     }
@@ -104,7 +97,6 @@ function resolveRegistrationConfig(args: {
     return {
       mode: 'managed',
       environmentId,
-      brokerUrl,
       publishableKey,
       paymentMode,
     };

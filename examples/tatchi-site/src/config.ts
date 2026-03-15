@@ -71,16 +71,6 @@ function resolveManagedRegistrationConfig(
 ): ManagedRegistrationConfig | undefined {
   const environmentId = toOptionalString(source.VITE_TATCHI_ENVIRONMENT_ID);
   const publishableKey = toOptionalString(source.VITE_TATCHI_PUBLISHABLE_KEY);
-  const relayerUrl = toTrimmedString(source.VITE_RELAYER_URL);
-  const brokerUrlRaw = toTrimmedString(source.VITE_TATCHI_BROKER_URL);
-  const brokerUrl = brokerUrlRaw
-    ? /^https?:\/\/[^/]+$/i.test(brokerUrlRaw)
-      ? joinUrlPath(brokerUrlRaw, '/v1/registration/bootstrap-grants')
-      : brokerUrlRaw
-    : undefined;
-  const defaultBrokerUrl = relayerUrl
-    ? joinUrlPath(relayerUrl, '/v1/registration/bootstrap-grants')
-    : undefined;
 
   if (environmentId && !publishableKey) {
     throw new Error(
@@ -98,7 +88,6 @@ function resolveManagedRegistrationConfig(
     mode: 'managed',
     environmentId,
     publishableKey,
-    ...(brokerUrl || defaultBrokerUrl ? { brokerUrl: brokerUrl || defaultBrokerUrl! } : {}),
   };
 }
 

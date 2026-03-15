@@ -376,6 +376,7 @@ export interface CreateAccountAndRegisterRequest {
       relayerKeyId?: string;
     };
     session_kind: 'jwt' | 'cookie';
+    smart_account_targets?: CreateAccountAndRegisterSmartAccountTarget[];
   };
   /**
    * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
@@ -391,6 +392,27 @@ export interface CreateAccountAndRegisterRequest {
    */
   expected_origin?: string;
   authenticator_options?: AuthenticatorOptions;
+}
+
+export interface CreateAccountAndRegisterSmartAccountTarget {
+  chain: 'evm' | 'tempo';
+  chain_id: number;
+  factory?: string;
+  entry_point?: string;
+  salt?: string;
+  counterfactual_address?: string;
+}
+
+export interface CreateAccountAndRegisterSmartAccountDeployment {
+  chain: 'evm' | 'tempo';
+  chainId: number;
+  accountAddress: string;
+  accountModel: 'erc4337' | 'tempo-native';
+  deployed: boolean;
+  deploymentTxHash?: string;
+  code?: string;
+  message?: string;
+  counterfactualAddress?: string;
 }
 
 // Result type for atomic account creation and registration
@@ -431,6 +453,7 @@ export interface CreateAccountAndRegisterResult {
       jwt?: string;
     };
   };
+  smartAccountDeployments?: CreateAccountAndRegisterSmartAccountDeployment[];
   error?: string;
   message?: string;
   contractResult?: any; // FinalExecutionOutcome
@@ -670,9 +693,9 @@ export interface ThresholdEd25519SignFinalizeResponse {
   relayerSignatureSharesById?: Record<string, string>;
 }
 
-// =======================================
-// Threshold Ed25519 (internal cosigner RPC)
-// =======================================
+// ==========================================
+// Threshold Ed25519 cosign continuation payloads
+// ==========================================
 
 export interface ThresholdEd25519CosignInitRequest {
   coordinatorGrant: string;
@@ -1018,9 +1041,9 @@ export interface ThresholdEcdsaSignFinalizeResponse {
   relayerRound2?: ThresholdEcdsaSignFinalizeRelayerRound2V1;
 }
 
-// =====================================
-// Threshold ECDSA (internal cosigner RPC)
-// =====================================
+// =======================================
+// Threshold ECDSA cosign continuation payloads
+// =======================================
 
 export interface ThresholdEcdsaCosignInitRequest {
   coordinatorGrant: string;

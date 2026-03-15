@@ -22,6 +22,11 @@ export type ThresholdEcdsaSmartAccountBootstrapInput = {
   counterfactualAddress?: string;
 };
 
+export type ThresholdEcdsaSmartAccountDeploymentInput = {
+  deployed: boolean;
+  deploymentTxHash?: string;
+};
+
 export type ThresholdEcdsaBootstrapIndexedDbPort = {
   clientDB: {
     resolveNearAccountContext: (
@@ -69,6 +74,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   chain: ThresholdEcdsaActivationChain;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  deployment?: ThresholdEcdsaSmartAccountDeploymentInput;
 }): Promise<void> {
   const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
   const nearContext = await args.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
@@ -99,6 +105,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     args.smartAccount?.entryPoint || args.bootstrap.keygen.entryPoint,
   );
   const salt = normalizeOptionalNonEmptyString(args.smartAccount?.salt || args.bootstrap.keygen.salt);
+  const deploymentCheckedAt = args.deployment?.deployed ? Date.now() : null;
 
   await args.indexedDB.upsertChainAccount({
     profileId: nearContext.profileId,
@@ -110,9 +117,12 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     ...(entryPoint ? { entryPoint } : {}),
     ...(salt ? { salt } : {}),
     counterfactualAddress: accountAddress,
-    deployed: false,
-    deploymentTxHash: null,
-    lastDeploymentCheckAt: null,
+    deployed: args.deployment?.deployed === true,
+    deploymentTxHash:
+      args.deployment?.deployed === true
+        ? normalizeOptionalNonEmptyString(args.deployment.deploymentTxHash) || null
+        : null,
+    lastDeploymentCheckAt: deploymentCheckedAt,
   });
 
   // Provisioning once (tempo or evm) should still leave an "unknown" row for the

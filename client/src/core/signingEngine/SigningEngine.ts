@@ -600,6 +600,10 @@ export class SigningEngine {
     chain: ThresholdEcdsaActivationChain;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+    deployment?: {
+      deployed: boolean;
+      deploymentTxHash?: string;
+    };
   }): Promise<void> {
     return persistThresholdEcdsaBootstrapChainAccountValue({
       indexedDB: this.orchestrationDeps.indexedDB,
@@ -607,6 +611,7 @@ export class SigningEngine {
       chain: args.chain,
       bootstrap: args.bootstrap,
       smartAccount: args.smartAccount,
+      deployment: args.deployment,
     });
   }
 

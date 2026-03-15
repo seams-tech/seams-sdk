@@ -60,7 +60,6 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
         mode: 'managed',
         environmentId: 'env_prod',
         publishableKey: 'pk_publishable',
-        brokerUrl: 'https://broker.example/v1/registration/bootstrap-grants',
       },
     });
 
@@ -70,6 +69,23 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
     }
     expect(cfg.registration.environmentId).toBe('env_prod');
     expect(cfg.registration.publishableKey).toBe('pk_publishable');
-    expect(cfg.registration.brokerUrl).toBe('https://broker.example/v1/registration/bootstrap-grants');
+    expect(cfg.registration.paymentMode).toBe('disabled');
+  });
+
+  test('managed registration config no longer includes a broker override field', async () => {
+    const cfg = buildConfigsFromEnv({
+      relayer: { url: 'https://relay.example' },
+      registration: {
+        mode: 'managed',
+        environmentId: 'env_prod',
+        publishableKey: 'pk_publishable',
+      },
+    });
+
+    expect(cfg.registration.mode).toBe('managed');
+    if (cfg.registration.mode !== 'managed') {
+      throw new Error('Expected managed registration mode');
+    }
+    expect('brokerUrl' in cfg.registration).toBe(false);
   });
 });

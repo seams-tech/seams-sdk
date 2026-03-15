@@ -199,7 +199,6 @@ test.describe('Wallet iframe config propagation', () => {
             mode: 'managed',
             environmentId: 'proj_demo:dev',
             publishableKey: 'pk_demopublishablekeypreview',
-            brokerUrl: 'https://localhost:9444',
           },
           iframeWallet: {
             walletOrigin,
@@ -226,7 +225,6 @@ test.describe('Wallet iframe config propagation', () => {
       mode: 'managed',
       environmentId: 'proj_demo:dev',
       publishableKey: 'pk_demopublishablekeypreview',
-      brokerUrl: 'https://localhost:9444',
       paymentMode: 'disabled',
     });
   });
