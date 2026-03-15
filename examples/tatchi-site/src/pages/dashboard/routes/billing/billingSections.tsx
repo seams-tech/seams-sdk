@@ -147,6 +147,27 @@ function sortBillingOverviewMembers(
   });
 }
 
+function formatBillingOverviewMemberAddedAt(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function describeBillingOverviewMemberMeta(
+  member: DashboardPlatformBillingOrganizationMember,
+): string {
+  const addedAt = formatBillingOverviewMemberAddedAt(member.addedAt);
+  const dateLabel =
+    member.status === 'INVITED'
+      ? addedAt
+        ? `Invited ${addedAt}`
+        : 'Invited'
+      : addedAt
+        ? `Added ${addedAt}`
+        : 'Added';
+  return `${dateLabel} • ${member.userId}`;
+}
+
 export function BillingContextSummarySection(props: {
   context: {
     organization: string;
@@ -200,6 +221,12 @@ export function BillingContextSummarySection(props: {
                     title={member.email}
                   >
                     {member.email}
+                  </span>
+                  <span
+                    className="dashboard-data-table__subline dashboard-data-table__subline--muted dashboard-billing-overview__member-meta"
+                    title={describeBillingOverviewMemberMeta(member)}
+                  >
+                    {describeBillingOverviewMemberMeta(member)}
                   </span>
                 </div>
                 <span

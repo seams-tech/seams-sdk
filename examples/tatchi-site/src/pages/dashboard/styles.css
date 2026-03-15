@@ -2853,6 +2853,10 @@
   gap: 4px;
 }
 
+.dashboard-billing-overview__member-meta {
+  font-variant-numeric: tabular-nums;
+}
+
 .dashboard-billing-overview__member-copy strong,
 .dashboard-billing-overview__member-copy span {
   overflow: hidden;
@@ -3121,6 +3125,18 @@
 
 .dashboard-platform-billing-adjustment-shell__intro {
   border-radius: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.dashboard-platform-billing-adjustment-shell__copy {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.dashboard-platform-billing-adjustment-shell__intro .dashboard-info-banner {
+  grid-column: 1 / -1;
 }
 
 .dashboard-billing-filters__period {
@@ -4679,6 +4695,10 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   }
 
   .dashboard-billing-adjustment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-platform-billing-adjustment-shell__intro {
     grid-template-columns: 1fr;
   }
 
