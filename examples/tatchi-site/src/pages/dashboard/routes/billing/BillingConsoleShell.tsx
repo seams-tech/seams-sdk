@@ -609,7 +609,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
             <PlatformBillingView />
           ) : (
             <section className="dashboard-view__section">
-              <p>Platform billing is only available to platform_admin users.</p>
+              <p>Customer Accounts is only available to platform admin users.</p>
             </section>
           )
         ) : (
