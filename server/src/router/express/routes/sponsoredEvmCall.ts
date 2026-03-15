@@ -1,25 +1,44 @@
-import type { Router as ExpressRouter } from 'express';
+import type { Request, Response, Router as ExpressRouter } from 'express';
+import { createRelayPublishableKeyAuthAdapter } from '../../relayApiKeyAuth';
+import { handleRelaySponsoredEvmCall } from '../../relaySponsoredEvmCall';
+import { findRouteDefinitionById } from '../../routeDefinitions';
+import { sendExpressRouteResponse } from '../../routeResponses';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import {
-  DEFAULT_SPONSORED_EVM_CALL_ROUTE,
-  registerSponsoredEvmCallRoute,
-} from '../../../sponsorship/evmRelay';
 
 export function registerSponsoredEvmCallRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
 ): void {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, 'sponsored_evm_call');
+  if (!route) return;
+
   const options = ctx.opts.sponsoredEvmCall;
   if (!options) return;
-  registerSponsoredEvmCallRoute({
-    router,
-    apiKeys: options.apiKeys,
+
+  const publishableKeyAuth =
+    typeof options.apiKeys.authenticatePublishableKey === 'function'
+      ? createRelayPublishableKeyAuthAdapter(options.apiKeys)
+      : null;
+  const relaySponsoredEvmCall = {
     billing: options.billing,
-    ledger: options.ledger,
-    runtimeSnapshots: options.runtimeSnapshots,
-    corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
     config: options.config,
-    route: options.route || DEFAULT_SPONSORED_EVM_CALL_ROUTE,
-    logger: ctx.logger,
+    corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
+    publishableKeyAuth,
+    runtimeSnapshots: options.runtimeSnapshots,
+    sponsoredCalls: options.ledger,
+  } as const;
+
+  router.post(route.path, async (req: Request, res: Response) => {
+    const response = await handleRelaySponsoredEvmCall({
+      body: req.body,
+      headers: (req.headers || {}) as Record<string, string | string[] | undefined>,
+      logger: ctx.logger,
+      origin: String(req.headers?.origin || req.headers?.Origin || '').trim() || undefined,
+      route,
+      services: {
+        relaySponsoredEvmCall,
+      },
+    });
+    sendExpressRouteResponse(res, response);
   });
 }
