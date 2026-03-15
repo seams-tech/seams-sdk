@@ -39,6 +39,7 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   listDashboardAccountOrganizations,
   switchDashboardAccountOrganizationContext,
+  type DashboardAccountOrganization,
 } from './routes/account-settings/consoleAccountApi';
 import './styles.css';
 
@@ -87,6 +88,58 @@ function dedupeOptions(options: TopbarOption[]): TopbarOption[] {
   return deduped;
 }
 
+function buildFallbackOptions(value: string, label?: string | null): TopbarOption[] {
+  const normalizedValue = String(value || '').trim();
+  if (!normalizedValue) return [];
+  return [
+    {
+      value: normalizedValue,
+      label: String(label || '').trim() || normalizedValue,
+    },
+  ];
+}
+
+function findPreferredOrganizationSummary(input: {
+  organizations: DashboardAccountOrganization[];
+  currentOrgId: string;
+  preferredOrganizationId: string;
+}): DashboardAccountOrganization | null {
+  const { organizations, currentOrgId, preferredOrganizationId } = input;
+  if (!organizations.length) return null;
+  const currentMatch =
+    (currentOrgId && organizations.find((entry) => entry.id === currentOrgId)) || null;
+  if (currentMatch) return currentMatch;
+  const preferredMatch =
+    (preferredOrganizationId &&
+      organizations.find((entry) => entry.id === preferredOrganizationId)) ||
+    null;
+  if (preferredMatch) return preferredMatch;
+  return organizations.find((entry) => entry.isCurrentOrg) || organizations[0] || null;
+}
+
+function buildOrglessOnboardingState(): DashboardOnboardingState {
+  return {
+    orgId: '',
+    organization: null,
+    activeProjectCount: 0,
+    activeEnvironmentCount: 0,
+    activeApiKeyCount: 0,
+    hasOrganization: false,
+    hasProject: false,
+    hasEnvironment: false,
+    hasApiKey: false,
+    accountReady: true,
+    organizationReady: false,
+    billingReady: false,
+    projectReady: false,
+    onboardingComplete: false,
+    currentStep: 'organization',
+    complete: false,
+    selectedProjectId: null,
+    selectedEnvironmentId: null,
+  };
+}
+
 function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): React.JSX.Element {
   const { theme, setTheme } = useTheme();
   const { go, linkProps } = useSiteRouter();
@@ -96,7 +149,9 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     () => readPersistedDashboardSelectedContext(),
     [pathname],
   );
+  const persistedOrganizationId = String(persistedSelectedContext.organization || '').trim();
   const persistedProjectId = String(persistedSelectedContext.project || '').trim();
+  const persistedEnvironmentId = String(persistedSelectedContext.environment || '').trim();
   const [onboardingLoading, setOnboardingLoading] = React.useState<boolean>(false);
   const [onboardingState, setOnboardingState] = React.useState<DashboardOnboardingState | null>(
     null,
@@ -105,10 +160,20 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const [logoutPending, setLogoutPending] = React.useState<boolean>(false);
   const [logoutErrorMessage, setLogoutErrorMessage] = React.useState<string>('');
   const [contextActionErrorMessage, setContextActionErrorMessage] = React.useState<string>('');
+  const [accountOrganizations, setAccountOrganizations] = React.useState<DashboardAccountOrganization[]>(
+    [],
+  );
+  const [accountOrganizationsResolved, setAccountOrganizationsResolved] = React.useState<boolean>(
+    false,
+  );
+  const [pendingOrganizationContextOrgId, setPendingOrganizationContextOrgId] = React.useState<string>(
+    '',
+  );
   const [organizationOptions, setOrganizationOptions] = React.useState<TopbarOption[]>([]);
   const [projectOptions, setProjectOptions] = React.useState<TopbarOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string>(persistedProjectId);
   const [environmentOptions, setEnvironmentOptions] = React.useState<TopbarOption[]>([]);
+  const organizationRecoveryAttemptRef = React.useRef<string>('');
   const onboardingComplete = onboardingState
     ? onboardingState.onboardingComplete === undefined
       ? onboardingState.complete === true
@@ -121,9 +186,47 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     !consoleSession.claims &&
     (consoleSession.errorCode === 'forbidden' || consoleSession.errorStatus === 403);
   const currentOrgId = String(consoleSession.claims?.orgId || '').trim();
+  const onboardingStateOrgId = String(onboardingState?.orgId || '').trim();
   const onboardingSelectedProjectId = String(onboardingState?.selectedProjectId || '').trim();
   const onboardingSelectedEnvironmentId = String(
     onboardingState?.selectedEnvironmentId || '',
+  ).trim();
+  const onboardingSelectionMatchesCurrentOrg = Boolean(
+    currentOrgId && onboardingStateOrgId === currentOrgId,
+  );
+  const scopedOnboardingSelectedProjectId = onboardingSelectionMatchesCurrentOrg
+    ? onboardingSelectedProjectId
+    : '';
+  const scopedOnboardingSelectedEnvironmentId = onboardingSelectionMatchesCurrentOrg
+    ? onboardingSelectedEnvironmentId
+    : '';
+  const persistedSelectionMatchesCurrentOrg = Boolean(
+    currentOrgId && persistedOrganizationId === currentOrgId,
+  );
+  const scopedPersistedProjectId = persistedSelectionMatchesCurrentOrg ? persistedProjectId : '';
+  const scopedPersistedEnvironmentId = persistedSelectionMatchesCurrentOrg
+    ? persistedEnvironmentId
+    : '';
+  const currentOrganizationSummary = React.useMemo(
+    () =>
+      findPreferredOrganizationSummary({
+        organizations: accountOrganizations,
+        currentOrgId,
+        preferredOrganizationId: persistedOrganizationId,
+      }),
+    [accountOrganizations, currentOrgId, persistedOrganizationId],
+  );
+  const currentOrganizationProjectId = String(
+    currentOrganizationSummary?.selectedProjectId || '',
+  ).trim();
+  const currentOrganizationProjectLabel = String(
+    currentOrganizationSummary?.selectedProjectName || '',
+  ).trim();
+  const currentOrganizationEnvironmentId = String(
+    currentOrganizationSummary?.selectedEnvironmentId || '',
+  ).trim();
+  const currentOrganizationEnvironmentLabel = String(
+    currentOrganizationSummary?.selectedEnvironmentName || '',
   ).trim();
   const onboardingOrganizationName = String(onboardingState?.organization?.name || '').trim();
   const onboardingOrganizationId = String(
@@ -158,6 +261,22 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       !onboardingState ||
       onboardingState.hasOrganization !== true ||
       onboardingState.hasProject !== true);
+  const recoveryTargetOrgId = !currentOrgId
+    ? String(currentOrganizationSummary?.id || '').trim()
+    : '';
+  const recoveryAttemptKey =
+    recoveryTargetOrgId && consoleSession.claims?.userId
+      ? `${consoleSession.claims.userId}:${recoveryTargetOrgId}`
+      : '';
+  const isRecoveringOrganizationContext =
+    Boolean(consoleSession.claims) &&
+    !currentOrgId &&
+    (!accountOrganizationsResolved ||
+      Boolean(pendingOrganizationContextOrgId) ||
+      (Boolean(recoveryTargetOrgId) && organizationRecoveryAttemptRef.current !== recoveryAttemptKey));
+  const isWaitingForCurrentOrgOnboardingState = Boolean(
+    currentOrgId && onboardingGateEnabled && onboardingStateOrgId !== currentOrgId,
+  );
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -165,9 +284,21 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       setOnboardingLoading(false);
       setOnboardingState(null);
       setOnboardingGateEnabled(true);
+      setAccountOrganizations([]);
+      setAccountOrganizationsResolved(false);
+      setPendingOrganizationContextOrgId('');
       setOrganizationOptions([]);
       setProjectOptions([]);
       setSelectedProjectId(persistedProjectId);
+      setEnvironmentOptions([]);
+      return;
+    }
+    if (!currentOrgId) {
+      setOnboardingLoading(false);
+      setOnboardingState(buildOrglessOnboardingState());
+      setOnboardingGateEnabled(true);
+      setSelectedProjectId('');
+      setProjectOptions([]);
       setEnvironmentOptions([]);
       return;
     }
@@ -198,7 +329,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     return () => {
       cancelled = true;
     };
-  }, [consoleSession.claims, persistedProjectId]);
+  }, [consoleSession.claims, currentOrgId, persistedProjectId]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -232,6 +363,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     const claims = consoleSession.claims;
     if (!claims) return;
     if (consoleSession.loading || onboardingLoading) return;
+    if (isRecoveringOrganizationContext) return;
+    if (isWaitingForCurrentOrgOnboardingState) return;
     if (!onboardingGateEnabled || !onboardingState) return;
     const isOnboardingRoute = pathname === DASHBOARD_ONBOARDING_ROUTE;
     const isAccountSettingsRoute = pathname === DASHBOARD_ACCOUNT_SETTINGS_ROUTE;
@@ -249,6 +382,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     consoleSession.loading,
     go,
     hasConfiguredOrganization,
+    isRecoveringOrganizationContext,
+    isWaitingForCurrentOrgOnboardingState,
     onboardingGateEnabled,
     onboardingLoading,
     onboardingState,
@@ -259,20 +394,48 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     if (onboardingGateEnabled && onboardingState && hasConfiguredOrganization)
       return DEFAULT_DASHBOARD_ROUTE;
     return DASHBOARD_ONBOARDING_ROUTE;
-  }, [hasConfiguredOrganization, onboardingGateEnabled, onboardingState]);
+  }, [
+    hasConfiguredOrganization,
+    onboardingGateEnabled,
+    onboardingState,
+  ]);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
     if (!claims) {
+      setAccountOrganizationsResolved(false);
       return;
     }
     let cancelled = false;
-    Promise.all([
+    setAccountOrganizationsResolved(false);
+    Promise.allSettled([
       listDashboardAccountOrganizations(),
-      listDashboardProjects({ status: 'ACTIVE' }),
+      currentOrgId
+        ? listDashboardProjects({ status: 'ACTIVE' })
+        : Promise.resolve([]),
     ])
-      .then(([organizations, projects]) => {
+      .then(([organizationsResult, projectsResult]) => {
         if (cancelled) return;
+        const organizations =
+          organizationsResult.status === 'fulfilled' ? organizationsResult.value : [];
+        const projects = projectsResult.status === 'fulfilled' ? projectsResult.value : [];
+        const preferredOrganization = findPreferredOrganizationSummary({
+          organizations,
+          currentOrgId,
+          preferredOrganizationId: persistedOrganizationId,
+        });
+        const preferredOrganizationProjectId = String(
+          preferredOrganization?.selectedProjectId || '',
+        ).trim();
+        const preferredOrganizationProjectLabel = String(
+          preferredOrganization?.selectedProjectName || '',
+        ).trim();
+        const hasScopedProjectFallback = Boolean(
+          preferredOrganizationProjectId ||
+            scopedOnboardingSelectedProjectId ||
+            scopedPersistedProjectId,
+        );
+        setAccountOrganizations(organizations);
         const nextOrganizationOptions = dedupeOptions(
           organizations
             .filter((entry) => {
@@ -294,43 +457,117 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
               label: entry.name || entry.id,
             })),
         );
-        setOrganizationOptions(
-          nextOrganizationOptions,
-        );
+        setOrganizationOptions(nextOrganizationOptions);
         const nextProjectOptions = dedupeOptions(
-          projects.map((entry) => ({
-            value: entry.id,
-            label: entry.name || entry.id,
-          })),
+          [
+            ...projects.map((entry) => ({
+              value: entry.id,
+              label: entry.name || entry.id,
+            })),
+            ...buildFallbackOptions(
+              preferredOrganizationProjectId,
+              preferredOrganizationProjectLabel,
+            ),
+            ...buildFallbackOptions(scopedOnboardingSelectedProjectId),
+            ...(scopedPersistedProjectId ? buildFallbackOptions(scopedPersistedProjectId) : []),
+          ],
         );
         setProjectOptions(nextProjectOptions);
         const nextSelectedProjectId =
-          (onboardingSelectedProjectId &&
-            nextProjectOptions.find((entry) => entry.value === onboardingSelectedProjectId)
+          (scopedOnboardingSelectedProjectId &&
+            nextProjectOptions.find((entry) => entry.value === scopedOnboardingSelectedProjectId)
               ?.value) ||
+          (preferredOrganizationProjectId &&
+            nextProjectOptions.find((entry) => entry.value === preferredOrganizationProjectId)
+              ?.value) ||
+          (scopedPersistedProjectId &&
+            nextProjectOptions.find((entry) => entry.value === scopedPersistedProjectId)?.value) ||
           nextProjectOptions[0]?.value ||
-          onboardingSelectedProjectId ||
+          scopedOnboardingSelectedProjectId ||
+          preferredOrganizationProjectId ||
+          scopedPersistedProjectId ||
           '';
         setSelectedProjectId(nextSelectedProjectId);
+        setAccountOrganizationsResolved(true);
       })
       .catch(() => {
         if (cancelled) return;
-        const persisted = readPersistedDashboardSelectedContext();
-        const preferredProjectId = String(persisted.project || '').trim();
-        setOrganizationOptions([]);
-        const fallbackProjects = dedupeOptions([
-          ...(preferredProjectId ? [{ value: preferredProjectId, label: preferredProjectId }] : []),
-          ...(onboardingSelectedProjectId
-            ? [{ value: onboardingSelectedProjectId, label: onboardingSelectedProjectId }]
-            : []),
-        ]);
-        setProjectOptions(fallbackProjects);
-        setSelectedProjectId(preferredProjectId || onboardingSelectedProjectId || '');
+        setAccountOrganizationsResolved(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [consoleSession.claims, onboardingSelectedProjectId, pathname]);
+  }, [
+    consoleSession.claims,
+    currentOrgId,
+    scopedOnboardingSelectedProjectId,
+    pathname,
+    persistedOrganizationId,
+    scopedPersistedProjectId,
+  ]);
+
+  const switchOrganizationContext = React.useCallback(
+    (nextOrgId: string, failurePrefix: string) => {
+      const normalizedOrgId = String(nextOrgId || '').trim();
+      if (!normalizedOrgId) return;
+      setContextActionErrorMessage('');
+      setPendingOrganizationContextOrgId(normalizedOrgId);
+      void switchDashboardAccountOrganizationContext(normalizedOrgId)
+        .then((nextContext) => {
+          clearDashboardUiState();
+          replaceDashboardSelectedContext({
+            organization: nextContext.orgId,
+            project: nextContext.projectId || '',
+            environment: nextContext.environmentId || '',
+          });
+          setSelectedProjectId(nextContext.projectId || '');
+          consoleSession.refresh();
+        })
+        .catch((error: unknown) => {
+          setPendingOrganizationContextOrgId('');
+          setContextActionErrorMessage(
+            `${failurePrefix}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    },
+    [consoleSession],
+  );
+
+  React.useEffect(() => {
+    if (!consoleSession.claims) {
+      organizationRecoveryAttemptRef.current = '';
+      return;
+    }
+    if (currentOrgId) {
+      organizationRecoveryAttemptRef.current = '';
+      return;
+    }
+    if (!accountOrganizationsResolved) return;
+    const preferredOrganizationId = recoveryTargetOrgId;
+    if (!preferredOrganizationId) return;
+    const recoveryKey = recoveryAttemptKey;
+    if (organizationRecoveryAttemptRef.current === recoveryKey) return;
+    organizationRecoveryAttemptRef.current = recoveryKey;
+    switchOrganizationContext(preferredOrganizationId, 'Organization context recovery failed');
+  }, [
+    accountOrganizationsResolved,
+    consoleSession.claims,
+    currentOrgId,
+    recoveryAttemptKey,
+    recoveryTargetOrgId,
+    switchOrganizationContext,
+  ]);
+
+  React.useEffect(() => {
+    if (!consoleSession.claims) {
+      setPendingOrganizationContextOrgId('');
+      return;
+    }
+    if (!pendingOrganizationContextOrgId) return;
+    if (currentOrgId === pendingOrganizationContextOrgId) {
+      setPendingOrganizationContextOrgId('');
+    }
+  }, [consoleSession.claims, currentOrgId, pendingOrganizationContextOrgId]);
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
@@ -341,6 +578,19 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     const projectId = String(selectedProjectId || '').trim();
     if (!projectId) {
       setEnvironmentOptions([]);
+      return;
+    }
+    if (!currentOrgId) {
+      setEnvironmentOptions(
+        dedupeOptions(
+          currentOrganizationProjectId === projectId
+            ? buildFallbackOptions(
+                currentOrganizationEnvironmentId,
+                currentOrganizationEnvironmentLabel,
+              )
+            : [],
+        ),
+      );
       return;
     }
     let cancelled = false;
@@ -397,20 +647,31 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
                 },
               ]
             : []),
+          ...(currentOrganizationProjectId === projectId
+            ? buildFallbackOptions(
+                currentOrganizationEnvironmentId,
+                currentOrganizationEnvironmentLabel,
+              )
+            : []),
+          ...(scopedOnboardingSelectedProjectId === projectId
+            ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
+            : []),
         ]);
         setEnvironmentOptions(nextEnvironmentOptions);
       })
       .catch(() => {
         if (cancelled) return;
-        const persisted = readPersistedDashboardSelectedContext();
-        const preferredEnvironmentId = String(persisted.environment || '').trim();
         setEnvironmentOptions(
           dedupeOptions([
-            ...(preferredEnvironmentId
-              ? [{ value: preferredEnvironmentId, label: preferredEnvironmentId }]
+            ...buildFallbackOptions(scopedPersistedEnvironmentId),
+            ...(currentOrganizationProjectId === projectId
+              ? buildFallbackOptions(
+                  currentOrganizationEnvironmentId,
+                  currentOrganizationEnvironmentLabel,
+                )
               : []),
-            ...(onboardingSelectedProjectId === projectId && onboardingSelectedEnvironmentId
-              ? [{ value: onboardingSelectedEnvironmentId, label: onboardingSelectedEnvironmentId }]
+            ...(scopedOnboardingSelectedProjectId === projectId
+              ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
               : []),
           ]),
         );
@@ -420,8 +681,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     };
   }, [
     consoleSession.claims,
-    onboardingSelectedEnvironmentId,
-    onboardingSelectedProjectId,
+    currentOrgId,
+    scopedOnboardingSelectedEnvironmentId,
+    scopedOnboardingSelectedProjectId,
+    currentOrganizationEnvironmentId,
+    currentOrganizationEnvironmentLabel,
+    currentOrganizationProjectId,
+    scopedPersistedEnvironmentId,
     selectedProjectId,
     billingReady,
   ]);
@@ -433,8 +699,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         projectOptions.length > 0
           ? projectOptions
           : dedupeOptions([
-              ...(onboardingSelectedProjectId
-                ? [{ value: onboardingSelectedProjectId, label: onboardingSelectedProjectId }]
+              ...(scopedOnboardingSelectedProjectId
+                ? [
+                    {
+                      value: scopedOnboardingSelectedProjectId,
+                      label: scopedOnboardingSelectedProjectId,
+                    },
+                  ]
                 : []),
             ]),
       ),
@@ -442,13 +713,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
         environmentOptions.length > 0
           ? environmentOptions
           : dedupeOptions([
-              ...(onboardingSelectedEnvironmentId &&
+              ...(scopedOnboardingSelectedEnvironmentId &&
               selectedProjectId &&
-              onboardingSelectedProjectId === selectedProjectId
+              scopedOnboardingSelectedProjectId === selectedProjectId
                 ? [
                     {
-                      value: onboardingSelectedEnvironmentId,
-                      label: onboardingSelectedEnvironmentId,
+                      value: scopedOnboardingSelectedEnvironmentId,
+                      label: scopedOnboardingSelectedEnvironmentId,
                     },
                   ]
                 : []),
@@ -472,10 +743,9 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     [
       consoleSession.claims,
       environmentOptions,
-      onboardingSelectedEnvironmentId,
-      onboardingSelectedProjectId,
+      scopedOnboardingSelectedEnvironmentId,
+      scopedOnboardingSelectedProjectId,
       organizationOptions,
-      persistedProjectId,
       projectOptions,
       resolvedTheme,
       selectedProjectId,
@@ -484,16 +754,19 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   const defaultTopbarContext = React.useMemo<TopbarContextState>(() => {
     const preferredProjectId = String(
-      selectedProjectId || onboardingSelectedProjectId || '',
+      selectedProjectId || currentOrganizationProjectId || scopedOnboardingSelectedProjectId || '',
     ).trim();
     const projectValue =
       dropdownOptions.project.find((entry) => entry.value === preferredProjectId)?.value ||
       dropdownOptions.project[0]?.value ||
       preferredProjectId;
     const preferredEnvironmentId = String(
-      projectValue && onboardingSelectedProjectId === projectValue
-        ? onboardingSelectedEnvironmentId || ''
-        : '',
+      (projectValue && currentOrganizationProjectId === projectValue
+        ? currentOrganizationEnvironmentId || ''
+        : '') ||
+        (projectValue && scopedOnboardingSelectedProjectId === projectValue
+          ? scopedOnboardingSelectedEnvironmentId || ''
+          : ''),
     ).trim();
     const preferredEnvironmentOption = dropdownOptions.environment.find(
       (entry) => entry.value === preferredEnvironmentId && isSelectableOption(entry),
@@ -512,9 +785,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     };
   }, [
     consoleSession.claims,
+    currentOrganizationEnvironmentId,
+    currentOrganizationProjectId,
     dropdownOptions,
-    onboardingSelectedEnvironmentId,
-    onboardingSelectedProjectId,
+    scopedOnboardingSelectedEnvironmentId,
+    scopedOnboardingSelectedProjectId,
     selectedProjectId,
   ]);
 
@@ -561,6 +836,29 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   }, [currentOrgId, onSelectContextRaw, selectedContext.organization]);
 
   React.useEffect(() => {
+    if (!consoleSession.claims) return;
+    if (currentOrgId) return;
+    if (accountOrganizations.length > 0) return;
+    const hasStaleScope =
+      String(selectedContext.organization || '').trim().length > 0 ||
+      String(selectedContext.project || '').trim().length > 0 ||
+      String(selectedContext.environment || '').trim().length > 0;
+    if (!hasStaleScope) return;
+    replaceDashboardSelectedContext({
+      organization: '',
+      project: '',
+      environment: '',
+    });
+  }, [
+    accountOrganizations.length,
+    consoleSession.claims,
+    currentOrgId,
+    selectedContext.environment,
+    selectedContext.organization,
+    selectedContext.project,
+  ]);
+
+  React.useEffect(() => {
     const project = String(selectedContext.project || '').trim();
     if (!project || project === selectedProjectId) return;
     setSelectedProjectId(project);
@@ -576,22 +874,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           onSelectContextRaw(menu, nextOrgId);
           return;
         }
-        void switchDashboardAccountOrganizationContext(nextOrgId)
-          .then((nextContext) => {
-            clearDashboardUiState();
-            replaceDashboardSelectedContext({
-              organization: nextContext.orgId,
-              project: nextContext.projectId || '',
-              environment: nextContext.environmentId || '',
-            });
-            setSelectedProjectId(nextContext.projectId || '');
-            consoleSession.refresh();
-          })
-          .catch((error: unknown) => {
-            setContextActionErrorMessage(
-              `Organization switch failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          });
+        switchOrganizationContext(nextOrgId, 'Organization switch failed');
         return;
       }
       if (menu === 'accountSettings' && value === DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION) {
@@ -639,20 +922,22 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     },
     [
       currentOrgId,
-      consoleSession,
       dropdownOptions.environment,
       go,
       logoutPending,
       onSelectContextRaw,
       resolvedTheme,
       setTheme,
+      switchOrganizationContext,
     ],
   );
 
   React.useEffect(() => {
     if (!consoleSession.claims) return;
     if (onboardingGateEnabled && onboardingLoading) return;
+    if (isWaitingForCurrentOrgOnboardingState) return;
     if (onboardingGateEnabled && !onboardingState) return;
+    if (isRecoveringOrganizationContext) return;
     if (pathname === '/dashboard') {
       go(dashboardEntryRoute);
     }
@@ -660,6 +945,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     consoleSession.claims,
     dashboardEntryRoute,
     go,
+    isRecoveringOrganizationContext,
+    isWaitingForCurrentOrgOnboardingState,
     onboardingGateEnabled,
     onboardingLoading,
     onboardingState,
@@ -669,7 +956,9 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   React.useEffect(() => {
     if (!consoleSession.claims) return;
     if (onboardingGateEnabled && onboardingLoading) return;
+    if (isWaitingForCurrentOrgOnboardingState) return;
     if (onboardingGateEnabled && !onboardingState) return;
+    if (isRecoveringOrganizationContext) return;
     if (
       pathname !== '/dashboard' &&
       (pathname.startsWith('/dashboard/') || pathname.startsWith('/platform/')) &&
@@ -681,6 +970,8 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     consoleSession.claims,
     dashboardEntryRoute,
     go,
+    isRecoveringOrganizationContext,
+    isWaitingForCurrentOrgOnboardingState,
     onboardingGateEnabled,
     onboardingLoading,
     onboardingState,

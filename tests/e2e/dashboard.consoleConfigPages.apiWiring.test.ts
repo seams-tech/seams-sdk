@@ -587,6 +587,354 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
   });
 
+  test('dashboard root redirects to onboarding when user has no existing organization', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let onboardingStateCalls = 0;
+    let projectCalls = 0;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user-dashboard-entry-orgless',
+              orgId: '',
+              roles: [],
+              email: 'orgless@example.com',
+              name: 'Orgless User',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        onboardingStateCalls += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'should_not_be_called' }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        projectCalls += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'should_not_be_called' }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard');
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+    await expect.poll(() => onboardingStateCalls).toBe(0);
+    await expect.poll(() => projectCalls).toBe(0);
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/onboarding/i);
+  });
+
+  test('dashboard root recovers organization context and redirects to overview when account already has organizations', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let sessionClaims: Record<string, unknown> = {
+      userId: 'user-dashboard-entry-recover-org',
+      orgId: '',
+      roles: [],
+      email: 'recover@example.com',
+      name: 'Recover User',
+    };
+    const switchBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: sessionClaims,
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [
+              {
+                id: 'org_watchbook',
+                name: 'Watchbook',
+                slug: 'watchbook',
+                status: 'ACTIVE',
+                createdAt: iso('2026-03-10T00:00:00.000Z'),
+                updatedAt: iso('2026-03-11T00:00:00.000Z'),
+                isCurrentOrg: false,
+                actorRoles: ['owner', 'admin'],
+                actorIsOwner: true,
+                actorIsAdmin: true,
+                onboardingComplete: true,
+                selectedProjectId: 'proj_watchbook',
+                selectedProjectName: 'Watchbook Core',
+                selectedEnvironmentId: 'env_watchbook',
+                selectedEnvironmentName: 'Production',
+                adminCandidates: [],
+              },
+              {
+                id: 'org_pokopia',
+                name: 'Pokopia Labs',
+                slug: 'pokopia-labs',
+                status: 'ACTIVE',
+                createdAt: iso('2026-03-08T00:00:00.000Z'),
+                updatedAt: iso('2026-03-09T00:00:00.000Z'),
+                isCurrentOrg: false,
+                actorRoles: ['owner', 'admin'],
+                actorIsOwner: true,
+                actorIsAdmin: true,
+                onboardingComplete: true,
+                selectedProjectId: 'proj_pokopia',
+                selectedProjectName: 'Pokopia Core',
+                selectedEnvironmentId: 'env_pokopia',
+                selectedEnvironmentName: 'Production',
+                adminCandidates: [],
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      const accountOrgMatch = pathname.match(
+        /^\/console\/account\/organizations\/([^/]+?)\/switch-context$/,
+      );
+      const orgId = accountOrgMatch?.[1] ? decodeURIComponent(accountOrgMatch[1]) : '';
+      if (orgId && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        switchBodies.push({ orgId, body });
+        sessionClaims = {
+          userId: 'user-dashboard-entry-recover-org',
+          orgId,
+          roles: ['owner', 'admin'],
+          projectId: 'proj_watchbook',
+          environmentId: 'env_watchbook',
+          email: 'recover@example.com',
+          name: 'Recover User',
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            context: {
+              orgId,
+              projectId: 'proj_watchbook',
+              environmentId: 'env_watchbook',
+              actorRoles: ['owner', 'admin'],
+              onboardingComplete: true,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_watchbook',
+              organization: {
+                id: 'org_watchbook',
+                name: 'Watchbook',
+                slug: 'watchbook',
+                status: 'ACTIVE',
+              },
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: 'proj_watchbook',
+              selectedEnvironmentId: 'env_watchbook',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: {
+              id: 'org_watchbook',
+              name: 'Watchbook',
+              slug: 'watchbook',
+              status: 'ACTIVE',
+              createdAt: iso('2026-03-10T00:00:00.000Z'),
+              updatedAt: iso('2026-03-11T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: [
+              {
+                id: 'proj_watchbook',
+                name: 'Watchbook Core',
+                slug: 'watchbook-core',
+                status: 'ACTIVE',
+                environmentCount: 1,
+                createdAt: iso('2026-03-10T00:00:00.000Z'),
+                updatedAt: iso('2026-03-11T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [
+              {
+                id: 'env_watchbook',
+                projectId: 'proj_watchbook',
+                key: 'prod',
+                name: 'Production',
+                status: 'ACTIVE',
+                createdAt: iso('2026-03-10T00:00:00.000Z'),
+                updatedAt: iso('2026-03-11T00:00:00.000Z'),
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/ops-cockpit/summary' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            summary: {
+              generatedAt: iso('2026-03-11T00:00:00.000Z'),
+              approvals: { status: { state: 'ok' }, pendingCount: 0, pending: [] },
+              billing: { status: { state: 'ok' }, failedInvoiceCount: 0, failedInvoices: [] },
+              webhooks: {
+                status: { state: 'ok' },
+                endpointCount: 0,
+                scannedEndpointCount: 0,
+                deadLetterCount: 0,
+                deadLetters: [],
+              },
+              auditExports: { status: { state: 'ok' }, queuedExportCount: 0, queuedExports: [] },
+              enterpriseIsolation: {
+                status: { state: 'ok' },
+                activeRequestCount: 0,
+                activeRequests: [],
+              },
+              onboardingTelemetry: {
+                status: { state: 'ok' },
+                windowMinutes: 60,
+                alertCount: 0,
+                alerts: [],
+              },
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard');
+    await expect.poll(() => switchBodies.length).toBe(1);
+    expect(switchBodies[0]).toMatchObject({
+      orgId: 'org_watchbook',
+      body: {},
+    });
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/overview');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
+  });
+
   test('dashboard root redirects to onboarding when org is still a default placeholder identity', async ({
     page,
     baseURL,
@@ -1474,6 +1822,188 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('proj_mmggz8jp_v9pft0:dev');
   });
 
+  test('account settings topbar falls back to account organization scope when session context is empty', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_context_fallback',
+              orgId: 'org_pokopia',
+              roles: ['owner', 'admin'],
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: 'org_pokopia',
+              organization: {
+                id: 'org_pokopia',
+                name: 'Pokopia Labs',
+                slug: 'pokopia-labs',
+                status: 'ACTIVE',
+                createdAt: iso('2026-03-08T00:00:00.000Z'),
+                updatedAt: iso('2026-03-11T00:00:00.000Z'),
+              },
+              activeProjectCount: 1,
+              activeEnvironmentCount: 1,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: true,
+              hasEnvironment: true,
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: true,
+              onboardingComplete: true,
+              currentStep: 'complete',
+              complete: true,
+              selectedProjectId: null,
+              selectedEnvironmentId: null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            org: {
+              id: 'org_pokopia',
+              name: 'Pokopia Labs',
+              slug: 'pokopia-labs',
+              status: 'ACTIVE',
+              createdAt: iso('2026-03-08T00:00:00.000Z'),
+              updatedAt: iso('2026-03-11T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            projects: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            environments: [],
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_context_fallback',
+              displayName: 'Pta',
+              primaryEmail: 'n6378056@gmail.com',
+              canEditPrimaryEmail: true,
+              backupEmails: [],
+              createdAt: iso('2026-03-08T00:00:00.000Z'),
+              updatedAt: iso('2026-03-11T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [
+              {
+                id: 'org_pokopia',
+                name: 'Pokopia Labs',
+                slug: 'pokopia-labs',
+                status: 'ACTIVE',
+                createdAt: iso('2026-03-08T00:00:00.000Z'),
+                updatedAt: iso('2026-03-11T00:00:00.000Z'),
+                isCurrentOrg: true,
+                actorRoles: ['owner', 'admin'],
+                actorIsOwner: true,
+                actorIsAdmin: true,
+                onboardingComplete: true,
+                selectedProjectId: 'proj_tlabs',
+                selectedProjectName: 'Tlabs',
+                selectedEnvironmentId: 'proj_tlabs:dev',
+                selectedEnvironmentName: 'Development',
+                adminCandidates: [],
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+
+    const topbar = page.locator('header[aria-label="Workspace context"]');
+    await expect(topbar.locator('button:has-text("Organization")')).toContainText('Pokopia Labs');
+    await expect(topbar.locator('button:has-text("Project")')).toContainText('Tlabs');
+    await expect(topbar.locator('button:has-text("Environment")')).toContainText('Development');
+    await expect(
+      topbar.locator('[aria-label="Environment id"] .dashboard-context-card__value'),
+    ).toHaveText('proj_tlabs:dev');
+  });
+
   test('topbar organization menu keeps the billing route while switching organizations', async ({
     page,
     baseURL,
@@ -1844,6 +2374,316 @@ test.describe('dashboard console config page api wiring', () => {
       .toBe('org_watchbook');
   });
 
+  test('topbar organization menu updates account settings context when switching organizations', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let activeOrgId = 'org_pokopia';
+    let sessionClaims: Record<string, unknown> = {
+      userId: 'user_account_settings_switch',
+      orgId: 'org_pokopia',
+      roles: ['owner', 'admin'],
+      projectId: 'proj_pokopia',
+      environmentId: 'env_pokopia',
+      provider: 'passkey',
+    };
+    const switchBodies: Array<{ orgId: string; body: Record<string, unknown> }> = [];
+
+    const organizations = [
+      {
+        id: 'org_pokopia',
+        name: 'Pokopia Labs',
+        slug: 'pokopia-labs',
+        status: 'ACTIVE',
+        createdAt: iso('2026-03-01T00:00:00.000Z'),
+        updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        actorRoles: ['owner', 'admin'],
+        actorIsOwner: true,
+        actorIsAdmin: true,
+        onboardingComplete: true,
+        adminCandidates: [],
+      },
+      {
+        id: 'org_watchbook',
+        name: 'Watchbook',
+        slug: 'watchbook',
+        status: 'ACTIVE',
+        createdAt: iso('2026-03-03T00:00:00.000Z'),
+        updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        actorRoles: ['owner', 'admin'],
+        actorIsOwner: true,
+        actorIsAdmin: true,
+        onboardingComplete: true,
+        adminCandidates: [],
+      },
+    ] as const;
+    const projectsByOrg = new Map<string, Record<string, unknown>>([
+      [
+        'org_pokopia',
+        {
+          id: 'proj_pokopia',
+          name: 'Tlabs',
+          slug: 'tlabs',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-03-01T00:00:00.000Z'),
+          updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'org_watchbook',
+        {
+          id: 'proj_watchbook',
+          name: 'Watchbook Core',
+          slug: 'watchbook-core',
+          status: 'ACTIVE',
+          environmentCount: 1,
+          createdAt: iso('2026-03-03T00:00:00.000Z'),
+          updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        },
+      ],
+    ]);
+    const environmentsByProject = new Map<string, Record<string, unknown>>([
+      [
+        'proj_pokopia',
+        {
+          id: 'env_pokopia',
+          projectId: 'proj_pokopia',
+          key: 'dev',
+          name: 'Development',
+          status: 'ACTIVE',
+          createdAt: iso('2026-03-01T00:00:00.000Z'),
+          updatedAt: iso('2026-03-02T00:00:00.000Z'),
+        },
+      ],
+      [
+        'proj_watchbook',
+        {
+          id: 'env_watchbook',
+          projectId: 'proj_watchbook',
+          key: 'prod',
+          name: 'Production',
+          status: 'ACTIVE',
+          createdAt: iso('2026-03-03T00:00:00.000Z'),
+          updatedAt: iso('2026-03-04T00:00:00.000Z'),
+        },
+      ],
+    ]);
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            overview: true,
+            administration: true,
+            operationsSecurity: true,
+            integrations: true,
+            billing: true,
+          },
+          selectedContext: {
+            organization: 'org_pokopia',
+            project: 'proj_pokopia',
+            environment: 'env_pokopia',
+            accountSettings: 'Account Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, claims: sessionClaims }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        const project = projectsByOrg.get(activeOrgId) || null;
+        const environment = project
+          ? environmentsByProject.get(String(project.id || '').trim()) || null
+          : null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            state: {
+              orgId: activeOrgId,
+              organization: organizations.find((entry) => entry.id === activeOrgId) || null,
+              activeProjectCount: project ? 1 : 0,
+              activeEnvironmentCount: environment ? 1 : 0,
+              activeApiKeyCount: 1,
+              hasOrganization: true,
+              hasProject: Boolean(project),
+              hasEnvironment: Boolean(environment),
+              hasApiKey: true,
+              accountReady: true,
+              organizationReady: true,
+              billingReady: true,
+              projectReady: Boolean(project),
+              onboardingComplete: Boolean(project && environment),
+              currentStep: project && environment ? 'complete' : 'project',
+              complete: Boolean(project && environment),
+              selectedProjectId: project ? String(project.id || '').trim() : null,
+              selectedEnvironmentId: environment ? String(environment.id || '').trim() : null,
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        const project = projectsByOrg.get(activeOrgId) || null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: project ? [project] : [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        const projectId = String(url.searchParams.get('projectId') || '').trim();
+        const environment = environmentsByProject.get(projectId) || null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: environment ? [environment] : [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_account_settings_switch',
+              displayName: 'Switching User',
+              primaryEmail: 'switching@example.com',
+              canEditPrimaryEmail: true,
+              backupEmails: [],
+              createdAt: iso('2026-03-01T00:00:00.000Z'),
+              updatedAt: iso('2026-03-02T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: organizations.map((organization) => {
+              const isCurrentOrg = organization.id === activeOrgId;
+              const project = isCurrentOrg ? projectsByOrg.get(activeOrgId) || null : null;
+              const environment = project
+                ? environmentsByProject.get(String(project.id || '').trim()) || null
+                : null;
+              return {
+                ...organization,
+                isCurrentOrg,
+                selectedProjectId: project ? String(project.id || '').trim() : null,
+                selectedProjectName: project ? String(project.name || '').trim() : null,
+                selectedEnvironmentId: environment ? String(environment.id || '').trim() : null,
+                selectedEnvironmentName: environment ? String(environment.name || '').trim() : null,
+              };
+            }),
+          }),
+        });
+        return;
+      }
+
+      const accountOrgMatch = pathname.match(
+        /^\/console\/account\/organizations\/([^/]+?)\/switch-context$/,
+      );
+      const orgId = accountOrgMatch?.[1] ? decodeURIComponent(accountOrgMatch[1]) : '';
+      if (orgId && method === 'POST') {
+        const body = parseJsonBody(req.postData());
+        switchBodies.push({ orgId, body });
+        activeOrgId = orgId;
+        const project = projectsByOrg.get(orgId) || null;
+        const environment = project
+          ? environmentsByProject.get(String(project.id || '').trim()) || null
+          : null;
+        sessionClaims = {
+          userId: 'user_account_settings_switch',
+          orgId,
+          roles: ['owner', 'admin'],
+          projectId: project ? String(project.id || '').trim() : '',
+          environmentId: environment ? String(environment.id || '').trim() : '',
+          provider: 'passkey',
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            context: {
+              orgId,
+              projectId: project ? String(project.id || '').trim() : null,
+              environmentId: environment ? String(environment.id || '').trim() : null,
+              actorRoles: ['owner', 'admin'],
+              onboardingComplete: true,
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+
+    const topbar = page.locator('header[aria-label="Workspace context"]');
+    const organizationButton = topbar.locator('button:has-text("Organization")');
+    await expect(organizationButton).toContainText('Pokopia Labs');
+    await expect(topbar.locator('button:has-text("Project")')).toContainText('Tlabs');
+    await expect(topbar.locator('button:has-text("Environment")')).toContainText('Development');
+
+    await organizationButton.click();
+    const organizationMenu = page.locator('[aria-label="Organization options"]');
+    await expect(organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' })).toBeVisible();
+    await organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' }).click();
+
+    await expect.poll(() => switchBodies.length).toBe(1);
+    expect(switchBodies[0]).toMatchObject({
+      orgId: 'org_watchbook',
+      body: {},
+    });
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/account-settings');
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+    await expect(organizationButton).toContainText('Watchbook');
+    await expect(topbar.locator('button:has-text("Project")')).toContainText('Watchbook Core');
+    await expect(topbar.locator('button:has-text("Environment")')).toContainText('Production');
+  });
+
   test('account settings remains reachable while onboarding is incomplete', async ({
     page,
     baseURL,
@@ -1976,6 +2816,155 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.getByRole('table', { name: 'Organizations' })).not.toContainText(
       'org account settings gate',
     );
+  });
+
+  test('account settings stays available before any organization exists and keeps topbar scope blank', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    let onboardingStateCalls = 0;
+    let projectCalls = 0;
+    let environmentCalls = 0;
+
+    await page.addInitScript(() => {
+      window.localStorage.setItem(
+        'tatchi-dashboard-ui-state-v1',
+        JSON.stringify({
+          isSidebarExpanded: true,
+          expandedGroups: {
+            overview: true,
+            administration: true,
+            operationsSecurity: true,
+            integrations: true,
+            billing: true,
+          },
+          selectedContext: {
+            organization: 'stale-org',
+            project: 'stale-project',
+            environment: 'stale-environment',
+            accountSettings: 'Account Settings',
+          },
+        }),
+      );
+    });
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/session' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_account_settings_orgless',
+              orgId: '',
+              roles: [],
+              email: 'orgless@example.com',
+              name: 'Orgless User',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/onboarding/state' && method === 'GET') {
+        onboardingStateCalls += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'should_not_be_called' }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/profile' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            profile: {
+              userId: 'user_account_settings_orgless',
+              displayName: 'Orgless User',
+              primaryEmail: 'orgless@example.com',
+              canEditPrimaryEmail: true,
+              backupEmails: [],
+              createdAt: iso('2026-03-01T00:00:00.000Z'),
+              updatedAt: iso('2026-03-01T00:00:00.000Z'),
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects' && method === 'GET') {
+        projectCalls += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'should_not_be_called' }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments' && method === 'GET') {
+        environmentCalls += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: false, code: 'should_not_be_called' }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_stubbed',
+          path: pathname,
+          method,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/account-settings');
+
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/account-settings');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/account settings/i);
+    await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
+
+    const topbar = page.locator('header[aria-label="Workspace context"]');
+    await expect(topbar.locator('button:has-text("Organization")')).not.toContainText('stale-org');
+    await expect(topbar.locator('button:has-text("Project")')).not.toContainText('stale-project');
+    await expect(topbar.locator('button:has-text("Environment")')).not.toContainText(
+      'stale-environment',
+    );
+    await expect(
+      topbar.locator('[aria-label="Environment id"] .dashboard-context-card__value'),
+    ).toHaveText('—');
+    await expect.poll(() => onboardingStateCalls).toBe(0);
+    await expect.poll(() => projectCalls).toBe(0);
+    await expect.poll(() => environmentCalls).toBe(0);
+
+    await page.getByRole('button', { name: 'Create an organisation' }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
+    await expect.poll(() => new URL(page.url()).search).toBe('?createOrganization=1');
   });
 
   test('account settings delays organization creation until onboarding name submission', async ({
@@ -2586,7 +3575,7 @@ test.describe('dashboard console config page api wiring', () => {
     expect(unstubbedConsoleRequests).toEqual([]);
     await expect(page.getByRole('heading', { name: 'Profile' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Create organization' }).click();
+    await page.getByRole('button', { name: 'Create an organisation' }).click();
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
     await expect.poll(() => new URL(page.url()).search).toBe('?createOrganization=1');
     await expect.poll(() => createBodies.length).toBe(0);
@@ -4833,6 +5822,18 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [context.org],
+          }),
+        });
+        return;
+      }
+
       if (pathname === '/console/projects') {
         await route.fulfill({
           status: 200,
@@ -4934,7 +5935,7 @@ test.describe('dashboard console config page api wiring', () => {
         allowedCalls: [
           {
             chainId: 42431,
-            to: '0xbb85080E6953f25197ec68798360667140EbAf4b',
+            to: '0xe1Ab123D238AF74F77BfD59450e2428c9214123C',
             selector: '0x428dc451',
           },
         ],
@@ -5299,7 +6300,7 @@ test.describe('dashboard console config page api wiring', () => {
     await gasCreateModalAfterRefresh.getByRole('button', { name: 'Add contract' }).click();
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Contract address") input')
-      .fill('0xbb85080E6953f25197ec68798360667140EbAf4b');
+      .fill('0xe1Ab123D238AF74F77BfD59450e2428c9214123C');
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Allowed functions") input')
       .fill('0x428dc451');
@@ -5683,6 +6684,18 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [context.org],
+          }),
+        });
+        return;
+      }
+
       if (pathname === '/console/projects') {
         await route.fulfill({
           status: 200,
@@ -6040,6 +7053,18 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [context.org],
+          }),
+        });
+        return;
+      }
+
       if (pathname === '/console/projects') {
         await route.fulfill({
           status: 200,
@@ -6291,6 +7316,18 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            organizations: [context.org],
+          }),
         });
         return;
       }
@@ -6610,6 +7647,15 @@ test.describe('dashboard console config page api wiring', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [context.org] }),
         });
         return;
       }
@@ -7041,6 +8087,15 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [context.org] }),
+        });
+        return;
+      }
+
       if (pathname === '/console/projects') {
         await route.fulfill({
           status: 200,
@@ -7136,7 +8191,7 @@ test.describe('dashboard console config page api wiring', () => {
       'Published policy',
     );
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
-      'Approval requested',
+      'Created approval request',
     );
     await expect(page.locator('section[aria-label="Audit events table"]')).not.toContainText(
       'Invoice settlement evidence',
@@ -7148,7 +8203,7 @@ test.describe('dashboard console config page api wiring', () => {
     await filterSection.locator('input[aria-label="Search events"]').fill('apr_1');
     await expect.poll(() => lastEventSearchQuery).toBe('apr_1');
     await expect(page.locator('section[aria-label="Audit events table"]')).toContainText(
-      'Approval requested',
+      'Created approval request',
     );
     await expect(page.locator('section[aria-label="Audit events table"]')).not.toContainText(
       'Published policy',
@@ -7211,6 +8266,30 @@ test.describe('dashboard console config page api wiring', () => {
           settlementSource: 'STRIPE_WEBHOOK',
         },
         createdAt: iso('2026-03-10T11:00:00.000Z'),
+      },
+      {
+        id: 'aud_billing_adjustment_link_1',
+        orgId: 'org_target_customer',
+        actorUserId: 'user_ops',
+        actorType: 'USER',
+        category: 'BILLING',
+        action: 'billing.adjustment.support_credit',
+        outcome: 'SUCCESS',
+        summary: 'Appended manual support credit for org org_target_customer',
+        metadata: {
+          organizationId: 'org_target_customer',
+          organizationName: 'Target Customer Org',
+          platformBilling: true,
+          adjustmentId: 'ble_adj_1',
+          amountMinor: 1500,
+          currency: 'USD',
+          resultingBalanceMinor: 6500,
+          reasonCode: 'incident_credit',
+          relatedInvoiceId: 'inv_audit_credit_1',
+          note: 'Applied goodwill credit',
+          created: true,
+        },
+        createdAt: iso('2026-03-10T10:30:00.000Z'),
       },
       {
         id: 'aud_webhook_link_1',
@@ -7320,6 +8399,15 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations: [context.org] }),
+        });
+        return;
+      }
+
       if (pathname === '/console/projects') {
         await route.fulfill({
           status: 200,
@@ -7410,6 +8498,21 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(detailsPanel).toContainText('Organization');
     await expect(detailsPanel).toContainText('org_dash_console_pages');
 
+    const adjustmentRow = page.locator('.dashboard-audit-events__row').filter({
+      hasText: 'Granted customer support credit',
+    });
+    await expect(adjustmentRow).toContainText('Target Customer Org');
+    await expect(adjustmentRow).toContainText('$15.00');
+    await adjustmentRow.getByRole('button', { name: 'View' }).click();
+    detailsPanel = page.locator('.dashboard-audit-events__details-panel.is-expanded');
+    await expect(detailsPanel).toContainText('Applied goodwill credit');
+    await expect(detailsPanel).toContainText('$65.00');
+    await expect(detailsPanel).toContainText('Target Customer Org');
+    await expect(detailsPanel.getByRole('link', { name: 'inv_audit_credit_1' })).toHaveAttribute(
+      'href',
+      '/dashboard/invoices/inv_audit_credit_1',
+    );
+
     const webhookRow = page.locator('.dashboard-audit-events__row').filter({
       hasText: 'Requested webhook replay',
     });
@@ -7423,6 +8526,224 @@ test.describe('dashboard console config page api wiring', () => {
       'href',
       '/dashboard/webhooks?endpointId=wh_ep_link_1&deliveryId=dlv_link_1',
     );
+  });
+
+  test('audit page resolves organization names in rendered event summaries', async ({
+    page,
+    baseURL,
+  }) => {
+    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
+    const context = buildMockDashboardContext();
+    const organizations = [
+      context.org,
+      {
+        id: 'org_audit_named',
+        name: 'Audit Named Org',
+        slug: 'audit-named-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-05T00:00:00.000Z'),
+        updatedAt: iso('2026-01-06T00:00:00.000Z'),
+      },
+      {
+        id: 'org_audit_directory',
+        name: 'Directory Resolved Org',
+        slug: 'directory-resolved-org',
+        status: 'ACTIVE',
+        createdAt: iso('2026-01-07T00:00:00.000Z'),
+        updatedAt: iso('2026-01-08T00:00:00.000Z'),
+      },
+    ];
+    const events = [
+      {
+        id: 'aud_org_create_named',
+        orgId: 'org_dash_console_pages',
+        actorUserId: 'user_owner',
+        actorType: 'USER',
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.create',
+        outcome: 'SUCCESS',
+        summary: 'Created organization org_audit_named from account settings',
+        metadata: {
+          organizationId: 'org_audit_named',
+          organizationName: 'Audit Named Org',
+          source: 'account_settings',
+        },
+        createdAt: iso('2026-03-11T12:00:00.000Z'),
+      },
+      {
+        id: 'aud_org_update_directory',
+        orgId: 'org_dash_console_pages',
+        actorUserId: 'user_owner',
+        actorType: 'USER',
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.update',
+        outcome: 'SUCCESS',
+        summary: 'Updated organization org_audit_directory from account settings',
+        metadata: {
+          organizationId: 'org_audit_directory',
+          source: 'account_settings',
+        },
+        createdAt: iso('2026-03-11T11:00:00.000Z'),
+      },
+      {
+        id: 'aud_org_create_deleted_history',
+        orgId: 'org_dash_console_pages',
+        actorUserId: 'user_owner',
+        actorType: 'USER',
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.create',
+        outcome: 'SUCCESS',
+        summary: 'Created organization org_audit_deleted from account settings',
+        metadata: {
+          organizationId: 'org_audit_deleted',
+          organizationName: 'Deleted Org Name',
+          source: 'account_settings',
+        },
+        createdAt: iso('2026-03-11T10:30:00.000Z'),
+      },
+      {
+        id: 'aud_org_delete_named',
+        orgId: 'org_dash_console_pages',
+        actorUserId: 'user_owner',
+        actorType: 'USER',
+        category: 'ORG_PROJECT_ENV',
+        action: 'organization.delete',
+        outcome: 'SUCCESS',
+        summary: 'Deleted organization org_audit_deleted from account settings',
+        metadata: {
+          organizationId: 'org_audit_deleted',
+          source: 'account_settings',
+        },
+        createdAt: iso('2026-03-11T10:00:00.000Z'),
+      },
+    ];
+    const members = [
+      {
+        id: 'mbr_user_owner',
+        orgId: 'org_dash_console_pages',
+        userId: 'user_owner',
+        email: 'owner@example.com',
+        displayName: 'Owner User',
+        status: 'ACTIVE',
+        roles: [{ role: 'owner', scope: 'ORG' }],
+        invitedByUserId: 'user_owner',
+        invitedAt: iso('2026-01-01T00:00:00.000Z'),
+        createdAt: iso('2026-01-01T00:00:00.000Z'),
+        updatedAt: iso('2026-01-01T00:00:00.000Z'),
+        lastStatusChangedAt: iso('2026-01-01T00:00:00.000Z'),
+      },
+    ];
+
+    await page.route(`${consoleOrigin}/console/**`, async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const url = new URL(req.url());
+      const { pathname } = url;
+
+      if (pathname === '/console/session') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            claims: {
+              userId: 'user_dash_console_pages',
+              orgId: 'org_dash_console_pages',
+              roles: ['admin'],
+              projectId: 'proj_active',
+              environmentId: 'env_active',
+            },
+          }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/org') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, org: context.org }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/account/organizations' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, organizations }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/projects') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/environments') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/members' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, members }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/approvals' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, approvals: [] }),
+        });
+        return;
+      }
+
+      if (pathname === '/console/audit/events' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, events }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ok: false,
+          code: 'not_found',
+          message: `Unhandled mock path ${pathname}`,
+        }),
+      });
+    });
+
+    await page.goto('/dashboard/audit');
+    await expect(page.locator('#dashboard-main-title')).toHaveText(/audit logs/i);
+
+    const table = page.locator('section[aria-label="Audit events table"]');
+    await expect(table).toContainText('Created organization Audit Named Org from account settings');
+    await expect(table).toContainText(
+      'Updated organization Directory Resolved Org from account settings',
+    );
+    await expect(table).toContainText('Deleted organization Deleted Org Name from account settings');
+    await expect(table).not.toContainText('org_audit_named from account settings');
+    await expect(table).not.toContainText('org_audit_directory from account settings');
+    await expect(table).not.toContainText('org_audit_deleted from account settings');
   });
 
   test('credentials page supports publishable_key creation and mode-specific snippet wiring', async ({

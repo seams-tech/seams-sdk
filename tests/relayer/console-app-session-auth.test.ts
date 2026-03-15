@@ -506,7 +506,7 @@ test.describe('console app-session auth adapter', () => {
     expect(auditEvents[0]?.action).toBe('member.owner.bootstrap');
   });
 
-  test('authenticate returns 403 when provisioning cannot resolve an organization from storage', async () => {
+  test('authenticate keeps the session orgless when provisioning cannot resolve an organization from storage', async () => {
     const auth = createAppSessionConsoleAuthAdapter({
       session: makeSessionAdapter({
         parse: async () => ({
@@ -530,10 +530,12 @@ test.describe('console app-session auth adapter', () => {
 
     const out = await auth.authenticate({});
     expect(out).toEqual({
-      ok: false,
-      code: 'forbidden',
-      message: 'No console organization available',
-      status: 403,
+      ok: true,
+      claims: {
+        orgId: '',
+        userId: 'oidc:https://accounts.google.com:user-123',
+        roles: [],
+      },
     });
   });
 

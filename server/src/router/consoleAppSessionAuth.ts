@@ -566,42 +566,37 @@ export function createAppSessionConsoleAuthAdapter(
       const environmentId = scopedClaims.environmentId;
       const claimedEmail = readConsoleSsoEmailClaim(claims);
 
-      let roles: string[] = [...fallbackRoles];
-      if (provisioning?.teamRbac && !orgId) {
-        return {
-          ok: false,
-          code: 'forbidden',
-          message: 'No console organization available',
-          status: 403,
-        };
-      }
+      const hasOrgScope = Boolean(orgId);
+      let roles: string[] = hasOrgScope ? [...fallbackRoles] : [];
       if (provisioning?.teamRbac) {
-        roles = await ensureConsoleSsoProvisioning({
-          userId,
-          orgId,
-          projectId,
-          environmentId,
-          claims,
-          bootstrapRoles,
-          orgProjectEnv: provisioning.orgProjectEnv || null,
-          teamRbac: provisioning.teamRbac || null,
-          audit: provisioning.audit || null,
-          logger,
-        }).catch((error: unknown) => {
-          logger.warn(
-            `[console-auth] failed to provision Team RBAC membership for ${userId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-          return [] as ConsoleOrgScopedTeamRole[];
-        });
+        roles = hasOrgScope
+          ? await ensureConsoleSsoProvisioning({
+              userId,
+              orgId,
+              projectId,
+              environmentId,
+              claims,
+              bootstrapRoles,
+              orgProjectEnv: provisioning.orgProjectEnv || null,
+              teamRbac: provisioning.teamRbac || null,
+              audit: provisioning.audit || null,
+              logger,
+            }).catch((error: unknown) => {
+              logger.warn(
+                `[console-auth] failed to provision Team RBAC membership for ${userId}: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+              return [] as ConsoleOrgScopedTeamRole[];
+            })
+          : [];
       }
 
       if (claimedEmail && platformAdminEmails.includes(claimedEmail)) {
         roles = roles.includes('platform_admin') ? roles : [...roles, 'platform_admin'];
       }
 
-      if (!roles.length) {
+      if (!roles.length && hasOrgScope) {
         return {
           ok: false,
           code: 'forbidden',

@@ -59,7 +59,7 @@ function parseClaims(raw: unknown): DashboardConsoleSessionClaims | null {
   const row = raw as Record<string, unknown>;
   const userId = String(row.userId || '').trim();
   const orgId = String(row.orgId || '').trim();
-  if (!userId || !orgId) return null;
+  if (!userId) return null;
   const roles = Array.isArray(row.roles)
     ? row.roles.map((entry) => String(entry || '').trim()).filter(Boolean)
     : [];
