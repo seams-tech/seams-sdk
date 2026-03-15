@@ -69,7 +69,7 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
 
 const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = MACHINE_API_KEY_SCOPE_OPTIONS;
 const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
-const DEFAULT_SECRET_SCOPES = [...MACHINE_API_KEY_SCOPES];
+const DEFAULT_SECRET_SCOPES: MachineApiKeyScope[] = ['accounts.create'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
 type PendingCredentialAction =
@@ -210,7 +210,6 @@ function buildPublishableKeyManagedSnippet(
     "    mode: 'managed',",
     `    environmentId: '${envScope}',`,
     `    publishableKey: '${credential}',`,
-    "    brokerUrl: '$BROKER_URL',",
     '  },',
     '});',
     '',

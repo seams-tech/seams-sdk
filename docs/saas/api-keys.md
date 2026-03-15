@@ -376,7 +376,7 @@ Create request examples:
   "kind": "secret_key",
   "name": "Next.js backend",
   "environmentId": "env_prod",
-  "scopes": ["accounts.create"],
+  "scopes": ["accounts.create", "wallets.read"],
   "ipAllowlist": ["203.0.113.10/32"],
   "expiresAt": null
 }
@@ -504,6 +504,7 @@ Middleware behavior:
   - lookup by key prefix/id -> verify hash
   - check `status === ACTIVE`
   - validate scope includes required action (`accounts.create` for `/registration/bootstrap`)
+  - validate scope includes required action (`wallets.read` for `GET /v1/wallets*`)
   - validate environment binding
   - validate IP allowlist when configured
 - `bootstrap_token` path:
@@ -555,7 +556,6 @@ type RegistrationAuthMode =
       mode: 'managed';
       environmentId: string;
       publishableKey: string;
-      brokerUrl?: string;
       paymentMode?: 'disabled' | 'quota_then_x402' | 'always_x402';
     };
 ```
@@ -781,8 +781,9 @@ Target `paymentPolicy` fields on `publishable_key`:
 
 ## Phase 0: Contract Lock + Cleanup
 
-- [ ] Lock scope taxonomy for relay-protected actions:
+- [x] Lock scope taxonomy for relay-protected actions:
   - `accounts.create`
+  - `wallets.read`
 - [ ] Lock onboarding API contracts and response payloads.
 - [ ] Lock credential vocabulary in all public surfaces:
   - `secret_key`
@@ -796,6 +797,7 @@ Target `paymentPolicy` fields on `publishable_key`:
 Exit criteria:
 
 - Contracts are stable and documented.
+- Current `secret_key` scope catalog is explicitly limited to `accounts.create` and `wallets.read`.
 - Core services no longer auto-create tenancy on read.
 - Terminology no longer leaves room for a browser-held secret interpretation.
 
@@ -1018,7 +1020,6 @@ Exit criteria:
 - [x] Add SDK config for `managed` mode:
   - `environmentId`
   - `publishableKey`
-  - `brokerUrl`
   - `paymentMode?`
 - [x] Add SDK config for backend proxy mode without exposing `secret_key`.
 - [x] Implement browser-side grant acquisition:

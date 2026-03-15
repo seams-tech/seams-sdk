@@ -1,4 +1,4 @@
-export const MACHINE_API_KEY_SCOPES = ['accounts.create'] as const;
+export const MACHINE_API_KEY_SCOPES = ['accounts.create', 'wallets.read'] as const;
 
 export type MachineApiKeyScope = (typeof MACHINE_API_KEY_SCOPES)[number];
 
@@ -15,6 +15,10 @@ const MACHINE_API_KEY_SCOPE_METADATA: Record<
   'accounts.create': {
     label: 'Create accounts',
     description: 'Allows backend bootstrap flows to create accounts.',
+  },
+  'wallets.read': {
+    label: 'Read wallets',
+    description: 'Allows backend access to list, search, and read wallets within the key environment.',
   },
 };
 

@@ -226,7 +226,7 @@ test.describe('console API key kinds', () => {
     expect(getPath(updated.json, 'apiKey', 'ipAllowlist')).toEqual(['203.0.113.10/32']);
   });
 
-  test('express console router rejects unknown secret_key scopes', async () => {
+  test('express console router rejects unsupported secret_key scopes', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const orgProjectEnv = await seedActiveEnvironment();
     const router = createConsoleRouter({
@@ -243,7 +243,7 @@ test.describe('console API key kinds', () => {
           kind: 'secret_key',
           name: 'invalid-scope-key',
           environmentId,
-          scopes: ['accounts.sync'],
+          scopes: ['wallets.sign'],
         }),
       });
       expect(created.status, created.text).toBe(400);
