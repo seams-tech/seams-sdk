@@ -10,6 +10,7 @@ import { handleCreateAccountAndRegisterUser } from './routes/createAccountAndReg
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleLinkDevice } from './routes/linkDevice';
+import { handleMachineWallets } from './routes/machineWallets';
 import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
@@ -78,8 +79,9 @@ export function createCloudflareRouter(
     handleWellKnown,
     handleBootstrapGrant,
     handleCreateAccountAndRegisterUser,
-    handleSignedDelegate,
+    handleMachineWallets,
     handleSponsoredEvmCall,
+    handleSignedDelegate,
     handleAuth,
     handleSyncAccount,
     handleLinkDevice,

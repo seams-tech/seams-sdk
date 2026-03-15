@@ -10,6 +10,7 @@ import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
+import type { ConsoleWalletService } from '../console/wallets';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import type { MachineApiKeyScope } from '../../../shared/src/console/apiKeyScopes';
@@ -444,6 +445,10 @@ export interface RelayRouterOptions {
     runtimeSnapshots: ConsoleRuntimeSnapshotService;
     config: SponsoredEvmCallExecutorConfig | null;
   };
+  /**
+   * Optional high-level wallet read service used by machine wallet APIs.
+   */
+  wallets?: ConsoleWalletService | null;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

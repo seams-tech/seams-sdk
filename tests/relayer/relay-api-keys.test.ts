@@ -6,9 +6,11 @@ import {
   createInMemoryConsoleOnboardingService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleTeamRbacService,
+  createInMemoryConsoleWalletService,
   createRelayApiKeyAuthAdapter,
   createRelayRouter,
   type ConsoleApiKeyService,
+  type ConsoleWallet,
   type RelayUsageMeterEvent,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
@@ -36,6 +38,83 @@ function makeRelayService() {
       transactionHash: 'tx-123',
     }),
   });
+}
+
+function makeThresholdEcdsaRelayService() {
+  return makeFakeAuthService({
+    createAccountAndRegisterUser: async () => ({
+      success: true,
+      transactionHash: 'tx-123',
+      thresholdEcdsa: {
+        relayerKeyId: 'rk-registration-1',
+        groupPublicKeyB64u: 'group-public-key',
+        ethereumAddress: `0x${'aa'.repeat(20)}`,
+        relayerVerifyingShareB64u: 'relayer-share',
+      },
+    }),
+  });
+}
+
+function makeRegistrationBodyWithSmartAccountTargets(): Record<string, unknown> {
+  return {
+    ...makeRegistrationBody(),
+    threshold_ecdsa: {
+      client_verifying_share_b64u: 'client-share-b64u',
+      session_policy: {
+        version: 'threshold_session_v1',
+        userId: 'alice.testnet',
+        rpId: 'example.localhost',
+        sessionId: 'threshold-session-1',
+        participantIds: [1, 2],
+        ttlMs: 60_000,
+        remainingUses: 10,
+      },
+      session_kind: 'jwt',
+      smart_account_targets: [
+        {
+          chain: 'evm',
+          chain_id: 11155111,
+          factory: `0x${'bb'.repeat(20)}`,
+          entry_point: `0x${'cc'.repeat(20)}`,
+          salt: '0x1234',
+          counterfactual_address: `0x${'11'.repeat(20)}`,
+        },
+        {
+          chain: 'tempo',
+          chain_id: 42431,
+          factory: `0x${'dd'.repeat(20)}`,
+          entry_point: `0x${'ee'.repeat(20)}`,
+          salt: '0x5678',
+          counterfactual_address: `0x${'22'.repeat(20)}`,
+        },
+      ],
+    },
+  };
+}
+
+function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {
+  const id = String(overrides.id || 'wlt_wallet_1');
+  const environmentId = String(overrides.environmentId || 'env-prod');
+  const projectId =
+    String(overrides.projectId || (environmentId.includes(':') ? environmentId.split(':')[0] : 'proj_wallets'));
+  return {
+    id,
+    orgId: 'org-relay-api-keys',
+    projectId,
+    environmentId,
+    userId: String(overrides.userId || 'user-wallet-1'),
+    externalRefId: String(overrides.externalRefId || `${id}:external`),
+    address: String(overrides.address || `0x${'1'.repeat(40)}`),
+    chain: overrides.chain || 'Ethereum',
+    walletType: overrides.walletType || 'SMART',
+    status: overrides.status || 'ACTIVE',
+    policyId: overrides.policyId === undefined ? null : overrides.policyId,
+    balanceMinor: overrides.balanceMinor === undefined ? 100 : overrides.balanceMinor,
+    lastActivityAt: overrides.lastActivityAt === undefined ? '2026-03-14T00:00:00.000Z' : overrides.lastActivityAt,
+    createdAt: overrides.createdAt || '2026-03-14T00:00:00.000Z',
+    updatedAt: overrides.updatedAt || '2026-03-14T00:00:00.000Z',
+    ...overrides,
+  };
 }
 
 function makeSerializedRegistrationCredential() {
@@ -411,6 +490,179 @@ test.describe('relay API key auth (express)', () => {
       await srv.close();
     }
   });
+
+  test('registration bootstrap invokes internal smart-account deploy hook for EVM and Tempo targets', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['127.0.0.1/32'],
+    });
+    const deployCalls: Array<Record<string, unknown>> = [];
+    const router = createRelayRouter(makeThresholdEcdsaRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      smartAccountDeploy: async (request) => {
+        deployCalls.push({
+          nearAccountId: request.nearAccountId,
+          chain: request.chain,
+          chainId: request.chainId,
+          accountAddress: request.accountAddress,
+          accountModel: request.accountModel,
+          counterfactualAddress: request.counterfactualAddress,
+        });
+        return {
+          ok: true,
+          deploymentTxHash: `0xdeploy-${request.chain}`,
+        };
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          'x-forwarded-for': '127.0.0.1',
+          'x-tatchi-environment-id': 'env-prod',
+        },
+        body: JSON.stringify(makeRegistrationBodyWithSmartAccountTargets()),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.success).toBe(true);
+      expect(deployCalls).toEqual([
+        {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          chainId: 11155111,
+          accountAddress: `0x${'11'.repeat(20)}`,
+          accountModel: 'erc4337',
+          counterfactualAddress: `0x${'11'.repeat(20)}`,
+        },
+        {
+          nearAccountId: 'alice.testnet',
+          chain: 'tempo',
+          chainId: 42431,
+          accountAddress: `0x${'22'.repeat(20)}`,
+          accountModel: 'tempo-native',
+          counterfactualAddress: `0x${'22'.repeat(20)}`,
+        },
+      ]);
+      expect(res.json?.smartAccountDeployments).toEqual([
+        {
+          chain: 'evm',
+          chainId: 11155111,
+          accountAddress: `0x${'11'.repeat(20)}`,
+          accountModel: 'erc4337',
+          deployed: true,
+          deploymentTxHash: '0xdeploy-evm',
+          counterfactualAddress: `0x${'11'.repeat(20)}`,
+        },
+        {
+          chain: 'tempo',
+          chainId: 42431,
+          accountAddress: `0x${'22'.repeat(20)}`,
+          accountModel: 'tempo-native',
+          deployed: true,
+          deploymentTxHash: '0xdeploy-tempo',
+          counterfactualAddress: `0x${'22'.repeat(20)}`,
+        },
+      ]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('machine wallet routes require wallets.read scope and stay bound to the key environment', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeWallet({
+          id: 'wlt_env_prod_1',
+          environmentId: 'env-prod',
+          projectId: 'proj_prod',
+          userId: 'user-prod',
+          externalRefId: 'prod-wallet-1',
+          address: `0x${'3'.repeat(40)}`,
+        }),
+        makeWallet({
+          id: 'wlt_env_stage_1',
+          environmentId: 'env-stage',
+          projectId: 'proj_stage',
+          userId: 'user-stage',
+          externalRefId: 'stage-wallet-1',
+          address: `0x${'4'.repeat(40)}`,
+        }),
+      ],
+    });
+    const { secret: limitedSecret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    const { secret: readSecret } = await createActiveSecret(apiKeys, {
+      scopes: ['wallets.read'],
+      ipAllowlist: ['127.0.0.1/32'],
+    });
+    const router = createRelayRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      wallets,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const denied = await fetchJson(`${srv.baseUrl}/v1/wallets`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${limitedSecret}`,
+        },
+      });
+      expect(denied.status).toBe(403);
+      expect(denied.json?.code).toBe('secret_key_forbidden_scope');
+
+      const listed = await fetchJson(
+        `${srv.baseUrl}/v1/wallets?environmentId=env-stage&userId=user-prod`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${readSecret}`,
+            'x-forwarded-for': '127.0.0.1',
+          },
+        },
+      );
+      expect(listed.status).toBe(200);
+      expect(getPath(listed.json, 'wallets', 0, 'id')).toBe('wlt_env_prod_1');
+      expect(getPath(listed.json, 'wallets', 1)).toBeUndefined();
+
+      const searched = await fetchJson(`${srv.baseUrl}/v1/wallets/search?q=stage-wallet-1`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${readSecret}`,
+          'x-forwarded-for': '127.0.0.1',
+        },
+      });
+      expect(searched.status).toBe(200);
+      expect(getPath(searched.json, 'wallets', 0)).toBeUndefined();
+
+      const wallet = await fetchJson(`${srv.baseUrl}/v1/wallets/wlt_env_prod_1`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${readSecret}`,
+          'x-forwarded-for': '127.0.0.1',
+        },
+      });
+      expect(wallet.status).toBe(200);
+      expect(getPath(wallet.json, 'wallet', 'id')).toBe('wlt_env_prod_1');
+
+      const hidden = await fetchJson(`${srv.baseUrl}/v1/wallets/wlt_env_stage_1`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${readSecret}`,
+          'x-forwarded-for': '127.0.0.1',
+        },
+      });
+      expect(hidden.status).toBe(404);
+      expect(hidden.json?.code).toBe('wallet_not_found');
+    } finally {
+      await srv.close();
+    }
+  });
 });
 
 test.describe('relay API key auth (cloudflare)', () => {
@@ -597,5 +849,179 @@ test.describe('relay API key auth (cloudflare)', () => {
     expect(meteredEvents[0]?.orgId).toBe('org-relay-api-keys');
     expect(meteredEvents[0]?.environmentId).toBe('env-prod');
     expect(meteredEvents[0]?.walletId).toBe('alice.testnet');
+  });
+
+  test('registration bootstrap invokes internal smart-account deploy hook for EVM and Tempo targets', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['203.0.113.20/32'],
+    });
+    const deployCalls: Array<Record<string, unknown>> = [];
+    const handler = createCloudflareRouter(makeThresholdEcdsaRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      smartAccountDeploy: async (request) => {
+        deployCalls.push({
+          nearAccountId: request.nearAccountId,
+          chain: request.chain,
+          chainId: request.chainId,
+          accountAddress: request.accountAddress,
+          accountModel: request.accountModel,
+          counterfactualAddress: request.counterfactualAddress,
+        });
+        return {
+          ok: true,
+          deploymentTxHash: `0xdeploy-${request.chain}`,
+        };
+      },
+    });
+    const { ctx } = makeCfCtx();
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/registration/bootstrap',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        'cf-connecting-ip': '203.0.113.20',
+        'x-tatchi-environment-id': 'env-prod',
+      },
+      body: makeRegistrationBodyWithSmartAccountTargets(),
+      ctx,
+    });
+    expect(res.status).toBe(200);
+    expect(res.json?.success).toBe(true);
+    expect(deployCalls).toEqual([
+      {
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+        chainId: 11155111,
+        accountAddress: `0x${'11'.repeat(20)}`,
+        accountModel: 'erc4337',
+        counterfactualAddress: `0x${'11'.repeat(20)}`,
+      },
+      {
+        nearAccountId: 'alice.testnet',
+        chain: 'tempo',
+        chainId: 42431,
+        accountAddress: `0x${'22'.repeat(20)}`,
+        accountModel: 'tempo-native',
+        counterfactualAddress: `0x${'22'.repeat(20)}`,
+      },
+    ]);
+    expect(res.json?.smartAccountDeployments).toEqual([
+      {
+        chain: 'evm',
+        chainId: 11155111,
+        accountAddress: `0x${'11'.repeat(20)}`,
+        accountModel: 'erc4337',
+        deployed: true,
+        deploymentTxHash: '0xdeploy-evm',
+        counterfactualAddress: `0x${'11'.repeat(20)}`,
+      },
+      {
+        chain: 'tempo',
+        chainId: 42431,
+        accountAddress: `0x${'22'.repeat(20)}`,
+        accountModel: 'tempo-native',
+        deployed: true,
+        deploymentTxHash: '0xdeploy-tempo',
+        counterfactualAddress: `0x${'22'.repeat(20)}`,
+      },
+    ]);
+  });
+
+  test('machine wallet routes require wallets.read scope and stay bound to the key environment', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const wallets = createInMemoryConsoleWalletService({
+      seedWallets: [
+        makeWallet({
+          id: 'wlt_env_prod_1',
+          environmentId: 'env-prod',
+          projectId: 'proj_prod',
+          userId: 'user-prod',
+          externalRefId: 'prod-wallet-1',
+          address: `0x${'3'.repeat(40)}`,
+        }),
+        makeWallet({
+          id: 'wlt_env_stage_1',
+          environmentId: 'env-stage',
+          projectId: 'proj_stage',
+          userId: 'user-stage',
+          externalRefId: 'stage-wallet-1',
+          address: `0x${'4'.repeat(40)}`,
+        }),
+      ],
+    });
+    const { secret: limitedSecret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+    });
+    const { secret: readSecret } = await createActiveSecret(apiKeys, {
+      scopes: ['wallets.read'],
+      ipAllowlist: ['203.0.113.20/32'],
+    });
+    const handler = createCloudflareRouter(makeRelayService(), {
+      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+      wallets,
+    });
+    const { ctx } = makeCfCtx();
+
+    const denied = await callCf(handler, {
+      method: 'GET',
+      path: '/v1/wallets',
+      headers: {
+        Authorization: `Bearer ${limitedSecret}`,
+      },
+      ctx,
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.json?.code).toBe('secret_key_forbidden_scope');
+
+    const listed = await callCf(handler, {
+      method: 'GET',
+      path: '/v1/wallets?environmentId=env-stage&userId=user-prod',
+      headers: {
+        Authorization: `Bearer ${readSecret}`,
+        'cf-connecting-ip': '203.0.113.20',
+      },
+      ctx,
+    });
+    expect(listed.status).toBe(200);
+    expect(getPath(listed.json, 'wallets', 0, 'id')).toBe('wlt_env_prod_1');
+    expect(getPath(listed.json, 'wallets', 1)).toBeUndefined();
+
+    const searched = await callCf(handler, {
+      method: 'GET',
+      path: '/v1/wallets/search?q=stage-wallet-1',
+      headers: {
+        Authorization: `Bearer ${readSecret}`,
+        'cf-connecting-ip': '203.0.113.20',
+      },
+      ctx,
+    });
+    expect(searched.status).toBe(200);
+    expect(getPath(searched.json, 'wallets', 0)).toBeUndefined();
+
+    const wallet = await callCf(handler, {
+      method: 'GET',
+      path: '/v1/wallets/wlt_env_prod_1',
+      headers: {
+        Authorization: `Bearer ${readSecret}`,
+        'cf-connecting-ip': '203.0.113.20',
+      },
+      ctx,
+    });
+    expect(wallet.status).toBe(200);
+    expect(getPath(wallet.json, 'wallet', 'id')).toBe('wlt_env_prod_1');
+
+    const hidden = await callCf(handler, {
+      method: 'GET',
+      path: '/v1/wallets/wlt_env_stage_1',
+      headers: {
+        Authorization: `Bearer ${readSecret}`,
+        'cf-connecting-ip': '203.0.113.20',
+      },
+      ctx,
+    });
+    expect(hidden.status).toBe(404);
+    expect(hidden.json?.code).toBe('wallet_not_found');
   });
 });

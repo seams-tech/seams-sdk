@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { createInMemoryConsoleApiKeyService } from '../../server/src/console/apiKeys';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../server/src/console/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../server/src/console/sponsoredCalls';
 import { createCloudflareRouter } from '../../server/src/router/cloudflare/createCloudflareRouter';
 import { createRelayRouter } from '../../server/src/router/express/createRelayRouter';
 import { getRelayRouteSurface } from '../../server/src/router/relayRouteSurface';
+import { callCf } from '../relayer/helpers';
 import { makeFakeAuthService } from '../relayer/helpers';
 
 type ExpressRouteEntry = {
@@ -39,6 +43,16 @@ function canonicalRouteKeys(input: { method: string; path: string; aliases?: rea
       keys.push(`${route.method} ${alias}`);
     }
     return keys;
+  });
+}
+
+function materializeRoutePath(path: string): string {
+  return path.replace(/:([A-Za-z0-9_]+)/g, (_match, name: string) => {
+    const normalized = String(name || '').toLowerCase();
+    if (normalized === 'provider') return 'passkey';
+    if (normalized === 'action') return 'options';
+    if (normalized.includes('id')) return 'test_id';
+    return `test_${normalized}`;
   });
 }
 
@@ -127,5 +141,62 @@ test.describe('relay route surface wiring', () => {
     const cloudflareSurface = getRelayRouteSurface(createCloudflareRouter(service, options));
 
     expect(cloudflareSurface).toEqual(expressSurface);
+  });
+
+  test('cloudflare handler recognizes every seeded relay route definition', async () => {
+    const service = makeFakeAuthService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      healthz: true,
+      readyz: true,
+      prfSessionSeal: {
+        enabled: true,
+        basePath: '/threshold-ecdsa/custom-prf',
+        service: {} as any,
+      },
+      sessionRoutes: { state: '/session/me' },
+      signedDelegate: { route: '/delegate/submit' },
+      sponsoredEvmCall: {
+        route: '/gas/relay',
+        apiKeys,
+        billing: {
+          async recordUsageEvent() {
+            return {
+              accepted: true,
+              counted: true,
+              monthUtc: '2026-03',
+              monthlyActiveWallets: 1,
+            };
+          },
+        } as any,
+        ledger,
+        runtimeSnapshots,
+        config: {
+          enabled: true,
+          rpcUrl: 'https://rpc.example.test',
+          chainId: 42_431,
+          sponsorAddress: '0x2222222222222222222222222222222222222222',
+          sponsorPrivateKeyHex:
+            '0x1111111111111111111111111111111111111111111111111111111111111111',
+          maxPriorityFeePerGasFloor: 2_000_000_000n,
+          maxFeePerGasFloor: 40_000_000_000n,
+        },
+      },
+    });
+    const surface = getRelayRouteSurface(handler);
+    expect(surface).toBeTruthy();
+
+    for (const route of surface?.routeDefinitions || []) {
+      const response = await callCf(handler, {
+        method: route.method,
+        path: materializeRoutePath(route.path),
+        origin: 'https://example.localhost',
+        ...(route.method === 'POST' ? { body: {} } : {}),
+      });
+      expect(response.status, `${route.method} ${route.path}`).not.toBe(404);
+    }
   });
 });

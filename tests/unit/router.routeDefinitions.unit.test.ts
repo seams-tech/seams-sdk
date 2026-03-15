@@ -14,6 +14,61 @@ import {
   type RouteDefinition,
 } from '../../server/src/router/routeDefinitions';
 
+const THRESHOLD_CONTINUATION_ROUTE_IDS = [
+  'threshold_ed25519_sign_init',
+  'threshold_ed25519_sign_finalize',
+  'threshold_ed25519_internal_cosign_init',
+  'threshold_ed25519_internal_cosign_finalize',
+  'threshold_ecdsa_sign_init',
+  'threshold_ecdsa_sign_finalize',
+  'threshold_ecdsa_internal_cosign_init',
+  'threshold_ecdsa_internal_cosign_finalize',
+] as const;
+
+const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
+  'relay_healthz',
+  'relay_readyz',
+  'relay_well_known_webauthn',
+  'auth_provider_action',
+  'sync_account_options',
+  'sync_account_verify',
+  'link_device_session_get',
+  'link_device_session_create',
+  'link_device_session_claim',
+  'link_device_prepare',
+  'email_recovery_prepare',
+  'threshold_ed25519_healthz',
+  'threshold_ed25519_keygen',
+  'threshold_ed25519_session',
+  'threshold_ed25519_sign_init',
+  'threshold_ed25519_sign_finalize',
+  'threshold_ed25519_internal_cosign_init',
+  'threshold_ed25519_internal_cosign_finalize',
+  'threshold_ecdsa_healthz',
+  'threshold_ecdsa_bootstrap',
+  'threshold_ecdsa_sign_init',
+  'threshold_ecdsa_sign_finalize',
+  'threshold_ecdsa_internal_cosign_init',
+  'threshold_ecdsa_internal_cosign_finalize',
+  'session_exchange',
+  'wallet_unlock_challenge',
+  'wallet_unlock_verify',
+  'recover_email',
+] as const;
+
+const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
+  'relay_healthz',
+  'relay_readyz',
+  'relay_well_known_webauthn',
+  'link_device_session_get',
+  'link_device_session_create',
+  'link_device_session_claim',
+  'link_device_prepare',
+  'threshold_ed25519_healthz',
+  'threshold_ecdsa_healthz',
+  'recover_email',
+] as const;
+
 test.describe('route definition scaffolding', () => {
   test('relay route ids are unique and core policies are encoded', async () => {
     const routes = createRelayRouteDefinitions({
@@ -38,6 +93,18 @@ test.describe('route definition scaffolding', () => {
       scopes: ['accounts.create'],
     });
     expect(registrationBootstrap?.metering).toEqual({ kind: 'event', action: 'wallet_created' });
+
+    const machineWalletList = routes.find((route) => route.id === 'machine_wallets_list');
+    expect(machineWalletList).toBeTruthy();
+    expect(machineWalletList?.auth).toMatchObject({
+      plane: 'machine',
+      credentials: ['secret_key'],
+      scopes: ['wallets.read'],
+    });
+    expect(machineWalletList?.metering).toEqual({ kind: 'none' });
+
+    const machineWalletRoute = findRouteDefinitionForRequest(routes, 'GET', '/v1/wallets/wlt_123');
+    expect(machineWalletRoute?.id).toBe('machine_wallets_get');
 
     const signedDelegate = routes.find((route) => route.id === 'signed_delegate');
     expect(signedDelegate).toBeTruthy();
@@ -89,6 +156,39 @@ test.describe('route definition scaffolding', () => {
       const rationale = route.auth.rationale.trim();
       expect(rationale.length).toBeGreaterThan(0);
       expect(Boolean(route.auth.proof) || rationale.length > 0).toBe(true);
+    }
+
+    const continuationRoutes = routes.filter((route) =>
+      THRESHOLD_CONTINUATION_ROUTE_IDS.includes(route.id as (typeof THRESHOLD_CONTINUATION_ROUTE_IDS)[number]),
+    );
+    expect(continuationRoutes.map((route) => route.id).sort()).toEqual(
+      [...THRESHOLD_CONTINUATION_ROUTE_IDS].sort(),
+    );
+    for (const route of continuationRoutes) {
+      expect(route.auth.plane).toBe('public');
+      if (route.auth.plane === 'public') {
+        expect(route.auth.proof).toBe('threshold_protocol_state');
+      }
+      expect(route.metering).toEqual({ kind: 'none' });
+      expect('scopes' in route.auth).toBe(false);
+    }
+
+    const publicRouteIds = publicRoutes.map((route) => route.id).sort();
+    expect(publicRouteIds).toEqual([...ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS].sort());
+
+    const prooflessPublicRoutes = publicRoutes.filter(
+      (route) => route.auth.plane === 'public' && !route.auth.proof,
+    );
+    expect(prooflessPublicRoutes.map((route) => route.id).sort()).toEqual(
+      [...ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS].sort(),
+    );
+    for (const route of prooflessPublicRoutes) {
+      expect(route.metering).toEqual({ kind: 'none' });
+    }
+
+    for (const route of routes) {
+      if (route.auth.plane === 'machine') continue;
+      expect('scopes' in route.auth, `non-machine route references scopes: ${route.id}`).toBe(false);
     }
 
     const declaredServices = new Set(ROUTE_SERVICE_KEYS);
@@ -197,6 +297,19 @@ test.describe('route definition scaffolding', () => {
     );
     expect(opsCockpitSummary?.auth).toMatchObject({
       plane: 'console',
+      roles: ['owner', 'admin', 'security_admin', 'ops'],
+    });
+
+    const auditEvents = routes.find((route) => route.id === 'console_audit_events_list');
+    expect(auditEvents?.auth).toMatchObject({
+      plane: 'console',
+      roles: ['owner', 'admin', 'security_admin', 'ops'],
+    });
+
+    const walletsList = routes.find((route) => route.id === 'console_wallets_list');
+    expect(walletsList?.auth).toMatchObject({
+      plane: 'console',
+      roles: ['owner', 'admin', 'security_admin', 'ops', 'support'],
     });
 
     const projectArchive = routes.find((route) => route.id === 'console_projects_archive');
@@ -243,6 +356,14 @@ test.describe('route definition scaffolding', () => {
     expect(invoiceGenerate?.auth).toMatchObject({
       plane: 'console',
       roles: ['admin', 'ops'],
+    });
+
+    const billingOverview = routes.find(
+      (route) => route.id === 'console_billing_overview_get',
+    );
+    expect(billingOverview?.auth).toMatchObject({
+      plane: 'console',
+      roles: ['owner', 'admin', 'billing_admin', 'ops'],
     });
 
     const supportCredit = routes.find(
