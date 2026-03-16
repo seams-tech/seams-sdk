@@ -6,8 +6,8 @@ import {
   requireConsoleBaseUrl,
 } from '../../consoleHttp';
 import {
-  isMachineApiKeyScope,
-  type MachineApiKeyScope,
+  isApiCredentialScope,
+  type ApiCredentialScope,
 } from '../../../../../../../shared/src/console/apiKeyScopes';
 
 export interface DashboardConsoleApiKey {
@@ -16,7 +16,7 @@ export interface DashboardConsoleApiKey {
   orgId: string;
   name: string;
   environmentId: string;
-  scopes: MachineApiKeyScope[];
+  scopes: ApiCredentialScope[];
   ipAllowlist: string[];
   allowedOrigins: string[];
   rateLimitBucket: string | null;
@@ -66,8 +66,8 @@ function readStringArray(raw: unknown): string[] {
   return out;
 }
 
-function readMachineScopeArray(raw: unknown): MachineApiKeyScope[] {
-  return readStringArray(raw).filter((value): value is MachineApiKeyScope => isMachineApiKeyScope(value));
+function readApiCredentialScopeArray(raw: unknown): ApiCredentialScope[] {
+  return readStringArray(raw).filter((value): value is ApiCredentialScope => isApiCredentialScope(value));
 }
 
 function readEndpointUsageCounts(raw: unknown): Record<string, number> {
@@ -102,7 +102,7 @@ function decodeApiKey(raw: unknown): DashboardConsoleApiKey | null {
     orgId,
     name: String(row.name || '').trim() || id,
     environmentId: String(row.environmentId || '').trim(),
-    scopes: readMachineScopeArray(row.scopes),
+    scopes: readApiCredentialScopeArray(row.scopes),
     ipAllowlist: readStringArray(row.ipAllowlist),
     allowedOrigins: readStringArray(row.allowedOrigins),
     rateLimitBucket: row.rateLimitBucket == null ? null : String(row.rateLimitBucket || '').trim(),
@@ -144,7 +144,7 @@ export type CreateDashboardApiKeyInput =
       kind: 'secret_key';
       name: string;
       environmentId: string;
-      scopes: MachineApiKeyScope[];
+      scopes: ApiCredentialScope[];
       ipAllowlist?: string[];
     }
   | {
@@ -162,7 +162,7 @@ export type UpdateDashboardApiKeyInput =
   | {
       apiKeyId: string;
       name?: string;
-      scopes?: MachineApiKeyScope[];
+      scopes?: ApiCredentialScope[];
       ipAllowlist?: string[];
       expiresAt?: string | null;
     }

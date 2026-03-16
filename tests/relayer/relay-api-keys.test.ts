@@ -14,7 +14,7 @@ import {
   type RelayUsageMeterEvent,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import type { MachineApiKeyScope } from '@shared/console/apiKeyScopes';
+import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
 import { callCf, fetchJson, getPath, makeCfCtx, makeFakeAuthService, startExpressRouter } from './helpers';
 
 const apiKeyCtx = {
@@ -137,7 +137,7 @@ function makeSerializedRegistrationCredential() {
 
 async function createActiveSecret(
   apiKeys: ConsoleApiKeyService,
-  input: { scopes: MachineApiKeyScope[]; ipAllowlist?: string[]; expiresAt?: string },
+  input: { scopes: ApiCredentialScope[]; ipAllowlist?: string[]; expiresAt?: string },
 ): Promise<{ apiKeyId: string; secret: string }> {
   const created = await apiKeys.createApiKey(apiKeyCtx, {
     kind: 'secret_key',
@@ -572,7 +572,7 @@ test.describe('relay API key auth (express)', () => {
     }
   });
 
-  test('machine wallet routes require wallets.read scope and stay bound to the key environment', async () => {
+  test('API credential wallet routes require wallets.read scope and stay bound to the key environment', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [
@@ -929,7 +929,7 @@ test.describe('relay API key auth (cloudflare)', () => {
     ]);
   });
 
-  test('machine wallet routes require wallets.read scope and stay bound to the key environment', async () => {
+  test('API credential wallet routes require wallets.read scope and stay bound to the key environment', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const wallets = createInMemoryConsoleWalletService({
       seedWallets: [

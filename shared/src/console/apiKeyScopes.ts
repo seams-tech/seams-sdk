@@ -1,16 +1,16 @@
-export const MACHINE_API_KEY_SCOPES = ['accounts.create', 'wallets.read'] as const;
+export const API_CREDENTIAL_SCOPES = ['accounts.create', 'wallets.read'] as const;
 
-export type MachineApiKeyScope = (typeof MACHINE_API_KEY_SCOPES)[number];
+export type ApiCredentialScope = (typeof API_CREDENTIAL_SCOPES)[number];
 
-export interface MachineApiKeyScopeOption {
-  value: MachineApiKeyScope;
+export interface ApiCredentialScopeOption {
+  value: ApiCredentialScope;
   label: string;
   description: string;
 }
 
-const MACHINE_API_KEY_SCOPE_METADATA: Record<
-  MachineApiKeyScope,
-  Omit<MachineApiKeyScopeOption, 'value'>
+const API_CREDENTIAL_SCOPE_METADATA: Record<
+  ApiCredentialScope,
+  Omit<ApiCredentialScopeOption, 'value'>
 > = {
   'accounts.create': {
     label: 'Create accounts',
@@ -22,14 +22,14 @@ const MACHINE_API_KEY_SCOPE_METADATA: Record<
   },
 };
 
-export const MACHINE_API_KEY_SCOPE_OPTIONS: readonly MachineApiKeyScopeOption[] =
-  MACHINE_API_KEY_SCOPES.map((value) => ({
+export const API_CREDENTIAL_SCOPE_OPTIONS: readonly ApiCredentialScopeOption[] =
+  API_CREDENTIAL_SCOPES.map((value) => ({
     value,
-    ...MACHINE_API_KEY_SCOPE_METADATA[value],
+    ...API_CREDENTIAL_SCOPE_METADATA[value],
   }));
 
-const MACHINE_API_KEY_SCOPE_SET = new Set<string>(MACHINE_API_KEY_SCOPES);
+const API_CREDENTIAL_SCOPE_SET = new Set<string>(API_CREDENTIAL_SCOPES);
 
-export function isMachineApiKeyScope(value: string): value is MachineApiKeyScope {
-  return MACHINE_API_KEY_SCOPE_SET.has(value);
+export function isApiCredentialScope(value: string): value is ApiCredentialScope {
+  return API_CREDENTIAL_SCOPE_SET.has(value);
 }

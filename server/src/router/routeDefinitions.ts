@@ -5,8 +5,8 @@ import {
   resolvePrfSessionSealBasePath,
 } from '../threshold/session/prfSessionSeal';
 import {
-  MACHINE_CREDENTIAL_TYPES,
-  MACHINE_ROUTE_SCOPES,
+  API_CREDENTIAL_ROUTE_SCOPES,
+  API_CREDENTIAL_TYPES,
   PUBLIC_PROOF_TYPES,
   type RouteAuthPolicy,
 } from './routeAuthPolicy';
@@ -94,8 +94,8 @@ const CONSOLE_BILLING_READ_ROLES: NonNullable<
 const CONSOLE_OBSERVABILITY_READ_ROLES: NonNullable<
   Extract<RouteAuthPolicy, { plane: 'console' }>['roles']
 > = ['owner', 'admin', 'security_admin', 'ops', 'support'];
-const MACHINE_CREDENTIAL_TYPE_SET = new Set<string>(MACHINE_CREDENTIAL_TYPES);
-const MACHINE_ROUTE_SCOPE_SET = new Set<string>(MACHINE_ROUTE_SCOPES);
+const API_CREDENTIAL_TYPE_SET = new Set<string>(API_CREDENTIAL_TYPES);
+const API_CREDENTIAL_ROUTE_SCOPE_SET = new Set<string>(API_CREDENTIAL_ROUTE_SCOPES);
 const PUBLIC_PROOF_TYPE_SET = new Set<string>(PUBLIC_PROOF_TYPES);
 const ROUTE_SERVICE_KEY_SET = new Set<string>(ROUTE_SERVICE_KEYS);
 
@@ -136,39 +136,43 @@ function normalizeRequiredServices(
 
 function normalizeAuthPolicy(id: string, auth: RouteAuthPolicy): RouteAuthPolicy {
   switch (auth.plane) {
-    case 'machine': {
+    case 'api_credentials': {
       const seenCredentials = new Set<string>();
       const credentials = auth.credentials
         .map((credential) => String(credential || '').trim())
         .filter(Boolean)
         .filter((credential) => {
-          if (!MACHINE_CREDENTIAL_TYPE_SET.has(credential)) {
+          if (!API_CREDENTIAL_TYPE_SET.has(credential)) {
             throw new Error(
-              `route definition machine auth contains unknown credential ${credential} for ${id}`,
+              `route definition api_credentials auth contains unknown credential ${credential} for ${id}`,
             );
           }
           if (seenCredentials.has(credential)) return false;
           seenCredentials.add(credential);
           return true;
-        }) as Extract<RouteAuthPolicy, { plane: 'machine' }>['credentials'];
+        }) as Extract<RouteAuthPolicy, { plane: 'api_credentials' }>['credentials'];
       if (credentials.length === 0) {
-        throw new Error(`route definition machine auth must declare at least one credential for ${id}`);
+        throw new Error(
+          `route definition api_credentials auth must declare at least one credential for ${id}`,
+        );
       }
 
-      let scopes: Extract<RouteAuthPolicy, { plane: 'machine' }>['scopes'] | undefined;
+      let scopes: Extract<RouteAuthPolicy, { plane: 'api_credentials' }>['scopes'] | undefined;
       if (auth.scopes && auth.scopes.length > 0) {
         const seenScopes = new Set<string>();
         scopes = auth.scopes
           .map((scope) => String(scope || '').trim())
           .filter(Boolean)
           .filter((scope) => {
-            if (!MACHINE_ROUTE_SCOPE_SET.has(scope)) {
-              throw new Error(`route definition machine auth contains unknown scope ${scope} for ${id}`);
+            if (!API_CREDENTIAL_ROUTE_SCOPE_SET.has(scope)) {
+              throw new Error(
+                `route definition api_credentials auth contains unknown scope ${scope} for ${id}`,
+              );
             }
             if (seenScopes.has(scope)) return false;
             seenScopes.add(scope);
             return true;
-          }) as Extract<RouteAuthPolicy, { plane: 'machine' }>['scopes'];
+          }) as Extract<RouteAuthPolicy, { plane: 'api_credentials' }>['scopes'];
         if (!scopes || scopes.length === 0) scopes = undefined;
       }
 
@@ -298,7 +302,7 @@ function publicRoute(
   });
 }
 
-function appSessionRoute(
+function userSessionRoute(
   id: string,
   method: RouteMethod,
   path: string,
@@ -312,7 +316,7 @@ function appSessionRoute(
     method,
     path,
     aliases,
-    auth: { plane: 'app_session' },
+    auth: { plane: 'user_session' },
     metering: { kind: 'none' },
     requiredServices,
     summary,
@@ -339,12 +343,12 @@ function thresholdSessionRoute(
   });
 }
 
-function machineRoute(
+function apiCredentialRoute(
   id: string,
   method: RouteMethod,
   path: string,
   summary: string,
-  auth: Extract<RouteAuthPolicy, { plane: 'machine' }>,
+  auth: Extract<RouteAuthPolicy, { plane: 'api_credentials' }>,
   metering: RouteMeteringPolicy,
   requiredServices?: readonly RouteServiceKey[],
 ): RouteDefinition {
@@ -1329,13 +1333,13 @@ export function createRelayRouteDefinitions(
       { kind: 'none' },
       ['/.well-known/webauthn/'],
     ),
-    machineRoute(
+    apiCredentialRoute(
       'registration_bootstrap_grants',
       'POST',
       '/v1/registration/bootstrap-grants',
       'Issue managed registration bootstrap grants',
       {
-        plane: 'machine',
+        plane: 'api_credentials',
         credentials: ['publishable_key'],
         environmentBinding: 'required',
         originBinding: 'required',
@@ -1343,13 +1347,13 @@ export function createRelayRouteDefinitions(
       { kind: 'none' },
       ['bootstrapGrantBroker'],
     ),
-    machineRoute(
+    apiCredentialRoute(
       'registration_bootstrap',
       'POST',
       '/registration/bootstrap',
       'Create and register a user account',
       {
-        plane: 'machine',
+        plane: 'api_credentials',
         credentials: ['secret_key', 'bootstrap_token'],
         scopes: ['accounts.create'],
         environmentBinding: 'required',
@@ -1357,39 +1361,39 @@ export function createRelayRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
       ['authService'],
     ),
-    machineRoute(
-      'machine_wallets_list',
+    apiCredentialRoute(
+      'api_wallets_list',
       'GET',
       '/v1/wallets',
-      'List wallets for the authenticated machine environment',
+      'List wallets for the authenticated API credential environment',
       {
-        plane: 'machine',
+        plane: 'api_credentials',
         credentials: ['secret_key'],
         scopes: ['wallets.read'],
       },
       { kind: 'none' },
       ['apiKeyAuth', 'wallets'],
     ),
-    machineRoute(
-      'machine_wallets_search',
+    apiCredentialRoute(
+      'api_wallets_search',
       'GET',
       '/v1/wallets/search',
-      'Search wallets for the authenticated machine environment',
+      'Search wallets for the authenticated API credential environment',
       {
-        plane: 'machine',
+        plane: 'api_credentials',
         credentials: ['secret_key'],
         scopes: ['wallets.read'],
       },
       { kind: 'none' },
       ['apiKeyAuth', 'wallets'],
     ),
-    machineRoute(
-      'machine_wallets_get',
+    apiCredentialRoute(
+      'api_wallets_get',
       'GET',
       '/v1/wallets/:id',
-      'Get a wallet for the authenticated machine environment',
+      'Get a wallet for the authenticated API credential environment',
       {
-        plane: 'machine',
+        plane: 'api_credentials',
         credentials: ['secret_key'],
         scopes: ['wallets.read'],
       },
@@ -1684,21 +1688,21 @@ export function createRelayRouteDefinitions(
       },
       ['threshold'],
     ),
-    appSessionRoute(
+    userSessionRoute(
       'webauthn_authenticators',
       'GET',
       '/webauthn/authenticators',
       'List registered WebAuthn authenticators',
       ['authService', 'session'],
     ),
-    appSessionRoute(
+    userSessionRoute(
       'near_public_keys',
       'GET',
       '/near/public-keys',
       'List NEAR public keys for current session',
       ['authService', 'session'],
     ),
-    appSessionRoute(
+    userSessionRoute(
       'session_state',
       'GET',
       sessionStatePath,
@@ -1719,14 +1723,14 @@ export function createRelayRouteDefinitions(
       },
       ['authService', 'session'],
     ),
-    appSessionRoute(
+    userSessionRoute(
       'session_revoke',
       'POST',
       '/session/revoke',
       'Revoke current app session',
       ['authService', 'session'],
     ),
-    appSessionRoute(
+    userSessionRoute(
       'session_refresh',
       'POST',
       '/session/refresh',
@@ -1757,8 +1761,8 @@ export function createRelayRouteDefinitions(
       },
       ['authService'],
     ),
-    appSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', ['authService', 'session']),
-    appSessionRoute('wallet_lock', 'POST', '/wallet/lock', 'Lock wallet', ['authService', 'session']),
+    userSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', ['authService', 'session']),
+    userSessionRoute('wallet_lock', 'POST', '/wallet/lock', 'Lock wallet', ['authService', 'session']),
     publicRoute(
       'recover_email',
       'POST',
@@ -1771,15 +1775,15 @@ export function createRelayRouteDefinitions(
       },
       ['authService'],
     ),
-    appSessionRoute('auth_identities', 'GET', '/auth/identities', 'List linked identities', [
+    userSessionRoute('auth_identities', 'GET', '/auth/identities', 'List linked identities', [
       'authService',
       'session',
     ]),
-    appSessionRoute('auth_link', 'POST', '/auth/link', 'Link an additional identity', [
+    userSessionRoute('auth_link', 'POST', '/auth/link', 'Link an additional identity', [
       'authService',
       'session',
     ]),
-    appSessionRoute('auth_unlink', 'POST', '/auth/unlink', 'Unlink an identity', [
+    userSessionRoute('auth_unlink', 'POST', '/auth/unlink', 'Unlink an identity', [
       'authService',
       'session',
     ]),
@@ -1787,13 +1791,13 @@ export function createRelayRouteDefinitions(
 
   if (options.enableSponsoredEvmCall) {
     definitions.push(
-      machineRoute(
+      apiCredentialRoute(
         'sponsored_evm_call',
         'POST',
         sponsoredEvmCallPath,
         'Execute a sponsored EVM call',
         {
-          plane: 'machine',
+          plane: 'api_credentials',
           credentials: ['publishable_key'],
           environmentBinding: 'required',
           originBinding: 'required',
@@ -1806,14 +1810,14 @@ export function createRelayRouteDefinitions(
 
   if (options.enablePrfSessionSeal) {
     definitions.push(
-      appSessionRoute(
+      userSessionRoute(
         'prf_session_seal_apply_server_seal',
         'POST',
         buildPrfSessionSealApplyPath(prfBasePath),
         'Apply PRF session server seal',
         ['prfSessionSeal', 'session'],
       ),
-      appSessionRoute(
+      userSessionRoute(
         'prf_session_seal_remove_server_seal',
         'POST',
         buildPrfSessionSealRemovePath(prfBasePath),
@@ -1825,13 +1829,13 @@ export function createRelayRouteDefinitions(
 
   if (signedDelegatePath) {
     definitions.push(
-      machineRoute(
+      apiCredentialRoute(
         'signed_delegate',
         'POST',
         signedDelegatePath,
         'Execute signed NEAR delegate',
         {
-          plane: 'machine',
+          plane: 'api_credentials',
           credentials: ['publishable_key'],
           environmentBinding: 'required',
           originBinding: 'required',

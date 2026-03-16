@@ -4,7 +4,7 @@ import { authorizeConsoleRouteRequest } from '../../server/src/router/consoleRou
 import { registerCloudflareRoute } from '../../server/src/router/cloudflare/registerCloudflareRoute';
 import { enforceRoutePolicy } from '../../server/src/router/enforceRoutePolicy';
 import { registerExpressRoute } from '../../server/src/router/express/registerExpressRoute';
-import { MACHINE_ROUTE_SCOPES } from '../../server/src/router/routeAuthPolicy';
+import { API_CREDENTIAL_ROUTE_SCOPES } from '../../server/src/router/routeAuthPolicy';
 import { ROUTE_SERVICE_KEYS } from '../../server/src/router/routeExecutionContext';
 import {
   createConsoleRouteDefinitions,
@@ -88,28 +88,28 @@ test.describe('route definition scaffolding', () => {
     const registrationBootstrap = routes.find((route) => route.id === 'registration_bootstrap');
     expect(registrationBootstrap).toBeTruthy();
     expect(registrationBootstrap?.auth).toMatchObject({
-      plane: 'machine',
+      plane: 'api_credentials',
       credentials: ['secret_key', 'bootstrap_token'],
       scopes: ['accounts.create'],
     });
     expect(registrationBootstrap?.metering).toEqual({ kind: 'event', action: 'wallet_created' });
 
-    const machineWalletList = routes.find((route) => route.id === 'machine_wallets_list');
-    expect(machineWalletList).toBeTruthy();
-    expect(machineWalletList?.auth).toMatchObject({
-      plane: 'machine',
+    const apiWalletList = routes.find((route) => route.id === 'api_wallets_list');
+    expect(apiWalletList).toBeTruthy();
+    expect(apiWalletList?.auth).toMatchObject({
+      plane: 'api_credentials',
       credentials: ['secret_key'],
       scopes: ['wallets.read'],
     });
-    expect(machineWalletList?.metering).toEqual({ kind: 'none' });
+    expect(apiWalletList?.metering).toEqual({ kind: 'none' });
 
-    const machineWalletRoute = findRouteDefinitionForRequest(routes, 'GET', '/v1/wallets/wlt_123');
-    expect(machineWalletRoute?.id).toBe('machine_wallets_get');
+    const apiWalletRoute = findRouteDefinitionForRequest(routes, 'GET', '/v1/wallets/wlt_123');
+    expect(apiWalletRoute?.id).toBe('api_wallets_get');
 
     const signedDelegate = routes.find((route) => route.id === 'signed_delegate');
     expect(signedDelegate).toBeTruthy();
     expect(signedDelegate?.auth).toMatchObject({
-      plane: 'machine',
+      plane: 'api_credentials',
       credentials: ['publishable_key'],
     });
     expect(signedDelegate?.metering).toEqual({ kind: 'gas', ledger: 'near_delegate' });
@@ -133,21 +133,23 @@ test.describe('route definition scaffolding', () => {
     const prfApply = routes.find((route) => route.id === 'prf_session_seal_apply_server_seal');
     expect(prfApply?.path).toBe('/threshold-ecdsa/prf-seal/apply-server-seal');
 
-    const machineRoutes = routes.filter((route) => route.auth.plane === 'machine');
-    expect(machineRoutes.length).toBeGreaterThan(0);
-    for (const route of machineRoutes) {
+    const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
+    expect(apiCredentialRoutes.length).toBeGreaterThan(0);
+    for (const route of apiCredentialRoutes) {
       expect(route.auth.credentials.length).toBeGreaterThan(0);
       expect(new Set(route.auth.credentials).size).toBe(route.auth.credentials.length);
       for (const scope of route.auth.scopes || []) {
-        expect(MACHINE_ROUTE_SCOPES).toContain(scope);
+        expect(API_CREDENTIAL_ROUTE_SCOPES).toContain(scope);
       }
     }
 
-    const usedMachineScopes = new Set(
-      machineRoutes.flatMap((route) => (route.auth.plane === 'machine' ? route.auth.scopes || [] : [])),
+    const usedApiCredentialScopes = new Set(
+      apiCredentialRoutes.flatMap((route) =>
+        route.auth.plane === 'api_credentials' ? route.auth.scopes || [] : [],
+      ),
     );
-    for (const scope of MACHINE_ROUTE_SCOPES) {
-      expect(usedMachineScopes.has(scope)).toBe(true);
+    for (const scope of API_CREDENTIAL_ROUTE_SCOPES) {
+      expect(usedApiCredentialScopes.has(scope)).toBe(true);
     }
 
     const publicRoutes = routes.filter((route) => route.auth.plane === 'public');
@@ -187,8 +189,10 @@ test.describe('route definition scaffolding', () => {
     }
 
     for (const route of routes) {
-      if (route.auth.plane === 'machine') continue;
-      expect('scopes' in route.auth, `non-machine route references scopes: ${route.id}`).toBe(false);
+      if (route.auth.plane === 'api_credentials') continue;
+      expect('scopes' in route.auth, `non-api_credentials route references scopes: ${route.id}`).toBe(
+        false,
+      );
     }
 
     const declaredServices = new Set(ROUTE_SERVICE_KEYS);
@@ -226,13 +230,13 @@ test.describe('route definition scaffolding', () => {
 
     expect(() =>
       defineRoute({
-        id: 'broken_machine',
+        id: 'broken_api_credentials',
         surface: 'relay',
         method: 'POST',
-        path: '/broken-machine',
-        auth: { plane: 'machine', credentials: [] },
+        path: '/broken-api-credentials',
+        auth: { plane: 'api_credentials', credentials: [] },
         metering: { kind: 'none' },
-        summary: 'broken machine',
+        summary: 'broken api credentials',
       }),
     ).toThrow(/at least one credential/);
 
@@ -563,7 +567,7 @@ test.describe('route definition scaffolding', () => {
     }
   });
 
-  test('enforceRoutePolicy allows public routes and blocks unresolved machine routes', async () => {
+  test('enforceRoutePolicy allows public routes and blocks unresolved api credential routes', async () => {
     const publicRoute: RouteDefinition = defineRoute({
       id: 'public_route',
       surface: 'relay',
@@ -573,14 +577,14 @@ test.describe('route definition scaffolding', () => {
       metering: { kind: 'none' },
       summary: 'public route',
     });
-    const machineRoute: RouteDefinition = defineRoute({
-      id: 'machine_route',
+    const apiCredentialRoute: RouteDefinition = defineRoute({
+      id: 'api_credential_route',
       surface: 'relay',
       method: 'POST',
-      path: '/machine-route',
-      auth: { plane: 'machine', credentials: ['secret_key'], scopes: ['accounts.create'] },
+      path: '/api-credential-route',
+      auth: { plane: 'api_credentials', credentials: ['secret_key'], scopes: ['accounts.create'] },
       metering: { kind: 'event', action: 'wallet_created' },
-      summary: 'machine route',
+      summary: 'api credential route',
     });
 
     const publicResult = await enforceRoutePolicy({
@@ -599,8 +603,8 @@ test.describe('route definition scaffolding', () => {
       expect(publicResult.context.principal).toEqual({ kind: 'public' });
     }
 
-    const machineResult = await enforceRoutePolicy({
-      route: machineRoute,
+    const apiCredentialResult = await enforceRoutePolicy({
+      route: apiCredentialRoute,
       headers: {},
       logger: {
         debug() {},
@@ -610,9 +614,9 @@ test.describe('route definition scaffolding', () => {
       },
       request: { body: {}, headers: {} },
     });
-    expect(machineResult.ok).toBe(false);
-    if (!machineResult.ok) {
-      expect(machineResult.body).toMatchObject({
+    expect(apiCredentialResult.ok).toBe(false);
+    if (!apiCredentialResult.ok) {
+      expect(apiCredentialResult.body).toMatchObject({
         code: 'route_auth_not_configured',
       });
     }

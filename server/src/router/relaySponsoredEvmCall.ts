@@ -25,7 +25,7 @@ import {
 } from '../sponsorship/evmRelay';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyMachineAuth } from './relayMachineAuth';
+import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
 import { recordMeteredGasExecution } from './recordMeteredGasExecution';
 import { extractRelayEnvironmentId } from './relayApiKeyAuth';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
@@ -348,8 +348,8 @@ export async function handleRelaySponsoredEvmCall(
       relaySponsoredEvmCall,
     },
     resolvers: {
-      machine: async () =>
-        await resolvePublishableKeyMachineAuth({
+      apiCredentials: async () =>
+        await resolvePublishableKeyApiCredentialAuth({
           environmentId: parsedBody.environmentId,
           headers: input.headers,
           missingEnvironmentMessage:
@@ -359,7 +359,7 @@ export async function handleRelaySponsoredEvmCall(
           origin,
           publishableKeyAuth,
           route: input.route,
-          routeAuthNotConfiguredMessage: 'Sponsored EVM call requires machine auth policy',
+          routeAuthNotConfiguredMessage: 'Sponsored EVM call requires API credential auth policy',
         }),
     },
   });
@@ -379,11 +379,11 @@ export async function handleRelaySponsoredEvmCall(
     });
   }
 
-  if (resolved.context.principal.kind !== 'machine') {
+  if (resolved.context.principal.kind !== 'api_credentials') {
     return routeJson(500, {
       ok: false,
       code: 'internal',
-      message: 'Sponsored EVM execution requires a machine principal',
+      message: 'Sponsored EVM execution requires an API credential principal',
     });
   }
 

@@ -2,9 +2,9 @@ import type { NormalizedLogger } from '../../core/logger';
 import { normalizeCorsOrigin } from '../../core/SessionService';
 import { getPostgresPool } from '../../storage/postgres';
 import {
-  MACHINE_API_KEY_SCOPES,
-  isMachineApiKeyScope,
-  type MachineApiKeyScope,
+  API_CREDENTIAL_SCOPES,
+  isApiCredentialScope,
+  type ApiCredentialScope,
 } from '../../../../shared/src/console/apiKeyScopes';
 import {
   ensureConsoleNamespace as ensureNamespace,
@@ -47,8 +47,8 @@ const CONSOLE_API_KEYS_MIGRATION_LOCK_ID = 9452360123585;
 const CONSOLE_API_KEY_LOOKUP_KIND_GUC = 'app.console_api_key_lookup_kind';
 const CONSOLE_API_KEY_LOOKUP_PREFIX_GUC = 'app.console_api_key_lookup_prefix';
 const CONSOLE_API_KEY_LOOKUP_HASH_GUC = 'app.console_api_key_lookup_hash';
-const MACHINE_API_KEY_SCOPES_JSON = JSON.stringify(MACHINE_API_KEY_SCOPES);
-const MACHINE_API_KEY_SCOPES_SQL = `'${MACHINE_API_KEY_SCOPES_JSON.replace(/'/g, "''")}'::jsonb`;
+const API_CREDENTIAL_SCOPES_JSON = JSON.stringify(API_CREDENTIAL_SCOPES);
+const API_CREDENTIAL_SCOPES_SQL = `'${API_CREDENTIAL_SCOPES_JSON.replace(/'/g, "''")}'::jsonb`;
 
 interface StoredApiKey extends ConsoleApiKey {
   secretHash: string;
@@ -86,26 +86,26 @@ function parseStringArray(raw: unknown): string[] {
   return out;
 }
 
-function parseMachineApiKeyScopes(raw: unknown): MachineApiKeyScope[] {
+function parseApiCredentialScopes(raw: unknown): ApiCredentialScope[] {
   const scopes = parseStringArray(raw);
-  const out: MachineApiKeyScope[] = [];
+  const out: ApiCredentialScope[] = [];
   for (const scope of scopes) {
-    if (!isMachineApiKeyScope(scope)) {
-      throw new Error(`Unexpected persisted machine API key scope: ${scope}`);
+    if (!isApiCredentialScope(scope)) {
+      throw new Error(`Unexpected persisted API credential scope: ${scope}`);
     }
     out.push(scope);
   }
   return out;
 }
 
-function normalizeMachineApiKeyScopes(input: readonly string[] | undefined): MachineApiKeyScope[] {
+function normalizeApiCredentialScopes(input: readonly string[] | undefined): ApiCredentialScope[] {
   if (!Array.isArray(input)) return [];
-  const out: MachineApiKeyScope[] = [];
+  const out: ApiCredentialScope[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
     const value = String(raw || '').trim();
     if (!value) continue;
-    if (!isMachineApiKeyScope(value)) {
+    if (!isApiCredentialScope(value)) {
       throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
     }
     const dedupeKey = value.toLowerCase();
@@ -213,7 +213,7 @@ function parseApiKeyRow(row: PgRow): StoredApiKey {
   }
   return {
     ...common,
-    scopes: parseMachineApiKeyScopes(row.scopes),
+    scopes: parseApiCredentialScopes(row.scopes),
     ipAllowlist: parseStringArray(row.ip_allowlist),
   };
 }
@@ -346,7 +346,7 @@ export async function ensureConsoleApiKeysPostgresSchema(
        WHERE kind = 'publishable_key'
           OR NOT (scopes <@ $1::jsonb)
       `,
-      [MACHINE_API_KEY_SCOPES_JSON],
+      [API_CREDENTIAL_SCOPES_JSON],
     );
     await pool.query(`
       UPDATE console_api_keys
@@ -448,7 +448,7 @@ export async function ensureConsoleApiKeysPostgresSchema(
       ADD CONSTRAINT console_api_keys_scope_catalog_check
       CHECK (
         (kind = 'publishable_key' AND scopes = '[]'::jsonb)
-        OR (kind = 'secret_key' AND scopes <@ ${MACHINE_API_KEY_SCOPES_SQL})
+        OR (kind = 'secret_key' AND scopes <@ ${API_CREDENTIAL_SCOPES_SQL})
       )
     `);
     await pool.query(`
@@ -616,8 +616,8 @@ export async function createPostgresConsoleApiKeyService(
   }
 
   function hasRequiredScopes(
-    scopes: MachineApiKeyScope[],
-    requiredScopes: MachineApiKeyScope[],
+    scopes: ApiCredentialScope[],
+    requiredScopes: ApiCredentialScope[],
   ): boolean {
     if (!requiredScopes.length) return true;
     const available = new Set(
@@ -682,7 +682,7 @@ export async function createPostgresConsoleApiKeyService(
         const keyPrefix = makeApiKeyLookupPrefix(secret);
         const expiresAtMs = request.expiresAt ? Date.parse(request.expiresAt) : NaN;
         const scopes =
-          request.kind === 'secret_key' ? normalizeMachineApiKeyScopes(request.scopes) : [];
+          request.kind === 'secret_key' ? normalizeApiCredentialScopes(request.scopes) : [];
         const ipAllowlist = request.kind === 'secret_key' ? (request.ipAllowlist || []) : [];
         const allowedOrigins = request.kind === 'publishable_key' ? request.allowedOrigins : [];
         const rateLimitBucket =
@@ -905,7 +905,7 @@ export async function createPostgresConsoleApiKeyService(
             apiKeyId,
             request.name ?? null,
             request.scopes !== undefined
-              ? JSON.stringify(normalizeMachineApiKeyScopes(request.scopes))
+              ? JSON.stringify(normalizeApiCredentialScopes(request.scopes))
               : null,
             request.ipAllowlist !== undefined ? JSON.stringify(request.ipAllowlist) : null,
             request.allowedOrigins !== undefined ? JSON.stringify(request.allowedOrigins) : null,

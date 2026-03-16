@@ -2,7 +2,7 @@ import type { ConsoleApiKey } from '../console/apiKeys';
 import { RelayBootstrapGrantError, parseRelayBootstrapGrantIssueBody } from './bootstrapGrantBroker';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveBootstrapGrantMachineAuth } from './relayMachineAuth';
+import { resolveBootstrapGrantApiCredentialAuth } from './relayApiCredentialAuth';
 import type { RelayBootstrapGrantBroker } from './relay';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
@@ -50,8 +50,8 @@ export async function handleRelayBootstrapGrant(
     },
     resolvers: broker
       ? {
-          machine: async () =>
-            await resolveBootstrapGrantMachineAuth({
+          apiCredentials: async () =>
+            await resolveBootstrapGrantApiCredentialAuth({
               body: input.body,
               headers: input.headers,
               origin: input.origin,

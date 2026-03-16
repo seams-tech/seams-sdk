@@ -51,14 +51,22 @@ Primary code and doc targets:
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeAuthPolicy.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeDefinitions.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/enforceRoutePolicy.ts`
-- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineAuth.ts`
-- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineWallets.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayApiCredentialAuth.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayApiWallets.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayBootstrapGrant.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayRegistrationBootstrap.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySignedDelegate.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySponsoredEvmCall.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/shared/src/console/apiKeyScopes.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/apiKeys/service.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/apiKeys/types.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/apiKeys/postgres.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/apiKeys/requests.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/api-keys/page.tsx`
+- `/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/api-keys/consoleApiKeysApi.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/router.routeDefinitions.unit.test.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/router.relayRouteSurface.unit.test.ts`
+- `/Users/pta/Dev/rust/simple-threshold-signer/tests/relayer/relay-api-keys.test.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/docs/auth-gating-routes.md`
 
 Secondary cleanup targets:
@@ -153,16 +161,27 @@ Then update imports in relay route handlers and tests.
 
 Note: this is a rename/cleanup refactor, so the old files should not remain as wrappers.
 
+### 6. Rename shared scope catalog terminology
+
+The shared secret-key scope catalog should use the same vocabulary:
+
+- `MachineApiKeyScope` -> `ApiCredentialScope`
+- `isMachineApiKeyScope()` -> `isApiCredentialScope()`
+- `MACHINE_API_KEY_SCOPES` -> `API_CREDENTIAL_SCOPES`
+- `MACHINE_API_KEY_SCOPE_OPTIONS` -> `API_CREDENTIAL_SCOPE_OPTIONS`
+
+That rename should flow through server API-key types/services, relay auth types, dashboard API-key UI, and focused tests.
+
 ## Phase plan
 
 ### Phase 1: Type-layer rename
 
-- [ ] Update `RouteAuthPlane` in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeAuthPolicy.ts`.
-- [ ] Update `RouteAuthPolicy` discriminants from `machine` to `api_credentials`.
-- [ ] Update `RouteAuthPolicy` discriminants from `app_session` to `user_session`.
-- [ ] Remove the unused `internal` route-policy branch.
-- [ ] Update `RoutePrincipal` discriminants to match.
-- [ ] Rename supporting credential/scope types and constants away from `machine`.
+- [x] Update `RouteAuthPlane` in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeAuthPolicy.ts`.
+- [x] Update `RouteAuthPolicy` discriminants from `machine` to `api_credentials`.
+- [x] Update `RouteAuthPolicy` discriminants from `app_session` to `user_session`.
+- [x] Remove the unused `internal` route-policy branch.
+- [x] Update `RoutePrincipal` discriminants to match.
+- [x] Rename supporting credential/scope types and constants away from `machine`.
 
 Exit criteria:
 
@@ -170,11 +189,11 @@ Exit criteria:
 
 ### Phase 2: Route-definition rename
 
-- [ ] Rename `machineRoute()` helper to `apiCredentialRoute()`.
-- [ ] Rename `appSessionRoute()` helper to `userSessionRoute()`.
-- [ ] Update all relay route definitions to use the new `plane` names.
-- [ ] Rename route IDs that embed `machine`.
-- [ ] Update route-definition normalization code to use the renamed types/constants.
+- [x] Rename `machineRoute()` helper to `apiCredentialRoute()`.
+- [x] Rename `appSessionRoute()` helper to `userSessionRoute()`.
+- [x] Update all relay route definitions to use the new `plane` names.
+- [x] Rename route IDs that embed `machine`.
+- [x] Update route-definition normalization code to use the renamed types/constants.
 
 Exit criteria:
 
@@ -183,10 +202,10 @@ Exit criteria:
 
 ### Phase 3: Enforcement-layer rename
 
-- [ ] Update `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/enforceRoutePolicy.ts` to switch on the new plane names.
-- [ ] Rename `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineAuth.ts` and its exported APIs.
-- [ ] Rename other relay helpers/modules that still encode stale plane naming.
-- [ ] Update all imports, error messages, and internal helper names.
+- [x] Update `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/enforceRoutePolicy.ts` to switch on the new plane names.
+- [x] Rename `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineAuth.ts` to `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayApiCredentialAuth.ts` and update its exported APIs.
+- [x] Rename other relay helpers/modules that still encode stale plane naming.
+- [x] Update all imports, error messages, and internal helper names.
 
 Exit criteria:
 
@@ -194,10 +213,10 @@ Exit criteria:
 
 ### Phase 4: Tests
 
-- [ ] Update route-definition unit tests for the new plane names.
-- [ ] Update relay route-surface tests for renamed route IDs if needed.
-- [ ] Update focused relayer tests that assert route policy wording.
-- [ ] Add a grep-based guard or unit assertion that route-plane names are limited to:
+- [x] Update route-definition unit tests for the new plane names.
+- [x] Update relay route-surface tests for renamed route IDs if needed.
+- [x] Update focused relayer tests that assert route policy wording.
+- [x] Add a grep-based guard or unit assertion that route-plane names are limited to:
   - `console`
   - `api_credentials`
   - `user_session`
@@ -211,10 +230,10 @@ Exit criteria:
 
 ### Phase 5: Docs cleanup
 
-- [ ] Update `/Users/pta/Dev/rust/simple-threshold-signer/docs/auth-gating-routes.md` to use the new canonical plane names consistently.
-- [ ] Update any architecture examples in docs to match the final code.
-- [ ] Update any route summaries or design notes that still explain `machine` or `app_session` as plane names.
-- [ ] Leave `app_session_v1` references alone where they refer to the JWT/session claim kind rather than the route plane.
+- [x] Update `/Users/pta/Dev/rust/simple-threshold-signer/docs/auth-gating-routes.md` to use the new canonical plane names consistently.
+- [x] Update any architecture examples in docs to match the final code.
+- [x] Update any route summaries or design notes that still explain `machine` or `app_session` as plane names.
+- [x] Leave `app_session_v1` references alone where they refer to the JWT/session claim kind rather than the route plane.
 
 Exit criteria:
 
@@ -225,28 +244,36 @@ Exit criteria:
 
 Before closing the refactor, verify these searches return only intentional results:
 
-- [ ] `rg -n \"plane: 'machine'|kind: 'machine'|\\bmachine auth\\b\" /Users/pta/Dev/rust/simple-threshold-signer`
-- [ ] `rg -n \"plane: 'app_session'|kind: 'app_session'\" /Users/pta/Dev/rust/simple-threshold-signer`
-- [ ] `rg -n \"plane: 'internal'|kind: 'internal'\" /Users/pta/Dev/rust/simple-threshold-signer`
-- [ ] `rg -n \"RouteAuthPlane\" /Users/pta/Dev/rust/simple-threshold-signer`
+- [x] `rg -n \"plane: 'machine'|kind: 'machine'|\\bmachine auth\\b\" /Users/pta/Dev/rust/simple-threshold-signer`
+- [x] `rg -n \"plane: 'app_session'|kind: 'app_session'\" /Users/pta/Dev/rust/simple-threshold-signer`
+- [x] `rg -n \"plane: 'internal'|kind: 'internal'\" /Users/pta/Dev/rust/simple-threshold-signer`
+- [x] `rg -n \"RouteAuthPlane\" /Users/pta/Dev/rust/simple-threshold-signer`
 
 Expected survivors:
 
 - `app_session_v1` token references
+- the route-policy type definition in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/routeAuthPolicy.ts`
 - historical prose that explicitly documents the rename, if any
 
 ## Validation
 
 Minimum validation after implementation:
 
-- [ ] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/examples/relay-server exec tsc --noEmit`
-- [ ] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/tests exec playwright test ./unit/router.routeDefinitions.unit.test.ts ./unit/router.relayRouteSurface.unit.test.ts --reporter=line`
-- [ ] run focused relayer tests that cover:
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/examples/relay-server exec tsc --noEmit`
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/tests exec playwright test ./unit/router.routeDefinitions.unit.test.ts ./unit/router.relayRouteSurface.unit.test.ts --reporter=line`
+- [x] run focused relayer tests that cover:
   - registration bootstrap
   - bootstrap grants
   - sponsored EVM call
   - signed delegate
-  - machine wallet routes
+  - API credential wallet routes
+
+Completed focused verification:
+
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/sdk build`
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/tests exec playwright test ./relayer/relay-api-keys.test.ts -c playwright.relayer.config.ts --reporter=line`
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/tests exec playwright test ./relayer/bootstrap-grants.test.ts -c playwright.relayer.config.ts --reporter=line`
+- [x] `pnpm -C /Users/pta/Dev/rust/simple-threshold-signer/tests exec playwright test ./unit/router.routeDefinitions.unit.test.ts ./unit/router.relayRouteSurface.unit.test.ts --reporter=line`
 
 ## Risks
 
@@ -266,3 +293,5 @@ At the end of this refactor:
   - `public`
 - no route-policy type, helper, or primary doc still uses the old `machine` or `app_session` plane names
 - no unused `internal` route plane remains in the codebase
+- helper modules and route IDs now use `api_credentials` / `user_session` terminology instead of `machine` / `app_session`
+- the shared secret-key scope catalog now uses `ApiCredentialScope` naming end to end

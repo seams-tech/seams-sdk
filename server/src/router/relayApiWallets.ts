@@ -9,48 +9,48 @@ import {
 } from '../console/wallets';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveSecretKeyMachineAuth } from './relayMachineAuth';
+import { resolveSecretKeyApiCredentialAuth } from './relayApiCredentialAuth';
 import type { RelayApiKeyAuthAdapter, RelayApiKeyPrincipal } from './relay';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import { routeJson } from './routeResponses';
 
-type RelayMachineWalletErrorBody = {
+type RelayApiWalletErrorBody = {
   ok: false;
   code: string;
   message: string;
   details?: Record<string, unknown>;
 };
 
-type RelayMachineWalletListBody = {
+type RelayApiWalletListBody = {
   ok: true;
   wallets: ConsoleWallet[];
   nextCursor?: string;
 };
 
-type RelayMachineWalletGetBody = {
+type RelayApiWalletGetBody = {
   ok: true;
   wallet: ConsoleWallet;
 };
 
-interface RelayMachineWalletServices {
+interface RelayApiWalletServices {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   wallets?: ConsoleWalletService | null;
 }
 
-interface RelayMachineWalletInput {
+interface RelayApiWalletInput {
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   route: RouteDefinition;
-  services: RelayMachineWalletServices;
+  services: RelayApiWalletServices;
   sourceIp?: string;
 }
 
-interface RelayMachineWalletQueryInput extends RelayMachineWalletInput {
+interface RelayApiWalletQueryInput extends RelayApiWalletInput {
   query?: Record<string, string | string[] | undefined>;
 }
 
-interface RelayMachineWalletGetInput extends RelayMachineWalletInput {
+interface RelayApiWalletGetInput extends RelayApiWalletInput {
   walletId?: string;
 }
 
@@ -72,11 +72,11 @@ function parsePolicyFailureMessage(message: string): {
   };
 }
 
-function toMachineWalletContext(principal: RelayApiKeyPrincipal): ConsoleWalletsContext {
+function toApiWalletContext(principal: RelayApiKeyPrincipal): ConsoleWalletsContext {
   return {
     orgId: principal.orgId,
-    actorUserId: `machine:${principal.apiKeyId}`,
-    roles: ['machine_api_key'],
+    actorUserId: `api_credentials:${principal.apiKeyId}`,
+    roles: ['api_credential'],
     environmentId: principal.environmentId,
   };
 }
@@ -91,7 +91,7 @@ function bindEnvironmentScope<T extends { environmentId?: string }>(
   };
 }
 
-function walletListResponse(page: ConsoleWalletPage): RouteResponse<RelayMachineWalletListBody> {
+function walletListResponse(page: ConsoleWalletPage): RouteResponse<RelayApiWalletListBody> {
   return routeJson(200, {
     ok: true,
     wallets: page.items,
@@ -99,7 +99,7 @@ function walletListResponse(page: ConsoleWalletPage): RouteResponse<RelayMachine
   });
 }
 
-function walletErrorResponse(error: unknown): RouteResponse<RelayMachineWalletErrorBody> {
+function walletErrorResponse(error: unknown): RouteResponse<RelayApiWalletErrorBody> {
   if (isConsoleWalletError(error)) {
     return routeJson(error.status, {
       ok: false,
@@ -115,8 +115,8 @@ function walletErrorResponse(error: unknown): RouteResponse<RelayMachineWalletEr
   });
 }
 
-async function enforceMachineWalletRoute(
-  input: RelayMachineWalletInput,
+async function enforceApiWalletRoute(
+  input: RelayApiWalletInput,
 ): Promise<
   Awaited<
     ReturnType<
@@ -141,38 +141,38 @@ async function enforceMachineWalletRoute(
     },
     ...(input.sourceIp ? { sourceIp: input.sourceIp } : {}),
     resolvers: {
-      machine: async () =>
-        await resolveSecretKeyMachineAuth({
+      apiCredentials: async () =>
+        await resolveSecretKeyApiCredentialAuth({
           apiKeyAuth: input.services.apiKeyAuth,
           headers: input.headers,
           route: input.route,
           ...(input.sourceIp ? { sourceIp: input.sourceIp } : {}),
-          routeAuthNotConfiguredMessage: 'Machine wallet API auth is not configured on this server',
+          routeAuthNotConfiguredMessage: 'API credential wallet auth is not configured on this server',
         }),
     },
   });
 }
 
-function machineWalletNotConfiguredResponse(
+function apiWalletNotConfiguredResponse(
   status: 500 | 501,
-): RouteResponse<RelayMachineWalletErrorBody> {
+): RouteResponse<RelayApiWalletErrorBody> {
   return routeJson(status, {
     ok: false,
     code: 'wallet_api_not_configured',
-    message: 'Machine wallet API is not configured on this server',
+    message: 'API credential wallet access is not configured on this server',
   });
 }
 
-export async function handleRelayMachineWalletList(
-  input: RelayMachineWalletQueryInput,
-): Promise<RouteResponse<RelayMachineWalletListBody | RelayMachineWalletErrorBody>> {
-  const resolved = await enforceMachineWalletRoute(input);
+export async function handleRelayApiWalletList(
+  input: RelayApiWalletQueryInput,
+): Promise<RouteResponse<RelayApiWalletListBody | RelayApiWalletErrorBody>> {
+  const resolved = await enforceApiWalletRoute(input);
   if (!resolved.ok) {
     if (
       resolved.body.code === 'route_auth_not_configured' ||
       resolved.body.code === 'service_not_configured'
     ) {
-      return machineWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
+      return apiWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
     }
     const parsed = parsePolicyFailureMessage(resolved.body.message);
     return routeJson(resolved.status, {
@@ -183,11 +183,11 @@ export async function handleRelayMachineWalletList(
   }
 
   const principal = resolved.context.principal;
-  if (principal.kind !== 'machine') {
+  if (principal.kind !== 'api_credentials') {
     return routeJson(500, {
       ok: false,
       code: 'internal',
-      message: 'Machine wallet route resolved a non-machine principal',
+      message: 'API wallet route resolved a non-API-credential principal',
     });
   }
 
@@ -197,7 +197,7 @@ export async function handleRelayMachineWalletList(
       principal.principal.environmentId,
     );
     const page = await resolved.context.services.wallets!.listWallets(
-      toMachineWalletContext(principal.principal),
+      toApiWalletContext(principal.principal),
       request,
     );
     return walletListResponse(page);
@@ -206,16 +206,16 @@ export async function handleRelayMachineWalletList(
   }
 }
 
-export async function handleRelayMachineWalletSearch(
-  input: RelayMachineWalletQueryInput,
-): Promise<RouteResponse<RelayMachineWalletListBody | RelayMachineWalletErrorBody>> {
-  const resolved = await enforceMachineWalletRoute(input);
+export async function handleRelayApiWalletSearch(
+  input: RelayApiWalletQueryInput,
+): Promise<RouteResponse<RelayApiWalletListBody | RelayApiWalletErrorBody>> {
+  const resolved = await enforceApiWalletRoute(input);
   if (!resolved.ok) {
     if (
       resolved.body.code === 'route_auth_not_configured' ||
       resolved.body.code === 'service_not_configured'
     ) {
-      return machineWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
+      return apiWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
     }
     const parsed = parsePolicyFailureMessage(resolved.body.message);
     return routeJson(resolved.status, {
@@ -226,11 +226,11 @@ export async function handleRelayMachineWalletSearch(
   }
 
   const principal = resolved.context.principal;
-  if (principal.kind !== 'machine') {
+  if (principal.kind !== 'api_credentials') {
     return routeJson(500, {
       ok: false,
       code: 'internal',
-      message: 'Machine wallet route resolved a non-machine principal',
+      message: 'API wallet route resolved a non-API-credential principal',
     });
   }
 
@@ -240,7 +240,7 @@ export async function handleRelayMachineWalletSearch(
       principal.principal.environmentId,
     );
     const page = await resolved.context.services.wallets!.searchWallets(
-      toMachineWalletContext(principal.principal),
+      toApiWalletContext(principal.principal),
       request,
     );
     return walletListResponse(page);
@@ -249,9 +249,9 @@ export async function handleRelayMachineWalletSearch(
   }
 }
 
-export async function handleRelayMachineWalletGet(
-  input: RelayMachineWalletGetInput,
-): Promise<RouteResponse<RelayMachineWalletGetBody | RelayMachineWalletErrorBody>> {
+export async function handleRelayApiWalletGet(
+  input: RelayApiWalletGetInput,
+): Promise<RouteResponse<RelayApiWalletGetBody | RelayApiWalletErrorBody>> {
   const walletId = String(input.walletId || '').trim();
   if (!walletId) {
     return routeJson(400, {
@@ -261,13 +261,13 @@ export async function handleRelayMachineWalletGet(
     });
   }
 
-  const resolved = await enforceMachineWalletRoute(input);
+  const resolved = await enforceApiWalletRoute(input);
   if (!resolved.ok) {
     if (
       resolved.body.code === 'route_auth_not_configured' ||
       resolved.body.code === 'service_not_configured'
     ) {
-      return machineWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
+      return apiWalletNotConfiguredResponse(resolved.status === 501 ? 501 : 500);
     }
     const parsed = parsePolicyFailureMessage(resolved.body.message);
     return routeJson(resolved.status, {
@@ -278,17 +278,17 @@ export async function handleRelayMachineWalletGet(
   }
 
   const principal = resolved.context.principal;
-  if (principal.kind !== 'machine') {
+  if (principal.kind !== 'api_credentials') {
     return routeJson(500, {
       ok: false,
       code: 'internal',
-      message: 'Machine wallet route resolved a non-machine principal',
+      message: 'API wallet route resolved a non-API-credential principal',
     });
   }
 
   try {
     const wallet = await resolved.context.services.wallets!.getWallet(
-      toMachineWalletContext(principal.principal),
+      toApiWalletContext(principal.principal),
       walletId,
     );
     if (!wallet || wallet.environmentId !== principal.principal.environmentId) {

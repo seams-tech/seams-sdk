@@ -1,23 +1,23 @@
 import {
-  handleRelayMachineWalletGet,
-  handleRelayMachineWalletList,
-  handleRelayMachineWalletSearch,
-} from '../../relayMachineWallets';
+  handleRelayApiWalletGet,
+  handleRelayApiWalletList,
+  handleRelayApiWalletSearch,
+} from '../../relayApiWallets';
 import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { toFetchRouteResponse } from '../../routeResponses';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 
-const MACHINE_WALLET_DETAIL_PREFIX = '/v1/wallets/';
+const API_WALLET_DETAIL_PREFIX = '/v1/wallets/';
 
-export async function handleMachineWallets(
+export async function handleApiWallets(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_list');
-  const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_search');
-  const getRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_get');
+  const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_list');
+  const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_search');
+  const getRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_get');
   if (!listRoute || !searchRoute || !getRoute) {
-    throw new Error('Missing machine wallet route definitions');
+    throw new Error('Missing API wallet route definitions');
   }
 
   const common = {
@@ -31,7 +31,7 @@ export async function handleMachineWallets(
   } as const;
 
   if (ctx.method === listRoute.method && ctx.pathname === listRoute.path) {
-    const response = await handleRelayMachineWalletList({
+    const response = await handleRelayApiWalletList({
       ...common,
       query: Object.fromEntries(ctx.url.searchParams.entries()),
       route: listRoute,
@@ -40,7 +40,7 @@ export async function handleMachineWallets(
   }
 
   if (ctx.method === searchRoute.method && ctx.pathname === searchRoute.path) {
-    const response = await handleRelayMachineWalletSearch({
+    const response = await handleRelayApiWalletSearch({
       ...common,
       query: Object.fromEntries(ctx.url.searchParams.entries()),
       route: searchRoute,
@@ -50,12 +50,12 @@ export async function handleMachineWallets(
 
   if (
     ctx.method === getRoute.method &&
-    ctx.pathname.startsWith(MACHINE_WALLET_DETAIL_PREFIX) &&
+    ctx.pathname.startsWith(API_WALLET_DETAIL_PREFIX) &&
     ctx.pathname !== searchRoute.path
   ) {
-    const walletId = decodeURIComponent(ctx.pathname.slice(MACHINE_WALLET_DETAIL_PREFIX.length));
+    const walletId = decodeURIComponent(ctx.pathname.slice(API_WALLET_DETAIL_PREFIX.length));
     if (walletId && !walletId.includes('/')) {
-      const response = await handleRelayMachineWalletGet({
+      const response = await handleRelayApiWalletGet({
         ...common,
         route: getRoute,
         walletId,

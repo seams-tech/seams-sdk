@@ -1,28 +1,28 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import {
-  handleRelayMachineWalletGet,
-  handleRelayMachineWalletList,
-  handleRelayMachineWalletSearch,
-} from '../../relayMachineWallets';
+  handleRelayApiWalletGet,
+  handleRelayApiWalletList,
+  handleRelayApiWalletSearch,
+} from '../../relayApiWallets';
 import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
 import { findRouteDefinitionById } from '../../routeDefinitions';
 import { sendExpressRouteResponse } from '../../routeResponses';
 import type { ExpressRelayContext } from '../createRelayRouter';
 
-export function registerMachineWalletRoutes(
+export function registerApiWalletRoutes(
   router: ExpressRouter,
   ctx: ExpressRelayContext,
 ): void {
-  const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_list');
-  const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_search');
-  const getRoute = findRouteDefinitionById(ctx.routeDefinitions, 'machine_wallets_get');
+  const listRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_list');
+  const searchRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_search');
+  const getRoute = findRouteDefinitionById(ctx.routeDefinitions, 'api_wallets_get');
   if (!listRoute || !searchRoute || !getRoute) {
-    throw new Error('Missing machine wallet route definitions');
+    throw new Error('Missing API wallet route definitions');
   }
 
   router.get(listRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
-    const response = await handleRelayMachineWalletList({
+    const response = await handleRelayApiWalletList({
       headers,
       logger: ctx.logger,
       query: (req as any).query || {},
@@ -42,7 +42,7 @@ export function registerMachineWalletRoutes(
 
   router.get(searchRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
-    const response = await handleRelayMachineWalletSearch({
+    const response = await handleRelayApiWalletSearch({
       headers,
       logger: ctx.logger,
       query: (req as any).query || {},
@@ -63,7 +63,7 @@ export function registerMachineWalletRoutes(
   router.get(getRoute.path, async (req: Request, res: Response) => {
     const headers = (req.headers || {}) as Record<string, string | string[] | undefined>;
     const params = req as Request & { params?: { id?: string } };
-    const response = await handleRelayMachineWalletGet({
+    const response = await handleRelayApiWalletGet({
       headers,
       logger: ctx.logger,
       route: getRoute,

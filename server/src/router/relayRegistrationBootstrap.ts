@@ -10,7 +10,7 @@ import { signThresholdSessionJwt } from './commonRouterUtils';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolveRegistrationBootstrapMachineAuth } from './relayMachineAuth';
+import { resolveRegistrationBootstrapApiCredentialAuth } from './relayApiCredentialAuth';
 import {
   type RelayApiKeyAuthAdapter,
   type RelayUsageMeterAdapter,
@@ -247,7 +247,7 @@ async function meterRegistrationBootstrap(input: {
       handlers: {
         event: async ({ action, context, response, route }) => {
           if (action !== 'wallet_created') return;
-          if (context.principal.kind !== 'machine') return;
+          if (context.principal.kind !== 'api_credentials') return;
           if (!input.services.apiKeyUsageMeter) return;
           const walletId = String(response.usage?.walletId || input.walletId || '').trim();
           if (!walletId) return;
@@ -267,7 +267,7 @@ async function meterRegistrationBootstrap(input: {
     });
   } catch (error: unknown) {
     const routeContext = input.routeContext;
-    if (routeContext.principal.kind !== 'machine') return;
+    if (routeContext.principal.kind !== 'api_credentials') return;
     input.logger.warn('[relay][api-key] usage meter event failed', {
       endpoint: `${input.route.method} ${input.route.path}`,
       orgId: routeContext.principal.principal.orgId,
@@ -321,8 +321,8 @@ export async function handleRelayRegistrationBootstrap(
     services: { authService: input.services.authService },
     sourceIp: input.sourceIp,
     resolvers: {
-      machine: async () =>
-        await resolveRegistrationBootstrapMachineAuth({
+      apiCredentials: async () =>
+        await resolveRegistrationBootstrapApiCredentialAuth({
           apiKeyAuth: input.services.apiKeyAuth,
           body,
           bootstrapTokenStore: input.services.bootstrapTokenStore,

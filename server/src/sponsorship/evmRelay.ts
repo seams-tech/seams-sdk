@@ -285,7 +285,7 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
     method: 'POST',
     path: routePath,
     auth: {
-      plane: 'machine',
+      plane: 'api_credentials',
       credentials: ['publishable_key'],
       environmentBinding: 'required',
       originBinding: 'required',

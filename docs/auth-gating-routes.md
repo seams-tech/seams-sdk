@@ -33,9 +33,9 @@ We will adopt an explicit auth-plane model and classify every server route into 
 Primary auth planes:
 
 1. Console session + RBAC
-2. Machine API key or bootstrap credential
-3. End-user app or threshold session
-4. Internal service-to-service or cryptographic proof route
+2. API credential
+3. End-user app session
+4. Threshold signing session
 5. Explicit public route
 
 Rules:
@@ -84,7 +84,7 @@ Canonical entry points today:
 - console auth parsing in `server/src/router/console.ts`
 - `requireConsoleAuth()` and role helpers in `server/src/router/express/createConsoleRouter.ts`
 
-### 2. Machine API key or bootstrap credential
+### 2. API credential
 
 Use for server-to-server or browser-to-relay API access.
 
@@ -95,31 +95,22 @@ Required properties:
 - scopes apply only here
 - never used for `/console/*`
 
-### 3. End-user app or threshold session
+### 3. End-user app session
 
 Use for authenticated user wallet operations.
 
 Required properties:
 
-- authenticated via `app_session_v1` or threshold session JWT
+- authenticated via `app_session_v1`
 - bound to user identity and relayer/session state
-- not interchangeable with machine API keys
+- not interchangeable with API credentials
 
-### 4. Internal service-to-service or cryptographic proof route
+### 4. Threshold signing session
 
-Use for routes that are not console routes and are not general customer machine APIs.
+Use for threshold authorization and continuation routes that are authenticated by threshold session claims.
 
-Examples:
-
-- internal smart-account provisioning hooks
-- private worker or coordinator ingress
-- explicit webhook ingress from trusted providers
-
-Required properties:
-
-- internal routes must not rely on path naming alone
-- they must require an internal auth mechanism such as HMAC, mTLS, or signed one-time continuation tokens
-- public cryptographic proof routes must document the proof that substitutes for a session
+- authenticated via threshold session JWTs or equivalent threshold signing session claims
+- scoped to the threshold signing flow, not reused as a general user session
 
 ### 5. Explicit public route
 
@@ -135,6 +126,7 @@ Examples:
 Required properties:
 
 - public status must be deliberate and documented
+- proof-gated public routes must record the proof type that substitutes for a session
 - the route must not cause privileged side effects unless it validates an explicit proof artifact
 
 ## Metering policy
@@ -187,21 +179,20 @@ export interface RouteDefinition {
 export type RouteAuthPolicy =
   | { plane: 'console'; roles?: ConsoleRouteRole[] }
   | {
-      plane: 'machine';
-      credentials: MachineCredentialType[];
-      scopes?: MachineRouteScope[];
+      plane: 'api_credentials';
+      credentials: ApiCredentialType[];
+      scopes?: ApiCredentialRouteScope[];
       environmentBinding?: 'required' | 'optional';
       originBinding?: 'required' | 'optional';
       ipBinding?: 'required' | 'optional';
     }
-  | { plane: 'app_session' }
+  | { plane: 'user_session' }
   | { plane: 'threshold_session'; scheme?: 'any' | 'ecdsa' | 'ed25519' }
   | {
       plane: 'public';
       proof?: PublicProofType;
       rationale: string;
-    }
-  | { plane: 'internal'; mechanism: 'hmac' | 'mtls' | 'signed_token'; rationale?: string };
+    };
 
 export type RouteMeteringPolicy =
   | { kind: 'none' }
@@ -215,7 +206,7 @@ const registrationBootstrapRoute = defineRoute({
   path: '/registration/bootstrap',
   summary: 'Create and register a user account',
   auth: {
-    plane: 'machine',
+    plane: 'api_credentials',
     credentials: ['secret_key', 'bootstrap_token'],
     scopes: ['accounts.create'],
     environmentBinding: 'required',
@@ -227,7 +218,7 @@ const registrationBootstrapRoute = defineRoute({
 
 ### Decision 2: handlers must receive resolved auth context, not parse auth themselves
 
-The transport wrappers should not each parse `Authorization`, environment headers, or origin/auth binding rules. Shared helpers like [relayMachineAuth.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayMachineAuth.ts) should own that once per auth plane, and the business handler should consume the resolved principal.
+The transport wrappers should not each parse `Authorization`, environment headers, or origin/auth binding rules. Shared helpers like [relayApiCredentialAuth.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relayApiCredentialAuth.ts) should own that once per auth plane, and the business handler should consume the resolved principal.
 
 Target files:
 
@@ -240,14 +231,13 @@ Example:
 export type RoutePrincipal =
   | { kind: 'console'; claims: ConsoleAuthClaims }
   | {
-      kind: 'machine';
+      kind: 'api_credentials';
       principal: RelayApiKeyPrincipal;
-      credentialType: MachineCredentialType;
+      credentialType: ApiCredentialType;
     }
-  | { kind: 'app_session'; claims: SessionClaims }
+  | { kind: 'user_session'; claims: SessionClaims }
   | { kind: 'threshold_session'; claims: ThresholdSessionClaims }
-  | { kind: 'public' }
-  | { kind: 'internal'; service: string };
+  | { kind: 'public' };
 
 export interface RouteExecutionContext<TServices extends RouteServices = RouteServices> {
   headers: HeaderRecord;
@@ -264,8 +254,8 @@ const resolved = await enforceRoutePolicy({
   route,
   services,
   resolvers: {
-    machine: async () =>
-      await resolvePublishableKeyMachineAuth({
+    apiCredentials: async () =>
+      await resolvePublishableKeyApiCredentialAuth({
         environmentId,
         headers,
         origin,
@@ -274,7 +264,7 @@ const resolved = await enforceRoutePolicy({
         missingEnvironmentMessage: 'Environment header is required',
         missingOriginMessage: 'Origin header is required',
         missingPublishableKeyMessage: 'Missing publishable key',
-        routeAuthNotConfiguredMessage: 'Route requires machine auth policy',
+        routeAuthNotConfiguredMessage: 'Route requires API credential auth policy',
       }),
   },
 });
@@ -420,7 +410,7 @@ const consoleApiKeysCreateRoute = defineRoute({
 });
 ```
 
-### Decision 7: machine route policy should declare accepted credential types explicitly
+### Decision 7: API credential route policy should declare accepted credential types explicitly
 
 This matters for routes like `POST /registration/bootstrap`, which currently branches between secret keys and bootstrap tokens inline.
 
@@ -434,7 +424,7 @@ const registrationBootstrapRoute = defineRoute({
   path: '/registration/bootstrap',
   summary: 'Create and register a user account',
   auth: {
-    plane: 'machine',
+    plane: 'api_credentials',
     credentials: ['secret_key', 'bootstrap_token'],
     scopes: ['accounts.create'],
     environmentBinding: 'required',
@@ -501,11 +491,11 @@ The canonical source of route auth and metering policy is [routeDefinitions.ts](
 | Key export approval | `admin` | Already modeled |
 | Key export request creation | `owner`, `admin`, or `security_admin` | Already modeled |
 
-### Machine API routes
+### API credential routes
 
 These are the routes that should use API-key auth or bootstrap credentials.
 
-#### Current real machine routes
+#### Current real API credential routes
 
 | Route | Target auth | Target scope | Notes |
 | --- | --- | --- | --- |
@@ -931,7 +921,7 @@ Required outcome:
 - [x] Confirm the live secret-key scope set is `accounts.create` and `wallets.read`, and block any new scope until a real machine route lands.
 - [x] Add tests that fail if a machine route references an unknown scope.
 - [x] Add tests that fail if a listed scope does not map to any machine route definition.
-- [x] Tighten API key services, relay auth types, and persisted scope parsing so secret-key scopes are canonical `MachineApiKeyScope[]` end-to-end.
+- [x] Tighten API key services, relay auth types, and persisted scope parsing so secret-key scopes are canonical `ApiCredentialScope[]` end-to-end.
 
 ### Phase 3 detailed tasks: Console RBAC hardening
 

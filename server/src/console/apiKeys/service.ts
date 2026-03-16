@@ -11,8 +11,8 @@ import {
 } from './secret';
 import { normalizeCorsOrigin } from '../../core/SessionService';
 import {
-  isMachineApiKeyScope,
-  type MachineApiKeyScope,
+  isApiCredentialScope,
+  type ApiCredentialScope,
 } from '../../../../shared/src/console/apiKeyScopes';
 import type {
   AuthenticateConsoleApiKeyRequest,
@@ -120,14 +120,14 @@ function cloneApiKey(apiKey: StoredApiKey): ConsoleApiKey {
   };
 }
 
-function normalizeMachineScopes(input: readonly string[] | undefined): MachineApiKeyScope[] {
+function normalizeApiCredentialScopes(input: readonly string[] | undefined): ApiCredentialScope[] {
   if (!Array.isArray(input)) return [];
-  const out: MachineApiKeyScope[] = [];
+  const out: ApiCredentialScope[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
     const value = String(raw || '').trim();
     if (!value) continue;
-    if (!isMachineApiKeyScope(value)) {
+    if (!isApiCredentialScope(value)) {
       throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
     }
     const dedupeKey = value.toLowerCase();
@@ -180,7 +180,7 @@ function applyApiKeyUpdate(apiKey: StoredApiKey, request: UpdateConsoleApiKeyReq
   return {
     ...apiKey,
     ...(request.name !== undefined ? { name: request.name } : {}),
-    ...(request.scopes !== undefined ? { scopes: normalizeMachineScopes(request.scopes) } : {}),
+    ...(request.scopes !== undefined ? { scopes: normalizeApiCredentialScopes(request.scopes) } : {}),
     ...(request.ipAllowlist !== undefined ? { ipAllowlist: [...request.ipAllowlist] } : {}),
     ...(request.expiresAt !== undefined ? { expiresAt: request.expiresAt } : {}),
   };
@@ -219,8 +219,8 @@ export function createInMemoryConsoleApiKeyService(
   }
 
   function hasRequiredScopes(
-    scopes: MachineApiKeyScope[],
-    requiredScopes: MachineApiKeyScope[],
+    scopes: ApiCredentialScope[],
+    requiredScopes: ApiCredentialScope[],
   ): boolean {
     if (!requiredScopes.length) return true;
     const available = new Set(
@@ -311,7 +311,7 @@ export function createInMemoryConsoleApiKeyService(
           : {
               ...base,
               kind: 'secret_key',
-              scopes: normalizeMachineScopes(request.scopes),
+              scopes: normalizeApiCredentialScopes(request.scopes),
               ipAllowlist: request.ipAllowlist ? [...request.ipAllowlist] : [],
             };
 

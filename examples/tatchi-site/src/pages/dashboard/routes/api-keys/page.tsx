@@ -30,10 +30,9 @@ import { UriListEditor } from '../../components/UriListEditor';
 import { ScopePicker, type DashboardScopeOption } from '../../components/ScopePicker';
 import { getDashboardEnvironmentLabel } from '../../utils/scopeLabels';
 import {
-  MACHINE_API_KEY_SCOPES,
-  MACHINE_API_KEY_SCOPE_OPTIONS,
-  isMachineApiKeyScope,
-  type MachineApiKeyScope,
+  API_CREDENTIAL_SCOPE_OPTIONS,
+  isApiCredentialScope,
+  type ApiCredentialScope,
 } from '../../../../../../../shared/src/console/apiKeyScopes';
 
 const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
@@ -67,9 +66,9 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
   },
 ] as const;
 
-const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = MACHINE_API_KEY_SCOPE_OPTIONS;
+const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption[] = API_CREDENTIAL_SCOPE_OPTIONS;
 const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.3, 0.9, 0.95, 0.7, 1.05, 1.2, 0.85, 1.15);
-const DEFAULT_SECRET_SCOPES: MachineApiKeyScope[] = ['accounts.create'];
+const DEFAULT_SECRET_SCOPES: ApiCredentialScope[] = ['accounts.create'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
 type PendingCredentialAction =
@@ -108,12 +107,12 @@ function parseEditableList(values: string[]): string[] {
   return out;
 }
 
-function parseMachineScopeSelection(values: string[]): MachineApiKeyScope[] {
+function parseApiCredentialScopeSelection(values: string[]): ApiCredentialScope[] {
   const selections = parseEditableList(values);
-  const out: MachineApiKeyScope[] = [];
+  const out: ApiCredentialScope[] = [];
   for (const value of selections) {
-    if (!isMachineApiKeyScope(value)) {
-      throw new Error(`Unsupported machine scope: ${value}`);
+    if (!isApiCredentialScope(value)) {
+      throw new Error(`Unsupported API credential scope: ${value}`);
     }
     out.push(value);
   }
@@ -511,7 +510,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             paymentPolicy: toPaymentPolicyObject(paymentPolicyInput),
           };
         } else {
-          const scopes = parseMachineScopeSelection(scopesInput);
+          const scopes = parseApiCredentialScopeSelection(scopesInput);
           const ipAllowlist = parseCsvValues(ipAllowlistInput);
           if (scopes.length === 0) {
             setMutationError('At least one scope is required.');
@@ -623,7 +622,7 @@ export function ApiKeyManagementPage(): React.JSX.Element {
             ...(expiresAt !== undefined ? { expiresAt } : {}),
           });
         } else {
-          const scopes = parseMachineScopeSelection(editingScopesInput);
+          const scopes = parseApiCredentialScopeSelection(editingScopesInput);
           if (scopes.length === 0) {
             setEditingError('At least one scope is required.');
             return;

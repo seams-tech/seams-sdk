@@ -17,7 +17,7 @@ import type {
 import type { HeaderRecord } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 
-interface ResolvePublishableKeyMachineAuthInput {
+interface ResolvePublishableKeyApiCredentialAuthInput {
   environmentId?: string | null;
   headers: HeaderRecord;
   missingEnvironmentMessage: string;
@@ -29,7 +29,7 @@ interface ResolvePublishableKeyMachineAuthInput {
   routeAuthNotConfiguredMessage: string;
 }
 
-interface ResolveBootstrapGrantMachineAuthInput {
+interface ResolveBootstrapGrantApiCredentialAuthInput {
   body: unknown;
   broker: RelayBootstrapGrantBroker;
   headers: HeaderRecord;
@@ -38,7 +38,7 @@ interface ResolveBootstrapGrantMachineAuthInput {
   route: RouteDefinition;
 }
 
-interface ResolveRegistrationBootstrapMachineAuthInput {
+interface ResolveRegistrationBootstrapApiCredentialAuthInput {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   body: unknown;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
@@ -48,7 +48,7 @@ interface ResolveRegistrationBootstrapMachineAuthInput {
   sourceIp?: string;
 }
 
-interface ResolveSecretKeyMachineAuthInput {
+interface ResolveSecretKeyApiCredentialAuthInput {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   headers: HeaderRecord;
   route: RouteDefinition;
@@ -67,10 +67,10 @@ function routeAuthNotConfigured(
   };
 }
 
-export async function resolvePublishableKeyMachineAuth(
-  input: ResolvePublishableKeyMachineAuthInput,
+export async function resolvePublishableKeyApiCredentialAuth(
+  input: ResolvePublishableKeyApiCredentialAuthInput,
 ): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
+  if (input.route.auth.plane !== 'api_credentials') {
     return routeAuthNotConfigured(input.routeAuthNotConfiguredMessage);
   }
 
@@ -121,18 +121,18 @@ export async function resolvePublishableKeyMachineAuth(
   return {
     ok: true,
     principal: {
-      kind: 'machine',
+      kind: 'api_credentials',
       credentialType: 'publishable_key',
       principal: authResult.principal,
     },
   };
 }
 
-export async function resolveBootstrapGrantMachineAuth(
-  input: ResolveBootstrapGrantMachineAuthInput,
+export async function resolveBootstrapGrantApiCredentialAuth(
+  input: ResolveBootstrapGrantApiCredentialAuthInput,
 ): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
-    return routeAuthNotConfigured('Bootstrap grants require machine auth policy');
+  if (input.route.auth.plane !== 'api_credentials') {
+    return routeAuthNotConfigured('Bootstrap grants require API credential auth policy');
   }
 
   const publishableKey = extractBearerCredential(input.headers);
@@ -178,7 +178,7 @@ export async function resolveBootstrapGrantMachineAuth(
   return {
     ok: true,
     principal: {
-      kind: 'machine',
+      kind: 'api_credentials',
       credentialType: 'publishable_key',
       principal: {
         apiKeyId: authResult.apiKey.id,
@@ -190,16 +190,16 @@ export async function resolveBootstrapGrantMachineAuth(
   };
 }
 
-export async function resolveRegistrationBootstrapMachineAuth(
-  input: ResolveRegistrationBootstrapMachineAuthInput,
+export async function resolveRegistrationBootstrapApiCredentialAuth(
+  input: ResolveRegistrationBootstrapApiCredentialAuthInput,
 ): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
-    return routeAuthNotConfigured('Registration bootstrap requires machine auth policy');
+  if (input.route.auth.plane !== 'api_credentials') {
+    return routeAuthNotConfigured('Registration bootstrap requires API credential auth policy');
   }
 
   const { apiKeyAuth, bootstrapTokenStore } = input;
   if (!apiKeyAuth && !bootstrapTokenStore) {
-    return routeAuthNotConfigured('Relay machine auth is not configured for this route');
+    return routeAuthNotConfigured('Relay API credential auth is not configured for this route');
   }
 
   const credential = extractBearerCredential(input.headers);
@@ -251,7 +251,7 @@ export async function resolveRegistrationBootstrapMachineAuth(
     return {
       ok: true,
       principal: {
-        kind: 'machine',
+        kind: 'api_credentials',
         credentialType: 'bootstrap_token',
         principal: {
           apiKeyId: redeemResult.record.publishableKeyId,
@@ -272,19 +272,19 @@ export async function resolveRegistrationBootstrapMachineAuth(
     };
   }
 
-  return await resolveSecretKeyMachineAuth({
+  return await resolveSecretKeyApiCredentialAuth({
     apiKeyAuth,
     headers: input.headers,
     route: input.route,
     sourceIp: input.sourceIp,
-    routeAuthNotConfiguredMessage: 'Relay machine auth is not configured for this route',
+    routeAuthNotConfiguredMessage: 'Relay API credential auth is not configured for this route',
   });
 }
 
-export async function resolveSecretKeyMachineAuth(
-  input: ResolveSecretKeyMachineAuthInput,
+export async function resolveSecretKeyApiCredentialAuth(
+  input: ResolveSecretKeyApiCredentialAuthInput,
 ): Promise<RoutePolicyResolutionResult> {
-  if (input.route.auth.plane !== 'machine') {
+  if (input.route.auth.plane !== 'api_credentials') {
     return routeAuthNotConfigured(input.routeAuthNotConfiguredMessage);
   }
 
@@ -331,7 +331,7 @@ export async function resolveSecretKeyMachineAuth(
   return {
     ok: true,
     principal: {
-      kind: 'machine',
+      kind: 'api_credentials',
       credentialType: 'secret_key',
       principal: authResult.principal,
     },

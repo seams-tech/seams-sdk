@@ -5,12 +5,12 @@ import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { json, withCors } from './http';
+import { handleApiWallets } from './routes/apiWallets';
 import { handleBootstrapGrant } from './routes/bootstrapGrants';
 import { handleCreateAccountAndRegisterUser } from './routes/createAccountAndRegisterUser';
 import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleLinkDevice } from './routes/linkDevice';
-import { handleMachineWallets } from './routes/machineWallets';
 import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
@@ -79,7 +79,7 @@ export function createCloudflareRouter(
     handleWellKnown,
     handleBootstrapGrant,
     handleCreateAccountAndRegisterUser,
-    handleMachineWallets,
+    handleApiWallets,
     handleSponsoredEvmCall,
     handleSignedDelegate,
     handleAuth,

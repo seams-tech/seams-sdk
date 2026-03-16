@@ -5,25 +5,24 @@ import type {
 import type { ConsoleAuthClaims, ConsoleRole } from './console';
 import type { RelayApiKeyPrincipal, SessionClaims } from './relay';
 
-import { MACHINE_API_KEY_SCOPES } from '../../../shared/src/console/apiKeyScopes';
+import { API_CREDENTIAL_SCOPES } from '../../../shared/src/console/apiKeyScopes';
 
 export type RouteAuthPlane =
   | 'console'
-  | 'machine'
-  | 'app_session'
+  | 'api_credentials'
+  | 'user_session'
   | 'threshold_session'
-  | 'public'
-  | 'internal';
+  | 'public';
 
-export const MACHINE_CREDENTIAL_TYPES = [
+export const API_CREDENTIAL_TYPES = [
   'publishable_key',
   'secret_key',
   'bootstrap_token',
 ] as const;
-export type MachineCredentialType = (typeof MACHINE_CREDENTIAL_TYPES)[number];
+export type ApiCredentialType = (typeof API_CREDENTIAL_TYPES)[number];
 
-export const MACHINE_ROUTE_SCOPES = MACHINE_API_KEY_SCOPES;
-export type MachineRouteScope = (typeof MACHINE_ROUTE_SCOPES)[number];
+export const API_CREDENTIAL_ROUTE_SCOPES = API_CREDENTIAL_SCOPES;
+export type ApiCredentialRouteScope = (typeof API_CREDENTIAL_ROUTE_SCOPES)[number];
 
 export const PUBLIC_PROOF_TYPES = [
   'challenge_exchange',
@@ -34,8 +33,6 @@ export const PUBLIC_PROOF_TYPES = [
 ] as const;
 export type PublicProofType = (typeof PUBLIC_PROOF_TYPES)[number];
 
-export const INTERNAL_AUTH_MECHANISMS = ['hmac', 'mtls', 'signed_token'] as const;
-export type InternalAuthMechanism = (typeof INTERNAL_AUTH_MECHANISMS)[number];
 export const THRESHOLD_SESSION_SCHEMES = ['any', 'ecdsa', 'ed25519'] as const;
 export type ThresholdSessionScheme = (typeof THRESHOLD_SESSION_SCHEMES)[number];
 export type ConsoleRouteRole = ConsoleRole;
@@ -47,15 +44,15 @@ export type RouteAuthPolicy =
       forbiddenMessage?: string;
     }
   | {
-      plane: 'machine';
-      credentials: MachineCredentialType[];
-      scopes?: MachineRouteScope[];
+      plane: 'api_credentials';
+      credentials: ApiCredentialType[];
+      scopes?: ApiCredentialRouteScope[];
       environmentBinding?: 'required' | 'optional';
       originBinding?: 'required' | 'optional';
       ipBinding?: 'required' | 'optional';
     }
   | {
-      plane: 'app_session';
+      plane: 'user_session';
     }
   | {
       plane: 'threshold_session';
@@ -65,11 +62,6 @@ export type RouteAuthPolicy =
       plane: 'public';
       proof?: PublicProofType;
       rationale: string;
-    }
-  | {
-      plane: 'internal';
-      mechanism: InternalAuthMechanism;
-      rationale?: string;
     };
 
 export type RoutePrincipal =
@@ -78,12 +70,12 @@ export type RoutePrincipal =
       claims: ConsoleAuthClaims;
     }
   | {
-      kind: 'machine';
+      kind: 'api_credentials';
       principal: RelayApiKeyPrincipal;
-      credentialType: MachineCredentialType;
+      credentialType: ApiCredentialType;
     }
   | {
-      kind: 'app_session';
+      kind: 'user_session';
       claims: SessionClaims;
     }
   | {
@@ -92,10 +84,6 @@ export type RoutePrincipal =
     }
   | {
       kind: 'public';
-    }
-  | {
-      kind: 'internal';
-      service: string;
     };
 
 export type RoutePolicyFailureCode =

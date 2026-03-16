@@ -24,11 +24,14 @@ export type RoutePolicyResolutionResult =
   | RoutePolicyResolutionSuccess;
 
 export interface RoutePolicyResolvers<TServices extends RouteServices = RouteServices> {
-  appSession?: (input: RoutePolicyResolverInput<TServices>) => Promise<RoutePolicyResolutionResult>;
+  apiCredentials?: (
+    input: RoutePolicyResolverInput<TServices>,
+  ) => Promise<RoutePolicyResolutionResult>;
   console?: (input: RoutePolicyResolverInput<TServices>) => Promise<RoutePolicyResolutionResult>;
-  internal?: (input: RoutePolicyResolverInput<TServices>) => Promise<RoutePolicyResolutionResult>;
-  machine?: (input: RoutePolicyResolverInput<TServices>) => Promise<RoutePolicyResolutionResult>;
   thresholdSession?: (
+    input: RoutePolicyResolverInput<TServices>,
+  ) => Promise<RoutePolicyResolutionResult>;
+  userSession?: (
     input: RoutePolicyResolverInput<TServices>,
   ) => Promise<RoutePolicyResolutionResult>;
 }
@@ -95,14 +98,14 @@ export async function enforceRoutePolicy<TServices extends RouteServices = Route
     case 'public':
       authResult = { ok: true, principal: { kind: 'public' } };
       break;
-    case 'app_session':
-      authResult = input.resolvers?.appSession
-        ? await input.resolvers.appSession(resolveInput)
+    case 'api_credentials':
+      authResult = input.resolvers?.apiCredentials
+        ? await input.resolvers.apiCredentials(resolveInput)
         : {
           ok: false,
           status: 500,
           code: 'route_auth_not_configured',
-          message: 'App-session auth resolver is not configured',
+          message: 'API credential auth resolver is not configured',
         };
       break;
     case 'console':
@@ -115,26 +118,6 @@ export async function enforceRoutePolicy<TServices extends RouteServices = Route
           message: 'Console auth resolver is not configured',
         };
       break;
-    case 'internal':
-      authResult = input.resolvers?.internal
-        ? await input.resolvers.internal(resolveInput)
-        : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'Internal auth resolver is not configured',
-        };
-      break;
-    case 'machine':
-      authResult = input.resolvers?.machine
-        ? await input.resolvers.machine(resolveInput)
-        : {
-          ok: false,
-          status: 500,
-          code: 'route_auth_not_configured',
-          message: 'Machine auth resolver is not configured',
-        };
-      break;
     case 'threshold_session':
       authResult = input.resolvers?.thresholdSession
         ? await input.resolvers.thresholdSession(resolveInput)
@@ -143,6 +126,16 @@ export async function enforceRoutePolicy<TServices extends RouteServices = Route
           status: 500,
           code: 'route_auth_not_configured',
           message: 'Threshold-session auth resolver is not configured',
+        };
+      break;
+    case 'user_session':
+      authResult = input.resolvers?.userSession
+        ? await input.resolvers.userSession(resolveInput)
+        : {
+          ok: false,
+          status: 500,
+          code: 'route_auth_not_configured',
+          message: 'User-session auth resolver is not configured',
         };
       break;
     default: {

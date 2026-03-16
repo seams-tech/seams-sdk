@@ -8,7 +8,7 @@ import type {
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
-import { resolvePublishableKeyMachineAuth } from './relayMachineAuth';
+import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
 import { extractRelayEnvironmentId } from './relayApiKeyAuth';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
@@ -323,7 +323,7 @@ async function meterSignedDelegate(input: {
     handlers: {
       gas: async ({ context, ledger, response, route }) => {
         if (ledger !== 'near_delegate') return;
-        if (context.principal.kind !== 'machine') return;
+        if (context.principal.kind !== 'api_credentials') return;
         if (context.principal.credentialType !== 'publishable_key') return;
         const delegateAction =
           isObject(input.signedDelegate) && isObject(input.signedDelegate.delegateAction)
@@ -397,8 +397,8 @@ export async function handleRelaySignedDelegate(
     },
     resolvers: publishableKeyAuth
         ? {
-          machine: async () =>
-            await resolvePublishableKeyMachineAuth({
+          apiCredentials: async () =>
+            await resolvePublishableKeyApiCredentialAuth({
               environmentId: extractRelayEnvironmentId(input.headers) || undefined,
               headers: input.headers,
               missingEnvironmentMessage:
@@ -409,7 +409,7 @@ export async function handleRelaySignedDelegate(
               origin: input.origin,
               publishableKeyAuth,
               route: input.route,
-              routeAuthNotConfiguredMessage: 'Signed delegate requires machine auth policy',
+              routeAuthNotConfiguredMessage: 'Signed delegate requires API credential auth policy',
             }),
         }
       : undefined,

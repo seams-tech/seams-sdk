@@ -13,7 +13,7 @@ import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleWalletService } from '../console/wallets';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
-import type { MachineApiKeyScope } from '../../../shared/src/console/apiKeyScopes';
+import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -139,7 +139,7 @@ export type RelayApiKeyAuthFailureCode =
 export interface RelayApiKeyAuthRequest {
   secret: string;
   endpoint: string;
-  requiredScopes: MachineApiKeyScope[];
+  requiredScopes: ApiCredentialScope[];
   sourceIp?: string;
   environmentId?: string;
 }
@@ -148,7 +148,7 @@ export interface RelayApiKeyPrincipal {
   apiKeyId: string;
   orgId: string;
   environmentId: string;
-  scopes: MachineApiKeyScope[];
+  scopes: ApiCredentialScope[];
 }
 
 export type RelayApiKeyAuthResult =
@@ -395,7 +395,7 @@ export interface RelayRouterOptions {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   /**
    * Optional publishable-key authentication adapter for browser-safe
-   * machine routes like signed delegate execution.
+   * API credential routes like signed delegate execution.
    */
   publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
   /**
@@ -446,7 +446,7 @@ export interface RelayRouterOptions {
     config: SponsoredEvmCallExecutorConfig | null;
   };
   /**
-   * Optional high-level wallet read service used by machine wallet APIs.
+   * Optional high-level wallet read service used by API credential wallet routes.
    */
   wallets?: ConsoleWalletService | null;
   // Optional logger; defaults to silent.
