@@ -7,6 +7,7 @@ import type {
   ConsoleSponsoredCallService,
 } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
   createSponsoredNearDelegateExecutionAdapter,
@@ -103,6 +104,16 @@ function extractSignedDelegateSenderId(signedDelegate: unknown): string {
 
 function normalizeNearAccountRef(value: unknown): string {
   return `near:${String(value || '').trim() || 'unknown'}`;
+}
+
+function resolveNearSpendCapChainId(networkClass: 'ANY' | 'TESTNET' | 'MAINNET'): number | null {
+  if (networkClass === 'MAINNET') {
+    return getNearSpendCapChainId('MAINNET');
+  }
+  if (networkClass === 'TESTNET') {
+    return getNearSpendCapChainId('TESTNET');
+  }
+  return null;
 }
 
 function buildSignedDelegateIdempotencyKey(apiKeyId: string, hash: string): string {
@@ -594,6 +605,15 @@ export async function handleRelaySignedDelegate(
     const senderId = extractSignedDelegateSenderId(parsedBody.signedDelegate);
     const accountRef = normalizeNearAccountRef(senderId);
     const targetRef = normalizeNearAccountRef(delegateSummary.receiverId);
+    const nearSpendCapChainId = resolveNearSpendCapChainId(matched.policy.networkClass);
+    if (matched.policy.spendCap.mode !== 'NONE' && nearSpendCapChainId === null) {
+      return routeJson(500, {
+        ok: false,
+        code: 'sponsorship_spend_cap_misconfigured',
+        message:
+          'NEAR spend-cap enforcement requires the matched policy to resolve to a concrete network',
+      });
+    }
     const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
       chainFamily: 'near',
       intentKind: 'near_delegate',
@@ -620,7 +640,7 @@ export async function handleRelaySignedDelegate(
         policyId: matched.policy.policyId,
         accountRef,
         targetRef,
-        chainId: null,
+        chainId: nearSpendCapChainId,
         sourceEventId: spendCapSourceEventId,
         requestDetails: spendCapRequestDetails,
       });
@@ -634,7 +654,7 @@ export async function handleRelaySignedDelegate(
           chainFamily: 'near',
           intentKind: 'near_delegate',
           executorKind: 'near_delegate',
-          chainId: null,
+          chainId: nearSpendCapChainId,
           accountRef,
           targetRef,
           reservation: spendCapReservation,
@@ -651,7 +671,7 @@ export async function handleRelaySignedDelegate(
           chainFamily: 'near',
           intentKind: 'near_delegate',
           executorKind: 'near_delegate',
-          chainId: null,
+          chainId: nearSpendCapChainId,
           accountRef,
           targetRef,
           errorCode: error.code,
@@ -705,7 +725,7 @@ export async function handleRelaySignedDelegate(
             policyId: matched.policy.policyId,
             accountRef,
             targetRef,
-            chainId: null,
+            chainId: nearSpendCapChainId,
             txOrExecutionRef: assessment.txOrExecutionRef,
             receiptStatus: assessment.receiptStatus,
             feeUnit: assessment.feeUnit,
@@ -727,7 +747,7 @@ export async function handleRelaySignedDelegate(
               chainFamily: 'near',
               intentKind: 'near_delegate',
               executorKind: 'near_delegate',
-              chainId: null,
+              chainId: nearSpendCapChainId,
               accountRef,
               targetRef,
               reservation: spendCapReservation,
@@ -806,7 +826,7 @@ export async function handleRelaySignedDelegate(
             policyId: matched.policy.policyId,
             accountRef,
             targetRef,
-            chainId: null,
+            chainId: nearSpendCapChainId,
             txOrExecutionRef: assessment.txOrExecutionRef,
             receiptStatus: assessment.receiptStatus,
             feeUnit: assessment.feeUnit,
@@ -823,7 +843,7 @@ export async function handleRelaySignedDelegate(
               chainFamily: 'near',
               intentKind: 'near_delegate',
               executorKind: 'near_delegate',
-              chainId: null,
+              chainId: nearSpendCapChainId,
               accountRef,
               targetRef,
               reservation: spendCapReservation,

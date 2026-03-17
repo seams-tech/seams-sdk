@@ -90,10 +90,13 @@ SPONSORED_EVM_EXECUTORS_JSON={"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz"
 
 If active sponsorship policies use spend caps, also configure a pricing adapter. The example relay supports either an optional real pricing source or an explicit static pricing config.
 
-Real pricing currently supports EVM native gas spend using live `eth_gasPrice` from the configured chain RPC plus CoinGecko USD pricing for the configured native asset:
+Real pricing currently supports:
+
+- EVM native gas spend using live `eth_gasPrice` from the configured chain RPC plus CoinGecko USD pricing for the configured native asset
+- NEAR gas-only spend using CoinGecko USD pricing for `near` plus an operator-configured reservation estimate in yoctoNEAR
 
 ```env
-SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"coingecko","cacheTtlMs":300000,"evm":{"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","assetId":"near","nativeUnitDecimals":18,"pricingVersionPrefix":"coingecko-tempo-testnet"}}}
+SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"coingecko","cacheTtlMs":300000,"evm":{"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","assetId":"near","nativeUnitDecimals":18,"pricingVersionPrefix":"coingecko-tempo-testnet"}},"near":{"TESTNET":{"assetId":"near","nativeUnitDecimals":24,"estimateFeeAmountYocto":"2000","pricingVersionPrefix":"coingecko-near-testnet"}}}
 ```
 
 That adapter uses:
@@ -101,17 +104,19 @@ That adapter uses:
 - `rpcUrl` to read live `eth_gasPrice` for EVM estimate reservations
 - `assetId` to fetch the native asset USD price from CoinGecko
 - `nativeUnitDecimals` to convert native fee units into whole-asset pricing
+- `estimateFeeAmountYocto` for NEAR reservation estimates before execution settles actual `tokens_burnt`
 - `pricingVersionPrefix` to stamp reservation/settlement records with the live pricing source version
 
 If you do not want a live market source, you can still use the explicit static conversion config:
 
 ```env
-SPONSORED_EXECUTION_STATIC_PRICING_JSON={"evm":{"42431":{"estimateFeePerGas":"22000000000","minorPerFeeUnitNumerator":"100","minorPerFeeUnitDenominator":"1000000000000000000","pricingVersion":"static-tempo-testnet-v1"}}}
+SPONSORED_EXECUTION_STATIC_PRICING_JSON={"evm":{"42431":{"estimateFeePerGas":"22000000000","minorPerFeeUnitNumerator":"100","minorPerFeeUnitDenominator":"1000000000000000000","pricingVersion":"static-tempo-testnet-v1"}},"near":{"TESTNET":{"estimateFeeAmountYocto":"2000","minorPerFeeUnitNumerator":"1","minorPerFeeUnitDenominator":"1000","pricingVersion":"static-near-testnet-v1"}}}
 ```
 
 That adapter uses:
 
 - `estimateFeePerGas` to reserve capped budget before execution using `gasLimit * estimateFeePerGas`
+- `estimateFeeAmountYocto` to reserve capped NEAR budget before execution
 - `minorPerFeeUnitNumerator` / `minorPerFeeUnitDenominator` to convert native fee units into billable `spendMinor`
 - `pricingVersion` to stamp the reservation/settlement records for observability
 

@@ -1,4 +1,5 @@
 import { ConsolePolicyError } from './errors';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import { keccak256Bytes } from '@shared/utils/keccak';
 import type {
   ConsoleGasSponsorshipExecutionMode,
@@ -1002,9 +1003,26 @@ export function validateGasSponsorshipPolicyRulesForPublish(
         'Gas sponsorship near_delegate policy requires at least one allowedDelegateAction',
       );
     }
-    if (rules.spendCap.mode !== 'NONE') {
+    if (rules.spendCap.mode === 'NONE') {
+      return;
+    }
+    if (rules.networkClass === 'ANY') {
       throw invalidRulesError(
-        'Gas sponsorship near_delegate spend caps are not yet supported in this MVP',
+        'Gas sponsorship near_delegate spend caps require a concrete networkClass',
+      );
+    }
+    const expectedChainId = getNearSpendCapChainId(rules.networkClass);
+    if (rules.spendCap.capsByChain.length === 0) {
+      throw invalidRulesError(
+        `Gas sponsorship near_delegate spend cap must include chain ${expectedChainId}`,
+      );
+    }
+    const invalidSpendCap = rules.spendCap.capsByChain.find(
+      (entry) => entry.chainId !== expectedChainId,
+    );
+    if (invalidSpendCap) {
+      throw invalidRulesError(
+        `Gas sponsorship near_delegate spend cap chain ${invalidSpendCap.chainId} does not match networkClass ${rules.networkClass}`,
       );
     }
     return;

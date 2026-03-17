@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   createCoinGeckoSponsoredExecutionPricingService,
   isSponsorshipSpendCapEnforcementError,
@@ -59,6 +60,18 @@ test.describe('real sponsored execution pricing', () => {
             },
           ],
         ]),
+        nearByChain: new Map([
+          [
+            getNearSpendCapChainId('TESTNET'),
+            {
+              networkClass: 'TESTNET',
+              assetId: 'near',
+              nativeUnitDecimals: 24,
+              estimateFeeAmountYocto: 2_000n,
+              pricingVersionPrefix: 'coingecko-near-testnet',
+            },
+          ],
+        ]),
       },
       {
         fetch: createMockFetch() as typeof fetch,
@@ -113,6 +126,74 @@ test.describe('real sponsored execution pricing', () => {
     });
   });
 
+  test('estimates and finalizes NEAR spend from CoinGecko market pricing', async () => {
+    const pricing = createCoinGeckoSponsoredExecutionPricingService(
+      {
+        apiBaseUrl: 'https://api.coingecko.com/api/v3',
+        cacheTtlMs: 60_000,
+        evmByChain: new Map(),
+        nearByChain: new Map([
+          [
+            getNearSpendCapChainId('TESTNET'),
+            {
+              networkClass: 'TESTNET',
+              assetId: 'near',
+              nativeUnitDecimals: 24,
+              estimateFeeAmountYocto: 2_000n,
+              pricingVersionPrefix: 'coingecko-near-testnet',
+            },
+          ],
+        ]),
+      },
+      {
+        fetch: createMockFetch() as typeof fetch,
+        now: () => 1_700_000_100_000,
+      },
+    );
+
+    const estimated = await pricing.estimateSponsoredExecutionSpend({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      executorKind: 'near_delegate',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_near',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'near:guest-book.testnet',
+      chainId: getNearSpendCapChainId('TESTNET'),
+      requestDetails: {
+        receiverId: 'guest-book.testnet',
+      },
+    });
+    expect(estimated).toEqual({
+      spendMinor: 1,
+      pricingVersion: 'coingecko-near-testnet:coingecko:near:1700000000',
+    });
+
+    const finalized = await pricing.finalizeSponsoredExecutionSpend({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      executorKind: 'near_delegate',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_near',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'near:guest-book.testnet',
+      chainId: getNearSpendCapChainId('TESTNET'),
+      txOrExecutionRef: 'delegate-tx-123',
+      receiptStatus: 'success',
+      feeUnit: 'yocto_near',
+      feeAmount: '1500',
+      requestDetails: {
+        receiverId: 'guest-book.testnet',
+      },
+      estimatedSpendMinor: estimated.spendMinor,
+      estimatedPricingVersion: estimated.pricingVersion,
+    });
+    expect(finalized).toEqual({
+      spendMinor: 1,
+      pricingVersion: 'coingecko-near-testnet:coingecko:near:1700000000',
+    });
+  });
+
   test('prefers real pricing over static pricing when both are configured', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = createMockFetch() as typeof fetch;
@@ -125,6 +206,13 @@ test.describe('real sponsored execution pricing', () => {
               rpcUrl: 'https://rpc.moderato.tempo.xyz',
               assetId: 'near',
               pricingVersionPrefix: 'coingecko-tempo-testnet',
+            },
+          },
+          near: {
+            TESTNET: {
+              assetId: 'near',
+              estimateFeeAmountYocto: '2000',
+              pricingVersionPrefix: 'coingecko-near-testnet',
             },
           },
         }),
@@ -206,6 +294,7 @@ test.describe('real sponsored execution pricing', () => {
         apiBaseUrl: 'https://api.coingecko.com/api/v3',
         cacheTtlMs: 60_000,
         evmByChain: new Map(),
+        nearByChain: new Map(),
       },
       {
         fetch: createMockFetch() as typeof fetch,

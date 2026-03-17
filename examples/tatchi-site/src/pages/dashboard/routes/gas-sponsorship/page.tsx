@@ -365,6 +365,13 @@ function getGasChainTargetForNetwork(
   return networkClass === 'MAINNET' ? row.mainnet : row.testnet;
 }
 
+function getNearSpendCapTargetForNetwork(
+  networkClass: GasNetworkToggleClass,
+): GasChainTarget | null {
+  const nearRow = GAS_CHAIN_MATRIX_ROWS.find((row) => row.chainName === 'NEAR') || null;
+  return nearRow ? getGasChainTargetForNetwork(nearRow, networkClass) : null;
+}
+
 function remapSelectedTargetsToNetwork(
   selectedTargets: readonly string[],
   networkClass: GasNetworkToggleClass,
@@ -532,18 +539,18 @@ function buildFormStateFromPolicy(
   projectId: string,
   environmentId: string,
 ): GasSponsorshipFormState {
-  const spendCapAmountByChainName =
-    policy.kind === 'evm_call'
-      ? policy.spendCap.capsByChain.reduce<Record<string, string>>((accumulator, entry) => {
-          const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(entry.chainId);
-          if (!target) return accumulator;
-          accumulator[target.chainName] = formatSpendCapInputMinor(
-            entry.capMinor,
-            target.spendCapDisplayDecimals,
-          );
-          return accumulator;
-        }, {})
-      : {};
+  const spendCapAmountByChainName = policy.spendCap.capsByChain.reduce<Record<string, string>>(
+    (accumulator, entry) => {
+      const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(entry.chainId);
+      if (!target) return accumulator;
+      accumulator[target.chainName] = formatSpendCapInputMinor(
+        entry.capMinor,
+        target.spendCapDisplayDecimals,
+      );
+      return accumulator;
+    },
+    {},
+  );
   return {
     name: policy.name,
     ruleKind: policy.kind,
@@ -741,6 +748,10 @@ function buildGasSponsorshipRequest(
   networkClass: GasNetworkToggleClass,
 ): Record<string, unknown> {
   if (form.ruleKind === 'near_delegate') {
+    const nearTarget = getNearSpendCapTargetForNetwork(networkClass);
+    if (form.spendCapMode !== 'NONE' && !nearTarget) {
+      throw new Error(`NEAR spend cap target is unavailable for ${networkClass.toLowerCase()}.`);
+    }
     return {
       ...buildScopePayload(form),
       name: normalizeString(form.name) || 'Gas Sponsorship Policy',
@@ -748,11 +759,14 @@ function buildGasSponsorshipRequest(
       executionMode: 'near_delegate',
       networkClass,
       enabled: form.enabled,
-      spendCap: {
-        mode: 'NONE',
-        period: form.spendCapPeriod,
-        capsByChain: [],
-      },
+      spendCap:
+        form.spendCapMode === 'NONE' || !nearTarget
+          ? {
+              mode: 'NONE' as const,
+              period: form.spendCapPeriod,
+              capsByChain: [],
+            }
+          : buildSpendCap(form, [nearTarget]),
       allowedDelegateActions: buildAllowedDelegateActions(form),
     };
   }
@@ -1067,9 +1081,13 @@ export function GasSponsorshipPage(): React.JSX.Element {
     if (!policyModalOpen) return;
     setForm((current) => {
       const selectedChainNames = new Set(
-        uniqueGasTargetIds(current.selectedTargets)
-          .map((targetId) => GAS_CHAIN_TARGETS_BY_ID.get(targetId)?.chainName || '')
-          .filter(Boolean),
+        current.ruleKind === 'near_delegate'
+          ? [getNearSpendCapTargetForNetwork(selectedEnvironmentNetworkClass)?.chainName || ''].filter(
+              Boolean,
+            )
+          : uniqueGasTargetIds(current.selectedTargets)
+              .map((targetId) => GAS_CHAIN_TARGETS_BY_ID.get(targetId)?.chainName || '')
+              .filter(Boolean),
       );
       const nextSpendCapAmountByChainName = Object.fromEntries(
         Object.entries(current.spendCapAmountByChainName).filter(([chainName]) =>
@@ -1090,7 +1108,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
         spendCapAmountByChainName: nextSpendCapAmountByChainName,
       };
     });
-  }, [policyModalOpen, setForm]);
+  }, [policyModalOpen, selectedEnvironmentNetworkClass, setForm]);
 
   const canMutatePolicy = React.useMemo(
     () => hasGasPolicyMutationRole(session.claims?.roles),
@@ -1796,9 +1814,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       </div>
                     ) : (
                       <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
-                        {selectedPolicy.kind === 'near_delegate'
-                          ? 'NEAR delegate sponsorship uses no spend cap in this MVP.'
-                          : selectedPolicy.spendCap.mode === 'NONE'
+                        {selectedPolicy.spendCap.mode === 'NONE'
                           ? 'No spend cap configured.'
                           : 'No per-chain spend caps configured.'}
                       </p>
@@ -1899,9 +1915,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           }))
                         }
                         disabled={
-                          mutating ||
-                          form.spendCapMode === 'NONE' ||
-                          form.ruleKind === 'near_delegate'
+                          mutating || form.spendCapMode === 'NONE'
                         }
                       >
                         {GAS_SPEND_CAP_PERIODS.map((period) => (
@@ -1913,77 +1927,71 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     </label>
                     <div className="dashboard-form-field dashboard-form-field--full">
                       <span>Spend cap</span>
-                      {form.ruleKind === 'near_delegate' ? (
-                        <p className="dashboard-pagination-note">
-                          NEAR delegate sponsorship uses no spend cap in this MVP.
-                        </p>
-                      ) : (
-                        <div className="dashboard-policy-contract-call-mode">
-                          <button
-                            type="button"
-                            aria-pressed={form.spendCapMode === 'NONE'}
-                            className={[
-                              'dashboard-policy-segment',
-                              form.spendCapMode === 'NONE'
-                                ? 'dashboard-policy-segment--active'
-                                : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() =>
-                              setForm((current) => ({
-                                ...current,
-                                spendCapMode: 'NONE',
-                              }))
-                            }
-                            disabled={mutating}
-                          >
-                            No spend cap
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={form.spendCapMode === 'CHAIN_TOTAL'}
-                            className={[
-                              'dashboard-policy-segment',
-                              form.spendCapMode === 'CHAIN_TOTAL'
-                                ? 'dashboard-policy-segment--active'
-                                : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() =>
-                              setForm((current) => ({
-                                ...current,
-                                spendCapMode: 'CHAIN_TOTAL',
-                              }))
-                            }
-                            disabled={mutating}
-                          >
-                            Per chain total
-                          </button>
-                          <button
-                            type="button"
-                            aria-pressed={form.spendCapMode === 'WALLET_CHAIN_TOTAL'}
-                            className={[
-                              'dashboard-policy-segment',
-                              form.spendCapMode === 'WALLET_CHAIN_TOTAL'
-                                ? 'dashboard-policy-segment--active'
-                                : '',
-                            ]
-                              .filter(Boolean)
-                              .join(' ')}
-                            onClick={() =>
-                              setForm((current) => ({
-                                ...current,
-                                spendCapMode: 'WALLET_CHAIN_TOTAL',
-                              }))
-                            }
-                            disabled={mutating}
-                          >
-                            Per wallet, per chain
-                          </button>
-                        </div>
-                      )}
+                      <div className="dashboard-policy-contract-call-mode">
+                        <button
+                          type="button"
+                          aria-pressed={form.spendCapMode === 'NONE'}
+                          className={[
+                            'dashboard-policy-segment',
+                            form.spendCapMode === 'NONE'
+                              ? 'dashboard-policy-segment--active'
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              spendCapMode: 'NONE',
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          No spend cap
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={form.spendCapMode === 'CHAIN_TOTAL'}
+                          className={[
+                            'dashboard-policy-segment',
+                            form.spendCapMode === 'CHAIN_TOTAL'
+                              ? 'dashboard-policy-segment--active'
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              spendCapMode: 'CHAIN_TOTAL',
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          Per chain total
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={form.spendCapMode === 'WALLET_CHAIN_TOTAL'}
+                          className={[
+                            'dashboard-policy-segment',
+                            form.spendCapMode === 'WALLET_CHAIN_TOTAL'
+                              ? 'dashboard-policy-segment--active'
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              spendCapMode: 'WALLET_CHAIN_TOTAL',
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          Per wallet, per chain
+                        </button>
+                      </div>
                     </div>
                     {form.ruleKind === 'evm_call' ? (
                       <div className="dashboard-form-field dashboard-form-field--full">
@@ -2138,6 +2146,71 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           {' '}
                           {formatNetworkClassLabel(selectedEnvironmentNetworkClass)}.
                         </p>
+                        {(() => {
+                          const nearTarget =
+                            getNearSpendCapTargetForNetwork(selectedEnvironmentNetworkClass);
+                          if (!nearTarget) return null;
+                          return (
+                            <div className="dashboard-gas-target-matrix">
+                              <div className="dashboard-gas-target-matrix__header">
+                                <span>Chain</span>
+                                <span>Network</span>
+                                <span>Spend cap</span>
+                              </div>
+                              <div className="dashboard-gas-target-matrix__row">
+                                <div className="dashboard-gas-target-matrix__chain">NEAR</div>
+                                <span className="dashboard-gas-target-matrix__cell">
+                                  <span className="dashboard-gas-target-pill">
+                                    {nearTarget.chainLabel}
+                                  </span>
+                                </span>
+                                <span className="dashboard-gas-target-matrix__cap">
+                                  {form.spendCapMode === 'NONE' ? (
+                                    <span className="dashboard-gas-target-cap__empty">No cap</span>
+                                  ) : (
+                                    <span className="dashboard-gas-target-cap__input">
+                                      <input
+                                        className="dashboard-input"
+                                        aria-label={`${nearTarget.chainLabel} spend cap`}
+                                        inputMode="decimal"
+                                        value={
+                                          form.spendCapAmountByChainName[nearTarget.chainName] ||
+                                          ''
+                                        }
+                                        onChange={(event) =>
+                                          setForm((current) => ({
+                                            ...current,
+                                            spendCapAmountByChainName: {
+                                              ...current.spendCapAmountByChainName,
+                                              [nearTarget.chainName]: event.target.value,
+                                            },
+                                          }))
+                                        }
+                                        onBlur={(event) =>
+                                          setForm((current) => ({
+                                            ...current,
+                                            spendCapAmountByChainName: {
+                                              ...current.spendCapAmountByChainName,
+                                              [nearTarget.chainName]: normalizeSpendCapAmountInput(
+                                                event.target.value,
+                                                nearTarget.spendCapDisplayDecimals,
+                                              ),
+                                            },
+                                          }))
+                                        }
+                                        placeholder="0.00"
+                                        disabled={mutating}
+                                      />
+                                      <span className="dashboard-gas-target-cap__unit">
+                                        {nearTarget.spendCapCurrencyCode}
+                                      </span>
+                                    </span>
+                                  )}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

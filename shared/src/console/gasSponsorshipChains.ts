@@ -1,3 +1,8 @@
+import {
+  NEAR_MAINNET_SPEND_CAP_CHAIN_ID,
+  NEAR_TESTNET_SPEND_CAP_CHAIN_ID,
+} from './gasSponsorshipSpendCapTargets';
+
 export type GasSponsorshipTargetNetworkClass = 'TESTNET' | 'MAINNET';
 
 export interface GasSponsorshipChainTarget {
@@ -17,6 +22,27 @@ export interface GasSponsorshipChainMatrixRow {
 }
 
 export const GAS_SPONSORSHIP_CHAIN_MATRIX_ROWS: readonly GasSponsorshipChainMatrixRow[] = [
+  {
+    chainName: 'NEAR',
+    mainnet: {
+      id: 'near-mainnet',
+      chainName: 'NEAR',
+      chainLabel: 'NEAR Mainnet',
+      chainId: NEAR_MAINNET_SPEND_CAP_CHAIN_ID,
+      networkClass: 'MAINNET',
+      spendCapCurrencyCode: 'USD',
+      spendCapDisplayDecimals: 2,
+    },
+    testnet: {
+      id: 'near-testnet',
+      chainName: 'NEAR',
+      chainLabel: 'NEAR Testnet',
+      chainId: NEAR_TESTNET_SPEND_CAP_CHAIN_ID,
+      networkClass: 'TESTNET',
+      spendCapCurrencyCode: 'USD',
+      spendCapDisplayDecimals: 2,
+    },
+  },
   {
     chainName: 'Ethereum',
     mainnet: {

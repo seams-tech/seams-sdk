@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   evaluateConsolePolicyRules,
   isConsoleGasSponsorshipPolicyRules,
@@ -265,6 +266,94 @@ test.describe('console policy rules parser and evaluator', () => {
     expect(isConsoleGasSponsorshipPolicyRules(invalidGasRules)).toBe(true);
     await expectPolicyError(
       async () => validateGasSponsorshipPolicyRulesForPublish(invalidGasRules),
+      'invalid_body',
+    );
+  });
+
+  test('near gas sponsorship publish validation accepts concrete spend caps and rejects ambiguous ones', async () => {
+    const nearTestnetChainId = getNearSpendCapChainId('TESTNET');
+    const nearRules = parseConsolePolicyRulesInput(
+      {
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'env_1',
+        enabled: true,
+        networkClass: 'TESTNET',
+        allowedDelegateActions: [
+          {
+            receiverId: 'guest-book.testnet',
+            methods: ['add_message'],
+            maxDepositYocto: '1000000000000000000000000',
+            allowTransfers: false,
+          },
+        ],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: nearTestnetChainId, capMinor: 25_000 }],
+        },
+      },
+      'GAS_SPONSORSHIP',
+    );
+    expect(isConsoleGasSponsorshipPolicyRules(nearRules)).toBe(true);
+    expect(() => validateGasSponsorshipPolicyRulesForPublish(nearRules)).not.toThrow();
+
+    const ambiguousNearRules = parseConsolePolicyRulesInput(
+      {
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'env_1',
+        enabled: true,
+        networkClass: 'ANY',
+        allowedDelegateActions: [
+          {
+            receiverId: 'guest-book.testnet',
+            methods: ['add_message'],
+            maxDepositYocto: '1000000000000000000000000',
+            allowTransfers: false,
+          },
+        ],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: nearTestnetChainId, capMinor: 25_000 }],
+        },
+      },
+      'GAS_SPONSORSHIP',
+    );
+    await expectPolicyError(
+      async () => validateGasSponsorshipPolicyRulesForPublish(ambiguousNearRules),
+      'invalid_body',
+    );
+
+    const mismatchedNearRules = parseConsolePolicyRulesInput(
+      {
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        scopeType: 'ENVIRONMENT',
+        environmentId: 'env_1',
+        enabled: true,
+        networkClass: 'TESTNET',
+        allowedDelegateActions: [
+          {
+            receiverId: 'guest-book.testnet',
+            methods: ['add_message'],
+            maxDepositYocto: '1000000000000000000000000',
+            allowTransfers: false,
+          },
+        ],
+        spendCap: {
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: 42_431, capMinor: 25_000 }],
+        },
+      },
+      'GAS_SPONSORSHIP',
+    );
+    await expectPolicyError(
+      async () => validateGasSponsorshipPolicyRulesForPublish(mismatchedNearRules),
       'invalid_body',
     );
   });

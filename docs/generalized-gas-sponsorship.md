@@ -78,6 +78,11 @@ Completed so far:
   - operator-configured static pricing via `SPONSORED_EXECUTION_STATIC_PRICING_JSON`
   - optional CoinGecko-backed real pricing via `SPONSORED_EXECUTION_REAL_PRICING_JSON`
   - precedence of real pricing over static pricing when both are configured
+- NEAR `near_delegate` policies can now enforce spend caps through the same shared budgeting path using:
+  - explicit internal NEAR spend-cap target ids per network
+  - shared static pricing support
+  - shared CoinGecko-backed real pricing support
+  - gas-only settlement based on finalized `tokens_burnt`
 - sponsored execution details now retain spend-cap reconciliation metadata such as:
   - reservation source event id
   - estimated billable spend minor
@@ -97,7 +102,7 @@ Still outstanding:
 
 - optional future work only:
   - richer pricing sources beyond the current CoinGecko-backed real pricing adapter
-  - first-class NEAR spend-cap support if product scope expands there
+  - operator UX / diagnostics refinements around capped sponsorship behavior
 
 ## Goal
 
@@ -963,6 +968,72 @@ Exit criteria:
 - shared spend-cap enforcement can use either a static operator-configured conversion or an optional real pricing source without changing the sponsorship route architecture
 - status: complete
 
+## Phase 11: Add NEAR spend-cap support
+
+Objective:
+
+- expand capped sponsorship beyond the current EVM-focused path so NEAR `near_delegate` policies can enforce spend caps through the same shared budgeting and billing architecture
+
+Primary targets:
+
+- [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
+- [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts)
+- [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
+- [server/src/sponsorship/near.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/near.ts)
+- [server/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/spendCaps.ts)
+- [server/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/pricing.ts)
+- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- NEAR sponsorship relayer coverage and dashboard API wiring coverage
+
+Architecture changes:
+
+- keep the tagged-union `GAS_SPONSORSHIP` model, but make spend caps first-class for `near_delegate` instead of silently treating them as EVM-only
+- preserve one shared `spendCap` shape at the policy level, while defining how NEAR policies map spend caps to billable USD minor units
+- keep `allowedDelegateActions` as the NEAR rule surface; do not force NEAR back into `allowedCalls`
+- keep spend-cap reservation and settlement in the shared sponsorship path, but make NEAR pricing/finalization produce honest billable `spendMinor` instead of using the current implicit “unsupported” branch
+
+Current implementation choice:
+
+- the current NEAR spend-cap model is gas-only
+- billable NEAR spend is derived from finalized `tokens_burnt`
+- reservation uses an operator-configured `estimateFeeAmountYocto`
+- attached deposit is user-paid and is not part of sponsorship pricing, caps, or billing
+- refund semantics for attached deposit are out of scope because attached deposit is not sponsored
+
+Todo:
+
+- [x] Remove the MVP validation block in [server/src/console/policies/rules.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/rules.ts) that rejects `near_delegate` spend caps
+- [x] Lock the first NEAR billable-unit model to gas-only relayer spend:
+  - finalized `tokens_burnt`
+  - attached deposit is user-paid and excluded from sponsorship spend
+  - no attached-deposit refund accounting is needed because attached deposit is not sponsored
+- [x] Extend the shared pricing contract in [server/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/pricing.ts) so NEAR can estimate and finalize spend using the same `SponsorshipSpendPricingService`
+- [x] Use CoinGecko `near` USD pricing as the first real NEAR pricing source and keep static pricing as an optional fallback
+- [x] Expand [server/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/spendCaps.ts) / the NEAR route integration so NEAR reservations no longer fail closed simply because `chainId` is null
+- [x] Add an explicit NEAR spend-cap target key that does not depend on EVM `chainId`
+- [x] Update shared sponsored execution details so NEAR records retain auditable pricing metadata for gas-only settlement:
+  - gas burnt
+  - tokens burnt
+  - pricing source/version
+- [x] Update `/dashboard/gas-sponsorship` so NEAR create/edit/view flows can configure spend caps instead of forcing `mode: "NONE"`
+- [x] Keep the dashboard UX explicit that the current NEAR spend cap is capping gas-only spend
+- [x] Add relayer coverage for:
+  - NEAR capped reservation success
+  - NEAR settlement with real/static finalized spend
+  - replay behavior with an existing capped NEAR record
+- [x] Add dashboard API wiring coverage for NEAR spend-cap authoring and validation
+- [ ] Optional future hardening:
+  - clearer operator-facing diagnostics for NEAR capped rejection / settlement details
+  - richer pricing providers if CoinGecko + static config stop being sufficient
+
+Exit criteria:
+
+- `near_delegate` sponsorship policies can configure and enforce spend caps through the same shared sponsorship spend-cap path as EVM
+- dashboard NEAR authoring no longer forces `spendCap.mode = "NONE"`
+- NEAR sponsored-call records settle auditable gas-only billed `spendMinor` with pricing-source metadata
+- attached deposit remains user-paid and outside sponsorship accounting
+- status: complete for gas-only NEAR spend caps
+
 ## Verification matrix
 
 Lower-level coverage:
@@ -1004,7 +1075,8 @@ Demo or integration coverage:
 8. Phase 8: prove the generalized MVP across EVM and NEAR.
 9. Phase 9: expand dashboard authoring beyond the EVM-first scope.
 10. Phase 10: add an optional real pricing source.
-11. Only after that, reconsider richer pricing providers, NEAR spend caps, argument constraints, or additional executor kinds.
+11. Phase 11: add NEAR spend-cap support.
+12. Only after that, reconsider richer pricing providers, argument constraints, or additional executor kinds.
 
 ## Final desired state
 
@@ -1020,3 +1092,5 @@ When this plan is complete:
 - the generic sponsorship system does not need Tempo-specific policy storage or env assumptions
 - idempotency, spend tracking, and policy attribution remain intact
 - capped sponsorship can use either static configured pricing or an optional real pricing source without changing the core route architecture
+- capped sponsorship can enforce both EVM and NEAR sponsorship policies through the same shared budgeting model
+- NEAR sponsorship caps and billing only cover relayer-paid gas, not user-paid attached deposit

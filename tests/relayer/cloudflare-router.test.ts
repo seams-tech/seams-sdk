@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { createInMemoryConsoleSponsoredCallService } from '@server';
+import {
+  createInMemoryConsoleSponsoredCallService,
+  resolveStaticSponsoredExecutionPricingFromEnv,
+} from '@server';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   createAppSessionConsoleAuthAdapter,
   createCloudflareConsoleRouter,
@@ -8,6 +12,7 @@ import {
   createInMemoryConsoleAuditService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleRuntimeSnapshotService,
+  createInMemoryConsoleSponsorshipSpendCapService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
   createRelayPublishableKeyAuthAdapter,
@@ -92,6 +97,10 @@ function makeSignedDelegateBillingSpy() {
 
 async function publishAllowedSignedDelegatePolicy(
   runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>,
+  options?: {
+    networkClass?: 'ANY' | 'TESTNET' | 'MAINNET';
+    spendCap?: { mode: string; period: string; capsByChain: Array<{ chainId: number; capMinor: number }> };
+  },
 ): Promise<void> {
   await runtimeSnapshots.publishSnapshot(delegateApiKeyCtx, {
     environmentId: delegateEnvironmentId,
@@ -111,7 +120,7 @@ async function publishAllowedSignedDelegatePolicy(
             scopePolicyId: null,
             scopePolicyName: null,
             templateId: null,
-            networkClass: 'TESTNET',
+            networkClass: options?.networkClass || 'TESTNET',
             executionMode: 'near_delegate',
             allowedDelegateActions: [
               {
@@ -121,7 +130,7 @@ async function publishAllowedSignedDelegatePolicy(
                 allowTransfers: false,
               },
             ],
-            spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+            spendCap: options?.spendCap || { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
             scopeType: 'ENVIRONMENT',
             projectId: null,
             environmentId: delegateEnvironmentId,
@@ -344,6 +353,112 @@ test.describe('relayer router (cloudflare) – P0', () => {
         succeeded: true,
       }),
     ]);
+  });
+
+  test('POST /signed-delegate reserves and settles NEAR spend caps through the shared path', async () => {
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async () => ({
+        ok: true,
+        transactionHash: 'delegate-tx-cap-456',
+        outcome: {
+          final_execution_status: 'FINAL',
+          status: { SuccessValue: '' },
+          transaction: { hash: 'delegate-tx-cap-456' },
+          transaction_outcome: {
+            outcome: {
+              gas_burnt: 1000,
+              tokens_burnt: '250',
+            },
+          },
+          receipts_outcome: [
+            {
+              outcome: {
+                gas_burnt: 2000,
+                tokens_burnt: '750',
+              },
+            },
+          ],
+        } as any,
+      }),
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const spendCaps = createInMemoryConsoleSponsorshipSpendCapService();
+    const pricing = resolveStaticSponsoredExecutionPricingFromEnv({
+      SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+        near: {
+          TESTNET: {
+            estimateFeeAmountYocto: '2000',
+            minorPerFeeUnitNumerator: '1',
+            minorPerFeeUnitDenominator: '1000',
+            pricingVersion: 'static-near-testnet-v1',
+          },
+        },
+      }),
+    } as NodeJS.ProcessEnv);
+    const created = await apiKeys.createApiKey(
+      delegateApiKeyCtx,
+      {
+        kind: 'publishable_key',
+        name: 'delegate-browser',
+        environmentId: delegateEnvironmentId,
+        allowedOrigins: ['https://example.localhost'],
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
+      },
+    );
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots, {
+      networkClass: 'TESTNET',
+      spendCap: {
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capsByChain: [{ chainId: getNearSpendCapChainId('TESTNET'), capMinor: 5 }],
+      },
+    });
+    const handler = createCloudflareRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+        runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        spendCaps,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/signed-delegate',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: `Bearer ${created.secret}`,
+        'X-Tatchi-Environment-Id': delegateEnvironmentId,
+      },
+      body: {
+        hash: 'c'.repeat(64),
+        signedDelegate: {
+          delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+          signature: 'sig',
+        },
+      },
+    });
+
+    expect(res.status, res.text).toBe(200);
+    const usage = await spendCaps.getWindowUsage(delegateApiKeyCtx, {
+      environmentId: delegateEnvironmentId,
+      policyId: 'policy_near_delegate',
+      chainId: getNearSpendCapChainId('TESTNET'),
+      mode: 'CHAIN_TOTAL',
+      period: 'MONTHLY',
+    });
+    expect(usage?.settledMinor).toBe(1);
+    expect(usage?.reservedMinor).toBe(0);
+    expect(usage?.availableMinor).toBe(4);
   });
 
   test('POST /signed-delegate records reverted NEAR execution as failed metered spend', async () => {

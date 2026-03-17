@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 
 function iso(ts: string): string {
   return new Date(ts).toISOString();
@@ -6525,9 +6526,8 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(nearCreateModal).toBeVisible();
     await nearCreateModal.locator('button:has-text("NEAR delegate")').click();
     await nearCreateModal.locator('label:has-text("Policy name") input').fill('NEAR sponsorship');
-    await expect(nearCreateModal).toContainText(
-      'NEAR delegate sponsorship uses no spend cap in this MVP.',
-    );
+    await nearCreateModal.locator('button:has-text("Per chain total")').click();
+    await nearCreateModal.getByLabel('NEAR Testnet spend cap').fill('120.00');
     await nearCreateModal.locator('button:has-text("Add delegate action")').click();
     await nearCreateModal
       .locator('label:has-text("Receiver ID") input')
@@ -6575,7 +6575,13 @@ test.describe('dashboard console config page api wiring', () => {
             : null,
         ),
       )
-      .toBe(JSON.stringify({ mode: 'NONE', period: 'MONTHLY', capsByChain: [] }));
+      .toBe(
+        JSON.stringify({
+          mode: 'CHAIN_TOTAL',
+          period: 'MONTHLY',
+          capsByChain: [{ chainId: getNearSpendCapChainId('TESTNET'), capMinor: 12000 }],
+        }),
+      );
     await expect
       .poll(() =>
         JSON.stringify(
@@ -6604,12 +6610,14 @@ test.describe('dashboard console config page api wiring', () => {
       .first();
     await expect(nearSponsorshipRow).toContainText('1 delegate action');
     await expect(nearSponsorshipRow).toContainText('Testnet / enabled');
+    await expect(nearSponsorshipRow).toContainText('120.00 USD');
 
     await nearSponsorshipRow.getByRole('button', { name: 'View' }).click();
     const nearViewModal = page.locator('section[aria-label="View gas sponsorship coverage modal"]');
     await expect(nearViewModal).toContainText('guest-book.testnet');
     await expect(nearViewModal).toContainText('add_message, vote');
     await expect(nearViewModal).toContainText('transfers allowed');
+    await expect(nearViewModal).toContainText('NEAR Testnet monthly cap 120.00 USD total');
     await nearViewModal.locator('button:has-text("Close")').click();
 
     await nearSponsorshipRow.getByRole('button', { name: 'Edit' }).click();
@@ -6617,10 +6625,16 @@ test.describe('dashboard console config page api wiring', () => {
     const nearDepositInput = nearEditModal.locator(
       'label:has-text("Max deposit (yoctoNEAR)") input',
     );
-    await expect(nearEditModal).toContainText(
-      'NEAR delegate sponsorship uses no spend cap in this MVP.',
-    );
+    const nearSpendCapInput = nearEditModal.getByLabel('NEAR Testnet spend cap');
+    await expect(nearSpendCapInput).toHaveValue('120.00');
     await expect(nearDepositInput).toHaveValue('1000000000000000000000000');
+    await nearSpendCapInput.fill('120.123');
+    await nearEditModal.locator('button:has-text("Save sponsorship policy")').click();
+    await expect(nearEditModal).toContainText(
+      'NEAR Testnet spend cap must be a non-negative amount with up to 2 decimal places.',
+    );
+    await expect.poll(() => gasPolicyPatchCalls.length).toBe(1);
+    await nearSpendCapInput.fill('200.50');
     await nearDepositInput.fill('2500000000000000000000000');
     await nearEditModal.locator('button:has-text("Save sponsorship policy")').click();
     await expect.poll(() => gasPolicyPatchCalls.length).toBe(2);
@@ -6630,9 +6644,9 @@ test.describe('dashboard console config page api wiring', () => {
         kind: 'near_delegate',
         executionMode: 'near_delegate',
         spendCap: {
-          mode: 'NONE',
+          mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
-          capsByChain: [],
+          capsByChain: [{ chainId: getNearSpendCapChainId('TESTNET'), capMinor: 20050 }],
         },
         allowedDelegateActions: [
           {

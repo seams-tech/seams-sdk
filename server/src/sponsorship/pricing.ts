@@ -1,4 +1,5 @@
 import { parseOptionalPositiveInteger } from './evm';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,
@@ -15,11 +16,27 @@ type StaticSponsoredEvmSpendPricingRule = {
   pricingVersion: string;
 };
 
+type StaticSponsoredNearSpendPricingRule = {
+  networkClass: 'TESTNET' | 'MAINNET';
+  estimateFeeAmountYocto: bigint;
+  minorPerFeeUnitNumerator: bigint;
+  minorPerFeeUnitDenominator: bigint;
+  pricingVersion: string;
+};
+
 type CoinGeckoSponsoredEvmSpendPricingRule = {
   chainId: number;
   rpcUrl: string;
   assetId: string;
   nativeUnitDecimals: number;
+  pricingVersionPrefix: string;
+};
+
+type CoinGeckoSponsoredNearSpendPricingRule = {
+  networkClass: 'TESTNET' | 'MAINNET';
+  assetId: string;
+  nativeUnitDecimals: number;
+  estimateFeeAmountYocto: bigint;
   pricingVersionPrefix: string;
 };
 
@@ -37,12 +54,14 @@ type DecimalRatio = {
 
 export interface StaticSponsoredExecutionPricingConfig {
   evmByChain: ReadonlyMap<number, StaticSponsoredEvmSpendPricingRule>;
+  nearByChain: ReadonlyMap<number, StaticSponsoredNearSpendPricingRule>;
 }
 
 export interface CoinGeckoSponsoredExecutionPricingConfig {
   apiBaseUrl: string;
   cacheTtlMs: number;
   evmByChain: ReadonlyMap<number, CoinGeckoSponsoredEvmSpendPricingRule>;
+  nearByChain: ReadonlyMap<number, CoinGeckoSponsoredNearSpendPricingRule>;
 }
 
 function parseOptionalBigIntLiteral(
@@ -200,6 +219,20 @@ function quoteFromRule(input: {
   };
 }
 
+function quoteFromStaticNearRule(input: {
+  rule: StaticSponsoredNearSpendPricingRule;
+  feeAmount: bigint;
+}): SponsorshipSpendPricingQuote {
+  return {
+    spendMinor: computeQuotedSpendMinor({
+      feeAmount: input.feeAmount,
+      numerator: input.rule.minorPerFeeUnitNumerator,
+      denominator: input.rule.minorPerFeeUnitDenominator,
+    }),
+    pricingVersion: input.rule.pricingVersion,
+  };
+}
+
 function resolveStaticEvmPricingRule(
   config: StaticSponsoredExecutionPricingConfig,
   chainId: number,
@@ -213,6 +246,19 @@ function resolveStaticEvmPricingRule(
   );
 }
 
+function resolveStaticNearPricingRule(
+  config: StaticSponsoredExecutionPricingConfig,
+  chainId: number,
+): StaticSponsoredNearSpendPricingRule {
+  const rule = config.nearByChain.get(chainId) || null;
+  if (rule) return rule;
+  throw new SponsorshipSpendCapEnforcementError(
+    'sponsorship_pricing_unavailable',
+    503,
+    `Sponsored spend pricing is not configured for NEAR target ${chainId}`,
+  );
+}
+
 function resolveCoinGeckoEvmPricingRule(
   config: CoinGeckoSponsoredExecutionPricingConfig,
   chainId: number,
@@ -223,6 +269,19 @@ function resolveCoinGeckoEvmPricingRule(
     'sponsorship_pricing_unavailable',
     503,
     `Real sponsored spend pricing is not configured for EVM chain ${chainId}`,
+  );
+}
+
+function resolveCoinGeckoNearPricingRule(
+  config: CoinGeckoSponsoredExecutionPricingConfig,
+  chainId: number,
+): CoinGeckoSponsoredNearSpendPricingRule {
+  const rule = config.nearByChain.get(chainId) || null;
+  if (rule) return rule;
+  throw new SponsorshipSpendCapEnforcementError(
+    'sponsorship_pricing_unavailable',
+    503,
+    `Real sponsored spend pricing is not configured for NEAR target ${chainId}`,
   );
 }
 
@@ -332,6 +391,14 @@ function quoteFromCoinGeckoRule(input: {
   };
 }
 
+function parseNearPricingNetworkClass(value: unknown): 'TESTNET' | 'MAINNET' | null {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'TESTNET' || normalized === 'MAINNET') {
+    return normalized;
+  }
+  return null;
+}
+
 export function createStaticSponsoredExecutionPricingService(
   config: StaticSponsoredExecutionPricingConfig,
 ): SponsorshipSpendPricingService {
@@ -339,6 +406,13 @@ export function createStaticSponsoredExecutionPricingService(
     async estimateSponsoredExecutionSpend(
       input: SponsorshipSpendPricingEstimateInput,
     ): Promise<SponsorshipSpendPricingQuote> {
+      if (input.chainFamily === 'near') {
+        const rule = resolveStaticNearPricingRule(config, input.chainId);
+        return quoteFromStaticNearRule({
+          rule,
+          feeAmount: rule.estimateFeeAmountYocto,
+        });
+      }
       if (input.chainFamily !== 'evm') {
         throw new SponsorshipSpendCapEnforcementError(
           'sponsorship_pricing_unavailable',
@@ -357,6 +431,20 @@ export function createStaticSponsoredExecutionPricingService(
     async finalizeSponsoredExecutionSpend(
       input: SponsorshipSpendPricingFinalizeInput,
     ): Promise<SponsorshipSpendPricingQuote> {
+      if (input.chainFamily === 'near') {
+        if (input.feeUnit !== 'yocto_near') {
+          throw new SponsorshipSpendCapEnforcementError(
+            'sponsorship_pricing_invalid',
+            500,
+            `Static sponsored spend pricing expected feeUnit yocto_near, received ${input.feeUnit}`,
+          );
+        }
+        const rule = resolveStaticNearPricingRule(config, input.chainId);
+        return quoteFromStaticNearRule({
+          rule,
+          feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
+        });
+      }
       if (input.chainFamily !== 'evm') {
         throw new SponsorshipSpendCapEnforcementError(
           'sponsorship_pricing_unavailable',
@@ -426,6 +514,16 @@ export function createCoinGeckoSponsoredExecutionPricingService(
     async estimateSponsoredExecutionSpend(
       input: SponsorshipSpendPricingEstimateInput,
     ): Promise<SponsorshipSpendPricingQuote> {
+      if (input.chainFamily === 'near') {
+        const rule = resolveCoinGeckoNearPricingRule(config, input.chainId);
+        const marketPrice = await resolveMarketPrice(rule.assetId);
+        return quoteFromCoinGeckoRule({
+          feeAmount: rule.estimateFeeAmountYocto,
+          nativeUnitDecimals: rule.nativeUnitDecimals,
+          spendMinorRatio: marketPrice.spendMinorRatio,
+          pricingVersion: `${rule.pricingVersionPrefix}:${marketPrice.pricingVersion}`,
+        });
+      }
       if (input.chainFamily !== 'evm') {
         throw new SponsorshipSpendCapEnforcementError(
           'sponsorship_pricing_unavailable',
@@ -449,6 +547,23 @@ export function createCoinGeckoSponsoredExecutionPricingService(
     async finalizeSponsoredExecutionSpend(
       input: SponsorshipSpendPricingFinalizeInput,
     ): Promise<SponsorshipSpendPricingQuote> {
+      if (input.chainFamily === 'near') {
+        if (input.feeUnit !== 'yocto_near') {
+          throw new SponsorshipSpendCapEnforcementError(
+            'sponsorship_pricing_invalid',
+            500,
+            `Real sponsored spend pricing expected feeUnit yocto_near, received ${input.feeUnit}`,
+          );
+        }
+        const rule = resolveCoinGeckoNearPricingRule(config, input.chainId);
+        const marketPrice = await resolveMarketPrice(rule.assetId);
+        return quoteFromCoinGeckoRule({
+          feeAmount: requireNonNegativeBigInt(input.feeAmount, 'feeAmount'),
+          nativeUnitDecimals: rule.nativeUnitDecimals,
+          spendMinorRatio: marketPrice.spendMinorRatio,
+          pricingVersion: `${rule.pricingVersionPrefix}:${marketPrice.pricingVersion}`,
+        });
+      }
       if (input.chainFamily !== 'evm') {
         throw new SponsorshipSpendCapEnforcementError(
           'sponsorship_pricing_unavailable',
@@ -488,43 +603,82 @@ export function resolveStaticSponsoredExecutionPricingFromEnv(
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
-  const evmSection = (parsed as Record<string, unknown>).evm;
-  if (!evmSection || typeof evmSection !== 'object' || Array.isArray(evmSection)) return null;
-
   const evmByChain = new Map<number, StaticSponsoredEvmSpendPricingRule>();
-  for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    const row = value as Record<string, unknown>;
-    const chainId =
-      parseOptionalPositiveInteger(chainIdRaw) ||
-      parseOptionalPositiveInteger(row.chainId) ||
-      undefined;
-    const estimateFeePerGas = parseOptionalBigIntLiteral(row.estimateFeePerGas, {
-      allowZero: true,
-    });
-    const minorPerFeeUnitNumerator = parseOptionalBigIntLiteral(row.minorPerFeeUnitNumerator);
-    const minorPerFeeUnitDenominator = parseOptionalBigIntLiteral(row.minorPerFeeUnitDenominator);
-    if (
-      !chainId ||
-      estimateFeePerGas === null ||
-      minorPerFeeUnitNumerator === null ||
-      minorPerFeeUnitDenominator === null
-    ) {
-      continue;
+  const root = parsed as Record<string, unknown>;
+  const evmSection = root.evm;
+  if (evmSection && typeof evmSection === 'object' && !Array.isArray(evmSection)) {
+    for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      const chainId =
+        parseOptionalPositiveInteger(chainIdRaw) ||
+        parseOptionalPositiveInteger(row.chainId) ||
+        undefined;
+      const estimateFeePerGas = parseOptionalBigIntLiteral(row.estimateFeePerGas, {
+        allowZero: true,
+      });
+      const minorPerFeeUnitNumerator = parseOptionalBigIntLiteral(row.minorPerFeeUnitNumerator);
+      const minorPerFeeUnitDenominator = parseOptionalBigIntLiteral(row.minorPerFeeUnitDenominator);
+      if (
+        !chainId ||
+        estimateFeePerGas === null ||
+        minorPerFeeUnitNumerator === null ||
+        minorPerFeeUnitDenominator === null
+      ) {
+        continue;
+      }
+      if (evmByChain.has(chainId)) return null;
+      evmByChain.set(chainId, {
+        chainId,
+        estimateFeePerGas,
+        minorPerFeeUnitNumerator,
+        minorPerFeeUnitDenominator,
+        pricingVersion: normalizePricingVersion(row.pricingVersion, `static-evm-${chainId}-v1`),
+      });
     }
-    if (evmByChain.has(chainId)) return null;
-    evmByChain.set(chainId, {
-      chainId,
-      estimateFeePerGas,
-      minorPerFeeUnitNumerator,
-      minorPerFeeUnitDenominator,
-      pricingVersion: normalizePricingVersion(row.pricingVersion, `static-evm-${chainId}-v1`),
-    });
   }
 
-  if (evmByChain.size === 0) return null;
+  const nearByChain = new Map<number, StaticSponsoredNearSpendPricingRule>();
+  const nearSection = root.near;
+  if (nearSection && typeof nearSection === 'object' && !Array.isArray(nearSection)) {
+    for (const [networkClassRaw, value] of Object.entries(nearSection as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      const networkClass =
+        parseNearPricingNetworkClass(networkClassRaw) ||
+        parseNearPricingNetworkClass(row.networkClass);
+      const estimateFeeAmountYocto = parseOptionalBigIntLiteral(row.estimateFeeAmountYocto, {
+        allowZero: true,
+      });
+      const minorPerFeeUnitNumerator = parseOptionalBigIntLiteral(row.minorPerFeeUnitNumerator);
+      const minorPerFeeUnitDenominator = parseOptionalBigIntLiteral(row.minorPerFeeUnitDenominator);
+      if (
+        !networkClass ||
+        estimateFeeAmountYocto === null ||
+        minorPerFeeUnitNumerator === null ||
+        minorPerFeeUnitDenominator === null
+      ) {
+        continue;
+      }
+      const chainId = getNearSpendCapChainId(networkClass);
+      if (nearByChain.has(chainId)) return null;
+      nearByChain.set(chainId, {
+        networkClass,
+        estimateFeeAmountYocto,
+        minorPerFeeUnitNumerator,
+        minorPerFeeUnitDenominator,
+        pricingVersion: normalizePricingVersion(
+          row.pricingVersion,
+          `static-near-${networkClass.toLowerCase()}-v1`,
+        ),
+      });
+    }
+  }
+
+  if (evmByChain.size === 0 && nearByChain.size === 0) return null;
   return createStaticSponsoredExecutionPricingService({
     evmByChain,
+    nearByChain,
   });
 }
 
@@ -543,38 +697,68 @@ export function resolveCoinGeckoSponsoredExecutionPricingFromEnv(
   const root = parsed as Record<string, unknown>;
   const provider = String(root.provider || 'coingecko').trim().toLowerCase();
   if (provider !== 'coingecko') return null;
-  const evmSection = root.evm;
-  if (!evmSection || typeof evmSection !== 'object' || Array.isArray(evmSection)) return null;
-
   const evmByChain = new Map<number, CoinGeckoSponsoredEvmSpendPricingRule>();
-  for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-    const row = value as Record<string, unknown>;
-    const chainId =
-      parseOptionalPositiveInteger(chainIdRaw) ||
-      parseOptionalPositiveInteger(row.chainId) ||
-      undefined;
-    const rpcUrl = String(row.rpcUrl || '').trim();
-    const assetId = String(row.assetId || '').trim().toLowerCase();
-    if (!chainId || !rpcUrl || !assetId) continue;
-    if (evmByChain.has(chainId)) return null;
-    evmByChain.set(chainId, {
-      chainId,
-      rpcUrl,
-      assetId,
-      nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 18),
-      pricingVersionPrefix: normalizePricingVersion(
-        row.pricingVersionPrefix,
-        `coingecko-evm-${chainId}`,
-      ),
-    });
+  const evmSection = root.evm;
+  if (evmSection && typeof evmSection === 'object' && !Array.isArray(evmSection)) {
+    for (const [chainIdRaw, value] of Object.entries(evmSection as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      const chainId =
+        parseOptionalPositiveInteger(chainIdRaw) ||
+        parseOptionalPositiveInteger(row.chainId) ||
+        undefined;
+      const rpcUrl = String(row.rpcUrl || '').trim();
+      const assetId = String(row.assetId || '').trim().toLowerCase();
+      if (!chainId || !rpcUrl || !assetId) continue;
+      if (evmByChain.has(chainId)) return null;
+      evmByChain.set(chainId, {
+        chainId,
+        rpcUrl,
+        assetId,
+        nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 18),
+        pricingVersionPrefix: normalizePricingVersion(
+          row.pricingVersionPrefix,
+          `coingecko-evm-${chainId}`,
+        ),
+      });
+    }
   }
 
-  if (evmByChain.size === 0) return null;
+  const nearByChain = new Map<number, CoinGeckoSponsoredNearSpendPricingRule>();
+  const nearSection = root.near;
+  if (nearSection && typeof nearSection === 'object' && !Array.isArray(nearSection)) {
+    for (const [networkClassRaw, value] of Object.entries(nearSection as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const row = value as Record<string, unknown>;
+      const networkClass =
+        parseNearPricingNetworkClass(networkClassRaw) ||
+        parseNearPricingNetworkClass(row.networkClass);
+      const assetId = String(row.assetId || '').trim().toLowerCase();
+      const estimateFeeAmountYocto = parseOptionalBigIntLiteral(row.estimateFeeAmountYocto, {
+        allowZero: true,
+      });
+      if (!networkClass || !assetId || estimateFeeAmountYocto === null) continue;
+      const chainId = getNearSpendCapChainId(networkClass);
+      if (nearByChain.has(chainId)) return null;
+      nearByChain.set(chainId, {
+        networkClass,
+        assetId,
+        nativeUnitDecimals: readNativeUnitDecimals(row.nativeUnitDecimals, 24),
+        estimateFeeAmountYocto,
+        pricingVersionPrefix: normalizePricingVersion(
+          row.pricingVersionPrefix,
+          `coingecko-near-${networkClass.toLowerCase()}`,
+        ),
+      });
+    }
+  }
+
+  if (evmByChain.size === 0 && nearByChain.size === 0) return null;
   return createCoinGeckoSponsoredExecutionPricingService({
     apiBaseUrl: normalizeApiBaseUrl(root.apiBaseUrl, 'https://api.coingecko.com/api/v3'),
     cacheTtlMs: readCacheTtlMs(root.cacheTtlMs, 5 * 60 * 1000),
     evmByChain,
+    nearByChain,
   });
 }
 

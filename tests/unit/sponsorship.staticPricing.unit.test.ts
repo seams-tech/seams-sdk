@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   isSponsorshipSpendCapEnforcementError,
   resolveStaticSponsoredExecutionPricingFromEnv,
@@ -13,6 +14,14 @@ function makeStaticPricingEnv(): NodeJS.ProcessEnv {
           minorPerFeeUnitNumerator: '100',
           minorPerFeeUnitDenominator: '1000000000000000000',
           pricingVersion: 'static-tempo-testnet-v1',
+        },
+      },
+      near: {
+        TESTNET: {
+          estimateFeeAmountYocto: '2000',
+          minorPerFeeUnitNumerator: '1',
+          minorPerFeeUnitDenominator: '1000',
+          pricingVersion: 'static-near-testnet-v1',
         },
       },
     }),
@@ -68,6 +77,54 @@ test.describe('static sponsored execution pricing', () => {
     expect(finalized).toEqual({
       spendMinor: 2,
       pricingVersion: 'static-tempo-testnet-v1',
+    });
+  });
+
+  test('estimates and finalizes NEAR spend from explicit network pricing config', async () => {
+    const pricing = resolveStaticSponsoredExecutionPricingFromEnv(makeStaticPricingEnv());
+    expect(pricing).not.toBeNull();
+    const nearChainId = getNearSpendCapChainId('TESTNET');
+
+    const estimated = await pricing!.estimateSponsoredExecutionSpend({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      executorKind: 'near_delegate',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_near',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'near:guest-book.testnet',
+      chainId: nearChainId,
+      requestDetails: {
+        receiverId: 'guest-book.testnet',
+      },
+    });
+    expect(estimated).toEqual({
+      spendMinor: 2,
+      pricingVersion: 'static-near-testnet-v1',
+    });
+
+    const finalized = await pricing!.finalizeSponsoredExecutionSpend({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      executorKind: 'near_delegate',
+      environmentId: 'proj_env:dev',
+      policyId: 'policy_gs_near',
+      accountRef: 'near:alice.testnet',
+      targetRef: 'near:guest-book.testnet',
+      chainId: nearChainId,
+      txOrExecutionRef: 'delegate-tx-123',
+      receiptStatus: 'success',
+      feeUnit: 'yocto_near',
+      feeAmount: '1500',
+      requestDetails: {
+        receiverId: 'guest-book.testnet',
+      },
+      estimatedSpendMinor: estimated.spendMinor,
+      estimatedPricingVersion: estimated.pricingVersion,
+    });
+    expect(finalized).toEqual({
+      spendMinor: 2,
+      pricingVersion: 'static-near-testnet-v1',
     });
   });
 
