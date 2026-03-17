@@ -58,6 +58,10 @@ Completed so far:
   - authors top-level `executionMode: "evm_eoa"`
   - writes richer `allowedCalls` entries with `functionSignature`, `maxGasLimit`, and `maxValueWei`
   - no longer depends on legacy `allowedChainIds` / `callMode` form payload fields
+- `/dashboard/gas-sponsorship` now also authors and previews NEAR sponsorship policies with:
+  - `kind: "near_delegate"`
+  - top-level `executionMode: "near_delegate"`
+  - explicit `allowedDelegateActions`
 - sponsorship routes now share backend-agnostic spend-cap reservation and settlement plumbing through:
   - a shared sponsorship pricing adapter contract
   - the existing shared sponsorship spend-cap reservation service
@@ -70,6 +74,10 @@ Completed so far:
   - reservation success
   - cap rejection
   - settlement completion
+- the shared sponsorship pricing path now supports:
+  - operator-configured static pricing via `SPONSORED_EXECUTION_STATIC_PRICING_JSON`
+  - optional CoinGecko-backed real pricing via `SPONSORED_EXECUTION_REAL_PRICING_JSON`
+  - precedence of real pricing over static pricing when both are configured
 - sponsored execution details now retain spend-cap reconciliation metadata such as:
   - reservation source event id
   - estimated billable spend minor
@@ -87,9 +95,9 @@ Completed so far:
 
 Still outstanding:
 
-- add first-class NEAR authoring later if product scope expands
-- optional hardening:
-  - replace the static pricing adapter with a production transaction-level pricing source for billable spend minor
+- optional future work only:
+  - richer pricing sources beyond the current CoinGecko-backed real pricing adapter
+  - first-class NEAR spend-cap support if product scope expands there
 
 ## Goal
 
@@ -897,6 +905,64 @@ Exit criteria:
 - the generalized sponsorship MVP is a real reusable product surface, not just a renamed Tempo faucet rule
 - status: complete
 
+## Phase 9: Expand dashboard authoring beyond EVM-first
+
+Objective:
+
+- let `/dashboard/gas-sponsorship` author the NEAR side of the unified sponsorship architecture instead of treating it as seeded/backend-only policy data
+
+Primary targets:
+
+- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts)
+- gas sponsorship policy request/response codecs used by the dashboard
+
+Todo:
+
+- [x] Add first-class NEAR authoring for `kind: "near_delegate"`
+- [x] Author explicit `allowedDelegateActions` rows with:
+  - `receiverId`
+  - `methods`
+  - `maxDepositYocto`
+  - `allowTransfers`
+- [x] Surface top-level `executionMode: "near_delegate"` in create/edit/view flows
+- [x] Keep the tagged-union policy UX explicit so operators can tell EVM and NEAR sponsorship apart
+- [x] Extend dashboard validation and preview rendering for NEAR rules without regressing the existing EVM flows
+- [x] Add dashboard API wiring coverage for NEAR gas sponsorship authoring
+
+Exit criteria:
+
+- `/dashboard/gas-sponsorship` can create, edit, and view both EVM and NEAR sponsorship policies through the unified policy model
+- status: complete
+
+## Phase 10: Add an optional real pricing source
+
+Objective:
+
+- make capped sponsorship enforcement capable of using a real pricing source for billable USD minor accounting instead of relying only on the explicit static conversion config
+
+Primary targets:
+
+- [server/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/spendCaps.ts)
+- [server/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/pricing.ts)
+- [examples/relay-server/src/index.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/relay-server/src/index.ts)
+- relay env examples and sponsorship docs
+
+Todo:
+
+- [x] Define how sponsored executions map to billable USD minor units for each capped chain family
+- [x] Introduce a real pricing adapter contract alongside the existing static adapter
+- [x] Keep the real pricing source optional so operators can still use `SPONSORED_EXECUTION_STATIC_PRICING_JSON`
+- [x] Wire the real pricing adapter through the shared root sponsorship router options, not route-local config
+- [x] Preserve fail-closed behavior when capped policies are active and neither static nor real pricing is configured
+- [x] Record pricing-source/version metadata so spend-cap reservations and settlements remain auditable
+- [x] Add focused tests for estimate/finalize behavior, fallback rules, and pricing-source selection precedence
+
+Exit criteria:
+
+- shared spend-cap enforcement can use either a static operator-configured conversion or an optional real pricing source without changing the sponsorship route architecture
+- status: complete
+
 ## Verification matrix
 
 Lower-level coverage:
@@ -936,7 +1002,9 @@ Demo or integration coverage:
 6. Phase 6: ship EVM-first dashboard authoring.
 7. Phase 7: tighten accounting and observability.
 8. Phase 8: prove the generalized MVP across EVM and NEAR.
-9. Only after that, reconsider argument constraints or additional executor kinds.
+9. Phase 9: expand dashboard authoring beyond the EVM-first scope.
+10. Phase 10: add an optional real pricing source.
+11. Only after that, reconsider richer pricing providers, NEAR spend caps, argument constraints, or additional executor kinds.
 
 ## Final desired state
 
@@ -948,5 +1016,7 @@ When this plan is complete:
 - sponsorship policies can express allowlisted contract/function templates with gas/value bounds and top-level execution mode
 - Tempo onboarding is just one seeded policy template in that model
 - the EVM and NEAR runtime routes are thin typed entrypoints over one sponsorship engine
+- `/dashboard/gas-sponsorship` can author both EVM and NEAR sponsorship policies under the same tagged-union model
 - the generic sponsorship system does not need Tempo-specific policy storage or env assumptions
 - idempotency, spend tracking, and policy attribution remain intact
+- capped sponsorship can use either static configured pricing or an optional real pricing source without changing the core route architecture

@@ -88,7 +88,22 @@ Enable by setting `SPONSORED_EVM_EXECUTORS_JSON` in `.env.example`, for example:
 SPONSORED_EVM_EXECUTORS_JSON={"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","sponsorPrivateKeyHex":"0x...","maxPriorityFeePerGasFloor":"2000000000","maxFeePerGasFloor":"40000000000"}}
 ```
 
-If active sponsorship policies use spend caps, also configure a pricing adapter. The current example relay supports an explicit static pricing config:
+If active sponsorship policies use spend caps, also configure a pricing adapter. The example relay supports either an optional real pricing source or an explicit static pricing config.
+
+Real pricing currently supports EVM native gas spend using live `eth_gasPrice` from the configured chain RPC plus CoinGecko USD pricing for the configured native asset:
+
+```env
+SPONSORED_EXECUTION_REAL_PRICING_JSON={"provider":"coingecko","cacheTtlMs":300000,"evm":{"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","assetId":"near","nativeUnitDecimals":18,"pricingVersionPrefix":"coingecko-tempo-testnet"}}}
+```
+
+That adapter uses:
+
+- `rpcUrl` to read live `eth_gasPrice` for EVM estimate reservations
+- `assetId` to fetch the native asset USD price from CoinGecko
+- `nativeUnitDecimals` to convert native fee units into whole-asset pricing
+- `pricingVersionPrefix` to stamp reservation/settlement records with the live pricing source version
+
+If you do not want a live market source, you can still use the explicit static conversion config:
 
 ```env
 SPONSORED_EXECUTION_STATIC_PRICING_JSON={"evm":{"42431":{"estimateFeePerGas":"22000000000","minorPerFeeUnitNumerator":"100","minorPerFeeUnitDenominator":"1000000000000000000","pricingVersion":"static-tempo-testnet-v1"}}}
@@ -101,6 +116,8 @@ That adapter uses:
 - `pricingVersion` to stamp the reservation/settlement records for observability
 
 This is an operator-configured static conversion, not a live transaction-level pricing feed.
+
+If both `SPONSORED_EXECUTION_REAL_PRICING_JSON` and `SPONSORED_EXECUTION_STATIC_PRICING_JSON` are configured, the relay prefers the real pricing source and falls back to static only when the real config is absent or invalid.
 
 ### Passkey Verification (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
 

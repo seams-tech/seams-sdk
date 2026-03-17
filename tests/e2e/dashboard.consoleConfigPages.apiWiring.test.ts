@@ -5972,6 +5972,9 @@ test.describe('dashboard console config page api wiring', () => {
             ? policy.spendCap
             : { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
         allowedCalls: Array.isArray(policy.allowedCalls) ? policy.allowedCalls : [],
+        allowedDelegateActions: Array.isArray(policy.allowedDelegateActions)
+          ? policy.allowedDelegateActions
+          : [],
       },
       createdAt: String(policy.updatedAt || iso('2026-01-10T00:00:00.000Z')),
       updatedAt: String(policy.updatedAt || iso('2026-01-10T00:00:00.000Z')),
@@ -6096,7 +6099,11 @@ test.describe('dashboard console config page api wiring', () => {
           id: String(body.id || `policy_created_${Date.now()}`),
           name: String(body.name || 'Gas Sponsorship Policy'),
           kind: String(rules.kind || 'evm_call'),
-          executionMode: String(rules.executionMode || 'evm_eoa'),
+          executionMode: String(
+            rules.executionMode || (String(rules.kind || 'evm_call') === 'near_delegate'
+              ? 'near_delegate'
+              : 'evm_eoa'),
+          ),
           scopePolicyName: null,
           scopeType,
           projectId: rules.projectId ?? null,
@@ -6110,6 +6117,9 @@ test.describe('dashboard console config page api wiring', () => {
               ? rules.spendCap
               : { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
           allowedCalls: Array.isArray(rules.allowedCalls) ? rules.allowedCalls : [],
+          allowedDelegateActions: Array.isArray(rules.allowedDelegateActions)
+            ? rules.allowedDelegateActions
+            : [],
           updatedAt: now,
         };
         gasPolicies.unshift(created);
@@ -6165,7 +6175,11 @@ test.describe('dashboard console config page api wiring', () => {
           target.networkClass = String(rules.networkClass || target.networkClass || 'ANY');
         }
         if (rules.executionMode !== undefined) {
-          target.executionMode = String(rules.executionMode || target.executionMode || 'evm_eoa');
+          target.executionMode = String(
+            rules.executionMode ||
+              target.executionMode ||
+              (target.kind === 'near_delegate' ? 'near_delegate' : 'evm_eoa'),
+          );
         }
         if (rules.enabled !== undefined) {
           target.enabled = rules.enabled === true;
@@ -6179,6 +6193,9 @@ test.describe('dashboard console config page api wiring', () => {
         }
         if (Array.isArray(rules.allowedCalls)) {
           target.allowedCalls = rules.allowedCalls;
+        }
+        if (Array.isArray(rules.allowedDelegateActions)) {
+          target.allowedDelegateActions = rules.allowedDelegateActions;
         }
         target.updatedAt = iso('2026-02-01T00:00:00.000Z');
         await route.fulfill({
@@ -6503,6 +6520,131 @@ test.describe('dashboard console config page api wiring', () => {
     });
     await expect(newSponsorshipRow).toContainText('725.50 AlphaUSD');
 
+    await gasCreateSection.locator('button:has-text("Create policy")').click();
+    const nearCreateModal = page.locator('section[aria-label="Create gas sponsorship policy modal"]');
+    await expect(nearCreateModal).toBeVisible();
+    await nearCreateModal.locator('button:has-text("NEAR delegate")').click();
+    await nearCreateModal.locator('label:has-text("Policy name") input').fill('NEAR sponsorship');
+    await expect(nearCreateModal).toContainText(
+      'NEAR delegate sponsorship uses no spend cap in this MVP.',
+    );
+    await nearCreateModal.locator('button:has-text("Add delegate action")').click();
+    await nearCreateModal
+      .locator('label:has-text("Receiver ID") input')
+      .fill('guest-book.testnet');
+    await nearCreateModal
+      .locator('label:has-text("Max deposit (yoctoNEAR)") input')
+      .fill('1000000000000000000000000');
+    await nearCreateModal
+      .locator('label:has-text("Allowed methods (comma or newline separated)") textarea')
+      .fill('add_message, vote');
+    await nearCreateModal
+      .locator('label:has-text("Allow native transfers in the delegate action") input[type="checkbox"]')
+      .check();
+    await nearCreateModal.locator('button:has-text("Create sponsorship policy")').click();
+
+    await expect
+      .poll(() =>
+        String(
+          lastGasCreateBody?.rules &&
+            typeof lastGasCreateBody.rules === 'object' &&
+            !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).kind
+            : '',
+        ),
+      )
+      .toBe('near_delegate');
+    await expect
+      .poll(() =>
+        String(
+          lastGasCreateBody?.rules &&
+            typeof lastGasCreateBody.rules === 'object' &&
+            !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).executionMode
+            : '',
+        ),
+      )
+      .toBe('near_delegate');
+    await expect
+      .poll(() =>
+        JSON.stringify(
+          lastGasCreateBody?.rules &&
+            typeof lastGasCreateBody.rules === 'object' &&
+            !Array.isArray(lastGasCreateBody.rules)
+            ? (lastGasCreateBody.rules as Record<string, unknown>).spendCap
+            : null,
+        ),
+      )
+      .toBe(JSON.stringify({ mode: 'NONE', period: 'MONTHLY', capsByChain: [] }));
+    await expect
+      .poll(() =>
+        JSON.stringify(
+          lastGasCreateBody?.rules &&
+            typeof lastGasCreateBody.rules === 'object' &&
+            !Array.isArray(lastGasCreateBody.rules)
+            ? ((lastGasCreateBody.rules as Record<string, unknown>).allowedDelegateActions as
+                | Array<unknown>
+                | undefined)?.[0] || null
+            : null,
+        ),
+      )
+      .toBe(
+        JSON.stringify({
+          receiverId: 'guest-book.testnet',
+          methods: ['add_message', 'vote'],
+          maxDepositYocto: '1000000000000000000000000',
+          allowTransfers: true,
+        }),
+      );
+    const nearSponsorshipRow = page
+      .locator(
+        'section[aria-label="Gas sponsorship policies"] .dashboard-gas-sponsorship-table__row',
+      )
+      .filter({ hasText: 'NEAR sponsorship' })
+      .first();
+    await expect(nearSponsorshipRow).toContainText('1 delegate action');
+    await expect(nearSponsorshipRow).toContainText('Testnet / enabled');
+
+    await nearSponsorshipRow.getByRole('button', { name: 'View' }).click();
+    const nearViewModal = page.locator('section[aria-label="View gas sponsorship coverage modal"]');
+    await expect(nearViewModal).toContainText('guest-book.testnet');
+    await expect(nearViewModal).toContainText('add_message, vote');
+    await expect(nearViewModal).toContainText('transfers allowed');
+    await nearViewModal.locator('button:has-text("Close")').click();
+
+    await nearSponsorshipRow.getByRole('button', { name: 'Edit' }).click();
+    const nearEditModal = page.locator('section[aria-label="Edit gas sponsorship policy modal"]');
+    const nearDepositInput = nearEditModal.locator(
+      'label:has-text("Max deposit (yoctoNEAR)") input',
+    );
+    await expect(nearEditModal).toContainText(
+      'NEAR delegate sponsorship uses no spend cap in this MVP.',
+    );
+    await expect(nearDepositInput).toHaveValue('1000000000000000000000000');
+    await nearDepositInput.fill('2500000000000000000000000');
+    await nearEditModal.locator('button:has-text("Save sponsorship policy")').click();
+    await expect.poll(() => gasPolicyPatchCalls.length).toBe(2);
+    expect(gasPolicyPatchCalls[1]?.body).toMatchObject({
+      name: 'NEAR sponsorship',
+      rules: {
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        spendCap: {
+          mode: 'NONE',
+          period: 'MONTHLY',
+          capsByChain: [],
+        },
+        allowedDelegateActions: [
+          {
+            receiverId: 'guest-book.testnet',
+            methods: ['add_message', 'vote'],
+            maxDepositYocto: '2500000000000000000000000',
+            allowTransfers: true,
+          },
+        ],
+      },
+    });
+
     const topbarContext = page.locator('header[aria-label="Workspace context"]');
     const environmentCard = topbarContext.locator('button.dashboard-context-card--highlight');
     await expect(environmentCard).toContainText('Development');
@@ -6548,8 +6690,8 @@ test.describe('dashboard console config page api wiring', () => {
       .filter({ hasText: 'Existing sponsorship' })
       .first();
     await existingGasCard.locator('button:has-text("Disable")').click();
-    await expect.poll(() => gasPolicyPatchCalls.length).toBe(2);
-    expect(gasPolicyPatchCalls[1]).toMatchObject({
+    await expect.poll(() => gasPolicyPatchCalls.length).toBe(3);
+    expect(gasPolicyPatchCalls[2]).toMatchObject({
       policyId: 'gs_existing',
       body: {
         rules: {

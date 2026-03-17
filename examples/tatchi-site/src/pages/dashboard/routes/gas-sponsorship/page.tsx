@@ -30,6 +30,10 @@ import {
   createDashboardGasSponsorshipPolicy,
   listDashboardGasSponsorshipPolicies,
   updateDashboardGasSponsorshipPolicy,
+  type DashboardGasSponsorshipAllowedCall,
+  type DashboardGasSponsorshipAllowedDelegateAction,
+  type DashboardGasSponsorshipEvmPolicy,
+  type DashboardGasSponsorshipNearPolicy,
   type DashboardGasSponsorshipPolicy,
 } from './consoleGasSponsorshipApi';
 
@@ -43,6 +47,8 @@ const GAS_SPEND_CAP_MODES = ['NONE', 'CHAIN_TOTAL', 'WALLET_CHAIN_TOTAL'] as con
 type GasSpendCapMode = (typeof GAS_SPEND_CAP_MODES)[number];
 const GAS_SPEND_CAP_PERIODS = ['WEEKLY', 'MONTHLY'] as const;
 type GasSpendCapPeriod = (typeof GAS_SPEND_CAP_PERIODS)[number];
+const GAS_RULE_KINDS = ['evm_call', 'near_delegate'] as const;
+type GasRuleKind = (typeof GAS_RULE_KINDS)[number];
 const PRODUCTION_ENVIRONMENT_KEY = 'prod';
 type GasSponsorshipModalKind = 'create' | 'edit' | 'view';
 type GasSponsorshipDraftScope = {
@@ -63,6 +69,13 @@ type GasContractRuleDraft = {
   contractAddress: string;
   functions: GasContractFunctionDraft[];
 };
+type GasNearDelegateActionDraft = {
+  id: string;
+  receiverId: string;
+  methodsText: string;
+  maxDepositYocto: string;
+  allowTransfers: boolean;
+};
 
 const GAS_CHAIN_MATRIX_ROWS: readonly GasChainMatrixRow[] = GAS_SPONSORSHIP_CHAIN_MATRIX_ROWS;
 const GAS_CHAIN_TARGETS: readonly GasChainTarget[] = GAS_SPONSORSHIP_CHAIN_TARGETS;
@@ -82,6 +95,7 @@ const SPEND_CAP_DECIMAL_FORMATTERS = new Map<number, Intl.NumberFormat>();
 
 type GasSponsorshipFormState = {
   name: string;
+  ruleKind: GasRuleKind;
   scopeType: ScopeType;
   projectId: string;
   environmentId: string;
@@ -90,6 +104,7 @@ type GasSponsorshipFormState = {
   enabled: boolean;
   selectedTargets: string[];
   contractCallRules: GasContractRuleDraft[];
+  delegateActionRules: GasNearDelegateActionDraft[];
   spendCapMode: GasSpendCapMode;
   spendCapPeriod: GasSpendCapPeriod;
   spendCapAmountByChainName: Record<string, string>;
@@ -138,6 +153,16 @@ function createEmptyGasContractRuleDraft(): GasContractRuleDraft {
     id: makeDraftId('gas_contract'),
     contractAddress: '',
     functions: [createEmptyGasContractFunctionDraft()],
+  };
+}
+
+function createEmptyNearDelegateActionDraft(): GasNearDelegateActionDraft {
+  return {
+    id: makeDraftId('gas_near_action'),
+    receiverId: '',
+    methodsText: '',
+    maxDepositYocto: '0',
+    allowTransfers: false,
   };
 }
 
@@ -258,6 +283,36 @@ function uniqueGasTargetIds(values: readonly string[]): string[] {
   return out;
 }
 
+function readNearDelegateActionDrafts(raw: unknown): GasNearDelegateActionDraft[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GasNearDelegateActionDraft[] = [];
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    out.push({
+      id: normalizeString(String(entry.id || '')) || makeDraftId('gas_near_action'),
+      receiverId: normalizeString(String(entry.receiverId || '')),
+      methodsText: normalizeString(String(entry.methodsText || '')),
+      maxDepositYocto: normalizeString(String(entry.maxDepositYocto || '')) || '0',
+      allowTransfers: entry.allowTransfers === true,
+    });
+  }
+  return out;
+}
+
+function splitNearMethodsInput(value: string): string[] {
+  const parts = normalizeString(value)
+    .split(/[\n,]+/)
+    .map((entry) => normalizeString(entry))
+    .filter(Boolean);
+  return Array.from(
+    new Map(parts.map((entry) => [entry.toLowerCase(), entry])).values(),
+  );
+}
+
+function joinNearMethods(methods: readonly string[]): string {
+  return methods.join(', ');
+}
+
 function readGasContractRuleDrafts(raw: unknown): GasContractRuleDraft[] {
   if (!Array.isArray(raw)) return [];
   const out: GasContractRuleDraft[] = [];
@@ -327,7 +382,7 @@ function remapSelectedTargetsToNetwork(
 }
 
 function groupAllowedCallsByContract(
-  allowedCalls: readonly DashboardGasSponsorshipPolicy['allowedCalls'][number][],
+  allowedCalls: readonly DashboardGasSponsorshipAllowedCall[],
 ): GasContractRuleDraft[] {
   const byContract = new Map<
     string,
@@ -368,6 +423,18 @@ function groupAllowedCallsByContract(
   }));
 }
 
+function buildNearDelegateActionDrafts(
+  allowedDelegateActions: readonly DashboardGasSponsorshipAllowedDelegateAction[],
+): GasNearDelegateActionDraft[] {
+  return allowedDelegateActions.map((entry) => ({
+    id: makeDraftId('gas_near_action'),
+    receiverId: entry.receiverId,
+    methodsText: joinNearMethods(entry.methods),
+    maxDepositYocto: normalizeString(entry.maxDepositYocto) || '0',
+    allowTransfers: entry.allowTransfers === true,
+  }));
+}
+
 function resolveSelectedTargetsOrThrow(selectedTargetIds: readonly string[]): GasChainTarget[] {
   const targets = uniqueGasTargetIds(selectedTargetIds)
     .map((targetId) => GAS_CHAIN_TARGETS_BY_ID.get(targetId) || null)
@@ -378,7 +445,7 @@ function resolveSelectedTargetsOrThrow(selectedTargetIds: readonly string[]): Ga
   return targets;
 }
 
-function resolveSelectedTargetIdsFromPolicy(policy: DashboardGasSponsorshipPolicy): string[] {
+function resolveSelectedTargetIdsFromPolicy(policy: DashboardGasSponsorshipEvmPolicy): string[] {
   const targetIdsFromCalls = policy.allowedCalls
     .map((call) => GAS_CHAIN_TARGETS.find((target) => target.chainId === call.chainId)?.id || '')
     .filter(Boolean);
@@ -405,8 +472,10 @@ function parseGasSponsorshipFormDraft(
 ): GasSponsorshipFormState | null {
   if (!isRecord(raw)) return null;
   const contractCallRules = readGasContractRuleDrafts(raw.contractCallRules);
+  const delegateActionRules = readNearDelegateActionDrafts(raw.delegateActionRules);
   return {
     name: normalizeString(String(raw.name ?? fallback.name)),
+    ruleKind: readEnumValue(raw.ruleKind, GAS_RULE_KINDS, fallback.ruleKind),
     scopeType: readEnumValue(raw.scopeType, SCOPE_TYPES, fallback.scopeType),
     projectId: normalizeString(String(raw.projectId ?? fallback.projectId)),
     environmentId: normalizeString(String(raw.environmentId ?? fallback.environmentId)),
@@ -418,6 +487,8 @@ function parseGasSponsorshipFormDraft(
       : fallback.selectedTargets,
     contractCallRules:
       contractCallRules.length > 0 ? contractCallRules : fallback.contractCallRules,
+    delegateActionRules:
+      delegateActionRules.length > 0 ? delegateActionRules : fallback.delegateActionRules,
     spendCapMode: readEnumValue(raw.spendCapMode, GAS_SPEND_CAP_MODES, fallback.spendCapMode),
     spendCapPeriod: readEnumValue(
       raw.spendCapPeriod,
@@ -440,6 +511,7 @@ function resolveDefaultScopeType(projectId: string, environmentId: string): Scop
 function createInitialFormState(projectId: string, environmentId: string): GasSponsorshipFormState {
   return {
     name: 'Project gas sponsorship',
+    ruleKind: 'evm_call',
     scopeType: resolveDefaultScopeType(projectId, environmentId),
     projectId,
     environmentId,
@@ -448,6 +520,7 @@ function createInitialFormState(projectId: string, environmentId: string): GasSp
     enabled: true,
     selectedTargets: [],
     contractCallRules: [],
+    delegateActionRules: [],
     spendCapMode: 'NONE',
     spendCapPeriod: 'MONTHLY',
     spendCapAmountByChainName: {},
@@ -459,29 +532,34 @@ function buildFormStateFromPolicy(
   projectId: string,
   environmentId: string,
 ): GasSponsorshipFormState {
-  const contractCallRules = groupAllowedCallsByContract(policy.allowedCalls);
-  const spendCapAmountByChainName = policy.spendCap.capsByChain.reduce<Record<string, string>>(
-    (accumulator, entry) => {
-      const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(entry.chainId);
-      if (!target) return accumulator;
-      accumulator[target.chainName] = formatSpendCapInputMinor(
-        entry.capMinor,
-        target.spendCapDisplayDecimals,
-      );
-      return accumulator;
-    },
-    {},
-  );
+  const spendCapAmountByChainName =
+    policy.kind === 'evm_call'
+      ? policy.spendCap.capsByChain.reduce<Record<string, string>>((accumulator, entry) => {
+          const target = GAS_CHAIN_TARGETS_BY_CHAIN_ID.get(entry.chainId);
+          if (!target) return accumulator;
+          accumulator[target.chainName] = formatSpendCapInputMinor(
+            entry.capMinor,
+            target.spendCapDisplayDecimals,
+          );
+          return accumulator;
+        }, {})
+      : {};
   return {
     name: policy.name,
+    ruleKind: policy.kind,
     scopeType: String(policy.scopeType || 'ENVIRONMENT').toUpperCase() as ScopeType,
     projectId: policy.projectId || projectId,
     environmentId: policy.environmentId || environmentId,
     scopePolicyId: policy.scopePolicyId || '',
     walletSegmentId: policy.walletSegmentId || '',
     enabled: policy.enabled,
-    selectedTargets: resolveSelectedTargetIdsFromPolicy(policy),
-    contractCallRules,
+    selectedTargets: policy.kind === 'evm_call' ? resolveSelectedTargetIdsFromPolicy(policy) : [],
+    contractCallRules:
+      policy.kind === 'evm_call' ? groupAllowedCallsByContract(policy.allowedCalls) : [],
+    delegateActionRules:
+      policy.kind === 'near_delegate'
+        ? buildNearDelegateActionDrafts(policy.allowedDelegateActions)
+        : [],
     spendCapMode: policy.spendCap.mode,
     spendCapPeriod: policy.spendCap.period,
     spendCapAmountByChainName,
@@ -618,10 +696,66 @@ function buildAllowedCalls(
   return Array.from(out.values());
 }
 
+function buildAllowedDelegateActions(
+  form: GasSponsorshipFormState,
+): DashboardGasSponsorshipAllowedDelegateAction[] {
+  const populatedRules = form.delegateActionRules.filter(
+    (entry) =>
+      normalizeString(entry.receiverId) ||
+      normalizeString(entry.methodsText) ||
+      normalizeString(entry.maxDepositYocto) ||
+      entry.allowTransfers,
+  );
+  if (populatedRules.length === 0) {
+    throw new Error('Add at least one allowed delegate action.');
+  }
+  const out = new Map<string, DashboardGasSponsorshipAllowedDelegateAction>();
+  for (const rule of populatedRules) {
+    const receiverId = normalizeString(rule.receiverId);
+    if (!receiverId) {
+      throw new Error('Delegate action receiver ID is required.');
+    }
+    const maxDepositYocto = parseRequiredUnsignedIntegerString(
+      rule.maxDepositYocto,
+      `${receiverId} max deposit`,
+    );
+    const methods = splitNearMethodsInput(rule.methodsText);
+    const dedupeKey = [
+      receiverId.toLowerCase(),
+      methods.join(',').toLowerCase(),
+      rule.allowTransfers ? '1' : '0',
+      maxDepositYocto,
+    ].join(':');
+    out.set(dedupeKey, {
+      receiverId,
+      methods,
+      maxDepositYocto,
+      allowTransfers: rule.allowTransfers === true,
+    });
+  }
+  return Array.from(out.values());
+}
+
 function buildGasSponsorshipRequest(
   form: GasSponsorshipFormState,
   networkClass: GasNetworkToggleClass,
 ): Record<string, unknown> {
+  if (form.ruleKind === 'near_delegate') {
+    return {
+      ...buildScopePayload(form),
+      name: normalizeString(form.name) || 'Gas Sponsorship Policy',
+      kind: 'near_delegate',
+      executionMode: 'near_delegate',
+      networkClass,
+      enabled: form.enabled,
+      spendCap: {
+        mode: 'NONE',
+        period: form.spendCapPeriod,
+        capsByChain: [],
+      },
+      allowedDelegateActions: buildAllowedDelegateActions(form),
+    };
+  }
   const selectedTargets = resolveSelectedTargetsOrThrow(
     remapSelectedTargetsToNetwork(form.selectedTargets, networkClass),
   );
@@ -763,7 +897,19 @@ function formatAllowedFunctionSummary(input: {
   return `${input.functionSignature} · gas <= ${input.maxGasLimit} · value <= ${input.maxValueWei} wei`;
 }
 
-function formatAllowedCallSummary(policy: DashboardGasSponsorshipPolicy): string {
+function formatAllowedDelegateActionSummary(
+  action: DashboardGasSponsorshipAllowedDelegateAction,
+): string {
+  const methodsLabel = action.methods.length > 0 ? action.methods.join(', ') : 'any method';
+  return `${action.receiverId} · ${methodsLabel} · deposit <= ${action.maxDepositYocto} yocto · transfers ${action.allowTransfers ? 'allowed' : 'blocked'}`;
+}
+
+function formatAllowedRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
+  if (policy.kind === 'near_delegate') {
+    const actionCount = policy.allowedDelegateActions.length;
+    if (actionCount === 0) return 'No allowed delegate action';
+    return `${actionCount} delegate action${actionCount === 1 ? '' : 's'}`;
+  }
   const groupedRules = groupAllowedCallsByContract(policy.allowedCalls);
   const contractCount = groupedRules.length;
   const functionCount = groupedRules.reduce((sum, rule) => sum + rule.functions.length, 0);
@@ -771,7 +917,18 @@ function formatAllowedCallSummary(policy: DashboardGasSponsorshipPolicy): string
   return `${contractCount} contract${contractCount === 1 ? '' : 's'} / ${functionCount} function${functionCount === 1 ? '' : 's'}`;
 }
 
+function formatNetworkClassLabel(networkClass: DashboardGasSponsorshipPolicy['networkClass']): string {
+  if (networkClass === 'MAINNET') return 'Mainnet';
+  if (networkClass === 'TESTNET') return 'Testnet';
+  return 'Any network';
+}
+
 function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
+  if (policy.kind === 'near_delegate') {
+    return [formatNetworkClassLabel(policy.networkClass), policy.enabled ? 'enabled' : 'disabled'].join(
+      ' / ',
+    );
+  }
   return [
     formatSelectedTargetLabels(resolveSelectedTargetIdsFromPolicy(policy)),
     policy.enabled ? 'enabled' : 'disabled',
@@ -1233,6 +1390,43 @@ export function GasSponsorshipPage(): React.JSX.Element {
     [setForm],
   );
 
+  const addDelegateActionRule = React.useCallback(() => {
+    setForm((current) => ({
+      ...current,
+      delegateActionRules: [...current.delegateActionRules, createEmptyNearDelegateActionDraft()],
+    }));
+  }, [setForm]);
+
+  const removeDelegateActionRule = React.useCallback(
+    (ruleId: string) => {
+      setForm((current) => ({
+        ...current,
+        delegateActionRules: current.delegateActionRules.filter((entry) => entry.id !== ruleId),
+      }));
+    },
+    [setForm],
+  );
+
+  const updateDelegateActionRule = React.useCallback(
+    (
+      ruleId: string,
+      patch: Partial<Omit<GasNearDelegateActionDraft, 'id'>>,
+    ) => {
+      setForm((current) => ({
+        ...current,
+        delegateActionRules: current.delegateActionRules.map((entry) =>
+          entry.id === ruleId
+            ? {
+                ...entry,
+                ...patch,
+              }
+            : entry,
+        ),
+      }));
+    },
+    [setForm],
+  );
+
   const selectedTargetIds = React.useMemo(
     () => uniqueGasTargetIds(form.selectedTargets),
     [form.selectedTargets],
@@ -1359,8 +1553,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
           <section className="dashboard-view__section" aria-label="Gas sponsorship setup">
             <h2>Create policy</h2>
             <p>
-              Create a gas sponsorship policy: define chain spend caps and whitelisted contract
-              calls in each chain's billed sponsorship currency.
+              Create a gas sponsorship policy: define EVM call templates or NEAR delegate-action
+              templates for the selected environment.
             </p>
             <button
               type="button"
@@ -1388,7 +1582,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                 <DashboardTableHeaderCell>Environment</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Behavior</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Spend cap</DashboardTableHeaderCell>
-                <DashboardTableHeaderCell>Contract calls</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Rules</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
               </DashboardTableHeader>
@@ -1424,8 +1618,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     <DashboardTableCell title={formatSpendCapSummary(policy)}>
                       {formatSpendCapSummary(policy)}
                     </DashboardTableCell>
-                    <DashboardTableCell title={formatAllowedCallSummary(policy)}>
-                      {formatAllowedCallSummary(policy)}
+                    <DashboardTableCell title={formatAllowedRuleSummary(policy)}>
+                      {formatAllowedRuleSummary(policy)}
                     </DashboardTableCell>
                     <DashboardTableCell truncate>
                       {formatTimestamp(policy.updatedAt)}
@@ -1506,8 +1700,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       <strong>{selectedPolicy.enabled ? 'Enabled' : 'Disabled'}</strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
-                      <span>Contract calls</span>
-                      <strong>{formatAllowedCallSummary(selectedPolicy)}</strong>
+                      <span>{selectedPolicy.kind === 'near_delegate' ? 'Delegate actions' : 'Rules'}</span>
+                      <strong>{formatAllowedRuleSummary(selectedPolicy)}</strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Execution mode</span>
@@ -1526,9 +1720,35 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   </section>
                   <section className="dashboard-gas-coverage__section">
                     <div className="dashboard-gas-coverage__section-header">
-                      <span>Contract calls</span>
+                      <span>
+                        {selectedPolicy.kind === 'near_delegate'
+                          ? 'Delegate actions'
+                          : 'Contract calls'}
+                      </span>
                     </div>
-                    {selectedPolicy.allowedCalls.length > 0 ? (
+                    {selectedPolicy.kind === 'near_delegate' ? (
+                      selectedPolicy.allowedDelegateActions.length > 0 ? (
+                        <div className="dashboard-gas-coverage__function-list">
+                          {selectedPolicy.allowedDelegateActions.map((action) => (
+                            <span
+                              className="dashboard-gas-coverage__function-chip"
+                              key={[
+                                action.receiverId,
+                                action.maxDepositYocto,
+                                action.allowTransfers ? '1' : '0',
+                                action.methods.join(','),
+                              ].join(':')}
+                            >
+                              {formatAllowedDelegateActionSummary(action)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
+                          No delegate-action rules configured.
+                        </p>
+                      )
+                    ) : selectedPolicy.allowedCalls.length > 0 ? (
                       <div className="dashboard-gas-coverage__contracts">
                         {groupAllowedCallsByContract(selectedPolicy.allowedCalls).map((rule) => (
                           <div key={rule.id} className="dashboard-gas-coverage__contract">
@@ -1576,7 +1796,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       </div>
                     ) : (
                       <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
-                        {selectedPolicy.spendCap.mode === 'NONE'
+                        {selectedPolicy.kind === 'near_delegate'
+                          ? 'NEAR delegate sponsorship uses no spend cap in this MVP.'
+                          : selectedPolicy.spendCap.mode === 'NONE'
                           ? 'No spend cap configured.'
                           : 'No per-chain spend caps configured.'}
                       </p>
@@ -1598,8 +1820,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
             <>
               <h2>{activeModal === 'create' ? 'Create policy' : 'Edit sponsorship policy'}</h2>
               <p className="dashboard-pagination-note">
-                Name the policy, choose its chains, then define the spend caps in billed currency
-                and the contract-call rule.
+                Name the policy, choose its scope, then define either EVM call templates or NEAR
+                delegate-action templates.
               </p>
               {mutationError ? <p className="dashboard-pagination-note">{mutationError}</p> : null}
               <form className="dashboard-view-grid dashboard-view-grid--two" onSubmit={onSubmit}>
@@ -1620,6 +1842,51 @@ export function GasSponsorshipPage(): React.JSX.Element {
                         disabled={mutating}
                       />
                     </label>
+                    <div className="dashboard-form-field">
+                      <span>Rule kind</span>
+                      <div className="dashboard-policy-contract-call-mode">
+                        <button
+                          type="button"
+                          aria-pressed={form.ruleKind === 'evm_call'}
+                          className={[
+                            'dashboard-policy-segment',
+                            form.ruleKind === 'evm_call' ? 'dashboard-policy-segment--active' : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              ruleKind: 'evm_call',
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          EVM calls
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={form.ruleKind === 'near_delegate'}
+                          className={[
+                            'dashboard-policy-segment',
+                            form.ruleKind === 'near_delegate'
+                              ? 'dashboard-policy-segment--active'
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' ')}
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              ruleKind: 'near_delegate',
+                            }))
+                          }
+                          disabled={mutating}
+                        >
+                          NEAR delegate
+                        </button>
+                      </div>
+                    </div>
                     <label className="dashboard-form-field">
                       <span>Spend-cap period</span>
                       <select
@@ -1631,7 +1898,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
                             spendCapPeriod: event.target.value as GasSpendCapPeriod,
                           }))
                         }
-                        disabled={mutating || form.spendCapMode === 'NONE'}
+                        disabled={
+                          mutating ||
+                          form.spendCapMode === 'NONE' ||
+                          form.ruleKind === 'near_delegate'
+                        }
                       >
                         {GAS_SPEND_CAP_PERIODS.map((period) => (
                           <option key={period} value={period}>
@@ -1642,72 +1913,81 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     </label>
                     <div className="dashboard-form-field dashboard-form-field--full">
                       <span>Spend cap</span>
-                      <div className="dashboard-policy-contract-call-mode">
-                        <button
-                          type="button"
-                          aria-pressed={form.spendCapMode === 'NONE'}
-                          className={[
-                            'dashboard-policy-segment',
-                            form.spendCapMode === 'NONE' ? 'dashboard-policy-segment--active' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              spendCapMode: 'NONE',
-                            }))
-                          }
-                          disabled={mutating}
-                        >
-                          No spend cap
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={form.spendCapMode === 'CHAIN_TOTAL'}
-                          className={[
-                            'dashboard-policy-segment',
-                            form.spendCapMode === 'CHAIN_TOTAL'
-                              ? 'dashboard-policy-segment--active'
-                              : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              spendCapMode: 'CHAIN_TOTAL',
-                            }))
-                          }
-                          disabled={mutating}
-                        >
-                          Per chain total
-                        </button>
-                        <button
-                          type="button"
-                          aria-pressed={form.spendCapMode === 'WALLET_CHAIN_TOTAL'}
-                          className={[
-                            'dashboard-policy-segment',
-                            form.spendCapMode === 'WALLET_CHAIN_TOTAL'
-                              ? 'dashboard-policy-segment--active'
-                              : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              spendCapMode: 'WALLET_CHAIN_TOTAL',
-                            }))
-                          }
-                          disabled={mutating}
-                        >
-                          Per wallet, per chain
-                        </button>
-                      </div>
+                      {form.ruleKind === 'near_delegate' ? (
+                        <p className="dashboard-pagination-note">
+                          NEAR delegate sponsorship uses no spend cap in this MVP.
+                        </p>
+                      ) : (
+                        <div className="dashboard-policy-contract-call-mode">
+                          <button
+                            type="button"
+                            aria-pressed={form.spendCapMode === 'NONE'}
+                            className={[
+                              'dashboard-policy-segment',
+                              form.spendCapMode === 'NONE'
+                                ? 'dashboard-policy-segment--active'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                spendCapMode: 'NONE',
+                              }))
+                            }
+                            disabled={mutating}
+                          >
+                            No spend cap
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={form.spendCapMode === 'CHAIN_TOTAL'}
+                            className={[
+                              'dashboard-policy-segment',
+                              form.spendCapMode === 'CHAIN_TOTAL'
+                                ? 'dashboard-policy-segment--active'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                spendCapMode: 'CHAIN_TOTAL',
+                              }))
+                            }
+                            disabled={mutating}
+                          >
+                            Per chain total
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={form.spendCapMode === 'WALLET_CHAIN_TOTAL'}
+                            className={[
+                              'dashboard-policy-segment',
+                              form.spendCapMode === 'WALLET_CHAIN_TOTAL'
+                                ? 'dashboard-policy-segment--active'
+                                : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                spendCapMode: 'WALLET_CHAIN_TOTAL',
+                              }))
+                            }
+                            disabled={mutating}
+                          >
+                            Per wallet, per chain
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="dashboard-form-field dashboard-form-field--full">
-                      <div className="dashboard-gas-target-matrix">
+                    {form.ruleKind === 'evm_call' ? (
+                      <div className="dashboard-form-field dashboard-form-field--full">
+                        <div className="dashboard-gas-target-matrix">
                         <div className="dashboard-gas-target-matrix__header">
                           <span>Chain</span>
                           <span>{activeChainColumnLabel}</span>
@@ -1833,152 +2113,260 @@ export function GasSponsorshipPage(): React.JSX.Element {
                             })()}
                           </div>
                         ))}
+                        </div>
+                        <div className="dashboard-gas-target-bulk">
+                          <button
+                            type="button"
+                            aria-pressed={allActiveTargetsSelected}
+                            className={[
+                              'dashboard-policy-segment',
+                              allActiveTargetsSelected ? 'dashboard-policy-segment--active' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            onClick={() => onToggleTargetGroup(selectedEnvironmentNetworkClass)}
+                            disabled={mutating}
+                          >
+                            {activeTargetGroupLabel}
+                          </button>
+                        </div>
                       </div>
-                      <div className="dashboard-gas-target-bulk">
-                        <button
-                          type="button"
-                          aria-pressed={allActiveTargetsSelected}
-                          className={[
-                            'dashboard-policy-segment',
-                            allActiveTargetsSelected ? 'dashboard-policy-segment--active' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                          onClick={() => onToggleTargetGroup(selectedEnvironmentNetworkClass)}
-                          disabled={mutating}
-                        >
-                          {activeTargetGroupLabel}
-                        </button>
+                    ) : (
+                      <div className="dashboard-form-field dashboard-form-field--full">
+                        <p className="dashboard-pagination-note">
+                          NEAR delegate sponsorship follows the selected environment network:
+                          {' '}
+                          {formatNetworkClassLabel(selectedEnvironmentNetworkClass)}.
+                        </p>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </section>
 
                 <section className="dashboard-policy-rule-panel dashboard-form-field dashboard-form-field--full">
                   <div className="dashboard-policy-rule-panel__header">
-                    <span>Contract calls</span>
+                    <span>
+                      {form.ruleKind === 'near_delegate' ? 'Delegate actions' : 'Contract calls'}
+                    </span>
                     <p className="dashboard-pagination-note">
-                      Define the allowlisted contract functions and their gas/value bounds for the
-                      selected chains.
+                      {form.ruleKind === 'near_delegate'
+                        ? 'Define the allowlisted NEAR receivers, optional method lists, deposit bounds, and transfer allowance.'
+                        : 'Define the allowlisted contract functions and their gas/value bounds for the selected chains.'}
                     </p>
                   </div>
-                  <div className="dashboard-policy-contract-calls">
-                    <p className="dashboard-pagination-note">Execution mode: `evm_eoa`.</p>
-                    {form.contractCallRules.length === 0 ? (
-                      <p className="dashboard-pagination-note">
-                        Add one or more contracts to define the sponsored function templates.
-                      </p>
-                    ) : null}
-                    {form.contractCallRules.map((rule) => (
-                      <div key={rule.id} className="dashboard-policy-contract-card">
-                        <div className="dashboard-policy-contract-card__header">
-                          <strong>Allowed contract</strong>
+                  {form.ruleKind === 'near_delegate' ? (
+                    <div className="dashboard-policy-contract-calls">
+                      <p className="dashboard-pagination-note">Execution mode: `near_delegate`.</p>
+                      {form.delegateActionRules.length === 0 ? (
+                        <p className="dashboard-pagination-note">
+                          Add one or more delegate actions to define the sponsored receiver and
+                          method templates.
+                        </p>
+                      ) : null}
+                      {form.delegateActionRules.map((rule) => (
+                        <div key={rule.id} className="dashboard-policy-contract-card">
+                          <div className="dashboard-policy-contract-card__header">
+                            <strong>Allowed delegate action</strong>
+                            <button
+                              type="button"
+                              className="dashboard-inline-link dashboard-inline-link--danger"
+                              onClick={() => removeDelegateActionRule(rule.id)}
+                              disabled={mutating}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="dashboard-view-grid dashboard-view-grid--two">
+                            <label className="dashboard-form-field">
+                              <span>Receiver ID</span>
+                              <input
+                                className="dashboard-input"
+                                value={rule.receiverId}
+                                onChange={(event) =>
+                                  updateDelegateActionRule(rule.id, {
+                                    receiverId: event.target.value,
+                                  })
+                                }
+                                placeholder="guest-book.testnet"
+                                disabled={mutating}
+                              />
+                            </label>
+                            <label className="dashboard-form-field">
+                              <span>Max deposit (yoctoNEAR)</span>
+                              <input
+                                className="dashboard-input"
+                                value={rule.maxDepositYocto}
+                                onChange={(event) =>
+                                  updateDelegateActionRule(rule.id, {
+                                    maxDepositYocto: event.target.value,
+                                  })
+                                }
+                                placeholder="0"
+                                inputMode="numeric"
+                                disabled={mutating}
+                              />
+                            </label>
+                            <label className="dashboard-form-field dashboard-form-field--full">
+                              <span>Allowed methods (comma or newline separated)</span>
+                              <textarea
+                                className="dashboard-input"
+                                value={rule.methodsText}
+                                onChange={(event) =>
+                                  updateDelegateActionRule(rule.id, {
+                                    methodsText: event.target.value,
+                                  })
+                                }
+                                placeholder="add_message, vote"
+                                disabled={mutating}
+                                rows={3}
+                              />
+                            </label>
+                            <label className="dashboard-form-field dashboard-form-field--full">
+                              <span className="dashboard-policy-inline-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={rule.allowTransfers}
+                                  onChange={(event) =>
+                                    updateDelegateActionRule(rule.id, {
+                                      allowTransfers: event.target.checked,
+                                    })
+                                  }
+                                  disabled={mutating}
+                                />
+                                Allow native transfers in the delegate action
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="dashboard-pagination-button dashboard-policy-contract-add-button"
+                        onClick={addDelegateActionRule}
+                        disabled={mutating}
+                      >
+                        Add delegate action
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="dashboard-policy-contract-calls">
+                      <p className="dashboard-pagination-note">Execution mode: `evm_eoa`.</p>
+                      {form.contractCallRules.length === 0 ? (
+                        <p className="dashboard-pagination-note">
+                          Add one or more contracts to define the sponsored function templates.
+                        </p>
+                      ) : null}
+                      {form.contractCallRules.map((rule) => (
+                        <div key={rule.id} className="dashboard-policy-contract-card">
+                          <div className="dashboard-policy-contract-card__header">
+                            <strong>Allowed contract</strong>
+                            <button
+                              type="button"
+                              className="dashboard-inline-link dashboard-inline-link--danger"
+                              onClick={() => removeContractCallRule(rule.id)}
+                              disabled={mutating}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <label className="dashboard-form-field">
+                            <span>Contract address</span>
+                            <input
+                              className="dashboard-input"
+                              value={rule.contractAddress}
+                              onChange={(event) =>
+                                updateContractCallRuleAddress(rule.id, event.target.value)
+                              }
+                              placeholder="0x..."
+                              disabled={mutating}
+                            />
+                          </label>
+                          <div className="dashboard-uri-list-editor__rows">
+                            {rule.functions.map((functionEntry, index) => (
+                              <div key={functionEntry.id} className="dashboard-uri-list-editor__row">
+                                <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                  <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                    Function signature
+                                  </span>
+                                  <input
+                                    className="dashboard-input"
+                                    value={functionEntry.functionSignature}
+                                    onChange={(event) =>
+                                      updateContractFunction(rule.id, functionEntry.id, {
+                                        functionSignature: event.target.value,
+                                      })
+                                    }
+                                    placeholder="transfer(address,uint256)"
+                                    disabled={mutating}
+                                  />
+                                </label>
+                                <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                  <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                    Max gas limit
+                                  </span>
+                                  <input
+                                    className="dashboard-input"
+                                    value={functionEntry.maxGasLimit}
+                                    onChange={(event) =>
+                                      updateContractFunction(rule.id, functionEntry.id, {
+                                        maxGasLimit: event.target.value,
+                                      })
+                                    }
+                                    placeholder="300000"
+                                    inputMode="numeric"
+                                    disabled={mutating}
+                                  />
+                                </label>
+                                <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                  <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                    Max value (wei)
+                                  </span>
+                                  <input
+                                    className="dashboard-input"
+                                    value={functionEntry.maxValueWei}
+                                    onChange={(event) =>
+                                      updateContractFunction(rule.id, functionEntry.id, {
+                                        maxValueWei: event.target.value,
+                                      })
+                                    }
+                                    placeholder="0"
+                                    inputMode="numeric"
+                                    disabled={mutating}
+                                  />
+                                </label>
+                                <div className="dashboard-uri-list-editor__actions">
+                                  <button
+                                    type="button"
+                                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                                    onClick={() => removeContractFunction(rule.id, functionEntry.id)}
+                                    disabled={mutating}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                           <button
                             type="button"
-                            className="dashboard-inline-link dashboard-inline-link--danger"
-                            onClick={() => removeContractCallRule(rule.id)}
+                            className="dashboard-inline-link"
+                            onClick={() => addContractFunction(rule.id)}
                             disabled={mutating}
                           >
-                            Remove
+                            Add function
                           </button>
                         </div>
-                        <label className="dashboard-form-field">
-                          <span>Contract address</span>
-                          <input
-                            className="dashboard-input"
-                            value={rule.contractAddress}
-                            onChange={(event) =>
-                              updateContractCallRuleAddress(rule.id, event.target.value)
-                            }
-                            placeholder="0x..."
-                            disabled={mutating}
-                          />
-                        </label>
-                        <div className="dashboard-uri-list-editor__rows">
-                          {rule.functions.map((functionEntry, index) => (
-                            <div key={functionEntry.id} className="dashboard-uri-list-editor__row">
-                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
-                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
-                                  Function signature
-                                </span>
-                                <input
-                                  className="dashboard-input"
-                                  value={functionEntry.functionSignature}
-                                  onChange={(event) =>
-                                    updateContractFunction(rule.id, functionEntry.id, {
-                                      functionSignature: event.target.value,
-                                    })
-                                  }
-                                  placeholder="transfer(address,uint256)"
-                                  disabled={mutating}
-                                />
-                              </label>
-                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
-                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
-                                  Max gas limit
-                                </span>
-                                <input
-                                  className="dashboard-input"
-                                  value={functionEntry.maxGasLimit}
-                                  onChange={(event) =>
-                                    updateContractFunction(rule.id, functionEntry.id, {
-                                      maxGasLimit: event.target.value,
-                                    })
-                                  }
-                                  placeholder="300000"
-                                  inputMode="numeric"
-                                  disabled={mutating}
-                                />
-                              </label>
-                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
-                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
-                                  Max value (wei)
-                                </span>
-                                <input
-                                  className="dashboard-input"
-                                  value={functionEntry.maxValueWei}
-                                  onChange={(event) =>
-                                    updateContractFunction(rule.id, functionEntry.id, {
-                                      maxValueWei: event.target.value,
-                                    })
-                                  }
-                                  placeholder="0"
-                                  inputMode="numeric"
-                                  disabled={mutating}
-                                />
-                              </label>
-                              <div className="dashboard-uri-list-editor__actions">
-                                <button
-                                  type="button"
-                                  className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                                  onClick={() => removeContractFunction(rule.id, functionEntry.id)}
-                                  disabled={mutating}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <button
-                          type="button"
-                          className="dashboard-inline-link"
-                          onClick={() => addContractFunction(rule.id)}
-                          disabled={mutating}
-                        >
-                          Add function
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="dashboard-pagination-button dashboard-policy-contract-add-button"
-                      onClick={addContractCallRule}
-                      disabled={mutating}
-                    >
-                      Add contract
-                    </button>
-                  </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="dashboard-pagination-button dashboard-policy-contract-add-button"
+                        onClick={addContractCallRule}
+                        disabled={mutating}
+                      >
+                        Add contract
+                      </button>
+                    </div>
+                  )}
                 </section>
 
                 <div className="dashboard-modal-divider" aria-hidden="true" />

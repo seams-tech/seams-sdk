@@ -16,7 +16,14 @@ export interface DashboardGasSponsorshipAllowedCall {
   maxValueWei: string;
 }
 
-export type DashboardGasSponsorshipExecutionMode = 'evm_eoa';
+export interface DashboardGasSponsorshipAllowedDelegateAction {
+  receiverId: string;
+  methods: string[];
+  maxDepositYocto: string;
+  allowTransfers: boolean;
+}
+
+export type DashboardGasSponsorshipExecutionMode = 'evm_eoa' | 'near_delegate';
 export type DashboardGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
 export type DashboardGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
 
@@ -29,9 +36,8 @@ export interface DashboardGasSponsorshipSpendCap {
   }>;
 }
 
-export interface DashboardGasSponsorshipPolicy {
+interface DashboardGasSponsorshipPolicyBase {
   id: string;
-  kind: 'evm_call';
   scopeType: string;
   projectId: string | null;
   environmentId: string | null;
@@ -44,9 +50,24 @@ export interface DashboardGasSponsorshipPolicy {
   enabled: boolean;
   executionMode: DashboardGasSponsorshipExecutionMode;
   spendCap: DashboardGasSponsorshipSpendCap;
-  allowedCalls: DashboardGasSponsorshipAllowedCall[];
   updatedAt: string;
 }
+
+export interface DashboardGasSponsorshipEvmPolicy extends DashboardGasSponsorshipPolicyBase {
+  kind: 'evm_call';
+  executionMode: 'evm_eoa';
+  allowedCalls: DashboardGasSponsorshipAllowedCall[];
+}
+
+export interface DashboardGasSponsorshipNearPolicy extends DashboardGasSponsorshipPolicyBase {
+  kind: 'near_delegate';
+  executionMode: 'near_delegate';
+  allowedDelegateActions: DashboardGasSponsorshipAllowedDelegateAction[];
+}
+
+export type DashboardGasSponsorshipPolicy =
+  | DashboardGasSponsorshipEvmPolicy
+  | DashboardGasSponsorshipNearPolicy;
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
@@ -102,6 +123,36 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
       };
     })
     .filter((entry): entry is DashboardGasSponsorshipAllowedCall => entry !== null);
+}
+
+function decodeAllowedDelegateActions(raw: unknown): DashboardGasSponsorshipAllowedDelegateAction[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const row = entry as Record<string, unknown>;
+      const receiverId = normalizeString(row.receiverId);
+      const methods = Array.isArray(row.methods)
+        ? Array.from(
+            new Set(
+              row.methods
+                .map((value) => normalizeString(value))
+                .filter(Boolean)
+                .map((value) => value.toLowerCase()),
+            ),
+          )
+        : [];
+      const maxDepositYocto = normalizeString(row.maxDepositYocto) || '0';
+      const allowTransfers = row.allowTransfers === true;
+      if (!receiverId || !maxDepositYocto) return null;
+      return {
+        receiverId,
+        methods,
+        maxDepositYocto,
+        allowTransfers,
+      };
+    })
+    .filter((entry): entry is DashboardGasSponsorshipAllowedDelegateAction => entry !== null);
 }
 
 function decodeSpendCap(raw: unknown): DashboardGasSponsorshipSpendCap {
@@ -163,12 +214,9 @@ function decodeGasSponsorshipPolicy(
 ): DashboardGasSponsorshipPolicy | null {
   if (policy.kind !== 'GAS_SPONSORSHIP') return null;
   const rules = readObject(policy.rules);
-  if (normalizeString(rules.kind).toLowerCase() === 'near_delegate') return null;
-  const allowedCalls = decodeAllowedCalls(rules.allowedCalls);
   const scopePolicyId = normalizeString(rules.scopePolicyId) || null;
-  return {
+  const common = {
     id: policy.id,
-    kind: 'evm_call',
     scopeType: normalizeString(rules.scopeType) || 'ENVIRONMENT',
     projectId: normalizeString(rules.projectId) || null,
     environmentId: normalizeString(rules.environmentId) || null,
@@ -179,10 +227,22 @@ function decodeGasSponsorshipPolicy(
     templateId: normalizeString(rules.templateId) || null,
     networkClass: normalizeString(rules.networkClass) || 'ANY',
     enabled: rules.enabled !== false,
-    executionMode: 'evm_eoa',
     spendCap: decodeSpendCap(rules.spendCap),
-    allowedCalls,
     updatedAt: normalizeString(policy.updatedAt),
+  };
+  if (normalizeString(rules.kind).toLowerCase() === 'near_delegate') {
+    return {
+      ...common,
+      kind: 'near_delegate',
+      executionMode: 'near_delegate',
+      allowedDelegateActions: decodeAllowedDelegateActions(rules.allowedDelegateActions),
+    };
+  }
+  return {
+    ...common,
+    kind: 'evm_call',
+    executionMode: 'evm_eoa',
+    allowedCalls: decodeAllowedCalls(rules.allowedCalls),
   };
 }
 

@@ -66,8 +66,14 @@ export {
   reserveSponsoredSpendCap,
   settleSponsoredSpendCap,
 } from './spendCaps';
-export type { StaticSponsoredExecutionPricingConfig } from './pricing';
+export type {
+  StaticSponsoredExecutionPricingConfig,
+  CoinGeckoSponsoredExecutionPricingConfig,
+} from './pricing';
 export {
+  createCoinGeckoSponsoredExecutionPricingService,
+  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
+  resolveSponsoredExecutionPricingFromEnv,
   createStaticSponsoredExecutionPricingService,
   resolveStaticSponsoredExecutionPricingFromEnv,
 } from './pricing';

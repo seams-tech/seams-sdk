@@ -15,6 +15,7 @@ import {
   ensureTempoOnboardingSponsorshipForAllOrganizations,
   resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
+  resolveCoinGeckoSponsoredExecutionPricingFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
@@ -771,14 +772,24 @@ async function main() {
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
-  const sponsorshipPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
+  const sponsorshipRealPricing = resolveCoinGeckoSponsoredExecutionPricingFromEnv(env);
+  const sponsorshipStaticPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
+  const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
+  const hasRealSponsorshipPricingConfig = Boolean(
+    String(env.SPONSORED_EXECUTION_REAL_PRICING_JSON || '').trim(),
+  );
   const hasStaticSponsorshipPricingConfig = Boolean(
     String(env.SPONSORED_EXECUTION_STATIC_PRICING_JSON || '').trim(),
   );
   const tempoOnboardingFaucetContractRaw = String(
     env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '',
   ).trim();
-  if (hasStaticSponsorshipPricingConfig && !sponsorshipPricing) {
+  if (hasRealSponsorshipPricingConfig && !sponsorshipRealPricing) {
+    console.warn(
+      '[sponsorship-pricing] SPONSORED_EXECUTION_REAL_PRICING_JSON is invalid; real spend pricing is disabled',
+    );
+  }
+  if (hasStaticSponsorshipPricingConfig && !sponsorshipStaticPricing) {
     console.warn(
       '[sponsorship-pricing] SPONSORED_EXECUTION_STATIC_PRICING_JSON is invalid; static spend pricing is disabled',
     );
@@ -1384,7 +1395,13 @@ async function main() {
     }
     console.log(
       `Sponsored spend pricing: ${
-        sponsorshipPricing ? 'static_configured' : hasStaticSponsorshipPricingConfig ? 'invalid' : 'disabled'
+        sponsorshipRealPricing
+          ? 'real_configured'
+          : sponsorshipStaticPricing
+            ? 'static_configured'
+            : hasRealSponsorshipPricingConfig || hasStaticSponsorshipPricingConfig
+              ? 'invalid'
+              : 'disabled'
       }`,
     );
     if (rorRpId) {
