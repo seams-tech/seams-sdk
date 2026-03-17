@@ -5,14 +5,18 @@ import {
   updateDashboardPolicy,
   type DashboardConsolePolicy,
 } from '../policy-engine/consolePoliciesApi';
+import { keccak256Bytes } from '../../../../../../../shared/src/utils/keccak';
 
 export interface DashboardGasSponsorshipAllowedCall {
   chainId: number;
   to: string;
+  functionSignature: string;
   selector: string;
+  maxGasLimit: string;
+  maxValueWei: string;
 }
 
-export type DashboardGasSponsorshipCallMode = 'ALLOW_ALL' | 'ALLOWLIST';
+export type DashboardGasSponsorshipExecutionMode = 'evm_eoa';
 export type DashboardGasSponsorshipSpendCapMode = 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
 export type DashboardGasSponsorshipSpendCapPeriod = 'WEEKLY' | 'MONTHLY';
 
@@ -27,6 +31,7 @@ export interface DashboardGasSponsorshipSpendCap {
 
 export interface DashboardGasSponsorshipPolicy {
   id: string;
+  kind: 'evm_call';
   scopeType: string;
   projectId: string | null;
   environmentId: string | null;
@@ -37,8 +42,7 @@ export interface DashboardGasSponsorshipPolicy {
   templateId: string | null;
   networkClass: string;
   enabled: boolean;
-  allowedChainIds: number[];
-  callMode: DashboardGasSponsorshipCallMode;
+  executionMode: DashboardGasSponsorshipExecutionMode;
   spendCap: DashboardGasSponsorshipSpendCap;
   allowedCalls: DashboardGasSponsorshipAllowedCall[];
   updatedAt: string;
@@ -46,6 +50,17 @@ export interface DashboardGasSponsorshipPolicy {
 
 function normalizeString(value: unknown): string {
   return String(value || '').trim();
+}
+
+function bytesToHex(bytes: Uint8Array): `0x${string}` {
+  return `0x${Array.from(bytes)
+    .map((entry) => entry.toString(16).padStart(2, '0'))
+    .join('')}` as `0x${string}`;
+}
+
+function deriveFunctionSelector(functionSignature: string): string {
+  const digest = keccak256Bytes(new TextEncoder().encode(functionSignature));
+  return bytesToHex(digest.slice(0, 4)).toLowerCase();
 }
 
 function readObject(raw: unknown): Record<string, unknown> {
@@ -61,30 +76,32 @@ function decodeAllowedCalls(raw: unknown): DashboardGasSponsorshipAllowedCall[] 
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
       const row = entry as Record<string, unknown>;
       const to = normalizeString(row.to);
-      const selector = normalizeString(row.selector);
+      const functionSignature = normalizeString(row.functionSignature);
+      const selector =
+        normalizeString(row.selector) || (functionSignature ? deriveFunctionSelector(functionSignature) : '');
+      const maxGasLimit = normalizeString(row.maxGasLimit);
+      const maxValueWei = normalizeString(row.maxValueWei) || '0';
       const chainId = Number(row.chainId || 0);
-      if (!to || !selector || !Number.isFinite(chainId) || chainId <= 0) return null;
+      if (
+        !to ||
+        !selector ||
+        !functionSignature ||
+        !maxGasLimit ||
+        !Number.isFinite(chainId) ||
+        chainId <= 0
+      ) {
+        return null;
+      }
       return {
         chainId,
         to,
+        functionSignature,
         selector,
+        maxGasLimit,
+        maxValueWei,
       };
     })
     .filter((entry): entry is DashboardGasSponsorshipAllowedCall => entry !== null);
-}
-
-function decodeAllowedChainIds(
-  raw: unknown,
-  allowedCalls: readonly DashboardGasSponsorshipAllowedCall[],
-): number[] {
-  const fromField = Array.isArray(raw)
-    ? raw
-        .map((entry) => Number(entry || 0))
-        .filter((entry) => Number.isFinite(entry) && entry > 0)
-        .map((entry) => Math.floor(entry))
-    : [];
-  const fallback = fromField.length > 0 ? fromField : allowedCalls.map((entry) => entry.chainId);
-  return Array.from(new Set(fallback));
 }
 
 function decodeSpendCap(raw: unknown): DashboardGasSponsorshipSpendCap {
@@ -146,11 +163,12 @@ function decodeGasSponsorshipPolicy(
 ): DashboardGasSponsorshipPolicy | null {
   if (policy.kind !== 'GAS_SPONSORSHIP') return null;
   const rules = readObject(policy.rules);
+  if (normalizeString(rules.kind).toLowerCase() === 'near_delegate') return null;
   const allowedCalls = decodeAllowedCalls(rules.allowedCalls);
-  const callModeRaw = normalizeString(rules.callMode).toUpperCase();
   const scopePolicyId = normalizeString(rules.scopePolicyId) || null;
   return {
     id: policy.id,
+    kind: 'evm_call',
     scopeType: normalizeString(rules.scopeType) || 'ENVIRONMENT',
     projectId: normalizeString(rules.projectId) || null,
     environmentId: normalizeString(rules.environmentId) || null,
@@ -161,13 +179,7 @@ function decodeGasSponsorshipPolicy(
     templateId: normalizeString(rules.templateId) || null,
     networkClass: normalizeString(rules.networkClass) || 'ANY',
     enabled: rules.enabled !== false,
-    allowedChainIds: decodeAllowedChainIds(rules.allowedChainIds, allowedCalls),
-    callMode:
-      callModeRaw === 'ALLOWLIST' || callModeRaw === 'ALLOW_ALL'
-        ? (callModeRaw as DashboardGasSponsorshipCallMode)
-        : allowedCalls.length > 0
-          ? 'ALLOWLIST'
-          : 'ALLOW_ALL',
+    executionMode: 'evm_eoa',
     spendCap: decodeSpendCap(rules.spendCap),
     allowedCalls,
     updatedAt: normalizeString(policy.updatedAt),

@@ -1,7 +1,9 @@
 import type {
-  ConsoleGasSponsorshipPolicyAllowedCall,
-  ConsoleGasSponsorshipPolicyCallMode,
+  ConsoleGasSponsorshipExecutionMode,
+  ConsoleGasSponsorshipPolicyEvmAllowedCall,
   ConsoleGasSponsorshipPolicyNetworkClass,
+  ConsoleGasSponsorshipPolicyNearAllowedDelegateAction,
+  ConsoleGasSponsorshipPolicyRuleKind,
   ConsoleGasSponsorshipPolicyScopeType,
   ConsoleGasSponsorshipPolicySpendCap,
   ConsoleGasSponsorshipPolicySpendCapChain,
@@ -11,12 +13,15 @@ import type {
 
 export type ConsoleGasSponsorshipScopeType = ConsoleGasSponsorshipPolicyScopeType;
 export type ConsoleGasSponsorshipNetworkClass = ConsoleGasSponsorshipPolicyNetworkClass;
-export type ConsoleGasSponsorshipCallMode = ConsoleGasSponsorshipPolicyCallMode;
+export type ConsoleGasSponsorshipRuleKind = ConsoleGasSponsorshipPolicyRuleKind;
+export type ConsoleGasSponsorshipExecution = ConsoleGasSponsorshipExecutionMode;
 export type ConsoleGasSponsorshipSpendCapMode = ConsoleGasSponsorshipPolicySpendCapMode;
 export type ConsoleGasSponsorshipSpendCapPeriod = ConsoleGasSponsorshipPolicySpendCapPeriod;
 export type ConsoleGasSponsorshipSpendCapChain = ConsoleGasSponsorshipPolicySpendCapChain;
 export type ConsoleGasSponsorshipSpendCap = ConsoleGasSponsorshipPolicySpendCap;
-export type ConsoleGasSponsorshipAllowedCall = ConsoleGasSponsorshipPolicyAllowedCall;
+export type ConsoleGasSponsorshipAllowedCall = ConsoleGasSponsorshipPolicyEvmAllowedCall;
+export type ConsoleGasSponsorshipAllowedDelegateAction =
+  ConsoleGasSponsorshipPolicyNearAllowedDelegateAction;
 
 export interface ConsoleGasSponsorshipTelemetry {
   sponsoredTransactionCount: number;
@@ -25,7 +30,7 @@ export interface ConsoleGasSponsorshipTelemetry {
   budgetUtilizationPct: number;
 }
 
-export interface ConsoleGasSponsorshipPolicyProjection {
+interface ConsoleGasSponsorshipPolicyProjectionBase {
   id: string;
   orgId: string;
   scopeType: ConsoleGasSponsorshipScopeType;
@@ -38,11 +43,60 @@ export interface ConsoleGasSponsorshipPolicyProjection {
   templateId: string | null;
   networkClass: ConsoleGasSponsorshipNetworkClass;
   enabled: boolean;
-  allowedChainIds: number[];
-  callMode: ConsoleGasSponsorshipCallMode;
+  kind: ConsoleGasSponsorshipRuleKind;
+  executionMode: ConsoleGasSponsorshipExecution;
   spendCap: ConsoleGasSponsorshipSpendCap;
-  allowedCalls: ConsoleGasSponsorshipAllowedCall[];
   telemetry: ConsoleGasSponsorshipTelemetry;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface ConsoleGasSponsorshipEvmPolicyProjection
+  extends ConsoleGasSponsorshipPolicyProjectionBase {
+  kind: 'evm_call';
+  executionMode: 'evm_eoa';
+  allowedChainIds: number[];
+  allowedCalls: ConsoleGasSponsorshipAllowedCall[];
+}
+
+export interface ConsoleGasSponsorshipNearPolicyProjection
+  extends ConsoleGasSponsorshipPolicyProjectionBase {
+  kind: 'near_delegate';
+  executionMode: 'near_delegate';
+  allowedDelegateActions: ConsoleGasSponsorshipAllowedDelegateAction[];
+}
+
+export type ConsoleGasSponsorshipPolicyProjection =
+  | ConsoleGasSponsorshipEvmPolicyProjection
+  | ConsoleGasSponsorshipNearPolicyProjection;
+
+interface ResolvedGasSponsorshipPolicyBase {
+  policyId: string;
+  policyName: string;
+  scopePolicyId: string | null;
+  scopePolicyName: string | null;
+  templateId: string | null;
+  networkClass: ConsoleGasSponsorshipNetworkClass;
+  executionMode: ConsoleGasSponsorshipExecution;
+  spendCap: ConsoleGasSponsorshipSpendCap;
+  scopeType: ConsoleGasSponsorshipScopeType;
+  projectId: string | null;
+  environmentId: string | null;
+}
+
+export interface ResolvedGasSponsorshipEvmPolicy extends ResolvedGasSponsorshipPolicyBase {
+  kind: 'evm_call';
+  executionMode: 'evm_eoa';
+  allowedChainIds: number[];
+  allowedCalls: ConsoleGasSponsorshipAllowedCall[];
+}
+
+export interface ResolvedGasSponsorshipNearPolicy extends ResolvedGasSponsorshipPolicyBase {
+  kind: 'near_delegate';
+  executionMode: 'near_delegate';
+  allowedDelegateActions: ConsoleGasSponsorshipAllowedDelegateAction[];
+}
+
+export type ResolvedGasSponsorshipPolicy =
+  | ResolvedGasSponsorshipEvmPolicy
+  | ResolvedGasSponsorshipNearPolicy;

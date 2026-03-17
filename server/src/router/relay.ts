@@ -1,4 +1,3 @@
-import type { DelegateActionPolicy } from '../delegateAction';
 import type { RouterLogger } from './logger';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
@@ -10,8 +9,10 @@ import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWalletService } from '../console/wallets';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
+import type { SponsorshipSpendPricingService } from '../sponsorship';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
 
@@ -364,13 +365,16 @@ export interface RelayRouterOptions {
    * Optional route for submitting NEP-461 SignedDelegate meta-transactions.
    * - When omitted: disabled.
    * - When set: enabled at `route`.
-   * `policy` is server-controlled and is never read from the request body.
    */
   signedDelegate?: {
     route: string;
-    policy?: DelegateActionPolicy;
     billing?: ConsoleBillingService | null;
     ledger?: ConsoleSponsoredCallService | null;
+    runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
+  };
+  sponsorship?: {
+    spendCaps?: ConsoleSponsorshipSpendCapService | null;
+    pricing?: SponsorshipSpendPricingService | null;
   };
   // Optional: customize canonical app-session read route.
   sessionRoutes?: { state?: string };

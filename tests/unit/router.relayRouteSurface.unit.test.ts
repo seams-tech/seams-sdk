@@ -175,14 +175,20 @@ test.describe('relay route surface wiring', () => {
         ledger,
         runtimeSnapshots,
         config: {
-          enabled: true,
-          rpcUrl: 'https://rpc.example.test',
-          chainId: 42_431,
-          sponsorAddress: '0x2222222222222222222222222222222222222222',
-          sponsorPrivateKeyHex:
-            '0x1111111111111111111111111111111111111111111111111111111111111111',
-          maxPriorityFeePerGasFloor: 2_000_000_000n,
-          maxFeePerGasFloor: 40_000_000_000n,
+          executorsByChain: new Map([
+            [
+              42_431,
+              {
+                chainId: 42_431,
+                rpcUrl: 'https://rpc.example.test',
+                sponsorAddress: '0x2222222222222222222222222222222222222222',
+                sponsorPrivateKeyHex:
+                  '0x1111111111111111111111111111111111111111111111111111111111111111',
+                maxPriorityFeePerGasFloor: 2_000_000_000n,
+                maxFeePerGasFloor: 40_000_000_000n,
+              },
+            ],
+          ]),
         },
       },
     });

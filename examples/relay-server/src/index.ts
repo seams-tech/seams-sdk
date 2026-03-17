@@ -3,7 +3,9 @@ import { Pool } from 'pg';
 import {
   AuthService,
   createInMemoryConsoleSponsoredCallService,
+  createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsoredCallService,
+  createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createEcdsaAuthSessionStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
@@ -14,9 +16,11 @@ import {
   resolvePrfSessionSealIdempotencyFromEnv,
   resolvePrfSessionSealRateLimitFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
+  resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
   createThresholdSigningService,
   type ConsoleSponsoredCallService,
+  type ConsoleSponsorshipSpendCapService,
 } from '@tatchi-xyz/sdk/server';
 import {
   createConsoleRouter,
@@ -766,10 +770,19 @@ async function main() {
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
-  const sponsoredEvmCallConfig = resolveSponsoredEvmCallConfigFromEnv(env);
+  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
+  const sponsorshipPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
+  const hasStaticSponsorshipPricingConfig = Boolean(
+    String(env.SPONSORED_EXECUTION_STATIC_PRICING_JSON || '').trim(),
+  );
   const tempoOnboardingFaucetContractRaw = String(
     env.TEMPO_ONBOARDING_FAUCET_CONTRACT || '',
   ).trim();
+  if (hasStaticSponsorshipPricingConfig && !sponsorshipPricing) {
+    console.warn(
+      '[sponsorship-pricing] SPONSORED_EXECUTION_STATIC_PRICING_JSON is invalid; static spend pricing is disabled',
+    );
+  }
   const rorRpId = String(env.ROR_RP_ID || hostnameFromOrigin(config.expectedWalletOrigin))
     .trim()
     .toLowerCase();
@@ -984,6 +997,7 @@ async function main() {
   let consoleTeamRbac: ConsoleTeamRbacService;
   let consoleWallets: ConsoleWalletService;
   let consoleSponsoredCalls: ConsoleSponsoredCallService;
+  let consoleSponsorshipSpendCaps: ConsoleSponsorshipSpendCapService;
   let consoleAccount: ConsoleAccountService;
   const consoleCoreNamespace = consoleBillingNamespace;
   let consoleDemoOrgId = '';
@@ -1078,6 +1092,12 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
+    consoleSponsorshipSpendCaps = await createPostgresConsoleSponsorshipSpendCapService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
   } else {
     consoleAudit = createInMemoryConsoleAuditService({
       seedDemoData: consoleDemoSeedEnabled,
@@ -1105,6 +1125,7 @@ async function main() {
       seedWallets: demoWalletSeeds,
     });
     consoleSponsoredCalls = createInMemoryConsoleSponsoredCallService();
+    consoleSponsorshipSpendCaps = createInMemoryConsoleSponsorshipSpendCapService();
   }
 
   const normalizedOnboardingContractAddress = (() => {
@@ -1294,6 +1315,11 @@ async function main() {
         route: '/signed-delegate',
         billing: consoleBilling,
         ledger: consoleSponsoredCalls,
+        runtimeSnapshots: consoleRuntimeSnapshots,
+      },
+      sponsorship: {
+        spendCaps: consoleSponsorshipSpendCaps,
+        pricing: sponsorshipPricing,
       },
       session: jwtSession,
       sessionCookieName,
@@ -1347,12 +1373,20 @@ async function main() {
     const listenHost = config.host || 'localhost';
     console.log(`Server listening on http://${listenHost}:${config.port}`);
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
-    console.log(`Sponsored EVM route: ${sponsoredEvmCallConfig?.enabled ? 'enabled' : 'disabled'}`);
-    if (sponsoredEvmCallConfig?.enabled) {
+    const sponsoredExecutors = sponsoredEvmCallConfig
+      ? [...sponsoredEvmCallConfig.executorsByChain.values()]
+      : [];
+    console.log(`Sponsored EVM route: ${sponsoredExecutors.length > 0 ? 'enabled' : 'disabled'}`);
+    for (const executor of sponsoredExecutors) {
       console.log(
-        `Sponsored EVM executor: chainId=${sponsoredEvmCallConfig.chainId} sponsor=${sponsoredEvmCallConfig.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
+        `Sponsored EVM executor: chainId=${executor.chainId} sponsor=${executor.sponsorAddress} onboardingContract=${normalizedOnboardingContractAddress}`,
       );
     }
+    console.log(
+      `Sponsored spend pricing: ${
+        sponsorshipPricing ? 'static_configured' : hasStaticSponsorshipPricingConfig ? 'invalid' : 'disabled'
+      }`,
+    );
     if (rorRpId) {
       console.log(`ROR RP ID: ${rorRpId}`);
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);

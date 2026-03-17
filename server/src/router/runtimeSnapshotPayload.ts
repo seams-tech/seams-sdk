@@ -129,7 +129,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
         status: 'not_configured',
         policyCount: 0,
         policies: [] as unknown[],
-        sponsoredCallPolicies: [] as unknown[],
+        resolvedPolicies: [] as unknown[],
       };
     }
     const gasPolicies = await input.policies.listPolicies(ctx, { kind: 'GAS_SPONSORSHIP' });
@@ -166,7 +166,7 @@ export async function resolveConsoleRuntimeSnapshotPayload(
       status: 'resolved',
       policyCount: projectedPolicies.length,
       policies: projectedPolicies,
-      sponsoredCallPolicies: resolveSponsoredCallPoliciesFromProjections(projectedPolicies),
+      resolvedPolicies: resolveSponsoredCallPoliciesFromProjections(projectedPolicies),
     };
   })();
 

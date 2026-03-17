@@ -1,8 +1,11 @@
 import { ConsolePolicyError } from './errors';
+import { keccak256Bytes } from '@shared/utils/keccak';
 import type {
-  ConsoleGasSponsorshipPolicyAllowedCall,
-  ConsoleGasSponsorshipPolicyCallMode,
+  ConsoleGasSponsorshipExecutionMode,
+  ConsoleGasSponsorshipPolicyEvmAllowedCall,
+  ConsoleGasSponsorshipPolicyNearAllowedDelegateAction,
   ConsoleGasSponsorshipPolicyNetworkClass,
+  ConsoleGasSponsorshipPolicyRuleKind,
   ConsoleGasSponsorshipPolicyRules,
   ConsoleGasSponsorshipPolicyRulesInput,
   ConsoleGasSponsorshipPolicyScopeType,
@@ -40,9 +43,10 @@ const KNOWN_GAS_RULE_KEYS = new Set([
   'enabled',
   'templateId',
   'networkClass',
-  'allowedChainIds',
-  'callMode',
+  'kind',
+  'executionMode',
   'allowedCalls',
+  'allowedDelegateActions',
   'spendCap',
 ]);
 const GAS_SCOPE_TYPES = new Set<ConsoleGasSponsorshipPolicyScopeType>([
@@ -57,7 +61,14 @@ const GAS_NETWORK_CLASSES = new Set<ConsoleGasSponsorshipPolicyNetworkClass>([
   'TESTNET',
   'MAINNET',
 ]);
-const GAS_CALL_MODES = new Set<ConsoleGasSponsorshipPolicyCallMode>(['ALLOW_ALL', 'ALLOWLIST']);
+const GAS_RULE_KINDS = new Set<ConsoleGasSponsorshipPolicyRuleKind>([
+  'evm_call',
+  'near_delegate',
+]);
+const GAS_EXECUTION_MODES = new Set<ConsoleGasSponsorshipExecutionMode>([
+  'evm_eoa',
+  'near_delegate',
+]);
 const GAS_SPEND_CAP_MODES = new Set<ConsoleGasSponsorshipPolicySpendCapMode>([
   'NONE',
   'CHAIN_TOTAL',
@@ -174,6 +185,24 @@ export function normalizeConsolePolicyFunctionIdentifier(value: unknown): string
   if (params.length === 0 || params.some((entry) => !entry)) return null;
   if (params.some((entry) => !FUNCTION_SIGNATURE_PARAM_PATTERN.test(entry))) return null;
   return `${functionName}(${params.join(',')})`;
+}
+
+function bytesToHex(bytes: Uint8Array): `0x${string}` {
+  return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')}` as `0x${string}`;
+}
+
+export function normalizeConsolePolicyFunctionSignature(value: unknown): string | null {
+  const normalized = normalizeConsolePolicyFunctionIdentifier(value);
+  if (!normalized || EVM_FUNCTION_SELECTOR_PATTERN.test(normalized)) return null;
+  return normalized;
+}
+
+export function deriveConsolePolicyFunctionSelector(
+  functionSignature: string,
+): `0x${string}` {
+  return bytesToHex(
+    keccak256Bytes(new TextEncoder().encode(functionSignature)).slice(0, 4),
+  ).toLowerCase() as `0x${string}`;
 }
 
 function readContractCallRules(
@@ -388,36 +417,66 @@ function readOptionalGasNetworkClass(
   return value;
 }
 
-function readGasAllowedChainIds(raw: unknown, mode: ParseMode): number[] {
-  if (raw === undefined || raw === null) return [];
-  if (!Array.isArray(raw)) {
+function readOptionalGasRuleKind(
+  raw: unknown,
+  mode: ParseMode,
+): ConsoleGasSponsorshipPolicyRuleKind | undefined {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
+  const value = String(raw || '').trim().toLowerCase() as ConsoleGasSponsorshipPolicyRuleKind;
+  if (!GAS_RULE_KINDS.has(value)) {
     if (mode === 'request') {
-      throw invalidRulesError('Policy rule allowedChainIds must be an array');
+      throw invalidRulesError(
+        `Policy rule kind must be one of ${Array.from(GAS_RULE_KINDS).join(', ')}`,
+      );
     }
-    return [];
+    return undefined;
   }
-  const out: number[] = [];
-  const seen = new Set<number>();
-  for (const entry of raw) {
-    const chainId = readOptionalPositiveInteger(entry, 'allowedChainIds[]', mode);
-    if (!chainId) continue;
-    if (seen.has(chainId)) continue;
-    seen.add(chainId);
-    out.push(chainId);
-  }
-  return out;
+  return value;
 }
 
-function normalizeGasAllowedCallSelector(value: unknown): string | null {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  return EVM_FUNCTION_SELECTOR_PATTERN.test(normalized) ? normalized.toLowerCase() : null;
+function readOptionalGasExecutionMode(
+  raw: unknown,
+  mode: ParseMode,
+): ConsoleGasSponsorshipExecutionMode | undefined {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return undefined;
+  const value = String(raw || '').trim().toLowerCase() as ConsoleGasSponsorshipExecutionMode;
+  if (!GAS_EXECUTION_MODES.has(value)) {
+    if (mode === 'request') {
+      throw invalidRulesError(
+        `Policy rule executionMode must be one of ${Array.from(GAS_EXECUTION_MODES).join(', ')}`,
+      );
+    }
+    return undefined;
+  }
+  return value;
+}
+
+function readUnsignedBigIntString(
+  raw: unknown,
+  key: string,
+  mode: ParseMode,
+  fallback?: string,
+): string | undefined {
+  const normalized = String(raw || '').trim();
+  if (!normalized) return fallback;
+  try {
+    const parsed = BigInt(normalized);
+    if (parsed < 0n) {
+      throw new Error('negative');
+    }
+    return parsed.toString(10);
+  } catch {
+    if (mode === 'request') {
+      throw invalidRulesError(`Policy rule ${key} must be an unsigned integer string`);
+    }
+    return fallback;
+  }
 }
 
 function readGasAllowedCalls(
   raw: unknown,
   mode: ParseMode,
-): ConsoleGasSponsorshipPolicyAllowedCall[] {
+): ConsoleGasSponsorshipPolicyEvmAllowedCall[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     if (mode === 'request') {
@@ -425,7 +484,7 @@ function readGasAllowedCalls(
     }
     return [];
   }
-  const out: ConsoleGasSponsorshipPolicyAllowedCall[] = [];
+  const out: ConsoleGasSponsorshipPolicyEvmAllowedCall[] = [];
   const seen = new Set<string>();
   for (const entry of raw) {
     if (!isObjectRecord(entry)) {
@@ -436,8 +495,19 @@ function readGasAllowedCalls(
     }
     const chainId = readOptionalPositiveInteger(entry.chainId, 'allowedCalls[].chainId', mode);
     const to = normalizeConsolePolicyContractAddress(entry.to);
-    const selector = normalizeGasAllowedCallSelector(entry.selector);
-    if (!chainId || !to || !selector) {
+    const functionSignature = normalizeConsolePolicyFunctionSignature(entry.functionSignature);
+    const maxGasLimit = readUnsignedBigIntString(
+      entry.maxGasLimit,
+      'allowedCalls[].maxGasLimit',
+      mode,
+    );
+    const maxValueWei = readUnsignedBigIntString(
+      entry.maxValueWei,
+      'allowedCalls[].maxValueWei',
+      mode,
+      '0',
+    );
+    if (!chainId || !to || !functionSignature || !maxGasLimit || !maxValueWei) {
       if (mode === 'request') {
         if (!chainId) {
           throw invalidRulesError('Policy rule allowedCalls[].chainId must be a positive integer');
@@ -446,37 +516,85 @@ function readGasAllowedCalls(
           throw invalidRulesError('Policy rule allowedCalls[].to must be an EVM address');
         }
         throw invalidRulesError(
-          'Policy rule allowedCalls[].selector must be a 4-byte selector hex string',
+          'Policy rule allowedCalls[] must include functionSignature, maxGasLimit, and maxValueWei',
         );
       }
       continue;
     }
+    const selector = deriveConsolePolicyFunctionSelector(functionSignature);
     const dedupeKey = `${chainId}:${to}:${selector}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    out.push({ chainId, to, selector });
+    out.push({
+      chainId,
+      to,
+      functionSignature,
+      selector,
+      maxGasLimit,
+      maxValueWei,
+    });
   }
   return out;
 }
 
-function readGasCallMode(
+function readGasAllowedDelegateActions(
   raw: unknown,
   mode: ParseMode,
-  allowedCalls: ConsoleGasSponsorshipPolicyAllowedCall[],
-): ConsoleGasSponsorshipPolicyCallMode {
-  if (raw === undefined || raw === null || String(raw).trim() === '') {
-    return allowedCalls.length > 0 ? 'ALLOWLIST' : 'ALLOW_ALL';
-  }
-  const value = String(raw || '').trim().toUpperCase() as ConsoleGasSponsorshipPolicyCallMode;
-  if (!GAS_CALL_MODES.has(value)) {
+): ConsoleGasSponsorshipPolicyNearAllowedDelegateAction[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
     if (mode === 'request') {
-      throw invalidRulesError(
-        `Policy rule callMode must be one of ${Array.from(GAS_CALL_MODES).join(', ')}`,
-      );
+      throw invalidRulesError('Policy rule allowedDelegateActions must be an array');
     }
-    return allowedCalls.length > 0 ? 'ALLOWLIST' : 'ALLOW_ALL';
+    return [];
   }
-  return value;
+  const out: ConsoleGasSponsorshipPolicyNearAllowedDelegateAction[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (!isObjectRecord(entry)) {
+      if (mode === 'request') {
+        throw invalidRulesError('Policy rule allowedDelegateActions entries must be objects');
+      }
+      continue;
+    }
+    const receiverId = String(entry.receiverId || '').trim();
+    const methodsRaw = Array.isArray(entry.methods) ? entry.methods : [];
+    const methods = dedupeCaseInsensitive(
+      methodsRaw
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => Boolean(value)),
+    );
+    const maxDepositYocto = readUnsignedBigIntString(
+      entry.maxDepositYocto,
+      'allowedDelegateActions[].maxDepositYocto',
+      mode,
+      '0',
+    );
+    const allowTransfers =
+      readOptionalGasBoolean(
+        entry.allowTransfers,
+        'allowedDelegateActions[].allowTransfers',
+        mode,
+      ) ?? false;
+    if (!receiverId || !maxDepositYocto) {
+      if (mode === 'request') {
+        throw invalidRulesError(
+          'Policy rule allowedDelegateActions[] must include receiverId and maxDepositYocto',
+        );
+      }
+      continue;
+    }
+    const dedupeKey = `${receiverId.toLowerCase()}:${methods.join(',').toLowerCase()}:${allowTransfers ? '1' : '0'}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    out.push({
+      receiverId,
+      methods,
+      maxDepositYocto,
+      allowTransfers,
+    });
+  }
+  return out;
 }
 
 function readGasSpendCapMode(
@@ -605,13 +723,8 @@ function parseGasSponsorshipPolicyRules(
     }
   }
 
-  const schemaVersion = readSchemaVersion(raw, mode);
-  const allowedCalls = readGasAllowedCalls(raw.allowedCalls, mode);
-  const callMode = readGasCallMode(raw.callMode, mode, allowedCalls);
-  const spendCap = readGasSpendCap(raw.spendCap, mode);
-
-  return {
-    schemaVersion,
+  const common = {
+    schemaVersion: readSchemaVersion(raw, mode),
     scopeType: readOptionalGasScopeType(raw.scopeType, mode) || 'ORG',
     projectId: readOptionalTrimmedString(raw.projectId),
     environmentId: readOptionalTrimmedString(raw.environmentId),
@@ -620,10 +733,34 @@ function parseGasSponsorshipPolicyRules(
     enabled: readOptionalGasBoolean(raw.enabled, 'enabled', mode) ?? true,
     templateId: readOptionalTrimmedString(raw.templateId),
     networkClass: readOptionalGasNetworkClass(raw.networkClass, mode) || 'ANY',
-    allowedChainIds: readGasAllowedChainIds(raw.allowedChainIds, mode),
-    callMode,
-    allowedCalls: callMode === 'ALLOW_ALL' ? [] : allowedCalls,
-    spendCap,
+    spendCap: readGasSpendCap(raw.spendCap, mode),
+  } as const;
+
+  const ruleKind =
+    readOptionalGasRuleKind(raw.kind, mode) ||
+    (raw.allowedDelegateActions !== undefined ? 'near_delegate' : 'evm_call');
+  const executionMode = readOptionalGasExecutionMode(raw.executionMode, mode);
+
+  if (ruleKind === 'near_delegate') {
+    if (executionMode && executionMode !== 'near_delegate' && mode === 'request') {
+      throw invalidRulesError('Policy rule executionMode must be near_delegate for near_delegate rules');
+    }
+    return {
+      ...common,
+      kind: 'near_delegate',
+      executionMode: 'near_delegate',
+      allowedDelegateActions: readGasAllowedDelegateActions(raw.allowedDelegateActions, mode),
+    };
+  }
+
+  if (executionMode && executionMode !== 'evm_eoa' && mode === 'request') {
+    throw invalidRulesError('Policy rule executionMode must be evm_eoa for evm_call rules');
+  }
+  return {
+    ...common,
+    kind: 'evm_call',
+    executionMode: 'evm_eoa',
+    allowedCalls: readGasAllowedCalls(raw.allowedCalls, mode),
   };
 }
 
@@ -648,8 +785,8 @@ export function createDefaultConsolePolicyRules(
       enabled: true,
       templateId: null,
       networkClass: 'ANY',
-      allowedChainIds: [],
-      callMode: 'ALLOW_ALL',
+      kind: 'evm_call',
+      executionMode: 'evm_eoa',
       allowedCalls: [],
       spendCap: {
         mode: 'NONE',
@@ -680,7 +817,7 @@ export function isConsoleTransactionPolicyRules(
 
 export function cloneConsolePolicyRules(rules: ConsolePolicyRules): ConsolePolicyRules {
   if (isConsoleGasSponsorshipPolicyRules(rules)) {
-    return {
+    const common = {
       schemaVersion: rules.schemaVersion,
       scopeType: rules.scopeType,
       projectId: rules.projectId,
@@ -690,13 +827,6 @@ export function cloneConsolePolicyRules(rules: ConsolePolicyRules): ConsolePolic
       enabled: rules.enabled,
       templateId: rules.templateId,
       networkClass: rules.networkClass,
-      allowedChainIds: [...rules.allowedChainIds],
-      callMode: rules.callMode,
-      allowedCalls: rules.allowedCalls.map((entry) => ({
-        chainId: entry.chainId,
-        to: entry.to,
-        selector: entry.selector,
-      })),
       spendCap: {
         mode: rules.spendCap.mode,
         period: rules.spendCap.period,
@@ -705,6 +835,32 @@ export function cloneConsolePolicyRules(rules: ConsolePolicyRules): ConsolePolic
           capMinor: entry.capMinor,
         })),
       },
+    } as const;
+    if (rules.kind === 'near_delegate') {
+      return {
+        ...common,
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        allowedDelegateActions: rules.allowedDelegateActions.map((entry) => ({
+          receiverId: entry.receiverId,
+          methods: [...entry.methods],
+          maxDepositYocto: entry.maxDepositYocto,
+          allowTransfers: entry.allowTransfers,
+        })),
+      };
+    }
+    return {
+      ...common,
+      kind: 'evm_call',
+      executionMode: 'evm_eoa',
+      allowedCalls: rules.allowedCalls.map((entry) => ({
+        chainId: entry.chainId,
+        to: entry.to,
+        functionSignature: entry.functionSignature,
+        selector: entry.selector,
+        maxGasLimit: entry.maxGasLimit,
+        maxValueWei: entry.maxValueWei,
+      })),
     };
   }
   return {
@@ -767,7 +923,7 @@ export function parseStoredConsolePolicyRules(
 
 export function serializeConsolePolicyRules(rules: ConsolePolicyRules): Record<string, unknown> {
   if (isConsoleGasSponsorshipPolicyRules(rules)) {
-    return {
+    const common = {
       schemaVersion: rules.schemaVersion,
       scopeType: rules.scopeType,
       projectId: rules.projectId,
@@ -777,13 +933,6 @@ export function serializeConsolePolicyRules(rules: ConsolePolicyRules): Record<s
       enabled: rules.enabled,
       templateId: rules.templateId,
       networkClass: rules.networkClass,
-      allowedChainIds: [...rules.allowedChainIds],
-      callMode: rules.callMode,
-      allowedCalls: rules.allowedCalls.map((entry) => ({
-        chainId: entry.chainId,
-        to: entry.to,
-        selector: entry.selector,
-      })),
       spendCap: {
         mode: rules.spendCap.mode,
         period: rules.spendCap.period,
@@ -792,6 +941,32 @@ export function serializeConsolePolicyRules(rules: ConsolePolicyRules): Record<s
           capMinor: entry.capMinor,
         })),
       },
+    } satisfies Record<string, unknown>;
+    if (rules.kind === 'near_delegate') {
+      return {
+        ...common,
+        kind: 'near_delegate',
+        executionMode: 'near_delegate',
+        allowedDelegateActions: rules.allowedDelegateActions.map((entry) => ({
+          receiverId: entry.receiverId,
+          methods: [...entry.methods],
+          maxDepositYocto: entry.maxDepositYocto,
+          allowTransfers: entry.allowTransfers,
+        })),
+      };
+    }
+    return {
+      ...common,
+      kind: 'evm_call',
+      executionMode: 'evm_eoa',
+      allowedCalls: rules.allowedCalls.map((entry) => ({
+        chainId: entry.chainId,
+        to: entry.to,
+        functionSignature: entry.functionSignature,
+        selector: entry.selector,
+        maxGasLimit: entry.maxGasLimit,
+        maxValueWei: entry.maxValueWei,
+      })),
     };
   }
   return {
@@ -821,26 +996,35 @@ export function validateGasSponsorshipPolicyRulesForPublish(
   if (rules.scopeType === 'WALLET_SEGMENT' && !rules.walletSegmentId) {
     throw invalidRulesError('Gas sponsorship policy scope WALLET_SEGMENT requires walletSegmentId');
   }
-  if (rules.allowedChainIds.length === 0) {
-    throw invalidRulesError('Gas sponsorship policy must include at least one allowedChainId');
+  if (rules.kind === 'near_delegate') {
+    if (rules.allowedDelegateActions.length === 0) {
+      throw invalidRulesError(
+        'Gas sponsorship near_delegate policy requires at least one allowedDelegateAction',
+      );
+    }
+    if (rules.spendCap.mode !== 'NONE') {
+      throw invalidRulesError(
+        'Gas sponsorship near_delegate spend caps are not yet supported in this MVP',
+      );
+    }
+    return;
   }
-  if (rules.callMode === 'ALLOWLIST' && rules.allowedCalls.length === 0) {
-    throw invalidRulesError('Gas sponsorship policy ALLOWLIST mode requires at least one allowedCall');
+  if (rules.allowedCalls.length === 0) {
+    throw invalidRulesError('Gas sponsorship evm_call policy requires at least one allowedCall');
   }
-  const allowedChainIds = new Set(rules.allowedChainIds);
-  const invalidAllowedCall = rules.allowedCalls.find((entry) => !allowedChainIds.has(entry.chainId));
-  if (invalidAllowedCall) {
-    throw invalidRulesError(
-      `Gas sponsorship allowed call chain ${invalidAllowedCall.chainId} is not included in allowedChainIds`,
-    );
+  const allowedChainIds = new Set(rules.allowedCalls.map((entry) => entry.chainId));
+  for (const allowedCall of rules.allowedCalls) {
+    if (BigInt(allowedCall.maxGasLimit) <= 0n) {
+      throw invalidRulesError(
+        `Gas sponsorship allowed call ${allowedCall.functionSignature} must have maxGasLimit > 0`,
+      );
+    }
   }
   if (rules.spendCap.mode === 'NONE') return;
-  const invalidSpendCap = rules.spendCap.capsByChain.find(
-    (entry) => !allowedChainIds.has(entry.chainId),
-  );
+  const invalidSpendCap = rules.spendCap.capsByChain.find((entry) => !allowedChainIds.has(entry.chainId));
   if (invalidSpendCap) {
     throw invalidRulesError(
-      `Gas sponsorship spend cap chain ${invalidSpendCap.chainId} is not included in allowedChainIds`,
+      `Gas sponsorship spend cap chain ${invalidSpendCap.chainId} is not covered by any allowedCall`,
     );
   }
 }

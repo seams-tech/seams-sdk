@@ -4,13 +4,17 @@ import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import {
   type SponsoredEvmCall,
   type ServerEip1559UnsignedTx,
   computeEip1559TxHash,
+  secp256k1PrivateKey32ToPublicKey33,
+  secp256k1PublicKey33ToEthereumAddress,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
 } from '../index';
+import type { SponsorshipSpendPricingService } from './spendCaps';
 import { createRelayPublishableKeyAuthAdapter } from '../router/relayApiKeyAuth';
 import { coerceRouterLogger, type RouterLogger } from '../router/logger';
 import { handleRelaySponsoredEvmCall } from '../router/relaySponsoredEvmCall';
@@ -20,7 +24,6 @@ import {
   normalizeEvmAddress,
   normalizeHex32,
   parseOptionalPositiveInteger,
-  parseBigIntWithFallback,
 } from './evm';
 
 const DEFAULT_SPONSORED_EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';
@@ -30,14 +33,17 @@ const DEFAULT_MAX_FEE_PER_GAS = 40_000_000_000n;
 export const DEFAULT_SPONSORED_EVM_CALL_ROUTE = '/sponsorships/evm/call';
 export const DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID = 'sponsored_evm_call_v1';
 
-export type SponsoredEvmCallExecutorConfig = {
-  enabled: boolean;
-  rpcUrl: string;
+export type SponsoredEvmChainExecutorConfig = {
   chainId: number;
+  rpcUrl: string;
   sponsorAddress: `0x${string}`;
   sponsorPrivateKeyHex: `0x${string}`;
   maxPriorityFeePerGasFloor: bigint;
   maxFeePerGasFloor: bigint;
+};
+
+export type SponsoredEvmCallExecutorConfig = {
+  executorsByChain: ReadonlyMap<number, SponsoredEvmChainExecutorConfig>;
 };
 
 export type RegisterSponsoredEvmCallRouteArgs = {
@@ -46,6 +52,8 @@ export type RegisterSponsoredEvmCallRouteArgs = {
   billing: ConsoleBillingService;
   ledger: ConsoleSponsoredCallService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
+  spendCaps?: ConsoleSponsorshipSpendCapService | null;
+  pricing?: SponsorshipSpendPricingService | null;
   corsOrigins: string[];
   config: SponsoredEvmCallExecutorConfig | null;
   route?: string;
@@ -81,6 +89,36 @@ function bytesToHex(bytes: Uint8Array): `0x${string}` {
 
 function privateKeyHexToBytes(value: `0x${string}`): Uint8Array {
   return Uint8Array.from(Buffer.from(value.slice(2), 'hex'));
+}
+
+function normalizeSponsoredEvmExecutorKind(value: unknown): 'evm_eoa' | null {
+  const normalized = String(value || '').trim();
+  if (!normalized) return 'evm_eoa';
+  return normalized === 'evm_eoa' ? 'evm_eoa' : null;
+}
+
+function parseOptionalUnsignedBigIntLiteral(value: unknown): bigint | null {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  try {
+    const parsed = BigInt(normalized);
+    return parsed >= 0n ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function deriveEvmAddressFromPrivateKeyHex(
+  privateKeyHex: `0x${string}`,
+): Promise<`0x${string}`> {
+  const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKeyHexToBytes(privateKeyHex));
+  const addressHex = (await secp256k1PublicKey33ToEthereumAddress(publicKey33)) as `0x${string}`;
+  const normalized = normalizeEvmAddress(addressHex);
+  if (!normalized) {
+    throw new Error('Failed to derive sponsor address from private key');
+  }
+  return normalized;
 }
 
 async function resolveFeeCaps(args: {
@@ -148,26 +186,22 @@ async function resolveFeeCaps(args: {
 }
 
 export async function executeSponsoredEvmCall(args: {
-  config: SponsoredEvmCallExecutorConfig;
-  chainId: number;
+  executor: SponsoredEvmChainExecutorConfig;
   call: SponsoredEvmCall;
 }): Promise<SponsoredEvmExecution> {
-  if (args.chainId !== args.config.chainId) {
-    throw new Error(`Unsupported EVM chain for sponsor executor: ${args.chainId}`);
-  }
-  const client = createEvmClient({ rpcUrl: args.config.rpcUrl });
+  const client = createEvmClient({ rpcUrl: args.executor.rpcUrl });
   const nonce = await client.getTransactionCount({
-    address: args.config.sponsorAddress,
+    address: args.executor.sponsorAddress,
     blockTag: 'pending',
     timeoutMs: 10_000,
   });
   const feeCaps = await resolveFeeCaps({
-    rpcUrl: args.config.rpcUrl,
-    maxPriorityFeePerGasFloor: args.config.maxPriorityFeePerGasFloor,
-    maxFeePerGasFloor: args.config.maxFeePerGasFloor,
+    rpcUrl: args.executor.rpcUrl,
+    maxPriorityFeePerGasFloor: args.executor.maxPriorityFeePerGasFloor,
+    maxFeePerGasFloor: args.executor.maxFeePerGasFloor,
   });
   const unsignedTx: ServerEip1559UnsignedTx = {
-    chainId: args.config.chainId,
+    chainId: args.executor.chainId,
     nonce,
     maxPriorityFeePerGas: feeCaps.maxPriorityFeePerGas,
     maxFeePerGas: feeCaps.maxFeePerGas,
@@ -180,7 +214,7 @@ export async function executeSponsoredEvmCall(args: {
   const digest32 = await computeEip1559TxHash(unsignedTx);
   const signature65 = await signSecp256k1Recoverable(
     digest32,
-    privateKeyHexToBytes(args.config.sponsorPrivateKeyHex),
+    privateKeyHexToBytes(args.executor.sponsorPrivateKeyHex),
   );
   const rawTxHex = bytesToHex(
     await encodeEip1559SignedTxFromSignature65({
@@ -245,35 +279,72 @@ export async function executeSponsoredEvmCall(args: {
   return execution;
 }
 
-export function resolveSponsoredEvmCallConfigFromEnv(
+export async function resolveSponsoredEvmCallConfigFromEnv(
   env: NodeJS.ProcessEnv,
-): SponsoredEvmCallExecutorConfig | null {
-  const enabled =
-    ['1', 'true', 'yes', 'on'].includes(
-      String(env.SPONSORED_EVM_CALL_ENABLED || '').trim().toLowerCase(),
-    );
-  if (!enabled) return null;
+): Promise<SponsoredEvmCallExecutorConfig | null> {
+  const raw = String(env.SPONSORED_EVM_EXECUTORS_JSON || '').trim();
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
 
-  const sponsorAddress = normalizeEvmAddress(env.SPONSORED_EVM_CALL_SPONSOR_ADDRESS);
-  const sponsorPrivateKeyHex = normalizeHex32(env.SPONSORED_EVM_CALL_SPONSOR_PRIVATE_KEY_HEX);
-  if (!sponsorAddress || !sponsorPrivateKeyHex) return null;
+  const executors = new Map<number, SponsoredEvmChainExecutorConfig>();
+  for (const [chainIdRaw, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const row = value as Record<string, unknown>;
+    const kind = normalizeSponsoredEvmExecutorKind(row.kind);
+    const chainId =
+      parseOptionalPositiveInteger(chainIdRaw) ||
+      parseOptionalPositiveInteger(row.chainId) ||
+      undefined;
+    const sponsorPrivateKeyHex = normalizeHex32(row.sponsorPrivateKeyHex);
+    if (!kind || !chainId || !sponsorPrivateKeyHex) continue;
+    if (executors.has(chainId)) return null;
+    const maxPriorityFeePerGasFloor =
+      parseOptionalUnsignedBigIntLiteral(row.maxPriorityFeePerGasFloor);
+    if (row.maxPriorityFeePerGasFloor !== undefined && maxPriorityFeePerGasFloor === null) continue;
+    const maxFeePerGasFloor =
+      parseOptionalUnsignedBigIntLiteral(row.maxFeePerGasFloor);
+    if (row.maxFeePerGasFloor !== undefined && maxFeePerGasFloor === null) continue;
+    let sponsorAddress: `0x${string}`;
+    try {
+      sponsorAddress = await deriveEvmAddressFromPrivateKeyHex(sponsorPrivateKeyHex);
+    } catch {
+      continue;
+    }
+    executors.set(chainId, {
+      chainId,
+      rpcUrl:
+        String(row.rpcUrl || '').trim() ||
+        (chainId === DEFAULT_SPONSORED_EVM_CHAIN_ID ? DEFAULT_SPONSORED_EVM_RPC_URL : ''),
+      sponsorAddress,
+      sponsorPrivateKeyHex,
+      maxPriorityFeePerGasFloor:
+        maxPriorityFeePerGasFloor ?? DEFAULT_MAX_PRIORITY_FEE_PER_GAS,
+      maxFeePerGasFloor:
+        maxFeePerGasFloor ?? DEFAULT_MAX_FEE_PER_GAS,
+    });
+  }
 
+  if (executors.size === 0) return null;
+  for (const executor of executors.values()) {
+    if (!executor.rpcUrl) return null;
+  }
   return {
-    enabled: true,
-    rpcUrl: String(env.SPONSORED_EVM_CALL_RPC_URL || '').trim() || DEFAULT_SPONSORED_EVM_RPC_URL,
-    chainId:
-      parseOptionalPositiveInteger(env.SPONSORED_EVM_CALL_CHAIN_ID) || DEFAULT_SPONSORED_EVM_CHAIN_ID,
-    sponsorAddress,
-    sponsorPrivateKeyHex,
-    maxPriorityFeePerGasFloor: parseBigIntWithFallback(
-      env.SPONSORED_EVM_CALL_MAX_PRIORITY_FEE_PER_GAS,
-      DEFAULT_MAX_PRIORITY_FEE_PER_GAS,
-    ),
-    maxFeePerGasFloor: parseBigIntWithFallback(
-      env.SPONSORED_EVM_CALL_MAX_FEE_PER_GAS,
-      DEFAULT_MAX_FEE_PER_GAS,
-    ),
+    executorsByChain: executors,
   };
+}
+
+export function resolveSponsoredEvmExecutorForChain(
+  config: SponsoredEvmCallExecutorConfig | null,
+  chainId: number,
+): SponsoredEvmChainExecutorConfig | null {
+  if (!config) return null;
+  return config.executorsByChain.get(chainId) || null;
 }
 
 export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRouteArgs): void {
@@ -316,7 +387,9 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
           config: args.config,
           corsOrigins: args.corsOrigins,
           publishableKeyAuth,
+          pricing: args.pricing || null,
           runtimeSnapshots: args.runtimeSnapshots,
+          spendCaps: args.spendCaps || null,
           sponsoredCalls: args.ledger,
         },
       },

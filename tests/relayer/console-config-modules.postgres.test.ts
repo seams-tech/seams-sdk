@@ -167,7 +167,16 @@ test.describe('console config modules postgres services', () => {
         rules: {
           scopeType: 'PROJECT',
           enabled: true,
-          allowedChainIds: [1],
+          kind: 'evm_call',
+          allowedCalls: [
+            {
+              chainId: 1,
+              to: '0x1111111111111111111111111111111111111111',
+              functionSignature: 'transfer(address,uint256)',
+              maxGasLimit: '21000',
+              maxValueWei: '0',
+            },
+          ],
         },
       });
     }, 'invalid_body');
@@ -177,7 +186,16 @@ test.describe('console config modules postgres services', () => {
         scopeType: 'ENVIRONMENT',
         environmentId: 'prod',
         enabled: true,
-        allowedChainIds: [1],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
         spendCap: {
           mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
@@ -206,7 +224,16 @@ test.describe('console config modules postgres services', () => {
     const updated = await updatePublishedGasPolicy(policies, adminCtx, created.id, {
       rules: {
         enabled: false,
-        allowedChainIds: [8_453],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 8_453,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
         spendCap: {
           mode: 'WALLET_CHAIN_TOTAL',
           period: 'WEEKLY',
@@ -690,7 +717,16 @@ test.describe('console config modules postgres services', () => {
         scopeType: 'ENVIRONMENT',
         environmentId: 'prod-rls',
         enabled: true,
-        allowedChainIds: [1],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
       },
     });
     await createPublishedGasPolicy(policies, attackerCtx, {
@@ -698,7 +734,16 @@ test.describe('console config modules postgres services', () => {
         scopeType: 'ENVIRONMENT',
         environmentId: 'prod-rls',
         enabled: true,
-        allowedChainIds: [1],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
       },
     });
 
@@ -877,7 +922,16 @@ test.describe('console config modules postgres services', () => {
         scopeType: 'ENVIRONMENT',
         environmentId: ownerEnvironmentId,
         enabled: true,
-        allowedChainIds: [1],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
       },
     });
     expect(createdGas.id.startsWith('policy_')).toBe(true);

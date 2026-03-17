@@ -1,6 +1,7 @@
 import { ConsoleGasSponsorshipError } from './errors';
 import type {
   ConsoleGasSponsorshipAllowedCall,
+  ConsoleGasSponsorshipAllowedDelegateAction,
   ConsoleGasSponsorshipPolicyProjection,
   ConsoleGasSponsorshipSpendCap,
 } from './types';
@@ -32,12 +33,26 @@ function cloneAllowedCalls(
   return input.map((entry) => ({
     chainId: entry.chainId,
     to: entry.to,
+    functionSignature: entry.functionSignature,
     selector: entry.selector,
+    maxGasLimit: entry.maxGasLimit,
+    maxValueWei: entry.maxValueWei,
   }));
 }
 
-function cloneAllowedChainIds(input: number[]): number[] {
-  return [...input];
+function cloneAllowedDelegateActions(
+  input: ConsoleGasSponsorshipAllowedDelegateAction[],
+): ConsoleGasSponsorshipAllowedDelegateAction[] {
+  return input.map((entry) => ({
+    receiverId: entry.receiverId,
+    methods: [...entry.methods],
+    maxDepositYocto: entry.maxDepositYocto,
+    allowTransfers: entry.allowTransfers,
+  }));
+}
+
+function deriveAllowedChainIds(input: ConsoleGasSponsorshipAllowedCall[]): number[] {
+  return Array.from(new Set(input.map((entry) => entry.chainId)));
 }
 
 async function requireScopePolicyName(
@@ -71,7 +86,7 @@ export async function projectConsoleGasSponsorshipPolicyProjection(
     );
   }
   const rules = policy.rules;
-  return {
+  const projectionBase = {
     id: policy.id,
     orgId: policy.orgId,
     scopeType: rules.scopeType,
@@ -84,10 +99,7 @@ export async function projectConsoleGasSponsorshipPolicyProjection(
     templateId: rules.templateId,
     networkClass: rules.networkClass,
     enabled: rules.enabled,
-    allowedChainIds: cloneAllowedChainIds(rules.allowedChainIds),
-    callMode: rules.callMode,
     spendCap: cloneSpendCap(rules.spendCap),
-    allowedCalls: cloneAllowedCalls(rules.allowedCalls),
     telemetry: {
       sponsoredTransactionCount: 0,
       failedTransactionCount: 0,
@@ -96,6 +108,22 @@ export async function projectConsoleGasSponsorshipPolicyProjection(
     },
     createdAt: policy.createdAt || toIso(new Date(0)),
     updatedAt: policy.updatedAt || policy.createdAt || toIso(new Date(0)),
+  } as const;
+  if (rules.kind === 'near_delegate') {
+    return {
+      ...projectionBase,
+      kind: 'near_delegate',
+      executionMode: 'near_delegate',
+      allowedDelegateActions: cloneAllowedDelegateActions(rules.allowedDelegateActions),
+    };
+  }
+  const allowedCalls = cloneAllowedCalls(rules.allowedCalls);
+  return {
+    ...projectionBase,
+    kind: 'evm_call',
+    executionMode: 'evm_eoa',
+    allowedChainIds: deriveAllowedChainIds(allowedCalls),
+    allowedCalls,
   };
 }
 

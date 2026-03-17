@@ -1,14 +1,21 @@
 export type {
   ConsoleGasSponsorshipScopeType,
   ConsoleGasSponsorshipNetworkClass,
-  ConsoleGasSponsorshipCallMode,
+  ConsoleGasSponsorshipRuleKind,
+  ConsoleGasSponsorshipExecution,
   ConsoleGasSponsorshipSpendCapMode,
   ConsoleGasSponsorshipSpendCapPeriod,
   ConsoleGasSponsorshipSpendCapChain,
   ConsoleGasSponsorshipSpendCap,
   ConsoleGasSponsorshipAllowedCall,
+  ConsoleGasSponsorshipAllowedDelegateAction,
   ConsoleGasSponsorshipTelemetry,
+  ConsoleGasSponsorshipEvmPolicyProjection,
+  ConsoleGasSponsorshipNearPolicyProjection,
   ConsoleGasSponsorshipPolicyProjection,
+  ResolvedGasSponsorshipEvmPolicy,
+  ResolvedGasSponsorshipNearPolicy,
+  ResolvedGasSponsorshipPolicy,
 } from './types';
 
 export {
@@ -16,11 +23,11 @@ export {
   sortConsoleGasSponsorshipPolicyProjections,
 } from './service';
 
-export type { ResolvedSponsoredCallPolicy } from './onboarding';
 export {
   TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
   TEMPO_TESTNET_CHAIN_ID,
+  TEMPO_DRIP_TO_FUNCTION_SIGNATURE,
   TEMPO_DRIP_TO_SELECTOR,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   buildTempoTestnetOnboardingGasPolicyRules,

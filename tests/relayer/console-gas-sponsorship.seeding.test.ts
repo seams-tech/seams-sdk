@@ -20,6 +20,7 @@ import {
 } from '../../server/src/console/gasSponsorship/seeding';
 import {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
+  TEMPO_DRIP_TO_FUNCTION_SIGNATURE,
   TEMPO_DRIP_TO_SELECTOR,
   TEMPO_TESTNET_CHAIN_ID,
   TEMPO_TESTNET_ONBOARDING_POLICY_NAME,
@@ -92,11 +93,18 @@ test.describe('console gas sponsorship seeding', () => {
     });
 
     expect(configs).toHaveLength(1);
-    expect(configs[0]?.allowedCalls).toEqual([
+    expect(configs[0]?.kind).toBe('evm_call');
+    if (!configs[0] || configs[0].kind !== 'evm_call') {
+      throw new Error('expected evm_call projection');
+    }
+    expect(configs[0].allowedCalls).toEqual([
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
         to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
+        functionSignature: TEMPO_DRIP_TO_FUNCTION_SIGNATURE,
         selector: TEMPO_DRIP_TO_SELECTOR,
+        maxGasLimit: '1000000',
+        maxValueWei: '0',
       },
     ]);
   });
@@ -131,12 +139,19 @@ test.describe('console gas sponsorship seeding', () => {
       environmentId: 'proj_mmggz8jp_v9pft0:dev',
       enabled: true,
     });
-    expect(configs[0]?.allowedChainIds).toEqual([TEMPO_TESTNET_CHAIN_ID]);
-    expect(configs[0]?.allowedCalls).toEqual([
+    expect(configs[0]?.kind).toBe('evm_call');
+    if (!configs[0] || configs[0].kind !== 'evm_call') {
+      throw new Error('expected evm_call projection');
+    }
+    expect(configs[0].allowedChainIds).toEqual([TEMPO_TESTNET_CHAIN_ID]);
+    expect(configs[0].allowedCalls).toEqual([
       {
         chainId: TEMPO_TESTNET_CHAIN_ID,
         to: DEFAULT_TEMPO_ONBOARDING_CONTRACT.toLowerCase(),
+        functionSignature: TEMPO_DRIP_TO_FUNCTION_SIGNATURE,
         selector: TEMPO_DRIP_TO_SELECTOR,
+        maxGasLimit: '1000000',
+        maxValueWei: '0',
       },
     ]);
   });

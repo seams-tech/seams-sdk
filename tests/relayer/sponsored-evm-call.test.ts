@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleRuntimeSnapshotService,
+  createInMemoryConsoleSponsorshipSpendCapService,
   type ConsoleApiKeyService,
 } from '@server/router/express-adaptor';
 import { createInMemoryConsoleSponsoredCallService } from '@server';
@@ -39,8 +40,16 @@ const tokenAddress = '0x20c0000000000000000000000000000000000001' as const;
 const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
 const sponsorPrivateKeyHex =
   '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
+const alternateChainId = 11_155_111;
+const alternateTokenAddress = '0x30c0000000000000000000000000000000000002' as const;
+const alternateSponsorAddress = '0x4444444444444444444444444444444444444444' as const;
+const alternateSponsorPrivateKeyHex =
+  '0x2222222222222222222222222222222222222222222222222222222222222222' as const;
 const contractAddress = '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483' as const;
 const selector = '0x867ae9d4' as const;
+const functionSignature = 'dripTo(address,address[])';
+const transferSelector = '0xa9059cbb' as const;
+const transferFunctionSignature = 'transfer(address,uint256)';
 const txHash = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
 const gasUsedHex = '0x5208';
 const gasUsedDec = '21000';
@@ -66,6 +75,12 @@ function encodeTempoDripToInput(
   const offsetHex = (64).toString(16).padStart(64, '0');
   const lengthHex = tokenAddresses.length.toString(16).padStart(64, '0');
   return `0x${selector.slice(2)}${recipientHex}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
+}
+
+function encodeErc20TransferInput(to: `0x${string}`, amount: bigint): `0x${string}` {
+  const toHex = to.slice(2).toLowerCase().padStart(64, '0');
+  const amountHex = amount.toString(16).padStart(64, '0');
+  return `0x${transferSelector.slice(2)}${toHex}${amountHex}` as `0x${string}`;
 }
 
 function makeBillingSpy() {
@@ -137,6 +152,13 @@ function parseRecordDetails(value: string | undefined) {
       gasUsed?: string | null;
       effectiveGasPrice?: string | null;
       feeAmount?: string;
+    };
+    billing?: {
+      sourceEventId?: string | null;
+      estimatedSpendMinor?: string | null;
+      settledSpendMinor?: string | null;
+      pricingVersion?: string | null;
+      usedEstimatedFallback?: boolean | null;
     };
   };
 }
@@ -240,14 +262,35 @@ async function startFakeTempoRpc(input: {
 }
 
 function makeRouteConfig(rpcUrl: string) {
+  return makeMultichainRouteConfig([
+    {
+      chainId: 42_431,
+      rpcUrl,
+      sponsorAddress,
+      sponsorPrivateKeyHex,
+    },
+  ]);
+}
+
+function makeMultichainRouteConfig(
+  executors: Array<{
+    chainId: number;
+    rpcUrl: string;
+    sponsorAddress: `0x${string}`;
+    sponsorPrivateKeyHex: `0x${string}`;
+  }>,
+) {
   return {
-    enabled: true,
-    rpcUrl,
-    chainId: 42_431,
-    sponsorAddress,
-    sponsorPrivateKeyHex,
-    maxPriorityFeePerGasFloor: 2_000_000_000n,
-    maxFeePerGasFloor: 40_000_000_000n,
+    executorsByChain: new Map(
+      executors.map((executor) => [
+        executor.chainId,
+        {
+          ...executor,
+          maxPriorityFeePerGasFloor: 2_000_000_000n,
+          maxFeePerGasFloor: 40_000_000_000n,
+        },
+      ]),
+    ),
   };
 }
 
@@ -259,9 +302,42 @@ function makeLogger() {
   };
 }
 
+function makePricingService(input: { estimatedMinor: number; finalizedMinor: number }) {
+  const estimates: Array<Record<string, unknown>> = [];
+  const finals: Array<Record<string, unknown>> = [];
+  return {
+    estimates,
+    finals,
+    service: {
+      estimateSponsoredExecutionSpend: async (request: Record<string, unknown>) => {
+        estimates.push(request);
+        return {
+          spendMinor: input.estimatedMinor,
+          pricingVersion: 'pricing-test-v1',
+        };
+      },
+      finalizeSponsoredExecutionSpend: async (request: Record<string, unknown>) => {
+        finals.push(request);
+        return {
+          spendMinor: input.finalizedMinor,
+          pricingVersion: 'pricing-test-v1',
+        };
+      },
+    },
+  };
+}
+
 async function publishAllowedPolicy(
   runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>,
-  opts?: { projectId?: string },
+  opts?: {
+    additionalResolvedPolicies?: Record<string, unknown>[];
+    projectId?: string;
+    spendCap?: {
+      mode: 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
+      period: 'WEEKLY' | 'MONTHLY';
+      capsByChain: Array<{ chainId: number; capMinor: number }>;
+    };
+  },
 ) {
   await runtimeSnapshots.publishSnapshot(apiKeyCtx, {
     ...(opts?.projectId ? { projectId: opts.projectId } : {}),
@@ -272,26 +348,35 @@ async function publishAllowedPolicy(
       smartWallets: {},
       gasSponsorship: {
         status: 'resolved',
-        policyCount: 1,
+        policyCount: 1 + (opts?.additionalResolvedPolicies?.length || 0),
         policies: [],
-        sponsoredCallPolicies: [
+        resolvedPolicies: [
           {
+            kind: 'evm_call',
             policyId: 'policy_gs_onboarding',
             policyName: 'Tempo Testnet Onboarding',
             scopePolicyId: null,
             scopePolicyName: null,
             templateId: 'tempo_testnet_onboarding',
             networkClass: 'TESTNET',
+            executionMode: 'evm_eoa',
             allowedChainIds: [42_431],
-            callMode: 'ALLOWLIST',
             allowedCalls: [
               {
                 chainId: 42_431,
                 to: contractAddress,
+                functionSignature,
                 selector,
+                maxGasLimit: '1000000',
+                maxValueWei: '0',
               },
             ],
+            spendCap: opts?.spendCap || { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+            scopeType: 'ENVIRONMENT',
+            projectId: null,
+            environmentId,
           },
+          ...(opts?.additionalResolvedPolicies || []),
         ],
       },
     },
@@ -303,6 +388,19 @@ async function startSponsoredCallRouteServer(input: {
   billing: unknown;
   ledger: ReturnType<typeof createInMemoryConsoleSponsoredCallService>;
   runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>;
+  sponsorship?: {
+    spendCaps?: ReturnType<typeof createInMemoryConsoleSponsorshipSpendCapService>;
+    pricing?: {
+      estimateSponsoredExecutionSpend: (input: Record<string, unknown>) => Promise<{
+        spendMinor: number;
+        pricingVersion: string;
+      }>;
+      finalizeSponsoredExecutionSpend: (input: Record<string, unknown>) => Promise<{
+        spendMinor: number;
+        pricingVersion: string;
+      }>;
+    };
+  };
   corsOrigins?: string[];
   config: ReturnType<typeof makeRouteConfig>;
 }) {
@@ -314,6 +412,8 @@ async function startSponsoredCallRouteServer(input: {
     billing: input.billing as any,
     ledger: input.ledger as any,
     runtimeSnapshots: input.runtimeSnapshots as any,
+    ...(input.sponsorship?.pricing ? { pricing: input.sponsorship.pricing as any } : {}),
+    ...(input.sponsorship?.spendCaps ? { spendCaps: input.sponsorship.spendCaps as any } : {}),
     corsOrigins: input.corsOrigins || [allowedOrigin],
     config: input.config,
     logger: makeLogger(),
@@ -337,8 +437,10 @@ test.describe('sponsored evm call route', () => {
         route: 'sponsored_evm_call_v1',
         policyId: 'policy_gs_onboarding',
         policyNameAtEvent: 'Tempo Testnet Onboarding',
+        templateId: 'tempo_testnet_onboarding',
         chainFamily: 'evm',
         intentKind: 'evm_call',
+        executorKind: 'evm_eoa',
         accountRef: 'near:alice.testnet',
         targetRef: `evm:42431:${contractAddress.toLowerCase()}`,
         sponsorRef: `evm:42431:${sponsorAddress.toLowerCase()}`,
@@ -378,8 +480,10 @@ test.describe('sponsored evm call route', () => {
         apiKeyKind: 'publishable_key',
         route: 'sponsored_evm_call_v1',
         policyId: 'policy_gs_other',
+        templateId: null,
         chainFamily: 'evm',
         intentKind: 'evm_call',
+        executorKind: 'evm_eoa',
         accountRef: 'near:bob.testnet',
         targetRef: `evm:42431:${contractAddress.toLowerCase()}`,
         sponsorRef: `evm:42431:${sponsorAddress.toLowerCase()}`,
@@ -449,6 +553,8 @@ test.describe('sponsored evm call route', () => {
       expect(record?.policyId).toBe('policy_gs_onboarding');
       expect(record?.chainFamily).toBe('evm');
       expect(record?.intentKind).toBe('evm_call');
+      expect(record?.templateId).toBe('tempo_testnet_onboarding');
+      expect(record?.executorKind).toBe('evm_eoa');
       expect(record?.accountRef).toBe('near:alice.testnet');
       expect(record?.targetRef).toBe(`evm:42431:${contractAddress.toLowerCase()}`);
       expect(record?.sponsorRef).toBe(`evm:42431:${sponsorAddress.toLowerCase()}`);
@@ -470,6 +576,579 @@ test.describe('sponsored evm call route', () => {
           succeeded: true,
         }),
       ]);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('enforces spend caps through the shared pricing and reservation path', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      spendCap: {
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capsByChain: [{ chainId: 42_431, capMinor: 100 }],
+      },
+    });
+    const billing = makeBillingSpy();
+    const pricing = makePricingService({ estimatedMinor: 80, finalizedMinor: 60 });
+    const spendCaps = createInMemoryConsoleSponsorshipSpendCapService({
+      now: () => new Date('2026-03-10T12:00:00.000Z'),
+    });
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      sponsorship: {
+        spendCaps,
+        pricing: pricing.service,
+      },
+      config: makeRouteConfig(rpc.url),
+    });
+    const baseBody = {
+      environmentId,
+      nearAccountId: 'alice.testnet',
+      walletAddress,
+      chainId: 42_431,
+      call: {
+        to: contractAddress,
+        data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+        gasLimit: '300000',
+        value: '0',
+      },
+    };
+    try {
+      const first = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...baseBody,
+          idempotencyKey: makeIdempotencyKey('spend-cap-first'),
+        }),
+      });
+      expect(first.status).toBe(200);
+
+      const usage = await spendCaps.getWindowUsage(apiKeyCtx, {
+        environmentId,
+        policyId: 'policy_gs_onboarding',
+        chainId: 42_431,
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        at: new Date('2026-03-10T12:00:00.000Z'),
+      });
+      expect(usage?.reservedMinor).toBe(0);
+      expect(usage?.settledMinor).toBe(60);
+      expect(usage?.availableMinor).toBe(40);
+
+      const firstRecord = await ledger.getRecordByIdempotencyKey(
+        apiKeyCtx,
+        makeIdempotencyKey('spend-cap-first'),
+      );
+      const firstDetails = parseRecordDetails(firstRecord?.detailsJson);
+      expect(firstDetails.billing?.estimatedSpendMinor).toBe('80');
+      expect(firstDetails.billing?.settledSpendMinor).toBe('60');
+      expect(firstDetails.billing?.pricingVersion).toBe('pricing-test-v1');
+      expect(pricing.estimates).toHaveLength(1);
+      expect(pricing.finals).toHaveLength(1);
+
+      const second = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...baseBody,
+          idempotencyKey: makeIdempotencyKey('spend-cap-second'),
+        }),
+      });
+      expect(second.status).toBe(409);
+      expect(second.json?.code).toBe('spend_cap_exceeded');
+      expect(rpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(1);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('fails closed when spend caps are configured but pricing is unavailable', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      spendCap: {
+        mode: 'CHAIN_TOTAL',
+        period: 'MONTHLY',
+        capsByChain: [{ chainId: 42_431, capMinor: 500 }],
+      },
+    });
+    const billing = makeBillingSpy();
+    const spendCaps = createInMemoryConsoleSponsorshipSpendCapService();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      sponsorship: {
+        spendCaps,
+      },
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'alice.testnet',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+            gasLimit: '300000',
+            value: '0',
+          },
+          idempotencyKey: makeIdempotencyKey('spend-cap-no-pricing'),
+        }),
+      });
+      expect(response.status).toBe(503);
+      expect(response.json?.code).toBe('sponsorship_pricing_unavailable');
+      expect(rpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(0);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('matches a second non-Tempo EVM template using the richer allowedCalls model', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      additionalResolvedPolicies: [
+        {
+          kind: 'evm_call',
+          policyId: 'policy_gs_erc20_transfer',
+          policyName: 'ERC20 Transfer Sponsorship',
+          scopePolicyId: null,
+          scopePolicyName: null,
+          templateId: 'erc20_transfer_v1',
+          networkClass: 'TESTNET',
+          executionMode: 'evm_eoa',
+          allowedChainIds: [42_431],
+          allowedCalls: [
+            {
+              chainId: 42_431,
+              to: tokenAddress,
+              functionSignature: transferFunctionSignature,
+              selector: transferSelector,
+              maxGasLimit: '200000',
+              maxValueWei: '0',
+            },
+          ],
+          spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+          scopeType: 'ENVIRONMENT',
+          projectId: null,
+          environmentId,
+        },
+      ],
+    });
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    const idempotencyKey = makeIdempotencyKey('erc20-transfer');
+    const callData = encodeErc20TransferInput(walletAddress, 123_000_000n);
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'carol.testnet',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: tokenAddress,
+            data: callData,
+            gasLimit: '120000',
+            value: '0',
+          },
+          idempotencyKey,
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.json?.ok).toBe(true);
+      expect(response.json?.policyId).toBe('policy_gs_erc20_transfer');
+
+      const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
+      const details = parseRecordDetails(record?.detailsJson);
+      expect(record?.policyId).toBe('policy_gs_erc20_transfer');
+      expect(record?.templateId).toBe('erc20_transfer_v1');
+      expect(record?.targetRef).toBe(`evm:42431:${tokenAddress.toLowerCase()}`);
+      expect(details.call?.to).toBe(tokenAddress);
+      expect(details.call?.selector).toBe(transferSelector);
+      expect(details.call?.data).toBe(callData);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('derives the canonical selector from functionSignature when the resolved snapshot carries a stale selector', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      additionalResolvedPolicies: [
+        {
+          kind: 'evm_call',
+          policyId: 'policy_gs_erc20_transfer_stale_selector',
+          policyName: 'ERC20 Transfer Sponsorship (stale selector)',
+          scopePolicyId: null,
+          scopePolicyName: null,
+          templateId: 'erc20_transfer_stale_selector_v1',
+          networkClass: 'TESTNET',
+          executionMode: 'evm_eoa',
+          allowedChainIds: [42_431],
+          allowedCalls: [
+            {
+              chainId: 42_431,
+              to: tokenAddress,
+              functionSignature: transferFunctionSignature,
+              selector: '0xdeadbeef',
+              maxGasLimit: '200000',
+              maxValueWei: '0',
+            },
+          ],
+          spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+          scopeType: 'ENVIRONMENT',
+          projectId: null,
+          environmentId,
+        },
+      ],
+    });
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'selector.testnet',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: tokenAddress,
+            data: encodeErc20TransferInput(walletAddress, 777_000_000n),
+            gasLimit: '120000',
+            value: '0',
+          },
+          idempotencyKey: makeIdempotencyKey('erc20-transfer-stale-selector'),
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.json?.ok).toBe(true);
+      expect(response.json?.policyId).toBe('policy_gs_erc20_transfer_stale_selector');
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('routes matched sponsorships to the executor configured for the requested chain', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      additionalResolvedPolicies: [
+        {
+          kind: 'evm_call',
+          policyId: 'policy_gs_multichain_transfer',
+          policyName: 'Alt Chain ERC20 Transfer Sponsorship',
+          scopePolicyId: null,
+          scopePolicyName: null,
+          templateId: 'erc20_transfer_alt_chain_v1',
+          networkClass: 'TESTNET',
+          executionMode: 'evm_eoa',
+          allowedChainIds: [alternateChainId],
+          allowedCalls: [
+            {
+              chainId: alternateChainId,
+              to: alternateTokenAddress,
+              functionSignature: transferFunctionSignature,
+              selector: transferSelector,
+              maxGasLimit: '200000',
+              maxValueWei: '0',
+            },
+          ],
+          spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+          scopeType: 'ENVIRONMENT',
+          projectId: null,
+          environmentId,
+        },
+      ],
+    });
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const primaryRpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const alternateRpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeMultichainRouteConfig([
+        {
+          chainId: 42_431,
+          rpcUrl: primaryRpc.url,
+          sponsorAddress,
+          sponsorPrivateKeyHex,
+        },
+        {
+          chainId: alternateChainId,
+          rpcUrl: alternateRpc.url,
+          sponsorAddress: alternateSponsorAddress,
+          sponsorPrivateKeyHex: alternateSponsorPrivateKeyHex,
+        },
+      ]),
+    });
+    const idempotencyKey = makeIdempotencyKey('multichain-executor-selection');
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'multichain.testnet',
+          walletAddress,
+          chainId: alternateChainId,
+          call: {
+            to: alternateTokenAddress,
+            data: encodeErc20TransferInput(walletAddress, 321_000_000n),
+            gasLimit: '120000',
+            value: '0',
+          },
+          idempotencyKey,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json?.ok).toBe(true);
+      expect(response.json?.policyId).toBe('policy_gs_multichain_transfer');
+      expect(primaryRpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(0);
+      expect(
+        alternateRpc.requests.filter((method) => method === 'eth_sendRawTransaction'),
+      ).toHaveLength(1);
+
+      const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
+      expect(record?.policyId).toBe('policy_gs_multichain_transfer');
+      expect(record?.templateId).toBe('erc20_transfer_alt_chain_v1');
+      expect(record?.targetRef).toBe(`evm:${alternateChainId}:${alternateTokenAddress.toLowerCase()}`);
+    } finally {
+      await server.close();
+      await primaryRpc.close();
+      await alternateRpc.close();
+    }
+  });
+
+  test('rejects matched calls when no executor is configured for the matched chain', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots, {
+      additionalResolvedPolicies: [
+        {
+          kind: 'evm_call',
+          policyId: 'policy_gs_missing_executor',
+          policyName: 'Missing Executor Sponsorship',
+          scopePolicyId: null,
+          scopePolicyName: null,
+          templateId: 'missing_executor_v1',
+          networkClass: 'TESTNET',
+          executionMode: 'evm_eoa',
+          allowedChainIds: [alternateChainId],
+          allowedCalls: [
+            {
+              chainId: alternateChainId,
+              to: alternateTokenAddress,
+              functionSignature: transferFunctionSignature,
+              selector: transferSelector,
+              maxGasLimit: '200000',
+              maxValueWei: '0',
+            },
+          ],
+          spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+          scopeType: 'ENVIRONMENT',
+          projectId: null,
+          environmentId,
+        },
+      ],
+    });
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'missing-executor.testnet',
+          walletAddress,
+          chainId: alternateChainId,
+          call: {
+            to: alternateTokenAddress,
+            data: encodeErc20TransferInput(walletAddress, 456_000_000n),
+            gasLimit: '120000',
+            value: '0',
+          },
+          idempotencyKey: makeIdempotencyKey('missing-executor'),
+        }),
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.json?.code).toBe('sponsor_chain_misconfigured');
+      expect(rpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(0);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('rejects calls that exceed allowed gas or value bounds even when selector matches', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const billing = makeBillingSpy();
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing: billing.service,
+      ledger,
+      runtimeSnapshots,
+      config: makeRouteConfig(rpc.url),
+    });
+    try {
+      const gasExceeded = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'bounds.testnet',
+          walletAddress,
+          chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('gas-bound-exceeded'),
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+            gasLimit: '1000001',
+            value: '0',
+          },
+        }),
+      });
+      const valueExceeded = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'bounds.testnet',
+          walletAddress,
+          chainId: 42_431,
+          idempotencyKey: makeIdempotencyKey('value-bound-exceeded'),
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+            gasLimit: '300000',
+            value: '1',
+          },
+        }),
+      });
+
+      expect(gasExceeded.status).toBe(403);
+      expect(gasExceeded.json?.code).toBe('sponsorship_policy_gas_limit_exceeded');
+      expect(gasExceeded.json?.details?.actualGasLimit).toBe('1000001');
+      expect(gasExceeded.json?.details?.maxGasLimit).toBe('1000000');
+      expect(valueExceeded.status).toBe(403);
+      expect(valueExceeded.json?.code).toBe('sponsorship_policy_value_exceeded');
+      expect(valueExceeded.json?.details?.actualValueWei).toBe('1');
+      expect(valueExceeded.json?.details?.maxValueWei).toBe('0');
+      expect(rpc.requests.filter((method) => method === 'eth_sendRawTransaction')).toHaveLength(0);
     } finally {
       await server.close();
       await rpc.close();
@@ -705,14 +1384,15 @@ test.describe('sponsored evm call route', () => {
       });
       const mismatchBody = mismatch.json || {};
       expect(mismatch.status).toBe(403);
-      expect(mismatchBody.code).toBe('sponsorship_policy_not_matched');
+      expect(mismatchBody.code).toBe('sponsorship_policy_selector_mismatch');
+      expect(mismatchBody.details?.actualSelector).toBe('0xdeadbeef');
     } finally {
       await server.close();
       await rpc.close();
     }
   });
 
-  test('rejects onboarding dripTo calls whose recipient does not match walletAddress', async () => {
+  test('does not enforce recipient binding for allowlisted dripTo calls', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const ledger = createInMemoryConsoleSponsoredCallService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
@@ -754,8 +1434,9 @@ test.describe('sponsored evm call route', () => {
         }),
       });
       const body = response.json || {};
-      expect(response.status).toBe(403);
-      expect(body.code).toBe('sponsorship_recipient_mismatch');
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.replayed).toBe(false);
     } finally {
       await server.close();
       await rpc.close();
@@ -855,6 +1536,8 @@ test.describe('sponsored evm call route', () => {
       const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
       const details = parseRecordDetails(record?.detailsJson);
       expect(record?.receiptStatus).toBe('reverted');
+      expect(record?.templateId).toBe('tempo_testnet_onboarding');
+      expect(record?.executorKind).toBe('evm_eoa');
       expect(record?.txOrExecutionRef).toBe(txHash);
       expect(record?.feeAmount).toBe(spendWeiDec);
       expect(details.execution?.gasUsed).toBe(gasUsedDec);

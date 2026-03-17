@@ -5917,6 +5917,8 @@ test.describe('dashboard console config page api wiring', () => {
       {
         id: 'gs_existing',
         name: 'Existing sponsorship',
+        kind: 'evm_call',
+        executionMode: 'evm_eoa',
         scopePolicyName: null,
         scopeType: 'ENVIRONMENT',
         projectId: 'proj_active',
@@ -5925,8 +5927,6 @@ test.describe('dashboard console config page api wiring', () => {
         walletSegmentId: null,
         networkClass: 'TESTNET',
         enabled: true,
-        allowedChainIds: [42431],
-        callMode: 'ALLOWLIST',
         spendCap: {
           mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
@@ -5936,7 +5936,10 @@ test.describe('dashboard console config page api wiring', () => {
           {
             chainId: 42431,
             to: '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483',
+            functionSignature: 'dripTo(address,address[])',
             selector: '0x867ae9d4',
+            maxGasLimit: '1000000',
+            maxValueWei: '0',
           },
         ],
         updatedAt: iso('2026-01-10T00:00:00.000Z'),
@@ -5954,6 +5957,7 @@ test.describe('dashboard console config page api wiring', () => {
       status: 'PUBLISHED',
       version: 1,
       rules: {
+        kind: String(policy.kind || 'evm_call'),
         scopeType: String(policy.scopeType || 'ENVIRONMENT'),
         projectId: policy.projectId ?? null,
         environmentId: policy.environmentId ?? null,
@@ -5962,8 +5966,7 @@ test.describe('dashboard console config page api wiring', () => {
         templateId: policy.templateId ?? null,
         networkClass: String(policy.networkClass || 'ANY'),
         enabled: policy.enabled !== false,
-        allowedChainIds: Array.isArray(policy.allowedChainIds) ? policy.allowedChainIds : [],
-        callMode: String(policy.callMode || 'ALLOW_ALL'),
+        executionMode: String(policy.executionMode || 'evm_eoa'),
         spendCap:
           policy.spendCap && typeof policy.spendCap === 'object' && !Array.isArray(policy.spendCap)
             ? policy.spendCap
@@ -6092,6 +6095,8 @@ test.describe('dashboard console config page api wiring', () => {
         const created = {
           id: String(body.id || `policy_created_${Date.now()}`),
           name: String(body.name || 'Gas Sponsorship Policy'),
+          kind: String(rules.kind || 'evm_call'),
+          executionMode: String(rules.executionMode || 'evm_eoa'),
           scopePolicyName: null,
           scopeType,
           projectId: rules.projectId ?? null,
@@ -6100,8 +6105,6 @@ test.describe('dashboard console config page api wiring', () => {
           walletSegmentId: rules.walletSegmentId ?? null,
           networkClass: String(rules.networkClass || 'ANY'),
           enabled: rules.enabled !== false,
-          allowedChainIds: Array.isArray(rules.allowedChainIds) ? rules.allowedChainIds : [],
-          callMode: String(rules.callMode || 'ALLOW_ALL'),
           spendCap:
             rules.spendCap && typeof rules.spendCap === 'object' && !Array.isArray(rules.spendCap)
               ? rules.spendCap
@@ -6161,14 +6164,11 @@ test.describe('dashboard console config page api wiring', () => {
         if (rules.networkClass !== undefined) {
           target.networkClass = String(rules.networkClass || target.networkClass || 'ANY');
         }
+        if (rules.executionMode !== undefined) {
+          target.executionMode = String(rules.executionMode || target.executionMode || 'evm_eoa');
+        }
         if (rules.enabled !== undefined) {
           target.enabled = rules.enabled === true;
-        }
-        if (Array.isArray(rules.allowedChainIds)) {
-          target.allowedChainIds = rules.allowedChainIds;
-        }
-        if (rules.callMode !== undefined) {
-          target.callMode = String(rules.callMode || target.callMode || 'ALLOW_ALL');
         }
         if (
           rules.spendCap &&
@@ -6286,30 +6286,29 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(
       gasCreateModalAfterRefresh.getByRole('button', { name: 'All mainnets' }),
     ).toHaveCount(0);
-    await gasCreateModalAfterRefresh
-      .getByRole('group', { name: 'Tempo Testnet' })
-      .getByRole('button', { name: 'On' })
-      .click();
-    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Per chain total' }).click();
+    const tempoCreateRow = gasCreateModalAfterRefresh
+      .locator('.dashboard-gas-target-matrix__row')
+      .filter({ hasText: 'Tempo' });
+    await tempoCreateRow.locator('.dashboard-gas-target-toggle__option').first().click();
+    await gasCreateModalAfterRefresh.locator('button:has-text("Per chain total")').click();
     const tempoTestnetRow = gasCreateModalAfterRefresh
       .locator('.dashboard-gas-target-matrix__row')
       .filter({ hasText: 'Tempo' });
     await expect(tempoTestnetRow).toContainText('AlphaUSD');
     await gasCreateModalAfterRefresh.getByLabel('Tempo Testnet spend cap').fill('500.00');
-    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Allowlist' }).click();
-    await gasCreateModalAfterRefresh.getByRole('button', { name: 'Add contract' }).click();
+    await gasCreateModalAfterRefresh.locator('button:has-text("Add contract")').click();
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Contract address") input')
       .fill('0xBB442B54c85efBa2D7B81eA52990ad638cDbA483');
     await gasCreateModalAfterRefresh
-      .locator('label:has-text("Allowed functions") input')
-      .fill('0x867ae9d4');
-    await expect(
-      gasCreateModalAfterRefresh.locator('label:has-text("Max gas limit") input'),
-    ).toHaveCount(0);
-    await expect(
-      gasCreateModalAfterRefresh.locator('label:has-text("Max value (wei)") input'),
-    ).toHaveCount(0);
+      .locator('label:has-text("Function signature") input')
+      .fill('dripTo(address,address[])');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Max gas limit") input')
+      .fill('1000000');
+    await gasCreateModalAfterRefresh
+      .locator('label:has-text("Max value (wei)") input')
+      .fill('0');
     await gasCreateModalAfterRefresh
       .locator('button:has-text("Create sponsorship policy")')
       .click();
@@ -6354,27 +6353,22 @@ test.describe('dashboard console config page api wiring', () => {
           (lastGasCreateBody?.rules &&
           typeof lastGasCreateBody.rules === 'object' &&
           !Array.isArray(lastGasCreateBody.rules)
-            ? (lastGasCreateBody.rules as Record<string, unknown>).callMode
+            ? (lastGasCreateBody.rules as Record<string, unknown>).executionMode
             : '') || '',
         ),
       )
-      .toBe('ALLOWLIST');
+      .toBe('evm_eoa');
     await expect
       .poll(() =>
-        Array.isArray(
+        String(
           lastGasCreateBody?.rules &&
             typeof lastGasCreateBody.rules === 'object' &&
             !Array.isArray(lastGasCreateBody.rules)
-            ? (lastGasCreateBody.rules as Record<string, unknown>).allowedChainIds
-            : null,
-        )
-          ? [...((lastGasCreateBody!.rules as Record<string, unknown>).allowedChainIds as any[])]
-              .map(String)
-              .sort()
-              .join(',')
-          : '',
+            ? (lastGasCreateBody.rules as Record<string, unknown>).kind
+            : '',
+        ),
       )
-      .toBe('42431');
+      .toBe('evm_call');
     await expect
       .poll(() => {
         const spendCap =
@@ -6424,6 +6418,29 @@ test.describe('dashboard console config page api wiring', () => {
           : '',
       )
       .toBe('42431');
+    await expect
+      .poll(() => {
+        const allowedCalls =
+          lastGasCreateBody?.rules &&
+          typeof lastGasCreateBody.rules === 'object' &&
+          !Array.isArray(lastGasCreateBody.rules)
+            ? ((lastGasCreateBody.rules as Record<string, unknown>).allowedCalls as Array<{
+                functionSignature?: unknown;
+                maxGasLimit?: unknown;
+                maxValueWei?: unknown;
+              }>)
+            : [];
+        return JSON.stringify(allowedCalls?.[0] || {});
+      })
+      .toBe(
+        JSON.stringify({
+          chainId: 42431,
+          to: '0xBB442B54c85efBa2D7B81eA52990ad638cDbA483',
+          functionSignature: 'dripTo(address,address[])',
+          maxGasLimit: '1000000',
+          maxValueWei: '0',
+        }),
+      );
     await expect(page.locator('section[aria-label="Gas sponsorship policies"]')).toContainText(
       'New sponsorship',
     );
@@ -6449,7 +6466,9 @@ test.describe('dashboard console config page api wiring', () => {
     await newSponsorshipRow.getByRole('button', { name: 'View' }).click();
     const gasViewModal = page.locator('section[aria-label="View gas sponsorship coverage modal"]');
     await expect(gasViewModal).toContainText('Tempo Testnet monthly cap 500.00 AlphaUSD total');
-    await gasViewModal.getByRole('button', { name: 'Close' }).click();
+    await expect(gasViewModal).toContainText('dripTo(address,address[])');
+    await expect(gasViewModal).toContainText('gas <= 1000000');
+    await gasViewModal.locator('button:has-text("Close")').click();
 
     await newSponsorshipRow.getByRole('button', { name: 'Edit' }).click();
     const gasEditModal = page.locator('section[aria-label="Edit gas sponsorship policy modal"]');
@@ -6460,20 +6479,21 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(tempoEditRow).toContainText('AlphaUSD');
     await expect(tempoTestnetSpendCapInput).toHaveValue('500.00');
     await tempoTestnetSpendCapInput.fill('500.123');
-    await gasEditModal.getByRole('button', { name: 'Save sponsorship policy' }).click();
+    await gasEditModal.locator('button:has-text("Save sponsorship policy")').click();
     await expect(gasEditModal).toContainText(
       'Tempo Testnet spend cap must be a non-negative amount with up to 2 decimal places.',
     );
     await expect.poll(() => gasPolicyPatchCalls.length).toBe(0);
 
     await tempoTestnetSpendCapInput.fill('725.50');
-    await gasEditModal.getByRole('button', { name: 'Save sponsorship policy' }).click();
+    await gasEditModal.locator('button:has-text("Save sponsorship policy")').click();
     await expect.poll(() => gasPolicyPatchCalls.length).toBe(1);
     expect(gasPolicyPatchCalls[0]?.body).toMatchObject({
       name: 'New sponsorship',
       rules: {
         networkClass: 'TESTNET',
-        callMode: 'ALLOWLIST',
+        kind: 'evm_call',
+        executionMode: 'evm_eoa',
         spendCap: {
           mode: 'CHAIN_TOTAL',
           period: 'MONTHLY',
@@ -6506,11 +6526,10 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(productionTargetHeader).toContainText('Mainnet');
     await expect(productionTargetHeader).not.toContainText('Testnet');
     await expect(
-      gasCreateModalAfterEnvironmentSwitch.getByRole('group', { name: 'Tempo Mainnet' }),
-    ).toBeVisible();
-    await expect(
-      gasCreateModalAfterEnvironmentSwitch.getByRole('group', { name: 'Tempo Testnet' }),
-    ).toHaveCount(0);
+      gasCreateModalAfterEnvironmentSwitch
+        .locator('.dashboard-gas-target-matrix__row')
+        .filter({ hasText: 'Tempo' }),
+    ).toContainText('Tempo');
     await expect(
       gasCreateModalAfterEnvironmentSwitch.getByRole('button', { name: 'All testnets' }),
     ).toHaveCount(0);

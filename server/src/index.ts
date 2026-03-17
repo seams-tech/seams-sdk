@@ -18,6 +18,8 @@ export {
   computeEip1559TxHash,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
+  secp256k1PrivateKey32ToPublicKey33,
+  secp256k1PublicKey33ToEthereumAddress,
 } from './core/ThresholdService/ethSignerWasm';
 export type { ServerEip1559UnsignedTx } from './core/ThresholdService/ethSignerWasm';
 export type {

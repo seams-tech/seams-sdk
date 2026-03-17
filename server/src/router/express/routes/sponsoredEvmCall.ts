@@ -24,7 +24,9 @@ export function registerSponsoredEvmCallRoutes(
     config: options.config,
     corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
     publishableKeyAuth,
+    pricing: ctx.opts.sponsorship?.pricing || null,
     runtimeSnapshots: options.runtimeSnapshots,
+    spendCaps: ctx.opts.sponsorship?.spendCaps || null,
     sponsoredCalls: options.ledger,
   } as const;
 

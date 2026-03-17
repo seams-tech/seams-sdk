@@ -1841,7 +1841,7 @@ export function createRelayRouteDefinitions(
           originBinding: 'required',
         },
         { kind: 'gas', ledger: 'near_delegate' },
-        ['authService', 'publishableKeyAuth', 'billing', 'sponsoredCalls'],
+        ['authService', 'publishableKeyAuth', 'billing', 'runtimeSnapshots', 'sponsoredCalls'],
       ),
     );
   }

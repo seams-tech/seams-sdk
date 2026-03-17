@@ -6,6 +6,7 @@ import initEthSignerWasm, {
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
+  secp256k1_private_key_32_to_public_key_33,
   secp256k1_public_key_33_to_ethereum_address_20,
   sha256_bytes,
   sign_secp256k1_recoverable,
@@ -221,6 +222,14 @@ export async function addSecp256k1PublicKeys33(input: {
   await ensureEthSignerWasm();
   const out = add_secp256k1_public_keys_33(input.left33, input.right33) as Uint8Array;
   return checkedBytes('add_secp256k1_public_keys_33 output', out, 33);
+}
+
+export async function secp256k1PrivateKey32ToPublicKey33(
+  privateKey32: Uint8Array,
+): Promise<Uint8Array> {
+  await ensureEthSignerWasm();
+  const out = secp256k1_private_key_32_to_public_key_33(privateKey32) as Uint8Array;
+  return checkedBytes('secp256k1_private_key_32_to_public_key_33 output', out, 33);
 }
 
 export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {

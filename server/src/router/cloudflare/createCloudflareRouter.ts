@@ -1,5 +1,4 @@
 import type { AuthService } from '../../core/AuthService';
-import type { DelegateActionPolicy } from '../../delegateAction';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -53,7 +52,6 @@ export interface CloudflareRelayContext {
   mePath: string;
   routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
-  signedDelegatePolicy?: DelegateActionPolicy;
 }
 
 export function createCloudflareRouter(
@@ -73,7 +71,6 @@ export function createCloudflareRouter(
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRelayRouteSurface(effectiveOpts);
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
-  const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 
   const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
     handleWellKnown,
@@ -137,7 +134,6 @@ export function createCloudflareRouter(
       mePath,
       routeDefinitions,
       signedDelegatePath,
-      signedDelegatePolicy,
     };
 
     const ctx: CloudflareRelayContext = {

@@ -16,12 +16,14 @@ export async function handleSignedDelegate(ctx: CloudflareRelayContext): Promise
     origin:
       String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() ||
       undefined,
-    policy: ctx.signedDelegatePolicy,
     route,
     services: {
       authService: ctx.service,
       billing: ctx.opts.signedDelegate?.billing,
+      pricing: ctx.opts.sponsorship?.pricing || null,
       publishableKeyAuth: ctx.opts.publishableKeyAuth,
+      runtimeSnapshots: ctx.opts.signedDelegate?.runtimeSnapshots || null,
+      spendCaps: ctx.opts.sponsorship?.spendCaps || null,
       sponsoredCalls: ctx.opts.signedDelegate?.ledger,
     },
   });

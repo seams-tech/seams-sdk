@@ -73,7 +73,9 @@ impl ThresholdEcdsaPresignSession {
 
     #[wasm_bindgen]
     pub fn message(&mut self, from: u32, data: Vec<u8>) -> Result<(), JsValue> {
-        self.inner.message(from, data.as_slice()).map_err(js_core_err)
+        self.inner
+            .message(from, data.as_slice())
+            .map_err(js_core_err)
     }
 
     #[wasm_bindgen]

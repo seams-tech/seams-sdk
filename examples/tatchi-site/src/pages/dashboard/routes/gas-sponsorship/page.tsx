@@ -7,7 +7,6 @@ import {
   type GasSponsorshipChainTarget,
   type GasSponsorshipTargetNetworkClass,
 } from '../../../../../../../shared/src/console/gasSponsorshipChains';
-import { keccak256Bytes } from '../../../../../../../shared/src/utils/keccak';
 import {
   DashboardTable,
   DashboardTableActionButton,
@@ -53,10 +52,16 @@ type GasSponsorshipDraftScope = {
 };
 type GasChainTarget = GasSponsorshipChainTarget;
 type GasChainMatrixRow = GasSponsorshipChainMatrixRow;
+type GasContractFunctionDraft = {
+  id: string;
+  functionSignature: string;
+  maxGasLimit: string;
+  maxValueWei: string;
+};
 type GasContractRuleDraft = {
   id: string;
   contractAddress: string;
-  functions: string[];
+  functions: GasContractFunctionDraft[];
 };
 
 const GAS_CHAIN_MATRIX_ROWS: readonly GasChainMatrixRow[] = GAS_SPONSORSHIP_CHAIN_MATRIX_ROWS;
@@ -84,7 +89,6 @@ type GasSponsorshipFormState = {
   walletSegmentId: string;
   enabled: boolean;
   selectedTargets: string[];
-  contractCallAllowlistEnabled: boolean;
   contractCallRules: GasContractRuleDraft[];
   spendCapMode: GasSpendCapMode;
   spendCapPeriod: GasSpendCapPeriod;
@@ -99,28 +103,41 @@ function makeDraftId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function bytesToHex(bytes: Uint8Array): `0x${string}` {
-  return `0x${Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')}`;
+function normalizeFunctionSignatureInput(value: string): string | null {
+  const normalized = normalizeString(value);
+  return /^[A-Za-z_][A-Za-z0-9_]*\([^)]*\)$/.test(normalized) ? normalized : null;
 }
 
-function normalizeFunctionSelectorInput(value: string): `0x${string}` | null {
+function parseRequiredUnsignedIntegerString(value: string, field: string): string {
   const normalized = normalizeString(value);
-  if (!normalized) return null;
-  if (/^0x[0-9a-fA-F]{8}$/.test(normalized)) {
-    return normalized.toLowerCase() as `0x${string}`;
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${field} must be a non-negative integer.`);
   }
-  if (!/^[A-Za-z_][A-Za-z0-9_]*\([^)]*\)$/.test(normalized)) {
-    return null;
+  return BigInt(normalized).toString(10);
+}
+
+function parseRequiredPositiveIntegerString(value: string, field: string): string {
+  const normalized = parseRequiredUnsignedIntegerString(value, field);
+  if (BigInt(normalized) <= 0n) {
+    throw new Error(`${field} must be greater than zero.`);
   }
-  const digest = keccak256Bytes(new TextEncoder().encode(normalized));
-  return bytesToHex(digest.slice(0, 4)).toLowerCase() as `0x${string}`;
+  return normalized;
+}
+
+function createEmptyGasContractFunctionDraft(): GasContractFunctionDraft {
+  return {
+    id: makeDraftId('gas_function'),
+    functionSignature: '',
+    maxGasLimit: '',
+    maxValueWei: '0',
+  };
 }
 
 function createEmptyGasContractRuleDraft(): GasContractRuleDraft {
   return {
     id: makeDraftId('gas_contract'),
     contractAddress: '',
-    functions: [''],
+    functions: [createEmptyGasContractFunctionDraft()],
   };
 }
 
@@ -248,11 +265,21 @@ function readGasContractRuleDrafts(raw: unknown): GasContractRuleDraft[] {
     if (!isRecord(entry)) continue;
     const contractAddress = normalizeString(String(entry.contractAddress || ''));
     const functionsRaw = Array.isArray(entry.functions) ? entry.functions : [];
-    const functions = functionsRaw.map((value) => normalizeString(String(value || '')));
+    const functions = functionsRaw
+      .map((value) => {
+        if (!isRecord(value)) return null;
+        return {
+          id: normalizeString(String(value.id || '')) || makeDraftId('gas_function'),
+          functionSignature: normalizeString(String(value.functionSignature || '')),
+          maxGasLimit: normalizeString(String(value.maxGasLimit || '')),
+          maxValueWei: normalizeString(String(value.maxValueWei || '')) || '0',
+        };
+      })
+      .filter((value): value is GasContractFunctionDraft => value !== null);
     out.push({
       id: normalizeString(String(entry.id || '')) || makeDraftId('gas_contract'),
       contractAddress,
-      functions: functions.length > 0 ? functions : [''],
+      functions: functions.length > 0 ? functions : [createEmptyGasContractFunctionDraft()],
     });
   }
   return out;
@@ -268,22 +295,6 @@ function readSpendCapAmountByChainName(raw: unknown): Record<string, string> {
     out[chainName] = value;
   }
   return out;
-}
-
-function deriveSelectedTargetsFromLegacyFields(raw: Record<string, unknown>): string[] {
-  const chainToken = normalizeString(String(raw.chain || ''));
-  if (!chainToken) return [];
-  const networkClass = readEnumValue(raw.networkClass, GAS_NETWORK_CLASSES, 'TESTNET');
-  const matchingTargets = GAS_CHAIN_TARGETS.filter(
-    (target) => String(target.chainId) === chainToken,
-  );
-  if (matchingTargets.length === 0) return [];
-  if (networkClass === 'ANY') {
-    return matchingTargets.map((target) => target.id);
-  }
-  return matchingTargets
-    .filter((target) => target.networkClass === networkClass)
-    .map((target) => target.id);
 }
 
 function gasNetworkClassFromEnvironmentKey(environmentKey: string): GasNetworkToggleClass {
@@ -315,30 +326,17 @@ function remapSelectedTargetsToNetwork(
   ).filter(Boolean);
 }
 
-function deriveLegacyContractCallRules(raw: Record<string, unknown>): GasContractRuleDraft[] {
-  const contractAddress = normalizeString(String(raw.callTo || ''));
-  const selector = normalizeString(String(raw.callSelector || ''));
-  if (!contractAddress && !selector) return [];
-  return [
-    {
-      id: makeDraftId('gas_contract'),
-      contractAddress,
-      functions: [selector],
-    },
-  ];
-}
-
 function groupAllowedCallsByContract(
   allowedCalls: readonly DashboardGasSponsorshipPolicy['allowedCalls'][number][],
 ): GasContractRuleDraft[] {
   const byContract = new Map<
     string,
-    { contractAddress: string; functions: string[]; seen: Set<string> }
+    { contractAddress: string; functions: GasContractFunctionDraft[]; seen: Set<string> }
   >();
   for (const allowedCall of allowedCalls) {
     const contractKey = allowedCall.to.toLowerCase();
-    const selector = normalizeString(allowedCall.selector).toLowerCase();
-    if (!selector) continue;
+    const functionSignature = normalizeString(allowedCall.functionSignature);
+    if (!functionSignature) continue;
     let bucket = byContract.get(contractKey);
     if (!bucket) {
       bucket = {
@@ -348,14 +346,25 @@ function groupAllowedCallsByContract(
       };
       byContract.set(contractKey, bucket);
     }
-    if (bucket.seen.has(selector)) continue;
-    bucket.seen.add(selector);
-    bucket.functions.push(selector);
+    const functionKey = [
+      functionSignature.toLowerCase(),
+      normalizeString(allowedCall.maxGasLimit),
+      normalizeString(allowedCall.maxValueWei),
+    ].join(':');
+    if (bucket.seen.has(functionKey)) continue;
+    bucket.seen.add(functionKey);
+    bucket.functions.push({
+      id: makeDraftId('gas_function'),
+      functionSignature,
+      maxGasLimit: normalizeString(allowedCall.maxGasLimit),
+      maxValueWei: normalizeString(allowedCall.maxValueWei) || '0',
+    });
   }
   return Array.from(byContract.values()).map((entry) => ({
     id: `gas_contract_${entry.contractAddress.toLowerCase()}`,
     contractAddress: entry.contractAddress,
-    functions: entry.functions.length > 0 ? entry.functions : [''],
+    functions:
+      entry.functions.length > 0 ? entry.functions : [createEmptyGasContractFunctionDraft()],
   }));
 }
 
@@ -370,12 +379,6 @@ function resolveSelectedTargetsOrThrow(selectedTargetIds: readonly string[]): Ga
 }
 
 function resolveSelectedTargetIdsFromPolicy(policy: DashboardGasSponsorshipPolicy): string[] {
-  const targetIdsFromChains = policy.allowedChainIds
-    .map((chainId) => GAS_CHAIN_TARGETS.find((target) => target.chainId === chainId)?.id || '')
-    .filter(Boolean);
-  if (targetIdsFromChains.length > 0) {
-    return uniqueGasTargetIds(targetIdsFromChains);
-  }
   const targetIdsFromCalls = policy.allowedCalls
     .map((call) => GAS_CHAIN_TARGETS.find((target) => target.chainId === call.chainId)?.id || '')
     .filter(Boolean);
@@ -401,7 +404,6 @@ function parseGasSponsorshipFormDraft(
   fallback: GasSponsorshipFormState,
 ): GasSponsorshipFormState | null {
   if (!isRecord(raw)) return null;
-  const legacyContractRules = deriveLegacyContractCallRules(raw);
   const contractCallRules = readGasContractRuleDrafts(raw.contractCallRules);
   return {
     name: normalizeString(String(raw.name ?? fallback.name)),
@@ -411,25 +413,11 @@ function parseGasSponsorshipFormDraft(
     scopePolicyId: normalizeString(String(raw.scopePolicyId ?? fallback.scopePolicyId)),
     walletSegmentId: normalizeString(String(raw.walletSegmentId ?? fallback.walletSegmentId)),
     enabled: raw.enabled === true || raw.enabled === false ? raw.enabled : fallback.enabled,
-    selectedTargets: (() => {
-      if (Array.isArray(raw.selectedTargets)) {
-        return uniqueGasTargetIds(raw.selectedTargets.map((value) => String(value || '')));
-      }
-      const derivedLegacyTargets = deriveSelectedTargetsFromLegacyFields(raw);
-      return derivedLegacyTargets.length > 0 ? derivedLegacyTargets : fallback.selectedTargets;
-    })(),
-    contractCallAllowlistEnabled:
-      raw.contractCallAllowlistEnabled === true || raw.contractCallAllowlistEnabled === false
-        ? raw.contractCallAllowlistEnabled
-        : contractCallRules.length > 0 || legacyContractRules.length > 0
-          ? true
-          : fallback.contractCallAllowlistEnabled,
+    selectedTargets: Array.isArray(raw.selectedTargets)
+      ? uniqueGasTargetIds(raw.selectedTargets.map((value) => String(value || '')))
+      : fallback.selectedTargets,
     contractCallRules:
-      contractCallRules.length > 0
-        ? contractCallRules
-        : legacyContractRules.length > 0
-          ? legacyContractRules
-          : fallback.contractCallRules,
+      contractCallRules.length > 0 ? contractCallRules : fallback.contractCallRules,
     spendCapMode: readEnumValue(raw.spendCapMode, GAS_SPEND_CAP_MODES, fallback.spendCapMode),
     spendCapPeriod: readEnumValue(
       raw.spendCapPeriod,
@@ -459,7 +447,6 @@ function createInitialFormState(projectId: string, environmentId: string): GasSp
     walletSegmentId: '',
     enabled: true,
     selectedTargets: [],
-    contractCallAllowlistEnabled: false,
     contractCallRules: [],
     spendCapMode: 'NONE',
     spendCapPeriod: 'MONTHLY',
@@ -494,7 +481,6 @@ function buildFormStateFromPolicy(
     walletSegmentId: policy.walletSegmentId || '',
     enabled: policy.enabled,
     selectedTargets: resolveSelectedTargetIdsFromPolicy(policy),
-    contractCallAllowlistEnabled: policy.callMode === 'ALLOWLIST',
     contractCallRules,
     spendCapMode: policy.spendCap.mode,
     spendCapPeriod: policy.spendCap.period,
@@ -570,38 +556,62 @@ function buildAllowedCalls(
   form: GasSponsorshipFormState,
   selectedTargets: readonly GasChainTarget[],
 ) {
-  if (!form.contractCallAllowlistEnabled) return [];
   if (selectedTargets.length === 0) {
-    throw new Error('Allowlist mode requires at least one selected chain.');
+    throw new Error('Choose at least one chain target.');
   }
   if (form.contractCallRules.length === 0) {
-    throw new Error('Allowlist mode requires at least one allowed contract.');
+    throw new Error('Add at least one allowed contract.');
   }
-  const out = new Map<string, { chainId: number; to: string; selector: string }>();
+  const out = new Map<
+    string,
+    {
+      chainId: number;
+      to: string;
+      functionSignature: string;
+      maxGasLimit: string;
+      maxValueWei: string;
+    }
+  >();
   for (const rule of form.contractCallRules) {
     const contractAddress = normalizeString(rule.contractAddress);
     if (!/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
       throw new Error('Allowed contract must be a valid EVM address.');
     }
-    const functions = rule.functions
-      .map((entry) => normalizeString(entry))
-      .filter((entry) => entry.length > 0);
+    const functions = rule.functions.filter(
+      (entry) =>
+        normalizeString(entry.functionSignature) ||
+        normalizeString(entry.maxGasLimit) ||
+        normalizeString(entry.maxValueWei),
+    );
     if (functions.length === 0) {
       throw new Error('Each allowed contract needs at least one function.');
     }
     for (const functionEntry of functions) {
-      const selector = normalizeFunctionSelectorInput(functionEntry);
-      if (!selector) {
+      const functionSignature = normalizeFunctionSignatureInput(functionEntry.functionSignature);
+      if (!functionSignature) {
         throw new Error(
-          'Allowed function must be a function signature like transfer(address,uint256) or a 4-byte selector like 0xa9059cbb.',
+          'Allowed function must be a function signature like transfer(address,uint256).',
         );
       }
+      const maxGasLimit = parseRequiredPositiveIntegerString(
+        functionEntry.maxGasLimit,
+        `${functionSignature} max gas limit`,
+      );
+      const maxValueWei = parseRequiredUnsignedIntegerString(
+        functionEntry.maxValueWei,
+        `${functionSignature} max value`,
+      );
       for (const target of selectedTargets) {
-        out.set(`${target.chainId}:${contractAddress.toLowerCase()}:${selector}`, {
+        out.set(
+          `${target.chainId}:${contractAddress.toLowerCase()}:${functionSignature.toLowerCase()}`,
+          {
           chainId: target.chainId,
           to: contractAddress,
-          selector,
-        });
+          functionSignature,
+          maxGasLimit,
+          maxValueWei,
+          },
+        );
       }
     }
   }
@@ -618,10 +628,10 @@ function buildGasSponsorshipRequest(
   return {
     ...buildScopePayload(form),
     name: normalizeString(form.name) || 'Gas Sponsorship Policy',
+    kind: 'evm_call',
+    executionMode: 'evm_eoa',
     networkClass,
     enabled: form.enabled,
-    allowedChainIds: selectedTargets.map((target) => target.chainId),
-    callMode: form.contractCallAllowlistEnabled ? 'ALLOWLIST' : 'ALLOW_ALL',
     spendCap: buildSpendCap(form, selectedTargets),
     allowedCalls: buildAllowedCalls(form, selectedTargets),
   };
@@ -745,8 +755,15 @@ function formatSpendCapSummary(policy: DashboardGasSponsorshipPolicy): string {
   });
 }
 
+function formatAllowedFunctionSummary(input: {
+  functionSignature: string;
+  maxGasLimit: string;
+  maxValueWei: string;
+}): string {
+  return `${input.functionSignature} · gas <= ${input.maxGasLimit} · value <= ${input.maxValueWei} wei`;
+}
+
 function formatAllowedCallSummary(policy: DashboardGasSponsorshipPolicy): string {
-  if (policy.callMode === 'ALLOW_ALL') return 'Allow all contract calls';
   const groupedRules = groupAllowedCallsByContract(policy.allowedCalls);
   const contractCount = groupedRules.length;
   const functionCount = groupedRules.reduce((sum, rule) => sum + rule.functions.length, 0);
@@ -1125,7 +1142,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
   const addContractCallRule = React.useCallback(() => {
     setForm((current) => ({
       ...current,
-      contractCallAllowlistEnabled: true,
       contractCallRules: [...current.contractCallRules, createEmptyGasContractRuleDraft()],
     }));
   }, [setForm]);
@@ -1157,7 +1173,12 @@ export function GasSponsorshipPage(): React.JSX.Element {
       setForm((current) => ({
         ...current,
         contractCallRules: current.contractCallRules.map((entry) =>
-          entry.id === ruleId ? { ...entry, functions: [...entry.functions, ''] } : entry,
+          entry.id === ruleId
+            ? {
+                ...entry,
+                functions: [...entry.functions, createEmptyGasContractFunctionDraft()],
+              }
+            : entry,
         ),
       }));
     },
@@ -1165,17 +1186,18 @@ export function GasSponsorshipPage(): React.JSX.Element {
   );
 
   const removeContractFunction = React.useCallback(
-    (ruleId: string, index: number) => {
+    (ruleId: string, functionId: string) => {
       setForm((current) => ({
         ...current,
         contractCallRules: current.contractCallRules.map((entry) => {
           if (entry.id !== ruleId) return entry;
           const nextFunctions = entry.functions.filter(
-            (_, functionIndex) => functionIndex !== index,
+            (functionEntry) => functionEntry.id !== functionId,
           );
           return {
             ...entry,
-            functions: nextFunctions.length > 0 ? nextFunctions : [''],
+            functions:
+              nextFunctions.length > 0 ? nextFunctions : [createEmptyGasContractFunctionDraft()],
           };
         }),
       }));
@@ -1184,15 +1206,24 @@ export function GasSponsorshipPage(): React.JSX.Element {
   );
 
   const updateContractFunction = React.useCallback(
-    (ruleId: string, index: number, value: string) => {
+    (
+      ruleId: string,
+      functionId: string,
+      patch: Partial<Omit<GasContractFunctionDraft, 'id'>>,
+    ) => {
       setForm((current) => ({
         ...current,
         contractCallRules: current.contractCallRules.map((entry) =>
           entry.id === ruleId
             ? {
                 ...entry,
-                functions: entry.functions.map((functionEntry, functionIndex) =>
-                  functionIndex === index ? value : functionEntry,
+                functions: entry.functions.map((functionEntry) =>
+                  functionEntry.id === functionId
+                    ? {
+                        ...functionEntry,
+                        ...patch,
+                      }
+                    : functionEntry,
                 ),
               }
             : entry,
@@ -1476,11 +1507,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Contract calls</span>
-                      <strong>
-                        {selectedPolicy.callMode === 'ALLOW_ALL'
-                          ? 'Allow all'
-                          : formatAllowedCallSummary(selectedPolicy)}
-                      </strong>
+                      <strong>{formatAllowedCallSummary(selectedPolicy)}</strong>
+                    </div>
+                    <div className="dashboard-gas-coverage__stat">
+                      <span>Execution mode</span>
+                      <strong>{selectedPolicy.executionMode}</strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
                       <span>Spend cap</span>
@@ -1497,11 +1528,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     <div className="dashboard-gas-coverage__section-header">
                       <span>Contract calls</span>
                     </div>
-                    {selectedPolicy.callMode === 'ALLOW_ALL' ? (
-                      <p className="dashboard-pagination-note dashboard-gas-coverage__empty">
-                        All contract calls are sponsored on the selected chains.
-                      </p>
-                    ) : selectedPolicy.allowedCalls.length > 0 ? (
+                    {selectedPolicy.allowedCalls.length > 0 ? (
                       <div className="dashboard-gas-coverage__contracts">
                         {groupAllowedCallsByContract(selectedPolicy.allowedCalls).map((rule) => (
                           <div key={rule.id} className="dashboard-gas-coverage__contract">
@@ -1512,9 +1539,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                               {rule.functions.map((functionEntry) => (
                                 <span
                                   className="dashboard-gas-coverage__function-chip"
-                                  key={`${rule.id}:${functionEntry}`}
+                                  key={functionEntry.id}
                                 >
-                                  {functionEntry}
+                                  {formatAllowedFunctionSummary(functionEntry)}
                                 </span>
                               ))}
                             </div>
@@ -1831,141 +1858,127 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   <div className="dashboard-policy-rule-panel__header">
                     <span>Contract calls</span>
                     <p className="dashboard-pagination-note">
-                      Choose whether sponsorship stays open, or restrict it to an allowlist of
-                      contracts and functions.
+                      Define the allowlisted contract functions and their gas/value bounds for the
+                      selected chains.
                     </p>
                   </div>
-                  <div className="dashboard-policy-contract-call-mode">
-                    <button
-                      type="button"
-                      aria-pressed={!form.contractCallAllowlistEnabled}
-                      className={[
-                        'dashboard-policy-segment',
-                        !form.contractCallAllowlistEnabled
-                          ? 'dashboard-policy-segment--active'
-                          : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() =>
-                        setForm((current) => ({
-                          ...current,
-                          contractCallAllowlistEnabled: false,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      Allow All
-                    </button>
-                    <button
-                      type="button"
-                      aria-pressed={form.contractCallAllowlistEnabled}
-                      className={[
-                        'dashboard-policy-segment',
-                        form.contractCallAllowlistEnabled ? 'dashboard-policy-segment--active' : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      onClick={() =>
-                        setForm((current) => ({
-                          ...current,
-                          contractCallAllowlistEnabled: true,
-                        }))
-                      }
-                      disabled={mutating}
-                    >
-                      Allowlist
-                    </button>
-                  </div>
-                  {form.contractCallAllowlistEnabled ? (
-                    <div className="dashboard-policy-contract-calls">
-                      {form.contractCallRules.length === 0 ? (
-                        <p className="dashboard-pagination-note">
-                          Add one or more contracts to define the allowlist.
-                        </p>
-                      ) : null}
-                      {form.contractCallRules.map((rule) => (
-                        <div key={rule.id} className="dashboard-policy-contract-card">
-                          <div className="dashboard-policy-contract-card__header">
-                            <strong>Allowed contract</strong>
-                            <button
-                              type="button"
-                              className="dashboard-inline-link dashboard-inline-link--danger"
-                              onClick={() => removeContractCallRule(rule.id)}
-                              disabled={mutating}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                          <label className="dashboard-form-field">
-                            <span>Contract address</span>
-                            <input
-                              className="dashboard-input"
-                              value={rule.contractAddress}
-                              onChange={(event) =>
-                                updateContractCallRuleAddress(rule.id, event.target.value)
-                              }
-                              placeholder="0x..."
-                              disabled={mutating}
-                            />
-                          </label>
-                          <div className="dashboard-uri-list-editor__rows">
-                            {rule.functions.map((functionEntry, index) => (
-                              <div
-                                key={`${rule.id}:${index}`}
-                                className="dashboard-uri-list-editor__row"
-                              >
-                                <label className="dashboard-form-field dashboard-uri-list-editor__field">
-                                  <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
-                                    Allowed functions
-                                  </span>
-                                  <input
-                                    className="dashboard-input"
-                                    value={functionEntry}
-                                    onChange={(event) =>
-                                      updateContractFunction(rule.id, index, event.target.value)
-                                    }
-                                    placeholder="transfer(address,uint256) or 0xa9059cbb"
-                                    disabled={mutating}
-                                  />
-                                </label>
-                                <div className="dashboard-uri-list-editor__actions">
-                                  <button
-                                    type="button"
-                                    className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                                    onClick={() => removeContractFunction(rule.id, index)}
-                                    disabled={mutating}
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                  <div className="dashboard-policy-contract-calls">
+                    <p className="dashboard-pagination-note">Execution mode: `evm_eoa`.</p>
+                    {form.contractCallRules.length === 0 ? (
+                      <p className="dashboard-pagination-note">
+                        Add one or more contracts to define the sponsored function templates.
+                      </p>
+                    ) : null}
+                    {form.contractCallRules.map((rule) => (
+                      <div key={rule.id} className="dashboard-policy-contract-card">
+                        <div className="dashboard-policy-contract-card__header">
+                          <strong>Allowed contract</strong>
                           <button
                             type="button"
-                            className="dashboard-inline-link"
-                            onClick={() => addContractFunction(rule.id)}
+                            className="dashboard-inline-link dashboard-inline-link--danger"
+                            onClick={() => removeContractCallRule(rule.id)}
                             disabled={mutating}
                           >
-                            Add function
+                            Remove
                           </button>
                         </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="dashboard-pagination-button dashboard-policy-contract-add-button"
-                        onClick={addContractCallRule}
-                        disabled={mutating}
-                      >
-                        Add contract
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="dashboard-pagination-note">
-                      Contract calls are allowed on any contract for the selected chains.
-                    </p>
-                  )}
+                        <label className="dashboard-form-field">
+                          <span>Contract address</span>
+                          <input
+                            className="dashboard-input"
+                            value={rule.contractAddress}
+                            onChange={(event) =>
+                              updateContractCallRuleAddress(rule.id, event.target.value)
+                            }
+                            placeholder="0x..."
+                            disabled={mutating}
+                          />
+                        </label>
+                        <div className="dashboard-uri-list-editor__rows">
+                          {rule.functions.map((functionEntry, index) => (
+                            <div key={functionEntry.id} className="dashboard-uri-list-editor__row">
+                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                  Function signature
+                                </span>
+                                <input
+                                  className="dashboard-input"
+                                  value={functionEntry.functionSignature}
+                                  onChange={(event) =>
+                                    updateContractFunction(rule.id, functionEntry.id, {
+                                      functionSignature: event.target.value,
+                                    })
+                                  }
+                                  placeholder="transfer(address,uint256)"
+                                  disabled={mutating}
+                                />
+                              </label>
+                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                  Max gas limit
+                                </span>
+                                <input
+                                  className="dashboard-input"
+                                  value={functionEntry.maxGasLimit}
+                                  onChange={(event) =>
+                                    updateContractFunction(rule.id, functionEntry.id, {
+                                      maxGasLimit: event.target.value,
+                                    })
+                                  }
+                                  placeholder="300000"
+                                  inputMode="numeric"
+                                  disabled={mutating}
+                                />
+                              </label>
+                              <label className="dashboard-form-field dashboard-uri-list-editor__field">
+                                <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
+                                  Max value (wei)
+                                </span>
+                                <input
+                                  className="dashboard-input"
+                                  value={functionEntry.maxValueWei}
+                                  onChange={(event) =>
+                                    updateContractFunction(rule.id, functionEntry.id, {
+                                      maxValueWei: event.target.value,
+                                    })
+                                  }
+                                  placeholder="0"
+                                  inputMode="numeric"
+                                  disabled={mutating}
+                                />
+                              </label>
+                              <div className="dashboard-uri-list-editor__actions">
+                                <button
+                                  type="button"
+                                  className="dashboard-pagination-button dashboard-pagination-button--secondary"
+                                  onClick={() => removeContractFunction(rule.id, functionEntry.id)}
+                                  disabled={mutating}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="dashboard-inline-link"
+                          onClick={() => addContractFunction(rule.id)}
+                          disabled={mutating}
+                        >
+                          Add function
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="dashboard-pagination-button dashboard-policy-contract-add-button"
+                      onClick={addContractCallRule}
+                      disabled={mutating}
+                    >
+                      Add contract
+                    </button>
+                  </div>
                 </section>
 
                 <div className="dashboard-modal-divider" aria-hidden="true" />

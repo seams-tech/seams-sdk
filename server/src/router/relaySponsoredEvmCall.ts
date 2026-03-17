@@ -6,10 +6,7 @@ import type {
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallService,
 } from '../console/sponsoredCalls';
-import {
-  TEMPO_DRIP_TO_SELECTOR,
-  TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID,
-} from '../console/gasSponsorship/onboarding';
+import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import {
   matchResolvedSponsoredEvmCallPolicy,
   normalizeEvmAddress,
@@ -17,18 +14,43 @@ import {
   parseResolvedSponsoredEvmCallPolicies,
   parseSponsoredEvmCallRequest,
   type SponsoredEvmCallRequest,
+  type SponsoredEvmPolicyMatch,
+  type SponsoredEvmPolicyMismatch,
 } from '../sponsorship/evm';
 import {
   DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
-  executeSponsoredEvmCall,
   type SponsoredEvmCallExecutorConfig,
 } from '../sponsorship/evmRelay';
+import {
+  buildSponsoredSpendCapSourceEventId,
+  executeSponsorshipAdapter,
+  isSponsorshipSpendCapEnforcementError,
+  reserveSponsoredSpendCap,
+  resolveSponsoredEvmExecutionAdapter,
+  settleSponsoredSpendCap,
+  type SponsorshipSpendCapSettlement,
+  type SponsorshipSpendPricingService,
+} from '../sponsorship';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
 import { resolvePublishableKeyApiCredentialAuth } from './relayApiCredentialAuth';
-import { recordMeteredGasExecution } from './recordMeteredGasExecution';
 import { extractRelayEnvironmentId } from './relayApiKeyAuth';
+import {
+  recordSponsoredExecution,
+  runSponsorshipExecution,
+  type SponsorshipExecutionAssessment,
+} from './sponsorshipExecution';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
+import {
+  buildSponsorshipRoutePolicyFailureResponse,
+  resolveSponsorshipReplayOrMatch,
+  resolveSponsorshipRuntimeForPublishableKeyRoute,
+} from './sponsorshipRuntime';
+import {
+  logSponsorshipSpendCapRejected,
+  logSponsorshipSpendCapReserved,
+  logSponsorshipSpendCapSettled,
+} from './sponsorshipSpendCapObservability';
 import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
@@ -43,6 +65,12 @@ type SponsoredEvmExecution = {
   gasUsed: string;
   effectiveGasPrice: string;
   feeAmount: string;
+};
+
+type SponsoredEvmExecutionAssessment = SponsorshipExecutionAssessment & {
+  txHash: `0x${string}` | null;
+  gasUsed: string | null;
+  effectiveGasPrice: string | null;
 };
 
 type SponsoredEvmCallDetails = {
@@ -62,14 +90,28 @@ type SponsoredEvmCallDetails = {
     effectiveGasPrice: string | null;
     feeAmount: string;
   };
+  billing?: {
+    sourceEventId: string | null;
+    estimatedSpendMinor: string | null;
+    settledSpendMinor: string | null;
+    pricingVersion: string | null;
+    usedEstimatedFallback: boolean | null;
+  };
+};
+
+type MatchedSponsoredEvmExecution = {
+  matchedPolicy: SponsoredEvmPolicyMatch;
+  adapter: NonNullable<ReturnType<typeof resolveSponsoredEvmExecutionAdapter>>;
 };
 
 export interface RelaySponsoredEvmCallService {
   billing: ConsoleBillingService;
   config: SponsoredEvmCallExecutorConfig | null;
   corsOrigins: readonly string[];
+  pricing: SponsorshipSpendPricingService | null;
   publishableKeyAuth: RelayPublishableKeyAuthAdapter | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
+  spendCaps: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls: ConsoleSponsoredCallService;
 }
 
@@ -105,21 +147,6 @@ function isAllowedOrigin(origin: string, allowedOrigins: readonly string[]): boo
   return normalizedAllowedOrigins.includes(normalizedOrigin);
 }
 
-function parsePolicyFailureMessage(message: string): { code: string; detail: string } {
-  const normalized = String(message || '').trim();
-  const separatorIndex = normalized.indexOf(':');
-  if (separatorIndex <= 0) {
-    return {
-      code: 'unauthorized',
-      detail: normalized || 'Unauthorized',
-    };
-  }
-  return {
-    code: normalized.slice(0, separatorIndex).trim() || 'unauthorized',
-    detail: normalized.slice(separatorIndex + 1).trim() || 'Unauthorized',
-  };
-}
-
 function normalizeTxHashOrNull(value: unknown): `0x${string}` | null {
   const normalized = String(value || '').trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(normalized)) return null;
@@ -147,6 +174,10 @@ function buildDetailsJson(input: {
     effectiveGasPrice: string | null;
     feeAmount: string;
   };
+  billing?: SponsorshipSpendCapSettlement & {
+    sourceEventId: string;
+    estimatedSpendMinor: number;
+  };
 }): string {
   const details: SponsoredEvmCallDetails = {
     nearAccountId: input.request.nearAccountId,
@@ -165,6 +196,17 @@ function buildDetailsJson(input: {
       effectiveGasPrice: input.execution.effectiveGasPrice,
       feeAmount: input.execution.feeAmount,
     },
+    ...(input.billing
+      ? {
+          billing: {
+            sourceEventId: input.billing.sourceEventId,
+            estimatedSpendMinor: String(input.billing.estimatedSpendMinor),
+            settledSpendMinor: String(input.billing.settledSpendMinor),
+            pricingVersion: input.billing.pricingVersion,
+            usedEstimatedFallback: input.billing.usedEstimatedFallback,
+          },
+        }
+      : {}),
   };
   return JSON.stringify(details);
 }
@@ -214,13 +256,6 @@ function parseDetailsJson(value: string): SponsoredEvmCallDetails | null {
   }
 }
 
-function extractFirstAddressArgument(data: `0x${string}`): `0x${string}` | null {
-  const hex = String(data || '').trim();
-  if (!/^0x[0-9a-fA-F]{8}[0-9a-fA-F]{64,}$/.test(hex)) return null;
-  const firstArgStart = 2 + 8;
-  return normalizeEvmAddress(`0x${hex.slice(firstArgStart + 24, firstArgStart + 64)}`);
-}
-
 function parseSponsoredEvmRequestBody(
   body: unknown,
   headers: HeaderRecord,
@@ -236,13 +271,66 @@ function parseSponsoredEvmRequestBody(
   return parseSponsoredEvmCallRequest(normalizedBody);
 }
 
-function resolveReceiptStatus(input: {
-  errorCode: string;
-  txHash: `0x${string}` | null;
-}): ConsoleSponsoredCallReceiptStatus {
-  if (input.errorCode === 'tx_reverted') return 'reverted';
-  if (input.txHash) return 'broadcast_failed';
-  return 'rpc_rejected';
+function buildSuccessfulSponsoredEvmAssessment(
+  execution: SponsoredEvmExecution,
+): SponsoredEvmExecutionAssessment {
+  return {
+    succeeded: true,
+    txOrExecutionRef: execution.txHash,
+    txHash: execution.txHash,
+    receiptStatus: 'success',
+    feeUnit: 'wei',
+    feeAmount: execution.feeAmount,
+    executorKind: 'evm_eoa',
+    responseCode: 'ok',
+    responseMessage: 'Sponsored EVM call submitted',
+    recordErrorCode: null,
+    recordErrorMessage: null,
+    gasUsed: execution.gasUsed,
+    effectiveGasPrice: execution.effectiveGasPrice,
+  };
+}
+
+function buildFailedSponsoredEvmAssessment(error: unknown): SponsoredEvmExecutionAssessment {
+  const responseMessage =
+    error instanceof Error ? error.message : String(error || 'Sponsored EVM call failed');
+  const responseCode =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '').trim() || 'sponsored_evm_call_failed'
+      : 'sponsored_evm_call_failed';
+  const txHash =
+    error && typeof error === 'object' && 'txHash' in error
+      ? normalizeTxHashOrNull((error as { txHash?: unknown }).txHash)
+      : null;
+  const gasUsed =
+    error && typeof error === 'object' && 'gasUsed' in error
+      ? String((error as { gasUsed?: unknown }).gasUsed || '').trim() || null
+      : null;
+  const effectiveGasPrice =
+    error && typeof error === 'object' && 'effectiveGasPrice' in error
+      ? String((error as { effectiveGasPrice?: unknown }).effectiveGasPrice || '').trim() || null
+      : null;
+  const feeAmount =
+    error && typeof error === 'object' && 'feeAmount' in error
+      ? String((error as { feeAmount?: unknown }).feeAmount || '').trim() || '0'
+      : '0';
+  const receiptStatus: ConsoleSponsoredCallReceiptStatus =
+    responseCode === 'tx_reverted' ? 'reverted' : txHash ? 'broadcast_failed' : 'rpc_rejected';
+  return {
+    succeeded: false,
+    txOrExecutionRef: txHash,
+    txHash,
+    receiptStatus,
+    feeUnit: 'wei',
+    feeAmount,
+    executorKind: 'evm_eoa',
+    responseCode,
+    responseMessage,
+    recordErrorCode: responseCode,
+    recordErrorMessage: responseMessage,
+    gasUsed,
+    effectiveGasPrice,
+  };
 }
 
 function buildReplayResponse(existing: ConsoleSponsoredCallRecord): RouteResponse<Record<string, unknown>> {
@@ -276,6 +364,50 @@ function buildReplayResponse(existing: ConsoleSponsoredCallRecord): RouteRespons
   });
 }
 
+function buildSpendCapFailureResponse(error: unknown): RouteResponse<Record<string, unknown>> | null {
+  if (!isSponsorshipSpendCapEnforcementError(error)) return null;
+  return routeJson(error.status, {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    ...(error.details ? { details: error.details } : {}),
+  });
+}
+
+function buildSponsorshipPolicyMismatchResponse(
+  mismatch: SponsoredEvmPolicyMismatch,
+): RouteResponse<Record<string, unknown>> {
+  if (mismatch.code === 'selector_mismatch') {
+    return routeJson(403, {
+      ok: false,
+      code: 'sponsorship_policy_selector_mismatch',
+      message: 'Requested call selector is not sponsorable under the active policy',
+      ...(mismatch.details ? { details: mismatch.details } : {}),
+    });
+  }
+  if (mismatch.code === 'gas_limit_exceeded') {
+    return routeJson(403, {
+      ok: false,
+      code: 'sponsorship_policy_gas_limit_exceeded',
+      message: 'Requested call gas limit exceeds the active sponsorship policy',
+      ...(mismatch.details ? { details: mismatch.details } : {}),
+    });
+  }
+  if (mismatch.code === 'value_exceeded') {
+    return routeJson(403, {
+      ok: false,
+      code: 'sponsorship_policy_value_exceeded',
+      message: 'Requested call value exceeds the active sponsorship policy',
+      ...(mismatch.details ? { details: mismatch.details } : {}),
+    });
+  }
+  return routeJson(403, {
+    ok: false,
+    code: 'sponsorship_policy_not_matched',
+    message: 'Requested call is not sponsorable under the active policy',
+  });
+}
+
 export async function handleRelaySponsoredEvmCall(
   input: RelaySponsoredEvmCallInput,
 ): Promise<RouteResponse<Record<string, unknown> | RouteErrorBody>> {
@@ -305,20 +437,14 @@ export async function handleRelaySponsoredEvmCall(
       message: 'Origin is not allowed',
     });
   }
-  if (!relaySponsoredEvmCall.config?.enabled) {
+  if (!relaySponsoredEvmCall.config || relaySponsoredEvmCall.config.executorsByChain.size === 0) {
     return routeJson(503, {
       ok: false,
       code: 'sponsored_evm_call_disabled',
       message: 'Sponsored EVM execution is not configured on this server',
     });
   }
-  if (!relaySponsoredEvmCall.runtimeSnapshots) {
-    return routeJson(503, {
-      ok: false,
-      code: 'runtime_snapshots_unavailable',
-      message: 'Runtime snapshots are not configured on this server',
-    });
-  }
+  const sponsoredEvmConfig = relaySponsoredEvmCall.config;
   if (!relaySponsoredEvmCall.publishableKeyAuth) {
     return routeJson(503, {
       ok: false,
@@ -365,219 +491,376 @@ export async function handleRelaySponsoredEvmCall(
   });
 
   if (!resolved.ok) {
-    if (
-      resolved.body.code === 'route_auth_not_configured' ||
-      resolved.body.code === 'service_not_configured'
-    ) {
-      return routeJson(resolved.status, resolved.body);
-    }
-    const parsed = parsePolicyFailureMessage(resolved.body.message);
-    return routeJson(resolved.status, {
+    return buildSponsorshipRoutePolicyFailureResponse({
+      status: resolved.status,
+      code: resolved.body.code,
+      message: resolved.body.message,
       ok: false,
-      code: parsed.code,
-      message: parsed.detail,
     });
   }
 
-  if (resolved.context.principal.kind !== 'api_credentials') {
-    return routeJson(500, {
-      ok: false,
-      code: 'internal',
-      message: 'Sponsored EVM execution requires an API credential principal',
-    });
-  }
-
-  const sponsorshipCtx = {
-    orgId: resolved.context.principal.principal.orgId,
+  const sponsorshipRuntime = await resolveSponsorshipRuntimeForPublishableKeyRoute({
+    resolved,
+    runtimeSnapshots: relaySponsoredEvmCall.runtimeSnapshots,
+    environmentId: parsedBody.environmentId,
     actorUserId: 'sponsored-call-executor',
-    roles: ['system'],
-  };
-
-  const latestSnapshot = await relaySponsoredEvmCall.runtimeSnapshots.getLatestSnapshot(
-    sponsorshipCtx,
-    {
-      environmentId: parsedBody.environmentId,
-    },
-  );
-  if (!latestSnapshot) {
-    return routeJson(503, {
-      ok: false,
-      code: 'runtime_snapshot_not_found',
-      message: 'No runtime snapshot is available for this environment',
-    });
-  }
-
-  const policies = parseResolvedSponsoredEvmCallPolicies(latestSnapshot.payload);
-  const matched = matchResolvedSponsoredEvmCallPolicy({
-    policies,
-    chainId: parsedBody.chainId,
-    call: parsedBody.call,
+    runtimeSnapshotsUnavailableMessage: 'Runtime snapshots are not configured on this server',
+    runtimeSnapshotNotFoundMessage: 'No runtime snapshot is available for this environment',
+    unexpectedPrincipalMessage: 'Sponsored EVM execution requires an API credential principal',
   });
-  if (!matched) {
-    return routeJson(403, {
-      ok: false,
-      code: 'sponsorship_policy_not_matched',
-      message: 'Requested call is not sponsorable under the active policy',
-    });
-  }
-  if (
-    matched.policy.templateId === TEMPO_TESTNET_ONBOARDING_TEMPLATE_ID &&
-    matched.selector.toLowerCase() === TEMPO_DRIP_TO_SELECTOR
-  ) {
-    const recipient = extractFirstAddressArgument(parsedBody.call.data);
-    if (!recipient || recipient.toLowerCase() !== parsedBody.walletAddress.toLowerCase()) {
-      return routeJson(403, {
-        ok: false,
-        code: 'sponsorship_recipient_mismatch',
-        message: 'Onboarding sponsorship recipient must match walletAddress',
-      });
-    }
-  }
-  if (parsedBody.chainId !== relaySponsoredEvmCall.config.chainId) {
-    return routeJson(503, {
-      ok: false,
-      code: 'sponsor_chain_misconfigured',
-      message: `Sponsor executor is configured for chain ${relaySponsoredEvmCall.config.chainId}, not ${parsedBody.chainId}`,
-    });
+  if (!sponsorshipRuntime.ok) {
+    return sponsorshipRuntime.response;
   }
 
   const idempotencyKey = parsedBody.idempotencyKey;
-  const existing = await relaySponsoredEvmCall.sponsoredCalls.getRecordByIdempotencyKey(
-    sponsorshipCtx,
+  const sponsorshipDispatch = await resolveSponsorshipReplayOrMatch<
+    MatchedSponsoredEvmExecution,
+    Record<string, unknown>
+  >({
+    sponsoredCalls: relaySponsoredEvmCall.sponsoredCalls,
+    sponsorshipCtx: sponsorshipRuntime.sponsorshipCtx,
     idempotencyKey,
-  );
-  if (existing) {
-    return buildReplayResponse(existing);
+    buildReplayResponse: (existing) => buildReplayResponse(existing),
+    resolveMatch: () => {
+      const policies = parseResolvedSponsoredEvmCallPolicies(
+        sponsorshipRuntime.latestSnapshot.payload,
+      );
+      const matchedPolicy = matchResolvedSponsoredEvmCallPolicy({
+        policies,
+        chainId: parsedBody.chainId,
+        call: parsedBody.call,
+      });
+      if (!matchedPolicy.ok) {
+        return {
+          ok: false,
+          response: buildSponsorshipPolicyMismatchResponse(matchedPolicy),
+        };
+      }
+      const adapter = resolveSponsoredEvmExecutionAdapter({
+        config: sponsoredEvmConfig,
+        chainId: parsedBody.chainId,
+        call: parsedBody.call,
+      });
+      if (!adapter) {
+        return {
+          ok: false,
+          response: routeJson(503, {
+            ok: false,
+            code: 'sponsor_chain_misconfigured',
+            message: `Sponsor executor is not configured for chain ${parsedBody.chainId}`,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        matched: {
+          matchedPolicy,
+          adapter,
+        },
+      };
+    },
+  });
+  if (sponsorshipDispatch.kind === 'response') {
+    return sponsorshipDispatch.response;
+  }
+  const { matchedPolicy: matched, adapter } = sponsorshipDispatch.matched;
+  const accountRef = buildAccountRef(parsedBody.nearAccountId);
+  const targetRef = buildTargetRef(parsedBody.chainId, parsedBody.call.to);
+  const sponsorRef = buildSponsorRef(parsedBody.chainId, adapter.meta.sponsorAddress);
+  const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
+    chainFamily: 'evm',
+    intentKind: 'evm_call',
+    idempotencyKey,
+  });
+  const spendCapRequestDetails = {
+    nearAccountId: parsedBody.nearAccountId,
+    walletAddress: parsedBody.walletAddress,
+    call: {
+      to: parsedBody.call.to,
+      data: parsedBody.call.data,
+      gasLimit: parsedBody.call.gasLimit.toString(10),
+      valueWei: parsedBody.call.value.toString(10),
+      selector: matched.selector,
+    },
+  } satisfies Record<string, unknown>;
+  let spendCapReservation = null;
+  try {
+    spendCapReservation = await reserveSponsoredSpendCap({
+      spendCap: matched.policy.spendCap,
+      spendCaps: relaySponsoredEvmCall.spendCaps,
+      pricing: relaySponsoredEvmCall.pricing,
+      ctx: sponsorshipRuntime.sponsorshipCtx,
+      chainFamily: 'evm',
+      intentKind: 'evm_call',
+      executorKind: adapter.executorKind,
+      environmentId: parsedBody.environmentId,
+      policyId: matched.policy.policyId,
+      accountRef,
+      targetRef,
+      chainId: parsedBody.chainId,
+      sourceEventId: spendCapSourceEventId,
+      requestDetails: spendCapRequestDetails,
+    });
+    if (spendCapReservation) {
+      logSponsorshipSpendCapReserved({
+        logger: input.logger,
+        routeTag: 'sponsored-evm-call',
+        environmentId: parsedBody.environmentId,
+        policyId: matched.policy.policyId,
+        idempotencyKey,
+        chainFamily: 'evm',
+        intentKind: 'evm_call',
+        executorKind: adapter.executorKind,
+        chainId: parsedBody.chainId,
+        accountRef,
+        targetRef,
+        reservation: spendCapReservation,
+      });
+    }
+  } catch (error: unknown) {
+    if (isSponsorshipSpendCapEnforcementError(error)) {
+      logSponsorshipSpendCapRejected({
+        logger: input.logger,
+        routeTag: 'sponsored-evm-call',
+        environmentId: parsedBody.environmentId,
+        policyId: matched.policy.policyId,
+        idempotencyKey,
+        chainFamily: 'evm',
+        intentKind: 'evm_call',
+        executorKind: adapter.executorKind,
+        chainId: parsedBody.chainId,
+        accountRef,
+        targetRef,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details,
+      });
+    }
+    const failure = buildSpendCapFailureResponse(error);
+    if (failure) return failure;
+    return routeJson(500, {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
+    });
   }
 
-  try {
-    const execution = await executeSponsoredEvmCall({
-      config: relaySponsoredEvmCall.config,
-      chainId: parsedBody.chainId,
-      call: parsedBody.call,
-    });
-    const record = await recordMeteredGasExecution({
-      billing: relaySponsoredEvmCall.billing,
-      billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
-      context: sponsorshipCtx,
-      ledger: relaySponsoredEvmCall.sponsoredCalls,
-      record: {
-        environmentId: parsedBody.environmentId,
-        apiKeyId: resolved.context.principal.principal.apiKeyId,
-        apiKeyKind: 'publishable_key',
-        route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+  return await runSponsorshipExecution({
+    execute: async () =>
+      await executeSponsorshipAdapter(adapter),
+    assessResult: buildSuccessfulSponsoredEvmAssessment,
+    onResult: async ({ assessment }): Promise<RouteResponse<Record<string, unknown>>> => {
+      let spendCapSettlement: (SponsorshipSpendCapSettlement & {
+        sourceEventId: string;
+        estimatedSpendMinor: number;
+      }) | null = null;
+      try {
+        const settled = await settleSponsoredSpendCap({
+          reservation: spendCapReservation,
+          spendCaps: relaySponsoredEvmCall.spendCaps,
+          pricing: relaySponsoredEvmCall.pricing,
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: adapter.executorKind,
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          accountRef,
+          targetRef,
+          chainId: parsedBody.chainId,
+          txOrExecutionRef: assessment.txHash,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: spendCapRequestDetails,
+        });
+        if (settled && spendCapReservation) {
+          spendCapSettlement = {
+            ...settled,
+            sourceEventId: spendCapReservation.sourceEventId,
+            estimatedSpendMinor: spendCapReservation.estimatedSpendMinor,
+          };
+          logSponsorshipSpendCapSettled({
+            logger: input.logger,
+            routeTag: 'sponsored-evm-call',
+            environmentId: parsedBody.environmentId,
+            policyId: matched.policy.policyId,
+            idempotencyKey,
+            chainFamily: 'evm',
+            intentKind: 'evm_call',
+            executorKind: adapter.executorKind,
+            chainId: parsedBody.chainId,
+            accountRef,
+            targetRef,
+            reservation: spendCapReservation,
+            settlement: settled,
+            txOrExecutionRef: assessment.txHash,
+            receiptStatus: assessment.receiptStatus,
+          });
+        }
+      } catch (error: unknown) {
+        input.logger.warn('[sponsored-evm-call] spend-cap settlement failed', {
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          idempotencyKey,
+          txHash: assessment.txHash,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const record = await recordSponsoredExecution({
+        billing: relaySponsoredEvmCall.billing,
+        billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
+        context: sponsorshipRuntime.sponsorshipCtx,
+        ledger: relaySponsoredEvmCall.sponsoredCalls,
+        record: {
+          environmentId: parsedBody.environmentId,
+          apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
+          apiKeyKind: 'publishable_key',
+          route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+          policyId: matched.policy.policyId,
+          policyNameAtEvent: matched.policy.policyName,
+          templateId: matched.policy.templateId,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          accountRef,
+          targetRef,
+          sponsorRef,
+          detailsJson: buildDetailsJson({
+            request: parsedBody,
+            selector: matched.selector,
+            execution: {
+              txHash: assessment.txHash,
+              gasUsed: assessment.gasUsed,
+              effectiveGasPrice: assessment.effectiveGasPrice,
+              feeAmount: assessment.feeAmount,
+            },
+            ...(spendCapSettlement ? { billing: spendCapSettlement } : {}),
+          }),
+          idempotencyKey,
+        },
+        assessment,
+        walletId: parsedBody.nearAccountId,
+      });
+      return routeJson(200, {
+        ok: true,
+        replayed: false,
+        recordId: record.id,
         policyId: matched.policy.policyId,
-        policyNameAtEvent: matched.policy.policyName,
-        chainFamily: 'evm',
-        intentKind: 'evm_call',
-        accountRef: buildAccountRef(parsedBody.nearAccountId),
-        targetRef: buildTargetRef(parsedBody.chainId, parsedBody.call.to),
-        sponsorRef: buildSponsorRef(parsedBody.chainId, relaySponsoredEvmCall.config.sponsorAddress),
-        txOrExecutionRef: execution.txHash,
-        receiptStatus: 'success',
-        feeUnit: 'wei',
-        feeAmount: execution.feeAmount,
-        detailsJson: buildDetailsJson({
-          request: parsedBody,
-          selector: matched.selector,
-          execution: {
-            txHash: execution.txHash,
-            gasUsed: execution.gasUsed,
-            effectiveGasPrice: execution.effectiveGasPrice,
-            feeAmount: execution.feeAmount,
-          },
-        }),
-        idempotencyKey,
-      },
-      succeeded: true,
-      walletId: parsedBody.nearAccountId,
-    });
-    return routeJson(200, {
-      ok: true,
-      replayed: false,
-      recordId: record.id,
-      policyId: matched.policy.policyId,
-      txHash: execution.txHash,
-      spendWei: execution.feeAmount,
-      gasUsed: execution.gasUsed,
-      effectiveGasPrice: execution.effectiveGasPrice,
-    });
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : String(error || 'Sponsored EVM call failed');
-    const errorCode =
-      error && typeof error === 'object' && 'code' in error
-        ? String((error as { code?: unknown }).code || '')
-        : '';
-    const txHash =
-      error && typeof error === 'object' && 'txHash' in error
-        ? normalizeTxHashOrNull((error as { txHash?: unknown }).txHash)
-        : null;
-    const gasUsed =
-      error && typeof error === 'object' && 'gasUsed' in error
-        ? String((error as { gasUsed?: unknown }).gasUsed || '').trim() || null
-        : null;
-    const effectiveGasPrice =
-      error && typeof error === 'object' && 'effectiveGasPrice' in error
-        ? String((error as { effectiveGasPrice?: unknown }).effectiveGasPrice || '').trim() || null
-        : null;
-    const feeAmount =
-      error && typeof error === 'object' && 'feeAmount' in error
-        ? String((error as { feeAmount?: unknown }).feeAmount || '').trim() || '0'
-        : '0';
-    const record = await recordMeteredGasExecution({
-      billing: relaySponsoredEvmCall.billing,
-      billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
-      context: sponsorshipCtx,
-      ledger: relaySponsoredEvmCall.sponsoredCalls,
-      record: {
+        txHash: assessment.txHash,
+        spendWei: assessment.feeAmount,
+        gasUsed: assessment.gasUsed,
+        effectiveGasPrice: assessment.effectiveGasPrice,
+      });
+    },
+    assessThrownError: buildFailedSponsoredEvmAssessment,
+    onThrownError: async ({ assessment }): Promise<RouteResponse<Record<string, unknown>>> => {
+      let spendCapSettlement: (SponsorshipSpendCapSettlement & {
+        sourceEventId: string;
+        estimatedSpendMinor: number;
+      }) | null = null;
+      try {
+        const settled = await settleSponsoredSpendCap({
+          reservation: spendCapReservation,
+          spendCaps: relaySponsoredEvmCall.spendCaps,
+          pricing: relaySponsoredEvmCall.pricing,
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: adapter.executorKind,
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          accountRef,
+          targetRef,
+          chainId: parsedBody.chainId,
+          txOrExecutionRef: assessment.txHash,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: spendCapRequestDetails,
+        });
+        if (settled && spendCapReservation) {
+          spendCapSettlement = {
+            ...settled,
+            sourceEventId: spendCapReservation.sourceEventId,
+            estimatedSpendMinor: spendCapReservation.estimatedSpendMinor,
+          };
+          logSponsorshipSpendCapSettled({
+            logger: input.logger,
+            routeTag: 'sponsored-evm-call',
+            environmentId: parsedBody.environmentId,
+            policyId: matched.policy.policyId,
+            idempotencyKey,
+            chainFamily: 'evm',
+            intentKind: 'evm_call',
+            executorKind: adapter.executorKind,
+            chainId: parsedBody.chainId,
+            accountRef,
+            targetRef,
+            reservation: spendCapReservation,
+            settlement: settled,
+            txOrExecutionRef: assessment.txHash,
+            receiptStatus: assessment.receiptStatus,
+          });
+        }
+      } catch (error: unknown) {
+        input.logger.warn('[sponsored-evm-call] spend-cap settlement failed', {
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          idempotencyKey,
+          txHash: assessment.txHash,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const record = await recordSponsoredExecution({
+        billing: relaySponsoredEvmCall.billing,
+        billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
+        context: sponsorshipRuntime.sponsorshipCtx,
+        ledger: relaySponsoredEvmCall.sponsoredCalls,
+        record: {
+          environmentId: parsedBody.environmentId,
+          apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
+          apiKeyKind: 'publishable_key',
+          route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+          policyId: matched.policy.policyId,
+          policyNameAtEvent: matched.policy.policyName,
+          templateId: matched.policy.templateId,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          accountRef,
+          targetRef,
+          sponsorRef,
+          detailsJson: buildDetailsJson({
+            request: parsedBody,
+            selector: matched.selector,
+            execution: {
+              txHash: assessment.txHash,
+              gasUsed: assessment.gasUsed,
+              effectiveGasPrice: assessment.effectiveGasPrice,
+              feeAmount: assessment.feeAmount,
+            },
+            ...(spendCapSettlement ? { billing: spendCapSettlement } : {}),
+          }),
+          idempotencyKey,
+        },
+        assessment,
+        walletId: parsedBody.nearAccountId,
+      });
+      input.logger.error('[sponsored-evm-call] request failed', {
         environmentId: parsedBody.environmentId,
-        apiKeyId: resolved.context.principal.principal.apiKeyId,
-        apiKeyKind: 'publishable_key',
-        route: DEFAULT_SPONSORED_EVM_CALL_ROUTE_ID,
+        apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
+        nearAccountId: parsedBody.nearAccountId,
+        walletAddress: parsedBody.walletAddress,
+        txHash: assessment.txHash,
+        message: assessment.responseMessage,
+      });
+      return routeJson(502, {
+        ok: false,
+        code: assessment.responseCode,
+        message: assessment.responseMessage,
+        txHash: assessment.txHash,
+        recordId: record.id,
         policyId: matched.policy.policyId,
-        policyNameAtEvent: matched.policy.policyName,
-        chainFamily: 'evm',
-        intentKind: 'evm_call',
-        accountRef: buildAccountRef(parsedBody.nearAccountId),
-        targetRef: buildTargetRef(parsedBody.chainId, parsedBody.call.to),
-        sponsorRef: buildSponsorRef(parsedBody.chainId, relaySponsoredEvmCall.config.sponsorAddress),
-        txOrExecutionRef: txHash,
-        receiptStatus: resolveReceiptStatus({ errorCode, txHash }),
-        feeUnit: 'wei',
-        feeAmount,
-        detailsJson: buildDetailsJson({
-          request: parsedBody,
-          selector: matched.selector,
-          execution: {
-            txHash,
-            gasUsed,
-            effectiveGasPrice,
-            feeAmount,
-          },
-        }),
-        errorCode: errorCode || null,
-        errorMessage: message,
-        idempotencyKey,
-      },
-      succeeded: false,
-      walletId: parsedBody.nearAccountId,
-    });
-    input.logger.error('[sponsored-evm-call] request failed', {
-      environmentId: parsedBody.environmentId,
-      apiKeyId: resolved.context.principal.principal.apiKeyId,
-      nearAccountId: parsedBody.nearAccountId,
-      walletAddress: parsedBody.walletAddress,
-      txHash,
-      message,
-    });
-    return routeJson(502, {
-      ok: false,
-      code: errorCode || 'sponsored_evm_call_failed',
-      message,
-      txHash,
-      recordId: record.id,
-      policyId: matched.policy.policyId,
-    });
-  }
+      });
+    },
+  });
 }

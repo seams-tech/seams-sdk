@@ -1,10 +1,24 @@
 import type { AuthService } from '../core/AuthService';
-import type { DelegateActionPolicy } from '../delegateAction';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type {
   ConsoleSponsoredCallReceiptStatus,
+  ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallService,
 } from '../console/sponsoredCalls';
+import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
+import {
+  buildSponsoredSpendCapSourceEventId,
+  createSponsoredNearDelegateExecutionAdapter,
+  executeSponsorshipAdapter,
+  isSponsorshipSpendCapEnforcementError,
+  matchResolvedSponsoredNearDelegatePolicy,
+  parseResolvedSponsoredNearDelegatePolicies,
+  reserveSponsoredSpendCap,
+  settleSponsoredSpendCap,
+  type SponsorshipSpendCapSettlement,
+  type SponsorshipSpendPricingService,
+} from '../sponsorship';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy, type RoutePolicyResolutionResult } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -14,8 +28,22 @@ import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
-import { recordMeteredGasExecution } from './recordMeteredGasExecution';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
+import {
+  recordSponsoredExecution,
+  runSponsorshipExecution,
+  type SponsorshipExecutionAssessment,
+} from './sponsorshipExecution';
+import {
+  buildSponsorshipRoutePolicyFailureResponse,
+  resolveSponsorshipReplayOrMatch,
+  resolveSponsorshipRuntimeForPublishableKeyRoute,
+} from './sponsorshipRuntime';
+import {
+  logSponsorshipSpendCapRejected,
+  logSponsorshipSpendCapReserved,
+  logSponsorshipSpendCapSettled,
+} from './sponsorshipSpendCapObservability';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -26,22 +54,20 @@ interface SignedDelegateRequestBody {
   signedDelegate: unknown;
 }
 
-interface SignedDelegateExecutionAssessment {
-  feeAmountYoctoNear: string;
+interface SignedDelegateExecutionAssessment extends SponsorshipExecutionAssessment {
   gasBurnt: string | null;
-  receiptStatus: ConsoleSponsoredCallReceiptStatus;
-  responseCode: string;
-  responseMessage: string;
-  recordErrorCode: string | null;
-  recordErrorMessage: string | null;
-  succeeded: boolean;
-  transactionHash: string | null;
 }
+
+type MatchedSponsoredNearDelegate =
+  NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
 
 interface RelaySignedDelegateServices {
   authService: AuthService;
   billing?: ConsoleBillingService | null;
+  pricing?: SponsorshipSpendPricingService | null;
   publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
+  runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
+  spendCaps?: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls?: ConsoleSponsoredCallService | null;
 }
 
@@ -50,24 +76,8 @@ export interface RelaySignedDelegateInput {
   headers: HeaderRecord;
   logger: NormalizedRouterLogger;
   origin?: string;
-  policy?: DelegateActionPolicy;
   route: RouteDefinition;
   services: RelaySignedDelegateServices;
-}
-
-function parsePolicyFailureMessage(message: string): { code: string; detail: string } {
-  const normalized = String(message || '').trim();
-  const separatorIndex = normalized.indexOf(':');
-  if (separatorIndex <= 0) {
-    return {
-      code: 'unauthorized',
-      detail: normalized || 'Unauthorized',
-    };
-  }
-  return {
-    code: normalized.slice(0, separatorIndex).trim() || 'unauthorized',
-    detail: normalized.slice(separatorIndex + 1).trim() || 'Unauthorized',
-  };
 }
 
 function parseSignedDelegateBody(body: unknown): SignedDelegateRequestBody {
@@ -84,8 +94,79 @@ function parseSignedDelegateBody(body: unknown): SignedDelegateRequestBody {
   };
 }
 
+function extractSignedDelegateSenderId(signedDelegate: unknown): string {
+  return isObject(signedDelegate) && isObject(signedDelegate.delegateAction)
+    ? String((signedDelegate.delegateAction as Record<string, unknown>).senderId || '').trim() ||
+        'unknown-sender'
+    : 'unknown-sender';
+}
+
 function normalizeNearAccountRef(value: unknown): string {
   return `near:${String(value || '').trim() || 'unknown'}`;
+}
+
+function buildSignedDelegateIdempotencyKey(apiKeyId: string, hash: string): string {
+  return `signed_delegate:${apiKeyId}:${hash}`;
+}
+
+function parseSignedDelegateReplayDetails(value: string): {
+  execution: {
+    txHash: string | null;
+    gasBurnt: string | null;
+    tokensBurnt: string | null;
+    receiptStatus: string | null;
+  };
+} | null {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const execution =
+      parsed.execution && typeof parsed.execution === 'object' && !Array.isArray(parsed.execution)
+        ? (parsed.execution as Record<string, unknown>)
+        : null;
+    return {
+      execution: {
+        txHash: String(execution?.txHash || '').trim() || null,
+        gasBurnt: String(execution?.gasBurnt || '').trim() || null,
+        tokensBurnt: String(execution?.tokensBurnt || '').trim() || null,
+        receiptStatus: String(execution?.receiptStatus || '').trim() || null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildSignedDelegateReplayResponse(
+  existing: ConsoleSponsoredCallRecord,
+): RouteResponse<Record<string, unknown>> {
+  const details = parseSignedDelegateReplayDetails(existing.detailsJson);
+  const policyId = String(existing.policyId || '').trim() || null;
+  if (existing.receiptStatus === 'success') {
+    return routeJson(200, {
+      ok: true,
+      replayed: true,
+      recordId: existing.id,
+      policyId,
+      relayerTxHash: existing.txOrExecutionRef,
+      status: 'submitted',
+      outcome: null,
+      spendYoctoNear: String(existing.feeAmount || '').trim() || '0',
+      gasBurnt: details?.execution.gasBurnt || null,
+    });
+  }
+  return routeJson(existing.receiptStatus === 'rpc_rejected' ? 400 : 502, {
+    ok: false,
+    replayed: true,
+    code: String(existing.errorCode || '').trim() || 'delegate_execution_failed',
+    message: String(existing.errorMessage || '').trim() || 'Signed delegate execution failed',
+    relayerTxHash: existing.txOrExecutionRef,
+    outcome: null,
+    recordId: existing.id,
+    policyId,
+    receiptStatus: existing.receiptStatus,
+    spendYoctoNear: String(existing.feeAmount || '').trim() || '0',
+    gasBurnt: details?.execution.gasBurnt || null,
+  });
 }
 
 function readNearFailureDetail(status: unknown): {
@@ -155,29 +236,33 @@ function resolveSignedDelegateAssessment(result: {
 
   if (result.ok && !outcomeFailure) {
     return {
-      feeAmountYoctoNear: metrics.feeAmountYoctoNear,
-      gasBurnt: metrics.gasBurnt,
+      succeeded: true,
+      txOrExecutionRef: transactionHash,
       receiptStatus: 'success',
+      feeUnit: 'yocto_near',
+      feeAmount: metrics.feeAmountYoctoNear,
+      executorKind: 'near_delegate',
       responseCode: 'ok',
       responseMessage: 'Signed delegate submitted',
       recordErrorCode: null,
       recordErrorMessage: null,
-      succeeded: true,
-      transactionHash,
+      gasBurnt: metrics.gasBurnt,
     };
   }
 
   if (outcomeFailure) {
     return {
-      feeAmountYoctoNear: metrics.feeAmountYoctoNear,
-      gasBurnt: metrics.gasBurnt,
+      succeeded: false,
+      txOrExecutionRef: transactionHash,
       receiptStatus: 'reverted',
+      feeUnit: 'yocto_near',
+      feeAmount: metrics.feeAmountYoctoNear,
+      executorKind: 'near_delegate',
       responseCode: 'delegate_execution_failed',
       responseMessage: outcomeFailure.message || 'Signed delegate execution failed',
       recordErrorCode: outcomeFailure.code,
       recordErrorMessage: outcomeFailure.message,
-      succeeded: false,
-      transactionHash,
+      gasBurnt: metrics.gasBurnt,
     };
   }
 
@@ -188,26 +273,33 @@ function resolveSignedDelegateAssessment(result: {
     ? 'broadcast_failed'
     : 'rpc_rejected';
   return {
-    feeAmountYoctoNear: metrics.feeAmountYoctoNear,
-    gasBurnt: metrics.gasBurnt,
+    succeeded: false,
+    txOrExecutionRef: transactionHash,
     receiptStatus,
+    feeUnit: 'yocto_near',
+    feeAmount: metrics.feeAmountYoctoNear,
+    executorKind: 'near_delegate',
     responseCode,
     responseMessage,
     recordErrorCode: responseCode,
     recordErrorMessage: responseMessage,
-    succeeded: false,
-    transactionHash,
+    gasBurnt: metrics.gasBurnt,
   };
 }
 
-function resolveSignedDelegatePolicyId(policy: DelegateActionPolicy | undefined): string {
-  return policy ? 'signed_delegate_policy' : 'signed_delegate_unrestricted';
-}
-
-function resolveSignedDelegatePolicyName(
-  policy: DelegateActionPolicy | undefined,
-): string | null {
-  return policy ? 'Signed delegate relay policy' : null;
+function resolveThrownSignedDelegateAssessment(error: unknown): SignedDelegateExecutionAssessment {
+  const row =
+    error && typeof error === 'object' && !Array.isArray(error)
+      ? (error as Record<string, unknown>)
+      : {};
+  return resolveSignedDelegateAssessment({
+    ok: false,
+    code: String(row.code || '').trim() || undefined,
+    error:
+      String(row.error || row.message || '').trim() || 'Failed to execute delegate action',
+    outcome: row.outcome,
+    transactionHash: String(row.transactionHash || row.txHash || '').trim() || undefined,
+  });
 }
 
 function summarizeNearExecutionOutcome(
@@ -265,6 +357,10 @@ function buildSignedDelegateDetailsJson(input: {
   hash: string;
   result: { transactionHash?: string; outcome?: unknown };
   signedDelegate: unknown;
+  billing?: SponsorshipSpendCapSettlement & {
+    sourceEventId: string;
+    estimatedSpendMinor: number;
+  };
 }): string {
   const delegateAction =
     isObject(input.signedDelegate) && isObject(input.signedDelegate.delegateAction)
@@ -280,22 +376,38 @@ function buildSignedDelegateDetailsJson(input: {
     },
     execution: {
       txHash:
-        input.assessment.transactionHash ||
+        input.assessment.txOrExecutionRef ||
         String(input.result.transactionHash || '').trim() ||
         null,
       gasBurnt: summary.gasBurnt,
-      tokensBurnt: summary.feeAmountYoctoNear,
+      tokensBurnt: input.assessment.feeAmount,
       receiptStatus: input.assessment.receiptStatus,
       errorCode: input.assessment.recordErrorCode,
       errorMessage: input.assessment.recordErrorMessage,
     },
+    ...(input.billing
+      ? {
+          billing: {
+            sourceEventId: input.billing.sourceEventId,
+            estimatedSpendMinor: String(input.billing.estimatedSpendMinor),
+            settledSpendMinor: String(input.billing.settledSpendMinor),
+            pricingVersion: input.billing.pricingVersion,
+            usedEstimatedFallback: input.billing.usedEstimatedFallback,
+          },
+        }
+      : {}),
   });
 }
 
 async function meterSignedDelegate(input: {
   assessment: SignedDelegateExecutionAssessment;
   hash: string;
-  policy?: DelegateActionPolicy;
+  idempotencyKey: string;
+  policyRef: {
+    policyId: string;
+    policyName: string | null;
+    templateId: string | null;
+  };
   result: {
     outcome?: unknown;
     transactionHash?: string;
@@ -308,6 +420,10 @@ async function meterSignedDelegate(input: {
     : never;
   services: RelaySignedDelegateServices;
   signedDelegate: unknown;
+  spendCapSettlement?: SponsorshipSpendCapSettlement & {
+    sourceEventId: string;
+    estimatedSpendMinor: number;
+  };
 }): Promise<void> {
   await applyRouteMetering({
     context: input.routeContext,
@@ -315,8 +431,8 @@ async function meterSignedDelegate(input: {
     response: routeJson(input.assessment.succeeded ? 200 : 502, { ok: input.assessment.succeeded }, {
       usage: {
         ...(input.assessment.gasBurnt ? { gasUsed: input.assessment.gasBurnt } : {}),
-        ...(input.assessment.transactionHash
-          ? { transactionHash: input.assessment.transactionHash }
+        ...(input.assessment.txOrExecutionRef
+          ? { transactionHash: input.assessment.txOrExecutionRef }
           : {}),
       },
     }),
@@ -337,38 +453,34 @@ async function meterSignedDelegate(input: {
           actorUserId: 'signed-delegate-executor',
           roles: ['system'],
         };
-        await recordMeteredGasExecution({
+        await recordSponsoredExecution({
           billing: input.services.billing!,
           billingSourceEventIdPrefix: 'signed_delegate_usage',
           context: sponsorshipCtx,
           ledger: input.services.sponsoredCalls!,
+          assessment: input.assessment,
           record: {
             environmentId: context.principal.principal.environmentId,
             apiKeyId: context.principal.principal.apiKeyId,
             apiKeyKind: 'publishable_key',
             route: route.id,
-            policyId: resolveSignedDelegatePolicyId(input.policy),
-            policyNameAtEvent: resolveSignedDelegatePolicyName(input.policy),
+            policyId: input.policyRef.policyId,
+            policyNameAtEvent: input.policyRef.policyName,
+            templateId: input.policyRef.templateId,
             chainFamily: 'near',
             intentKind: 'near_delegate',
             accountRef: normalizeNearAccountRef(senderId),
             targetRef: normalizeNearAccountRef(receiverId),
             sponsorRef: normalizeNearAccountRef(relayer.accountId),
-            txOrExecutionRef: String(response.usage?.transactionHash || '').trim() || null,
-            receiptStatus: input.assessment.receiptStatus,
-            feeUnit: 'yocto_near',
-            feeAmount: input.assessment.feeAmountYoctoNear,
             detailsJson: buildSignedDelegateDetailsJson({
               assessment: input.assessment,
               hash: input.hash,
               result: input.result,
               signedDelegate: input.signedDelegate,
+              ...(input.spendCapSettlement ? { billing: input.spendCapSettlement } : {}),
             }),
-            errorCode: input.assessment.recordErrorCode,
-            errorMessage: input.assessment.recordErrorMessage,
-            idempotencyKey: `signed_delegate:${context.principal.principal.apiKeyId}:${input.hash}`,
+            idempotencyKey: input.idempotencyKey,
           },
-          succeeded: input.assessment.succeeded,
           walletId: senderId,
         });
       },
@@ -391,6 +503,7 @@ export async function handleRelaySignedDelegate(
       ...(publishableKeyAuth
         ? { publishableKeyAuth }
         : {}),
+      ...(input.services.runtimeSnapshots ? { runtimeSnapshots: input.services.runtimeSnapshots } : {}),
       ...(input.services.sponsoredCalls
         ? { sponsoredCalls: input.services.sponsoredCalls }
         : {}),
@@ -416,67 +529,328 @@ export async function handleRelaySignedDelegate(
   });
 
   if (!resolved.ok) {
-    if (
-      resolved.body.code === 'route_auth_not_configured' ||
-      resolved.body.code === 'service_not_configured'
-    ) {
-      return routeJson(resolved.status, resolved.body);
-    }
-    const parsed = parsePolicyFailureMessage(resolved.body.message);
-    return routeJson(resolved.status, {
+    return buildSponsorshipRoutePolicyFailureResponse({
+      status: resolved.status,
+      code: resolved.body.code,
+      message: resolved.body.message,
       ok: false,
-      code: parsed.code,
-      message: parsed.detail,
     });
   }
 
   try {
     const parsedBody = parseSignedDelegateBody(input.body);
-    const result = await input.services.authService.executeSignedDelegate({
-      hash: parsedBody.hash,
-      signedDelegate: parsedBody.signedDelegate as any,
-      policy: input.policy,
+    const sponsorshipRuntime = await resolveSponsorshipRuntimeForPublishableKeyRoute({
+      resolved,
+      runtimeSnapshots: input.services.runtimeSnapshots,
+      environmentId: extractRelayEnvironmentId(input.headers) || '',
+      actorUserId: 'signed-delegate-executor',
+      runtimeSnapshotsUnavailableMessage: 'Runtime snapshots are not configured on this server',
+      runtimeSnapshotNotFoundMessage: 'No runtime snapshot is available for this environment',
+      unexpectedPrincipalMessage: 'Signed delegate route resolved an unexpected principal kind',
     });
-
-    const assessment = resolveSignedDelegateAssessment(result);
-
-    try {
-      await meterSignedDelegate({
-        assessment,
-        hash: parsedBody.hash,
-        policy: input.policy,
-        result,
-        route: input.route,
-        routeContext: resolved.context,
-        services: input.services,
-        signedDelegate: parsedBody.signedDelegate,
-      });
-    } catch (error: unknown) {
-      input.logger.warn('[relay][signed-delegate] metering failed', {
-        route: input.route.id,
-        txHash: result.transactionHash || null,
-        error: error instanceof Error ? error.message : String(error),
-        });
+    if (!sponsorshipRuntime.ok) {
+      return sponsorshipRuntime.response;
     }
+    const idempotencyKey = buildSignedDelegateIdempotencyKey(
+      sponsorshipRuntime.principal.principal.apiKeyId,
+      parsedBody.hash,
+    );
+    const sponsorshipDispatch = await resolveSponsorshipReplayOrMatch<
+      MatchedSponsoredNearDelegate,
+      Record<string, unknown>
+    >({
+      sponsoredCalls: input.services.sponsoredCalls,
+      sponsorshipCtx: sponsorshipRuntime.sponsorshipCtx,
+      idempotencyKey,
+      buildReplayResponse: (existing) => buildSignedDelegateReplayResponse(existing),
+      resolveMatch: () => {
+        const matched = matchResolvedSponsoredNearDelegatePolicy({
+          policies: parseResolvedSponsoredNearDelegatePolicies(
+            sponsorshipRuntime.latestSnapshot.payload,
+          ),
+          signedDelegate: parsedBody.signedDelegate,
+        });
+        if (!matched) {
+          return {
+            ok: false,
+            response: routeJson(403, {
+              ok: false,
+              code: 'sponsorship_policy_not_matched',
+              message: 'Requested delegate action is not sponsorable under the active policy',
+            }),
+          };
+        }
+        return {
+          ok: true,
+          matched,
+        };
+      },
+    });
+    if (sponsorshipDispatch.kind === 'response') {
+      return sponsorshipDispatch.response;
+    }
+    const matched = sponsorshipDispatch.matched;
+    const delegateSummary = matched.summary;
+    const senderId = extractSignedDelegateSenderId(parsedBody.signedDelegate);
+    const accountRef = normalizeNearAccountRef(senderId);
+    const targetRef = normalizeNearAccountRef(delegateSummary.receiverId);
+    const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      idempotencyKey,
+    });
+    const spendCapRequestDetails = {
+      hash: parsedBody.hash,
+      receiverId: delegateSummary.receiverId,
+      methods: [...delegateSummary.methods],
+      totalDepositYocto: delegateSummary.totalDepositYocto.toString(10),
+      hasTransfer: delegateSummary.hasTransfer,
+    } satisfies Record<string, unknown>;
+    let spendCapReservation = null;
+    try {
+      spendCapReservation = await reserveSponsoredSpendCap({
+        spendCap: matched.policy.spendCap,
+        spendCaps: input.services.spendCaps,
+        pricing: input.services.pricing,
+        ctx: sponsorshipRuntime.sponsorshipCtx,
+        chainFamily: 'near',
+        intentKind: 'near_delegate',
+        executorKind: 'near_delegate',
+        environmentId: sponsorshipRuntime.principal.principal.environmentId,
+        policyId: matched.policy.policyId,
+        accountRef,
+        targetRef,
+        chainId: null,
+        sourceEventId: spendCapSourceEventId,
+        requestDetails: spendCapRequestDetails,
+      });
+      if (spendCapReservation) {
+        logSponsorshipSpendCapReserved({
+          logger: input.logger,
+          routeTag: 'relay][signed-delegate',
+          environmentId: sponsorshipRuntime.principal.principal.environmentId,
+          policyId: matched.policy.policyId,
+          idempotencyKey,
+          chainFamily: 'near',
+          intentKind: 'near_delegate',
+          executorKind: 'near_delegate',
+          chainId: null,
+          accountRef,
+          targetRef,
+          reservation: spendCapReservation,
+        });
+      }
+    } catch (error: unknown) {
+      if (isSponsorshipSpendCapEnforcementError(error)) {
+        logSponsorshipSpendCapRejected({
+          logger: input.logger,
+          routeTag: 'relay][signed-delegate',
+          environmentId: sponsorshipRuntime.principal.principal.environmentId,
+          policyId: matched.policy.policyId,
+          idempotencyKey,
+          chainFamily: 'near',
+          intentKind: 'near_delegate',
+          executorKind: 'near_delegate',
+          chainId: null,
+          accountRef,
+          targetRef,
+          errorCode: error.code,
+          errorMessage: error.message,
+          errorDetails: error.details,
+        });
+        return routeJson(error.status, {
+          ok: false,
+          code: error.code,
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        });
+      }
+      return routeJson(500, {
+        ok: false,
+        code: 'internal',
+        message:
+          error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
+      });
+    }
+    return await runSponsorshipExecution({
+      execute: async () =>
+        await executeSponsorshipAdapter(
+          createSponsoredNearDelegateExecutionAdapter({
+            authService: input.services.authService,
+            hash: parsedBody.hash,
+            signedDelegate: parsedBody.signedDelegate,
+            allowedDelegateAction: matched.allowedDelegateAction,
+          }),
+        ),
+      assessResult: resolveSignedDelegateAssessment,
+      assessThrownError: resolveThrownSignedDelegateAssessment,
+      onResult: async ({
+        result,
+        assessment,
+      }): Promise<RouteResponse<Record<string, unknown>>> => {
+        let spendCapSettlement: (SponsorshipSpendCapSettlement & {
+          sourceEventId: string;
+          estimatedSpendMinor: number;
+        }) | null = null;
+        try {
+          const settled = await settleSponsoredSpendCap({
+            reservation: spendCapReservation,
+            spendCaps: input.services.spendCaps,
+            pricing: input.services.pricing,
+            ctx: sponsorshipRuntime.sponsorshipCtx,
+            chainFamily: 'near',
+            intentKind: 'near_delegate',
+            executorKind: 'near_delegate',
+            environmentId: sponsorshipRuntime.principal.principal.environmentId,
+            policyId: matched.policy.policyId,
+            accountRef,
+            targetRef,
+            chainId: null,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: spendCapRequestDetails,
+          });
+          if (settled && spendCapReservation) {
+            spendCapSettlement = {
+              ...settled,
+              sourceEventId: spendCapReservation.sourceEventId,
+              estimatedSpendMinor: spendCapReservation.estimatedSpendMinor,
+            };
+            logSponsorshipSpendCapSettled({
+              logger: input.logger,
+              routeTag: 'relay][signed-delegate',
+              environmentId: sponsorshipRuntime.principal.principal.environmentId,
+              policyId: matched.policy.policyId,
+              idempotencyKey,
+              chainFamily: 'near',
+              intentKind: 'near_delegate',
+              executorKind: 'near_delegate',
+              chainId: null,
+              accountRef,
+              targetRef,
+              reservation: spendCapReservation,
+              settlement: settled,
+              txOrExecutionRef: assessment.txOrExecutionRef,
+              receiptStatus: assessment.receiptStatus,
+            });
+          }
+        } catch (error: unknown) {
+          input.logger.warn('[relay][signed-delegate] spend-cap settlement failed', {
+            route: input.route.id,
+            policyId: matched.policy.policyId,
+            txHash: assessment.txOrExecutionRef,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        try {
+          await meterSignedDelegate({
+            assessment,
+            hash: parsedBody.hash,
+            idempotencyKey,
+            policyRef: {
+              policyId: matched.policy.policyId,
+              policyName: matched.policy.policyName,
+              templateId: matched.policy.templateId,
+            },
+            result,
+            route: input.route,
+            routeContext: sponsorshipRuntime.context,
+            services: input.services,
+            signedDelegate: parsedBody.signedDelegate,
+            ...(spendCapSettlement ? { spendCapSettlement } : {}),
+          });
+        } catch (error: unknown) {
+          input.logger.warn('[relay][signed-delegate] metering failed', {
+            route: input.route.id,
+            txHash: assessment.txOrExecutionRef,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
 
-    if (!assessment.succeeded) {
-      return routeJson(
-        assessment.receiptStatus === 'rpc_rejected' ? 400 : 502,
-        {
+        if (!assessment.succeeded) {
+          return routeJson(
+            assessment.receiptStatus === 'rpc_rejected' ? 400 : 502,
+            {
+              ok: false,
+              code: assessment.responseCode,
+              message: assessment.responseMessage,
+              relayerTxHash: assessment.txOrExecutionRef,
+              outcome: result.outcome ?? null,
+            },
+          );
+        }
+
+        return routeJson(200, {
+          ok: true,
+          relayerTxHash: assessment.txOrExecutionRef,
+          status: 'submitted',
+          outcome: result.outcome ?? null,
+        });
+      },
+      onThrownError: async ({
+        error,
+        assessment,
+      }): Promise<RouteResponse<Record<string, unknown>>> => {
+        try {
+          const settled = await settleSponsoredSpendCap({
+            reservation: spendCapReservation,
+            spendCaps: input.services.spendCaps,
+            pricing: input.services.pricing,
+            ctx: sponsorshipRuntime.sponsorshipCtx,
+            chainFamily: 'near',
+            intentKind: 'near_delegate',
+            executorKind: 'near_delegate',
+            environmentId: sponsorshipRuntime.principal.principal.environmentId,
+            policyId: matched.policy.policyId,
+            accountRef,
+            targetRef,
+            chainId: null,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: spendCapRequestDetails,
+          });
+          if (settled && spendCapReservation) {
+            logSponsorshipSpendCapSettled({
+              logger: input.logger,
+              routeTag: 'relay][signed-delegate',
+              environmentId: sponsorshipRuntime.principal.principal.environmentId,
+              policyId: matched.policy.policyId,
+              idempotencyKey,
+              chainFamily: 'near',
+              intentKind: 'near_delegate',
+              executorKind: 'near_delegate',
+              chainId: null,
+              accountRef,
+              targetRef,
+              reservation: spendCapReservation,
+              settlement: settled,
+              txOrExecutionRef: assessment.txOrExecutionRef,
+              receiptStatus: assessment.receiptStatus,
+            });
+          }
+        } catch (settleError: unknown) {
+          input.logger.warn('[relay][signed-delegate] spend-cap settlement failed', {
+            route: input.route.id,
+            policyId: matched.policy.policyId,
+            txHash: assessment.txOrExecutionRef,
+            error: settleError instanceof Error ? settleError.message : String(settleError),
+          });
+        }
+        return routeJson(500, {
           ok: false,
           code: assessment.responseCode,
           message: assessment.responseMessage,
-          relayerTxHash: assessment.transactionHash,
-          outcome: result.outcome ?? null,
-        },
-      );
-    }
-
-    return routeJson(200, {
-      ok: true,
-      relayerTxHash: assessment.transactionHash,
-      status: 'submitted',
-      outcome: result.outcome ?? null,
+          relayerTxHash: assessment.txOrExecutionRef,
+          outcome:
+            error && typeof error === 'object' && 'outcome' in error
+              ? (error as { outcome?: unknown }).outcome ?? null
+              : null,
+        });
+      },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

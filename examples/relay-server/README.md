@@ -82,7 +82,25 @@ The route itself is generic, but the active runtime snapshot seeds a default `Te
   - records exact finalized gas spend in the console sponsored-call ledger
   - records a billing usage event for the associated org
 
-Enable with `SPONSORED_EVM_CALL_ENABLED=1` and configure the sponsor account env vars in `.env.example`.
+Enable by setting `SPONSORED_EVM_EXECUTORS_JSON` in `.env.example`, for example:
+
+```env
+SPONSORED_EVM_EXECUTORS_JSON={"42431":{"rpcUrl":"https://rpc.moderato.tempo.xyz","sponsorPrivateKeyHex":"0x...","maxPriorityFeePerGasFloor":"2000000000","maxFeePerGasFloor":"40000000000"}}
+```
+
+If active sponsorship policies use spend caps, also configure a pricing adapter. The current example relay supports an explicit static pricing config:
+
+```env
+SPONSORED_EXECUTION_STATIC_PRICING_JSON={"evm":{"42431":{"estimateFeePerGas":"22000000000","minorPerFeeUnitNumerator":"100","minorPerFeeUnitDenominator":"1000000000000000000","pricingVersion":"static-tempo-testnet-v1"}}}
+```
+
+That adapter uses:
+
+- `estimateFeePerGas` to reserve capped budget before execution using `gasLimit * estimateFeePerGas`
+- `minorPerFeeUnitNumerator` / `minorPerFeeUnitDenominator` to convert native fee units into billable `spendMinor`
+- `pricingVersion` to stamp the reservation/settlement records for observability
+
+This is an operator-configured static conversion, not a live transaction-level pricing feed.
 
 ### Passkey Verification (`POST /auth/passkey/options` → `POST /auth/passkey/verify`)
 

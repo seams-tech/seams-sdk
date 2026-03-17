@@ -294,6 +294,26 @@ pub fn add_secp256k1_public_keys_33(left33: &[u8], right33: &[u8]) -> CoreResult
     Ok(bytes.to_vec())
 }
 
+pub fn secp256k1_private_key_32_to_public_key_33(private_key32: &[u8]) -> CoreResult<Vec<u8>> {
+    if private_key32.len() != 32 {
+        return Err(SignerCoreError::invalid_length(format!(
+            "private_key32 must be 32 bytes (got {})",
+            private_key32.len()
+        )));
+    }
+    let secret_key = SecretKey::from_slice(private_key32)
+        .map_err(|_| SignerCoreError::crypto_error("invalid secp256k1 private key"))?;
+    let encoded = secret_key.public_key().to_encoded_point(true);
+    let bytes = encoded.as_bytes();
+    if bytes.len() != 33 {
+        return Err(SignerCoreError::invalid_length(format!(
+            "compressed secp256k1 public key must encode to 33 bytes (got {})",
+            bytes.len()
+        )));
+    }
+    Ok(bytes.to_vec())
+}
+
 pub fn secp256k1_public_key_33_to_ethereum_address_20(public_key33: &[u8]) -> CoreResult<Vec<u8>> {
     if public_key33.len() != 33 {
         return Err(SignerCoreError::invalid_length(format!(
@@ -419,6 +439,22 @@ mod tests {
 
         let validated = validate_secp256k1_public_key_33(&pk1).expect("validate");
         assert_eq!(validated.len(), 33);
+    }
+
+    #[test]
+    fn private_key_32_to_public_key_33_matches_secret_key_derivation() {
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes[31] = 7;
+
+        let expected = SecretKey::from_slice(&sk_bytes)
+            .expect("secret key")
+            .public_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .to_vec();
+        let derived =
+            secp256k1_private_key_32_to_public_key_33(&sk_bytes).expect("derive public key");
+        assert_eq!(derived, expected);
     }
 
     #[test]

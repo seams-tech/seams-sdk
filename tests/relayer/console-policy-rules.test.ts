@@ -69,17 +69,19 @@ test.describe('console policy rules parser and evaluator', () => {
         kind: 'GAS_SPONSORSHIP',
         name: 'Gas policy draft',
         rules: {
+          kind: 'evm_call',
+          executionMode: 'evm_eoa',
           scopeType: 'POLICY',
           scopePolicyId: 'policy_tx_scope_1',
           enabled: true,
           networkClass: 'MAINNET',
-          allowedChainIds: [1, 10, 1],
-          callMode: 'ALLOWLIST',
           allowedCalls: [
             {
               chainId: 1,
               to: '0x1111111111111111111111111111111111111111',
-              selector: '0xA9059CBB',
+              functionSignature: 'transfer(address,uint256)',
+              maxGasLimit: '21000',
+              maxValueWei: '0',
             },
           ],
           spendCap: {
@@ -102,13 +104,16 @@ test.describe('console policy rules parser and evaluator', () => {
         enabled: true,
         templateId: null,
         networkClass: 'MAINNET',
-        allowedChainIds: [1, 10],
-        callMode: 'ALLOWLIST',
+        kind: 'evm_call',
+        executionMode: 'evm_eoa',
         allowedCalls: [
           {
             chainId: 1,
             to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
             selector: '0xa9059cbb',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
           },
         ],
         spendCap: {
@@ -194,17 +199,19 @@ test.describe('console policy rules parser and evaluator', () => {
   test('gas policy rules normalize and validate publish-time requirements', async () => {
     const gasRules = parseConsolePolicyRulesInput(
       {
+        kind: 'evm_call',
+        executionMode: 'evm_eoa',
         scopeType: 'ENVIRONMENT',
         environmentId: 'env_1',
         enabled: false,
         networkClass: 'testnet',
-        allowedChainIds: [84532, 84532],
-        callMode: 'allow_all',
         allowedCalls: [
           {
             chainId: 84532,
             to: '0x1111111111111111111111111111111111111111',
-            selector: '0xa9059cbb',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '42000',
+            maxValueWei: '0',
           },
         ],
         spendCap: {
@@ -226,9 +233,18 @@ test.describe('console policy rules parser and evaluator', () => {
       enabled: false,
       templateId: null,
       networkClass: 'TESTNET',
-      allowedChainIds: [84532],
-      callMode: 'ALLOW_ALL',
-      allowedCalls: [],
+      kind: 'evm_call',
+      executionMode: 'evm_eoa',
+      allowedCalls: [
+        {
+          chainId: 84532,
+          to: '0x1111111111111111111111111111111111111111',
+          functionSignature: 'transfer(address,uint256)',
+          selector: '0xa9059cbb',
+          maxGasLimit: '42000',
+          maxValueWei: '0',
+        },
+      ],
       spendCap: {
         mode: 'NONE',
         period: 'WEEKLY',
@@ -240,8 +256,9 @@ test.describe('console policy rules parser and evaluator', () => {
 
     const invalidGasRules = parseConsolePolicyRulesInput(
       {
+        kind: 'evm_call',
         scopeType: 'POLICY',
-        allowedChainIds: [],
+        allowedCalls: [],
       },
       'GAS_SPONSORSHIP',
     );
@@ -324,14 +341,29 @@ test.describe('console policy rules parser and evaluator', () => {
       name: 'Gas Policy 1',
       rules: {
         scopeType: 'ORG',
-        allowedChainIds: [1],
+        kind: 'evm_call',
+        allowedCalls: [
+          {
+            chainId: 1,
+            to: '0x1111111111111111111111111111111111111111',
+            functionSignature: 'transfer(address,uint256)',
+            maxGasLimit: '21000',
+            maxValueWei: '0',
+          },
+        ],
       },
     });
     expect(gasPolicy.kind).toBe('GAS_SPONSORSHIP');
     expect(gasPolicy.rules).toMatchObject({
       scopeType: 'ORG',
+      kind: 'evm_call',
       scopePolicyId: null,
-      allowedChainIds: [1],
+      allowedCalls: [
+        {
+          chainId: 1,
+          selector: '0xa9059cbb',
+        },
+      ],
     });
 
     const published = await service.publishPolicy(ctx, gasPolicy.id);

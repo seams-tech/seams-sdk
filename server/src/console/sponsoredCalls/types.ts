@@ -2,6 +2,7 @@ export type ConsoleSponsoredCallApiKeyKind = 'secret_key' | 'publishable_key';
 export type ConsoleSponsoredCallChainFamily = 'evm' | 'near';
 export type ConsoleSponsoredCallIntentKind = 'evm_call' | 'near_delegate';
 export type ConsoleSponsoredCallFeeUnit = 'wei' | 'yocto_near';
+export type ConsoleSponsoredCallExecutorKind = 'evm_eoa' | 'near_delegate';
 
 export type ConsoleSponsoredCallReceiptStatus =
   | 'success'
@@ -18,8 +19,10 @@ export interface ConsoleSponsoredCallRecord {
   route: string;
   policyId: string;
   policyNameAtEvent: string | null;
+  templateId: string | null;
   chainFamily: ConsoleSponsoredCallChainFamily;
   intentKind: ConsoleSponsoredCallIntentKind;
+  executorKind: ConsoleSponsoredCallExecutorKind;
   accountRef: string;
   targetRef: string;
   sponsorRef: string;
@@ -43,8 +46,10 @@ export interface CreateConsoleSponsoredCallRecordRequest {
   route: string;
   policyId: string;
   policyNameAtEvent?: string | null;
+  templateId?: string | null;
   chainFamily: ConsoleSponsoredCallChainFamily;
   intentKind: ConsoleSponsoredCallIntentKind;
+  executorKind: ConsoleSponsoredCallExecutorKind;
   accountRef: string;
   targetRef: string;
   sponsorRef: string;

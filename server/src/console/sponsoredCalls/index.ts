@@ -3,6 +3,7 @@ export type {
   ConsoleSponsoredCallChainFamily,
   ConsoleSponsoredCallIntentKind,
   ConsoleSponsoredCallFeeUnit,
+  ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallReceiptStatus,
   ConsoleSponsoredCallRecord,
   CreateConsoleSponsoredCallRecordRequest,

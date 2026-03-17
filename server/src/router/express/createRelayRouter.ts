@@ -1,7 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
 import express from 'express';
 import type { AuthService } from '../../core/AuthService';
-import type { DelegateActionPolicy } from '../../delegateAction';
 import type { RelayRouterOptions } from '../relay';
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
@@ -37,7 +36,6 @@ export interface ExpressRelayContext {
   mePath: string;
   routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
-  signedDelegatePolicy?: DelegateActionPolicy;
 }
 
 export function createRelayRouter(
@@ -57,7 +55,6 @@ export function createRelayRouter(
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRelayRouteSurface(effectiveOpts);
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
-  const signedDelegatePolicy = effectiveOpts.signedDelegate?.policy;
 
   installCors(router, effectiveOpts);
 
@@ -68,7 +65,6 @@ export function createRelayRouter(
     mePath,
     routeDefinitions,
     signedDelegatePath,
-    signedDelegatePolicy,
   };
 
   registerBootstrapGrantRoutes(router, ctx);

@@ -1,3 +1,6 @@
+import type { ResolvedGasSponsorshipEvmPolicy } from '../console/gasSponsorship/types';
+import { deriveConsolePolicyFunctionSelector } from '../console/policies/rules';
+
 export type SponsoredEvmCall = {
   to: `0x${string}`;
   data: `0x${string}`;
@@ -14,34 +17,30 @@ export type SponsoredEvmCallRequest = {
   idempotencyKey: string;
 };
 
-export type ResolvedSponsoredEvmCallSpendCap = {
-  mode: 'NONE' | 'CHAIN_TOTAL' | 'WALLET_CHAIN_TOTAL';
-  period: 'WEEKLY' | 'MONTHLY';
-  capsByChain: Array<{
-    chainId: number;
-    capMinor: number;
-  }>;
+export type ResolvedSponsoredEvmCallPolicy = ResolvedGasSponsorshipEvmPolicy;
+export type ResolvedSponsoredEvmCallSpendCap = ResolvedSponsoredEvmCallPolicy['spendCap'];
+
+export type SponsoredEvmPolicyMismatchCode =
+  | 'policy_not_matched'
+  | 'selector_mismatch'
+  | 'gas_limit_exceeded'
+  | 'value_exceeded';
+
+export type SponsoredEvmPolicyMismatch = {
+  ok: false;
+  code: SponsoredEvmPolicyMismatchCode;
+  selector: `0x${string}` | null;
+  details?: Record<string, unknown>;
 };
 
-export type ResolvedSponsoredEvmCallPolicy = {
-  policyId: string;
-  policyName: string;
-  scopePolicyId: string | null;
-  scopePolicyName: string | null;
-  templateId: string | null;
-  networkClass: 'ANY' | 'TESTNET' | 'MAINNET';
-  allowedChainIds: number[];
-  callMode: 'ALLOW_ALL' | 'ALLOWLIST';
-  allowedCalls: Array<{
-    chainId: number;
-    to: string;
-    selector: string;
-  }>;
-  spendCap: ResolvedSponsoredEvmCallSpendCap;
-  scopeType: 'ENVIRONMENT';
-  projectId: string | null;
-  environmentId: string | null;
+export type SponsoredEvmPolicyMatch = {
+  ok: true;
+  policy: ResolvedSponsoredEvmCallPolicy;
+  selector: `0x${string}`;
+  allowedCall: ResolvedSponsoredEvmCallPolicy['allowedCalls'][number];
 };
+
+export type SponsoredEvmPolicyMatchResult = SponsoredEvmPolicyMatch | SponsoredEvmPolicyMismatch;
 
 export function normalizeEvmAddress(value: unknown): `0x${string}` | null {
   const normalized = String(value || '').trim();
@@ -149,16 +148,16 @@ export function parseResolvedSponsoredEvmCallPolicies(snapshot: unknown): Resolv
   if (!gasSponsorship || typeof gasSponsorship !== 'object' || Array.isArray(gasSponsorship)) {
     return [];
   }
-  const policiesRaw = (gasSponsorship as Record<string, unknown>).sponsoredCallPolicies;
+  const policiesRaw = (gasSponsorship as Record<string, unknown>).resolvedPolicies;
   if (!Array.isArray(policiesRaw)) return [];
   const out: ResolvedSponsoredEvmCallPolicy[] = [];
   for (const entry of policiesRaw) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     const row = entry as Record<string, unknown>;
+    if (String(row.kind || '').trim().toLowerCase() !== 'evm_call') continue;
     const policyId = String(row.policyId || '').trim();
     const policyName = String(row.policyName || '').trim() || policyId;
     const networkClass = String(row.networkClass || 'ANY').trim().toUpperCase();
-    const callModeRaw = String(row.callMode || '').trim().toUpperCase();
     const allowedCallsRaw = Array.isArray(row.allowedCalls) ? row.allowedCalls : [];
     if (!policyId) continue;
     const allowedCalls = allowedCallsRaw
@@ -167,39 +166,27 @@ export function parseResolvedSponsoredEvmCallPolicies(snapshot: unknown): Resolv
         const callRow = call as Record<string, unknown>;
         const chainId = parseOptionalPositiveInteger(callRow.chainId);
         const to = normalizeEvmAddress(callRow.to);
-        const selector = normalizeEvmSelector(callRow.selector);
-        if (!chainId || !to || !selector) return null;
+        const functionSignature = String(callRow.functionSignature || '').trim();
+        const maxGasLimit = String(callRow.maxGasLimit || '').trim();
+        const maxValueWei = String(callRow.maxValueWei || '').trim();
+        if (!chainId || !to || !functionSignature || !maxGasLimit || !maxValueWei) {
+          return null;
+        }
+        const selector = deriveConsolePolicyFunctionSelector(functionSignature);
         return {
           chainId,
           to,
+          functionSignature,
           selector,
+          maxGasLimit,
+          maxValueWei,
         };
       })
       .filter((call): call is ResolvedSponsoredEvmCallPolicy['allowedCalls'][number] => Boolean(call));
-    const allowedChainIdsRaw = Array.isArray(row.allowedChainIds) ? row.allowedChainIds : [];
-    const allowedChainIds = Array.from(
-      new Set(
-        allowedChainIdsRaw
-          .map((entry) => parseOptionalPositiveInteger(entry))
-          .filter((entry): entry is number => Boolean(entry)),
-      ),
-    );
-    if (allowedChainIds.length === 0) {
-      for (const allowedCall of allowedCalls) {
-        if (!allowedChainIds.includes(allowedCall.chainId)) {
-          allowedChainIds.push(allowedCall.chainId);
-        }
-      }
-    }
-    const callMode =
-      callModeRaw === 'ALLOW_ALL' || callModeRaw === 'ALLOWLIST'
-        ? (callModeRaw as 'ALLOW_ALL' | 'ALLOWLIST')
-        : allowedCalls.length > 0
-          ? 'ALLOWLIST'
-          : 'ALLOW_ALL';
-    if (allowedChainIds.length === 0) continue;
-    if (callMode === 'ALLOWLIST' && allowedCalls.length === 0) continue;
+    const allowedChainIds = Array.from(new Set(allowedCalls.map((call) => call.chainId)));
+    if (allowedCalls.length === 0 || allowedChainIds.length === 0) continue;
     out.push({
+      kind: 'evm_call',
       policyId,
       policyName,
       scopePolicyId: String(row.scopePolicyId || '').trim() || null,
@@ -209,8 +196,8 @@ export function parseResolvedSponsoredEvmCallPolicies(snapshot: unknown): Resolv
         networkClass === 'TESTNET' || networkClass === 'MAINNET'
           ? (networkClass as 'TESTNET' | 'MAINNET')
           : 'ANY',
+      executionMode: 'evm_eoa',
       allowedChainIds,
-      callMode,
       allowedCalls,
       spendCap: parseResolvedSponsoredEvmCallSpendCap(row.spendCap),
       scopeType: 'ENVIRONMENT',
@@ -225,23 +212,96 @@ export function matchResolvedSponsoredEvmCallPolicy(input: {
   policies: readonly ResolvedSponsoredEvmCallPolicy[];
   chainId: number;
   call: SponsoredEvmCall;
-}): { policy: ResolvedSponsoredEvmCallPolicy; selector: `0x${string}` } | null {
+}): SponsoredEvmPolicyMatchResult {
   const selector = extractEvmFunctionSelector(input.call.data);
-  if (!selector) return null;
+  if (!selector) {
+    return {
+      ok: false,
+      code: 'policy_not_matched',
+      selector: null,
+    };
+  }
   const targetAddress = input.call.to.toLowerCase();
+  let sawSelectorMismatch = false;
+  let gasLimitExceeded: {
+    policyId: string;
+    templateId: string | null;
+    maxGasLimit: string;
+  } | null = null;
+  let valueExceeded: {
+    policyId: string;
+    templateId: string | null;
+    maxValueWei: string;
+  } | null = null;
   for (const policy of input.policies) {
     if (!policy.allowedChainIds.includes(input.chainId)) continue;
-    if (policy.callMode === 'ALLOW_ALL') {
-      return { policy, selector };
-    }
     for (const allowedCall of policy.allowedCalls) {
       if (allowedCall.chainId !== input.chainId) continue;
       if (allowedCall.to.toLowerCase() !== targetAddress) continue;
-      if (allowedCall.selector.toLowerCase() !== selector.toLowerCase()) continue;
-      return { policy, selector };
+      if (allowedCall.selector.toLowerCase() !== selector.toLowerCase()) {
+        sawSelectorMismatch = true;
+        continue;
+      }
+      if (input.call.gasLimit > BigInt(allowedCall.maxGasLimit)) {
+        gasLimitExceeded = {
+          policyId: policy.policyId,
+          templateId: policy.templateId,
+          maxGasLimit: allowedCall.maxGasLimit,
+        };
+        continue;
+      }
+      if (input.call.value > BigInt(allowedCall.maxValueWei)) {
+        valueExceeded = {
+          policyId: policy.policyId,
+          templateId: policy.templateId,
+          maxValueWei: allowedCall.maxValueWei,
+        };
+        continue;
+      }
+      return { ok: true, policy, selector, allowedCall };
     }
   }
-  return null;
+  if (gasLimitExceeded) {
+    return {
+      ok: false,
+      code: 'gas_limit_exceeded',
+      selector,
+      details: {
+        policyId: gasLimitExceeded.policyId,
+        templateId: gasLimitExceeded.templateId,
+        actualGasLimit: input.call.gasLimit.toString(10),
+        maxGasLimit: gasLimitExceeded.maxGasLimit,
+      },
+    };
+  }
+  if (valueExceeded) {
+    return {
+      ok: false,
+      code: 'value_exceeded',
+      selector,
+      details: {
+        policyId: valueExceeded.policyId,
+        templateId: valueExceeded.templateId,
+        actualValueWei: input.call.value.toString(10),
+        maxValueWei: valueExceeded.maxValueWei,
+      },
+    };
+  }
+  if (sawSelectorMismatch) {
+    return {
+      ok: false,
+      code: 'selector_mismatch',
+      selector,
+      details: {
+        actualSelector: selector,
+      },
+    };
+  }
+  return {
+    ok: false,
+    code: 'policy_not_matched',
+    selector,
+  };
 }
 
 export function parseSponsoredEvmCallRequest(bodyRaw: unknown): SponsoredEvmCallRequest {

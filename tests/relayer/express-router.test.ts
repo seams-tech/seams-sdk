@@ -6,6 +6,7 @@ import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleOrgProjectEnvService,
+  createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleTeamRbacService,
   createInMemoryConsoleWebhookService,
   createRelayPublishableKeyAuthAdapter,
@@ -27,6 +28,13 @@ type IssuedAppSessionClaims = {
   name?: string;
   [key: string]: unknown;
 };
+
+const delegateApiKeyCtx = {
+  orgId: 'org_delegate',
+  actorUserId: 'user_delegate',
+  roles: ['admin'],
+};
+const delegateEnvironmentId = 'proj_delegate:prod';
 
 function validLoginOptionsBody(overrides?: Partial<any>): any {
   return {
@@ -86,6 +94,48 @@ function makeSignedDelegateBillingSpy() {
       },
     },
   };
+}
+
+async function publishAllowedSignedDelegatePolicy(
+  runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>,
+): Promise<void> {
+  await runtimeSnapshots.publishSnapshot(delegateApiKeyCtx, {
+    environmentId: delegateEnvironmentId,
+    payload: {
+      policy: {},
+      metadata: {},
+      smartWallets: {},
+      gasSponsorship: {
+        status: 'resolved',
+        policyCount: 1,
+        policies: [],
+        resolvedPolicies: [
+          {
+            kind: 'near_delegate',
+            policyId: 'policy_near_delegate',
+            policyName: 'NEAR Delegate Policy',
+            scopePolicyId: null,
+            scopePolicyName: null,
+            templateId: null,
+            networkClass: 'TESTNET',
+            executionMode: 'near_delegate',
+            allowedDelegateActions: [
+              {
+                receiverId: 'contract.testnet',
+                methods: [],
+                maxDepositYocto: '0',
+                allowTransfers: false,
+              },
+            ],
+            spendCap: { mode: 'NONE', period: 'MONTHLY', capsByChain: [] },
+            scopeType: 'ENVIRONMENT',
+            projectId: null,
+            environmentId: delegateEnvironmentId,
+          },
+        ],
+      },
+    },
+  });
 }
 
 function makeEd25519ThresholdAdapter(input: {
@@ -173,11 +223,13 @@ test.describe('relayer router (express) – P0', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const router = createRelayRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
         billing: billing.service as any,
         ledger,
+        runtimeSnapshots,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -202,7 +254,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /signed-delegate accepts valid publishable key and forwards server policy', async () => {
+  test('POST /signed-delegate accepts valid publishable key and forwards resolved sponsorship policy', async () => {
     let received: Record<string, unknown> | null = null;
     const service = makeFakeAuthService({
       executeSignedDelegate: async (input) => {
@@ -211,6 +263,9 @@ test.describe('relayer router (express) – P0', () => {
           ok: true,
           transactionHash: 'delegate-tx-123',
           outcome: {
+            final_execution_status: 'FINAL',
+            status: { SuccessValue: '' },
+            transaction: { hash: 'delegate-tx-123' },
             transaction_outcome: {
               outcome: {
                 gas_burnt: 1000,
@@ -225,34 +280,32 @@ test.describe('relayer router (express) – P0', () => {
                 },
               },
             ],
-          },
+          } as any,
         };
       },
     });
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const created = await apiKeys.createApiKey(
-      {
-        orgId: 'org_delegate',
-        actorUserId: 'user_delegate',
-        roles: ['admin'],
-      },
+      delegateApiKeyCtx,
       {
         kind: 'publishable_key',
         name: 'delegate-browser',
-        environmentId: 'proj_delegate:prod',
+        environmentId: delegateEnvironmentId,
         allowedOrigins: ['https://example.localhost'],
         rateLimitBucket: 'default_web_v1',
         quotaBucket: 'free_registrations_v1',
       },
     );
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
     const router = createRelayRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
-        policy: { allowedReceivers: ['contract.testnet'] },
         billing: billing.service as any,
         ledger,
+        runtimeSnapshots,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -264,7 +317,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+          'X-Tatchi-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'b'.repeat(64),
@@ -277,18 +330,16 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status, res.text).toBe(200);
       expect(res.json?.ok).toBe(true);
       expect(res.json?.relayerTxHash).toBe('delegate-tx-123');
-      expect((received?.policy as Record<string, unknown> | undefined)?.allowedReceivers).toEqual([
-        'contract.testnet',
-      ]);
+      const receivedPolicy = (received as { policy?: { allowedReceivers?: string[] } } | null)
+        ?.policy;
+      expect(receivedPolicy?.allowedReceivers).toEqual(['contract.testnet']);
       const record = await ledger.getRecordByIdempotencyKey(
-        {
-          orgId: 'org_delegate',
-          actorUserId: 'user_delegate',
-          roles: ['admin'],
-        },
+        delegateApiKeyCtx,
         `signed_delegate:${created.apiKey.id}:${'b'.repeat(64)}`,
       );
       expect(record?.intentKind).toBe('near_delegate');
+      expect(record?.templateId).toBe(null);
+      expect(record?.executorKind).toBe('near_delegate');
       expect(record?.feeUnit).toBe('yocto_near');
       expect(record?.feeAmount).toBe('1000');
       expect(record?.txOrExecutionRef).toBe('delegate-tx-123');
@@ -341,32 +392,31 @@ test.describe('relayer router (express) – P0', () => {
               },
             },
           ],
-        },
+        } as any,
       }),
     });
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const created = await apiKeys.createApiKey(
-      {
-        orgId: 'org_delegate',
-        actorUserId: 'user_delegate',
-        roles: ['admin'],
-      },
+      delegateApiKeyCtx,
       {
         kind: 'publishable_key',
         name: 'delegate-browser',
-        environmentId: 'proj_delegate:prod',
+        environmentId: delegateEnvironmentId,
         allowedOrigins: ['https://example.localhost'],
         rateLimitBucket: 'default_web_v1',
         quotaBucket: 'free_registrations_v1',
       },
     );
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
     const router = createRelayRouter(service, {
       signedDelegate: {
         route: '/signed-delegate',
         billing: billing.service as any,
         ledger,
+        runtimeSnapshots,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -378,7 +428,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+          'X-Tatchi-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'c'.repeat(64),
@@ -393,14 +443,12 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.json?.message).toBe('Delegate failed on-chain');
       expect(res.json?.relayerTxHash).toBe('delegate-tx-reverted-123');
       const record = await ledger.getRecordByIdempotencyKey(
-        {
-          orgId: 'org_delegate',
-          actorUserId: 'user_delegate',
-          roles: ['admin'],
-        },
+        delegateApiKeyCtx,
         `signed_delegate:${created.apiKey.id}:${'c'.repeat(64)}`,
       );
       expect(record?.receiptStatus).toBe('reverted');
+      expect(record?.templateId).toBe(null);
+      expect(record?.executorKind).toBe('near_delegate');
       expect(record?.feeAmount).toBe('1000');
       expect(record?.txOrExecutionRef).toBe('delegate-tx-reverted-123');
       expect(record?.errorCode).toBe('ActionError');
@@ -2578,6 +2626,94 @@ test.describe('relayer router (express) – P0', () => {
       const me = await fetchJson(`${srv.baseUrl}/me`, { method: 'GET' });
       expect(me.status).toBe(200);
       expect(me.json?.authenticated).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /signed-delegate replays an existing successful delegate execution by idempotency key', async () => {
+    let executeCalls = 0;
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async () => {
+        executeCalls += 1;
+        return {
+          ok: true,
+          transactionHash: 'delegate-tx-replay-123',
+          outcome: {
+            final_execution_status: 'FINAL',
+            status: { SuccessValue: '' },
+            transaction: { hash: 'delegate-tx-replay-123' },
+            transaction_outcome: {
+              outcome: {
+                gas_burnt: 1000,
+                tokens_burnt: '250',
+              },
+            },
+            receipts_outcome: [
+              {
+                outcome: {
+                  gas_burnt: 2000,
+                  tokens_burnt: '750',
+                },
+              },
+            ],
+          } as any,
+        };
+      },
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const created = await apiKeys.createApiKey(
+      delegateApiKeyCtx,
+      {
+        kind: 'publishable_key',
+        name: 'delegate-browser',
+        environmentId: delegateEnvironmentId,
+        allowedOrigins: ['https://example.localhost'],
+        rateLimitBucket: 'default_web_v1',
+        quotaBucket: 'free_registrations_v1',
+      },
+    );
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
+    const router = createRelayRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+        runtimeSnapshots,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const request = {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${created.secret}`,
+          Origin: 'https://example.localhost',
+          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+        },
+        body: JSON.stringify({
+          hash: 'd'.repeat(64),
+          signedDelegate: {
+            delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+            signature: 'sig',
+          },
+        }),
+      } satisfies RequestInit;
+
+      const first = await fetchJson(`${srv.baseUrl}/signed-delegate`, request);
+      const second = await fetchJson(`${srv.baseUrl}/signed-delegate`, request);
+
+      expect(first.status, first.text).toBe(200);
+      expect(second.status, second.text).toBe(200);
+      expect(second.json?.replayed).toBe(true);
+      expect(second.json?.relayerTxHash).toBe('delegate-tx-replay-123');
+      expect(executeCalls).toBe(1);
+      expect(billing.events).toHaveLength(1);
     } finally {
       await srv.close();
     }

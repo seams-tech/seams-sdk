@@ -120,6 +120,13 @@ pub fn add_secp256k1_public_keys_33(left33: Vec<u8>, right33: Vec<u8>) -> Result
 }
 
 #[wasm_bindgen]
+pub fn secp256k1_private_key_32_to_public_key_33(
+    private_key32: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    derive::secp256k1_private_key_32_to_public_key_33(private_key32)
+}
+
+#[wasm_bindgen]
 pub fn derive_threshold_secp256k1_relayer_share(
     master_secret: Vec<u8>,
     relayer_key_id: String,
@@ -128,7 +135,9 @@ pub fn derive_threshold_secp256k1_relayer_share(
 }
 
 #[wasm_bindgen]
-pub fn secp256k1_public_key_33_to_ethereum_address_20(public_key33: Vec<u8>) -> Result<Vec<u8>, JsValue> {
+pub fn secp256k1_public_key_33_to_ethereum_address_20(
+    public_key33: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
     derive::secp256k1_public_key_33_to_ethereum_address_20(public_key33)
 }
 

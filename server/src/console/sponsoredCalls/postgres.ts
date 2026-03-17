@@ -49,8 +49,10 @@ function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
     route: String(row.route || ''),
     policyId: String(row.policy_id || ''),
     policyNameAtEvent: normalizeString(row.policy_name_at_event),
+    templateId: normalizeString(row.template_id),
     chainFamily: String(row.chain_family || 'evm') as ConsoleSponsoredCallRecord['chainFamily'],
     intentKind: String(row.intent_kind || 'evm_call') as ConsoleSponsoredCallRecord['intentKind'],
+    executorKind: String(row.executor_kind || 'evm_eoa') as ConsoleSponsoredCallRecord['executorKind'],
     accountRef: String(row.account_ref || ''),
     targetRef: String(row.target_ref || ''),
     sponsorRef: String(row.sponsor_ref || ''),
@@ -118,12 +120,14 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
         route TEXT NOT NULL,
         chain_family TEXT NOT NULL DEFAULT 'evm',
         intent_kind TEXT NOT NULL DEFAULT 'evm_call',
+        executor_kind TEXT NOT NULL DEFAULT 'evm_eoa',
         account_ref TEXT NOT NULL DEFAULT '',
         target_ref TEXT NOT NULL DEFAULT '',
         sponsor_ref TEXT NOT NULL DEFAULT '',
         tx_or_execution_ref TEXT,
         policy_id TEXT NOT NULL DEFAULT '',
         policy_name_at_event TEXT,
+        template_id TEXT,
         receipt_status TEXT NOT NULL,
         fee_unit TEXT NOT NULL DEFAULT 'wei',
         fee_amount TEXT NOT NULL DEFAULT '0',
@@ -138,6 +142,7 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
         CHECK (receipt_status IN ('success', 'reverted', 'broadcast_failed', 'rpc_rejected')),
         CHECK (chain_family IN ('evm', 'near')),
         CHECK (intent_kind IN ('evm_call', 'near_delegate')),
+        CHECK (executor_kind IN ('evm_eoa', 'near_delegate')),
         CHECK (fee_unit IN ('wei', 'yocto_near'))
       )
     `);
@@ -151,11 +156,19 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS template_id TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
       ADD COLUMN IF NOT EXISTS chain_family TEXT NOT NULL DEFAULT 'evm'
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
       ADD COLUMN IF NOT EXISTS intent_kind TEXT NOT NULL DEFAULT 'evm_call'
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS executor_kind TEXT NOT NULL DEFAULT 'evm_eoa'
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
@@ -279,6 +292,11 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
         SET
           chain_family = CASE WHEN coalesce(trim(chain_family), '') = '' THEN 'evm' ELSE chain_family END,
           intent_kind = CASE WHEN coalesce(trim(intent_kind), '') = '' THEN 'evm_call' ELSE intent_kind END,
+          executor_kind = CASE
+            WHEN coalesce(trim(executor_kind), '') <> '' THEN executor_kind
+            WHEN coalesce(trim(intent_kind), '') = 'near_delegate' THEN 'near_delegate'
+            ELSE 'evm_eoa'
+          END,
           account_ref = CASE
             WHEN coalesce(trim(account_ref), '') <> '' THEN account_ref
             WHEN coalesce(trim(near_account_id), '') <> '' THEN 'near:' || trim(near_account_id)
@@ -332,6 +350,7 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
           coalesce(trim(account_ref), '') = ''
           OR coalesce(trim(target_ref), '') = ''
           OR coalesce(trim(sponsor_ref), '') = ''
+          OR coalesce(trim(executor_kind), '') = ''
           OR (tx_or_execution_ref IS NULL AND tx_hash IS NOT NULL AND trim(tx_hash) <> '')
           OR coalesce(trim(fee_amount), '') = ''
           OR coalesce(trim(details_json), '') = ''
@@ -470,8 +489,10 @@ export async function createPostgresConsoleSponsoredCallService(
                 route,
                 policy_id,
                 policy_name_at_event,
+                template_id,
                 chain_family,
                 intent_kind,
+                executor_kind,
                 account_ref,
                 target_ref,
                 sponsor_ref,
@@ -486,7 +507,7 @@ export async function createPostgresConsoleSponsoredCallService(
                 created_at_ms,
                 updated_at_ms
               ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
               )
               RETURNING *
             `,
@@ -500,8 +521,10 @@ export async function createPostgresConsoleSponsoredCallService(
               String(request.route || '').trim(),
               String(request.policyId || '').trim(),
               normalizeString(request.policyNameAtEvent),
+              normalizeString(request.templateId),
               request.chainFamily,
               request.intentKind,
+              request.executorKind,
               String(request.accountRef || '').trim(),
               String(request.targetRef || '').trim(),
               String(request.sponsorRef || '').trim(),
