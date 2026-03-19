@@ -6,6 +6,14 @@ export type {
   ConsoleSponsoredCallExecutorKind,
   ConsoleSponsoredCallReceiptStatus,
   ConsoleSponsoredCallRecord,
+  ConsoleSponsoredCallRecordPage,
+  ConsoleSponsoredCallReconciliationStatus,
+  ConsoleSponsoredCallReconciliationEntry,
+  ConsoleSponsoredCallReconciliationSummary,
+  ConsoleSponsoredCallReconciliationPage,
+  ConsoleSponsoredCallOverviewWindowSummary,
+  ConsoleSponsoredCallOverviewSummary,
+  ListConsoleSponsoredCallRecordsRequest,
   CreateConsoleSponsoredCallRecordRequest,
 } from './types';
 export type {
@@ -16,6 +24,9 @@ export type {
 export {
   createInMemoryConsoleSponsoredCallService,
 } from './service';
+export { ConsoleSponsoredCallError, isConsoleSponsoredCallError } from './errors';
+export { parseListConsoleSponsoredCallRecordsRequest } from './requests';
+export { listConsoleSponsoredCallReconciliationPage } from './reconciliation';
 export type {
   PostgresConsoleSponsoredCallSchemaOptions,
   PostgresConsoleSponsoredCallServiceOptions,

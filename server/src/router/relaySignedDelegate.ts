@@ -1,5 +1,7 @@
 import type { AuthService } from '../core/AuthService';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../console/observability';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type {
   ConsoleSponsoredCallReceiptStatus,
@@ -7,15 +9,20 @@ import type {
   ConsoleSponsoredCallService,
 } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
+import type { ConsoleWebhookService } from '../console/webhooks';
 import { getNearSpendCapChainId } from '@shared/console/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
   createSponsoredNearDelegateExecutionAdapter,
   executeSponsorshipAdapter,
+  isSponsorshipPrepaidBalanceEnforcementError,
   isSponsorshipSpendCapEnforcementError,
   matchResolvedSponsoredNearDelegatePolicy,
   parseResolvedSponsoredNearDelegatePolicies,
+  releaseSponsoredSpendCap,
+  reserveSponsoredPrepaidBalance,
   reserveSponsoredSpendCap,
+  settleSponsoredPrepaidBalance,
   settleSponsoredSpendCap,
   type SponsorshipSpendCapSettlement,
   type SponsorshipSpendPricingService,
@@ -31,7 +38,6 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
 import {
-  recordSponsoredExecution,
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
 } from './sponsorshipExecution';
@@ -45,6 +51,11 @@ import {
   logSponsorshipSpendCapReserved,
   logSponsorshipSpendCapSettled,
 } from './sponsorshipSpendCapObservability';
+import {
+  emitSponsorshipBalanceTransitionEvents,
+  emitSponsorshipBlockedObservabilityEvent,
+  readSponsorshipBillingBalanceSnapshot,
+} from './sponsorshipBillingEvents';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -65,11 +76,16 @@ type MatchedSponsoredNearDelegate =
 interface RelaySignedDelegateServices {
   authService: AuthService;
   billing?: ConsoleBillingService | null;
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
+  prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
   pricing?: SponsorshipSpendPricingService | null;
   publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
   runtimeSnapshots?: ConsoleRuntimeSnapshotService | null;
   spendCaps?: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls?: ConsoleSponsoredCallService | null;
+  webhooks?: ConsoleWebhookService | null;
+  webhookActorUserId?: string;
+  webhookRoles?: string[];
 }
 
 export interface RelaySignedDelegateInput {
@@ -363,12 +379,27 @@ function summarizeNearExecutionOutcome(
   };
 }
 
+function buildPrepaidFailureResponse(error: unknown): RouteResponse<Record<string, unknown>> | null {
+  if (!isSponsorshipPrepaidBalanceEnforcementError(error)) return null;
+  return routeJson(error.status, {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    ...(error.details ? { details: error.details } : {}),
+  });
+}
+
 function buildSignedDelegateDetailsJson(input: {
   assessment: SignedDelegateExecutionAssessment;
   hash: string;
   result: { transactionHash?: string; outcome?: unknown };
   signedDelegate: unknown;
   billing?: SponsorshipSpendCapSettlement & {
+    sourceEventId: string;
+    estimatedSpendMinor: number;
+    released?: boolean;
+  };
+  policySpendCap?: SponsorshipSpendCapSettlement & {
     sourceEventId: string;
     estimatedSpendMinor: number;
   };
@@ -404,6 +435,18 @@ function buildSignedDelegateDetailsJson(input: {
             settledSpendMinor: String(input.billing.settledSpendMinor),
             pricingVersion: input.billing.pricingVersion,
             usedEstimatedFallback: input.billing.usedEstimatedFallback,
+            released: input.billing.released ?? false,
+          },
+        }
+      : {}),
+    ...(input.policySpendCap
+      ? {
+          policySpendCap: {
+            sourceEventId: input.policySpendCap.sourceEventId,
+            estimatedSpendMinor: String(input.policySpendCap.estimatedSpendMinor),
+            settledSpendMinor: String(input.policySpendCap.settledSpendMinor),
+            pricingVersion: input.policySpendCap.pricingVersion,
+            usedEstimatedFallback: input.policySpendCap.usedEstimatedFallback,
           },
         }
       : {}),
@@ -431,6 +474,16 @@ async function meterSignedDelegate(input: {
     : never;
   services: RelaySignedDelegateServices;
   signedDelegate: unknown;
+  prepaidSettlement?: {
+    reservationId: string | null;
+    settledAt: string;
+    sourceEventId: string;
+    estimatedSpendMinor: number;
+    settledSpendMinor: number;
+    pricingVersion: string;
+    usedEstimatedFallback: boolean;
+    released: boolean;
+  };
   spendCapSettlement?: SponsorshipSpendCapSettlement & {
     sourceEventId: string;
     estimatedSpendMinor: number;
@@ -464,35 +517,101 @@ async function meterSignedDelegate(input: {
           actorUserId: 'signed-delegate-executor',
           roles: ['system'],
         };
-        await recordSponsoredExecution({
-          billing: input.services.billing!,
-          billingSourceEventIdPrefix: 'signed_delegate_usage',
-          context: sponsorshipCtx,
-          ledger: input.services.sponsoredCalls!,
-          assessment: input.assessment,
-          record: {
-            environmentId: context.principal.principal.environmentId,
-            apiKeyId: context.principal.principal.apiKeyId,
-            apiKeyKind: 'publishable_key',
-            route: route.id,
-            policyId: input.policyRef.policyId,
-            policyNameAtEvent: input.policyRef.policyName,
-            templateId: input.policyRef.templateId,
-            chainFamily: 'near',
-            intentKind: 'near_delegate',
-            accountRef: normalizeNearAccountRef(senderId),
-            targetRef: normalizeNearAccountRef(receiverId),
-            sponsorRef: normalizeNearAccountRef(relayer.accountId),
-            detailsJson: buildSignedDelegateDetailsJson({
-              assessment: input.assessment,
-              hash: input.hash,
-              result: input.result,
-              signedDelegate: input.signedDelegate,
-              ...(input.spendCapSettlement ? { billing: input.spendCapSettlement } : {}),
-            }),
-            idempotencyKey: input.idempotencyKey,
-          },
-          walletId: senderId,
+        const sponsoredCalls = input.services.sponsoredCalls;
+        if (!sponsoredCalls) return;
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+          input.services.billing,
+          sponsorshipCtx,
+        );
+        let billingLedgerEntryId: string | null = null;
+        if (
+          input.prepaidSettlement &&
+          !input.prepaidSettlement.released &&
+          input.prepaidSettlement.settledSpendMinor > 0
+        ) {
+          const billing = input.services.billing;
+          if (!billing) return;
+          const debit = await billing.recordSponsoredExecutionDebit(sponsorshipCtx, {
+            amountMinor: input.prepaidSettlement.settledSpendMinor,
+            sourceEventId: `signed_delegate_debit:${input.prepaidSettlement.sourceEventId}`,
+            walletId: senderId,
+            occurredAt: input.prepaidSettlement.settledAt,
+            ...(input.assessment.txOrExecutionRef
+              ? { txOrExecutionRef: input.assessment.txOrExecutionRef }
+              : {}),
+            ...(input.prepaidSettlement.pricingVersion
+              ? { pricingVersion: input.prepaidSettlement.pricingVersion }
+              : {}),
+          });
+          billingLedgerEntryId = debit.ledgerEntryId;
+          await emitSponsorshipBalanceTransitionEvents({
+            services: {
+              logger: input.routeContext.logger,
+              webhooks: input.services.webhooks || null,
+              observabilityIngestion: input.services.observabilityIngestion || null,
+              webhookActorUserId: input.services.webhookActorUserId,
+              webhookRoles: input.services.webhookRoles,
+            },
+            ctx: sponsorshipCtx,
+            before: beforeBalanceState,
+            billing,
+            trigger: {
+              kind: 'sponsored_execution_debit',
+              environmentId: context.principal.principal.environmentId,
+              routeId: route.id,
+              ledgerEntryId: debit.ledgerEntryId,
+              sourceEventId: `signed_delegate_debit:${input.prepaidSettlement.sourceEventId}`,
+            },
+          });
+        }
+        await sponsoredCalls.createRecord(sponsorshipCtx, {
+          environmentId: context.principal.principal.environmentId,
+          apiKeyId: context.principal.principal.apiKeyId,
+          apiKeyKind: 'publishable_key',
+          route: route.id,
+          policyId: input.policyRef.policyId,
+          policyNameAtEvent: input.policyRef.policyName,
+          templateId: input.policyRef.templateId,
+          chainFamily: 'near',
+          intentKind: 'near_delegate',
+          executorKind: 'near_delegate',
+          accountRef: normalizeNearAccountRef(senderId),
+          targetRef: normalizeNearAccountRef(receiverId),
+          sponsorRef: normalizeNearAccountRef(relayer.accountId),
+          txOrExecutionRef: input.assessment.txOrExecutionRef,
+          receiptStatus: input.assessment.receiptStatus,
+          feeUnit: input.assessment.feeUnit,
+          feeAmount: input.assessment.feeAmount,
+          detailsJson: buildSignedDelegateDetailsJson({
+            assessment: input.assessment,
+            hash: input.hash,
+            result: input.result,
+            signedDelegate: input.signedDelegate,
+            ...(input.prepaidSettlement ? { billing: input.prepaidSettlement } : {}),
+            ...(input.spendCapSettlement ? { policySpendCap: input.spendCapSettlement } : {}),
+          }),
+          estimatedSpendMinor: input.prepaidSettlement?.estimatedSpendMinor ?? null,
+          settledSpendMinor: input.prepaidSettlement?.settledSpendMinor ?? null,
+          pricingVersion: input.prepaidSettlement?.pricingVersion ?? null,
+          pricingSource: input.prepaidSettlement ? 'sponsorship_pricing_service' : null,
+          billingLedgerEntryId,
+          prepaidReservationId: input.prepaidSettlement?.reservationId || null,
+          charged: Boolean(
+            input.prepaidSettlement &&
+              !input.prepaidSettlement.released &&
+              input.prepaidSettlement.settledSpendMinor > 0,
+          ),
+          chargedReason: input.prepaidSettlement
+            ? input.prepaidSettlement.released
+              ? 'released_zero_spend'
+              : input.prepaidSettlement.settledSpendMinor > 0
+                ? 'sponsored_execution_debit'
+                : 'settled_zero_spend'
+            : null,
+          settledAt: input.prepaidSettlement?.settledAt || null,
+          errorCode: input.assessment.recordErrorCode,
+          errorMessage: input.assessment.recordErrorMessage,
+          idempotencyKey: input.idempotencyKey,
         });
       },
     },
@@ -606,15 +725,20 @@ export async function handleRelaySignedDelegate(
     const accountRef = normalizeNearAccountRef(senderId);
     const targetRef = normalizeNearAccountRef(delegateSummary.receiverId);
     const nearSpendCapChainId = resolveNearSpendCapChainId(matched.policy.networkClass);
-    if (matched.policy.spendCap.mode !== 'NONE' && nearSpendCapChainId === null) {
+    if (nearSpendCapChainId === null) {
       return routeJson(500, {
         ok: false,
-        code: 'sponsorship_spend_cap_misconfigured',
+        code: 'sponsorship_pricing_misconfigured',
         message:
-          'NEAR spend-cap enforcement requires the matched policy to resolve to a concrete network',
+          'NEAR sponsorship requires the matched policy to resolve to a concrete network',
       });
     }
     const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
+      chainFamily: 'near',
+      intentKind: 'near_delegate',
+      idempotencyKey,
+    });
+    const prepaidBalanceSourceEventId = buildSponsoredSpendCapSourceEventId({
       chainFamily: 'near',
       intentKind: 'near_delegate',
       idempotencyKey,
@@ -627,6 +751,11 @@ export async function handleRelaySignedDelegate(
       hasTransfer: delegateSummary.hasTransfer,
     } satisfies Record<string, unknown>;
     let spendCapReservation = null;
+    let prepaidReservation = null;
+    const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+      input.services.billing,
+      sponsorshipRuntime.sponsorshipCtx,
+    );
     try {
       spendCapReservation = await reserveSponsoredSpendCap({
         spendCap: matched.policy.spendCap,
@@ -692,6 +821,74 @@ export async function handleRelaySignedDelegate(
           error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
       });
     }
+    try {
+      prepaidReservation = await reserveSponsoredPrepaidBalance({
+        billing: input.services.billing,
+        prepaidReservations: input.services.prepaidReservations,
+        pricing: input.services.pricing,
+        ctx: sponsorshipRuntime.sponsorshipCtx,
+        chainFamily: 'near',
+        intentKind: 'near_delegate',
+        executorKind: 'near_delegate',
+        environmentId: sponsorshipRuntime.principal.principal.environmentId,
+        policyId: matched.policy.policyId,
+        accountRef,
+        targetRef,
+        chainId: nearSpendCapChainId,
+        sourceEventId: prepaidBalanceSourceEventId,
+        requestDetails: spendCapRequestDetails,
+      });
+    } catch (error: unknown) {
+      if (spendCapReservation) {
+        try {
+          await releaseSponsoredSpendCap({
+            reservation: spendCapReservation,
+            spendCaps: input.services.spendCaps,
+            ctx: sponsorshipRuntime.sponsorshipCtx,
+          });
+        } catch (releaseError: unknown) {
+          input.logger.warn('[relay][signed-delegate] spend-cap release after prepaid failure failed', {
+            route: input.route.id,
+            policyId: matched.policy.policyId,
+            idempotencyKey,
+            error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+          });
+        }
+      }
+      if (isSponsorshipPrepaidBalanceEnforcementError(error)) {
+        await emitSponsorshipBlockedObservabilityEvent({
+          services: {
+            logger: input.logger,
+            observabilityIngestion: input.services.observabilityIngestion || null,
+            webhooks: input.services.webhooks || null,
+            webhookActorUserId: input.services.webhookActorUserId,
+            webhookRoles: input.services.webhookRoles,
+          },
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+          balance: beforeBalanceState,
+          environmentId: sponsorshipRuntime.principal.principal.environmentId,
+          policyId: matched.policy.policyId,
+          routeId: input.route.id,
+          chainFamily: 'near',
+          intentKind: 'near_delegate',
+          executorKind: 'near_delegate',
+          chainId: nearSpendCapChainId,
+          accountRef,
+          targetRef,
+          idempotencyKey,
+          sourceEventId: prepaidBalanceSourceEventId,
+          error,
+        });
+      }
+      const failure = buildPrepaidFailureResponse(error);
+      if (failure) return failure;
+      return routeJson(500, {
+        ok: false,
+        code: 'internal',
+        message:
+          error instanceof Error ? error.message : 'Failed to reserve sponsored prepaid balance',
+      });
+    }
     return await runSponsorshipExecution({
       execute: async () =>
         await executeSponsorshipAdapter(
@@ -712,6 +909,18 @@ export async function handleRelaySignedDelegate(
           sourceEventId: string;
           estimatedSpendMinor: number;
         }) | null = null;
+        let prepaidSettlement:
+          | {
+              reservationId: string | null;
+              settledAt: string;
+              sourceEventId: string;
+              estimatedSpendMinor: number;
+              settledSpendMinor: number;
+              pricingVersion: string;
+              usedEstimatedFallback: boolean;
+              released: boolean;
+            }
+          | null = null;
         try {
           const settled = await settleSponsoredSpendCap({
             reservation: spendCapReservation,
@@ -765,6 +974,41 @@ export async function handleRelaySignedDelegate(
           });
         }
         try {
+          const settled = await settleSponsoredPrepaidBalance({
+            reservation: prepaidReservation,
+            prepaidReservations: input.services.prepaidReservations,
+            pricing: input.services.pricing,
+            ctx: sponsorshipRuntime.sponsorshipCtx,
+            chainFamily: 'near',
+            intentKind: 'near_delegate',
+            executorKind: 'near_delegate',
+            environmentId: sponsorshipRuntime.principal.principal.environmentId,
+            policyId: matched.policy.policyId,
+            accountRef,
+            targetRef,
+            chainId: nearSpendCapChainId,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: spendCapRequestDetails,
+          });
+          if (settled && prepaidReservation) {
+            prepaidSettlement = {
+              ...settled,
+              sourceEventId: prepaidReservation.sourceEventId,
+              estimatedSpendMinor: prepaidReservation.estimatedSpendMinor,
+            };
+          }
+        } catch (error: unknown) {
+          input.logger.warn('[relay][signed-delegate] prepaid settlement failed', {
+            route: input.route.id,
+            policyId: matched.policy.policyId,
+            txHash: assessment.txOrExecutionRef,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        try {
           await meterSignedDelegate({
             assessment,
             hash: parsedBody.hash,
@@ -779,6 +1023,7 @@ export async function handleRelaySignedDelegate(
             routeContext: sponsorshipRuntime.context,
             services: input.services,
             signedDelegate: parsedBody.signedDelegate,
+            ...(prepaidSettlement ? { prepaidSettlement } : {}),
             ...(spendCapSettlement ? { spendCapSettlement } : {}),
           });
         } catch (error: unknown) {
@@ -813,6 +1058,18 @@ export async function handleRelaySignedDelegate(
         error,
         assessment,
       }): Promise<RouteResponse<Record<string, unknown>>> => {
+        let prepaidSettlement:
+          | {
+              reservationId: string | null;
+              settledAt: string;
+              sourceEventId: string;
+              estimatedSpendMinor: number;
+              settledSpendMinor: number;
+              pricingVersion: string;
+              usedEstimatedFallback: boolean;
+              released: boolean;
+            }
+          | null = null;
         try {
           const settled = await settleSponsoredSpendCap({
             reservation: spendCapReservation,
@@ -858,6 +1115,72 @@ export async function handleRelaySignedDelegate(
             policyId: matched.policy.policyId,
             txHash: assessment.txOrExecutionRef,
             error: settleError instanceof Error ? settleError.message : String(settleError),
+          });
+        }
+        try {
+          const settled = await settleSponsoredPrepaidBalance({
+            reservation: prepaidReservation,
+            prepaidReservations: input.services.prepaidReservations,
+            pricing: input.services.pricing,
+            ctx: sponsorshipRuntime.sponsorshipCtx,
+            chainFamily: 'near',
+            intentKind: 'near_delegate',
+            executorKind: 'near_delegate',
+            environmentId: sponsorshipRuntime.principal.principal.environmentId,
+            policyId: matched.policy.policyId,
+            accountRef,
+            targetRef,
+            chainId: nearSpendCapChainId,
+            txOrExecutionRef: assessment.txOrExecutionRef,
+            receiptStatus: assessment.receiptStatus,
+            feeUnit: assessment.feeUnit,
+            feeAmount: assessment.feeAmount,
+            requestDetails: spendCapRequestDetails,
+          });
+          if (settled && prepaidReservation) {
+            prepaidSettlement = {
+              ...settled,
+              sourceEventId: prepaidReservation.sourceEventId,
+              estimatedSpendMinor: prepaidReservation.estimatedSpendMinor,
+            };
+          }
+        } catch (settleError: unknown) {
+          input.logger.warn('[relay][signed-delegate] prepaid settlement failed', {
+            route: input.route.id,
+            policyId: matched.policy.policyId,
+            txHash: assessment.txOrExecutionRef,
+            error: settleError instanceof Error ? settleError.message : String(settleError),
+          });
+        }
+        try {
+          await meterSignedDelegate({
+            assessment,
+            hash: parsedBody.hash,
+            idempotencyKey,
+            policyRef: {
+              policyId: matched.policy.policyId,
+              policyName: matched.policy.policyName,
+              templateId: matched.policy.templateId,
+            },
+            result: {
+              outcome:
+                error && typeof error === 'object' && 'outcome' in error
+                  ? (error as { outcome?: unknown }).outcome
+                  : undefined,
+              transactionHash:
+                typeof assessment.txOrExecutionRef === 'string' ? assessment.txOrExecutionRef : undefined,
+            },
+            route: input.route,
+            routeContext: sponsorshipRuntime.context,
+            services: input.services,
+            signedDelegate: parsedBody.signedDelegate,
+            ...(prepaidSettlement ? { prepaidSettlement } : {}),
+          });
+        } catch (meterError: unknown) {
+          input.logger.warn('[relay][signed-delegate] metering failed', {
+            route: input.route.id,
+            txHash: assessment.txOrExecutionRef,
+            error: meterError instanceof Error ? meterError.message : String(meterError),
           });
         }
         return routeJson(500, {

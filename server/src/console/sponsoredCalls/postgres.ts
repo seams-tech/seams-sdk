@@ -11,18 +11,43 @@ import {
 } from '../shared/postgresTenantContext';
 import type {
   ConsoleSponsoredCallRecord,
+  ConsoleSponsoredCallRecordPage,
+  ConsoleSponsoredCallOverviewSummary,
   CreateConsoleSponsoredCallRecordRequest,
+  ListConsoleSponsoredCallRecordsRequest,
 } from './types';
 import type {
   ConsoleSponsoredCallContext,
   ConsoleSponsoredCallService,
 } from './service';
+import { ConsoleSponsoredCallError } from './errors';
 
 type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
 const CONSOLE_SPONSORED_CALL_MIGRATION_LOCK_ID = 9452360123592;
+export const CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME = Symbol('consoleSponsoredCallPostgresRuntime');
+
+export interface ConsoleSponsoredCallPostgresRuntime {
+  pool: PgPool;
+  namespace: string;
+  now: () => Date;
+}
+
+export type ConsoleSponsoredCallPostgresService = ConsoleSponsoredCallService & {
+  [CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME]: ConsoleSponsoredCallPostgresRuntime;
+};
+
+export function getConsoleSponsoredCallPostgresRuntime(
+  service: ConsoleSponsoredCallService | null | undefined,
+): ConsoleSponsoredCallPostgresRuntime | null {
+  if (!service || typeof service !== 'object') return null;
+  return (
+    (service as Partial<ConsoleSponsoredCallPostgresService>)[CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME] ||
+    null
+  );
+}
 
 function nowMs(now: Date): number {
   return now.getTime();
@@ -37,6 +62,13 @@ function makeId(prefix: string, now: Date): string {
 function normalizeString(value: unknown): string | null {
   const normalized = String(value || '').trim();
   return normalized || null;
+}
+
+function normalizeInteger(value: unknown): number | null {
+  if (value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed;
 }
 
 function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
@@ -61,6 +93,17 @@ function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
     feeUnit: String(row.fee_unit || 'wei') as ConsoleSponsoredCallRecord['feeUnit'],
     feeAmount: String(row.fee_amount || '0'),
     detailsJson: String(row.details_json || '{}'),
+    estimatedSpendMinor:
+      row.estimated_spend_minor == null ? null : Math.max(0, toNumber(row.estimated_spend_minor)),
+    settledSpendMinor:
+      row.settled_spend_minor == null ? null : Math.max(0, toNumber(row.settled_spend_minor)),
+    pricingVersion: normalizeString(row.pricing_version),
+    pricingSource: normalizeString(row.pricing_source),
+    billingLedgerEntryId: normalizeString(row.billing_ledger_entry_id),
+    prepaidReservationId: normalizeString(row.prepaid_reservation_id),
+    charged: Boolean(row.charged),
+    chargedReason: normalizeString(row.charged_reason),
+    settledAt: normalizeString(row.settled_at_iso),
     errorCode: normalizeString(row.error_code),
     errorMessage: normalizeString(row.error_message),
     idempotencyKey: normalizeString(row.idempotency_key),
@@ -76,6 +119,70 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
 
 function isUniqueViolation(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === '23505');
+}
+
+const DEFAULT_LIST_LIMIT = 25;
+const MAX_LIST_LIMIT = 100;
+const DEFAULT_LOOKBACK_DAYS = 90;
+const MAX_LOOKBACK_DAYS = 365;
+
+function normalizePositiveInteger(value: unknown, fallback: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(1, Math.min(max, Math.trunc(parsed)));
+}
+
+function parseListCursor(cursor: string | undefined): { createdAtMs: number; id: string } | null {
+  const raw = String(cursor || '').trim();
+  if (!raw) return null;
+  const separator = raw.indexOf(':');
+  if (separator <= 0 || separator >= raw.length - 1) {
+    throw new ConsoleSponsoredCallError('invalid_query', 400, 'Invalid sponsored call cursor format');
+  }
+  const createdAtMs = Number.parseInt(raw.slice(0, separator), 10);
+  const id = raw.slice(separator + 1).trim();
+  if (!Number.isFinite(createdAtMs) || !id) {
+    throw new ConsoleSponsoredCallError('invalid_query', 400, 'Invalid sponsored call cursor format');
+  }
+  return { createdAtMs, id };
+}
+
+function buildListCursor(record: ConsoleSponsoredCallRecord): string {
+  return `${Date.parse(record.createdAt)}:${record.id}`;
+}
+
+interface NormalizedSponsoredCallListRequest {
+  environmentId?: string;
+  policyId?: string;
+  chainFamily?: ListConsoleSponsoredCallRecordsRequest['chainFamily'];
+  receiptStatus?: ListConsoleSponsoredCallRecordsRequest['receiptStatus'];
+  charged?: boolean;
+  limit: number;
+  lookbackDays: number;
+  cursor: { createdAtMs: number; id: string } | null;
+}
+
+function normalizeListRequest(
+  request: ListConsoleSponsoredCallRecordsRequest | undefined,
+): NormalizedSponsoredCallListRequest {
+  return {
+    ...(normalizeString(request?.environmentId)
+      ? { environmentId: normalizeString(request?.environmentId)! }
+      : {}),
+    ...(normalizeString(request?.policyId)
+      ? { policyId: normalizeString(request?.policyId)! }
+      : {}),
+    chainFamily: request?.chainFamily,
+    receiptStatus: request?.receiptStatus,
+    charged: typeof request?.charged === 'boolean' ? request.charged : undefined,
+    limit: normalizePositiveInteger(request?.limit, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT),
+    lookbackDays: normalizePositiveInteger(
+      request?.lookbackDays,
+      DEFAULT_LOOKBACK_DAYS,
+      MAX_LOOKBACK_DAYS,
+    ),
+    cursor: parseListCursor(request?.cursor),
+  };
 }
 
 export interface PostgresConsoleSponsoredCallSchemaOptions {
@@ -197,6 +304,42 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
       ADD COLUMN IF NOT EXISTS details_json TEXT NOT NULL DEFAULT '{}'
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS estimated_spend_minor BIGINT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS settled_spend_minor BIGINT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS pricing_version TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS pricing_source TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS billing_ledger_entry_id TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS prepaid_reservation_id TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS charged BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS charged_reason TEXT
+    `);
+    await pool.query(`
+      ALTER TABLE console_sponsored_call_records
+      ADD COLUMN IF NOT EXISTS settled_at_iso TEXT
     `);
     await pool.query(`
       ALTER TABLE console_sponsored_call_records
@@ -392,6 +535,14 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
       CREATE INDEX IF NOT EXISTS console_sponsored_call_org_created_idx
       ON console_sponsored_call_records (namespace, org_id, created_at_ms DESC)
     `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_sponsored_call_org_environment_created_idx
+      ON console_sponsored_call_records (namespace, org_id, environment_id, created_at_ms DESC)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS console_sponsored_call_org_policy_created_idx
+      ON console_sponsored_call_records (namespace, org_id, policy_id, created_at_ms DESC)
+    `);
     await ensureConsoleTenantRlsPolicies({
       q: pool,
       table: 'console_sponsored_call_records',
@@ -433,7 +584,104 @@ export async function createPostgresConsoleSponsoredCallService(
   }
   const pool = await getPostgresPool(postgresUrl);
 
-  return {
+  const runtime: ConsoleSponsoredCallPostgresRuntime = {
+    pool,
+    namespace,
+    now,
+  };
+
+  const service: ConsoleSponsoredCallPostgresService = {
+    async getOverviewSummary(ctx): Promise<ConsoleSponsoredCallOverviewSummary> {
+      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
+        const trailing30MinCreatedAtMs = now().getTime() - 30 * 24 * 60 * 60 * 1000;
+        const trailing90MinCreatedAtMs = now().getTime() - 90 * 24 * 60 * 60 * 1000;
+        const row = await queryOne(
+          tx,
+          `
+            SELECT
+              COALESCE(COUNT(*) FILTER (WHERE charged AND created_at_ms >= $3), 0)::BIGINT AS trailing_30_count,
+              COALESCE(SUM(CASE WHEN charged AND created_at_ms >= $3 THEN COALESCE(settled_spend_minor, 0) ELSE 0 END), 0)::BIGINT AS trailing_30_spend_minor,
+              COALESCE(COUNT(*) FILTER (WHERE charged AND created_at_ms >= $4), 0)::BIGINT AS trailing_90_count,
+              COALESCE(SUM(CASE WHEN charged AND created_at_ms >= $4 THEN COALESCE(settled_spend_minor, 0) ELSE 0 END), 0)::BIGINT AS trailing_90_spend_minor
+            FROM console_sponsored_call_records
+            WHERE namespace = $1
+              AND org_id = $2
+              AND created_at_ms >= $4
+          `,
+          [namespace, ctx.orgId, trailing30MinCreatedAtMs, trailing90MinCreatedAtMs],
+        );
+        return {
+          trailing30Days: {
+            lookbackDays: 30,
+            chargedExecutionCount: Math.max(0, toNumber(row?.trailing_30_count)),
+            chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_30_spend_minor)),
+          },
+          trailing90Days: {
+            lookbackDays: 90,
+            chargedExecutionCount: Math.max(0, toNumber(row?.trailing_90_count)),
+            chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_90_spend_minor)),
+          },
+        };
+      });
+    },
+
+    async listRecords(ctx, request = {}): Promise<ConsoleSponsoredCallRecordPage> {
+      const normalized = normalizeListRequest(request);
+      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
+        const values: unknown[] = [namespace, ctx.orgId];
+        const whereClauses = ['namespace = $1', 'org_id = $2'];
+        const minCreatedAtMs = now().getTime() - normalized.lookbackDays * 24 * 60 * 60 * 1000;
+        values.push(minCreatedAtMs);
+        whereClauses.push(`created_at_ms >= $${values.length}`);
+        if (normalized.environmentId) {
+          values.push(normalized.environmentId);
+          whereClauses.push(`environment_id = $${values.length}`);
+        }
+        if (normalized.policyId) {
+          values.push(normalized.policyId);
+          whereClauses.push(`policy_id = $${values.length}`);
+        }
+        if (normalized.chainFamily) {
+          values.push(normalized.chainFamily);
+          whereClauses.push(`chain_family = $${values.length}`);
+        }
+        if (normalized.receiptStatus) {
+          values.push(normalized.receiptStatus);
+          whereClauses.push(`receipt_status = $${values.length}`);
+        }
+        if (normalized.charged !== undefined) {
+          values.push(normalized.charged);
+          whereClauses.push(`charged = $${values.length}`);
+        }
+        if (normalized.cursor) {
+          values.push(normalized.cursor.createdAtMs, normalized.cursor.id);
+          whereClauses.push(
+            `(created_at_ms < $${values.length - 1} OR (created_at_ms = $${values.length - 1} AND id < $${values.length}))`,
+          );
+        }
+        values.push(normalized.limit + 1);
+        const result = await tx.query(
+          `
+            SELECT *
+            FROM console_sponsored_call_records
+            WHERE ${whereClauses.join(' AND ')}
+            ORDER BY created_at_ms DESC, id DESC
+            LIMIT $${values.length}
+          `,
+          values,
+        );
+        const rows = (result.rows as PgRow[]).map(parseRecord);
+        const items = rows.slice(0, normalized.limit);
+        return {
+          items,
+          nextCursor:
+            rows.length > normalized.limit && items.length > 0
+              ? buildListCursor(items[items.length - 1]!)
+              : null,
+        };
+      });
+    },
+
     async getRecordByIdempotencyKey(ctx, idempotencyKey): Promise<ConsoleSponsoredCallRecord | null> {
       const normalized = normalizeString(idempotencyKey);
       if (!normalized) return null;
@@ -455,111 +703,149 @@ export async function createPostgresConsoleSponsoredCallService(
     },
 
     async createRecord(ctx, request): Promise<ConsoleSponsoredCallRecord> {
-      const createdAt = now();
-      const createdAtMs = nowMs(createdAt);
-      const recordId = normalizeString(request.id) || makeId('scr', createdAt);
-      const idempotencyKey = normalizeString(request.idempotencyKey);
-      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
-        if (idempotencyKey) {
-          const existing = await queryOne(
-            tx,
-            `
-              SELECT *
-              FROM console_sponsored_call_records
-              WHERE namespace = $1
-                AND org_id = $2
-                AND idempotency_key = $3
-              LIMIT 1
-            `,
-            [namespace, ctx.orgId, idempotencyKey],
-          );
-          if (existing) return parseRecord(existing);
-        }
-        try {
-          const row = await queryOne(
-            tx,
-            `
-              INSERT INTO console_sponsored_call_records (
-                namespace,
-                org_id,
-                id,
-                environment_id,
-                api_key_id,
-                api_key_kind,
-                route,
-                policy_id,
-                policy_name_at_event,
-                template_id,
-                chain_family,
-                intent_kind,
-                executor_kind,
-                account_ref,
-                target_ref,
-                sponsor_ref,
-                tx_or_execution_ref,
-                receipt_status,
-                fee_unit,
-                fee_amount,
-                details_json,
-                error_code,
-                error_message,
-                idempotency_key,
-                created_at_ms,
-                updated_at_ms
-              ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26
-              )
-              RETURNING *
-            `,
-            [
-              namespace,
-              ctx.orgId,
-              recordId,
-              String(request.environmentId || '').trim(),
-              String(request.apiKeyId || '').trim(),
-              request.apiKeyKind,
-              String(request.route || '').trim(),
-              String(request.policyId || '').trim(),
-              normalizeString(request.policyNameAtEvent),
-              normalizeString(request.templateId),
-              request.chainFamily,
-              request.intentKind,
-              request.executorKind,
-              String(request.accountRef || '').trim(),
-              String(request.targetRef || '').trim(),
-              String(request.sponsorRef || '').trim(),
-              normalizeString(request.txOrExecutionRef),
-              request.receiptStatus,
-              request.feeUnit,
-              String(request.feeAmount || '0').trim() || '0',
-              String(request.detailsJson || '{}').trim() || '{}',
-              normalizeString(request.errorCode),
-              normalizeString(request.errorMessage),
-              idempotencyKey,
-              createdAtMs,
-              createdAtMs,
-            ],
-          );
-          if (!row) throw new Error('Failed to insert sponsored-call record');
-          return parseRecord(row);
-        } catch (error: unknown) {
-          if (!idempotencyKey || !isUniqueViolation(error)) throw error;
-          const existing = await queryOne(
-            tx,
-            `
-              SELECT *
-              FROM console_sponsored_call_records
-              WHERE namespace = $1
-                AND org_id = $2
-                AND idempotency_key = $3
-              LIMIT 1
-            `,
-            [namespace, ctx.orgId, idempotencyKey],
-          );
-          if (!existing) throw error;
-          return parseRecord(existing);
-        }
-      });
+      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) =>
+        createConsoleSponsoredCallRecordTx(tx, {
+          namespace,
+          ctx,
+          now,
+          request,
+        }),
+      );
     },
+    [CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME]: runtime,
   };
+
+  return service;
+}
+
+export async function createConsoleSponsoredCallRecordTx(
+  tx: Queryable,
+  input: {
+    namespace: string;
+    ctx: ConsoleSponsoredCallContext;
+    now: () => Date;
+    request: CreateConsoleSponsoredCallRecordRequest;
+  },
+): Promise<ConsoleSponsoredCallRecord> {
+  const createdAt = input.now();
+  const createdAtMs = nowMs(createdAt);
+  const recordId = normalizeString(input.request.id) || makeId('scr', createdAt);
+  const idempotencyKey = normalizeString(input.request.idempotencyKey);
+  if (idempotencyKey) {
+    const existing = await queryOne(
+      tx,
+      `
+        SELECT *
+        FROM console_sponsored_call_records
+        WHERE namespace = $1
+          AND org_id = $2
+          AND idempotency_key = $3
+        LIMIT 1
+      `,
+      [input.namespace, input.ctx.orgId, idempotencyKey],
+    );
+    if (existing) return parseRecord(existing);
+  }
+  try {
+    const row = await queryOne(
+      tx,
+      `
+        INSERT INTO console_sponsored_call_records (
+          namespace,
+          org_id,
+          id,
+          environment_id,
+          api_key_id,
+          api_key_kind,
+          route,
+          policy_id,
+          policy_name_at_event,
+          template_id,
+          chain_family,
+          intent_kind,
+          executor_kind,
+          account_ref,
+          target_ref,
+          sponsor_ref,
+          tx_or_execution_ref,
+          receipt_status,
+          fee_unit,
+          fee_amount,
+          details_json,
+          estimated_spend_minor,
+          settled_spend_minor,
+          pricing_version,
+          pricing_source,
+          billing_ledger_entry_id,
+          prepaid_reservation_id,
+          charged,
+          charged_reason,
+          settled_at_iso,
+          error_code,
+          error_message,
+          idempotency_key,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35
+        )
+        RETURNING *
+      `,
+      [
+        input.namespace,
+        input.ctx.orgId,
+        recordId,
+        String(input.request.environmentId || '').trim(),
+        String(input.request.apiKeyId || '').trim(),
+        input.request.apiKeyKind,
+        String(input.request.route || '').trim(),
+        String(input.request.policyId || '').trim(),
+        normalizeString(input.request.policyNameAtEvent),
+        normalizeString(input.request.templateId),
+        input.request.chainFamily,
+        input.request.intentKind,
+        input.request.executorKind,
+        String(input.request.accountRef || '').trim(),
+        String(input.request.targetRef || '').trim(),
+        String(input.request.sponsorRef || '').trim(),
+        normalizeString(input.request.txOrExecutionRef),
+        input.request.receiptStatus,
+        input.request.feeUnit,
+        String(input.request.feeAmount || '0').trim() || '0',
+        String(input.request.detailsJson || '{}').trim() || '{}',
+        normalizeInteger(input.request.estimatedSpendMinor),
+        normalizeInteger(input.request.settledSpendMinor),
+        normalizeString(input.request.pricingVersion),
+        normalizeString(input.request.pricingSource),
+        normalizeString(input.request.billingLedgerEntryId),
+        normalizeString(input.request.prepaidReservationId),
+        Boolean(input.request.charged),
+        normalizeString(input.request.chargedReason),
+        normalizeString(input.request.settledAt),
+        normalizeString(input.request.errorCode),
+        normalizeString(input.request.errorMessage),
+        idempotencyKey,
+        createdAtMs,
+        createdAtMs,
+      ],
+    );
+    if (!row) throw new Error('Failed to insert sponsored-call record');
+    return parseRecord(row);
+  } catch (error: unknown) {
+    if (!idempotencyKey || !isUniqueViolation(error)) throw error;
+    const existing = await queryOne(
+      tx,
+      `
+        SELECT *
+        FROM console_sponsored_call_records
+        WHERE namespace = $1
+          AND org_id = $2
+          AND idempotency_key = $3
+        LIMIT 1
+      `,
+      [input.namespace, input.ctx.orgId, idempotencyKey],
+    );
+    if (!existing) throw error;
+    return parseRecord(existing);
+  }
 }

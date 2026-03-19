@@ -18,6 +18,13 @@ import {
   parseStripeCheckoutSessionRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations';
+import {
+  isConsoleSponsoredCallError,
+  listConsoleSponsoredCallReconciliationPage,
+  parseListConsoleSponsoredCallRecordsRequest,
+  type ConsoleSponsoredCallService,
+} from '../../console/sponsoredCalls';
 import {
   isConsoleApiKeyError,
   parseCreateConsoleApiKeyRequest,
@@ -184,6 +191,10 @@ import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload'
 import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
+import {
+  emitSponsorshipBalanceTransitionEvents,
+  readSponsorshipBillingBalanceSnapshot,
+} from '../sponsorshipBillingEvents';
 import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
 import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
 import type { RouteDefinition } from '../routeDefinitions';
@@ -203,6 +214,8 @@ export interface CloudflareConsoleContext {
   logger: NormalizedRouterLogger;
   routeDefinitions: readonly RouteDefinition[];
   billing: ConsoleBillingService | null;
+  prepaidReservations: ConsoleBillingPrepaidReservationService | null;
+  sponsoredCalls: ConsoleSponsoredCallService | null;
   orgProjectEnv: ConsoleOrgProjectEnvService | null;
   wallets: ConsoleWalletService | null;
   policies: ConsolePolicyService | null;
@@ -380,6 +393,27 @@ function sendBillingError(error: unknown): Response {
     );
   }
 
+  return json(
+    {
+      ok: false,
+      code: 'internal',
+      message: error instanceof Error ? error.message : String(error),
+    },
+    { status: 500 },
+  );
+}
+
+function sendSponsoredCallError(error: unknown): Response {
+  if (isConsoleSponsoredCallError(error)) {
+    return json(
+      {
+        ok: false,
+        code: error.code,
+        message: error.message,
+      },
+      { status: error.status },
+    );
+  }
   return json(
     {
       ok: false,
@@ -778,6 +812,48 @@ function requireBillingService(ctx: CloudflareConsoleContext): ConsoleBillingSer
       ok: false,
       code: 'billing_not_configured',
       message: 'Billing service is not configured on this server',
+    },
+    { status: 501 },
+  );
+}
+
+async function buildConsoleBillingOverviewResponse(
+  ctx: CloudflareConsoleContext,
+  claims: ConsoleAuthClaims,
+  billing: ConsoleBillingService,
+): Promise<Record<string, unknown>> {
+  const billingCtx = toBillingContext(claims);
+  const overview = await billing.getOverview(billingCtx);
+  const prepaidSummary = ctx.prepaidReservations
+    ? await ctx.prepaidReservations.getSummary(billingCtx)
+    : null;
+  const sponsoredSummary = ctx.sponsoredCalls
+    ? await ctx.sponsoredCalls.getOverviewSummary(billingCtx)
+    : null;
+  return {
+    ...overview,
+    reservedSponsorshipMinor: prepaidSummary?.reservedMinor || 0,
+    activeSponsorshipReservationCount: prepaidSummary?.activeReservationCount || 0,
+    trailing30DaySponsoredSpendMinor:
+      sponsoredSummary?.trailing30Days.chargedSettledSpendMinor || 0,
+    trailing30DaySponsoredExecutionCount:
+      sponsoredSummary?.trailing30Days.chargedExecutionCount || 0,
+    trailing90DaySponsoredSpendMinor:
+      sponsoredSummary?.trailing90Days.chargedSettledSpendMinor || 0,
+    trailing90DaySponsoredExecutionCount:
+      sponsoredSummary?.trailing90Days.chargedExecutionCount || 0,
+  };
+}
+
+function requireSponsoredCallService(
+  ctx: CloudflareConsoleContext,
+): ConsoleSponsoredCallService | Response {
+  if (ctx.sponsoredCalls) return ctx.sponsoredCalls;
+  return json(
+    {
+      ok: false,
+      code: 'sponsored_calls_not_configured',
+      message: 'Sponsored call service is not configured on this server',
     },
     { status: 501 },
   );
@@ -3875,15 +3951,47 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, organizations }, { status: 200 });
     }
 
+    const billingCtx = toBillingContext(auth.claims);
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/sponsored-executions/reconciliation') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const sponsoredCallsOrResponse = requireSponsoredCallService(ctx);
+      if (sponsoredCallsOrResponse instanceof Response) return sponsoredCallsOrResponse;
+      const billingOrResponse = requireBillingService(ctx);
+      if (billingOrResponse instanceof Response) return billingOrResponse;
+      const request = parseListConsoleSponsoredCallRecordsRequest(
+        Object.fromEntries(ctx.url.searchParams.entries()),
+      );
+      const page = await listConsoleSponsoredCallReconciliationPage({
+        sponsoredCalls: sponsoredCallsOrResponse,
+        billing: billingOrResponse,
+        ctx: billingCtx,
+        request,
+      });
+      return json({ ok: true, page }, { status: 200 });
+    }
+
+    if (ctx.method === 'GET' && ctx.pathname === '/console/billing/sponsored-executions') {
+      const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
+      if (routePolicy) return routePolicy;
+      const sponsoredCallsOrResponse = requireSponsoredCallService(ctx);
+      if (sponsoredCallsOrResponse instanceof Response) return sponsoredCallsOrResponse;
+      const request = parseListConsoleSponsoredCallRecordsRequest(
+        Object.fromEntries(ctx.url.searchParams.entries()),
+      );
+      const page = await sponsoredCallsOrResponse.listRecords(billingCtx, request);
+      return json({ ok: true, page }, { status: 200 });
+    }
+
     const billingOrResponse = requireBillingService(ctx);
     if (billingOrResponse instanceof Response) return billingOrResponse;
     const billing = billingOrResponse;
-    const billingCtx = toBillingContext(auth.claims);
 
     if (ctx.method === 'GET' && ctx.pathname === '/console/billing/overview') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const overview = await billing.getOverview(billingCtx);
+      const overview = await buildConsoleBillingOverviewResponse(ctx, auth.claims, billing);
       return json({ ok: true, overview }, { status: 200 });
     }
 
@@ -3969,7 +4077,23 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
       const result = await billing.grantManualSupportCredit(billingCtx, request);
+      await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+        ctx: billingCtx,
+        before: beforeBalanceState,
+        billing,
+        trigger: {
+          kind: 'manual_support_credit',
+          adjustmentId: result.adjustment.id,
+          sourceEventId: result.adjustment.idempotencyKey,
+        },
+      });
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'BILLING',
         action: 'billing.adjustment.support_credit',
@@ -4006,14 +4130,31 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
         ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
       });
-      const result = await billing.grantManualSupportCredit(
-        {
-          orgId,
-          actorUserId: auth.claims.userId,
-          roles: auth.claims.roles,
-        },
-        adjustmentRequest,
+      const targetBillingCtx = {
+        orgId,
+        actorUserId: auth.claims.userId,
+        roles: auth.claims.roles,
+      };
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+        billing,
+        targetBillingCtx,
       );
+      const result = await billing.grantManualSupportCredit(targetBillingCtx, adjustmentRequest);
+      await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+        ctx: targetBillingCtx,
+        before: beforeBalanceState,
+        billing,
+        trigger: {
+          kind: 'manual_support_credit',
+          adjustmentId: result.adjustment.id,
+          sourceEventId: result.adjustment.idempotencyKey,
+        },
+      });
       await emitConsoleAuditEvent(
         ctx,
         {
@@ -4046,7 +4187,23 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const request = parseBillingManualAdjustmentRequest(await readJson(ctx.request));
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
       const result = await billing.appendManualAdminDebit(billingCtx, request);
+      await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+        ctx: billingCtx,
+        before: beforeBalanceState,
+        billing,
+        trigger: {
+          kind: 'manual_admin_debit',
+          adjustmentId: result.adjustment.id,
+          sourceEventId: result.adjustment.idempotencyKey,
+        },
+      });
       await emitConsoleAuditEvent(ctx, auth.claims, {
         category: 'BILLING',
         action: 'billing.adjustment.admin_debit',
@@ -4083,14 +4240,31 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         ...(auth.claims.projectId ? { projectId: auth.claims.projectId } : {}),
         ...(auth.claims.environmentId ? { environmentId: auth.claims.environmentId } : {}),
       });
-      const result = await billing.appendManualAdminDebit(
-        {
-          orgId,
-          actorUserId: auth.claims.userId,
-          roles: auth.claims.roles,
-        },
-        adjustmentRequest,
+      const targetBillingCtx = {
+        orgId,
+        actorUserId: auth.claims.userId,
+        roles: auth.claims.roles,
+      };
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+        billing,
+        targetBillingCtx,
       );
+      const result = await billing.appendManualAdminDebit(targetBillingCtx, adjustmentRequest);
+      await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+        ctx: targetBillingCtx,
+        before: beforeBalanceState,
+        billing,
+        trigger: {
+          kind: 'manual_admin_debit',
+          adjustmentId: result.adjustment.id,
+          sourceEventId: result.adjustment.idempotencyKey,
+        },
+      });
       await emitConsoleAuditEvent(
         ctx,
         {
@@ -4256,7 +4430,25 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
         operation: 'PAYMENT_RECONCILE',
         providerRef: request.checkoutSessionId,
       };
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
       const result = await billing.reconcileStripeCheckoutSession(billingCtx, request);
+      if (result.settledNow) {
+        await emitSponsorshipBalanceTransitionEvents({
+          services: {
+            logger: ctx.logger,
+            webhooks: ctx.webhooks,
+            observabilityIngestion: ctx.observabilityIngestion,
+          },
+          ctx: billingCtx,
+          before: beforeBalanceState,
+          billing,
+          trigger: {
+            kind: 'credit_purchase_settled',
+            purchaseId: result.purchase?.id || null,
+            sourceEventId: request.checkoutSessionId,
+          },
+        });
+      }
       if (result.settledNow && result.purchase && result.orgId) {
         await emitBillingWebhookEvent(ctx, {
           orgId: result.orgId,
@@ -4298,6 +4490,9 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
     if (isConsoleOrgProjectEnvError(error)) {
       return sendOrgProjectEnvError(error);
     }
+    if (isConsoleSponsoredCallError(error)) {
+      return sendSponsoredCallError(error);
+    }
     return sendBillingError(error);
   }
 
@@ -4310,6 +4505,9 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
   const routeSurface = resolveConsoleRouteSurface();
   const { routeDefinitions } = routeSurface;
   const billing = opts.billing === undefined ? null : opts.billing;
+  const prepaidReservations =
+    opts.prepaidReservations === undefined ? null : opts.prepaidReservations;
+  const sponsoredCalls = opts.sponsoredCalls === undefined ? null : opts.sponsoredCalls;
   const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
   const wallets = opts.wallets === undefined ? null : opts.wallets;
   const policies = opts.policies === undefined ? null : opts.policies;
@@ -4382,6 +4580,8 @@ export function createCloudflareConsoleRouter(opts: ConsoleRouterOptions = {}): 
       logger,
       routeDefinitions,
       billing,
+      prepaidReservations,
+      sponsoredCalls,
       orgProjectEnv,
       wallets,
       policies,

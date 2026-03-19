@@ -21,6 +21,15 @@ function makeSponsoredOptions() {
           monthlyActiveWallets: 1,
         };
       },
+      async recordSponsoredExecutionDebit() {
+        return {
+          accepted: true,
+          debitAppliedMinor: 0,
+          creditBalanceMinor: 0,
+          monthUtc: '2026-03',
+          statementId: 'inv_202603_001',
+        };
+      },
     } as any,
     ledger: createInMemoryConsoleSponsoredCallService(),
     runtimeSnapshots: createInMemoryConsoleRuntimeSnapshotService(),

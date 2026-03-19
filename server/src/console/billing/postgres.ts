@@ -36,6 +36,9 @@ import type {
   BillingManualAdjustmentResult,
   BillingMonthlyActiveWallets,
   BillingOverview,
+  BillingSponsoredExecutionDebitEntry,
+  BillingSponsoredExecutionDebitRequest,
+  BillingSponsoredExecutionDebitResult,
   BillingUsageAction,
   BillingUsageEventRequest,
   BillingUsageEventResult,
@@ -57,6 +60,26 @@ type BillingJournalActorType = 'USER' | 'SYSTEM' | 'PROVIDER';
 type BillingLedgerPostingDirection = 'DEBIT' | 'CREDIT';
 
 const CONSOLE_BILLING_MIGRATION_LOCK_ID = 9452360123582;
+export const CONSOLE_BILLING_POSTGRES_RUNTIME = Symbol('consoleBillingPostgresRuntime');
+
+export interface ConsoleBillingPostgresRuntime {
+  pool: PgPool;
+  namespace: string;
+  now: () => Date;
+}
+
+export type ConsoleBillingPostgresService = ConsoleBillingService & {
+  [CONSOLE_BILLING_POSTGRES_RUNTIME]: ConsoleBillingPostgresRuntime;
+};
+
+export function getConsoleBillingPostgresRuntime(
+  service: ConsoleBillingService | null | undefined,
+): ConsoleBillingPostgresRuntime | null {
+  if (!service || typeof service !== 'object') return null;
+  return (
+    (service as Partial<ConsoleBillingPostgresService>)[CONSOLE_BILLING_POSTGRES_RUNTIME] || null
+  );
+}
 const MAW_USAGE_DEBIT_MINOR = 300;
 const DEFAULT_LOW_BALANCE_THRESHOLD_MINOR = 2000;
 const DEFAULT_INVOICE_LIST_LIMIT = 25;
@@ -190,6 +213,7 @@ function buildLedgerPostingsForEntry(input: {
         },
       ];
     case 'USAGE_DEBIT':
+    case 'SPONSORED_EXECUTION_DEBIT':
       return [
         {
           id: makeLedgerPostingId(input.entryId, 'debit_org_prepaid_liability'),
@@ -855,21 +879,39 @@ function buildInvoiceLineItems(input: {
   invoiceId: string;
   periodMonthUtc: string;
   monthlyActiveWallets: number;
+  sponsoredExecutionDebitMinor: number;
   createdAtMs: number;
 }): BillingInvoiceLineItem[] {
-  if (input.monthlyActiveWallets <= 0) return [];
-  return [
-    makeInvoiceLineItem({
-      orgId: input.orgId,
-      invoiceId: input.invoiceId,
-      periodMonthUtc: input.periodMonthUtc,
-      itemType: 'MAW_USAGE_DEBIT',
-      description: `Monthly Active Wallet usage (${input.periodMonthUtc})`,
-      quantity: input.monthlyActiveWallets,
-      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
-      createdAtMs: input.createdAtMs,
-    }),
-  ];
+  const items: BillingInvoiceLineItem[] = [];
+  if (input.monthlyActiveWallets > 0) {
+    items.push(
+      makeInvoiceLineItem({
+        orgId: input.orgId,
+        invoiceId: input.invoiceId,
+        periodMonthUtc: input.periodMonthUtc,
+        itemType: 'MAW_USAGE_DEBIT',
+        description: `Monthly Active Wallet usage (${input.periodMonthUtc})`,
+        quantity: input.monthlyActiveWallets,
+        unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+        createdAtMs: input.createdAtMs,
+      }),
+    );
+  }
+  if (input.sponsoredExecutionDebitMinor > 0) {
+    items.push(
+      makeInvoiceLineItem({
+        orgId: input.orgId,
+        invoiceId: input.invoiceId,
+        periodMonthUtc: input.periodMonthUtc,
+        itemType: 'SPONSORED_EXECUTION_DEBIT',
+        description: `Sponsored execution spend (${input.periodMonthUtc})`,
+        quantity: 1,
+        unitAmountMinor: input.sponsoredExecutionDebitMinor,
+        createdAtMs: input.createdAtMs,
+      }),
+    );
+  }
+  return items;
 }
 
 function sortLineItems(items: BillingInvoiceLineItem[]): BillingInvoiceLineItem[] {
@@ -1080,23 +1122,30 @@ async function getUsageStatementProjectionTotals(
     orgId: string;
     periodMonthUtc: string;
   },
-): Promise<{ monthlyActiveWallets: number; amountDueMinor: number }> {
+): Promise<{
+  monthlyActiveWallets: number;
+  amountDueMinor: number;
+  sponsoredExecutionDebitMinor: number;
+}> {
   const row = await queryOne(
     q,
     `SELECT
-        COALESCE(SUM(ABS(amount_minor)), 0)::BIGINT AS amount_due_minor
+        COALESCE(SUM(CASE WHEN entry_type = 'USAGE_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0)::BIGINT AS maw_amount_due_minor,
+        COALESCE(SUM(CASE WHEN entry_type = 'SPONSORED_EXECUTION_DEBIT' THEN ABS(amount_minor) ELSE 0 END), 0)::BIGINT AS sponsored_amount_due_minor
        FROM console_billing_ledger_entries
       WHERE namespace = $1
         AND org_id = $2
-        AND entry_type = 'USAGE_DEBIT'
+        AND entry_type IN ('USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT')
         AND month_utc = $3`,
     [input.namespace, input.orgId, input.periodMonthUtc],
   );
-  const amountDueMinor = toNumber(row?.amount_due_minor);
+  const mawAmountDueMinor = toNumber(row?.maw_amount_due_minor);
+  const sponsoredExecutionDebitMinor = toNumber(row?.sponsored_amount_due_minor);
   return {
     monthlyActiveWallets:
-      amountDueMinor > 0 ? Math.max(0, Math.round(amountDueMinor / MAW_USAGE_DEBIT_MINOR)) : 0,
-    amountDueMinor,
+      mawAmountDueMinor > 0 ? Math.max(0, Math.round(mawAmountDueMinor / MAW_USAGE_DEBIT_MINOR)) : 0,
+    amountDueMinor: mawAmountDueMinor + sponsoredExecutionDebitMinor,
+    sponsoredExecutionDebitMinor,
   };
 }
 
@@ -1196,6 +1245,7 @@ async function syncUsageStatementProjection(
     invoiceId: invoice.id,
     periodMonthUtc: input.periodMonthUtc,
     monthlyActiveWallets: usageTotals.monthlyActiveWallets,
+    sponsoredExecutionDebitMinor: usageTotals.sponsoredExecutionDebitMinor,
     createdAtMs: input.createdAtMs,
   });
   await q.query(
@@ -1772,7 +1822,7 @@ export async function ensureConsoleBillingPostgresSchema(
         created_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
         UNIQUE (namespace, invoice_id, item_type),
-        CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'MANUAL_ADJUSTMENT'))
+        CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT'))
       )
     `);
     await pool.query(`
@@ -1787,7 +1837,7 @@ export async function ensureConsoleBillingPostgresSchema(
             DROP CONSTRAINT IF EXISTS console_invoice_line_items_item_type_check;
           ALTER TABLE console_invoice_line_items
             ADD CONSTRAINT console_invoice_line_items_item_type_check_v2
-            CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'MANUAL_ADJUSTMENT'));
+            CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT'));
         END IF;
       END
       $$;
@@ -1878,7 +1928,7 @@ export async function ensureConsoleBillingPostgresSchema(
         created_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, id),
         UNIQUE (namespace, org_id, source_event_id),
-        CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL')),
+        CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL')),
         CHECK (currency IN ('USD'))
       )
     `);
@@ -1901,6 +1951,23 @@ export async function ensureConsoleBillingPostgresSchema(
     await pool.query(`
       ALTER TABLE console_billing_ledger_entries
       ADD COLUMN IF NOT EXISTS idempotency_key TEXT
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+            FROM pg_constraint
+           WHERE conname = 'console_billing_ledger_entries_entry_type_check_v2'
+        ) THEN
+          ALTER TABLE console_billing_ledger_entries
+            DROP CONSTRAINT IF EXISTS console_billing_ledger_entries_entry_type_check;
+          ALTER TABLE console_billing_ledger_entries
+            ADD CONSTRAINT console_billing_ledger_entries_entry_type_check_v2
+            CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL'));
+        END IF;
+      END
+      $$;
     `);
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS console_billing_ledger_entries_idempotency_key_idx
@@ -2269,7 +2336,13 @@ export async function createPostgresConsoleBillingService(
     });
   }
 
-  return {
+  const runtime: ConsoleBillingPostgresRuntime = {
+    pool,
+    namespace,
+    now: nowFn,
+  };
+
+  const service: ConsoleBillingPostgresService = {
     async getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview> {
       return withOrgTx(ctx, async (q, now) => {
         const currentMonthUtc = monthUtc(now);
@@ -2354,6 +2427,33 @@ export async function createPostgresConsoleBillingService(
       });
     },
 
+    async getSponsoredExecutionDebitsByIds(
+      ctx: ConsoleBillingContext,
+      ledgerEntryIds: string[],
+    ): Promise<BillingSponsoredExecutionDebitEntry[]> {
+      return withOrgTx(ctx, async (q) => {
+        const ids = Array.from(
+          new Set(
+            ledgerEntryIds
+              .map((entryId) => String(entryId || '').trim())
+              .filter((entryId) => entryId.length > 0),
+          ),
+        );
+        if (ids.length === 0) return [];
+        const rows = await q.query(
+          `SELECT *
+             FROM console_billing_ledger_entries
+            WHERE namespace = $1
+              AND org_id = $2
+              AND entry_type = 'SPONSORED_EXECUTION_DEBIT'
+              AND id = ANY($3::TEXT[])
+            ORDER BY created_at_ms DESC, id DESC`,
+          [namespace, ctx.orgId, ids],
+        );
+        return rows.rows.map((row) => parseLedgerEntryRow(row as PgRow) as BillingSponsoredExecutionDebitEntry);
+      });
+    },
+
     async listAccountActivity(
       ctx: ConsoleBillingContext,
       request: BillingAccountActivityRequest = {},
@@ -2368,7 +2468,7 @@ export async function createPostgresConsoleBillingService(
         }
         if (request.eventType) {
           values.push(request.eventType);
-          where.push(`type = $${values.length}`);
+          where.push(`entry_type = $${values.length}`);
         }
         values.push(limit);
         const rows = await q.query(
@@ -2567,6 +2667,22 @@ export async function createPostgresConsoleBillingService(
           statementId,
         };
       });
+    },
+
+    async recordSponsoredExecutionDebit(
+      ctx: ConsoleBillingContext,
+      request: BillingSponsoredExecutionDebitRequest,
+    ): Promise<BillingSponsoredExecutionDebitResult> {
+      return withOrgTx(ctx, async (q, currentNow) =>
+        (
+          await recordSponsoredExecutionDebitTx(q, {
+            namespace,
+            ctx,
+            now: currentNow,
+            request,
+          })
+        ).result,
+      );
     },
 
     async listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]> {
@@ -3143,6 +3259,108 @@ export async function createPostgresConsoleBillingService(
     ): Promise<StripeWebhookEventResult> {
       return processStripeWebhookEventInternal(request);
     },
+    [CONSOLE_BILLING_POSTGRES_RUNTIME]: runtime,
+  };
+
+  return service;
+}
+
+export async function recordSponsoredExecutionDebitTx(
+  q: Queryable,
+  input: {
+    namespace: string;
+    ctx: ConsoleBillingContext;
+    now: Date;
+    request: BillingSponsoredExecutionDebitRequest;
+  },
+): Promise<{
+  result: BillingSponsoredExecutionDebitResult;
+  ledgerEntry: BillingLedgerEntry | null;
+}> {
+  const sourceEventId = String(input.request.sourceEventId || '').trim();
+  if (!sourceEventId) {
+    throw new ConsoleBillingError(
+      'invalid_sponsored_execution_debit',
+      400,
+      'sourceEventId is required',
+    );
+  }
+  if (!Number.isInteger(input.request.amountMinor) || input.request.amountMinor <= 0) {
+    throw new ConsoleBillingError(
+      'invalid_sponsored_execution_debit',
+      400,
+      'amountMinor must be a positive integer',
+    );
+  }
+  const occurredAtMs = input.request.occurredAt ? Date.parse(input.request.occurredAt) : nowMs(input.now);
+  if (!Number.isFinite(occurredAtMs)) {
+    throw new ConsoleBillingError(
+      'invalid_sponsored_execution_debit',
+      400,
+      'Invalid occurredAt value',
+    );
+  }
+  const eventMonthUtc = monthUtc(new Date(occurredAtMs));
+  const existingDebit = await queryOne(
+    q,
+    `SELECT *
+       FROM console_billing_ledger_entries
+      WHERE namespace = $1
+        AND org_id = $2
+        AND entry_type = 'SPONSORED_EXECUTION_DEBIT'
+        AND source_event_id = $3`,
+    [input.namespace, input.ctx.orgId, sourceEventId],
+  );
+  let ledgerEntry: BillingLedgerEntry | null = existingDebit ? parseLedgerEntryRow(existingDebit) : null;
+  if (!ledgerEntry) {
+    ledgerEntry = await appendLedgerEntry(q, {
+      namespace: input.namespace,
+      orgId: input.ctx.orgId,
+      id: makeId('ble', input.now),
+      type: 'SPONSORED_EXECUTION_DEBIT',
+      amountMinor: -input.request.amountMinor,
+      description: `Sponsored execution debit for ${input.request.walletId}`,
+      monthUtc: eventMonthUtc,
+      relatedInvoiceId: makeBootstrapUsageStatementId(input.ctx.orgId, eventMonthUtc),
+      relatedPurchaseId: null,
+      sourceEventId,
+      actorType: 'SYSTEM',
+      actorUserId: input.ctx.actorUserId,
+      reasonCode: 'sponsored_execution_debit',
+      note:
+        String(input.request.note || '').trim() ||
+        [
+          input.request.txOrExecutionRef ? `Ref ${input.request.txOrExecutionRef}` : '',
+          input.request.pricingVersion ? `Pricing ${input.request.pricingVersion}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') ||
+        `Sponsored execution debit recorded for ${input.request.walletId}`,
+      idempotencyKey: `sponsored_execution_debit:${sourceEventId}`,
+      createdAtMs: occurredAtMs,
+    });
+  }
+  const statement = await syncUsageStatementProjection(q, {
+    namespace: input.namespace,
+    orgId: input.ctx.orgId,
+    periodMonthUtc: eventMonthUtc,
+    createdAtMs: nowMs(input.now),
+  });
+  const creditBalanceMinor = await syncProjectedOrgBalance(q, {
+    namespace: input.namespace,
+    orgId: input.ctx.orgId,
+    updatedAtMs: nowMs(input.now),
+  });
+  return {
+    result: {
+      accepted: !existingDebit,
+      debitAppliedMinor: existingDebit ? 0 : input.request.amountMinor,
+      ledgerEntryId: ledgerEntry.id,
+      creditBalanceMinor,
+      monthUtc: eventMonthUtc,
+      statementId: statement.invoice.id,
+    },
+    ledgerEntry,
   };
 }
 

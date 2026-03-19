@@ -1,13 +1,18 @@
 export type BillingUsageMetricVersion = 'maw_v1';
 export type BillingDocumentType = 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
 export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
-export type BillingInvoiceLineItemType = 'CREDIT_TOP_UP' | 'MAW_USAGE_DEBIT' | 'MANUAL_ADJUSTMENT';
+export type BillingInvoiceLineItemType =
+  | 'CREDIT_TOP_UP'
+  | 'MAW_USAGE_DEBIT'
+  | 'SPONSORED_EXECUTION_DEBIT'
+  | 'MANUAL_ADJUSTMENT';
 export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50' | 'usd_custom';
 export type BillingCreditPurchaseStatus = 'PENDING' | 'SETTLED' | 'CANCELED';
 export type BillingLiveEnvironmentState = 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
 export type BillingLedgerEntryType =
   | 'CREDIT_PURCHASE'
   | 'USAGE_DEBIT'
+  | 'SPONSORED_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT'
   | 'REFUND'
   | 'REVERSAL';
@@ -66,6 +71,10 @@ export interface BillingLedgerEntry {
   createdAt: string;
 }
 
+export interface BillingSponsoredExecutionDebitEntry extends BillingLedgerEntry {
+  type: 'SPONSORED_EXECUTION_DEBIT';
+}
+
 export type BillingUsageAction =
   | 'transfer'
   | 'swap'
@@ -90,6 +99,25 @@ export interface BillingUsageEventResult {
   monthlyActiveWallets: number;
   debitAppliedMinor: number;
   creditBalanceMinor: number;
+  statementId: string | null;
+}
+
+export interface BillingSponsoredExecutionDebitRequest {
+  amountMinor: number;
+  sourceEventId: string;
+  walletId: string;
+  occurredAt?: string;
+  txOrExecutionRef?: string | null;
+  pricingVersion?: string | null;
+  note?: string | null;
+}
+
+export interface BillingSponsoredExecutionDebitResult {
+  accepted: boolean;
+  debitAppliedMinor: number;
+  ledgerEntryId: string | null;
+  creditBalanceMinor: number;
+  monthUtc: string;
   statementId: string | null;
 }
 

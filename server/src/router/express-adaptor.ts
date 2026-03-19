@@ -278,6 +278,44 @@ export type {
   BillingProviderAdapters,
 } from '../console/billing';
 export type {
+  ConsoleBillingPrepaidReservationStatus,
+  ConsoleBillingPrepaidReservation,
+  ConsoleBillingPrepaidReservationSummary,
+  ReserveConsoleBillingPrepaidReservationRequest,
+  SettleConsoleBillingPrepaidReservationRequest,
+  ReleaseConsoleBillingPrepaidReservationRequest,
+  ExpireConsoleBillingPrepaidReservationsRequest,
+  ConsoleBillingPrepaidReservationReserveOutcome,
+  ConsoleBillingPrepaidReservationMutationOutcome,
+  ExpireConsoleBillingPrepaidReservationsResult,
+  ConsoleBillingPrepaidReservationContext,
+  ConsoleBillingPrepaidReservationService,
+  InMemoryConsoleBillingPrepaidReservationServiceOptions,
+  PostgresConsoleBillingPrepaidReservationSchemaOptions,
+  PostgresConsoleBillingPrepaidReservationServiceOptions,
+} from '../console/billingPrepaidReservations';
+export type {
+  ConsoleSponsoredCallApiKeyKind,
+  ConsoleSponsoredCallChainFamily,
+  ConsoleSponsoredCallIntentKind,
+  ConsoleSponsoredCallFeeUnit,
+  ConsoleSponsoredCallExecutorKind,
+  ConsoleSponsoredCallReceiptStatus,
+  ConsoleSponsoredCallRecord,
+  ConsoleSponsoredCallRecordPage,
+  ConsoleSponsoredCallReconciliationStatus,
+  ConsoleSponsoredCallReconciliationEntry,
+  ConsoleSponsoredCallReconciliationSummary,
+  ConsoleSponsoredCallReconciliationPage,
+  ListConsoleSponsoredCallRecordsRequest,
+  CreateConsoleSponsoredCallRecordRequest,
+  ConsoleSponsoredCallContext,
+  ConsoleSponsoredCallService,
+  InMemoryConsoleSponsoredCallServiceOptions,
+  PostgresConsoleSponsoredCallSchemaOptions,
+  PostgresConsoleSponsoredCallServiceOptions,
+} from '../console/sponsoredCalls';
+export type {
   ConsoleWebhookEventCategory,
   ConsoleWebhookEndpointStatus,
   ConsoleWebhookDeliveryStatus,
@@ -514,6 +552,22 @@ export {
   isConsoleBillingError,
   ConsoleBillingError,
 } from '../console/billing';
+export {
+  createInMemoryConsoleBillingPrepaidReservationService,
+  ensureConsoleBillingPrepaidReservationPostgresSchema,
+  createPostgresConsoleBillingPrepaidReservationService,
+  isConsoleBillingPrepaidReservationError,
+  ConsoleBillingPrepaidReservationError,
+} from '../console/billingPrepaidReservations';
+export {
+  createInMemoryConsoleSponsoredCallService,
+  ensureConsoleSponsoredCallPostgresSchema,
+  createPostgresConsoleSponsoredCallService,
+  listConsoleSponsoredCallReconciliationPage,
+  parseListConsoleSponsoredCallRecordsRequest,
+  isConsoleSponsoredCallError,
+  ConsoleSponsoredCallError,
+} from '../console/sponsoredCalls';
 export {
   createInMemoryConsoleWebhookService,
   ensureConsoleWebhooksPostgresSchema,

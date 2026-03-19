@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from 'sonner';
+import { useSiteRouter } from '@/app/router/useSiteRouter';
 import {
   GAS_SPONSORSHIP_CHAIN_MATRIX_ROWS,
   GAS_SPONSORSHIP_CHAIN_TARGETS,
@@ -26,6 +27,12 @@ import { useSessionDraft } from '../../drafts/useSessionDraft';
 import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import { getDashboardEnvironmentLabel, getDashboardProjectLabel } from '../../utils/scopeLabels';
+import { BillingMetricsGrid, type BillingMetric } from '../billing/billingShared';
+import {
+  formatUsdMinor,
+  getDashboardBillingOverview,
+  type DashboardBillingOverview,
+} from '../billing/consoleBillingApi';
 import {
   createDashboardGasSponsorshipPolicy,
   listDashboardGasSponsorshipPolicies,
@@ -950,6 +957,7 @@ function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
 }
 
 export function GasSponsorshipPage(): React.JSX.Element {
+  const { go } = useSiteRouter();
   const session = useDashboardConsoleSession();
   const selectedContext = useDashboardSelectedContext();
   const selectedOrgId = normalizeString(
@@ -964,6 +972,11 @@ export function GasSponsorshipPage(): React.JSX.Element {
 
   const [loading, setLoading] = React.useState<boolean>(true);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
+  const [billingOverview, setBillingOverview] = React.useState<DashboardBillingOverview | null>(
+    null,
+  );
+  const [billingOverviewLoading, setBillingOverviewLoading] = React.useState<boolean>(false);
+  const [billingOverviewError, setBillingOverviewError] = React.useState<string>('');
   const [mutationError, setMutationError] = React.useState<string>('');
   const [mutationNotice, setMutationNotice] = React.useState<string>('');
   const [mutating, setMutating] = React.useState<boolean>(false);
@@ -1169,6 +1182,35 @@ export function GasSponsorshipPage(): React.JSX.Element {
     };
   }, [selectedEnvironmentId, selectedProjectId, session.claims]);
 
+  const loadBillingOverview = React.useCallback(() => {
+    if (!session.claims) {
+      setBillingOverview(null);
+      setBillingOverviewError(session.errorMessage || 'Console session is unavailable');
+      setBillingOverviewLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBillingOverviewLoading(true);
+    setBillingOverviewError('');
+    getDashboardBillingOverview()
+      .then((overview) => {
+        if (cancelled) return;
+        setBillingOverview(overview);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setBillingOverview(null);
+        setBillingOverviewError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setBillingOverviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.claims, session.errorMessage]);
+
   const loadGasPolicies = React.useCallback(() => {
     if (!session.claims) {
       setLoading(false);
@@ -1210,6 +1252,15 @@ export function GasSponsorshipPage(): React.JSX.Element {
     const cleanup = loadGasPolicies();
     return cleanup;
   }, [loadGasPolicies, session.loading]);
+
+  React.useEffect(() => {
+    if (session.loading) {
+      setBillingOverviewLoading(true);
+      return;
+    }
+    const cleanup = loadBillingOverview();
+    return cleanup;
+  }, [loadBillingOverview, session.loading]);
 
   const onResetForm = React.useCallback(() => {
     setEditingPolicyId('');
@@ -1545,6 +1596,67 @@ export function GasSponsorshipPage(): React.JSX.Element {
     [canMutatePolicy, loadGasPolicies, session.claims, session.errorMessage],
   );
 
+  const gasBalanceMetrics = React.useMemo<BillingMetric[]>(() => {
+    if (!billingOverview) return [];
+    return [
+      {
+        label: 'Org prepaid balance',
+        value: formatUsdMinor(billingOverview.creditBalanceMinor),
+        hint:
+          billingOverview.liveEnvironmentState === 'BLOCKED'
+            ? 'Sponsorship is blocked until balance is positive again'
+            : billingOverview.liveEnvironmentState === 'LOW_BALANCE'
+              ? `Warning threshold ${formatUsdMinor(billingOverview.lowBalanceThresholdMinor)}`
+              : 'Positive balance available for sponsorship admission',
+      },
+      {
+        label: 'Reserved sponsorship',
+        value: formatUsdMinor(billingOverview.reservedSponsorshipMinor),
+        hint: `${billingOverview.activeSponsorshipReservationCount} active reservation${
+          billingOverview.activeSponsorshipReservationCount === 1 ? '' : 's'
+        }`,
+      },
+      {
+        label: '30-day sponsored spend',
+        value: formatUsdMinor(billingOverview.trailing30DaySponsoredSpendMinor),
+        hint: `${billingOverview.trailing30DaySponsoredExecutionCount} recent sponsored execution${
+          billingOverview.trailing30DaySponsoredExecutionCount === 1 ? '' : 's'
+        }`,
+      },
+      {
+        label: '90-day sponsored spend',
+        value: formatUsdMinor(billingOverview.trailing90DaySponsoredSpendMinor),
+        hint: `${billingOverview.trailing90DaySponsoredExecutionCount} execution${
+          billingOverview.trailing90DaySponsoredExecutionCount === 1 ? '' : 's'
+        } over the full lookback`,
+      },
+    ];
+  }, [billingOverview]);
+
+  const gasBalanceNotice = React.useMemo(() => {
+    if (!billingOverview) return null;
+    if (billingOverview.liveEnvironmentState === 'BLOCKED') {
+      return {
+        tone: 'warning' as const,
+        message:
+          'Sponsored execution is currently blocked because org prepaid balance is depleted. Policy caps can still have room, but no new sponsored requests will be admitted until the balance is refilled.',
+      };
+    }
+    if (billingOverview.liveEnvironmentState === 'LOW_BALANCE') {
+      return {
+        tone: 'info' as const,
+        message: `Sponsored execution is still active, but prepaid balance is at or below the warning threshold (${formatUsdMinor(
+          billingOverview.lowBalanceThresholdMinor,
+        )}). Refill before live traffic pushes the org into blocked state.`,
+      };
+    }
+    return {
+      tone: 'info' as const,
+      message:
+        'Policy caps and org prepaid balance are enforced independently. Even enabled policies stop admitting sponsorship immediately once the org balance is exhausted.',
+    };
+  }, [billingOverview]);
+
   return (
     <div className="dashboard-view" aria-label="Gas sponsorship page">
       {mutationNotice || mutationError ? (
@@ -1568,6 +1680,53 @@ export function GasSponsorshipPage(): React.JSX.Element {
         </section>
       ) : (
         <>
+          <section className="dashboard-view__section" aria-label="Gas sponsorship balance readiness">
+            <h2>Sponsorship balance readiness</h2>
+            <p>
+              Policy configuration and prepaid balance are separate controls. Even with enabled
+              policies, sponsorship stops immediately when the organization balance is exhausted.
+            </p>
+            {billingOverviewLoading ? (
+              <p>Loading sponsorship balance state...</p>
+            ) : billingOverviewError ? (
+              <p className="dashboard-pagination-note">
+                Sponsorship balance state unavailable: {billingOverviewError}
+              </p>
+            ) : billingOverview ? (
+              <>
+                {gasBalanceNotice ? (
+                  gasBalanceNotice.tone === 'warning' ? (
+                    <div className="dashboard-warning-banner" role="alert">
+                      <p>{gasBalanceNotice.message}</p>
+                      <button
+                        type="button"
+                        className="dashboard-warning-banner__dismiss"
+                        onClick={() => go('/dashboard/billing/account')}
+                      >
+                        Top up balance
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="dashboard-gas-sponsorship-info-banner">
+                      <p>{gasBalanceNotice.message}</p>
+                      <button
+                        type="button"
+                        className="dashboard-pagination-button"
+                        onClick={() => go('/dashboard/billing/account')}
+                      >
+                        Open billing
+                      </button>
+                    </div>
+                  )
+                ) : null}
+                <BillingMetricsGrid
+                  metrics={gasBalanceMetrics}
+                  ariaLabel="Gas sponsorship balance readiness metrics"
+                />
+              </>
+            ) : null}
+          </section>
+
           <section className="dashboard-view__section" aria-label="Gas sponsorship setup">
             <h2>Create policy</h2>
             <p>

@@ -647,6 +647,93 @@ test.describe('console billing postgres service prepaid model', () => {
     expect(Number((rollup.rows[0] as any).monthly_active_wallets || 0)).toBe(2);
   });
 
+  test('postgres service records sponsored execution debits idempotently and projects them into statements', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    const ctx = {
+      orgId: 'org-postgres-sponsored-debits',
+      actorUserId: 'ops-sponsored-debits-postgres',
+      roles: ['ops'],
+    } satisfies BillingCtx;
+
+    await settleCreditPurchase(service!, ctx, 'usd_25');
+
+    const first = await service!.recordSponsoredExecutionDebit(ctx, {
+      amountMinor: 125,
+      sourceEventId: 'sponsored_pg_evt_1',
+      walletId: 'alice.testnet',
+      occurredAt: '2026-03-12T00:00:00.000Z',
+      txOrExecutionRef: 'tx_pg_123',
+      pricingVersion: 'pricing-pg-v1',
+    });
+    expect(first.accepted).toBe(true);
+    expect(first.debitAppliedMinor).toBe(125);
+    expect(first.creditBalanceMinor).toBe(2375);
+    expect(first.statementId).toBeTruthy();
+
+    const duplicate = await service!.recordSponsoredExecutionDebit(ctx, {
+      amountMinor: 125,
+      sourceEventId: 'sponsored_pg_evt_1',
+      walletId: 'alice.testnet',
+      occurredAt: '2026-03-12T00:00:00.000Z',
+    });
+    expect(duplicate.accepted).toBe(false);
+    expect(duplicate.debitAppliedMinor).toBe(0);
+    expect(duplicate.creditBalanceMinor).toBe(2375);
+
+    const overview = await service!.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(2375);
+
+    const accountActivity = await service!.listAccountActivity(ctx, { limit: 5 });
+    expect(accountActivity.entries.some((entry) => entry.type === 'SPONSORED_EXECUTION_DEBIT')).toBe(
+      true,
+    );
+
+    const statementId = String(first.statementId || '');
+    const statement = await service!.getInvoice(ctx, statementId);
+    expect(statement?.documentType).toBe('USAGE_STATEMENT');
+    expect(statement?.amountDueMinor).toBe(125);
+
+    const lineItems = await service!.listInvoiceLineItems(ctx, statementId);
+    expect(lineItems.some((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')).toBe(true);
+    expect(
+      lineItems.find((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')?.amountMinor,
+    ).toBe(125);
+
+    const postings = await queryInOrg({
+      postgresUrl,
+      namespace,
+      orgId: ctx.orgId,
+      text: `SELECT account_id, direction, amount_minor, source_event_id
+         FROM console_billing_ledger_postings
+        WHERE namespace = $1
+          AND org_id = $2
+          AND source_event_id = $3
+        ORDER BY direction ASC, account_id ASC`,
+      values: [namespace, ctx.orgId, 'sponsored_pg_evt_1'],
+    });
+    expect(
+      postings.rows.map((row) => ({
+        account_id: String((row as any).account_id || ''),
+        direction: String((row as any).direction || ''),
+        amount_minor: Number((row as any).amount_minor || 0),
+        source_event_id: String((row as any).source_event_id || ''),
+      })),
+    ).toEqual([
+      {
+        account_id: 'acct:revenue_usage',
+        direction: 'CREDIT',
+        amount_minor: 125,
+        source_event_id: 'sponsored_pg_evt_1',
+      },
+      {
+        account_id: 'acct:org_prepaid_liability:org-postgres-sponsored-debits',
+        direction: 'DEBIT',
+        amount_minor: 125,
+        source_event_id: 'sponsored_pg_evt_1',
+      },
+    ]);
+  });
+
   test('postgres service allows concurrent overview and MAW reads without deadlock', async () => {
     test.skip(!enabled, 'POSTGRES_URL not set');
     const ctx = {

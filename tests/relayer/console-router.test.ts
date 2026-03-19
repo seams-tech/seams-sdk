@@ -6197,6 +6197,106 @@ test.describe('console router (express)', () => {
     }
   });
 
+  test('manual billing adjustments emit sponsorship balance transition webhook events and observability logs (express)', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    await billing.grantManualSupportCredit(
+      { orgId: 'org-1', actorUserId: 'seed-user', roles: ['platform_admin'] },
+      {
+        amountMinor: 4000,
+        reasonCode: 'seed_credit',
+        note: 'Seed balance for transition events',
+        idempotencyKey: 'seed-balance-transition-express',
+      },
+    );
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => ({
+          ok: true,
+          statusCode: 200,
+          responseBody: 'ok',
+        }),
+      },
+    });
+    const endpoint = await webhooks.createEndpoint(
+      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      {
+        url: 'https://example.com/billing-transition-express',
+        eventCategories: ['billing'],
+      },
+    );
+    const router = createConsoleRouter({
+      auth: makeConsoleAuthAdapter(['platform_admin']),
+      billing,
+      webhooks,
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const lowBalance = await fetchJson(`${srv.baseUrl}/console/billing/adjustments/admin-debit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountMinor: 2500,
+          reasonCode: 'lower_to_threshold',
+          note: 'Drop balance into low state',
+          idempotencyKey: 'balance-transition-express-low',
+        }),
+      });
+      expect(lowBalance.status).toBe(201);
+
+      const blocked = await fetchJson(`${srv.baseUrl}/console/billing/adjustments/admin-debit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountMinor: 2000,
+          reasonCode: 'lower_to_blocked',
+          note: 'Drop balance into blocked state',
+          idempotencyKey: 'balance-transition-express-blocked',
+        }),
+      });
+      expect(blocked.status).toBe(201);
+
+      const recovered = await fetchJson(
+        `${srv.baseUrl}/console/billing/adjustments/support-credit`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountMinor: 5000,
+            reasonCode: 'restore_balance',
+            note: 'Recover balance to healthy',
+            idempotencyKey: 'balance-transition-express-recovered',
+          }),
+        },
+      );
+      expect(recovered.status).toBe(201);
+
+      const deliveries = await webhooks.listDeliveries(
+        { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+        endpoint.id,
+      );
+      expect(deliveries.items.map((entry) => entry.eventType)).toEqual([
+        'billing.balance.recovered',
+        'billing.balance.blocked',
+        'billing.balance.low_balance',
+      ]);
+      expect(ingested.map((entry) => String(entry.event.eventType || ''))).toEqual([
+        'billing.balance.low_balance',
+        'billing.balance.blocked',
+        'billing.balance.recovered',
+      ]);
+      expect(
+        ingested.map((entry) => String(getPath(entry.event, 'metadata', 'currentState') || '')),
+      ).toEqual(['LOW_BALANCE', 'BLOCKED', 'HEALTHY']);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -12290,6 +12390,99 @@ test.describe('console router (cloudflare)', () => {
       'billing.adjustment.support_credit',
       'billing.adjustment.support_credit',
     ]);
+  });
+
+  test('manual billing adjustments emit sponsorship balance transition webhook events and observability logs (cloudflare)', async () => {
+    const billing = createInMemoryConsoleBillingService();
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    await billing.grantManualSupportCredit(
+      { orgId: 'org-1', actorUserId: 'seed-user', roles: ['platform_admin'] },
+      {
+        amountMinor: 4000,
+        reasonCode: 'seed_credit',
+        note: 'Seed balance for transition events',
+        idempotencyKey: 'seed-balance-transition-cloudflare',
+      },
+    );
+    const webhooks = createInMemoryConsoleWebhookService({
+      dispatcher: {
+        dispatch: async () => ({
+          ok: true,
+          statusCode: 200,
+          responseBody: 'ok',
+        }),
+      },
+    });
+    const endpoint = await webhooks.createEndpoint(
+      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      {
+        url: 'https://example.com/billing-transition-cloudflare',
+        eventCategories: ['billing'],
+      },
+    );
+    const handler = createCloudflareConsoleRouter({
+      auth: makeConsoleAuthAdapter(['platform_admin']),
+      billing,
+      webhooks,
+      observabilityIngestion: makeObservabilityIngestionCollector(ingested),
+    });
+
+    const lowBalance = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/admin-debit',
+      body: {
+        amountMinor: 2500,
+        reasonCode: 'lower_to_threshold',
+        note: 'Drop balance into low state',
+        idempotencyKey: 'balance-transition-cloudflare-low',
+      },
+    });
+    expect(lowBalance.status).toBe(201);
+
+    const blocked = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/admin-debit',
+      body: {
+        amountMinor: 2000,
+        reasonCode: 'lower_to_blocked',
+        note: 'Drop balance into blocked state',
+        idempotencyKey: 'balance-transition-cloudflare-blocked',
+      },
+    });
+    expect(blocked.status).toBe(201);
+
+    const recovered = await callCf(handler, {
+      method: 'POST',
+      path: '/console/billing/adjustments/support-credit',
+      body: {
+        amountMinor: 5000,
+        reasonCode: 'restore_balance',
+        note: 'Recover balance to healthy',
+        idempotencyKey: 'balance-transition-cloudflare-recovered',
+      },
+    });
+    expect(recovered.status).toBe(201);
+
+    const deliveries = await webhooks.listDeliveries(
+      { orgId: 'org-1', actorUserId: 'user-1', roles: ['platform_admin'] },
+      endpoint.id,
+    );
+    expect(deliveries.items.map((entry) => entry.eventType)).toEqual([
+      'billing.balance.recovered',
+      'billing.balance.blocked',
+      'billing.balance.low_balance',
+    ]);
+    expect(ingested.map((entry) => String(entry.event.eventType || ''))).toEqual([
+      'billing.balance.low_balance',
+      'billing.balance.blocked',
+      'billing.balance.recovered',
+    ]);
+    expect(
+      ingested.map((entry) => String(getPath(entry.event, 'metadata', 'currentState') || '')),
+    ).toEqual(['LOW_BALANCE', 'BLOCKED', 'HEALTHY']);
   });
 
   test('Stripe webhook settles prepaid purchase receipts idempotently', async () => {

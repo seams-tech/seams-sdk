@@ -2,9 +2,12 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import { createEvmClient, parseEvmRpcHexQuantity } from '../../../client/src';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../console/observability';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
+import type { ConsoleWebhookService } from '../console/webhooks';
 import {
   type SponsoredEvmCall,
   type ServerEip1559UnsignedTx,
@@ -53,7 +56,10 @@ export type RegisterSponsoredEvmCallRouteArgs = {
   ledger: ConsoleSponsoredCallService;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   spendCaps?: ConsoleSponsorshipSpendCapService | null;
+  prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
   pricing?: SponsorshipSpendPricingService | null;
+  webhooks?: ConsoleWebhookService | null;
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   corsOrigins: string[];
   config: SponsoredEvmCallExecutorConfig | null;
   route?: string;
@@ -386,11 +392,14 @@ export function registerSponsoredEvmCallRoute(args: RegisterSponsoredEvmCallRout
           billing: args.billing,
           config: args.config,
           corsOrigins: args.corsOrigins,
+          observabilityIngestion: args.observabilityIngestion || null,
+          prepaidReservations: args.prepaidReservations || null,
           publishableKeyAuth,
           pricing: args.pricing || null,
           runtimeSnapshots: args.runtimeSnapshots,
           spendCaps: args.spendCaps || null,
           sponsoredCalls: args.ledger,
+          webhooks: args.webhooks || null,
         },
       },
     });

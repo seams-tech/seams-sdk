@@ -21,11 +21,16 @@ export function registerSignedDelegateRoutes(
     services: {
       authService: ctx.service,
       billing: ctx.opts.signedDelegate?.billing,
+      observabilityIngestion: ctx.opts.observabilityIngestion || null,
+      prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
       pricing: ctx.opts.sponsorship?.pricing || null,
       publishableKeyAuth: ctx.opts.publishableKeyAuth,
       runtimeSnapshots: ctx.opts.signedDelegate?.runtimeSnapshots || null,
       spendCaps: ctx.opts.sponsorship?.spendCaps || null,
       sponsoredCalls: ctx.opts.signedDelegate?.ledger,
+      webhooks: ctx.opts.relayWebhooks?.service || null,
+      webhookActorUserId: ctx.opts.relayWebhooks?.actorUserId,
+      webhookRoles: ctx.opts.relayWebhooks?.roles,
     },
   });
     sendExpressRouteResponse(res, response);

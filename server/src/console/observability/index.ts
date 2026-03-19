@@ -24,6 +24,8 @@ export type {
   ConsoleObservabilityWebhookRetryExhaustedInput,
   ConsoleObservabilityWebhookEndpointDegradedInput,
   ConsoleObservabilityBillingFailureInput,
+  ConsoleObservabilityBillingBalanceTransitionInput,
+  ConsoleObservabilityBillingSponsorshipBlockedInput,
   ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityApprovalFailureInput,
 } from './types';
@@ -90,6 +92,8 @@ export {
   buildWebhookRetryExhaustedObservabilityEvent,
   buildWebhookEndpointDegradedObservabilityEvent,
   buildBillingFailureObservabilityEvent,
+  buildBillingBalanceTransitionObservabilityEvent,
+  buildBillingSponsorshipBlockedObservabilityEvent,
   buildBillingStripeWebhookFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
 } from './adapters';

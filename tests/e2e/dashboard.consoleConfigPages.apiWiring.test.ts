@@ -6049,6 +6049,33 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
+      if (pathname === '/console/billing/overview' && method === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            ok: true,
+            overview: {
+              usageMetricVersion: 'maw_v1',
+              currentMonthUtc: '2026-03',
+              monthlyActiveWallets: 4,
+              creditBalanceMinor: 0,
+              lowBalanceThresholdMinor: 2000,
+              reservedSponsorshipMinor: 1250,
+              activeSponsorshipReservationCount: 2,
+              trailing30DaySponsoredSpendMinor: 3100,
+              trailing30DaySponsoredExecutionCount: 14,
+              trailing90DaySponsoredSpendMinor: 8400,
+              trailing90DaySponsoredExecutionCount: 37,
+              recentUsageDebitMinor: 0,
+              recentCreditPurchasedMinor: 0,
+              documentCount: 0,
+            },
+          }),
+        });
+        return;
+      }
+
       if (pathname === '/console/policies' && method === 'GET') {
         await route.fulfill({
           status: 200,
@@ -6250,6 +6277,15 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.goto('/dashboard/gas-sponsorship');
     await expect(page.locator('#dashboard-main-title')).toHaveText(/gas sponsorship/i);
+    await expect(
+      page.locator('section[aria-label="Gas sponsorship balance readiness"]'),
+    ).toContainText('Sponsored execution is currently blocked');
+    await expect(
+      page.locator('section[aria-label="Gas sponsorship balance readiness"]'),
+    ).toContainText('Org prepaid balance');
+    await expect(
+      page.locator('section[aria-label="Gas sponsorship balance readiness"] button'),
+    ).toHaveText(/top up balance/i);
     await expect(page.locator('section[aria-label="Gas sponsorship policies"]')).toContainText(
       'Existing sponsorship',
     );

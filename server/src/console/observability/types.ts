@@ -246,6 +246,31 @@ export interface ConsoleObservabilityBillingStripeWebhookFailureInput {
   redactionVersion?: number;
 }
 
+export interface ConsoleObservabilityBillingBalanceTransitionInput {
+  orgId: string;
+  projectId?: string;
+  environmentId?: string;
+  eventType:
+    | 'billing.balance.low_balance'
+    | 'billing.balance.blocked'
+    | 'billing.balance.recovered';
+  previousState: 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
+  currentState: 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
+  creditBalanceMinor: number;
+  lowBalanceThresholdMinor: number;
+  triggerKind: string;
+  routeId?: string;
+  ledgerEntryId?: string;
+  adjustmentId?: string;
+  purchaseId?: string;
+  sourceEventId?: string;
+  requestId?: string;
+  traceId?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
 export interface ConsoleObservabilityApprovalFailureInput {
   orgId: string;
   projectId?: string;
@@ -254,6 +279,36 @@ export interface ConsoleObservabilityApprovalFailureInput {
   operationType: string;
   resourceType?: string;
   resourceId?: string;
+  failureCode: string;
+  failureMessage: string;
+  requestId?: string;
+  traceId?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
+export interface ConsoleObservabilityBillingSponsorshipBlockedInput {
+  orgId: string;
+  projectId?: string;
+  environmentId?: string;
+  policyId?: string;
+  routeId?: string;
+  chainFamily?: string;
+  intentKind?: string;
+  executorKind?: string;
+  chainId?: number;
+  accountRef?: string;
+  targetRef?: string;
+  idempotencyKey?: string;
+  sourceEventId?: string;
+  balanceState?: string;
+  creditBalanceMinor?: number;
+  lowBalanceThresholdMinor?: number;
+  availableBalanceMinor?: number;
+  postedBalanceMinor?: number;
+  reservedMinor?: number;
+  requestedMinor?: number;
   failureCode: string;
   failureMessage: string;
   requestId?: string;

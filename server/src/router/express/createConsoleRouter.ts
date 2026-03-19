@@ -20,6 +20,13 @@ import {
   parseStripeCheckoutSessionRequest,
   type ConsoleBillingService,
 } from '../../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../../console/billingPrepaidReservations';
+import {
+  isConsoleSponsoredCallError,
+  listConsoleSponsoredCallReconciliationPage,
+  parseListConsoleSponsoredCallRecordsRequest,
+  type ConsoleSponsoredCallService,
+} from '../../console/sponsoredCalls';
 import {
   isConsoleApiKeyError,
   parseCreateConsoleApiKeyRequest,
@@ -187,6 +194,10 @@ import type { NormalizedRouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 import type { SessionAdapter } from '../relay';
+import {
+  emitSponsorshipBalanceTransitionEvents,
+  readSponsorshipBillingBalanceSnapshot,
+} from '../sponsorshipBillingEvents';
 import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '../consoleRouteSurface';
 import { authorizeConsoleRouteRequest } from '../consoleRoutePolicy';
 import type { RouteDefinition } from '../routeDefinitions';
@@ -197,6 +208,8 @@ export interface ExpressConsoleContext {
   logger: NormalizedRouterLogger;
   routeDefinitions: readonly RouteDefinition[];
   billing: ConsoleBillingService | null;
+  prepaidReservations: ConsoleBillingPrepaidReservationService | null;
+  sponsoredCalls: ConsoleSponsoredCallService | null;
   orgProjectEnv: ConsoleOrgProjectEnvService | null;
   wallets: ConsoleWalletService | null;
   policies: ConsolePolicyService | null;
@@ -401,6 +414,22 @@ function sendBillingError(res: Response, error: unknown): void {
     return;
   }
 
+  res.status(500).json({
+    ok: false,
+    code: 'internal',
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function sendSponsoredCallError(res: Response, error: unknown): void {
+  if (isConsoleSponsoredCallError(error)) {
+    res.status(error.status).json({
+      ok: false,
+      code: error.code,
+      message: error.message,
+    });
+    return;
+  }
   res.status(500).json({
     ok: false,
     code: 'internal',
@@ -721,6 +750,47 @@ function requireBillingService(
     ok: false,
     code: 'billing_not_configured',
     message: 'Billing service is not configured on this server',
+  });
+  return null;
+}
+
+async function buildConsoleBillingOverviewResponse(
+  ctx: ExpressConsoleContext,
+  claims: ConsoleAuthClaims,
+  billing: ConsoleBillingService,
+): Promise<Record<string, unknown>> {
+  const billingCtx = toBillingContext(claims);
+  const overview = await billing.getOverview(billingCtx);
+  const prepaidSummary = ctx.prepaidReservations
+    ? await ctx.prepaidReservations.getSummary(billingCtx)
+    : null;
+  const sponsoredSummary = ctx.sponsoredCalls
+    ? await ctx.sponsoredCalls.getOverviewSummary(billingCtx)
+    : null;
+  return {
+    ...overview,
+    reservedSponsorshipMinor: prepaidSummary?.reservedMinor || 0,
+    activeSponsorshipReservationCount: prepaidSummary?.activeReservationCount || 0,
+    trailing30DaySponsoredSpendMinor:
+      sponsoredSummary?.trailing30Days.chargedSettledSpendMinor || 0,
+    trailing30DaySponsoredExecutionCount:
+      sponsoredSummary?.trailing30Days.chargedExecutionCount || 0,
+    trailing90DaySponsoredSpendMinor:
+      sponsoredSummary?.trailing90Days.chargedSettledSpendMinor || 0,
+    trailing90DaySponsoredExecutionCount:
+      sponsoredSummary?.trailing90Days.chargedExecutionCount || 0,
+  };
+}
+
+function requireSponsoredCallService(
+  res: Response,
+  ctx: ExpressConsoleContext,
+): ConsoleSponsoredCallService | null {
+  if (ctx.sponsoredCalls) return ctx.sponsoredCalls;
+  res.status(501).json({
+    ok: false,
+    code: 'sponsored_calls_not_configured',
+    message: 'Sponsored call service is not configured on this server',
   });
   return null;
 }
@@ -3920,7 +3990,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
-      const overview = await billing.getOverview(toBillingContext(claims));
+      const overview = await buildConsoleBillingOverviewResponse(ctx, claims, billing);
       res.status(200).json({ ok: true, overview });
     } catch (error: unknown) {
       sendBillingError(res, error);
@@ -3938,6 +4008,47 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       const activity = await billing.listAccountActivity(toBillingContext(claims), request);
       res.status(200).json({ ok: true, activity });
     } catch (error: unknown) {
+      sendBillingError(res, error);
+    }
+  });
+
+  router.get('/console/billing/sponsored-executions', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const sponsoredCalls = requireSponsoredCallService(res, ctx);
+    if (!sponsoredCalls) return;
+    try {
+      const request = parseListConsoleSponsoredCallRecordsRequest((req as any).query);
+      const page = await sponsoredCalls.listRecords(toBillingContext(claims), request);
+      res.status(200).json({ ok: true, page });
+    } catch (error: unknown) {
+      sendSponsoredCallError(res, error);
+    }
+  });
+
+  router.get('/console/billing/sponsored-executions/reconciliation', async (req: Request, res: Response) => {
+    const claims = await requireConsoleAuth(req, res, ctx);
+    if (!claims) return;
+    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+    const sponsoredCalls = requireSponsoredCallService(res, ctx);
+    if (!sponsoredCalls) return;
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parseListConsoleSponsoredCallRecordsRequest((req as any).query);
+      const page = await listConsoleSponsoredCallReconciliationPage({
+        sponsoredCalls,
+        billing,
+        ctx: toBillingContext(claims),
+        request,
+      });
+      res.status(200).json({ ok: true, page });
+    } catch (error: unknown) {
+      if (isConsoleSponsoredCallError(error)) {
+        sendSponsoredCallError(res, error);
+        return;
+      }
       sendBillingError(res, error);
     }
   });
@@ -4074,7 +4185,24 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       if (!billing) return;
       try {
         const request = parseBillingManualAdjustmentRequest((req as any).body);
-        const result = await billing.grantManualSupportCredit(toBillingContext(claims), request);
+        const billingCtx = toBillingContext(claims);
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
+        const result = await billing.grantManualSupportCredit(billingCtx, request);
+        await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+          ctx: billingCtx,
+          before: beforeBalanceState,
+          billing,
+          trigger: {
+            kind: 'manual_support_credit',
+            adjustmentId: result.adjustment.id,
+            sourceEventId: result.adjustment.idempotencyKey,
+          },
+        });
         await emitConsoleAuditEvent(ctx, claims, {
           category: 'BILLING',
           action: 'billing.adjustment.support_credit',
@@ -4118,14 +4246,28 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           ...(claims.projectId ? { projectId: claims.projectId } : {}),
           ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
         });
-        const result = await billing.grantManualSupportCredit(
-          {
-            orgId,
-            actorUserId: claims.userId,
-            roles: claims.roles,
+        const billingCtx = {
+          orgId,
+          actorUserId: claims.userId,
+          roles: claims.roles,
+        };
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
+        const result = await billing.grantManualSupportCredit(billingCtx, adjustmentRequest);
+        await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+          ctx: billingCtx,
+          before: beforeBalanceState,
+          billing,
+          trigger: {
+            kind: 'manual_support_credit',
+            adjustmentId: result.adjustment.id,
+            sourceEventId: result.adjustment.idempotencyKey,
           },
-          adjustmentRequest,
-        );
+        });
         await emitConsoleAuditEvent(
           ctx,
           {
@@ -4170,7 +4312,24 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       if (!billing) return;
       try {
         const request = parseBillingManualAdjustmentRequest((req as any).body);
-        const result = await billing.appendManualAdminDebit(toBillingContext(claims), request);
+        const billingCtx = toBillingContext(claims);
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
+        const result = await billing.appendManualAdminDebit(billingCtx, request);
+        await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+          ctx: billingCtx,
+          before: beforeBalanceState,
+          billing,
+          trigger: {
+            kind: 'manual_admin_debit',
+            adjustmentId: result.adjustment.id,
+            sourceEventId: result.adjustment.idempotencyKey,
+          },
+        });
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'BILLING',
         action: 'billing.adjustment.admin_debit',
@@ -4213,14 +4372,31 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           ...(claims.projectId ? { projectId: claims.projectId } : {}),
           ...(claims.environmentId ? { environmentId: claims.environmentId } : {}),
         });
+        const billingCtx = {
+          orgId,
+          actorUserId: claims.userId,
+          roles: claims.roles,
+        };
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.appendManualAdminDebit(
-          {
-            orgId,
-            actorUserId: claims.userId,
-            roles: claims.roles,
-          },
+          billingCtx,
           adjustmentRequest,
         );
+        await emitSponsorshipBalanceTransitionEvents({
+        services: {
+          logger: ctx.logger,
+          webhooks: ctx.webhooks,
+          observabilityIngestion: ctx.observabilityIngestion,
+        },
+          ctx: billingCtx,
+          before: beforeBalanceState,
+          billing,
+          trigger: {
+            kind: 'manual_admin_debit',
+            adjustmentId: result.adjustment.id,
+            sourceEventId: result.adjustment.idempotencyKey,
+          },
+        });
         await emitConsoleAuditEvent(
           ctx,
           {
@@ -4441,10 +4617,29 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       try {
         const request = parseStripeCheckoutSessionReconcileRequest((req as any).body);
         checkoutSessionId = request.checkoutSessionId;
+        const billingCtx = toBillingContext(claims);
+        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.reconcileStripeCheckoutSession(
-          toBillingContext(claims),
+          billingCtx,
           request,
         );
+        if (result.settledNow) {
+          await emitSponsorshipBalanceTransitionEvents({
+          services: {
+            logger: ctx.logger,
+            webhooks: ctx.webhooks,
+            observabilityIngestion: ctx.observabilityIngestion,
+          },
+            ctx: billingCtx,
+            before: beforeBalanceState,
+            billing,
+            trigger: {
+              kind: 'credit_purchase_settled',
+              purchaseId: result.purchase?.id || null,
+              sourceEventId: request.checkoutSessionId,
+            },
+          });
+        }
         if (result.settledNow && result.purchase && result.orgId) {
           await emitBillingWebhookEvent(ctx, {
             orgId: result.orgId,
@@ -4491,6 +4686,9 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const routeSurface = resolveConsoleRouteSurface();
   const { routeDefinitions } = routeSurface;
   const billing = opts.billing === undefined ? null : opts.billing;
+  const prepaidReservations =
+    opts.prepaidReservations === undefined ? null : opts.prepaidReservations;
+  const sponsoredCalls = opts.sponsoredCalls === undefined ? null : opts.sponsoredCalls;
   const orgProjectEnv = opts.orgProjectEnv === undefined ? null : opts.orgProjectEnv;
   const wallets = opts.wallets === undefined ? null : opts.wallets;
   const policies = opts.policies === undefined ? null : opts.policies;
@@ -4518,6 +4716,8 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
     logger,
     routeDefinitions,
     billing,
+    prepaidReservations,
+    sponsoredCalls,
     orgProjectEnv,
     wallets,
     policies,

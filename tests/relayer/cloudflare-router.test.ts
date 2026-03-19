@@ -10,6 +10,7 @@ import {
   createCloudflareRouter,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
+  createInMemoryConsoleBillingPrepaidReservationService,
   createInMemoryConsoleOrgProjectEnvService,
   createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleSponsorshipSpendCapService,
@@ -63,9 +64,30 @@ function makeUnsignedJwtWithExp(expSeconds: number): string {
 
 function makeSignedDelegateBillingSpy() {
   const events: Array<Record<string, unknown>> = [];
+  let creditBalanceMinor = 5_000;
+  return makeSignedDelegateBillingSpyWithBalance(events, creditBalanceMinor);
+}
+
+function makeSignedDelegateBillingSpyWithBalance(
+  events: Array<Record<string, unknown>>,
+  initialBalanceMinor: number,
+) {
+  let creditBalanceMinor = initialBalanceMinor;
   return {
     events,
     service: {
+      async getOverview() {
+        return {
+          creditBalanceMinor,
+          recentCreditPurchasedMinor: 0,
+          lowBalanceThresholdMinor: 2_000,
+          liveEnvironmentState:
+            creditBalanceMinor <= 0 ? 'BLOCKED' : creditBalanceMinor <= 2_000 ? 'LOW_BALANCE' : 'HEALTHY',
+          outstandingInvoiceCount: 0,
+          outstandingInvoiceAmountMinor: 0,
+          currentMonthUsageAmountMinor: 0,
+        };
+      },
       async recordUsageEvent(
         _ctx: unknown,
         request: {
@@ -76,6 +98,7 @@ function makeSignedDelegateBillingSpy() {
         },
       ) {
         events.push({
+          kind: 'usage',
           walletId: request.walletId,
           action: request.action,
           succeeded: request.succeeded,
@@ -91,8 +114,69 @@ function makeSignedDelegateBillingSpy() {
           statementId: null,
         };
       },
+      async recordSponsoredExecutionDebit(
+        _ctx: unknown,
+        request: {
+          walletId: string;
+          amountMinor: number;
+          sourceEventId: string;
+          pricingVersion?: string | null;
+        },
+      ) {
+        events.push({
+          kind: 'sponsored_execution_debit',
+          walletId: request.walletId,
+          amountMinor: request.amountMinor,
+          ...(request.pricingVersion ? { pricingVersion: request.pricingVersion } : {}),
+          sourceEventId: request.sourceEventId,
+        });
+        creditBalanceMinor -= request.amountMinor;
+        return {
+          accepted: true,
+          debitAppliedMinor: request.amountMinor,
+          creditBalanceMinor,
+          monthUtc: '2026-03',
+          statementId: 'inv_202603_001',
+        };
+      },
     },
   };
+}
+
+function makeSignedDelegateBillingSpyWithOptions(input?: { initialBalanceMinor?: number }) {
+  return makeSignedDelegateBillingSpyWithBalance([], input?.initialBalanceMinor ?? 5_000);
+}
+
+function makeRelayObservabilityCollector(
+  ingested: Array<{
+    ingestCtx: Record<string, unknown>;
+    event: Record<string, unknown>;
+  }>,
+) {
+  return {
+    appendEvent: async (
+      ingestCtx: Record<string, unknown>,
+      event: Record<string, unknown>,
+    ) => {
+      ingested.push({ ingestCtx, event });
+      return { accepted: 1, deduplicated: 0 };
+    },
+  };
+}
+
+function makeSignedDelegatePricing() {
+  return resolveStaticSponsoredExecutionPricingFromEnv({
+    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+      near: {
+        TESTNET: {
+          estimateFeeAmountYocto: '2000',
+          minorPerFeeUnitNumerator: '1',
+          minorPerFeeUnitDenominator: '1000',
+          pricingVersion: 'static-near-testnet-v1',
+        },
+      },
+    }),
+  } as NodeJS.ProcessEnv);
 }
 
 async function publishAllowedSignedDelegatePolicy(
@@ -228,6 +312,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
@@ -235,6 +321,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -289,6 +379,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const created = await apiKeys.createApiKey(
       delegateApiKeyCtx,
@@ -308,6 +400,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -348,11 +444,73 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(record?.receiptStatus).toBe('success');
     expect(billing.events).toEqual([
       expect.objectContaining({
+        kind: 'sponsored_execution_debit',
         walletId: 'alice.testnet',
-        action: 'contract_call',
-        succeeded: true,
+        amountMinor: 1,
+        pricingVersion: 'static-near-testnet-v1',
       }),
     ]);
+  });
+
+  test('POST /signed-delegate emits sponsorship blocked observability when prepaid balance rejects reservation', async () => {
+    const ingested: Array<{
+      ingestCtx: Record<string, unknown>;
+      event: Record<string, unknown>;
+    }> = [];
+    const service = makeFakeAuthService();
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpyWithOptions({ initialBalanceMinor: 0 });
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
+    const handler = createCloudflareRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+        runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+      observabilityIngestion: makeRelayObservabilityCollector(ingested) as any,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/signed-delegate',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: `Bearer ${created.secret}`,
+        'X-Tatchi-Environment-Id': delegateEnvironmentId,
+      },
+      body: {
+        hash: 'blocked'.padEnd(64, '1'),
+        signedDelegate: {
+          delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+          signature: 'sig',
+        },
+      },
+    });
+
+    expect(res.status, res.text).toBe(409);
+    expect(res.json?.code).toBe('prepaid_balance_insufficient');
+    expect(ingested).toHaveLength(1);
+    expect(String(ingested[0]?.event.eventType || '')).toBe('billing.sponsorship.blocked');
+    expect(String(getPath(ingested[0]?.event, 'metadata', 'balanceState') || '')).toBe('BLOCKED');
+    expect(Number(getPath(ingested[0]?.event, 'metadata', 'requestedMinor') || 0)).toBe(2);
   });
 
   test('POST /signed-delegate reserves and settles NEAR spend caps through the shared path', async () => {
@@ -386,18 +544,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const ledger = createInMemoryConsoleSponsoredCallService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const spendCaps = createInMemoryConsoleSponsorshipSpendCapService();
-    const pricing = resolveStaticSponsoredExecutionPricingFromEnv({
-      SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
-        near: {
-          TESTNET: {
-            estimateFeeAmountYocto: '2000',
-            minorPerFeeUnitNumerator: '1',
-            minorPerFeeUnitDenominator: '1000',
-            pricingVersion: 'static-near-testnet-v1',
-          },
-        },
-      }),
-    } as NodeJS.ProcessEnv);
+    const pricing = makeSignedDelegatePricing();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     const created = await apiKeys.createApiKey(
       delegateApiKeyCtx,
       {
@@ -426,6 +574,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       },
       sponsorship: {
         pricing: pricing!,
+        prepaidReservations,
         spendCaps,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
@@ -504,6 +653,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
     const created = await apiKeys.createApiKey(
       delegateApiKeyCtx,
       {
@@ -522,6 +673,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -560,11 +715,82 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(record?.errorMessage).toBe('Delegate failed on-chain');
     expect(billing.events).toEqual([
       expect.objectContaining({
+        kind: 'sponsored_execution_debit',
         walletId: 'alice.testnet',
-        action: 'contract_call',
-        succeeded: false,
+        amountMinor: 1,
+        pricingVersion: 'static-near-testnet-v1',
       }),
     ]);
+  });
+
+  test('POST /signed-delegate does not append sponsored debits when NEAR execution never broadcasts', async () => {
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async () => ({
+        ok: false,
+        code: 'near_rpc_unavailable',
+        error: 'NEAR RPC unavailable',
+      }),
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
+    const handler = createCloudflareRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+        runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+
+    const hash = 'f'.repeat(64);
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/signed-delegate',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: `Bearer ${created.secret}`,
+        'X-Tatchi-Environment-Id': delegateEnvironmentId,
+      },
+      body: {
+        hash,
+        signedDelegate: {
+          delegateAction: { senderId: 'alice.testnet', receiverId: 'contract.testnet' },
+          signature: 'sig',
+        },
+      },
+    });
+
+    expect(res.status, res.text).toBe(400);
+    expect(res.json?.code).toBe('near_rpc_unavailable');
+    expect(res.json?.relayerTxHash ?? null).toBeNull();
+    const record = await ledger.getRecordByIdempotencyKey(
+      delegateApiKeyCtx,
+      `signed_delegate:${created.apiKey.id}:${hash}`,
+    );
+    expect(record?.receiptStatus).toBe('rpc_rejected');
+    expect(record?.billingLedgerEntryId).toBeNull();
+    expect(record?.charged).toBe(false);
+    expect(record?.chargedReason).toBe('released_zero_spend');
+    expect(record?.settledSpendMinor).toBe(0);
+    expect(billing.events).toEqual([]);
   });
 
   test('POST /signed-delegate replays an existing reverted delegate execution by idempotency key', async () => {
@@ -614,6 +840,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const billing = makeSignedDelegateBillingSpy();
     const ledger = createInMemoryConsoleSponsoredCallService();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
     const created = await apiKeys.createApiKey(
       delegateApiKeyCtx,
       {
@@ -632,6 +860,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
         billing: billing.service as any,
         ledger,
         runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
       },
       publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
     });
@@ -662,7 +894,14 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(second.json?.relayerTxHash).toBe('delegate-tx-replay-reverted-456');
     expect(second.json?.receiptStatus).toBe('reverted');
     expect(executeCalls).toBe(1);
-    expect(billing.events).toHaveLength(1);
+    expect(billing.events).toEqual([
+      expect.objectContaining({
+        kind: 'sponsored_execution_debit',
+        walletId: 'alice.testnet',
+        amountMinor: 1,
+        pricingVersion: 'static-near-testnet-v1',
+      }),
+    ]);
   });
 
   test('POST /auth/passkey/options: invalid body', async () => {

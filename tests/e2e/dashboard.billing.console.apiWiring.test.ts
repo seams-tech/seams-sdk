@@ -106,6 +106,36 @@ async function routeWorkspaceScaffold(
       return;
     }
 
+    if (method === 'GET' && pathname === '/console/billing/sponsored-executions') {
+      await fulfillJson(route, {
+        ok: true,
+        page: {
+          items: [],
+          nextCursor: null,
+        },
+      });
+      return;
+    }
+
+    if (method === 'GET' && pathname === '/console/billing/sponsored-executions/reconciliation') {
+      await fulfillJson(route, {
+        ok: true,
+        page: {
+          items: [],
+          nextCursor: null,
+          summary: {
+            matchedCount: 0,
+            notChargedCount: 0,
+            missingBillingDebitCount: 0,
+            amountMismatchCount: 0,
+            unexpectedBillingDebitCount: 0,
+            mismatchCount: 0,
+          },
+        },
+      });
+      return;
+    }
+
     await fulfillJson(
       route,
       {
@@ -194,6 +224,126 @@ test.describe('dashboard billing prepaid console api wiring', () => {
             ok: true,
             activity: {
               entries: [],
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/sponsored-executions') {
+          await fulfillJson(route, {
+            ok: true,
+            page: {
+              items: [
+                {
+                  id: 'scr_dash_billing_prepaid_1',
+                  environmentId: environment.id,
+                  apiKeyId: 'sk_dash_billing_prepaid',
+                  apiKeyKind: 'secret_key',
+                  route: 'POST /relayer/sponsored-evm-call',
+                  policyId: 'policy_dash_billing_prepaid',
+                  policyNameAtEvent: 'Production ERC20',
+                  templateId: null,
+                  chainFamily: 'evm',
+                  intentKind: 'evm_call',
+                  executorKind: 'evm_eoa',
+                  accountRef: '0xabc123',
+                  targetRef: '0xfeedbeef',
+                  sponsorRef: '0xsponsor',
+                  txOrExecutionRef: '0xtxhash1',
+                  receiptStatus: 'success',
+                  feeUnit: 'wei',
+                  feeAmount: '123000000000000',
+                  estimatedSpendMinor: 18,
+                  settledSpendMinor: 21,
+                  pricingVersion: 'static-evm-v1',
+                  pricingSource: 'static',
+                  billingLedgerEntryId: 'ble_dash_billing_prepaid_1',
+                  prepaidReservationId: 'prr_dash_billing_prepaid_1',
+                  charged: true,
+                  chargedReason: 'settled_sponsor_gas',
+                  settledAt: iso('2026-03-01T00:20:30.000Z'),
+                  errorCode: null,
+                  errorMessage: null,
+                  idempotencyKey: 'idem_dash_billing_prepaid_1',
+                  createdAt: iso('2026-03-01T00:20:00.000Z'),
+                },
+              ],
+              nextCursor: null,
+            },
+          });
+          return true;
+        }
+
+        if (method === 'GET' && pathname === '/console/billing/sponsored-executions/reconciliation') {
+          await fulfillJson(route, {
+            ok: true,
+            page: {
+              items: [
+                {
+                  record: {
+                    id: 'scr_dash_billing_prepaid_1',
+                    environmentId: environment.id,
+                    apiKeyId: 'sk_dash_billing_prepaid',
+                    apiKeyKind: 'secret_key',
+                    route: 'POST /relayer/sponsored-evm-call',
+                    policyId: 'policy_dash_billing_prepaid',
+                    policyNameAtEvent: 'Production ERC20',
+                    templateId: null,
+                    chainFamily: 'evm',
+                    intentKind: 'evm_call',
+                    executorKind: 'evm_eoa',
+                    accountRef: '0xabc123',
+                    targetRef: '0xfeedbeef',
+                    sponsorRef: '0xsponsor',
+                    txOrExecutionRef: '0xtxhash1',
+                    receiptStatus: 'success',
+                    feeUnit: 'wei',
+                    feeAmount: '123000000000000',
+                    estimatedSpendMinor: 18,
+                    settledSpendMinor: 21,
+                    pricingVersion: 'static-evm-v1',
+                    pricingSource: 'static',
+                    billingLedgerEntryId: 'ble_dash_billing_prepaid_1',
+                    prepaidReservationId: 'prr_dash_billing_prepaid_1',
+                    charged: true,
+                    chargedReason: 'settled_sponsor_gas',
+                    settledAt: iso('2026-03-01T00:20:30.000Z'),
+                    errorCode: null,
+                    errorMessage: null,
+                    idempotencyKey: 'idem_dash_billing_prepaid_1',
+                    createdAt: iso('2026-03-01T00:20:00.000Z'),
+                  },
+                  billingDebit: {
+                    id: 'ble_dash_billing_prepaid_1',
+                    orgId: org.id,
+                    type: 'SPONSORED_EXECUTION_DEBIT',
+                    amountMinor: 21,
+                    currency: 'USD',
+                    description: 'Sponsored execution debit',
+                    monthUtc: '2026-03',
+                    relatedInvoiceId: 'stmt_dash_billing_prepaid_1',
+                    relatedPurchaseId: null,
+                    sourceEventId: 'idem_dash_billing_prepaid_1',
+                    actorType: 'SYSTEM',
+                    actorUserId: null,
+                    reasonCode: 'sponsored_execution',
+                    note: null,
+                    idempotencyKey: 'idem_dash_billing_prepaid_1',
+                    createdAt: iso('2026-03-01T00:20:31.000Z'),
+                  },
+                  status: 'matched',
+                  mismatchReasons: [],
+                },
+              ],
+              nextCursor: null,
+              summary: {
+                matchedCount: 1,
+                notChargedCount: 0,
+                missingBillingDebitCount: 0,
+                amountMismatchCount: 0,
+                unexpectedBillingDebitCount: 0,
+                mismatchCount: 0,
+              },
             },
           });
           return true;
@@ -305,8 +455,8 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     const billingScope = page.locator('section[aria-label="Billing scope and actions"]');
     await expect(billingScope).toContainText('Billing is organization-scoped');
-    await expect(billingScope).toContainText(org.id);
-    await expect(billingScope).toContainText(project.id);
+    await expect(billingScope).toContainText('Organization');
+    await expect(billingScope).toContainText(project.name);
     await expect(billingScope).toContainText(environment.name);
     await expect(billingScope).not.toContainText(environment.id);
     await expect(page.getByText(/subscription/i)).toHaveCount(0);
@@ -315,6 +465,18 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(metrics).toContainText('Balance');
     await expect(metrics).toContainText('$0.00');
     await expect(metrics).toContainText('Recent top-ups');
+    await expect(page.locator('section[aria-label="Sponsored execution history"]')).toContainText(
+      'Sponsored usage history',
+    );
+    await expect(page.locator('section[aria-label="Sponsored execution history"]')).toContainText(
+      'Production ERC20',
+    );
+    await expect(
+      page.locator('section[aria-label="Sponsored execution reconciliation"]'),
+    ).toContainText('Reconciliation');
+    await expect(
+      page.locator('section[aria-label="Sponsored execution reconciliation"]'),
+    ).toContainText('Matched');
 
     await expect(page.locator('.dashboard-warning-banner')).toContainText(
       'Prepaid balance is depleted',
@@ -1391,6 +1553,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await page.goto('/dashboard/invoices');
 
     const invoicesTable = page.locator('section[aria-label="Billing documents table"]');
+    await expect(
+      page.locator('section[aria-label="Billing document sponsorship links"]'),
+    ).toContainText('Usage statements stay aggregated by billing period');
     await expect(invoicesTable).toContainText('receipt_dash_billing_1');
     await expect(invoicesTable).toContainText('stmt_dash_billing_1');
     expect(invoiceListUrls.length).toBe(1);
@@ -1433,5 +1598,21 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       .locator('button:has-text("Download PDF")')
       .click();
     await expect.poll(() => pdfDownloadCount).toBe(2);
+
+    await page.getByRole('button', { name: 'Back to invoices' }).click();
+    await expect(page).toHaveURL(/\/dashboard\/invoices$/);
+    await page.locator('select.dashboard-input').first().selectOption('USAGE_STATEMENT');
+    await invoicesTable.locator('button:has-text("View document")').click();
+    await expect(page).toHaveURL(/\/dashboard\/invoices\/stmt_dash_billing_1$/);
+    await expect(
+      page.locator('section[aria-label="Billing document sponsorship links"]'),
+    ).toContainText('This statement stays aggregated by billing period');
+    await page
+      .locator('section[aria-label="Billing document sponsorship links"] a:has-text("Sponsored usage history")')
+      .click();
+    await expect(page).toHaveURL(/\/dashboard\/billing\/account#billing-sponsored-history$/);
+    await expect(page.locator('section[aria-label="Sponsored execution history"]')).toContainText(
+      'Sponsored usage history',
+    );
   });
 });

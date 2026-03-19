@@ -64,8 +64,19 @@ export {
   isSponsorshipSpendCapEnforcementError,
   buildSponsoredSpendCapSourceEventId,
   reserveSponsoredSpendCap,
+  releaseSponsoredSpendCap,
   settleSponsoredSpendCap,
 } from './spendCaps';
+export type {
+  SponsoredPrepaidReservationHandle,
+  SponsoredPrepaidReservationSettlement,
+} from './prepaidBalance';
+export {
+  SponsorshipPrepaidBalanceEnforcementError,
+  isSponsorshipPrepaidBalanceEnforcementError,
+  reserveSponsoredPrepaidBalance,
+  settleSponsoredPrepaidBalance,
+} from './prepaidBalance';
 export type {
   StaticSponsoredExecutionPricingConfig,
   CoinGeckoSponsoredExecutionPricingConfig,

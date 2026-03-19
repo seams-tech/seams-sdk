@@ -158,6 +158,26 @@ export function BillingInvoiceDetailView(props: BillingInvoiceDetailViewProps): 
             ariaLabel="Billing document summary metrics"
           />
 
+          {invoice.documentType === 'USAGE_STATEMENT' ? (
+            <section
+              className="dashboard-view__section"
+              aria-label="Billing document sponsorship links"
+            >
+              <p className="dashboard-info-banner">
+                This statement stays aggregated by billing period. Review individual sponsored
+                charges in{' '}
+                <a href="/dashboard/billing/account#billing-sponsored-history">
+                  Sponsored usage history
+                </a>{' '}
+                and verify billed debits in{' '}
+                <a href="/dashboard/billing/account#billing-sponsored-reconciliation">
+                  Reconciliation
+                </a>
+                .
+              </p>
+            </section>
+          ) : null}
+
           <section
             className="dashboard-table-wrapper"
             aria-label="Billing document activity timeline"

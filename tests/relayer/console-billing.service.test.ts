@@ -436,6 +436,66 @@ test.describe('console billing service prepaid model', () => {
     expect(usage.monthlyActiveWallets).toBe(2);
   });
 
+  test('in-memory service records sponsored execution debits idempotently and projects them into statements', async () => {
+    const service = createInMemoryConsoleBillingService();
+    const ctx = {
+      orgId: 'org-sponsored-debits-memory',
+      actorUserId: 'ops-sponsored-debits-memory',
+      roles: ['ops'],
+    };
+
+    await settleCreditPurchase(service, ctx, 'usd_25');
+
+    const first = await service.recordSponsoredExecutionDebit(ctx, {
+      amountMinor: 125,
+      sourceEventId: 'sponsored_mem_evt_1',
+      walletId: 'alice.testnet',
+      occurredAt: '2026-03-12T00:00:00.000Z',
+      txOrExecutionRef: 'tx_mem_123',
+      pricingVersion: 'pricing-mem-v1',
+    });
+    expect(first.accepted).toBe(true);
+    expect(first.debitAppliedMinor).toBe(125);
+    expect(first.creditBalanceMinor).toBe(2375);
+    expect(first.statementId).toBeTruthy();
+
+    const duplicate = await service.recordSponsoredExecutionDebit(ctx, {
+      amountMinor: 125,
+      sourceEventId: 'sponsored_mem_evt_1',
+      walletId: 'alice.testnet',
+      occurredAt: '2026-03-12T00:00:00.000Z',
+    });
+    expect(duplicate.accepted).toBe(false);
+    expect(duplicate.debitAppliedMinor).toBe(0);
+    expect(duplicate.creditBalanceMinor).toBe(2375);
+
+    const overview = await service.getOverview(ctx);
+    expect(overview.creditBalanceMinor).toBe(2375);
+
+    const accountActivity = await service.listAccountActivity(ctx, { limit: 5 });
+    expect(accountActivity.entries.some((entry) => entry.type === 'SPONSORED_EXECUTION_DEBIT')).toBe(
+      true,
+    );
+
+    const statementId = String(first.statementId || '');
+    const statement = await service.getInvoice(ctx, statementId);
+    expect(statement?.documentType).toBe('USAGE_STATEMENT');
+    expect(statement?.amountDueMinor).toBe(125);
+
+    const lineItems = await service.listInvoiceLineItems(ctx, statementId);
+    expect(lineItems.some((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')).toBe(true);
+    expect(
+      lineItems.find((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')?.amountMinor,
+    ).toBe(125);
+
+    const activity = await service.getInvoiceActivity(ctx, statementId);
+    expect(
+      activity?.entries.some(
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'SPONSORED_EXECUTION_DEBIT',
+      ),
+    ).toBe(true);
+  });
+
   test('in-memory service creates one statement per org per period month', async () => {
     let current = new Date('2026-01-20T00:00:00.000Z');
     const service = createInMemoryConsoleBillingService({

@@ -1,6 +1,8 @@
 import type {
   ConsoleObservabilityApprovalFailureInput,
+  ConsoleObservabilityBillingBalanceTransitionInput,
   ConsoleObservabilityBillingFailureInput,
+  ConsoleObservabilityBillingSponsorshipBlockedInput,
   ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityEventEnvelope,
   ConsoleObservabilityWebhookEndpointDegradedInput,
@@ -274,6 +276,60 @@ export function buildBillingStripeWebhookFailureObservabilityEvent(
   });
 }
 
+export function buildBillingBalanceTransitionObservabilityEvent(
+  input: ConsoleObservabilityBillingBalanceTransitionInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy =
+    input.eventType === 'billing.balance.low_balance'
+      ? CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingBalanceLow
+      : input.eventType === 'billing.balance.blocked'
+        ? CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingBalanceBlocked
+        : CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingBalanceRecovered;
+  const message =
+    input.eventType === 'billing.balance.low_balance'
+      ? 'Sponsored prepaid balance entered low-balance state'
+      : input.eventType === 'billing.balance.blocked'
+        ? 'Sponsored prepaid balance became blocked'
+        : 'Sponsored prepaid balance recovered to healthy state';
+  return baseEnvelope({
+    eventIdPrefix: 'obs_billing_balance_transition',
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.timestamp,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message,
+    metadata: {
+      previousState: normalizeString(input.previousState),
+      currentState: normalizeString(input.currentState),
+      creditBalanceMinor: Number(input.creditBalanceMinor),
+      lowBalanceThresholdMinor: Number(input.lowBalanceThresholdMinor),
+      triggerKind: normalizeString(input.triggerKind),
+      ...(normalizeString(input.routeId) ? { routeId: normalizeString(input.routeId) } : {}),
+      ...(normalizeString(input.ledgerEntryId)
+        ? { ledgerEntryId: normalizeString(input.ledgerEntryId) }
+        : {}),
+      ...(normalizeString(input.adjustmentId)
+        ? { adjustmentId: normalizeString(input.adjustmentId) }
+        : {}),
+      ...(normalizeString(input.purchaseId)
+        ? { purchaseId: normalizeString(input.purchaseId) }
+        : {}),
+      ...(normalizeString(input.sourceEventId)
+        ? { sourceEventId: normalizeString(input.sourceEventId) }
+        : {}),
+    },
+  });
+}
+
 export function buildApprovalFailureObservabilityEvent(
   input: ConsoleObservabilityApprovalFailureInput,
 ): ConsoleObservabilityEventEnvelope {
@@ -301,6 +357,69 @@ export function buildApprovalFailureObservabilityEvent(
       ...(approvalId ? { approvalId } : {}),
       ...(normalizeString(input.resourceType) ? { resourceType: normalizeString(input.resourceType) } : {}),
       ...(normalizeString(input.resourceId) ? { resourceId: normalizeString(input.resourceId) } : {}),
+    },
+  });
+}
+
+export function buildBillingSponsorshipBlockedObservabilityEvent(
+  input: ConsoleObservabilityBillingSponsorshipBlockedInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.billingSponsorshipBlocked;
+  return baseEnvelope({
+    eventIdPrefix: 'obs_billing_sponsorship_blocked',
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.timestamp,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: normalizeString(input.failureMessage),
+    metadata: {
+      failureCode: normalizeString(input.failureCode),
+      ...(normalizeString(input.policyId) ? { policyId: normalizeString(input.policyId) } : {}),
+      ...(normalizeString(input.routeId) ? { routeId: normalizeString(input.routeId) } : {}),
+      ...(normalizeString(input.chainFamily)
+        ? { chainFamily: normalizeString(input.chainFamily) }
+        : {}),
+      ...(normalizeString(input.intentKind) ? { intentKind: normalizeString(input.intentKind) } : {}),
+      ...(normalizeString(input.executorKind)
+        ? { executorKind: normalizeString(input.executorKind) }
+        : {}),
+      ...(Number.isFinite(Number(input.chainId)) ? { chainId: Number(input.chainId) } : {}),
+      ...(normalizeString(input.accountRef) ? { accountRef: normalizeString(input.accountRef) } : {}),
+      ...(normalizeString(input.targetRef) ? { targetRef: normalizeString(input.targetRef) } : {}),
+      ...(normalizeString(input.idempotencyKey)
+        ? { idempotencyKey: normalizeString(input.idempotencyKey) }
+        : {}),
+      ...(normalizeString(input.sourceEventId)
+        ? { sourceEventId: normalizeString(input.sourceEventId) }
+        : {}),
+      ...(normalizeString(input.balanceState) ? { balanceState: normalizeString(input.balanceState) } : {}),
+      ...(Number.isFinite(Number(input.creditBalanceMinor))
+        ? { creditBalanceMinor: Number(input.creditBalanceMinor) }
+        : {}),
+      ...(Number.isFinite(Number(input.lowBalanceThresholdMinor))
+        ? { lowBalanceThresholdMinor: Number(input.lowBalanceThresholdMinor) }
+        : {}),
+      ...(Number.isFinite(Number(input.availableBalanceMinor))
+        ? { availableBalanceMinor: Number(input.availableBalanceMinor) }
+        : {}),
+      ...(Number.isFinite(Number(input.postedBalanceMinor))
+        ? { postedBalanceMinor: Number(input.postedBalanceMinor) }
+        : {}),
+      ...(Number.isFinite(Number(input.reservedMinor))
+        ? { reservedMinor: Number(input.reservedMinor) }
+        : {}),
+      ...(Number.isFinite(Number(input.requestedMinor))
+        ? { requestedMinor: Number(input.requestedMinor) }
+        : {}),
     },
   });
 }

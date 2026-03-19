@@ -3192,6 +3192,28 @@
   line-height: 1.45;
 }
 
+.dashboard-billing-reconciliation-summary {
+  margin-block: 12px;
+}
+
+.dashboard-gas-sponsorship-info-banner {
+  margin: 0 0 12px;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--dashboard-surface) 90%, #edf4ff 10%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard-gas-sponsorship-info-banner p {
+  margin: 0;
+  color: var(--dashboard-ink);
+  line-height: 1.45;
+}
+
 .dashboard-billing-timeline {
   display: grid;
   gap: 12px;
@@ -4683,6 +4705,11 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
 
   .dashboard-billing-top-up-presets > .dashboard-billing-top-up-card {
     flex-basis: auto;
+  }
+
+  .dashboard-gas-sponsorship-info-banner {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .dashboard-billing-overview__header {

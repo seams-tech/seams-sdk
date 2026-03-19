@@ -1,5 +1,7 @@
 import type { RouterLogger } from './logger';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
+import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { ConsolePolicyService } from '../console/policies';
@@ -64,6 +66,10 @@ export interface ConsoleRouterOptions {
   readyCheck?: (() => Promise<void> | void) | null;
   // Optional billing adapter for console billing endpoints.
   billing?: ConsoleBillingService | null;
+  // Optional prepaid sponsorship reservation adapter for balance/reservation reporting endpoints.
+  prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
+  // Optional sponsored-execution history adapter for console billing/reporting endpoints.
+  sponsoredCalls?: ConsoleSponsoredCallService | null;
   // Optional org/project/environment metadata adapter for console routes.
   orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   // Optional policy adapter for console policy lifecycle routes.

@@ -684,6 +684,28 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       },
     ),
     consoleRoute(
+      'console_billing_sponsored_executions_get',
+      'GET',
+      '/console/billing/sponsored-executions',
+      'Read sponsored execution history',
+      {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
+        requiredServices: ['sponsoredCalls'],
+      },
+    ),
+    consoleRoute(
+      'console_billing_sponsored_executions_reconciliation_get',
+      'GET',
+      '/console/billing/sponsored-executions/reconciliation',
+      'Read sponsored execution reconciliation',
+      {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
+        requiredServices: ['billing', 'sponsoredCalls'],
+      },
+    ),
+    consoleRoute(
       'console_platform_billing_search_get',
       'GET',
       '/console/platform/billing/search',

@@ -23,11 +23,16 @@ export function registerSponsoredEvmCallRoutes(
     billing: options.billing,
     config: options.config,
     corsOrigins: (ctx.opts.corsOrigins || []).map((entry) => String(entry || '').trim()).filter(Boolean),
+    observabilityIngestion: ctx.opts.observabilityIngestion || null,
+    prepaidReservations: ctx.opts.sponsorship?.prepaidReservations || null,
     publishableKeyAuth,
     pricing: ctx.opts.sponsorship?.pricing || null,
     runtimeSnapshots: options.runtimeSnapshots,
     spendCaps: ctx.opts.sponsorship?.spendCaps || null,
     sponsoredCalls: options.ledger,
+    webhooks: ctx.opts.relayWebhooks?.service || null,
+    webhookActorUserId: ctx.opts.relayWebhooks?.actorUserId,
+    webhookRoles: ctx.opts.relayWebhooks?.roles,
   } as const;
 
   router.post(route.path, async (req: Request, res: Response) => {

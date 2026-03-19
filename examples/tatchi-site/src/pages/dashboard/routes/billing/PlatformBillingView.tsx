@@ -27,6 +27,7 @@ const PLATFORM_BILLING_EVENT_TYPE_OPTIONS: Array<{
   { value: 'all', label: 'All events' },
   { value: 'CREDIT_PURCHASE', label: 'Credit purchases' },
   { value: 'USAGE_DEBIT', label: 'Usage debits' },
+  { value: 'SPONSORED_EXECUTION_DEBIT', label: 'Sponsored execution debits' },
   { value: 'MANUAL_ADJUSTMENT', label: 'Manual adjustments' },
   { value: 'REFUND', label: 'Refunds' },
   { value: 'REVERSAL', label: 'Reversals' },

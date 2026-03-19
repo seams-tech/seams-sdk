@@ -25,6 +25,9 @@ import type {
   BillingManualAdjustmentResult,
   BillingMonthlyActiveWallets,
   BillingOverview,
+  BillingSponsoredExecutionDebitEntry,
+  BillingSponsoredExecutionDebitRequest,
+  BillingSponsoredExecutionDebitResult,
   BillingUsageAction,
   BillingUsageEventRequest,
   BillingUsageEventResult,
@@ -46,6 +49,10 @@ export interface ConsoleBillingContext {
 
 export interface ConsoleBillingService {
   getOverview(ctx: ConsoleBillingContext): Promise<BillingOverview>;
+  getSponsoredExecutionDebitsByIds(
+    ctx: ConsoleBillingContext,
+    ledgerEntryIds: string[],
+  ): Promise<BillingSponsoredExecutionDebitEntry[]>;
   listAccountActivity(
     ctx: ConsoleBillingContext,
     request?: BillingAccountActivityRequest,
@@ -58,6 +65,10 @@ export interface ConsoleBillingService {
     ctx: ConsoleBillingContext,
     request: BillingUsageEventRequest,
   ): Promise<BillingUsageEventResult>;
+  recordSponsoredExecutionDebit(
+    ctx: ConsoleBillingContext,
+    request: BillingSponsoredExecutionDebitRequest,
+  ): Promise<BillingSponsoredExecutionDebitResult>;
   listInvoices(ctx: ConsoleBillingContext): Promise<BillingInvoice[]>;
   listInvoicesPage(
     ctx: ConsoleBillingContext,
@@ -194,21 +205,39 @@ function buildInvoiceLineItems(input: {
   invoiceId: string;
   periodMonthUtc: string;
   monthlyActiveWallets: number;
+  sponsoredExecutionDebitMinor: number;
   createdAt: string;
 }): BillingInvoiceLineItem[] {
-  if (input.monthlyActiveWallets <= 0) return [];
-  return [
-    makeInvoiceLineItem({
-      orgId: input.orgId,
-      invoiceId: input.invoiceId,
-      periodMonthUtc: input.periodMonthUtc,
-      itemType: 'MAW_USAGE_DEBIT',
-      description: `Monthly Active Wallets (${input.periodMonthUtc})`,
-      quantity: input.monthlyActiveWallets,
-      unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
-      createdAt: input.createdAt,
-    }),
-  ];
+  const items: BillingInvoiceLineItem[] = [];
+  if (input.monthlyActiveWallets > 0) {
+    items.push(
+      makeInvoiceLineItem({
+        orgId: input.orgId,
+        invoiceId: input.invoiceId,
+        periodMonthUtc: input.periodMonthUtc,
+        itemType: 'MAW_USAGE_DEBIT',
+        description: `Monthly Active Wallets (${input.periodMonthUtc})`,
+        quantity: input.monthlyActiveWallets,
+        unitAmountMinor: MAW_USAGE_DEBIT_MINOR,
+        createdAt: input.createdAt,
+      }),
+    );
+  }
+  if (input.sponsoredExecutionDebitMinor > 0) {
+    items.push(
+      makeInvoiceLineItem({
+        orgId: input.orgId,
+        invoiceId: input.invoiceId,
+        periodMonthUtc: input.periodMonthUtc,
+        itemType: 'SPONSORED_EXECUTION_DEBIT',
+        description: `Sponsored execution spend (${input.periodMonthUtc})`,
+        quantity: 1,
+        unitAmountMinor: input.sponsoredExecutionDebitMinor,
+        createdAt: input.createdAt,
+      }),
+    );
+  }
+  return items;
 }
 
 function normalizeInvoiceListLimit(limit: number | undefined): number {
@@ -352,12 +381,13 @@ export function createInMemoryConsoleBillingService(
     ensureStatementProjectionSeed(store, formatCurrentMonthUtc(now), now);
   }
 
-  function getUsageDebitEntriesForMonth(
+  function getLedgerEntriesForMonth(
     store: OrgBillingStore,
     monthUtc: string,
+    type: BillingLedgerEntry['type'],
   ): BillingLedgerEntry[] {
     return store.ledgerEntries.filter(
-      (entry) => entry.type === 'USAGE_DEBIT' && entry.monthUtc === monthUtc,
+      (entry) => entry.type === type && entry.monthUtc === monthUtc,
     );
   }
 
@@ -366,7 +396,13 @@ export function createInMemoryConsoleBillingService(
     orgId: string,
     monthUtc: string,
   ): BillingInvoice | null {
-    const debitEntries = getUsageDebitEntriesForMonth(store, monthUtc);
+    const usageDebitEntries = getLedgerEntriesForMonth(store, monthUtc, 'USAGE_DEBIT');
+    const sponsoredDebitEntries = getLedgerEntriesForMonth(
+      store,
+      monthUtc,
+      'SPONSORED_EXECUTION_DEBIT',
+    );
+    const debitEntries = [...usageDebitEntries, ...sponsoredDebitEntries];
     const createdAt =
       store.statementProjectionCreatedAtByMonth.get(monthUtc) ||
       debitEntries
@@ -463,12 +499,23 @@ export function createInMemoryConsoleBillingService(
       ];
     }
 
-    const monthlyActiveWallets = getUsageDebitEntriesForMonth(store, invoice.periodMonthUtc).length;
+    const monthlyActiveWallets = getLedgerEntriesForMonth(
+      store,
+      invoice.periodMonthUtc,
+      'USAGE_DEBIT',
+    ).length;
+    const sponsoredExecutionDebitMinor = Math.abs(
+      getLedgerEntriesForMonth(store, invoice.periodMonthUtc, 'SPONSORED_EXECUTION_DEBIT').reduce(
+        (total, entry) => total + entry.amountMinor,
+        0,
+      ),
+    );
     return buildInvoiceLineItems({
       orgId: invoice.orgId,
       invoiceId: invoice.id,
       periodMonthUtc: invoice.periodMonthUtc,
       monthlyActiveWallets,
+      sponsoredExecutionDebitMinor,
       createdAt: invoice.createdAt,
     });
   }
@@ -562,6 +609,18 @@ export function createInMemoryConsoleBillingService(
       store.ledgerEntries
         .filter((entry) => entry.type === 'USAGE_DEBIT' && entry.monthUtc === monthUtc)
         .reduce((total, entry) => total + entry.amountMinor, 0),
+    );
+  }
+
+  function findLedgerEntryBySourceEventIdAndType(
+    store: OrgBillingStore,
+    type: BillingLedgerEntry['type'],
+    sourceEventId: string,
+  ): BillingLedgerEntry | null {
+    const key = String(sourceEventId || '').trim();
+    if (!key) return null;
+    return (
+      store.ledgerEntries.find((entry) => entry.type === type && entry.sourceEventId === key) || null
     );
   }
 
@@ -776,6 +835,26 @@ export function createInMemoryConsoleBillingService(
       };
     },
 
+    async getSponsoredExecutionDebitsByIds(
+      ctx: ConsoleBillingContext,
+      ledgerEntryIds: string[],
+    ): Promise<BillingSponsoredExecutionDebitEntry[]> {
+      const store = ensureOrgStore(ctx.orgId);
+      const ids = Array.from(
+        new Set(
+          ledgerEntryIds
+            .map((entryId) => String(entryId || '').trim())
+            .filter((entryId) => entryId.length > 0),
+        ),
+      );
+      if (ids.length === 0) return [];
+      const wanted = new Set(ids);
+      return sortLedgerEntriesByMostRecent(store.ledgerEntries).filter(
+        (entry): entry is BillingSponsoredExecutionDebitEntry =>
+          entry.type === 'SPONSORED_EXECUTION_DEBIT' && wanted.has(entry.id),
+      );
+    },
+
     async listAccountActivity(
       ctx: ConsoleBillingContext,
       request: BillingAccountActivityRequest = {},
@@ -892,6 +971,90 @@ export function createInMemoryConsoleBillingService(
         monthlyActiveWallets,
         debitAppliedMinor,
         creditBalanceMinor: store.creditBalanceMinor,
+        statementId: statement?.id || null,
+      };
+    },
+
+    async recordSponsoredExecutionDebit(
+      ctx: ConsoleBillingContext,
+      request: BillingSponsoredExecutionDebitRequest,
+    ): Promise<BillingSponsoredExecutionDebitResult> {
+      const store = ensureOrgStore(ctx.orgId);
+      const sourceEventId = String(request.sourceEventId || '').trim();
+      if (!sourceEventId) {
+        throw new ConsoleBillingError(
+          'invalid_sponsored_execution_debit',
+          400,
+          'sourceEventId is required',
+        );
+      }
+      if (!Number.isInteger(request.amountMinor) || request.amountMinor <= 0) {
+        throw new ConsoleBillingError(
+          'invalid_sponsored_execution_debit',
+          400,
+          'amountMinor must be a positive integer',
+        );
+      }
+      const occurredAtMs = request.occurredAt ? Date.parse(request.occurredAt) : nowFn().getTime();
+      if (!Number.isFinite(occurredAtMs)) {
+        throw new ConsoleBillingError(
+          'invalid_sponsored_execution_debit',
+          400,
+          'Invalid occurredAt value',
+        );
+      }
+      const monthUtc = monthUtcFromEpochMs(occurredAtMs);
+      const existing = findLedgerEntryBySourceEventIdAndType(
+        store,
+        'SPONSORED_EXECUTION_DEBIT',
+        sourceEventId,
+      );
+      const existingStatement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
+      if (existing) {
+        return {
+          accepted: false,
+          debitAppliedMinor: 0,
+          ledgerEntryId: existing.id,
+          creditBalanceMinor: store.creditBalanceMinor,
+          monthUtc,
+          statementId: existingStatement?.id || null,
+        };
+      }
+      const now = new Date(occurredAtMs);
+      ensureStatementProjectionSeed(store, monthUtc, now);
+      store.creditBalanceMinor -= request.amountMinor;
+      const entry = appendLedgerEntry(store, {
+        now,
+        orgId: ctx.orgId,
+        type: 'SPONSORED_EXECUTION_DEBIT',
+        amountMinor: -request.amountMinor,
+        currency: 'USD',
+        description: `Sponsored execution debit for ${request.walletId}`,
+        monthUtc,
+        relatedInvoiceId: makeUsageStatementId(monthUtc),
+        relatedPurchaseId: null,
+        sourceEventId,
+        actorType: 'SYSTEM',
+        actorUserId: ctx.actorUserId,
+        reasonCode: 'sponsored_execution_debit',
+        note:
+          String(request.note || '').trim() ||
+          [
+            request.txOrExecutionRef ? `Ref ${request.txOrExecutionRef}` : '',
+            request.pricingVersion ? `Pricing ${request.pricingVersion}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ') ||
+          `Sponsored execution debit recorded for ${request.walletId}`,
+        idempotencyKey: `sponsored_execution_debit:${sourceEventId}`,
+      });
+      const statement = getProjectedUsageStatement(store, ctx.orgId, monthUtc);
+      return {
+        accepted: true,
+        debitAppliedMinor: request.amountMinor,
+        ledgerEntryId: entry.id,
+        creditBalanceMinor: store.creditBalanceMinor,
+        monthUtc,
         statementId: statement?.id || null,
       };
     },
@@ -1024,7 +1187,11 @@ export function createInMemoryConsoleBillingService(
         );
       }
       const nextLineItems = getProjectedInvoiceLineItems(store, invoice);
-      const monthlyActiveWallets = getUsageDebitEntriesForMonth(store, periodMonthUtc).length;
+      const monthlyActiveWallets = getLedgerEntriesForMonth(
+        store,
+        periodMonthUtc,
+        'USAGE_DEBIT',
+      ).length;
 
       return {
         generated: false,

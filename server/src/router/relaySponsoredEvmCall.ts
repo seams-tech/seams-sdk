@@ -1,5 +1,7 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../core/SessionService';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../console/observability';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type {
   ConsoleSponsoredCallReceiptStatus,
@@ -24,7 +26,10 @@ import {
 import {
   buildSponsoredSpendCapSourceEventId,
   executeSponsorshipAdapter,
+  isSponsorshipPrepaidBalanceEnforcementError,
   isSponsorshipSpendCapEnforcementError,
+  releaseSponsoredSpendCap,
+  reserveSponsoredPrepaidBalance,
   reserveSponsoredSpendCap,
   resolveSponsoredEvmExecutionAdapter,
   settleSponsoredSpendCap,
@@ -40,6 +45,10 @@ import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
 } from './sponsorshipExecution';
+import {
+  emitSponsorshipBlockedObservabilityEvent,
+  readSponsorshipBillingBalanceSnapshot,
+} from './sponsorshipBillingEvents';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
 import {
   buildSponsorshipRoutePolicyFailureResponse,
@@ -55,6 +64,7 @@ import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
+import type { ConsoleWebhookService } from '../console/webhooks';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -96,6 +106,14 @@ type SponsoredEvmCallDetails = {
     settledSpendMinor: string | null;
     pricingVersion: string | null;
     usedEstimatedFallback: boolean | null;
+    released: boolean | null;
+  };
+  policySpendCap?: {
+    sourceEventId: string | null;
+    estimatedSpendMinor: string | null;
+    settledSpendMinor: string | null;
+    pricingVersion: string | null;
+    usedEstimatedFallback: boolean | null;
   };
 };
 
@@ -108,11 +126,16 @@ export interface RelaySponsoredEvmCallService {
   billing: ConsoleBillingService;
   config: SponsoredEvmCallExecutorConfig | null;
   corsOrigins: readonly string[];
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
+  prepaidReservations: ConsoleBillingPrepaidReservationService | null;
   pricing: SponsorshipSpendPricingService | null;
   publishableKeyAuth: RelayPublishableKeyAuthAdapter | null;
   runtimeSnapshots: ConsoleRuntimeSnapshotService | null;
   spendCaps: ConsoleSponsorshipSpendCapService | null;
   sponsoredCalls: ConsoleSponsoredCallService;
+  webhooks?: ConsoleWebhookService | null;
+  webhookActorUserId?: string;
+  webhookRoles?: string[];
 }
 
 export interface RelaySponsoredEvmCallInput {
@@ -177,6 +200,11 @@ function buildDetailsJson(input: {
   billing?: SponsorshipSpendCapSettlement & {
     sourceEventId: string;
     estimatedSpendMinor: number;
+    released?: boolean;
+  };
+  policySpendCap?: SponsorshipSpendCapSettlement & {
+    sourceEventId: string;
+    estimatedSpendMinor: number;
   };
 }): string {
   const details: SponsoredEvmCallDetails = {
@@ -204,6 +232,18 @@ function buildDetailsJson(input: {
             settledSpendMinor: String(input.billing.settledSpendMinor),
             pricingVersion: input.billing.pricingVersion,
             usedEstimatedFallback: input.billing.usedEstimatedFallback,
+            released: input.billing.released ?? false,
+          },
+        }
+      : {}),
+    ...(input.policySpendCap
+      ? {
+          policySpendCap: {
+            sourceEventId: input.policySpendCap.sourceEventId,
+            estimatedSpendMinor: String(input.policySpendCap.estimatedSpendMinor),
+            settledSpendMinor: String(input.policySpendCap.settledSpendMinor),
+            pricingVersion: input.policySpendCap.pricingVersion,
+            usedEstimatedFallback: input.policySpendCap.usedEstimatedFallback,
           },
         }
       : {}),
@@ -366,6 +406,16 @@ function buildReplayResponse(existing: ConsoleSponsoredCallRecord): RouteRespons
 
 function buildSpendCapFailureResponse(error: unknown): RouteResponse<Record<string, unknown>> | null {
   if (!isSponsorshipSpendCapEnforcementError(error)) return null;
+  return routeJson(error.status, {
+    ok: false,
+    code: error.code,
+    message: error.message,
+    ...(error.details ? { details: error.details } : {}),
+  });
+}
+
+function buildPrepaidFailureResponse(error: unknown): RouteResponse<Record<string, unknown>> | null {
+  if (!isSponsorshipPrepaidBalanceEnforcementError(error)) return null;
   return routeJson(error.status, {
     ok: false,
     code: error.code,
@@ -572,6 +622,11 @@ export async function handleRelaySponsoredEvmCall(
     intentKind: 'evm_call',
     idempotencyKey,
   });
+  const prepaidBalanceSourceEventId = buildSponsoredSpendCapSourceEventId({
+    chainFamily: 'evm',
+    intentKind: 'evm_call',
+    idempotencyKey,
+  });
   const spendCapRequestDetails = {
     nearAccountId: parsedBody.nearAccountId,
     walletAddress: parsedBody.walletAddress,
@@ -584,6 +639,11 @@ export async function handleRelaySponsoredEvmCall(
     },
   } satisfies Record<string, unknown>;
   let spendCapReservation = null;
+  let prepaidReservation = null;
+  const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+    relaySponsoredEvmCall.billing,
+    sponsorshipRuntime.sponsorshipCtx,
+  );
   try {
     spendCapReservation = await reserveSponsoredSpendCap({
       spendCap: matched.policy.spendCap,
@@ -642,6 +702,75 @@ export async function handleRelaySponsoredEvmCall(
       ok: false,
       code: 'internal',
       message: error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
+    });
+  }
+
+  try {
+    prepaidReservation = await reserveSponsoredPrepaidBalance({
+      billing: relaySponsoredEvmCall.billing,
+      prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
+      pricing: relaySponsoredEvmCall.pricing,
+      ctx: sponsorshipRuntime.sponsorshipCtx,
+      chainFamily: 'evm',
+      intentKind: 'evm_call',
+      executorKind: adapter.executorKind,
+      environmentId: parsedBody.environmentId,
+      policyId: matched.policy.policyId,
+      accountRef,
+      targetRef,
+      chainId: parsedBody.chainId,
+      sourceEventId: prepaidBalanceSourceEventId,
+      requestDetails: spendCapRequestDetails,
+    });
+  } catch (error: unknown) {
+    if (spendCapReservation) {
+      try {
+        await releaseSponsoredSpendCap({
+          reservation: spendCapReservation,
+          spendCaps: relaySponsoredEvmCall.spendCaps,
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+        });
+      } catch (releaseError: unknown) {
+        input.logger.warn('[sponsored-evm-call] spend-cap release after prepaid failure failed', {
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          idempotencyKey,
+          error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+        });
+      }
+    }
+    if (isSponsorshipPrepaidBalanceEnforcementError(error)) {
+      await emitSponsorshipBlockedObservabilityEvent({
+        services: {
+          logger: input.logger,
+          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
+          webhooks: relaySponsoredEvmCall.webhooks || null,
+          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
+          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+        },
+        ctx: sponsorshipRuntime.sponsorshipCtx,
+        balance: beforeBalanceState,
+        environmentId: parsedBody.environmentId,
+        policyId: matched.policy.policyId,
+        routeId: input.route.id,
+        chainFamily: 'evm',
+        intentKind: 'evm_call',
+        executorKind: adapter.executorKind,
+        chainId: parsedBody.chainId,
+        accountRef,
+        targetRef,
+        idempotencyKey,
+        sourceEventId: prepaidBalanceSourceEventId,
+        error,
+      });
+    }
+    const failure = buildPrepaidFailureResponse(error);
+    if (failure) return failure;
+    return routeJson(500, {
+      ok: false,
+      code: 'internal',
+      message:
+        error instanceof Error ? error.message : 'Failed to reserve sponsored prepaid balance',
     });
   }
 
@@ -709,10 +838,10 @@ export async function handleRelaySponsoredEvmCall(
       }
       const record = await recordSponsoredExecution({
         billing: relaySponsoredEvmCall.billing,
-        billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
+        billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
         context: sponsorshipRuntime.sponsorshipCtx,
         ledger: relaySponsoredEvmCall.sponsoredCalls,
-        record: {
+        buildRecord: ({ prepaidSettlement, billingLedgerEntryId }) => ({
           environmentId: parsedBody.environmentId,
           apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
           apiKeyKind: 'publishable_key',
@@ -734,12 +863,58 @@ export async function handleRelaySponsoredEvmCall(
               effectiveGasPrice: assessment.effectiveGasPrice,
               feeAmount: assessment.feeAmount,
             },
-            ...(spendCapSettlement ? { billing: spendCapSettlement } : {}),
+            ...(prepaidSettlement ? { billing: prepaidSettlement } : {}),
+            ...(spendCapSettlement ? { policySpendCap: spendCapSettlement } : {}),
           }),
+          estimatedSpendMinor: prepaidSettlement?.estimatedSpendMinor ?? null,
+          settledSpendMinor: prepaidSettlement?.settledSpendMinor ?? null,
+          pricingVersion: prepaidSettlement?.pricingVersion ?? null,
+          pricingSource: prepaidSettlement ? 'sponsorship_pricing_service' : null,
+          billingLedgerEntryId,
+          prepaidReservationId: prepaidSettlement?.reservationId || null,
+          charged: Boolean(
+            prepaidSettlement &&
+              !prepaidSettlement.released &&
+              prepaidSettlement.settledSpendMinor > 0,
+          ),
+          chargedReason: prepaidSettlement
+            ? prepaidSettlement.released
+              ? 'released_zero_spend'
+              : prepaidSettlement.settledSpendMinor > 0
+                ? 'sponsored_execution_debit'
+                : 'settled_zero_spend'
+            : null,
+          settledAt: prepaidSettlement?.settledAt || null,
           idempotencyKey,
-        },
+        }),
         assessment,
         walletId: parsedBody.nearAccountId,
+        balanceEvents: {
+          logger: input.logger,
+          webhooks: relaySponsoredEvmCall.webhooks || null,
+          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
+          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
+          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+        },
+        prepaidSettlementInput: {
+          reservation: prepaidReservation,
+          prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
+          pricing: relaySponsoredEvmCall.pricing,
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: adapter.executorKind,
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          accountRef,
+          targetRef,
+          chainId: parsedBody.chainId,
+          txOrExecutionRef: assessment.txHash,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: spendCapRequestDetails,
+        },
       });
       return routeJson(200, {
         ok: true,
@@ -813,10 +988,10 @@ export async function handleRelaySponsoredEvmCall(
       }
       const record = await recordSponsoredExecution({
         billing: relaySponsoredEvmCall.billing,
-        billingSourceEventIdPrefix: 'sponsored_evm_call_usage',
+        billingSourceEventIdPrefix: 'sponsored_evm_call_debit',
         context: sponsorshipRuntime.sponsorshipCtx,
         ledger: relaySponsoredEvmCall.sponsoredCalls,
-        record: {
+        buildRecord: ({ prepaidSettlement, billingLedgerEntryId }) => ({
           environmentId: parsedBody.environmentId,
           apiKeyId: sponsorshipRuntime.principal.principal.apiKeyId,
           apiKeyKind: 'publishable_key',
@@ -838,12 +1013,58 @@ export async function handleRelaySponsoredEvmCall(
               effectiveGasPrice: assessment.effectiveGasPrice,
               feeAmount: assessment.feeAmount,
             },
-            ...(spendCapSettlement ? { billing: spendCapSettlement } : {}),
+            ...(prepaidSettlement ? { billing: prepaidSettlement } : {}),
+            ...(spendCapSettlement ? { policySpendCap: spendCapSettlement } : {}),
           }),
+          estimatedSpendMinor: prepaidSettlement?.estimatedSpendMinor ?? null,
+          settledSpendMinor: prepaidSettlement?.settledSpendMinor ?? null,
+          pricingVersion: prepaidSettlement?.pricingVersion ?? null,
+          pricingSource: prepaidSettlement ? 'sponsorship_pricing_service' : null,
+          billingLedgerEntryId,
+          prepaidReservationId: prepaidSettlement?.reservationId || null,
+          charged: Boolean(
+            prepaidSettlement &&
+              !prepaidSettlement.released &&
+              prepaidSettlement.settledSpendMinor > 0,
+          ),
+          chargedReason: prepaidSettlement
+            ? prepaidSettlement.released
+              ? 'released_zero_spend'
+              : prepaidSettlement.settledSpendMinor > 0
+                ? 'sponsored_execution_debit'
+                : 'settled_zero_spend'
+            : null,
+          settledAt: prepaidSettlement?.settledAt || null,
           idempotencyKey,
-        },
+        }),
         assessment,
         walletId: parsedBody.nearAccountId,
+        balanceEvents: {
+          logger: input.logger,
+          webhooks: relaySponsoredEvmCall.webhooks || null,
+          observabilityIngestion: relaySponsoredEvmCall.observabilityIngestion || null,
+          webhookActorUserId: relaySponsoredEvmCall.webhookActorUserId,
+          webhookRoles: relaySponsoredEvmCall.webhookRoles,
+        },
+        prepaidSettlementInput: {
+          reservation: prepaidReservation,
+          prepaidReservations: relaySponsoredEvmCall.prepaidReservations,
+          pricing: relaySponsoredEvmCall.pricing,
+          ctx: sponsorshipRuntime.sponsorshipCtx,
+          chainFamily: 'evm',
+          intentKind: 'evm_call',
+          executorKind: adapter.executorKind,
+          environmentId: parsedBody.environmentId,
+          policyId: matched.policy.policyId,
+          accountRef,
+          targetRef,
+          chainId: parsedBody.chainId,
+          txOrExecutionRef: assessment.txHash,
+          receiptStatus: assessment.receiptStatus,
+          feeUnit: assessment.feeUnit,
+          feeAmount: assessment.feeAmount,
+          requestDetails: spendCapRequestDetails,
+        },
       });
       input.logger.error('[sponsored-evm-call] request failed', {
         environmentId: parsedBody.environmentId,

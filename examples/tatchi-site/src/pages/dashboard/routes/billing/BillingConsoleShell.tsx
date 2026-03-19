@@ -7,6 +7,10 @@ import { BillingInvoiceDetailView } from './BillingInvoiceDetailView';
 import { BillingInvoicesView } from './BillingInvoicesView';
 import { PlatformBillingView } from './PlatformBillingView';
 import {
+  SponsoredExecutionHistorySection,
+  SponsoredExecutionReconciliationSection,
+} from './billingSections';
+import {
   createDashboardStripeCheckoutSession,
   downloadDashboardBillingInvoicePdf,
   formatUsdMinor,
@@ -16,12 +20,16 @@ import {
   getDashboardBillingOverview,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
+  listDashboardSponsoredExecutionHistory,
+  listDashboardSponsoredExecutionReconciliation,
   reconcileDashboardStripeCheckoutSession,
   type DashboardBillingInvoice,
   type DashboardBillingInvoiceActivity,
   type DashboardBillingInvoiceLineItem,
   type DashboardBillingInvoiceListSummary,
   type DashboardBillingOverview,
+  type DashboardSponsoredExecutionHistoryEntry,
+  type DashboardSponsoredExecutionReconciliationPage,
   type DashboardBillingUsage,
   type DashboardStripeCheckoutSessionRequest,
 } from './consoleBillingApi';
@@ -151,6 +159,15 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [overview, setOverview] = React.useState<DashboardBillingOverview | null>(null);
   const [usage, setUsage] = React.useState<DashboardBillingUsage | null>(null);
+  const [sponsoredHistory, setSponsoredHistory] = React.useState<
+    DashboardSponsoredExecutionHistoryEntry[]
+  >([]);
+  const [sponsoredHistoryLoading, setSponsoredHistoryLoading] = React.useState<boolean>(false);
+  const [sponsoredHistoryError, setSponsoredHistoryError] = React.useState<string>('');
+  const [reconciliationPage, setReconciliationPage] =
+    React.useState<DashboardSponsoredExecutionReconciliationPage | null>(null);
+  const [reconciliationLoading, setReconciliationLoading] = React.useState<boolean>(false);
+  const [reconciliationError, setReconciliationError] = React.useState<string>('');
 
   const [invoices, setInvoices] = React.useState<DashboardBillingInvoice[]>([]);
   const [invoiceListLoading, setInvoiceListLoading] = React.useState<boolean>(false);
@@ -186,27 +203,80 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const refreshBillingShellData = React.useCallback(async () => {
     if (!session.claims) {
       setLoading(false);
+      setSponsoredHistoryLoading(false);
+      setReconciliationLoading(false);
       setOverview(null);
       setUsage(null);
+      setSponsoredHistory([]);
+      setSponsoredHistoryError('');
+      setReconciliationPage(null);
+      setReconciliationError('');
       setErrorMessage(session.errorMessage || 'Console session is unavailable');
       return;
     }
     setLoading(true);
+    setSponsoredHistoryLoading(true);
+    setReconciliationLoading(true);
     setErrorMessage('');
-    try {
-      const [nextOverview, nextUsage] = await Promise.all([
+    setSponsoredHistoryError('');
+    setReconciliationError('');
+    const environmentId = String(session.claims.environmentId || '').trim();
+    const [overviewResult, usageResult, historyResult, reconciliationResult] =
+      await Promise.allSettled([
         getDashboardBillingOverview(),
         getDashboardBillingMonthlyActiveWallets(),
+        listDashboardSponsoredExecutionHistory({
+          ...(environmentId ? { environmentId } : {}),
+          limit: 12,
+          lookbackDays: 90,
+        }),
+        listDashboardSponsoredExecutionReconciliation({
+          ...(environmentId ? { environmentId } : {}),
+          limit: 12,
+          lookbackDays: 90,
+        }),
       ]);
-      setOverview(nextOverview);
-      setUsage(nextUsage);
-    } catch (error: unknown) {
+    if (overviewResult.status === 'fulfilled' && usageResult.status === 'fulfilled') {
+      setOverview(overviewResult.value);
+      setUsage(usageResult.value);
+    } else {
       setOverview(null);
       setUsage(null);
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
+      setErrorMessage(
+        overviewResult.status === 'rejected'
+          ? overviewResult.reason instanceof Error
+            ? overviewResult.reason.message
+            : String(overviewResult.reason)
+          : usageResult.status === 'rejected'
+            ? usageResult.reason instanceof Error
+              ? usageResult.reason.message
+              : String(usageResult.reason)
+            : 'Billing data unavailable',
+      );
     }
+    if (historyResult.status === 'fulfilled') {
+      setSponsoredHistory(historyResult.value.items);
+    } else {
+      setSponsoredHistory([]);
+      setSponsoredHistoryError(
+        historyResult.reason instanceof Error
+          ? historyResult.reason.message
+          : String(historyResult.reason),
+      );
+    }
+    if (reconciliationResult.status === 'fulfilled') {
+      setReconciliationPage(reconciliationResult.value);
+    } else {
+      setReconciliationPage(null);
+      setReconciliationError(
+        reconciliationResult.reason instanceof Error
+          ? reconciliationResult.reason.message
+          : String(reconciliationResult.reason),
+      );
+    }
+    setLoading(false);
+    setSponsoredHistoryLoading(false);
+    setReconciliationLoading(false);
   }, [session.claims, session.errorMessage]);
 
   const loadInvoiceListPage = React.useCallback(async () => {
@@ -481,14 +551,25 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
               : 'Live environments enabled',
       },
       {
+        label: 'Reserved sponsorship',
+        value: formatUsdMinor(overview?.reservedSponsorshipMinor || 0),
+        hint: `${overview?.activeSponsorshipReservationCount ?? 0} active reservation${
+          overview?.activeSponsorshipReservationCount === 1 ? '' : 's'
+        }`,
+      },
+      {
+        label: 'Sponsored spend',
+        value: formatUsdMinor(overview?.trailing30DaySponsoredSpendMinor || 0),
+        hint: `${formatUsdMinor(
+          overview?.trailing90DaySponsoredSpendMinor || 0,
+        )} over 90d · ${overview?.trailing30DaySponsoredExecutionCount ?? 0}/${
+          overview?.trailing90DaySponsoredExecutionCount ?? 0
+        } charged executions`,
+      },
+      {
         label: 'Current MAW',
         value: String(usage?.monthlyActiveWallets ?? overview?.monthlyActiveWallets ?? 0),
         hint: usage?.monthUtc ? `${usage.monthUtc} (${usage.usageMetricVersion})` : 'No usage data',
-      },
-      {
-        label: 'Recent usage',
-        value: formatUsdMinor(overview?.recentUsageDebitMinor || 0),
-        hint: 'Current month debit total',
       },
       {
         label: 'Recent top-ups',
@@ -567,6 +648,18 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     [invoices],
   );
 
+  const sponsoredScopeDescription = React.useMemo(() => {
+    const environmentId = String(session.claims?.environmentId || '').trim();
+    if (environmentId) {
+      const environmentLabel =
+        selectedContextDisplay.environment && selectedContextDisplay.environment !== '-'
+          ? selectedContextDisplay.environment
+          : environmentId;
+      return `Showing the selected environment scope (${environmentLabel}). Billing balance remains organization-scoped.`;
+    }
+    return 'Showing organization-scoped records for the last 90 days.';
+  }, [selectedContextDisplay.environment, session.claims?.environmentId]);
+
   return (
     <div className="dashboard-view" aria-label="Billing page">
       {billingWarningMessage && !billingWarningDismissed ? (
@@ -613,15 +706,35 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
             </section>
           )
         ) : (
-          <BillingAccountView
-            selectedContext={selectedContextDisplay}
-            summaryMetrics={summaryMetrics}
-            checkoutActionError={checkoutActionError}
-            startingCheckoutPackId={startingCheckoutPackId}
-            onStartStripeCheckout={(checkoutRequest) => {
-              void onStartStripeCheckout(checkoutRequest);
-            }}
-          />
+          <>
+            <BillingAccountView
+              selectedContext={selectedContextDisplay}
+              summaryMetrics={summaryMetrics}
+              checkoutActionError={checkoutActionError}
+              startingCheckoutPackId={startingCheckoutPackId}
+              onStartStripeCheckout={(checkoutRequest) => {
+                void onStartStripeCheckout(checkoutRequest);
+              }}
+            />
+            <section
+              id="billing-sponsored-history"
+              className="dashboard-view__section dashboard-view__section--plain"
+            >
+              <SponsoredExecutionHistorySection
+                entries={sponsoredHistory}
+                loading={sponsoredHistoryLoading}
+                error={sponsoredHistoryError}
+                scopeDescription={sponsoredScopeDescription}
+              />
+            </section>
+            <SponsoredExecutionReconciliationSection
+              sectionId="billing-sponsored-reconciliation"
+              page={reconciliationPage}
+              loading={reconciliationLoading}
+              error={reconciliationError}
+              scopeDescription={sponsoredScopeDescription}
+            />
+          </>
         )
       ) : subview.kind === 'invoices' ? (
         <BillingInvoicesView

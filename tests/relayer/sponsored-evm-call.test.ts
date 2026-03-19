@@ -4,11 +4,20 @@ import expressImport from 'express';
 import { expect, test } from '@playwright/test';
 import {
   createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleBillingPrepaidReservationService,
+  createPostgresConsoleBillingPrepaidReservationService,
+  createPostgresConsoleBillingService,
   createInMemoryConsoleRuntimeSnapshotService,
   createInMemoryConsoleSponsorshipSpendCapService,
+  ensureConsoleBillingPrepaidReservationPostgresSchema,
+  ensureConsoleBillingPostgresSchema,
   type ConsoleApiKeyService,
 } from '@server/router/express-adaptor';
-import { createInMemoryConsoleSponsoredCallService } from '@server';
+import {
+  createInMemoryConsoleSponsoredCallService,
+  createPostgresConsoleSponsoredCallService,
+  ensureConsoleSponsoredCallPostgresSchema,
+} from '@server';
 import {
   fetchJson,
   startExpressRouter,
@@ -56,11 +65,16 @@ const gasUsedDec = '21000';
 const effectiveGasPriceHex = '0x77359400';
 const effectiveGasPriceDec = '2000000000';
 const spendWeiDec = '42000000000000';
+const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+const postgresEnabled = Boolean(postgresUrl);
 
-type BillingUsageEventSpy = {
+type BillingEventSpy = {
+  kind: 'usage' | 'sponsored_execution_debit';
   walletId: string;
-  action: string;
-  succeeded: boolean;
+  action?: string;
+  succeeded?: boolean;
+  amountMinor?: number;
+  pricingVersion?: string | null;
   sourceEventId?: string;
 };
 
@@ -83,34 +97,124 @@ function encodeErc20TransferInput(to: `0x${string}`, amount: bigint): `0x${strin
   return `0x${transferSelector.slice(2)}${toHex}${amountHex}` as `0x${string}`;
 }
 
-function makeBillingSpy() {
-  const events: BillingUsageEventSpy[] = [];
-  return {
-    events,
-    service: {
-      async recordUsageEvent(
-        _ctx: unknown,
-        request: {
-          walletId: string;
-          action: string;
-          succeeded: boolean;
-          sourceEventId?: string;
-        },
-      ) {
-        events.push({
-          walletId: request.walletId,
-          action: request.action,
-          succeeded: request.succeeded,
-          ...(request.sourceEventId ? { sourceEventId: request.sourceEventId } : {}),
-        });
-        return {
-          accepted: true,
-          counted: true,
-          monthUtc: '2026-03',
-          monthlyActiveWallets: 1,
-        };
+function randomNamespace(prefix: string): string {
+  return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+let sponsorshipPostgresSchemasReady = false;
+
+async function ensureSponsorshipPostgresSchemas(): Promise<void> {
+  if (!postgresEnabled || sponsorshipPostgresSchemasReady) return;
+  await ensureConsoleBillingPostgresSchema({
+    postgresUrl,
+    logger: makeLogger(),
+  });
+  await ensureConsoleBillingPrepaidReservationPostgresSchema({
+    postgresUrl,
+    logger: makeLogger(),
+  });
+  await ensureConsoleSponsoredCallPostgresSchema({
+    postgresUrl,
+    logger: makeLogger(),
+  });
+  sponsorshipPostgresSchemasReady = true;
+}
+
+async function makeAtomicSponsorshipServices(input?: {
+  initialBalanceMinor?: number;
+}): Promise<{
+  billing: {
+    events: BillingEventSpy[];
+  } & Record<string, unknown>;
+  ledger: unknown;
+  prepaidReservations: unknown;
+}> {
+  if (!postgresEnabled) {
+    throw new Error('POSTGRES_URL not set');
+  }
+  await ensureSponsorshipPostgresSchemas();
+  const namespace = randomNamespace('test:sponsored-evm-call');
+  const billingService = await createPostgresConsoleBillingService({
+    postgresUrl,
+    namespace,
+    ensureSchema: false,
+    logger: makeLogger(),
+  });
+  const prepaidReservations = await createPostgresConsoleBillingPrepaidReservationService({
+    postgresUrl,
+    namespace,
+    ensureSchema: false,
+    logger: makeLogger(),
+  });
+  const ledger = await createPostgresConsoleSponsoredCallService({
+    postgresUrl,
+    namespace,
+    ensureSchema: false,
+    logger: makeLogger(),
+  });
+  const seedBalanceMinor = Math.max(0, Math.trunc(input?.initialBalanceMinor ?? 5_000));
+  if (seedBalanceMinor > 0) {
+    await billingService.grantManualSupportCredit(
+      {
+        orgId: apiKeyCtx.orgId,
+        actorUserId: 'user-platform-admin',
+        roles: ['platform_admin'],
       },
-    },
+      {
+        amountMinor: seedBalanceMinor,
+        reasonCode: 'test_seed_credit',
+        note: 'Seed prepaid balance for sponsored route test',
+        idempotencyKey: `seed-balance:${namespace}`,
+      },
+    );
+  }
+  const events: BillingEventSpy[] = [];
+  const billing = Object.create(billingService) as {
+    events: BillingEventSpy[];
+    recordUsageEvent: (
+      ctx: unknown,
+      request: {
+        walletId: string;
+        action: string;
+        succeeded: boolean;
+        sourceEventId?: string;
+      },
+    ) => Promise<unknown>;
+    recordSponsoredExecutionDebit: (
+      ctx: unknown,
+      request: {
+        walletId: string;
+        amountMinor: number;
+        sourceEventId: string;
+        pricingVersion?: string | null;
+      },
+    ) => Promise<unknown>;
+  };
+  billing.recordUsageEvent = async (ctx, request) => {
+    events.push({
+      kind: 'usage',
+      walletId: request.walletId,
+      action: request.action,
+      succeeded: request.succeeded,
+      ...(request.sourceEventId ? { sourceEventId: request.sourceEventId } : {}),
+    });
+    return await billingService.recordUsageEvent(ctx as any, request as any);
+  };
+  billing.recordSponsoredExecutionDebit = async (ctx, request) => {
+    events.push({
+      kind: 'sponsored_execution_debit',
+      walletId: request.walletId,
+      amountMinor: request.amountMinor,
+      ...(request.pricingVersion ? { pricingVersion: request.pricingVersion } : {}),
+      sourceEventId: request.sourceEventId,
+    });
+    return await billingService.recordSponsoredExecutionDebit(ctx as any, request as any);
+  };
+  billing.events = events;
+  return {
+    billing,
+    ledger,
+    prepaidReservations,
   };
 }
 
@@ -159,6 +263,14 @@ function parseRecordDetails(value: string | undefined) {
       settledSpendMinor?: string | null;
       pricingVersion?: string | null;
       usedEstimatedFallback?: boolean | null;
+      released?: boolean | null;
+    };
+    policySpendCap?: {
+      sourceEventId?: string | null;
+      estimatedSpendMinor?: string | null;
+      settledSpendMinor?: string | null;
+      pricingVersion?: string | null;
+      usedEstimatedFallback?: boolean | null;
     };
   };
 }
@@ -180,6 +292,7 @@ async function startFakeTempoRpc(input: {
   txHash?: `0x${string}`;
   gasUsedHex?: string;
   effectiveGasPriceHex?: string;
+  sendRawTransactionResult?: unknown;
 }) {
   const requests: string[] = [];
   const resolvedTxHash = input.txHash || txHash;
@@ -224,7 +337,13 @@ async function startFakeTempoRpc(input: {
         respond(res, { id: body.id, result: effectiveGasPriceHex });
         return;
       case 'eth_sendRawTransaction':
-        respond(res, { id: body.id, result: resolvedTxHash });
+        respond(res, {
+          id: body.id,
+          result:
+            input.sendRawTransactionResult === undefined
+              ? resolvedTxHash
+              : input.sendRawTransactionResult,
+        });
         return;
       case 'eth_getTransactionReceipt':
         respond(res, {
@@ -386,11 +505,14 @@ async function publishAllowedPolicy(
 async function startSponsoredCallRouteServer(input: {
   apiKeys: ConsoleApiKeyService;
   billing: unknown;
-  ledger: ReturnType<typeof createInMemoryConsoleSponsoredCallService>;
+  ledger: unknown;
   runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>;
+  prepaidReservations?: unknown;
   sponsorship?: {
     spendCaps?: ReturnType<typeof createInMemoryConsoleSponsorshipSpendCapService>;
-    pricing?: {
+    prepaidReservations?: unknown;
+    pricing?:
+      | {
       estimateSponsoredExecutionSpend: (input: Record<string, unknown>) => Promise<{
         spendMinor: number;
         pricingVersion: string;
@@ -399,20 +521,33 @@ async function startSponsoredCallRouteServer(input: {
         spendMinor: number;
         pricingVersion: string;
       }>;
-    };
+      }
+      | null;
   };
   corsOrigins?: string[];
   config: ReturnType<typeof makeRouteConfig>;
 }) {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
+  const defaultPricing = makePricingService({
+    estimatedMinor: 80,
+    finalizedMinor: 60,
+  });
+  const prepaidReservations =
+    input.prepaidReservations ||
+    input.sponsorship?.prepaidReservations ||
+    createInMemoryConsoleBillingPrepaidReservationService();
   registerSponsoredEvmCallRoute({
     router: app as unknown as any,
     apiKeys: input.apiKeys as any,
     billing: input.billing as any,
     ledger: input.ledger as any,
     runtimeSnapshots: input.runtimeSnapshots as any,
-    ...(input.sponsorship?.pricing ? { pricing: input.sponsorship.pricing as any } : {}),
+    prepaidReservations: prepaidReservations as any,
+    pricing:
+      (input.sponsorship && 'pricing' in input.sponsorship
+        ? input.sponsorship.pricing
+        : defaultPricing.service) as any,
     ...(input.sponsorship?.spendCaps ? { spendCaps: input.sponsorship.spendCaps as any } : {}),
     corsOrigins: input.corsOrigins || [allowedOrigin],
     config: input.config,
@@ -422,6 +557,11 @@ async function startSponsoredCallRouteServer(input: {
 }
 
 test.describe('sponsored evm call route', () => {
+  test.beforeEach(async () => {
+    test.skip(!postgresEnabled, 'POSTGRES_URL not set');
+    await ensureSponsorshipPostgresSchemas();
+  });
+
   test('in-memory ledger deduplicates by idempotencyKey per org', async () => {
     const service = createInMemoryConsoleSponsoredCallService();
     const first = await service.createRecord(
@@ -501,17 +641,17 @@ test.describe('sponsored evm call route', () => {
 
   test('executes a sponsored call and records exact spend', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const idempotencyKey = makeIdempotencyKey('success');
@@ -568,13 +708,18 @@ test.describe('sponsored evm call route', () => {
       expect(details.call?.valueWei).toBe('0');
       expect(details.execution?.gasUsed).toBe(gasUsedDec);
       expect(details.execution?.effectiveGasPrice).toBe(effectiveGasPriceDec);
+      expect(details.billing?.estimatedSpendMinor).toBe('80');
+      expect(details.billing?.settledSpendMinor).toBe('60');
+      expect(details.billing?.released).toBe(false);
 
       expect(billing.events).toEqual([
-        expect.objectContaining({
+        {
+          kind: 'sponsored_execution_debit',
           walletId: 'alice.testnet',
-          action: 'contract_call',
-          succeeded: true,
-        }),
+          amountMinor: 60,
+          pricingVersion: 'pricing-test-v1',
+          sourceEventId: expect.stringMatching(/^sponsored_evm_call_debit:/),
+        },
       ]);
     } finally {
       await server.close();
@@ -584,7 +729,7 @@ test.describe('sponsored evm call route', () => {
 
   test('enforces spend caps through the shared pricing and reservation path', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       spendCap: {
@@ -593,7 +738,6 @@ test.describe('sponsored evm call route', () => {
         capsByChain: [{ chainId: 42_431, capMinor: 100 }],
       },
     });
-    const billing = makeBillingSpy();
     const pricing = makePricingService({ estimatedMinor: 80, finalizedMinor: 60 });
     const spendCaps = createInMemoryConsoleSponsorshipSpendCapService({
       now: () => new Date('2026-03-10T12:00:00.000Z'),
@@ -602,9 +746,10 @@ test.describe('sponsored evm call route', () => {
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       sponsorship: {
         spendCaps,
         pricing: pricing.service,
@@ -659,8 +804,19 @@ test.describe('sponsored evm call route', () => {
       expect(firstDetails.billing?.estimatedSpendMinor).toBe('80');
       expect(firstDetails.billing?.settledSpendMinor).toBe('60');
       expect(firstDetails.billing?.pricingVersion).toBe('pricing-test-v1');
-      expect(pricing.estimates).toHaveLength(1);
-      expect(pricing.finals).toHaveLength(1);
+      expect(firstDetails.policySpendCap?.estimatedSpendMinor).toBe('80');
+      expect(firstDetails.policySpendCap?.settledSpendMinor).toBe('60');
+      expect(firstDetails.policySpendCap?.pricingVersion).toBe('pricing-test-v1');
+      expect(pricing.estimates).toHaveLength(2);
+      expect(pricing.finals).toHaveLength(2);
+      expect(billing.events).toEqual([
+        expect.objectContaining({
+          kind: 'sponsored_execution_debit',
+          walletId: 'alice.testnet',
+          amountMinor: 60,
+          pricingVersion: 'pricing-test-v1',
+        }),
+      ]);
 
       const second = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
         method: 'POST',
@@ -686,7 +842,7 @@ test.describe('sponsored evm call route', () => {
 
   test('fails closed when spend caps are configured but pricing is unavailable', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       spendCap: {
@@ -695,17 +851,18 @@ test.describe('sponsored evm call route', () => {
         capsByChain: [{ chainId: 42_431, capMinor: 500 }],
       },
     });
-    const billing = makeBillingSpy();
     const spendCaps = createInMemoryConsoleSponsorshipSpendCapService();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       sponsorship: {
         spendCaps,
+        pricing: null,
       },
       config: makeRouteConfig(rpc.url),
     });
@@ -743,7 +900,7 @@ test.describe('sponsored evm call route', () => {
 
   test('matches a second non-Tempo EVM template using the richer allowedCalls model', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       additionalResolvedPolicies: [
@@ -774,14 +931,14 @@ test.describe('sponsored evm call route', () => {
         },
       ],
     });
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const idempotencyKey = makeIdempotencyKey('erc20-transfer');
@@ -829,7 +986,7 @@ test.describe('sponsored evm call route', () => {
 
   test('derives the canonical selector from functionSignature when the resolved snapshot carries a stale selector', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       additionalResolvedPolicies: [
@@ -860,14 +1017,14 @@ test.describe('sponsored evm call route', () => {
         },
       ],
     });
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -904,7 +1061,7 @@ test.describe('sponsored evm call route', () => {
 
   test('routes matched sponsorships to the executor configured for the requested chain', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       additionalResolvedPolicies: [
@@ -935,15 +1092,15 @@ test.describe('sponsored evm call route', () => {
         },
       ],
     });
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const primaryRpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const alternateRpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeMultichainRouteConfig([
         {
           chainId: 42_431,
@@ -1005,7 +1162,7 @@ test.describe('sponsored evm call route', () => {
 
   test('rejects matched calls when no executor is configured for the matched chain', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, {
       additionalResolvedPolicies: [
@@ -1036,14 +1193,14 @@ test.describe('sponsored evm call route', () => {
         },
       ],
     });
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1081,17 +1238,17 @@ test.describe('sponsored evm call route', () => {
 
   test('rejects calls that exceed allowed gas or value bounds even when selector matches', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1157,17 +1314,17 @@ test.describe('sponsored evm call route', () => {
 
   test('replays idempotently for the same idempotencyKey', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const idempotencyKey = makeIdempotencyKey('replay');
@@ -1219,17 +1376,17 @@ test.describe('sponsored evm call route', () => {
 
   test('treats identical payloads with different idempotency keys as fresh attempts', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const baseBody = {
@@ -1284,17 +1441,17 @@ test.describe('sponsored evm call route', () => {
 
   test('rejects invalid publishable key and blocked origin', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const requestBody = {
@@ -1346,17 +1503,17 @@ test.describe('sponsored evm call route', () => {
 
   test('rejects calls that do not match the active sponsorship policy', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1394,17 +1551,17 @@ test.describe('sponsored evm call route', () => {
 
   test('does not enforce recipient binding for allowlisted dripTo calls', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1445,17 +1602,17 @@ test.describe('sponsored evm call route', () => {
 
   test('requires an explicit idempotencyKey', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1492,17 +1649,17 @@ test.describe('sponsored evm call route', () => {
 
   test('records exact spend for reverted sponsored calls', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x0' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const idempotencyKey = makeIdempotencyKey('reverted');
@@ -1542,14 +1699,81 @@ test.describe('sponsored evm call route', () => {
       expect(record?.feeAmount).toBe(spendWeiDec);
       expect(details.execution?.gasUsed).toBe(gasUsedDec);
       expect(details.execution?.effectiveGasPrice).toBe(effectiveGasPriceDec);
+      expect(details.billing?.estimatedSpendMinor).toBe('80');
+      expect(details.billing?.settledSpendMinor).toBe('60');
+      expect(details.billing?.released).toBe(false);
 
       expect(billing.events).toEqual([
-        expect.objectContaining({
+        {
+          kind: 'sponsored_execution_debit',
           walletId: 'alice.testnet',
-          action: 'contract_call',
-          succeeded: false,
-        }),
+          amountMinor: 60,
+          pricingVersion: 'pricing-test-v1',
+          sourceEventId: expect.stringMatching(/^sponsored_evm_call_debit:/),
+        },
       ]);
+    } finally {
+      await server.close();
+      await rpc.close();
+    }
+  });
+
+  test('does not append sponsored debits when the EVM transaction never broadcasts', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    await publishAllowedPolicy(runtimeSnapshots);
+    const key = await createPublishableKey(apiKeys);
+    const rpc = await startFakeTempoRpc({
+      receiptStatus: '0x1',
+      sendRawTransactionResult: '0xdeadbeef',
+    });
+    const server = await startSponsoredCallRouteServer({
+      apiKeys,
+      billing,
+      ledger,
+      runtimeSnapshots,
+      prepaidReservations,
+      config: makeRouteConfig(rpc.url),
+    });
+    const idempotencyKey = makeIdempotencyKey('rpc-rejected-no-charge');
+    try {
+      const response = await fetchJson(`${server.baseUrl}/sponsorships/evm/call`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${key.secret}`,
+          origin: allowedOrigin,
+          'x-tatchi-environment-id': environmentId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          environmentId,
+          nearAccountId: 'alice.testnet',
+          walletAddress,
+          chainId: 42_431,
+          call: {
+            to: contractAddress,
+            data: encodeTempoDripToInput(walletAddress, [tokenAddress]),
+            gasLimit: '300000',
+            value: '0',
+          },
+          idempotencyKey,
+        }),
+      });
+      expect(response.status).toBe(502);
+      expect(response.json?.ok).toBe(false);
+
+      const record = await ledger.getRecordByIdempotencyKey(apiKeyCtx, idempotencyKey);
+      const details = parseRecordDetails(record?.detailsJson);
+      expect(record?.receiptStatus).toBe('rpc_rejected');
+      expect(record?.billingLedgerEntryId).toBeNull();
+      expect(record?.charged).toBe(false);
+      expect(record?.chargedReason).toBe('released_zero_spend');
+      expect(record?.settledSpendMinor).toBe(0);
+      expect(details.billing?.estimatedSpendMinor).toBe('80');
+      expect(details.billing?.settledSpendMinor).toBe('0');
+      expect(details.billing?.released).toBe(true);
+      expect(billing.events).toEqual([]);
     } finally {
       await server.close();
       await rpc.close();
@@ -1558,17 +1782,17 @@ test.describe('sponsored evm call route', () => {
 
   test('replays reverted attempts with the original failure status', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots);
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x0' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     const requestBody = {
@@ -1621,16 +1845,16 @@ test.describe('sponsored evm call route', () => {
 
   test('requires a published runtime snapshot', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {
@@ -1667,17 +1891,17 @@ test.describe('sponsored evm call route', () => {
 
   test('resolves a project-scoped runtime snapshot when the route only provides environmentId', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
-    const ledger = createInMemoryConsoleSponsoredCallService();
+    const { billing, ledger, prepaidReservations } = await makeAtomicSponsorshipServices();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     await publishAllowedPolicy(runtimeSnapshots, { projectId: 'project-alpha' });
-    const billing = makeBillingSpy();
     const key = await createPublishableKey(apiKeys);
     const rpc = await startFakeTempoRpc({ receiptStatus: '0x1' });
     const server = await startSponsoredCallRouteServer({
       apiKeys,
-      billing: billing.service,
+      billing,
       ledger,
       runtimeSnapshots,
+      prepaidReservations,
       config: makeRouteConfig(rpc.url),
     });
     try {

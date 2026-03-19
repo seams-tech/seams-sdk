@@ -314,3 +314,25 @@ export async function settleSponsoredSpendCap(input: {
     usedEstimatedFallback,
   };
 }
+
+export async function releaseSponsoredSpendCap(input: {
+  reservation: SponsorshipSpendCapReservationHandle | null;
+  spendCaps: ConsoleSponsorshipSpendCapService | null | undefined;
+  ctx: ConsoleSponsorshipSpendCapContext;
+}): Promise<void> {
+  if (!input.reservation) return;
+  if (!input.spendCaps) {
+    throw new SponsorshipSpendCapEnforcementError(
+      'sponsorship_spend_caps_unavailable',
+      503,
+      'Sponsored spend-cap release is not configured on this server',
+    );
+  }
+  try {
+    await input.spendCaps.release(input.ctx, {
+      sourceEventId: input.reservation.sourceEventId,
+    });
+  } catch (error: unknown) {
+    mapReservationError(error);
+  }
+}

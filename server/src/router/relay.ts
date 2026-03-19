@@ -7,6 +7,8 @@ import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
+import type { ConsoleObservabilityIngestionService } from '../console/observability';
 import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots';
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
@@ -375,6 +377,7 @@ export interface RelayRouterOptions {
   sponsorship?: {
     spendCaps?: ConsoleSponsorshipSpendCapService | null;
     pricing?: SponsorshipSpendPricingService | null;
+    prepaidReservations?: ConsoleBillingPrepaidReservationService | null;
   };
   // Optional: customize canonical app-session read route.
   sessionRoutes?: { state?: string };
@@ -391,6 +394,8 @@ export interface RelayRouterOptions {
   runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for relay session/wallet lifecycle events.
   relayWebhooks?: RelayWebhookOptions | null;
+  // Optional observability ingestion adapter used by sponsorship runtime signals.
+  observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**
    * Optional relay API-key authentication adapter for gas-costing routes.
    *

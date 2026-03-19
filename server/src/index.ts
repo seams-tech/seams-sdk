@@ -38,5 +38,6 @@ export * from './router/ror';
 export * from './console/account';
 export * from './console/gasSponsorship';
 export * from './console/sponsorshipSpendCaps';
+export * from './console/billingPrepaidReservations';
 export * from './console/sponsoredCalls';
 export * from './sponsorship';
