@@ -183,6 +183,7 @@ async function publishAllowedSignedDelegatePolicy(
   runtimeSnapshots: ReturnType<typeof createInMemoryConsoleRuntimeSnapshotService>,
   options?: {
     networkClass?: 'ANY' | 'TESTNET' | 'MAINNET';
+    maxDepositYocto?: string;
     spendCap?: { mode: string; period: string; capsByChain: Array<{ chainId: number; capMinor: number }> };
   },
 ): Promise<void> {
@@ -210,7 +211,7 @@ async function publishAllowedSignedDelegatePolicy(
               {
                 receiverId: 'contract.testnet',
                 methods: [],
-                maxDepositYocto: '0',
+                maxDepositYocto: options?.maxDepositYocto || '0',
                 allowTransfers: false,
               },
             ],
@@ -713,6 +714,112 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(record?.txOrExecutionRef).toBe('delegate-tx-reverted-456');
     expect(record?.errorCode).toBe('ActionError');
     expect(record?.errorMessage).toBe('Delegate failed on-chain');
+    expect(billing.events).toEqual([
+      expect.objectContaining({
+        kind: 'sponsored_execution_debit',
+        walletId: 'alice.testnet',
+        amountMinor: 1,
+        pricingVersion: 'static-near-testnet-v1',
+      }),
+    ]);
+  });
+
+  test('POST /signed-delegate excludes attached deposit from sponsored charge', async () => {
+    const attachedDepositYocto = '9000000000000000000000000';
+    const service = makeFakeAuthService({
+      executeSignedDelegate: async () => ({
+        ok: true,
+        transactionHash: 'delegate-tx-deposit-456',
+        outcome: {
+          final_execution_status: 'FINAL',
+          status: { SuccessValue: '' },
+          transaction: { hash: 'delegate-tx-deposit-456' },
+          transaction_outcome: {
+            outcome: {
+              gas_burnt: 1000,
+              tokens_burnt: '250',
+            },
+          },
+          receipts_outcome: [
+            {
+              outcome: {
+                gas_burnt: 2000,
+                tokens_burnt: '750',
+              },
+            },
+          ],
+        } as any,
+      }),
+    });
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const billing = makeSignedDelegateBillingSpy();
+    const ledger = createInMemoryConsoleSponsoredCallService();
+    const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
+    const pricing = makeSignedDelegatePricing();
+    const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
+    await publishAllowedSignedDelegatePolicy(runtimeSnapshots, {
+      maxDepositYocto: attachedDepositYocto,
+    });
+    const handler = createCloudflareRouter(service, {
+      signedDelegate: {
+        route: '/signed-delegate',
+        billing: billing.service as any,
+        ledger,
+        runtimeSnapshots,
+      },
+      sponsorship: {
+        pricing: pricing!,
+        prepaidReservations,
+      },
+      publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    });
+
+    const hash = 'd'.repeat(64);
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/signed-delegate',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: `Bearer ${created.secret}`,
+        'X-Tatchi-Environment-Id': delegateEnvironmentId,
+      },
+      body: {
+        hash,
+        signedDelegate: {
+          delegateAction: {
+            senderId: 'alice.testnet',
+            receiverId: 'contract.testnet',
+            actions: [
+              {
+                type: 'FunctionCall',
+                methodName: 'deposit_and_ping',
+                args: {},
+                gas: '30000000000000',
+                deposit: attachedDepositYocto,
+              },
+            ],
+          },
+          signature: 'sig',
+        },
+      },
+    });
+
+    expect(res.status, res.text).toBe(200);
+    const record = await ledger.getRecordByIdempotencyKey(
+      delegateApiKeyCtx,
+      `signed_delegate:${created.apiKey.id}:${hash}`,
+    );
+    expect(record?.feeAmount).toBe('1000');
+    expect(record?.settledSpendMinor).toBe(1);
+    expect(record?.charged).toBe(true);
     expect(billing.events).toEqual([
       expect.objectContaining({
         kind: 'sponsored_execution_debit',

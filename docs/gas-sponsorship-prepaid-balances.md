@@ -681,7 +681,7 @@ Minimum required coverage:
 - [x] concurrent requests cannot overspend the same prepaid balance
 - [x] reverted-but-gas-burned executions still debit prepaid balance correctly
 - [x] non-broadcast failures do not create sponsored-execution debits
-- [ ] NEAR gas-only charging excludes attached deposit
+- [x] NEAR gas-only charging excludes attached deposit
 - [x] webhook/event transitions fire only once per state transition
 
 ## Recommended implementation order
