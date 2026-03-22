@@ -1,10 +1,10 @@
-# Formal Verification Plan (Coq)
+# Formal Verification Plan (Lean 4)
 
-Last updated: 2026-02-26
+Last updated: 2026-03-18
 
 ## Goal
 
-Use Coq to formally verify security-critical cryptographic logic in Rust, focusing on our own composition/orchestration code and deterministic encoding paths in `signer-core`.
+Use Lean 4 to formally verify security-critical cryptographic logic in Rust, focusing on our own composition/orchestration code and deterministic encoding paths in `signer-core`. Use Aeneas for Rust-to-Lean translation and Leanstral for LLM-assisted proof acceleration.
 
 ## Constraints
 
@@ -41,11 +41,12 @@ Use Coq to formally verify security-critical cryptographic logic in Rust, focusi
 - Formal verification in this plan targets both:
   - cryptographic/algebraic correctness of the targeted protocol math, and
   - implementation-level correctness properties of our Rust code for those targets (for example deterministic encoding/hash preimages, signature-finalize invariants, share-mapping relations, and reject/accept conditions at protocol composition boundaries).
-- Formal verification does not replace integration/E2E testing. We still use integration/E2E suites to validate runtime behavior not modeled in Coq, including:
+- Aeneas translates our Rust code into Lean 4 functional specs, so proofs operate over representations derived from the actual implementation rather than hand-written models.
+- Formal verification does not replace integration/E2E testing. We still use integration/E2E suites to validate runtime behavior not modeled in Lean, including:
   - network transport behavior, retries, and ordering effects,
   - relay/store durability behavior and operational failure modes,
   - process/runtime wiring across WASM/server/client boundaries.
-- Coq-generated vector parity tests are the bridge between model and implementation for in-scope functions: they detect byte-level divergence between proofs and Rust behavior.
+- Lean-generated vector parity tests are the bridge between model and implementation for in-scope functions: they detect byte-level divergence between proofs and Rust behavior.
 
 ## Specification Sources and Weighting
 
@@ -100,7 +101,7 @@ Useful for rationale and lineage, but lower priority than pinned `near/threshold
   - Pinned `near/threshold-signatures` docs + pinned code semantics
   - RFC constraints (for Ed25519/FROST semantics)
   - Cait-Sith docs
-- Every theorem in `formal-verification/docs/proof-inventory.md` must declare a source class and cite at least one primary source.
+- Every theorem in `formal-verification/docs/proof-inventory.md` must declare a source class and cite at least one primary source. Aeneas-generated Lean definitions should reference the source Rust function path.
 - Tier 0 citation is required for theorem targets that depend on `threshold-signatures` behavior.
 - Local encoding/hash theorems may use local Rust implementation semantics as the primary source class, with standards references when applicable.
 
@@ -150,33 +151,38 @@ Definition of done:
 ## Phase 1: Create Formal Workspace
 
 - [ ] Create top-level workspace:
-  - `formal-verification/coq`
+  - `formal-verification/lean`
   - `formal-verification/vectors/generated`
   - `formal-verification/scripts`
   - `formal-verification/docs`
-- [ ] Add Coq build files (`_CoqProject`, `Makefile`) and deterministic tooling entrypoints.
+- [ ] Add Lean 4 build files (`lakefile.lean`, `lean-toolchain`) and deterministic tooling entrypoints.
+- [ ] Set up Aeneas and Charon to translate target `signer-core` modules into Lean 4.
 - [ ] Add `formal-verification/docs/proof-inventory.md` with theorem coverage table.
 
 Definition of done:
 
-- `coqc` runs in CI on at least one starter theorem and inventory exists.
+- `lake build` runs in CI on at least one starter theorem and inventory exists.
+- Aeneas successfully translates at least one target Rust module into Lean 4.
 
 ## Phase 2: Verify Encoding and Hashing (P0)
 
-- [ ] Model and prove hex/decimal/rlp primitives (`codec.rs`) used by signing pipelines.
+- [ ] Use Aeneas to translate `codec.rs`, `eip1559.rs`, and `tempo_tx.rs` into Lean 4.
+- [ ] Prove hex/decimal/rlp primitives (`codec.rs`) used by signing pipelines.
 - [ ] Prove EIP-1559 hash and signed-transaction encoding relations (`eip1559.rs`).
 - [ ] Prove Tempo sender-hash and signed-payload encoding relations (`tempo_tx.rs`).
-- [ ] Export Coq-generated vectors to `formal-verification/vectors/generated/*.json`.
+- [ ] Use Leanstral to accelerate tactic proofs for encoding determinism lemmas.
+- [ ] Export Lean-generated vectors to `formal-verification/vectors/generated/*.json`.
 - [ ] Add/extend Rust parity tests in:
   - `crates/signer-core/tests/baseline_behavior.rs`
   - `crates/signer-core/fixtures/signing-vectors/`
 
 Definition of done:
 
-- Rust vector tests fail on any encoding/hash divergence from Coq-generated vectors.
+- Rust vector tests fail on any encoding/hash divergence from Lean-generated vectors.
 
 ## Phase 3: Verify secp256k1 Share Algebra and Signature Invariants (P0/P1)
 
+- [ ] Use Aeneas to translate `secp256k1.rs` into Lean 4, axiomatizing `k256` calls as trusted specs.
 - [ ] Prove 2-party share mapping algebra:
   - inverse-Lagrange mapping recovers original additive share.
   - mapped share is in valid non-zero scalar range.
@@ -184,6 +190,7 @@ Definition of done:
   - output length/shape.
   - low-`s` behavior and recovery-id consistency constraints.
 - [ ] Prove key relation invariants for public-key addition/address derivation helpers.
+- [ ] Use Leanstral to accelerate tactic proofs for algebraic lemmas (group laws, Lagrange interpolation linearity).
 
 Definition of done:
 
@@ -191,6 +198,7 @@ Definition of done:
 
 ## Phase 4: Verify Threshold ECDSA Composition (P0)
 
+- [ ] Use Aeneas to translate `threshold_ecdsa.rs` into Lean 4, axiomatizing `threshold-signatures` calls as trusted specs.
 - [ ] Model presign + rerandomization composition at the abstraction boundary used by `threshold_ecdsa.rs`.
 - [ ] Prove signature-share combination formula corresponds to final signature equation.
 - [ ] Prove finalize step rejects invalid combinations and accepts valid ones under model assumptions.
@@ -201,9 +209,11 @@ Definition of done:
 
 ## Phase 5: Verify Threshold Ed25519/FROST 2P Algebra (P1)
 
+- [ ] Use Aeneas to translate `near_threshold_frost.rs` and `near_threshold_ed25519.rs` into Lean 4, axiomatizing `frost-ed25519` and `curve25519-dalek` calls as trusted specs.
 - [ ] Prove group-public-key reconstruction from verifying shares and participant IDs.
 - [ ] Prove round-2 cosigner share algebra corresponds to modeled challenge equation.
 - [ ] Prove participant-id constraints eliminate degenerate denominators and invalid signer sets.
+- [ ] Consult Symcrust (AeneasVerif) Lean 4 crypto patterns for elliptic curve formalizations.
 
 Definition of done:
 
@@ -212,13 +222,15 @@ Definition of done:
 ## Phase 6: CI and Change Management
 
 - [ ] Add CI job:
-  - `coqc` proof build
-  - `coqchk` kernel re-check
-  - fail on `Admitted` and `Axiom` usage in theorem files
+  - `lake build` proof build
+  - Lean 4 kernel type-check (implicit in `lake build`)
+  - fail on `sorry` usage in theorem files
+  - fail on unaxiomatized `axiom` declarations outside the trusted-dependency boundary
   - vector export consistency check
   - Rust parity tests
+  - Aeneas re-translation check: fail if Rust source changes produce different Lean output without proof updates
 - [ ] Add guard script preventing Rust crypto-function changes without proof-inventory updates.
-- [ ] Document workflow for updating proofs when dependencies or function signatures change.
+- [ ] Document workflow for updating proofs when dependencies or function signatures change, including re-running Aeneas translation.
 
 Definition of done:
 
@@ -229,23 +241,128 @@ Definition of done:
 - `docs/formal-verification.md` (this plan)
 - `formal-verification/docs/model-boundary.md`
 - `formal-verification/docs/proof-inventory.md`
-- `formal-verification/coq/**` theorem files
+- `formal-verification/lean/**` theorem files and Aeneas-generated Lean translations
 - `formal-verification/vectors/generated/*.json`
 - Updated `signer-core` vector fixtures + parity tests
 - CI gate for formal + parity checks
+- Aeneas/Charon configuration for reproducible Rust-to-Lean translation
+
+## Tooling Evaluation: Lean 4 vs Coq (2026-03-18)
+
+Phase 0 and Phase 1 have not started yet. Before committing to a proof assistant, we evaluated two tools that change the cost/benefit landscape and compared Lean 4 against the original Coq plan.
+
+### Aeneas (AeneasVerif/aeneas)
+
+Aeneas is a verification toolchain that translates Rust programs into pure functional representations in proof assistants. It compiles Rust source via Charon into an intermediate representation (LLBC), then functionalizes it — eliminating mutable borrows and imperative control flow — into idiomatic proof assistant code.
+
+Key facts:
+
+- **Backends:** Lean 4 (most mature), HOL4, Coq, F*.
+- **Rust support:** Safe Rust: structs, enums, traits, mutable borrows, loops. No unsafe code, no concurrency, no `return` inside nested loops.
+- **Maturity:** 4,900+ commits, 28 contributors, 631 GitHub stars. Translation soundness formally proved and published at ICFP 2022, with follow-up borrow-checking soundness proof in 2024.
+- **Ecosystem:** The AeneasVerif org also maintains Symcrust (verified Rust reimplementation of ML-KEM crypto primitives with Lean proofs) and Eurydice (compiles verified Rust to C).
+
+Applicability to our verification targets:
+
+| Target | Fit | Notes |
+| --- | --- | --- |
+| `codec.rs`, `eip1559.rs`, `tempo_tx.rs` (encoding) | Excellent | Pure safe Rust. Translate directly, prove determinism and round-trip properties. |
+| `secp256k1.rs` share mapping | Good | Translate our composition code, axiomatize `k256` calls as trusted specs. Matches our existing trust boundary. |
+| `threshold_ecdsa.rs` finalize | Good | Same pattern: prove orchestration, trust `threshold-signatures` internals. |
+| `near_threshold_frost.rs` FROST algebra | Good | Algebraic properties are well-suited to functional translation. |
+
+Key limitation: cannot cross C FFI boundaries. Our plan already treats `k256`, `curve25519-dalek`, `frost-ed25519`, and `threshold-signatures` as trusted assumptions, so this aligns.
+
+### Leanstral (Mistral AI)
+
+Leanstral is an open-source LLM (120B MoE, 6B active parameters) trained specifically for Lean 4 proof generation. Apache 2.0, self-hostable.
+
+Key facts:
+
+- **Target:** Lean 4 only.
+- **Capability:** Generates Lean 4 tactic proofs and checks them against the kernel. Achieves 26.3 pass@2 on FLTEval.
+- **Maturity:** Released March 2026. Available as downloadable weights and API endpoint.
+- **Use case:** Accelerates writing algebraic lemmas (group associativity, Lagrange interpolation linearity, low-s normalization). Every proof must still typecheck in Lean 4's kernel, so there is no trust issue.
+- **Limitation:** It is an LLM, not a solver. May fail on non-trivial crypto lemmas. Productivity multiplier, not a replacement for manual proof work.
+
+### Lean 4 vs Coq comparison
+
+| Dimension | Coq | Lean 4 |
+| --- | --- | --- |
+| **Rust translation** | Aeneas supports Coq backend, but Lean backend is most mature and best maintained. | Aeneas Lean backend is primary. Symcrust crypto verification uses Lean. |
+| **LLM proof acceleration** | No production-quality Coq-specific proof LLM available. | Leanstral is purpose-built for Lean 4 tactic proofs. |
+| **Existing crypto libraries** | Fiat-Crypto (field arithmetic, verified C/Rust output). Coqprime. Mature elliptic curve formalizations. | Lean 4 crypto library ecosystem is smaller but growing. Mathlib has group/ring/field algebra. Symcrust is building crypto primitives. |
+| **Language ergonomics** | Gallina is functional but verbose. Ltac/Ltac2 tactic languages have steep learning curve. | Lean 4 is a general-purpose functional language with tactic mode. Syntax is closer to mainstream languages. |
+| **Build tooling** | `coqc`, `coqchk`, `opam`. Mature but slow compilation on large developments. | `lake` build system, faster incremental builds, better IDE integration (VS Code). |
+| **Kernel trust** | Coq kernel is battle-tested over 30+ years. `coqchk` provides independent re-verification. | Lean 4 kernel is newer but formally specified. Type-theory foundations are well-understood. |
+| **Community size** | Larger academic community, more published formalizations. | Rapidly growing community (Mathlib is one of the largest math formalizations in any system). |
+| **CI integration** | Standard `coqc` + `coqchk` pipeline. | `lake build` + `lake env` pipeline. Lean 4 toolchain is Nix-friendly. |
+
+### Assessment
+
+Arguments for switching to Lean 4:
+
+1. **Aeneas Lean backend is primary.** The Coq backend exists but receives less attention. Choosing Lean means working with the best-maintained translation path.
+2. **Leanstral eliminates proof-writing bottleneck.** The tedious algebraic lemmas (our P0 and P1 targets) are exactly what Leanstral handles well. No equivalent exists for Coq.
+3. **Symcrust precedent.** The same organization behind Aeneas is using Lean to verify real crypto primitives in Rust. This is directly analogous to our project and means the tooling gaps are being actively filled.
+4. **Ergonomics.** Lean 4's syntax and IDE tooling reduce onboarding cost for contributors who are not proof-assistant specialists.
+5. **Timing.** Phase 0 has not started. There is no sunk cost in Coq infrastructure.
+
+Arguments for staying with Coq:
+
+1. **Fiat-Crypto.** If we ever need verified field arithmetic (not currently in scope), Fiat-Crypto is Coq-only.
+2. **Kernel maturity.** Coq's kernel has 30+ years of hardening. For a project verifying security-critical crypto, this matters.
+3. **Existing formalizations.** More published elliptic curve and group theory formalizations exist in Coq.
+
+### Decision
+
+Switch from Coq to Lean 4.
+
+Rationale:
+
+- Our verification boundary explicitly trusts third-party field arithmetic and curve implementations. We are proving our own composition, orchestration, and encoding logic — not reimplementing `k256` or `curve25519-dalek`. This means Fiat-Crypto's advantage does not apply.
+- The Aeneas + Leanstral pipeline provides an automated Rust-to-proof-obligation-to-proof workflow that does not exist for Coq. This directly addresses our biggest risk: proof maintenance burden slowing iteration.
+- Symcrust demonstrates that Lean 4 crypto verification on Rust code is viable today, with an active team filling library gaps.
+- Coq's kernel maturity advantage is real but marginal for our threat model. Lean 4's kernel is formally specified and the proofs are machine-checked regardless.
+
+### Impact on plan
+
+The switch affects Phase 1 onward:
+
+- Phase 1: workspace uses `lake` instead of `coqc`/`_CoqProject`. Directory becomes `formal-verification/lean` instead of `formal-verification/coq`.
+- Phase 2-5: proofs are written in Lean 4. Aeneas generates Lean translations of target Rust functions. Leanstral assists with tactic proofs.
+- Phase 6: CI uses `lake build` + Lean kernel check. `Admitted`/`sorry` detection replaces `Admitted`/`Axiom` detection.
+- Proof inventory references Lean theorem names instead of Coq theorem names.
+- Vector export and Rust parity test strategy is unchanged.
+
+### Tools summary
+
+| Tool | Role | When to use |
+| --- | --- | --- |
+| Aeneas | Translate Rust → Lean 4 functional specs | Phase 1 onward: generate proof obligations from `signer-core` Rust code |
+| Leanstral | LLM-assisted Lean 4 proof writing | Phase 2 onward: accelerate algebraic and encoding proofs |
+| Charon | Rust MIR → LLBC frontend (used by Aeneas) | Automatically invoked by Aeneas |
+| Symcrust | Reference project for crypto verification patterns | Ongoing: consult for Lean 4 crypto library patterns and elliptic curve formalizations |
 
 ## Risks and Mitigations
 
-- Risk: Coq model diverges from Rust byte-level semantics.
-  - Mitigation: generated vectors as hard parity oracle in Rust tests.
+- Risk: Lean model diverges from Rust byte-level semantics.
+  - Mitigation: Aeneas generates Lean specs from Rust source, reducing manual translation drift. Generated vectors serve as a hard parity oracle in Rust tests.
 - Risk: Over-modeling third-party cryptography internals stalls progress.
-  - Mitigation: keep strict assumption boundary; prove composition logic first.
+  - Mitigation: keep strict assumption boundary; prove composition logic first. Axiomatize `k256`, `curve25519-dalek`, `frost-ed25519`, and `threshold-signatures` calls.
 - Risk: Proof maintenance burden slows iteration.
-  - Mitigation: prioritize P0 theorem set and enforce proof-inventory ownership.
+  - Mitigation: Aeneas re-translation on Rust changes keeps specs in sync. Leanstral accelerates proof repair. Prioritize P0 theorem set and enforce proof-inventory ownership.
+- Risk: Aeneas cannot translate some Rust patterns (unsafe, nested loop control flow).
+  - Mitigation: our in-scope Rust modules are safe, pure computation. Validate Aeneas compatibility in Phase 1 pilot before committing.
+- Risk: Lean 4 crypto library ecosystem is less mature than Coq's.
+  - Mitigation: consult Symcrust for patterns. Axiomatize curve operations rather than re-formalizing them. Lean Mathlib provides the underlying algebra.
 
 ## Immediate Next Actions
 
-- [ ] Create `formal-verification/` skeleton and baseline Coq build in one PR.
+- [ ] Install Lean 4 toolchain, Aeneas, and Charon. Validate Aeneas can translate at least one target `signer-core` module.
+- [ ] Create `formal-verification/` skeleton with `lakefile.lean`, `lean-toolchain`, and Aeneas configuration in one PR.
+- [ ] Run Aeneas on `crates/signer-core/src/secp256k1.rs` and review the generated Lean 4 output for completeness.
 - [ ] Implement first pilot proof on:
-  - `crates/signer-core/src/secp256k1.rs::map_additive_share_to_threshold_signatures_share_2p`
+  - `map_additive_share_to_threshold_signatures_share_2p` (using Aeneas-generated Lean spec, with `k256` calls axiomatized)
 - [ ] Wire pilot proof output into `crates/signer-core/tests/baseline_behavior.rs`.
+- [ ] Evaluate Leanstral on the pilot proof lemmas to calibrate LLM-assisted proof productivity.

@@ -450,6 +450,25 @@ Rule:
 
 ## Current route inventory and target gating and metering
 
+### Current route access matrix
+
+| Route family | Representative routes | Auth plane | Gate | Metering | Current stance |
+| --- | --- | --- | --- | --- | --- |
+| Relay diagnostics and discovery | `GET /healthz`, `GET /readyz`, `GET /.well-known/webauthn`, threshold health probes | `public` | intentionally open | none | correct |
+| Public proof bootstrap routes | `POST /auth/:provider/:action`, `POST /session/exchange`, `POST /wallet/unlock/*`, `POST /sync-account/*`, `POST /threshold-ed25519/keygen`, `POST /threshold-ed25519/session`, `POST /threshold-ecdsa/bootstrap` | `public` | cryptographic proof, challenge, or attestation inside the flow | none | correct; revisit only if they become billable |
+| Public operational ingress | `GET/POST /link-device/session*`, `POST /link-device/prepare`, `POST /recover-email` | `public` | intentionally auth-free for now | none | acceptable for now; later review if they start consuming gas or privileged resources |
+| End-user session routes | `/auth/identities`, `/auth/link`, `/auth/unlink`, `/near/public-keys`, `/webauthn/authenticators`, `/session/revoke`, `/session/refresh`, `/wallet/state`, `/wallet/lock` | `user_session` | authenticated end-user app session | none | correct |
+| Threshold-session routes | `/threshold-ed25519/authorize`, `/threshold-ecdsa/authorize`, `/threshold-ecdsa/presign/*` | `threshold_session` | threshold session claims | none | correct |
+| Low-level threshold continuation routes | `/threshold-*/sign/*`, `/threshold-*/internal/cosign/*` | `public` | protocol state, client-share possession, passkey/assertion proofs, transcript binding | none | intentionally auth-free; keep proof-gated, not route-auth-gated |
+| Registration bootstrap | `POST /registration/bootstrap` | `api_credentials` | `secret_key` with `accounts.create`, or `bootstrap_token` | event | correct |
+| Publishable bootstrap grants | `POST /v1/registration/bootstrap-grants` | `api_credentials` | `publishable_key` plus origin and environment binding | none | correct |
+| API wallet reads | `GET /v1/wallets`, `GET /v1/wallets/search`, `GET /v1/wallets/:id` | `api_credentials` | `secret_key` with `wallets.read` | none | correct |
+| Relay execution spending routes | `POST /sponsorships/evm/call`, `POST <signedDelegatePath>` | `api_credentials` | `publishable_key` plus origin and environment binding | gas | correct |
+| Console public exceptions | `/console/healthz`, `/console/readyz`, `/console/billing/stripe/webhook` | `public` | explicit exception | none | correct |
+| Console context and account routes | `/console/session`, `/console/account/*`, `/console/org`, `/console/projects`, `/console/environments` | `console` | console session | none | correct |
+| Console reads with role gates | ops cockpit, audit, wallets, observability, billing reads | `console` | console session plus role requirements | none | correct |
+| Console mutations with role gates | onboarding create, project/environment mutation, members, approvals, policies, webhooks, API keys, runtime snapshots, smart-wallet config, key exports, billing writes and adjustments | `console` | console session plus role requirements | none | correct |
+
 ### Console routes
 
 All `/console/*` routes should be console-session authenticated unless they are an explicit health or provider-webhook exception.
@@ -1045,6 +1064,107 @@ These need explicit product and security decisions during implementation:
 - should billing usage event ingestion be a console route at all
 - when to add x402-style paid execution to `signedDelegatePath` without changing its publishable-key auth model
 - should any `smartAccountDeploy` trigger happen outside recovery or first-use flows, or should initial registration stay gas-free for EVM
+
+## Audit review (2026-03-18)
+
+Findings from a security review of the API surface, auth gating, and spending paths. Ordered by severity.
+
+### CRITICAL: Race condition in prepaid balance reservation
+
+**Location:** `server/src/console/billingPrepaidReservations/postgres.ts`
+
+The balance check (`reservedMinor + estimatedSpendMinor > postedBalanceMinor`) and the subsequent `INSERT INTO console_billing_prepaid_reservations` are not atomic. Concurrent requests can each pass the balance check before either reservation row is created, allowing total reservations to exceed the actual posted balance.
+
+**Exploitation:** Two concurrent sponsored calls each read the same summary state, both pass the availability check, both insert reservations. Total reserved can exceed the posted balance by up to `N * estimatedSpendMinor` where `N` is the number of concurrent requests in the race window.
+
+**Recommendation:** Use `SELECT ... FOR UPDATE` on the balance summary row, or use a serializable transaction that covers both the read and the insert.
+
+### CRITICAL: `/link-device/session/:sessionId` enumeration
+
+**Location:** `server/src/router/cloudflare/routes/linkDevice.ts`, `server/src/router/express/routes/linkDevice.ts`
+
+This unauthenticated `GET` endpoint returns session data for any valid `sessionId`. There is no rate limiting, no authentication, and no visible entropy guarantee on session IDs. If session IDs have insufficient entropy or are sequential, an attacker can enumerate active device-linking sessions.
+
+**Recommendation:** Ensure session IDs have at least 128 bits of cryptographic randomness. Add per-IP rate limiting. Consider requiring a short-lived proof or HMAC to access session state.
+
+### HIGH: No global rate limiting beyond bootstrap grants
+
+Only bootstrap grant issuance has rate and quota limits (60 per minute, 1000 total per publishable key per bucket). All other public endpoints lack per-IP or per-endpoint throttling. This includes:
+
+- gas-spending routes (`/sponsorships/evm/call`, `signedDelegatePath`)
+- threshold signing routes (CPU-intensive MPC operations)
+- wallet unlock challenge and verify
+- link-device endpoints
+
+**Exploitation:** Resource exhaustion, brute-force on challenge/verification endpoints, spam on operational ingress routes.
+
+**Recommendation:** Add per-IP and per-publishable-key rate limiting at the transport layer or a shared middleware for all public and API-credential routes.
+
+### HIGH: Pricing service failure causes silent fallback to estimated spend
+
+**Location:** `server/src/sponsorship/prepaidBalance.ts`, `server/src/sponsorship/spendCaps.ts`
+
+When `finalizeSponsoredExecutionSpend()` throws any error, the settlement code falls back to `estimatedSpendMinor`. If the pricing service is temporarily unreachable, all settlements revert to estimates, which may be systematically higher or lower than actual spend.
+
+**Exploitation:** Difficult to exploit directly (requires pricing service disruption), but a sustained pricing outage silently shifts all billing to estimates with no alert or circuit breaker.
+
+**Recommendation:** Add a circuit breaker or alert when the pricing fallback fires. Bound the fallback amount to a server-side maximum derived from policy gas limits and current gas prices. Consider failing closed (rejecting the settlement) rather than falling back silently when the pricing service is down.
+
+### HIGH: Origin header trust on `/wallet/unlock/verify`
+
+**Location:** `server/src/router/cloudflare/routes/sessions.ts`, `server/src/router/express/routes/sessions.ts`
+
+The `/wallet/unlock/verify` endpoint passes `expected_origin` from the request `Origin` header to the WebAuthn verification function. In non-browser contexts, the `Origin` header is attacker-controlled. While WebAuthn's `clientDataJSON` embeds the true origin, the server-side check must compare against the embedded origin, not the request header.
+
+**Recommendation:** Verify that the WebAuthn verification implementation compares the `origin` field inside `clientDataJSON` against the server's configured allowed origins, and does not rely on the request `Origin` header as the source of truth.
+
+### HIGH: Concurrent spend cap bypass (TOCTOU)
+
+**Location:** `server/src/sponsorship/spendCaps.ts`
+
+Spend cap reservation uses a reserve-then-execute-then-settle pattern. If the underlying `spendCaps.reserve()` does not lock the aggregate counter atomically, concurrent requests can each read the same remaining capacity and both pass. This is the same class of time-of-check-to-time-of-use bug as the prepaid balance race condition.
+
+**Recommendation:** Ensure the spend cap reservation uses an atomic compare-and-increment or row-level locking on the aggregate spend counter.
+
+### MEDIUM: Inflated `estimatedSpendMinor` blocks legitimate callers
+
+**Location:** `server/src/router/relaySponsoredEvmCall.ts`
+
+An attacker using a valid publishable key can submit sponsored calls that trigger large estimated spend reservations. Even if actual execution costs are small, the inflated reservation reduces available balance for other callers until settlement releases the excess.
+
+**Recommendation:** Bound estimated spend to a server-side maximum derived from the matched policy's gas limits and current gas prices, rather than accepting the pricing service estimate without an upper bound check.
+
+### MEDIUM: Non-atomic billing ledger and reservation settlement
+
+**Location:** `server/src/router/sponsorshipExecution.ts`
+
+The reservation settlement and billing ledger debit are logically coupled. If `recordSponsoredExecutionDebitTx()` fails after the reservation is marked `SETTLED`, the prepaid balance is reduced but no billing record exists, creating accounting inconsistencies.
+
+**Recommendation:** Wrap the reservation settlement and billing ledger insert in a single database transaction with proper rollback.
+
+### MEDIUM: Cloudflare vs Express path matching parity gap
+
+**Location:** `server/src/router/cloudflare/registerCloudflareRoute.ts` vs `server/src/router/express/registerExpressRoute.ts`
+
+Express uses parameterized path patterns (`:id`), while Cloudflare uses exact string matching via a `Set`. Routes with path parameters (e.g., `/v1/wallets/:id`) may behave differently across transports. This could create routes that are reachable in Express but silently 404 in Cloudflare.
+
+**Recommendation:** Add parity tests that confirm every parameterized route is reachable in both transports with representative path values.
+
+### LOW: Idempotency key does not include policy context
+
+Idempotency keys for signed delegates are scoped to `(apiKeyId, hash)` but do not include the policy ID or expected amount. A replay with the same hash against a different policy context could produce unexpected billing behavior.
+
+### LOW: No input size limits on threshold signing payloads
+
+Base64-encoded cryptographic inputs are passed to WASM without visible size bounds. Extremely large payloads could cause memory pressure or WASM out-of-memory conditions.
+
+### LOW: Silent route-not-found in Cloudflare router
+
+When no Cloudflare handler matches a request, the router returns 404 without logging. Misconfigured routes silently fail rather than alerting.
+
+### INFORMATIONAL: Email recovery header extraction (mitigated)
+
+`parseRecoverEmailRequest()` extracts `accountId` from user-controlled email headers (`x-near-account-id`). This is mitigated because the email DKIM signature is verified onchain before any keys are added to any wallet account. The server endpoint is a relay; the onchain verifier is the trust boundary.
 
 ## Progress tracker
 
