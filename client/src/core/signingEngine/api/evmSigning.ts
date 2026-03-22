@@ -22,6 +22,7 @@ import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
   ensureSmartAccountDeployed,
 } from '../orchestration/ensureSmartAccountDeployed';
+import { reportSmartAccountDeploymentObservation } from '../orchestration/reportSmartAccountDeploymentObservation';
 import type {
   TouchConfirmContextPort,
   TouchConfirmSigningPort,
@@ -1106,6 +1107,7 @@ async function ensureSmartAccountDeploymentReady(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
   request: TempoSigningRequest | EvmSigningRequest;
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }): Promise<void> {
   const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
   const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.tatchiPasskeyConfigs);
@@ -1119,7 +1121,37 @@ async function ensureSmartAccountDeploymentReady(args: {
       maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.tatchiPasskeyConfigs),
       ...(deploymentMode === 'enforce'
         ? {
-            deploy: (input) => deploySmartAccountForChain(args.deps.tatchiPasskeyConfigs, input),
+            deploy: (input) => {
+              const relayerUrl = String(args.thresholdEcdsaKeyRef?.relayerUrl || '').trim();
+              const thresholdSessionJwt = String(
+                args.thresholdEcdsaKeyRef?.thresholdSessionJwt || '',
+              ).trim();
+              if (!relayerUrl || !thresholdSessionJwt) {
+                return Promise.resolve({
+                  ok: false,
+                  code: 'missing_transport',
+                  message:
+                    'Missing threshold-session transport for canonical smart-account deployment',
+                });
+              }
+              return deploySmartAccountForChain(args.deps.tatchiPasskeyConfigs, input, {
+                relayerUrl,
+                thresholdSessionJwt,
+              });
+            },
+            ...(args.thresholdEcdsaKeyRef?.relayerUrl && args.thresholdEcdsaKeyRef?.thresholdSessionJwt
+              ? {
+                  reportDeployed: async (input: Parameters<
+                    NonNullable<Parameters<typeof ensureSmartAccountDeployed>[0]['reportDeployed']>
+                  >[0]) => {
+                    await reportSmartAccountDeploymentObservation({
+                      ...input,
+                      relayerUrl: args.thresholdEcdsaKeyRef!.relayerUrl,
+                      thresholdSessionJwt: args.thresholdEcdsaKeyRef!.thresholdSessionJwt!,
+                    });
+                  },
+                }
+              : {}),
             enforce: true,
           }
         : { enforce: false }),
@@ -1244,6 +1276,7 @@ export async function signEvmFamily(
                 deps,
                 nearAccountId: args.nearAccountId,
                 request: args.request,
+                ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
               });
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
               return await queueArgs.task();

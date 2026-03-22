@@ -498,7 +498,65 @@ test.describe('relay API key auth (express)', () => {
       ipAllowlist: ['127.0.0.1/32'],
     });
     const deployCalls: Array<Record<string, unknown>> = [];
-    const router = createRelayRouter(makeThresholdEcdsaRelayService(), {
+    const recoverySubjectWrites: Array<Record<string, unknown>> = [];
+    const router = createRelayRouter(
+      makeFakeAuthService({
+        createAccountAndRegisterUser: async () => ({
+          success: true,
+          transactionHash: 'tx-123',
+          thresholdEcdsa: {
+            relayerKeyId: 'rk-registration-1',
+            groupPublicKeyB64u: 'group-public-key',
+            ethereumAddress: `0x${'aa'.repeat(20)}`,
+            relayerVerifyingShareB64u: 'relayer-share',
+          },
+        }),
+        getSmartAccountRecoverySubjectByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          record: {
+            version: 'smart_account_recovery_subject_v1',
+            userId: 'alice.testnet',
+            nearAccountId: 'alice.testnet',
+            chainIdKey,
+            accountAddress,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+            metadata: {
+              chain: chainIdKey.startsWith('tempo:') ? 'tempo' : 'evm',
+              chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
+              accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
+              deployed: false,
+              counterfactualAddress: accountAddress,
+            },
+          } as any,
+        }),
+        listAccountSignersByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          records: [
+            {
+              version: 'account_signer_v1',
+              userId: 'alice.testnet',
+              chainIdKey,
+              accountAddress,
+              signerType: 'threshold',
+              signerId: `0x${'aa'.repeat(20)}`,
+              status: 'active',
+              createdAtMs: 1,
+              updatedAtMs: 1,
+              metadata: {
+                chain: chainIdKey.startsWith('tempo:') ? 'tempo' : 'evm',
+                chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
+                accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
+              },
+            },
+          ],
+        }),
+        putSmartAccountRecoverySubject: async (record) => {
+          recoverySubjectWrites.push(record as unknown as Record<string, unknown>);
+          return { ok: true, record } as any;
+        },
+      }),
+      {
       apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
       smartAccountDeploy: async (request) => {
         deployCalls.push({
@@ -507,14 +565,15 @@ test.describe('relay API key auth (express)', () => {
           chainId: request.chainId,
           accountAddress: request.accountAddress,
           accountModel: request.accountModel,
-          counterfactualAddress: request.counterfactualAddress,
+          deploymentManifest: request.deploymentManifest,
         });
         return {
           ok: true,
           deploymentTxHash: `0xdeploy-${request.chain}`,
         };
       },
-    });
+      },
+    );
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
@@ -530,22 +589,28 @@ test.describe('relay API key auth (express)', () => {
       expect(res.status).toBe(200);
       expect(res.json?.success).toBe(true);
       expect(deployCalls).toEqual([
-        {
+        expect.objectContaining({
           nearAccountId: 'alice.testnet',
           chain: 'evm',
           chainId: 11155111,
           accountAddress: `0x${'11'.repeat(20)}`,
           accountModel: 'erc4337',
-          counterfactualAddress: `0x${'11'.repeat(20)}`,
-        },
-        {
+          deploymentManifest: expect.objectContaining({
+            counterfactualAddress: `0x${'11'.repeat(20)}`,
+            ownerAddresses: [`0x${'aa'.repeat(20)}`],
+          }),
+        }),
+        expect.objectContaining({
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
           chainId: 42431,
           accountAddress: `0x${'22'.repeat(20)}`,
           accountModel: 'tempo-native',
-          counterfactualAddress: `0x${'22'.repeat(20)}`,
-        },
+          deploymentManifest: expect.objectContaining({
+            counterfactualAddress: `0x${'22'.repeat(20)}`,
+            ownerAddresses: [`0x${'aa'.repeat(20)}`],
+          }),
+        }),
       ]);
       expect(res.json?.smartAccountDeployments).toEqual([
         {
@@ -566,6 +631,13 @@ test.describe('relay API key auth (express)', () => {
           deploymentTxHash: '0xdeploy-tempo',
           counterfactualAddress: `0x${'22'.repeat(20)}`,
         },
+      ]);
+      expect(recoverySubjectWrites).toHaveLength(4);
+      expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+        `0x${'aa'.repeat(20)}`,
+      ]);
+      expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+        `0x${'aa'.repeat(20)}`,
       ]);
     } finally {
       await srv.close();
@@ -858,7 +930,65 @@ test.describe('relay API key auth (cloudflare)', () => {
       ipAllowlist: ['203.0.113.20/32'],
     });
     const deployCalls: Array<Record<string, unknown>> = [];
-    const handler = createCloudflareRouter(makeThresholdEcdsaRelayService(), {
+    const recoverySubjectWrites: Array<Record<string, unknown>> = [];
+    const handler = createCloudflareRouter(
+      makeFakeAuthService({
+        createAccountAndRegisterUser: async () => ({
+          success: true,
+          transactionHash: 'tx-123',
+          thresholdEcdsa: {
+            relayerKeyId: 'rk-registration-1',
+            groupPublicKeyB64u: 'group-public-key',
+            ethereumAddress: `0x${'aa'.repeat(20)}`,
+            relayerVerifyingShareB64u: 'relayer-share',
+          },
+        }),
+        getSmartAccountRecoverySubjectByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          record: {
+            version: 'smart_account_recovery_subject_v1',
+            userId: 'alice.testnet',
+            nearAccountId: 'alice.testnet',
+            chainIdKey,
+            accountAddress,
+            createdAtMs: 1,
+            updatedAtMs: 1,
+            metadata: {
+              chain: chainIdKey.startsWith('tempo:') ? 'tempo' : 'evm',
+              chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
+              accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
+              deployed: false,
+              counterfactualAddress: accountAddress,
+            },
+          } as any,
+        }),
+        listAccountSignersByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          records: [
+            {
+              version: 'account_signer_v1',
+              userId: 'alice.testnet',
+              chainIdKey,
+              accountAddress,
+              signerType: 'threshold',
+              signerId: `0x${'aa'.repeat(20)}`,
+              status: 'active',
+              createdAtMs: 1,
+              updatedAtMs: 1,
+              metadata: {
+                chain: chainIdKey.startsWith('tempo:') ? 'tempo' : 'evm',
+                chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
+                accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
+              },
+            },
+          ],
+        }),
+        putSmartAccountRecoverySubject: async (record) => {
+          recoverySubjectWrites.push(record as unknown as Record<string, unknown>);
+          return { ok: true, record } as any;
+        },
+      }),
+      {
       apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
       smartAccountDeploy: async (request) => {
         deployCalls.push({
@@ -867,14 +997,15 @@ test.describe('relay API key auth (cloudflare)', () => {
           chainId: request.chainId,
           accountAddress: request.accountAddress,
           accountModel: request.accountModel,
-          counterfactualAddress: request.counterfactualAddress,
+          deploymentManifest: request.deploymentManifest,
         });
         return {
           ok: true,
           deploymentTxHash: `0xdeploy-${request.chain}`,
         };
       },
-    });
+      },
+    );
     const { ctx } = makeCfCtx();
     const res = await callCf(handler, {
       method: 'POST',
@@ -890,22 +1021,28 @@ test.describe('relay API key auth (cloudflare)', () => {
     expect(res.status).toBe(200);
     expect(res.json?.success).toBe(true);
     expect(deployCalls).toEqual([
-      {
+      expect.objectContaining({
         nearAccountId: 'alice.testnet',
         chain: 'evm',
         chainId: 11155111,
         accountAddress: `0x${'11'.repeat(20)}`,
         accountModel: 'erc4337',
-        counterfactualAddress: `0x${'11'.repeat(20)}`,
-      },
-      {
+        deploymentManifest: expect.objectContaining({
+          counterfactualAddress: `0x${'11'.repeat(20)}`,
+          ownerAddresses: [`0x${'aa'.repeat(20)}`],
+        }),
+      }),
+      expect.objectContaining({
         nearAccountId: 'alice.testnet',
         chain: 'tempo',
         chainId: 42431,
         accountAddress: `0x${'22'.repeat(20)}`,
         accountModel: 'tempo-native',
-        counterfactualAddress: `0x${'22'.repeat(20)}`,
-      },
+        deploymentManifest: expect.objectContaining({
+          counterfactualAddress: `0x${'22'.repeat(20)}`,
+          ownerAddresses: [`0x${'aa'.repeat(20)}`],
+        }),
+      }),
     ]);
     expect(res.json?.smartAccountDeployments).toEqual([
       {
@@ -926,6 +1063,13 @@ test.describe('relay API key auth (cloudflare)', () => {
         deploymentTxHash: '0xdeploy-tempo',
         counterfactualAddress: `0x${'22'.repeat(20)}`,
       },
+    ]);
+    expect(recoverySubjectWrites).toHaveLength(4);
+    expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+      `0x${'aa'.repeat(20)}`,
+    ]);
+    expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+      `0x${'aa'.repeat(20)}`,
     ]);
   });
 

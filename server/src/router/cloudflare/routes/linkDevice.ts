@@ -83,5 +83,25 @@ export async function handleLinkDevice(ctx: CloudflareRelayContext): Promise<Res
     }
     result.thresholdEd25519.session.jwt = signed.jwt;
   }
+  if (result.ok && result.thresholdEcdsa?.session) {
+    const signed = await signThresholdSessionJwt({
+      session: ctx.opts.session,
+      kind: 'threshold_ecdsa_session_v1',
+      userId: result.accountId,
+      rpId: (body as Record<string, unknown>).rp_id,
+      relayerKeyId: result.thresholdEcdsa.relayerKeyId,
+      sessionInfo: result.thresholdEcdsa.session,
+      fallbackParticipantIds: result.thresholdEcdsa.participantIds,
+      requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
+      invalidPayloadErrorMessage: 'invalid thresholdEcdsa session payload for jwt signing',
+    });
+    if (!signed.ok) {
+      return json(
+        { ok: false, code: signed.code, message: signed.message },
+        { status: signed.status },
+      );
+    }
+    result.thresholdEcdsa.session.jwt = signed.jwt;
+  }
   return json(result, { status: result.ok ? 200 : result.code === 'internal' ? 500 : 400 });
 }

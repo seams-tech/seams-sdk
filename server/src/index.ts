@@ -32,6 +32,105 @@ export type {
   Ed25519AuthSessionStore,
   Ed25519AuthSessionRecord,
 } from './core/ThresholdService';
+export {
+  createAccountSignerStore,
+  type AccountSignerStore,
+  type AccountSignerRecord,
+} from './core/AccountSignerStore';
+export {
+  createSmartAccountRecoverySubjectStore,
+  type SmartAccountRecoverySubjectStore,
+  type SmartAccountRecoverySubjectRecord,
+} from './core/SmartAccountRecoverySubjectStore';
+export { buildRegistrationSmartAccountRecords } from './core/smartAccountRegistrationRecords';
+export {
+  buildLinkDeviceSmartAccountRecords,
+  type LinkedSmartAccountRecord,
+} from './core/smartAccountLinkDeviceRecords';
+export {
+  buildCanonicalSmartAccountDeploymentManifest,
+  type CanonicalSmartAccountDeploymentManifest,
+  type CanonicalSmartAccountDeploymentManifestOwner,
+} from './core/smartAccountDeploymentManifest';
+export {
+  createRecoverySessionStore,
+  type RecoverySessionStore,
+  type RecoverySessionRecord,
+  type RecoverySessionStatus,
+} from './core/RecoverySessionStore';
+export {
+  buildPreparedRecoverySessionRecord,
+  DEFAULT_RECOVERY_SESSION_TTL_MS,
+} from './core/recoverySessionRecords';
+export {
+  createRecoveryExecutionStore,
+  type RecoveryExecutionStore,
+  type RecoveryExecutionRecord,
+  type RecoveryExecutionStatus,
+} from './core/RecoveryExecutionStore';
+export {
+  buildRecoveryExecutionRecord,
+  inferNearRecoveryChainIdKey,
+} from './core/recoveryExecutionRecords';
+export {
+  createSponsoredRecoveryDeployedExecutor,
+  createSponsoredRecoverySubmittedConfirmer,
+  confirmSubmittedSmartAccountRecoveryExecutions,
+  executePendingSmartAccountRecoveryExecutions,
+  retryFailedSmartAccountRecoveryExecutions,
+  type RecoveryAuthorityDeployedExecutionResult,
+  type RecoveryAuthorityExecutionResult,
+  type RecoveryAuthorityRetryResult,
+  type RecoveryAuthorityTargetMode,
+  type RecoveryAuthorityTargetResolution,
+} from './core/recoveryAuthority';
+export {
+  RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID,
+} from './core/recoveryAuthoritySponsorship';
+export {
+  buildRecoveryAuthorityAuthorizationDigest,
+  encodeRecoveryAuthorityCalldata,
+  getRecoveryAuthorityFunctionSelector,
+  getRecoveryAuthorityFunctionSignature,
+  signRecoveryAuthorityAuthorization,
+  RECOVER_ADD_OWNER_SIGNATURE,
+  RECOVERY_AUTHORITY_DOMAIN_NAME,
+  RECOVERY_AUTHORITY_DOMAIN_VERSION,
+  VERIFY_AND_RECOVER_SIGNATURE,
+  type RecoveryAuthorityAuthorization,
+  type RecoveryAuthorityContractMethod,
+} from './core/recoveryAuthorityAuthorization';
+export {
+  NEAR_EMAIL_RECOVERY_ACTION,
+  SMART_ACCOUNT_RECOVERY_ADD_OWNER_ACTION,
+  markTrackedRecoverySessionVerified,
+  queueTrackedSmartAccountRecoveryExecutions,
+  reconcileRecoverySessionExecutionState,
+  recordTrackedNearRecoveryExecution,
+  resolveTrackedNearRecoveryExecution,
+  summarizeSmartAccountRecoveryExecutions,
+  transitionTrackedRecoverySession,
+  type RecoveryExecutionSummary,
+  type TrackedNearRecoveryExecution,
+} from './router/recoveryExecutionTracking';
+export {
+  buildRecoveryAuthoritySponsorshipRuntime,
+  parseRecoveryAuthoritySponsorshipScope,
+  type RecoveryAuthoritySponsorshipRuntime,
+} from './router/recoveryAuthoritySponsorship';
+export {
+  readCanonicalSmartAccountDeploymentManifest,
+  syncCanonicalSmartAccountDeploymentManifest,
+} from './router/smartAccountDeploymentManifest';
+export {
+  createRecoveryAuthorityIntervalRunner,
+  type RecoveryAuthorityIntervalRunner,
+} from './router/recoveryAuthorityInterval';
+export {
+  monitorRecoveryAuthorityExecutions,
+  type RecoveryAuthorityMonitoringConfig,
+  type RecoveryAuthorityMonitoringSummary,
+} from './router/recoveryAuthorityMonitoring';
 export * from './email-recovery';
 export * from './threshold/session/prfSessionSeal';
 export * from './router/ror';

@@ -43,6 +43,28 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
         result.thresholdEd25519!.session!.jwt = signed.jwt;
       }
 
+      const thresholdEcdsaSession = result.thresholdEcdsa?.session;
+      if (thresholdEcdsaSession) {
+        const signed = await signThresholdSessionJwt({
+          session: ctx.opts.session,
+          kind: 'threshold_ecdsa_session_v1',
+          userId: result.accountId,
+          rpId: (req.body || {}).rp_id,
+          relayerKeyId: result.thresholdEcdsa?.relayerKeyId,
+          sessionInfo: thresholdEcdsaSession,
+          fallbackParticipantIds: result.thresholdEcdsa?.participantIds,
+          requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
+          invalidPayloadErrorMessage: 'invalid thresholdEcdsa session payload for jwt signing',
+        });
+        if (!signed.ok) {
+          res
+            .status(signed.status)
+            .json({ ok: false, code: signed.code, message: signed.message });
+          return;
+        }
+        result.thresholdEcdsa!.session!.jwt = signed.jwt;
+      }
+
       res.status(200).json(result);
     } catch (e: any) {
       res

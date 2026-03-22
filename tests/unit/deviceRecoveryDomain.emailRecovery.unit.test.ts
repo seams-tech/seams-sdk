@@ -97,6 +97,10 @@ function createLocalDomain(options?: {
         success: true,
         clientVerifyingShareB64u: 'client-verifying-share',
       }),
+      deriveThresholdEcdsaClientVerifyingShareFromCredential: async () => ({
+        success: true,
+        clientVerifyingShareB64u: 'client-ecdsa-verifying-share',
+      }),
       hydrateSigningSession: async (input: any) => {
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),
@@ -192,6 +196,22 @@ test.describe('EmailRecoveryDomain', () => {
                 jwt: 'sync-jwt',
               },
             },
+            thresholdEcdsa: {
+              ethereumAddress: `0x${'11'.repeat(20)}`,
+            },
+            recoverySession: {
+              sessionId: 'ABC123',
+              status: 'prepared',
+              expiresAtMs: Date.now() + 60_000,
+              deadlineEpochSeconds: 1_893_456_000,
+              payloadHash: 'sha256:payload-hash',
+            },
+            recoveryEmail: {
+              subject: 'recover-v1 alice.testnet ABC123',
+              body: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
+              payloadHash: 'sha256:payload-hash',
+              deadlineEpochSeconds: 1_893_456_000,
+            },
           }),
           { status: 200 },
         );
@@ -211,10 +231,12 @@ test.describe('EmailRecoveryDomain', () => {
 
       expect(result.nearPublicKey).toBe('ed25519:recovery-key');
       expect(result.mailtoUrl).toContain('mailto:recovery@example.test');
-      expect(result.mailtoUrl).toContain(encodeURIComponent('alice.testnet'));
-      expect(result.mailtoUrl).toContain(encodeURIComponent('ed25519:recovery-key'));
+      expect(result.mailtoUrl).toContain(encodeURIComponent('recover-v1 alice.testnet ABC123'));
+      expect(result.mailtoUrl).toContain(encodeURIComponent('tatchi-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:recovery-key');
+      expect(pendingStore.setCalls[0]?.newEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
+      expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
       expect(pendingStore.setCalls[0]?.deviceNumber).toBe(7);
       expect(events.map((ev) => ev.phase)).toEqual([
         EmailRecoveryPhase.STEP_1_PREPARATION,
@@ -235,6 +257,12 @@ test.describe('EmailRecoveryDomain', () => {
     const pendingStore = createPendingStoreMock({
       accountId: 'alice.testnet',
       nearPublicKey: 'ed25519:recovery-key',
+      newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+      recoverySessionId: 'ABC123',
+      deadlineEpochSeconds: 1_893_456_000,
+      recoveryEmailPayloadHash: 'sha256:payload-hash',
+      recoveryEmailSubject: 'recover-v1 alice.testnet ABC123',
+      recoveryEmailBody: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
       requestId: 'ABC123',
       credential: {},
       createdAt: Date.now(),

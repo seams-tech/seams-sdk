@@ -5,6 +5,8 @@ import type {
   ConsoleObservabilityBillingSponsorshipBlockedInput,
   ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityEventEnvelope,
+  ConsoleObservabilityRecoveryExecutionFailedInput,
+  ConsoleObservabilityRecoveryExecutionStuckInput,
   ConsoleObservabilityWebhookEndpointDegradedInput,
   ConsoleObservabilityWebhookDeadLetterInput,
   ConsoleObservabilityWebhookRetryExhaustedInput,
@@ -33,8 +35,52 @@ function makeEventId(prefix: string, now: Date): string {
   return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function hashEventIdPart(input: string, seed: number): string {
+  let hash = seed >>> 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function makeDeterministicEventId(input: { eventIdPrefix: string; parts: unknown[] }): string {
+  const canonical = input.parts.map((part) => normalizeString(part).toLowerCase()).join('|');
+  const forward = hashEventIdPart(canonical, 0x811c9dc5);
+  const reverse = hashEventIdPart(Array.from(canonical).reverse().join(''), 0x9e3779b9);
+  return `${input.eventIdPrefix}_${forward}${reverse}`;
+}
+
+function normalizeWindowStartIso(raw: unknown, fallback: Date, windowMs: number): string {
+  const timestamp = normalizeIso(raw, fallback);
+  const parsed = Date.parse(timestamp);
+  if (!Number.isFinite(parsed)) return fallback.toISOString();
+  return new Date(parsed - (parsed % Math.max(1, Math.floor(windowMs)))).toISOString();
+}
+
+function normalizeUniqueStrings(raw: unknown): string[] {
+  return Array.isArray(raw)
+    ? Array.from(new Set(raw.map((entry) => normalizeString(entry)).filter(Boolean))).sort()
+    : [];
+}
+
+function buildRecoveryAlertScope(input: {
+  orgId: string;
+  environmentId?: string;
+  projectId?: string;
+}): string {
+  return [
+    normalizeString(input.orgId) || 'unknown-org',
+    normalizeString(input.environmentId) || 'unknown-environment',
+    normalizeString(input.projectId) || 'default-project',
+  ].join(':');
+}
+
+const RECOVERY_MONITORING_ALERT_WINDOW_MS = 6 * 60 * 60_000;
+
 function baseEnvelope(input: {
   eventIdPrefix: string;
+  eventId?: string;
   orgId: string;
   projectId?: string;
   environmentId?: string;
@@ -53,7 +99,7 @@ function baseEnvelope(input: {
 }): ConsoleObservabilityEventEnvelope {
   const now = new Date();
   const ingestedAtMs = now.getTime();
-  const eventId = makeEventId(input.eventIdPrefix, now);
+  const eventId = normalizeString(input.eventId) || makeEventId(input.eventIdPrefix, now);
   const timestamp = normalizeIso(input.timestamp, now);
   return {
     eventId,
@@ -420,6 +466,123 @@ export function buildBillingSponsorshipBlockedObservabilityEvent(
       ...(Number.isFinite(Number(input.requestedMinor))
         ? { requestedMinor: Number(input.requestedMinor) }
         : {}),
+    },
+  });
+}
+
+export function buildRecoveryExecutionFailedObservabilityEvent(
+  input: ConsoleObservabilityRecoveryExecutionFailedInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.recoveryExecutionFailed;
+  const normalizedFailureCodes = normalizeUniqueStrings(input.failureCodes);
+  const alertScope = buildRecoveryAlertScope({
+    orgId: input.orgId,
+    environmentId: input.environmentId,
+    projectId: input.projectId,
+  });
+  const alertWindowStart = normalizeWindowStartIso(
+    input.timestamp,
+    new Date(),
+    RECOVERY_MONITORING_ALERT_WINDOW_MS,
+  );
+  const alertRoutingKey = [
+    'recovery-execution',
+    'failed',
+    alertScope,
+    normalizedFailureCodes.join(',') || 'unknown-failure',
+  ].join(':');
+  return baseEnvelope({
+    eventIdPrefix: 'obs_recovery_execution_failed',
+    eventId: makeDeterministicEventId({
+      eventIdPrefix: 'obs_recovery_execution_failed',
+      parts: [alertRoutingKey, alertWindowStart],
+    }),
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.timestamp,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: `Detected ${Math.max(
+      1,
+      Math.floor(normalizeNumber(input.count, 1)),
+    )} failed recovery executions during recovery-authority monitoring`,
+    metadata: {
+      alertScope,
+      alertWindowStart,
+      alertRoutingKey,
+      count: Math.max(1, Math.floor(normalizeNumber(input.count, 1))),
+      sampleExecutionRefs: Array.isArray(input.sampleExecutionRefs)
+        ? input.sampleExecutionRefs.map((entry) => normalizeString(entry)).filter(Boolean)
+        : [],
+      ...(normalizedFailureCodes.length ? { failureCodes: normalizedFailureCodes } : {}),
+    },
+  });
+}
+
+export function buildRecoveryExecutionStuckObservabilityEvent(
+  input: ConsoleObservabilityRecoveryExecutionStuckInput,
+): ConsoleObservabilityEventEnvelope {
+  const policy = CONSOLE_OBSERVABILITY_EVENT_POLICIES.recoveryExecutionStuck;
+  const normalizedStatus = normalizeString(input.status) || 'pending';
+  const alertScope = buildRecoveryAlertScope({
+    orgId: input.orgId,
+    environmentId: input.environmentId,
+    projectId: input.projectId,
+  });
+  const alertWindowStart = normalizeWindowStartIso(
+    input.timestamp,
+    new Date(),
+    RECOVERY_MONITORING_ALERT_WINDOW_MS,
+  );
+  const staleAfterMs = Math.max(1, Math.floor(normalizeNumber(input.staleAfterMs, 1)));
+  const alertRoutingKey = [
+    'recovery-execution',
+    'stuck',
+    normalizedStatus,
+    String(staleAfterMs),
+    alertScope,
+  ].join(':');
+  return baseEnvelope({
+    eventIdPrefix: 'obs_recovery_execution_stuck',
+    eventId: makeDeterministicEventId({
+      eventIdPrefix: 'obs_recovery_execution_stuck',
+      parts: [alertRoutingKey, alertWindowStart],
+    }),
+    orgId: input.orgId,
+    projectId: input.projectId,
+    environmentId: input.environmentId,
+    requestId: input.requestId,
+    traceId: input.traceId,
+    timestamp: input.timestamp,
+    schemaVersion: input.schemaVersion,
+    redactionVersion: input.redactionVersion,
+    source: policy.source,
+    service: policy.service,
+    component: policy.component,
+    level: policy.level,
+    eventType: policy.eventType,
+    message: `Detected ${Math.max(
+      1,
+      Math.floor(normalizeNumber(input.count, 1)),
+    )} stale ${normalizedStatus} recovery executions during recovery-authority monitoring`,
+    metadata: {
+      alertScope,
+      alertWindowStart,
+      alertRoutingKey,
+      status: normalizedStatus,
+      count: Math.max(1, Math.floor(normalizeNumber(input.count, 1))),
+      staleAfterMs,
+      sampleExecutionRefs: Array.isArray(input.sampleExecutionRefs)
+        ? input.sampleExecutionRefs.map((entry) => normalizeString(entry)).filter(Boolean)
+        : [],
     },
   });
 }

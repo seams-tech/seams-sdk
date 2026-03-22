@@ -20,6 +20,8 @@ import type { HeaderRecord, RouteResponse } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
+import { readCanonicalSmartAccountDeploymentManifest } from './smartAccountDeploymentManifest';
+import { syncSmartAccountRecoverySubjectDeployments } from './smartAccountRecoverySubjectDeploymentSync';
 import { executeSmartAccountDeploy } from './smartAccountDeploy';
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -127,6 +129,7 @@ function normalizeRegistrationSmartAccountTargets(
 async function deployRegistrationSmartAccounts(input: {
   logger: NormalizedRouterLogger;
   nearAccountId: string;
+  authService: AuthService;
   services: RelayRegistrationBootstrapServices;
   targets: CreateAccountAndRegisterSmartAccountTarget[];
   response: CreateAccountAndRegisterResult;
@@ -166,6 +169,25 @@ async function deployRegistrationSmartAccounts(input: {
       continue;
     }
 
+    const manifest = await readCanonicalSmartAccountDeploymentManifest({
+      authService: input.authService,
+      chainIdKey: `${target.chain}:${target.chain_id}`,
+      accountAddress,
+    });
+    if (!manifest.ok) {
+      deployments.push({
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountModel,
+        accountAddress,
+        deployed: false,
+        code: manifest.code,
+        message: manifest.message,
+        ...(counterfactualAddress ? { counterfactualAddress } : {}),
+      });
+      continue;
+    }
+
     const result = await executeSmartAccountDeploy(
       { smartAccountDeploy: input.services.smartAccountDeploy },
       {
@@ -174,12 +196,7 @@ async function deployRegistrationSmartAccounts(input: {
         chainId: target.chain_id,
         accountAddress,
         accountModel,
-        ...(counterfactualAddress ? { counterfactualAddress } : {}),
-        ...(normalizeOptionalString(target.factory) ? { factory: normalizeOptionalString(target.factory) } : {}),
-        ...(normalizeOptionalString(target.entry_point)
-          ? { entryPoint: normalizeOptionalString(target.entry_point) }
-          : {}),
-        ...(normalizeOptionalString(target.salt) ? { salt: normalizeOptionalString(target.salt) } : {}),
+        deploymentManifest: manifest.manifest,
       },
     );
 
@@ -344,6 +361,14 @@ export async function handleRelayRegistrationBootstrap(
       message: parsed.detail,
     });
   }
+  const routePrincipal = resolved.context.principal;
+  if (routePrincipal.kind !== 'api_credentials') {
+    return routeJson(500, {
+      ok: false,
+      code: 'internal',
+      message: 'Registration bootstrap requires an API credential principal',
+    });
+  }
 
   const result = await input.services.authService.createAccountAndRegisterUser({
     new_account_id,
@@ -377,9 +402,18 @@ export async function handleRelayRegistrationBootstrap(
       response.smartAccountDeployments = await deployRegistrationSmartAccounts({
         logger: input.logger,
         nearAccountId: new_account_id,
+        authService: input.services.authService,
         services: input.services,
         targets: smartAccountTargetsResult.targets,
         response,
+      });
+      await syncSmartAccountRecoverySubjectDeployments({
+        authService: input.services.authService,
+        deployments: response.smartAccountDeployments,
+        sponsorshipScope: {
+          orgId: routePrincipal.principal.orgId,
+          environmentId: routePrincipal.principal.environmentId,
+        },
       });
     }
     return routeJson(200, response, { usage: { walletId: new_account_id } });
@@ -425,9 +459,18 @@ export async function handleRelayRegistrationBootstrap(
     response.smartAccountDeployments = await deployRegistrationSmartAccounts({
       logger: input.logger,
       nearAccountId: new_account_id,
+      authService: input.services.authService,
       services: input.services,
       targets: smartAccountTargetsResult.targets,
       response,
+    });
+    await syncSmartAccountRecoverySubjectDeployments({
+      authService: input.services.authService,
+      deployments: response.smartAccountDeployments,
+      sponsorshipScope: {
+        orgId: routePrincipal.principal.orgId,
+        environmentId: routePrincipal.principal.environmentId,
+      },
     });
   }
 

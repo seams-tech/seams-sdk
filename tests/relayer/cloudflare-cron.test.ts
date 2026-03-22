@@ -382,11 +382,73 @@ test.describe('cloudflare cron webhook retry dispatch', () => {
   });
 });
 
+test.describe('cloudflare cron recovery authority continuation', () => {
+  test('runs recovery authority continuation when enabled and cron matches', async () => {
+    let runnerInput: any = null;
+    const cron = createCloudflareCron({ authService: true } as any, {
+      enabled: true,
+      recoveryAuthorityContinuation: {
+        enabled: true,
+        cronExpressions: ['*/5 * * * *'],
+        limit: 25,
+        sponsorship: {
+          logger: console as any,
+          billing: {} as any,
+          ledger: {} as any,
+          runtimeSnapshots: {} as any,
+          config: {
+            executorsByChain: new Map(),
+          },
+          spendCaps: null,
+          pricing: null,
+          prepaidReservations: null,
+          observabilityIngestion: null,
+          webhooks: null,
+        } as any,
+        runner: async (input) => {
+          runnerInput = input;
+          return {
+            retry: {
+              processed: 1,
+              retried: 1,
+              skipped: 0,
+              failed: 0,
+            },
+            pending: {
+              processed: 2,
+              confirmed: 1,
+              submitted: 1,
+              skipped: 0,
+              failed: 0,
+            },
+            submitted: {
+              processed: 1,
+              confirmed: 1,
+              submitted: 0,
+              skipped: 0,
+              failed: 0,
+            },
+          };
+        },
+      },
+    });
+
+    await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
+
+    expect(runnerInput?.service).toEqual({ authService: true });
+    expect(runnerInput?.limit).toBe(25);
+    expect(runnerInput?.sponsorship?.config).toEqual({
+      executorsByChain: new Map(),
+    });
+  });
+});
+
 test.describe('cloudflare cron per-job expression filters', () => {
   test('runs only jobs whose cron allowlist matches the current tick', async () => {
     let billingCalled = false;
     let runtimeCalled = false;
     let webhookCalled = false;
+    let recoveryCalled = false;
     const lockProvider = async () => ({
       acquired: true,
       release: async () => {},
@@ -450,6 +512,35 @@ test.describe('cloudflare cron per-job expression filters', () => {
         },
         lockProvider,
       },
+      recoveryAuthorityContinuation: {
+        enabled: true,
+        cronExpressions: ['*/10 * * * *'],
+        runner: async () => {
+          recoveryCalled = true;
+          return {
+            retry: {
+              processed: 0,
+              retried: 0,
+              skipped: 0,
+              failed: 0,
+            },
+            pending: {
+              processed: 0,
+              confirmed: 0,
+              submitted: 0,
+              skipped: 0,
+              failed: 0,
+            },
+            submitted: {
+              processed: 0,
+              confirmed: 0,
+              submitted: 0,
+              skipped: 0,
+              failed: 0,
+            },
+          };
+        },
+      },
     });
 
     await cron({ scheduledTime: Date.now(), cron: '*/5 * * * *' }, undefined, undefined);
@@ -457,6 +548,7 @@ test.describe('cloudflare cron per-job expression filters', () => {
     expect(billingCalled).toBe(false);
     expect(runtimeCalled).toBe(true);
     expect(webhookCalled).toBe(true);
+    expect(recoveryCalled).toBe(false);
   });
 
   test('skips cron-allowlisted jobs when event cron is absent', async () => {

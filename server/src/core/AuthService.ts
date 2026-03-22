@@ -12,6 +12,13 @@ import { parseContractExecutionError } from './errors';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  buildRecoveryEmailBody,
+  buildRecoveryEmailPayload,
+  buildRecoveryEmailSubject,
+  hashRecoveryEmailPayload,
+  type RecoveryEmailPayload,
+} from '@shared/utils/recoveryEmail';
+import {
   coerceThresholdEd25519ShareMode,
   coerceThresholdNodeRole,
 } from './ThresholdService/config';
@@ -38,6 +45,7 @@ import type {
   AccountCreationResult,
   CreateAccountAndRegisterRequest,
   CreateAccountAndRegisterResult,
+  CreateAccountAndRegisterSmartAccountTarget,
   OidcExchangeIssuerConfig,
   WebAuthnAuthenticationCredential,
   SignerWasmModuleSupplier,
@@ -74,6 +82,8 @@ import {
 } from './WebAuthnSyncChallengeStore';
 import {
   createDeviceLinkingSessionStore,
+  type DeviceLinkingPreparedLinkedAccountRecord,
+  type DeviceLinkingPreparedThresholdEcdsaRecord,
   type DeviceLinkingSessionRecord,
   type DeviceLinkingSessionStore,
 } from './DeviceLinkingSessionStore';
@@ -83,6 +93,27 @@ import {
   type NearPublicKeyRecord,
   type NearPublicKeyStore,
 } from './NearPublicKeyStore';
+import {
+  createAccountSignerStore,
+  type AccountSignerRecord,
+  type AccountSignerStore,
+} from './AccountSignerStore';
+import {
+  createSmartAccountRecoverySubjectStore,
+  type SmartAccountRecoverySubjectRecord,
+  type SmartAccountRecoverySubjectStore,
+} from './SmartAccountRecoverySubjectStore';
+import {
+  createRecoverySessionStore,
+  type RecoverySessionStatus,
+  type RecoverySessionStore,
+} from './RecoverySessionStore';
+import {
+  createRecoveryExecutionStore,
+  type RecoveryExecutionRecord,
+  type RecoveryExecutionStatus,
+  type RecoveryExecutionStore,
+} from './RecoveryExecutionStore';
 import { ensurePostgresSchema, getPostgresUrlFromConfig } from '../storage/postgres';
 import {
   createIdentityStore,
@@ -90,6 +121,17 @@ import {
   type LinkIdentityResult,
   type UnlinkIdentityResult,
 } from './IdentityStore';
+import { buildRegistrationSmartAccountRecords } from './smartAccountRegistrationRecords';
+import {
+  buildLinkDeviceSmartAccountRecords,
+  type LinkedSmartAccountRecord,
+} from './smartAccountLinkDeviceRecords';
+import {
+  buildPreparedRecoverySessionRecord,
+  DEFAULT_RECOVERY_SESSION_TTL_MS,
+} from './recoverySessionRecords';
+import { buildRecoveryExecutionRecord } from './recoveryExecutionRecords';
+import { syncCanonicalSmartAccountDeploymentManifest } from '../router/smartAccountDeploymentManifest';
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
@@ -187,6 +229,12 @@ type ThresholdEd25519BootstrapInput = {
   sessionKind: string;
 };
 
+type ThresholdEcdsaBootstrapInput = {
+  clientVerifyingShareB64u: string;
+  sessionPolicy: Record<string, unknown> | null;
+  sessionKind: string;
+};
+
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
@@ -198,6 +246,19 @@ type ThresholdEd25519BootstrapSession = {
 };
 
 function parseThresholdEd25519BootstrapInput(raw: unknown): ThresholdEd25519BootstrapInput {
+  const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
+  return {
+    clientVerifyingShareB64u: String(body?.client_verifying_share_b64u || '').trim(),
+    sessionPolicy: isObject(body?.session_policy)
+      ? (body!.session_policy as Record<string, unknown>)
+      : null,
+    sessionKind: String(body?.session_kind || '')
+      .trim()
+      .toLowerCase(),
+  };
+}
+
+function parseThresholdEcdsaBootstrapInput(raw: unknown): ThresholdEcdsaBootstrapInput {
   const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
   return {
     clientVerifyingShareB64u: String(body?.client_verifying_share_b64u || '').trim(),
@@ -355,6 +416,14 @@ export class AuthService {
   private deviceLinkingSessionStore: DeviceLinkingSessionStore | null = null;
   private nearPublicKeyStoreInitialized = false;
   private nearPublicKeyStore: NearPublicKeyStore | null = null;
+  private accountSignerStoreInitialized = false;
+  private accountSignerStore: AccountSignerStore | null = null;
+  private smartAccountRecoverySubjectStoreInitialized = false;
+  private smartAccountRecoverySubjectStore: SmartAccountRecoverySubjectStore | null = null;
+  private recoverySessionStoreInitialized = false;
+  private recoverySessionStore: RecoverySessionStore | null = null;
+  private recoveryExecutionStoreInitialized = false;
+  private recoveryExecutionStore: RecoveryExecutionStore | null = null;
   private identityStoreInitialized = false;
   private identityStore: IdentityStore | null = null;
   private storageInitPromise: Promise<void> | null = null;
@@ -774,6 +843,533 @@ export class AuthService {
       isNode: this.isNodeEnvironment(),
     });
     return this.nearPublicKeyStore;
+  }
+
+  private getAccountSignerStore(): AccountSignerStore {
+    if (this.accountSignerStoreInitialized && this.accountSignerStore) {
+      return this.accountSignerStore;
+    }
+    if (this.accountSignerStoreInitialized) {
+      this.accountSignerStore = createAccountSignerStore({
+        config: this.config.thresholdEd25519KeyStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+      return this.accountSignerStore;
+    }
+    this.accountSignerStoreInitialized = true;
+    this.accountSignerStore = createAccountSignerStore({
+      config: this.config.thresholdEd25519KeyStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
+    return this.accountSignerStore;
+  }
+
+  private getSmartAccountRecoverySubjectStore(): SmartAccountRecoverySubjectStore {
+    if (
+      this.smartAccountRecoverySubjectStoreInitialized &&
+      this.smartAccountRecoverySubjectStore
+    ) {
+      return this.smartAccountRecoverySubjectStore;
+    }
+    if (this.smartAccountRecoverySubjectStoreInitialized) {
+      this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
+        config: this.config.thresholdEd25519KeyStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+      return this.smartAccountRecoverySubjectStore;
+    }
+    this.smartAccountRecoverySubjectStoreInitialized = true;
+    this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
+      config: this.config.thresholdEd25519KeyStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
+    return this.smartAccountRecoverySubjectStore;
+  }
+
+  private getRecoverySessionStore(): RecoverySessionStore {
+    if (this.recoverySessionStoreInitialized && this.recoverySessionStore) {
+      return this.recoverySessionStore;
+    }
+    if (this.recoverySessionStoreInitialized) {
+      this.recoverySessionStore = createRecoverySessionStore({
+        config: this.config.thresholdEd25519KeyStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+      return this.recoverySessionStore;
+    }
+    this.recoverySessionStoreInitialized = true;
+    this.recoverySessionStore = createRecoverySessionStore({
+      config: this.config.thresholdEd25519KeyStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
+    return this.recoverySessionStore;
+  }
+
+  private getRecoveryExecutionStore(): RecoveryExecutionStore {
+    if (this.recoveryExecutionStoreInitialized && this.recoveryExecutionStore) {
+      return this.recoveryExecutionStore;
+    }
+    if (this.recoveryExecutionStoreInitialized) {
+      this.recoveryExecutionStore = createRecoveryExecutionStore({
+        config: this.config.thresholdEd25519KeyStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+      return this.recoveryExecutionStore;
+    }
+    this.recoveryExecutionStoreInitialized = true;
+    this.recoveryExecutionStore = createRecoveryExecutionStore({
+      config: this.config.thresholdEd25519KeyStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
+    return this.recoveryExecutionStore;
+  }
+
+  async listAccountSignersByUser(input: {
+    userId: string;
+  }): Promise<
+    | { ok: true; records: Awaited<ReturnType<AccountSignerStore['listByUserId']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const userId = toOptionalTrimmedString(input.userId);
+      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+      const store = this.getAccountSignerStore();
+      const records = await store.listByUserId(userId);
+      return { ok: true, records };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list account signers',
+      };
+    }
+  }
+
+  async listAccountSignersByAccount(input: {
+    chainIdKey: string;
+    accountAddress: string;
+  }): Promise<
+    | { ok: true; records: Awaited<ReturnType<AccountSignerStore['listByAccount']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
+      const accountAddress = toOptionalTrimmedString(input.accountAddress);
+      if (!chainIdKey || !accountAddress) {
+        return { ok: false, code: 'invalid_args', message: 'Missing account signer account key' };
+      }
+      const store = this.getAccountSignerStore();
+      const records = await store.listByAccount({ chainIdKey, accountAddress });
+      return { ok: true, records };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list account signers by account',
+      };
+    }
+  }
+
+  async putAccountSigner(input: AccountSignerRecord): Promise<
+    | { ok: true; record: AccountSignerRecord }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const store = this.getAccountSignerStore();
+      await store.put(input);
+      return { ok: true, record: input };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to write account signer',
+      };
+    }
+  }
+
+  async listSmartAccountRecoverySubjects(input: {
+    nearAccountId: string;
+  }): Promise<
+    | {
+        ok: true;
+        records: Awaited<ReturnType<SmartAccountRecoverySubjectStore['listByNearAccountId']>>;
+      }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
+      if (!nearAccountId) {
+        return { ok: false, code: 'invalid_args', message: 'Missing nearAccountId' };
+      }
+      const store = this.getSmartAccountRecoverySubjectStore();
+      const records = await store.listByNearAccountId(nearAccountId);
+      return { ok: true, records };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list smart-account recovery subjects',
+      };
+    }
+  }
+
+  async getSmartAccountRecoverySubjectByAccount(input: {
+    chainIdKey: string;
+    accountAddress: string;
+  }): Promise<
+    | { ok: true; record: Awaited<ReturnType<SmartAccountRecoverySubjectStore['getByAccount']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
+      const accountAddress = toOptionalTrimmedString(input.accountAddress);
+      if (!chainIdKey || !accountAddress) {
+        return { ok: false, code: 'invalid_args', message: 'Missing smart-account recovery subject key' };
+      }
+      const store = this.getSmartAccountRecoverySubjectStore();
+      const record = await store.getByAccount({ chainIdKey, accountAddress });
+      return { ok: true, record };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to read smart-account recovery subject',
+      };
+    }
+  }
+
+  async putSmartAccountRecoverySubject(input: SmartAccountRecoverySubjectRecord): Promise<
+    | { ok: true; record: SmartAccountRecoverySubjectRecord }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const store = this.getSmartAccountRecoverySubjectStore();
+      await store.put(input);
+      return { ok: true, record: input };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to write smart-account recovery subject',
+      };
+    }
+  }
+
+  async getRecoverySession(input: {
+    sessionId: string;
+  }): Promise<
+    | { ok: true; record: Awaited<ReturnType<RecoverySessionStore['get']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+      const store = this.getRecoverySessionStore();
+      const record = await store.get(sessionId);
+      return { ok: true, record };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to read recovery session',
+      };
+    }
+  }
+
+  async updateRecoverySessionStatus(input: {
+    sessionId: string;
+    status: RecoverySessionStatus;
+    metadataPatch?: Record<string, unknown> | null;
+  }): Promise<
+    | { ok: true; record: NonNullable<Awaited<ReturnType<RecoverySessionStore['get']>>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      const status = toOptionalTrimmedString(input.status) as RecoverySessionStatus | null;
+      if (
+        !sessionId ||
+        !status ||
+        (status !== 'prepared' &&
+          status !== 'verified' &&
+          status !== 'near_recovered' &&
+          status !== 'evm_recovering' &&
+          status !== 'completed' &&
+          status !== 'failed' &&
+          status !== 'cancelled')
+      ) {
+        return { ok: false, code: 'invalid_args', message: 'Invalid recovery session update' };
+      }
+
+      const store = this.getRecoverySessionStore();
+      const existing = await store.get(sessionId);
+      if (!existing) {
+        return { ok: false, code: 'invalid_args', message: `Unknown recovery session: ${sessionId}` };
+      }
+
+      const record = {
+        ...existing,
+        status,
+        updatedAtMs: Date.now(),
+        ...(input.metadataPatch
+          ? {
+              metadata: {
+                ...(existing.metadata || {}),
+                ...input.metadataPatch,
+              },
+            }
+          : existing.metadata
+            ? { metadata: { ...existing.metadata } }
+            : {}),
+      };
+      await store.put(record);
+      return { ok: true, record };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to update recovery session',
+      };
+    }
+  }
+
+  async getRecoveryExecution(input: {
+    sessionId: string;
+    chainIdKey: string;
+    accountAddress: string;
+    action: string;
+  }): Promise<
+    | { ok: true; record: Awaited<ReturnType<RecoveryExecutionStore['get']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
+      const accountAddress = toOptionalTrimmedString(input.accountAddress);
+      const action = toOptionalTrimmedString(input.action);
+      if (!sessionId || !chainIdKey || !accountAddress || !action) {
+        return { ok: false, code: 'invalid_args', message: 'Missing recovery execution key' };
+      }
+      const store = this.getRecoveryExecutionStore();
+      const record = await store.get({
+        sessionId,
+        chainIdKey,
+        accountAddress,
+        action,
+      });
+      return { ok: true, record };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to read recovery execution',
+      };
+    }
+  }
+
+  async listRecoveryExecutions(input: {
+    sessionId: string;
+  }): Promise<
+    | { ok: true; records: Awaited<ReturnType<RecoveryExecutionStore['listBySessionId']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+      const store = this.getRecoveryExecutionStore();
+      const records = await store.listBySessionId(sessionId);
+      return { ok: true, records };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list recovery executions',
+      };
+    }
+  }
+
+  async listRecoveryExecutionsByStatus(input: {
+    status: RecoveryExecutionStatus;
+    action?: string;
+    updatedBeforeMs?: number;
+    limit?: number;
+  }): Promise<
+    | { ok: true; records: Awaited<ReturnType<RecoveryExecutionStore['listByStatus']>> }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const status = input.status;
+      const action = toOptionalTrimmedString(input.action);
+      const updatedBeforeMsRaw = Number(input.updatedBeforeMs);
+      const updatedBeforeMs =
+        Number.isFinite(updatedBeforeMsRaw) && updatedBeforeMsRaw > 0
+          ? Math.floor(updatedBeforeMsRaw)
+          : undefined;
+      if (
+        typeof input.updatedBeforeMs !== 'undefined' &&
+        typeof updatedBeforeMs === 'undefined'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'updatedBeforeMs must be a positive integer',
+        };
+      }
+      const limitRaw = Number(input.limit);
+      const limit =
+        Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : undefined;
+      if (typeof input.limit !== 'undefined' && typeof limit === 'undefined') {
+        return { ok: false, code: 'invalid_args', message: 'limit must be a positive integer' };
+      }
+      const store = this.getRecoveryExecutionStore();
+      const records = await store.listByStatus({
+        status,
+        ...(action ? { action } : {}),
+        ...(typeof updatedBeforeMs === 'number' ? { updatedBeforeMs } : {}),
+        ...(typeof limit === 'number' ? { limit } : {}),
+      });
+      return { ok: true, records };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to list recovery executions by status',
+      };
+    }
+  }
+
+  async recordRecoveryExecution(input: {
+    sessionId: string;
+    chainIdKey: string;
+    accountAddress: string;
+    action: string;
+    status: RecoveryExecutionStatus;
+    transactionHash?: string;
+    errorCode?: string;
+    errorMessage?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<
+    | { ok: true; record: RecoveryExecutionRecord }
+    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
+  > {
+    try {
+      const sessionId = toOptionalTrimmedString(input.sessionId);
+      const chainIdKey = toOptionalTrimmedString(input.chainIdKey);
+      const accountAddress = toOptionalTrimmedString(input.accountAddress);
+      const action = toOptionalTrimmedString(input.action);
+      if (!sessionId || !chainIdKey || !accountAddress || !action) {
+        return { ok: false, code: 'invalid_args', message: 'Missing recovery execution fields' };
+      }
+
+      const recoverySession = await this.getRecoverySessionStore().get(sessionId);
+      if (!recoverySession) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: `Unknown recovery session: ${sessionId}`,
+        };
+      }
+
+      const store = this.getRecoveryExecutionStore();
+      const existing = await store.get({
+        sessionId,
+        chainIdKey,
+        accountAddress,
+        action,
+      });
+      const nowMs = Date.now();
+      const record = buildRecoveryExecutionRecord({
+        sessionId,
+        userId: recoverySession.userId,
+        nearAccountId: recoverySession.nearAccountId,
+        chainIdKey,
+        accountAddress,
+        action,
+        status: input.status,
+        createdAtMs: existing?.createdAtMs ?? nowMs,
+        nowMs,
+        transactionHash: input.transactionHash,
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        metadata: input.metadata,
+      });
+      if (!record) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Invalid recovery execution payload',
+        };
+      }
+
+      await store.put(record);
+      return { ok: true, record };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to persist recovery execution',
+      };
+    }
+  }
+
+  private async persistRegistrationSmartAccountRecords(input: {
+    userId: string;
+    nearAccountId: string;
+    deviceNumber: number;
+    credentialIdB64u: string;
+    rpId: string;
+    thresholdEcdsaKeygen: {
+      relayerKeyId: string;
+      groupPublicKeyB64u: string;
+      ethereumAddress: string;
+      participantIds?: number[];
+    };
+    smartAccountTargets?: CreateAccountAndRegisterSmartAccountTarget[];
+    nowMs: number;
+  }): Promise<void> {
+    const records = buildRegistrationSmartAccountRecords({
+      userId: input.userId,
+      nearAccountId: input.nearAccountId,
+      deviceNumber: input.deviceNumber,
+      credentialIdB64u: input.credentialIdB64u,
+      rpId: input.rpId,
+      relayerKeyId: input.thresholdEcdsaKeygen.relayerKeyId,
+      groupPublicKeyB64u: input.thresholdEcdsaKeygen.groupPublicKeyB64u,
+      thresholdOwnerAddress: input.thresholdEcdsaKeygen.ethereumAddress,
+      participantIds: input.thresholdEcdsaKeygen.participantIds,
+      smartAccountTargets: input.smartAccountTargets,
+      nowMs: input.nowMs,
+    });
+
+    if (records.accountSigners.length === 0 && records.recoverySubjects.length === 0) {
+      return;
+    }
+
+    const signerStore = this.getAccountSignerStore();
+    const recoverySubjectStore = this.getSmartAccountRecoverySubjectStore();
+
+    for (const record of records.accountSigners) {
+      await signerStore.put(record);
+    }
+    for (const record of records.recoverySubjects) {
+      await recoverySubjectStore.put(record);
+    }
+    for (const record of records.recoverySubjects) {
+      await syncCanonicalSmartAccountDeploymentManifest({
+        authService: this,
+        chainIdKey: record.chainIdKey,
+        accountAddress: record.accountAddress,
+        materializedAtMs: input.nowMs,
+      });
+    }
   }
 
   async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {
@@ -1450,6 +2046,19 @@ export class AuthService {
             await pkStore.put(creationRecord);
           }
         } catch {}
+
+        if (thresholdEcdsaKeygen) {
+          await this.persistRegistrationSmartAccountRecords({
+            userId: accountId,
+            nearAccountId: accountId,
+            deviceNumber,
+            credentialIdB64u,
+            rpId,
+            thresholdEcdsaKeygen,
+            smartAccountTargets: (request as any)?.threshold_ecdsa?.smart_account_targets,
+            nowMs: now,
+          });
+        }
 
         this.logger.info(`Registration completed: ${result.transaction.hash}`);
         return {
@@ -3108,6 +3717,12 @@ export class AuthService {
         ...(existing?.accountId ? { accountId: existing.accountId } : {}),
         ...(existing?.deviceNumber ? { deviceNumber: existing.deviceNumber } : {}),
         ...(existing?.addKeyTxHash ? { addKeyTxHash: existing.addKeyTxHash } : {}),
+        ...(existing?.preparedThresholdEcdsa
+          ? { preparedThresholdEcdsa: existing.preparedThresholdEcdsa }
+          : {}),
+        ...(existing?.preparedLinkedAccounts
+          ? { preparedLinkedAccounts: existing.preparedLinkedAccounts }
+          : {}),
       };
 
       await store.put(session);
@@ -3226,6 +3841,12 @@ export class AuthService {
         accountId,
         deviceNumber,
         ...(addKeyTxHash ? { addKeyTxHash } : {}),
+        ...(existing?.preparedThresholdEcdsa
+          ? { preparedThresholdEcdsa: existing.preparedThresholdEcdsa }
+          : {}),
+        ...(existing?.preparedLinkedAccounts
+          ? { preparedLinkedAccounts: existing.preparedLinkedAccounts }
+          : {}),
       };
 
       await store.put(session);
@@ -3268,11 +3889,14 @@ export class AuthService {
   async prepareLinkDevice(request: {
     account_id?: unknown;
     accountId?: unknown;
+    session_id?: unknown;
+    sessionId?: unknown;
     device_number?: unknown;
     deviceNumber?: unknown;
     local_public_key?: unknown;
     localPublicKey?: unknown;
     threshold_ed25519?: unknown;
+    threshold_ecdsa?: unknown;
     rp_id?: unknown;
     webauthn_registration?: unknown;
     expected_origin?: string;
@@ -3299,6 +3923,23 @@ export class AuthService {
             jwt?: string;
           };
         };
+        thresholdEcdsa?: {
+          relayerKeyId: string;
+          groupPublicKeyB64u: string;
+          ethereumAddress: string;
+          relayerVerifyingShareB64u: string;
+          participantIds?: number[];
+          session?: {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          };
+        };
+        linkedAccounts?: LinkedSmartAccountRecord[];
       }
     | { ok: false; code: string; message: string }
   > {
@@ -3309,6 +3950,7 @@ export class AuthService {
       if (!accountId || !isValidAccountId(accountId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid accountId' };
       }
+      const sessionId = String(request?.session_id ?? request?.sessionId ?? '').trim() || undefined;
 
       const rpId = String(request?.rp_id || '').trim();
       if (!rpId) return { ok: false, code: 'invalid_body', message: 'Missing rp_id' };
@@ -3364,6 +4006,44 @@ export class AuthService {
           ok: false,
           code: 'invalid_body',
           message: 'threshold_ed25519.session_policy is required when session_kind is provided',
+        };
+      }
+
+      const thresholdEcdsaBootstrap = parseThresholdEcdsaBootstrapInput(
+        (request as any)?.threshold_ecdsa,
+      );
+      const thresholdEcdsaClientVerifyingShareB64u =
+        thresholdEcdsaBootstrap.clientVerifyingShareB64u;
+      const thresholdEcdsaRequested =
+        (request as any)?.threshold_ecdsa != null || Boolean(thresholdEcdsaClientVerifyingShareB64u);
+      if (thresholdEcdsaRequested && !thresholdEcdsaClientVerifyingShareB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing threshold_ecdsa.client_verifying_share_b64u',
+        };
+      }
+      const thresholdEcdsaSessionPolicy = thresholdEcdsaBootstrap.sessionPolicy;
+      if ((request as any)?.threshold_ecdsa?.session_policy != null && !thresholdEcdsaSessionPolicy) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_policy must be an object',
+        };
+      }
+      const thresholdEcdsaSessionKind = thresholdEcdsaBootstrap.sessionKind;
+      if (thresholdEcdsaSessionKind && thresholdEcdsaSessionKind !== 'jwt') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_kind must be jwt',
+        };
+      }
+      if (!thresholdEcdsaSessionPolicy && thresholdEcdsaSessionKind) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_policy is required when session_kind is provided',
         };
       }
 
@@ -3429,6 +4109,26 @@ export class AuthService {
           message: 'Threshold signing is not configured on this server',
         };
       }
+      let thresholdEcdsaKeygen:
+        | {
+            relayerKeyId: string;
+            groupPublicKeyB64u: string;
+            ethereumAddress: string;
+            relayerVerifyingShareB64u: string;
+            participantIds?: number[];
+          }
+        | undefined;
+      let thresholdEcdsaSession:
+        | {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          }
+        | undefined;
       const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
       if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
         return {
@@ -3498,6 +4198,80 @@ export class AuthService {
           };
         }
         thresholdEd25519Session = normalizedSession;
+      }
+
+      if (thresholdEcdsaClientVerifyingShareB64u) {
+        const out = await threshold.ecdsaRegistrationKeygenFromClientVerifyingShare({
+          userId: accountId,
+          rpId,
+          clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+        });
+        if (!out.ok) {
+          return {
+            ok: false,
+            code: out.code || 'internal',
+            message: out.message || 'threshold-ecdsa link-device bootstrap failed',
+          };
+        }
+        const relayerKeyId = String(out.relayerKeyId || '').trim();
+        const groupPublicKeyB64u = String(out.groupPublicKeyB64u || '').trim();
+        const ethereumAddress = String(out.ethereumAddress || '').trim();
+        const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
+        if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ecdsa link-device bootstrap returned incomplete key material',
+          };
+        }
+        thresholdEcdsaKeygen = {
+          relayerKeyId,
+          groupPublicKeyB64u,
+          ethereumAddress,
+          relayerVerifyingShareB64u,
+          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
+        };
+
+        if (thresholdEcdsaSessionPolicy) {
+          const requestedSessionPolicy = thresholdEcdsaSessionPolicy as Record<string, unknown>;
+          const requestedRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
+          if (requestedRelayerKeyId && requestedRelayerKeyId !== thresholdEcdsaKeygen.relayerKeyId) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'threshold_ecdsa.session_policy.relayerKeyId mismatch',
+            };
+          }
+          const session = await threshold.mintEcdsaSessionFromRegistration({
+            userId: accountId,
+            rpId,
+            relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+            clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+            sessionPolicy: {
+              ...requestedSessionPolicy,
+              userId: accountId,
+              rpId,
+              relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+            } as any,
+          });
+          if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+            return {
+              ok: false,
+              code: session.code || 'internal',
+              message: session.message || 'threshold-ecdsa link-device bootstrap failed',
+            };
+          }
+          thresholdEcdsaSession = {
+            sessionKind: 'jwt',
+            sessionId: session.sessionId,
+            expiresAtMs: Number(session.expiresAtMs),
+            ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Number.isFinite(Number(session.remainingUses))
+              ? { remainingUses: Number(session.remainingUses) }
+              : {}),
+          };
+        }
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
@@ -3574,6 +4348,89 @@ export class AuthService {
         }
       } catch {}
 
+      let linkedAccounts: LinkedSmartAccountRecord[] | undefined;
+      if (thresholdEcdsaKeygen) {
+        const recoverySubjects = await this
+          .getSmartAccountRecoverySubjectStore()
+          .listByNearAccountId(accountId);
+        const built = buildLinkDeviceSmartAccountRecords({
+          userId: accountId,
+          deviceNumber,
+          credentialIdB64u,
+          rpId,
+          relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+          groupPublicKeyB64u: thresholdEcdsaKeygen.groupPublicKeyB64u,
+          thresholdOwnerAddress: thresholdEcdsaKeygen.ethereumAddress,
+          participantIds: thresholdEcdsaKeygen.participantIds,
+          recoverySubjects,
+          nowMs: now,
+        });
+        const signerStore = this.getAccountSignerStore();
+        for (const record of built.accountSigners) {
+          await signerStore.put(record);
+        }
+        for (const account of built.linkedAccounts) {
+          await syncCanonicalSmartAccountDeploymentManifest({
+            authService: this,
+            chainIdKey: account.chainIdKey,
+            accountAddress: account.accountAddress,
+            materializedAtMs: now,
+          });
+        }
+        linkedAccounts = built.linkedAccounts;
+      }
+
+      if (sessionId) {
+        const sessionStore = this.getDeviceLinkingSessionStore();
+        const existingSession = await sessionStore.get(sessionId);
+        if (!existingSession) {
+          return {
+            ok: false,
+            code: 'not_found',
+            message: 'Unknown or expired link-device session',
+          };
+        }
+        if (existingSession.accountId && existingSession.accountId !== accountId) {
+          return {
+            ok: false,
+            code: 'conflict',
+            message: 'Link-device session accountId mismatch',
+          };
+        }
+
+        const preparedThresholdEcdsa: DeviceLinkingPreparedThresholdEcdsaRecord | undefined =
+          thresholdEcdsaKeygen
+            ? {
+                relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+                groupPublicKeyB64u: thresholdEcdsaKeygen.groupPublicKeyB64u,
+                ethereumAddress: thresholdEcdsaKeygen.ethereumAddress,
+                ...(Array.isArray(thresholdEcdsaKeygen.participantIds)
+                  ? { participantIds: thresholdEcdsaKeygen.participantIds }
+                  : {}),
+              }
+            : undefined;
+        const preparedLinkedAccounts: DeviceLinkingPreparedLinkedAccountRecord[] | undefined =
+          linkedAccounts?.map((account) => ({
+            chainIdKey: account.chainIdKey,
+            chain: account.chain,
+            chainId: account.chainId,
+            accountAddress: account.accountAddress,
+            accountModel: account.accountModel,
+            ...(account.factory ? { factory: account.factory } : {}),
+            ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
+            ...(account.salt ? { salt: account.salt } : {}),
+            ...(account.counterfactualAddress
+              ? { counterfactualAddress: account.counterfactualAddress }
+              : {}),
+          })) || undefined;
+
+        await sessionStore.put({
+          ...existingSession,
+          ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
+          ...(preparedLinkedAccounts ? { preparedLinkedAccounts } : {}),
+        });
+      }
+
       return {
         ok: true,
         accountId,
@@ -3588,6 +4445,15 @@ export class AuthService {
           participantIds: keygen.participantIds,
           ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
         },
+        ...(thresholdEcdsaKeygen
+          ? {
+              thresholdEcdsa: {
+                ...thresholdEcdsaKeygen,
+                ...(thresholdEcdsaSession ? { session: thresholdEcdsaSession } : {}),
+              },
+            }
+          : {}),
+        ...(linkedAccounts ? { linkedAccounts } : {}),
       };
     } catch (e: unknown) {
       return {
@@ -3606,6 +4472,7 @@ export class AuthService {
     device_number?: unknown;
     deviceNumber?: unknown;
     threshold_ed25519?: unknown;
+    threshold_ecdsa?: unknown;
     rp_id?: unknown;
     webauthn_registration?: unknown;
     expected_origin?: string;
@@ -3632,6 +4499,36 @@ export class AuthService {
             remainingUses?: number;
             jwt?: string;
           };
+        };
+        thresholdEcdsa?: {
+          relayerKeyId: string;
+          groupPublicKeyB64u: string;
+          ethereumAddress: string;
+          relayerVerifyingShareB64u: string;
+          participantIds?: number[];
+          session?: {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          };
+        };
+        recoverySession: {
+          sessionId: string;
+          status: 'prepared';
+          expiresAtMs: number;
+          deadlineEpochSeconds: number;
+          payloadHash: string;
+        };
+        recoveryEmail: {
+          subject: string;
+          body: string;
+          payload: RecoveryEmailPayload;
+          payloadHash: string;
+          deadlineEpochSeconds: number;
         };
       }
     | { ok: false; code: string; message: string }
@@ -3693,6 +4590,45 @@ export class AuthService {
           ok: false,
           code: 'invalid_body',
           message: 'threshold_ed25519.session_policy is required when session_kind is provided',
+        };
+      }
+
+      const thresholdEcdsaBootstrap = parseThresholdEcdsaBootstrapInput(
+        (request as any)?.threshold_ecdsa,
+      );
+      const thresholdEcdsaClientVerifyingShareB64u =
+        thresholdEcdsaBootstrap.clientVerifyingShareB64u;
+      const thresholdEcdsaRequested =
+        (request as any)?.threshold_ecdsa != null || Boolean(thresholdEcdsaClientVerifyingShareB64u);
+      if (!thresholdEcdsaRequested || !thresholdEcdsaClientVerifyingShareB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message:
+            'Email recovery requires threshold_ecdsa.client_verifying_share_b64u to bind the recovered EVM owner',
+        };
+      }
+      const thresholdEcdsaSessionPolicy = thresholdEcdsaBootstrap.sessionPolicy;
+      if ((request as any)?.threshold_ecdsa?.session_policy != null && !thresholdEcdsaSessionPolicy) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_policy must be an object',
+        };
+      }
+      const thresholdEcdsaSessionKind = thresholdEcdsaBootstrap.sessionKind;
+      if (thresholdEcdsaSessionKind && thresholdEcdsaSessionKind !== 'jwt') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_kind must be jwt',
+        };
+      }
+      if (!thresholdEcdsaSessionPolicy && thresholdEcdsaSessionKind) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold_ecdsa.session_policy is required when session_kind is provided',
         };
       }
 
@@ -3758,6 +4694,26 @@ export class AuthService {
           message: 'Threshold signing is not configured on this server',
         };
       }
+      let thresholdEcdsaKeygen:
+        | {
+            relayerKeyId: string;
+            groupPublicKeyB64u: string;
+            ethereumAddress: string;
+            relayerVerifyingShareB64u: string;
+            participantIds?: number[];
+          }
+        | undefined;
+      let thresholdEcdsaSession:
+        | {
+            sessionKind: 'jwt' | 'cookie';
+            sessionId: string;
+            expiresAtMs: number;
+            expiresAt?: string;
+            participantIds?: number[];
+            remainingUses?: number;
+            jwt?: string;
+          }
+        | undefined;
       const schemeAny = threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
       if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
         return {
@@ -3829,6 +4785,80 @@ export class AuthService {
         thresholdEd25519Session = normalizedSession;
       }
 
+      if (thresholdEcdsaClientVerifyingShareB64u) {
+        const out = await threshold.ecdsaRegistrationKeygenFromClientVerifyingShare({
+          userId: accountId,
+          rpId,
+          clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+        });
+        if (!out.ok) {
+          return {
+            ok: false,
+            code: out.code || 'internal',
+            message: out.message || 'threshold-ecdsa email-recovery bootstrap failed',
+          };
+        }
+        const relayerKeyId = String(out.relayerKeyId || '').trim();
+        const groupPublicKeyB64u = String(out.groupPublicKeyB64u || '').trim();
+        const ethereumAddress = String(out.ethereumAddress || '').trim();
+        const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
+        if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ecdsa email-recovery bootstrap returned incomplete key material',
+          };
+        }
+        thresholdEcdsaKeygen = {
+          relayerKeyId,
+          groupPublicKeyB64u,
+          ethereumAddress,
+          relayerVerifyingShareB64u,
+          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
+        };
+
+        if (thresholdEcdsaSessionPolicy) {
+          const requestedSessionPolicy = thresholdEcdsaSessionPolicy as Record<string, unknown>;
+          const requestedRelayerKeyId = String(requestedSessionPolicy.relayerKeyId || '').trim();
+          if (requestedRelayerKeyId && requestedRelayerKeyId !== thresholdEcdsaKeygen.relayerKeyId) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'threshold_ecdsa.session_policy.relayerKeyId mismatch',
+            };
+          }
+          const session = await threshold.mintEcdsaSessionFromRegistration({
+            userId: accountId,
+            rpId,
+            relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+            clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+            sessionPolicy: {
+              ...requestedSessionPolicy,
+              userId: accountId,
+              rpId,
+              relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+            } as any,
+          });
+          if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
+            return {
+              ok: false,
+              code: session.code || 'internal',
+              message: session.message || 'threshold-ecdsa email-recovery bootstrap failed',
+            };
+          }
+          thresholdEcdsaSession = {
+            sessionKind: 'jwt',
+            sessionId: session.sessionId,
+            expiresAtMs: Number(session.expiresAtMs),
+            ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
+            ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+            ...(Number.isFinite(Number(session.remainingUses))
+              ? { remainingUses: Number(session.remainingUses) }
+              : {}),
+          };
+        }
+      }
+
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
       const credentialPublicKey = registration?.registrationInfo?.credential?.publicKey as
         | Uint8Array
@@ -3844,6 +4874,8 @@ export class AuthService {
       }
 
       const now = Date.now();
+      const recoverySessionExpiresAtMs = now + DEFAULT_RECOVERY_SESSION_TTL_MS;
+      const recoveryDeadlineEpochSeconds = Math.floor(recoverySessionExpiresAtMs / 1000);
 
       const authStore = this.getWebAuthnAuthenticatorStore();
       await authStore.put(accountId, {
@@ -3872,6 +4904,68 @@ export class AuthService {
         updatedAtMs: now,
       });
 
+      if (!thresholdEcdsaKeygen?.ethereumAddress) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Threshold ECDSA recovery bootstrap did not return an Ethereum owner address',
+        };
+      }
+
+      const recoveryEmailPayload = buildRecoveryEmailPayload({
+        nearAccountId: accountId,
+        recoverySessionId: requestId,
+        newNearPublicKey: keygen.publicKey,
+        newEvmOwnerAddress: thresholdEcdsaKeygen.ethereumAddress,
+        deadlineEpochSeconds: recoveryDeadlineEpochSeconds,
+        scope: 'all-linked-evm-accounts',
+      });
+      const recoveryEmailPayloadHash = await hashRecoveryEmailPayload(recoveryEmailPayload);
+      const recoveryEmailSubject = buildRecoveryEmailSubject(recoveryEmailPayload);
+      const recoveryEmailBody = buildRecoveryEmailBody(recoveryEmailPayload);
+
+      const recoverySessionRecord = buildPreparedRecoverySessionRecord({
+        sessionId: requestId,
+        userId: accountId,
+        nearAccountId: accountId,
+        deviceNumber,
+        newNearPublicKey: keygen.publicKey,
+        newEvmOwnerAddress: thresholdEcdsaKeygen.ethereumAddress,
+        recoveryDeadlineEpochSeconds,
+        recoveryEmailPayloadHash,
+        scope: 'all-linked-evm-accounts',
+        expiresAtMs: recoverySessionExpiresAtMs,
+        metadata: {
+          rpId,
+          credentialIdB64u,
+          recoveryEmail: {
+            subject: recoveryEmailSubject,
+            body: recoveryEmailBody,
+          },
+          thresholdEd25519: {
+            relayerKeyId: keygen.relayerKeyId,
+            ...(thresholdEd25519Session ? { sessionId: thresholdEd25519Session.sessionId } : {}),
+          },
+          ...(thresholdEcdsaKeygen
+            ? {
+                thresholdEcdsa: {
+                  relayerKeyId: thresholdEcdsaKeygen.relayerKeyId,
+                  ethereumAddress: thresholdEcdsaKeygen.ethereumAddress,
+                  ...(thresholdEcdsaSession ? { sessionId: thresholdEcdsaSession.sessionId } : {}),
+                },
+              }
+            : {}),
+        },
+      });
+      if (!recoverySessionRecord) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Failed to build recovery session record',
+        };
+      }
+      await this.getRecoverySessionStore().put(recoverySessionRecord);
+
       return {
         ok: true,
         accountId,
@@ -3886,6 +4980,28 @@ export class AuthService {
           relayerParticipantId: keygen.relayerParticipantId,
           participantIds: keygen.participantIds,
           ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
+        },
+        ...(thresholdEcdsaKeygen
+          ? {
+              thresholdEcdsa: {
+                ...thresholdEcdsaKeygen,
+                ...(thresholdEcdsaSession ? { session: thresholdEcdsaSession } : {}),
+              },
+            }
+          : {}),
+        recoverySession: {
+          sessionId: recoverySessionRecord.sessionId,
+          status: 'prepared',
+          expiresAtMs: recoverySessionRecord.expiresAtMs,
+          deadlineEpochSeconds: recoverySessionRecord.recoveryDeadlineEpochSeconds,
+          payloadHash: recoverySessionRecord.recoveryEmailPayloadHash,
+        },
+        recoveryEmail: {
+          subject: recoveryEmailSubject,
+          body: recoveryEmailBody,
+          payload: recoveryEmailPayload,
+          payloadHash: recoveryEmailPayloadHash,
+          deadlineEpochSeconds: recoveryDeadlineEpochSeconds,
         },
       };
     } catch (e: unknown) {

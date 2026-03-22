@@ -12,14 +12,14 @@ test.describe('email recovery subject parsing with request_id', () => {
     await injectImportMap(page);
   });
 
-  test('parseAccountIdFromSubject extracts accountId from recover-<request_id> subject', async ({
+  test('parseAccountIdFromSubject extracts accountId from recover-v1 subject', async ({
     page,
   }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         try {
           const { parseAccountIdFromSubject } = await import(paths.emailParsers);
-          const subject = 'Subject: recover-ABC123 bob.testnet ed25519:edpkDummyKey\n';
+          const subject = 'Subject: recover-v1 bob.testnet ABC123\n';
           const accountId = parseAccountIdFromSubject(subject);
           return { success: true, accountId };
         } catch (err: any) {
@@ -37,14 +37,14 @@ test.describe('email recovery subject parsing with request_id', () => {
     expect(res.accountId).toBe('bob.testnet');
   });
 
-  test('parseAccountIdFromSubject returns null for subjects without request_id', async ({
+  test('parseAccountIdFromSubject returns null for subjects without a canonical session id', async ({
     page,
   }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         try {
           const { parseAccountIdFromSubject } = await import(paths.emailParsers);
-          const subject = 'Subject: recover bob.testnet ed25519:edpkDummyKey\n';
+          const subject = 'Subject: recover bob.testnet\n';
           const accountId = parseAccountIdFromSubject(subject);
           return { success: true, accountId };
         } catch (err: any) {
@@ -65,23 +65,36 @@ test.describe('email recovery subject parsing with request_id', () => {
     expect(res.accountId).toBeNull();
   });
 
-  test('parseRecoverSubjectBindings parses bindings from recover-<request_id> subject', async ({
+  test('parseVerifiedRecoveryEmailArtifact parses the canonical recovery payload from the raw email', async ({
     page,
   }) => {
     const res = await page.evaluate(
       async ({ paths }) => {
         try {
-          const { parseRecoverSubjectBindings } = await import(paths.emailParsers);
+          const { parseVerifiedRecoveryEmailArtifact } = await import(paths.emailParsers);
+          const payload = {
+            deadlineEpochSeconds: 1893456000,
+            nearAccountId: 'bob.testnet',
+            newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+            newNearPublicKey: 'ed25519:edpkDummyKey',
+            recoverySessionId: 'ABC123',
+            version: 'recovery_email_payload_v1',
+          };
+          const token = btoa(JSON.stringify(payload))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '');
 
           const rawEmail = [
-            'Subject: recover-ABC123 bob.testnet ed25519:edpkDummyKey',
+            'Subject: recover-v1 bob.testnet ABC123',
             'From: alice@example.com',
             'Date: Tue, 01 Jan 2024 00:00:00 GMT',
             '',
-            'Body...',
+            'tee-encrypted',
+            `tatchi-recovery-v1:${token}`,
           ].join('\n');
 
-          const bindings = parseRecoverSubjectBindings(rawEmail);
+          const bindings = parseVerifiedRecoveryEmailArtifact(rawEmail);
           return { success: true, bindings };
         } catch (err: any) {
           return { success: false, error: err?.message || String(err) };
@@ -96,8 +109,8 @@ test.describe('email recovery subject parsing with request_id', () => {
     }
 
     expect(res.bindings).toBeTruthy();
-    expect(res.bindings.requestId).toBe('ABC123');
     expect(res.bindings.accountId).toBe('bob.testnet');
-    expect(res.bindings.newPublicKey).toBe('ed25519:edpkDummyKey');
+    expect(res.bindings.recoveryPayload.recoverySessionId).toBe('ABC123');
+    expect(res.bindings.recoveryPayload.newNearPublicKey).toBe('ed25519:edpkDummyKey');
   });
 });

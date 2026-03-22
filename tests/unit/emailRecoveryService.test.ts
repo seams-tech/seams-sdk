@@ -13,6 +13,14 @@ const GMAIL_RESET_EMAIL_BLOB = readFileSync(
   path.join(REPO_ROOT, 'tests/unit/emails/gmail_reset_full.eml'),
   'utf8',
 );
+const RECOVERY_PAYLOAD = {
+  version: 'recovery_email_payload_v1' as const,
+  nearAccountId: 'kerp30.w3a-v1.testnet',
+  recoverySessionId: '123abc',
+  newNearPublicKey: 'ed25519:86mqiBdv45gM4c5uLmvT3TU4g7DAg6KLpuabBSFweigm',
+  newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+  deadlineEpochSeconds: 1_893_456_000,
+};
 
 test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
   test.beforeEach(async ({ page }) => {
@@ -22,7 +30,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
 
   test('returns a friendly error when the target account does not exist', async ({ page }) => {
     const res = await page.evaluate(
-      async ({ paths, emailBlob }) => {
+      async ({ paths, emailBlob, recoveryPayload }) => {
         try {
           const { EmailRecoveryService } = await import(paths.server);
 
@@ -71,6 +79,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           const result = await service.verifyEncryptedEmailAndRecover({
             accountId: 'kerp30.w3a-v1.testnet',
             emailBlob,
+            recoveryPayload: recoveryPayload,
           });
 
           return { success: true, result };
@@ -81,7 +90,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           };
         }
       },
-      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB },
+      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB, recoveryPayload: RECOVERY_PAYLOAD },
     );
 
     if (!res.success) {
@@ -98,7 +107,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
 
   test('successfully builds and sends encrypted email verification tx', async ({ page }) => {
     const res = await page.evaluate(
-      async ({ paths, emailBlob }) => {
+      async ({ paths, emailBlob, recoveryPayload }) => {
         try {
           const { EmailRecoveryService } = await import(paths.server);
 
@@ -157,6 +166,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           const result = await service.verifyEncryptedEmailAndRecover({
             accountId: 'kerp30.w3a-v1.testnet',
             emailBlob,
+            recoveryPayload,
           });
 
           return {
@@ -172,7 +182,7 @@ test.describe('EmailRecoveryService.verifyEncryptedEmailAndRecover', () => {
           };
         }
       },
-      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB },
+      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB, recoveryPayload: RECOVERY_PAYLOAD },
     );
 
     if (!res.success) {
@@ -233,7 +243,7 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
     await page.goto('/');
     await injectImportMap(page);
     const res = await page.evaluate(
-      async ({ paths, emailBlob }) => {
+      async ({ paths, emailBlob, recoveryPayload }) => {
         try {
           const { EmailRecoveryService } = await import(paths.server);
 
@@ -288,6 +298,7 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
           const result = await service.requestEmailRecovery({
             accountId: 'kerp30.w3a-v1.testnet',
             emailBlob,
+            recoveryPayload,
           });
 
           return {
@@ -303,7 +314,7 @@ test.describe('EmailRecoveryService.requestEmailRecovery', () => {
           };
         }
       },
-      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB },
+      { paths: IMPORT_PATHS, emailBlob: GMAIL_RESET_EMAIL_BLOB, recoveryPayload: RECOVERY_PAYLOAD },
     );
 
     if (!res.success) {

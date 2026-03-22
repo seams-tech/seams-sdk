@@ -145,6 +145,165 @@ test.describe('smart-account deployment gate helper', () => {
     expect(result.accountDeploymentTxHash).toBe('0xdeploytxhash');
   });
 
+  test('successful deploy reports canonical deployment observation when reporter is configured', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { PasskeyClientDBManager } = await import(paths.clientDB);
+        const { ensureSmartAccountDeployed } = await import(paths.deployment);
+        const now = Date.now();
+        const dbm = new PasskeyClientDBManager();
+        dbm.setDbName(
+          `PasskeyClientDB-smartacct-report-${now}-${Math.random().toString(16).slice(2)}`,
+        );
+
+        await dbm.upsertProfile({
+          profileId: 'profile-smartacct-report',
+          defaultDeviceNumber: 1,
+          passkeyCredential: { id: 'cred-report', rawId: 'raw-report' },
+        });
+        await dbm.upsertChainAccount({
+          profileId: 'profile-smartacct-report',
+          chainIdKey: 'near:testnet',
+          accountAddress: 'alice.testnet',
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await dbm.upsertChainAccount({
+          profileId: 'profile-smartacct-report',
+          chainIdKey: 'evm:11155111',
+          accountAddress: '0xabc333',
+          accountModel: 'erc4337',
+          isPrimary: true,
+          deployed: false,
+        });
+
+        let reported: Record<string, unknown> | null = null;
+        const gate = await ensureSmartAccountDeployed({
+          clientDB: dbm,
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          chainIdCandidates: [11155111],
+          accountModelCandidates: ['erc4337'],
+          enforce: true,
+          deploy: async () => ({
+            ok: true,
+            deploymentTxHash: '0xreporttxhash',
+          }),
+          reportDeployed: async (input: Record<string, unknown>) => {
+            reported = input;
+          },
+        });
+
+        return {
+          status: gate.status,
+          deploymentTxHash: gate.deploymentTxHash || null,
+          reported,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.status).toBe('deployed');
+    expect(result.deploymentTxHash).toBe('0xreporttxhash');
+    expect(result.reported).toBeTruthy();
+    expect(result.reported?.['chain']).toBe('evm');
+    expect(result.reported?.['chainId']).toBe(11155111);
+    expect(result.reported?.['deploymentTxHash']).toBe('0xreporttxhash');
+  });
+
+  test('deployment promotes pending undeployed signers into active canonical state', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { PasskeyClientDBManager } = await import(paths.clientDB);
+        const { ensureSmartAccountDeployed } = await import(paths.deployment);
+        const now = Date.now();
+        const dbm = new PasskeyClientDBManager();
+        dbm.setDbName(
+          `PasskeyClientDB-smartacct-promote-${now}-${Math.random().toString(16).slice(2)}`,
+        );
+
+        await dbm.upsertProfile({
+          profileId: 'profile-smartacct-promote',
+          defaultDeviceNumber: 1,
+          passkeyCredential: { id: 'cred-promote', rawId: 'raw-promote' },
+        });
+        await dbm.upsertChainAccount({
+          profileId: 'profile-smartacct-promote',
+          chainIdKey: 'near:testnet',
+          accountAddress: 'alice.testnet',
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await dbm.upsertChainAccount({
+          profileId: 'profile-smartacct-promote',
+          chainIdKey: 'evm:11155111',
+          accountAddress: `0x${'44'.repeat(20)}`,
+          accountModel: 'erc4337',
+          isPrimary: true,
+          deployed: false,
+        });
+        await dbm.upsertAccountSigner({
+          profileId: 'profile-smartacct-promote',
+          chainIdKey: 'evm:11155111',
+          accountAddress: `0x${'44'.repeat(20)}`,
+          signerId: `0x${'dd'.repeat(20)}`,
+          signerSlot: 2,
+          signerType: 'threshold',
+          status: 'pending',
+        });
+
+        const before = await dbm.listSignerOperations({
+          statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],
+          dueBefore: Number.MAX_SAFE_INTEGER,
+        });
+
+        const gate = await ensureSmartAccountDeployed({
+          clientDB: dbm,
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          chainIdCandidates: [11155111],
+          accountModelCandidates: ['erc4337'],
+          enforce: true,
+          deploy: async () => ({
+            ok: true,
+            deploymentTxHash: `0x${'ef'.repeat(32)}`,
+          }),
+        });
+
+        const signer = await dbm.getAccountSigner({
+          chainIdKey: 'evm:11155111',
+          accountAddress: `0x${'44'.repeat(20)}`,
+          signerId: `0x${'dd'.repeat(20)}`,
+        });
+        const after = await dbm.listSignerOperations({
+          statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],
+          dueBefore: Number.MAX_SAFE_INTEGER,
+        });
+
+        return {
+          status: gate.status,
+          before,
+          signer,
+          after,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.status).toBe('deployed');
+    expect(result.before).toHaveLength(1);
+    expect(result.before[0]?.status).toBe('queued');
+    expect(result.signer?.status).toBe('active');
+    expect(result.after).toHaveLength(1);
+    expect(result.after[0]?.status).toBe('confirmed');
+    expect(result.after[0]?.txHash).toBe(`0x${'ef'.repeat(32)}`);
+    expect(result.after[0]?.lastError ?? null).toBeNull();
+  });
+
   test('already deployed account skips deploy callback and returns already_deployed', async ({
     page,
   }) => {

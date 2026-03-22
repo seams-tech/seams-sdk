@@ -13,6 +13,9 @@ import { DEVICE_LINKING_CONFIG } from '../../config.js';
 import { executeDeviceLinkingContractCalls } from '../rpcClients/near/rpcCalls';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
+import { IndexedDBManager } from '../indexedDB';
+import { persistPreparedLinkDeviceSmartAccountSigners } from './near/linkDevicePreparedEcdsa';
+import { createLocalDeployedSignerMutationRuntime } from './near/linkDeviceOwnerManagement';
 
 /**
  * Device1 (original device): Link device using pre-scanned QR data
@@ -100,6 +103,34 @@ export async function linkDeviceWithScannedQRData(
           const message =
             typeof response.message === 'string' ? response.message : `HTTP ${resp.status}`;
           console.warn('[link-device] relay claim failed:', message);
+        } else {
+          const session = response.session && typeof response.session === 'object'
+            ? (response.session as Record<string, unknown>)
+            : {};
+          const deviceNumber = Math.floor(Number(session.deviceNumber));
+          if (Number.isFinite(deviceNumber) && deviceNumber > 0) {
+            try {
+              await persistPreparedLinkDeviceSmartAccountSigners({
+                context,
+                indexedDB: IndexedDBManager,
+                accountId: String(device1AccountId),
+                sessionId,
+                deviceNumber,
+              });
+              await IndexedDBManager.repairSignerMutationSagasWithRuntime({
+                limit: 64,
+                runtime: createLocalDeployedSignerMutationRuntime({
+                  context,
+                  confirmationConfig: options?.confirmationConfig,
+                }),
+              });
+            } catch (preparedError) {
+              console.warn(
+                '[link-device] prepared EVM signer sync skipped:',
+                errorMessage(preparedError),
+              );
+            }
+          }
         }
       } catch (err) {
         console.warn('[link-device] relay claim error:', err);

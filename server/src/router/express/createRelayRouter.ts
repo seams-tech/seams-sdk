@@ -14,6 +14,7 @@ import { registerLinkDeviceRoutes } from './routes/linkDevice';
 import { registerRecoverEmailRoute } from './routes/recoverEmail';
 import { registerSessionRoutes } from './routes/sessions';
 import { registerSignedDelegateRoutes } from './routes/signedDelegate';
+import { registerSmartAccountDeploymentRoutes } from './routes/smartAccountDeployment';
 import { registerSyncAccountRoutes } from './routes/syncAccount';
 import { registerThresholdEd25519Routes } from './routes/thresholdEd25519';
 import { registerThresholdEcdsaRoutes } from './routes/thresholdEcdsa';
@@ -74,6 +75,7 @@ export function createRelayRouter(
   registerSignedDelegateRoutes(router, ctx);
   registerAuthRoutes(router, ctx);
   registerSyncAccountRoutes(router, ctx);
+  registerSmartAccountDeploymentRoutes(router, ctx);
   registerLinkDeviceRoutes(router, ctx);
   registerEmailRecoveryRoutes(router, ctx);
   registerThresholdEd25519Routes(router, ctx);

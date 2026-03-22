@@ -983,6 +983,193 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
+  test('POST /smart-account/deployment/observe: updates canonical deployment state for authorized threshold session', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true as const,
+        claims: {
+          sub: 'user-123',
+          kind: 'threshold_ecdsa_session_v1',
+          sessionId: 'sess-1',
+          relayerKeyId: 'relayer-key-1',
+          rpId: 'example.localhost',
+          thresholdExpiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+        },
+      }),
+    });
+    const service = makeFakeAuthService({
+      getSmartAccountRecoverySubjectByAccount: async () => ({
+        ok: true,
+        record: {
+          version: 'smart_account_recovery_subject_v1',
+          userId: 'user-123',
+          nearAccountId: 'alice.testnet',
+          chainIdKey: 'evm:11155111',
+          accountAddress: '0xabc111',
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          metadata: {
+            chain: 'evm',
+            chainId: 11155111,
+            accountModel: 'erc4337',
+            deployed: false,
+          },
+        },
+      }),
+      listAccountSignersByAccount: async () => ({
+        ok: true,
+        records: [
+          {
+            version: 'account_signer_v1',
+            userId: 'user-123',
+            chainIdKey: 'evm:11155111',
+            accountAddress: '0xabc111',
+            signerType: 'threshold',
+            signerId: `0x${'11'.repeat(20)}`,
+            status: 'active',
+            createdAtMs: 1,
+            updatedAtMs: 1,
+            metadata: {
+              chain: 'evm',
+              chainId: 11155111,
+              accountModel: 'erc4337',
+            },
+          },
+        ],
+      }),
+      putSmartAccountRecoverySubject: async (record) => {
+        writes.push(record as unknown as Record<string, unknown>);
+        return { ok: true, record };
+      },
+    });
+    const router = createRelayRouter(service, { session });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/smart-account/deployment/observe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-jwt',
+        },
+        body: JSON.stringify({
+          chain: 'evm',
+          chain_id: 11155111,
+          account_address: '0xabc111',
+          account_model: 'erc4337',
+          deployment_tx_hash: '0xdeployed',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(writes).toHaveLength(2);
+      expect(getPath(writes[0], 'metadata', 'deployed')).toBe(true);
+      expect(getPath(writes[0], 'metadata', 'deploymentTxHash')).toBe('0xdeployed');
+      expect(getPath(writes[0], 'metadata', 'accountModel')).toBe('erc4337');
+      expect(getPath(writes[1], 'metadata', 'deploymentManifest', 'ownerAddresses')).toEqual([
+        `0x${'11'.repeat(20)}`,
+      ]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /smart-account/deployment/manifest: returns canonical manifest for authorized threshold session', async () => {
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true as const,
+        claims: {
+          sub: 'user-123',
+          kind: 'threshold_ecdsa_session_v1',
+          sessionId: 'sess-1',
+          relayerKeyId: 'relayer-key-1',
+          rpId: 'example.localhost',
+          thresholdExpiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+        },
+      }),
+    });
+    const service = makeFakeAuthService({
+      getSmartAccountRecoverySubjectByAccount: async () => ({
+        ok: true,
+        record: {
+          version: 'smart_account_recovery_subject_v1',
+          userId: 'user-123',
+          nearAccountId: 'alice.testnet',
+          chainIdKey: 'evm:11155111',
+          accountAddress: '0xabc111',
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          metadata: {
+            chain: 'evm',
+            chainId: 11155111,
+            accountModel: 'erc4337',
+            deployed: false,
+            counterfactualAddress: '0xabc111',
+          },
+        },
+      }),
+      listAccountSignersByAccount: async () => ({
+        ok: true,
+        records: [
+          {
+            version: 'account_signer_v1',
+            userId: 'user-123',
+            chainIdKey: 'evm:11155111',
+            accountAddress: '0xabc111',
+            signerType: 'threshold',
+            signerId: `0x${'11'.repeat(20)}`,
+            status: 'active',
+            createdAtMs: 1,
+            updatedAtMs: 1,
+          },
+          {
+            version: 'account_signer_v1',
+            userId: 'user-123',
+            chainIdKey: 'evm:11155111',
+            accountAddress: '0xabc111',
+            signerType: 'threshold',
+            signerId: `0x${'22'.repeat(20)}`,
+            status: 'pending',
+            createdAtMs: 2,
+            updatedAtMs: 2,
+          },
+        ],
+      }),
+    });
+    const router = createRelayRouter(service, { session });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/smart-account/deployment/manifest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-jwt',
+        },
+        body: JSON.stringify({
+          chain: 'evm',
+          chain_id: 11155111,
+          account_address: '0xabc111',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(getPath(res.json, 'manifest', 'ownerAddresses')).toEqual([
+        `0x${'11'.repeat(20)}`,
+        `0x${'22'.repeat(20)}`,
+      ]);
+      expect(getPath(res.json, 'manifest', 'activeOwnerAddresses')).toEqual([
+        `0x${'11'.repeat(20)}`,
+      ]);
+      expect(getPath(res.json, 'manifest', 'pendingOwnerAddresses')).toEqual([
+        `0x${'22'.repeat(20)}`,
+      ]);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('POST /auth/passkey/verify: invalid body', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {});

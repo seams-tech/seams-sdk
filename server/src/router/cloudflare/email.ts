@@ -143,6 +143,7 @@ export function createCloudflareEmailHandler(
       const result = await service.emailRecovery.requestEmailRecovery({
         accountId: parsed.accountId,
         emailBlob: parsed.emailBlob,
+        recoveryPayload: parsed.recoveryPayload,
       });
 
       if (!result?.success) {

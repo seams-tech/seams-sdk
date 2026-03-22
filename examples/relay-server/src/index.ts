@@ -2,11 +2,14 @@ import express, { Express } from 'express';
 import { Pool } from 'pg';
 import {
   AuthService,
+  createInMemoryConsoleBillingPrepaidReservationService,
   createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleSponsorshipSpendCapService,
+  createPostgresConsoleBillingPrepaidReservationService,
   createPostgresConsoleSponsoredCallService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
+  createRecoveryAuthorityIntervalRunner,
   createEcdsaAuthSessionStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
@@ -20,6 +23,7 @@ import {
   resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
   createThresholdSigningService,
+  type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
 } from '@tatchi-xyz/sdk/server';
@@ -93,9 +97,14 @@ import {
 dotenv.config();
 
 let server: ReturnType<Express['listen']> | null = null;
+let recoveryAuthorityRunner: ReturnType<typeof createRecoveryAuthorityIntervalRunner> | null = null;
 
 function shutdown(signal: string) {
   console.log(`[shutdown] received ${signal}, closing server...`);
+  if (recoveryAuthorityRunner) {
+    recoveryAuthorityRunner.stop();
+    recoveryAuthorityRunner = null;
+  }
   if (!server) {
     process.exit(0);
   }
@@ -772,6 +781,14 @@ async function main() {
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
+  const recoveryAuthorityContinuationEnabled = parseBooleanFlag(
+    env.RECOVERY_AUTHORITY_CONTINUATION_ENABLED,
+  );
+  const recoveryAuthorityContinuationIntervalMs =
+    parseOptionalPositiveInteger(env.RECOVERY_AUTHORITY_CONTINUATION_INTERVAL_MS) || 30_000;
+  const recoveryAuthorityContinuationLimit = parseOptionalPositiveInteger(
+    env.RECOVERY_AUTHORITY_CONTINUATION_LIMIT,
+  );
   const sponsorshipRealPricing = resolveCoinGeckoSponsoredExecutionPricingFromEnv(env);
   const sponsorshipStaticPricing = resolveStaticSponsoredExecutionPricingFromEnv(env);
   const sponsorshipPricing = sponsorshipRealPricing || sponsorshipStaticPricing;
@@ -1009,6 +1026,7 @@ async function main() {
   let consoleWallets: ConsoleWalletService;
   let consoleSponsoredCalls: ConsoleSponsoredCallService;
   let consoleSponsorshipSpendCaps: ConsoleSponsorshipSpendCapService;
+  let consoleBillingPrepaidReservations: ConsoleBillingPrepaidReservationService;
   let consoleAccount: ConsoleAccountService;
   const consoleCoreNamespace = consoleBillingNamespace;
   let consoleDemoOrgId = '';
@@ -1103,6 +1121,12 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
+    consoleBillingPrepaidReservations = await createPostgresConsoleBillingPrepaidReservationService({
+      postgresUrl: consolePostgresUrl,
+      namespace: consoleCoreNamespace,
+      logger: console as any,
+      ensureSchema: true,
+    });
     consoleSponsorshipSpendCaps = await createPostgresConsoleSponsorshipSpendCapService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
@@ -1136,6 +1160,7 @@ async function main() {
       seedWallets: demoWalletSeeds,
     });
     consoleSponsoredCalls = createInMemoryConsoleSponsoredCallService();
+    consoleBillingPrepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     consoleSponsorshipSpendCaps = createInMemoryConsoleSponsorshipSpendCapService();
   }
 
@@ -1296,6 +1321,33 @@ async function main() {
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
 
+  if (recoveryAuthorityContinuationEnabled) {
+    recoveryAuthorityRunner = createRecoveryAuthorityIntervalRunner(authService, {
+      logger: console,
+      intervalMs: recoveryAuthorityContinuationIntervalMs,
+      ...(typeof recoveryAuthorityContinuationLimit === 'number'
+        ? { limit: recoveryAuthorityContinuationLimit }
+        : {}),
+      sponsorship:
+        sponsoredEvmCallConfig && consoleRuntimeSnapshots
+          ? {
+              logger: console as any,
+              billing: consoleBilling,
+              ledger: consoleSponsoredCalls,
+              runtimeSnapshots: consoleRuntimeSnapshots,
+              config: sponsoredEvmCallConfig,
+              spendCaps: consoleSponsorshipSpendCaps,
+              pricing: sponsorshipPricing,
+              prepaidReservations: consoleBillingPrepaidReservations,
+              observabilityIngestion: consoleObservabilityIngestion,
+              webhooks: consoleWebhooks,
+              webhookActorUserId: 'recovery-authority',
+              webhookRoles: ['system'],
+            }
+          : null,
+    });
+  }
+
   app.use((_req, res, next) => {
     res.setHeader('referrer-policy', 'no-referrer');
     res.setHeader('permissions-policy', 'geolocation=(), microphone=(), camera=()');
@@ -1329,6 +1381,7 @@ async function main() {
         runtimeSnapshots: consoleRuntimeSnapshots,
       },
       sponsorship: {
+        prepaidReservations: consoleBillingPrepaidReservations,
         spendCaps: consoleSponsorshipSpendCaps,
         pricing: sponsorshipPricing,
       },
@@ -1415,6 +1468,17 @@ async function main() {
     console.log(
       `Relay usage meter (billing linkage): ${relayApiKeyUsageMeter ? 'enabled' : 'disabled'}`,
     );
+    console.log(
+      `Recovery authority continuation: ${
+        recoveryAuthorityRunner
+          ? `enabled (interval_ms=${recoveryAuthorityContinuationIntervalMs}${
+              recoveryAuthorityContinuationLimit
+                ? ` limit=${recoveryAuthorityContinuationLimit}`
+                : ''
+            })`
+          : 'disabled'
+      }`,
+    );
     console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
     if (consolePostgresUrl) {
       console.log(`Console core namespace: ${consoleCoreNamespace}`);
@@ -1485,6 +1549,7 @@ async function main() {
         console.log(`AuthService started with relayer account: ${relayer.accountId}`),
       )
       .catch((err: Error) => console.error('AuthService initial check failed:', err));
+    recoveryAuthorityRunner?.start();
   };
 
   server = config.host

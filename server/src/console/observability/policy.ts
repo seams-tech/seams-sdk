@@ -108,6 +108,20 @@ export const CONSOLE_OBSERVABILITY_EVENT_POLICIES = {
     level: 'ERROR',
     eventType: 'approval.policy_publish.failed',
   },
+  recoveryExecutionFailed: {
+    source: 'SYSTEM',
+    service: 'recovery-authority',
+    component: 'execution_monitor',
+    level: 'ERROR',
+    eventType: 'system.recovery_execution.failed',
+  },
+  recoveryExecutionStuck: {
+    source: 'SYSTEM',
+    service: 'recovery-authority',
+    component: 'execution_monitor',
+    level: 'WARN',
+    eventType: 'system.recovery_execution.stuck',
+  },
 } as const satisfies Record<string, ConsoleObservabilityEventPolicy>;
 
 export interface ConsoleObservabilityRequestMetricPolicy {

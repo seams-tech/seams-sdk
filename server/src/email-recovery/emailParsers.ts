@@ -1,4 +1,8 @@
-import { ensureEd25519Prefix } from '@shared/utils/validation';
+import {
+  parseRecoveryEmailArtifact,
+  parseRecoveryEmailSubject,
+  type RecoveryEmailPayload,
+} from '@shared/utils/recoveryEmail';
 
 export interface ForwardableEmailPayload {
   from: string;
@@ -48,42 +52,18 @@ export function normalizeForwardableEmailPayload(input: unknown): NormalizedEmai
 /**
  * Parse NEAR accountId from the Subject line inside a raw RFC822 email.
  *
- * Expected format (case-insensitive on "Subject" and "recover"):
- *   Subject: recover-123ABC bob.testnet ed25519:<pk>
+ * Expected format:
+ *   Subject: recover-v1 <accountId> <recoverySessionId>
  *
  * Returns the parsed accountId (e.g. "bob.testnet") or null if not found.
  */
 export function parseAccountIdFromSubject(raw: string | undefined | null): string | null {
   if (!raw || typeof raw !== 'string') return null;
-
-  let subjectText = '';
-  const lines = raw.split(/\r?\n/);
-  const subjectLine = lines.find((line) => /^subject:/i.test(line));
-  if (subjectLine) {
-    const idx = subjectLine.indexOf(':');
-    const restRaw = idx >= 0 ? subjectLine.slice(idx + 1) : '';
-    subjectText = restRaw.trim();
-  } else {
-    subjectText = raw.trim();
-  }
-
-  if (!subjectText) return null;
-
-  subjectText = subjectText.replace(/^(re|fwd):\s*/i, '').trim();
-  if (!subjectText) return null;
-
-  const match = subjectText.match(
-    /^recover-([A-Za-z0-9]{6})\s+([^\s]+)(?:\s+ed25519:[^\s]+)?\s*$/i,
-  );
-  if (match?.[2]) {
-    return match[2];
-  }
-
-  return null;
+  return parseRecoveryEmailSubject(raw)?.nearAccountId || parseRecoveryEmailArtifact(raw)?.payload.nearAccountId || null;
 }
 
 export type RecoverEmailParseResult =
-  | { ok: true; accountId: string; emailBlob: string }
+  | { ok: true; accountId: string; emailBlob: string; recoveryPayload: RecoveryEmailPayload }
   | { ok: false; status: number; code: string; message: string };
 
 export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult {
@@ -97,7 +77,8 @@ export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult
   const emailHeaders = payload.headers || {};
 
   const subjectHeader = emailHeaders['subject'];
-  const parsedAccountId = parseAccountIdFromSubject(subjectHeader || emailBlob);
+  const parsedArtifact = parseRecoveryEmailArtifact(emailBlob || subjectHeader || '');
+  const parsedAccountId = parsedArtifact?.payload.nearAccountId || parseAccountIdFromSubject(subjectHeader || emailBlob);
   const headerAccountId = String(
     emailHeaders['x-near-account-id'] || emailHeaders['x-account-id'] || '',
   ).trim();
@@ -114,8 +95,25 @@ export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult
   if (!emailBlob) {
     return { ok: false, status: 400, code: 'missing_email', message: 'raw email blob is required' };
   }
+  if (!parsedArtifact) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_recovery_email',
+      message:
+        'Recovery email must include Subject: recover-v1 <accountId> <sessionId> and a tatchi-recovery-v1 payload line',
+    };
+  }
+  if (parsedArtifact.payload.nearAccountId !== accountId) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'invalid_recovery_email',
+      message: 'Recovery email accountId does not match the verified payload',
+    };
+  }
 
-  return { ok: true, accountId, emailBlob };
+  return { ok: true, accountId, emailBlob, recoveryPayload: parsedArtifact.payload };
 }
 
 const EMAIL_ADDRESS_REGEX = /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*)/;
@@ -123,12 +121,7 @@ const EMAIL_ADDRESS_REGEX = /([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\
 export function canonicalizeEmail(input: string): string {
   const raw = String(input || '').trim();
   if (!raw) return '';
-
-  // Handle cases where a full header line is passed in (e.g. "From: ...").
   const withoutHeaderName = raw.replace(/^[a-z0-9-]+\s*:\s*/i, '').trim();
-
-  // Prefer the common "Name <email@domain>" format when present, but still
-  // validate/extract the actual address via regex.
   const angleMatch = withoutHeaderName.match(/<([^>]+)>/);
   const candidates = [angleMatch?.[1], withoutHeaderName].filter(
     (v): v is string => typeof v === 'string' && v.length > 0,
@@ -137,9 +130,7 @@ export function canonicalizeEmail(input: string): string {
   for (const candidate of candidates) {
     const cleaned = candidate.replace(/^mailto:\s*/i, '');
     const match = cleaned.match(EMAIL_ADDRESS_REGEX);
-    if (match?.[1]) {
-      return match[1].trim().toLowerCase();
-    }
+    if (match?.[1]) return match[1].trim().toLowerCase();
   }
 
   return withoutHeaderName.toLowerCase();
@@ -181,22 +172,13 @@ export function parseHeaderValue(rawEmail: string, name: string): string | undef
   }
 }
 
-export function parseRecoverSubjectBindings(
+export function parseVerifiedRecoveryEmailArtifact(
   rawEmail: string,
-): { requestId: string; accountId: string; newPublicKey: string } | null {
-  // Accept either a full RFC822 email or a bare Subject value.
-  let subjectText = (parseHeaderValue(rawEmail, 'subject') || String(rawEmail || '')).trim();
-  if (!subjectText) return null;
-
-  // Strip common reply/forward prefixes.
-  subjectText = subjectText.replace(/^(re|fwd):\s*/i, '').trim();
-  if (!subjectText) return null;
-
-  // Strict format:
-  //   "recover-<request_id> <accountId> ed25519:<pk>"
-  const match = subjectText.match(/^recover-([A-Za-z0-9]{6})\s+([^\s]+)\s+ed25519:([^\s]+)\s*$/i);
-  if (!match) return null;
-
-  const [, requestId, accountId, newPublicKey] = match;
-  return { requestId, accountId, newPublicKey: ensureEd25519Prefix(newPublicKey) };
+): { accountId: string; recoveryPayload: RecoveryEmailPayload } | null {
+  const parsed = parseRecoveryEmailArtifact(rawEmail);
+  if (!parsed) return null;
+  return {
+    accountId: parsed.payload.nearAccountId,
+    recoveryPayload: parsed.payload,
+  };
 }

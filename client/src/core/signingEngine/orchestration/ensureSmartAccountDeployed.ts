@@ -38,6 +38,10 @@ export type SmartAccountDeployerInput = {
   account: ChainAccountRecord;
 };
 
+export type SmartAccountDeploymentReporterInput = SmartAccountDeployerInput & {
+  deploymentTxHash?: string;
+};
+
 export type SmartAccountStatePort = {
   resolveNearAccountContext: (
     nearAccountId: AccountId,
@@ -319,6 +323,7 @@ export async function ensureSmartAccountDeployed(args: {
   chainIdCandidates: number[];
   accountModelCandidates: string[];
   deploy?: (input: SmartAccountDeployerInput) => Promise<SmartAccountDeployerResult>;
+  reportDeployed?: (input: SmartAccountDeploymentReporterInput) => Promise<unknown>;
   enforce?: boolean;
   maxDeployAttempts?: number;
   now?: () => number;
@@ -483,6 +488,17 @@ export async function ensureSmartAccountDeployed(args: {
             deployed: true,
             deploymentTxHash: normalizeOptionalNonEmptyString(deployResult.deploymentTxHash),
           });
+          if (typeof args.reportDeployed === 'function') {
+            await args
+              .reportDeployed({
+                nearAccountId,
+                chain: args.chain,
+                chainId: resolvedChainId,
+                account: deployed,
+                deploymentTxHash: normalizeOptionalNonEmptyString(deployResult.deploymentTxHash),
+              })
+              .catch(() => undefined);
+          }
           const chainId = resolveChainIdFromChainAccount({
             account: deployed,
             chainIdCandidates: chainIds,

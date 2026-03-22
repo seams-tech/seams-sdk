@@ -1508,6 +1508,30 @@ export function createRelayRouteDefinitions(
       ['authService'],
     ),
     publicRoute(
+      'smart_account_deployment_manifest',
+      'POST',
+      '/smart-account/deployment/manifest',
+      'Read canonical smart-account deployment manifest',
+      {
+        plane: 'public',
+        rationale:
+          'Smart-account deployment manifests are relay-public routes gated by threshold session authorization.',
+      },
+      ['authService', 'session'],
+    ),
+    publicRoute(
+      'smart_account_deployment_observe',
+      'POST',
+      '/smart-account/deployment/observe',
+      'Report canonical smart-account deployment observation',
+      {
+        plane: 'public',
+        rationale:
+          'Smart-account deployment observations are relay-public routes gated by threshold session authorization.',
+      },
+      ['authService', 'session'],
+    ),
+    publicRoute(
       'email_recovery_prepare',
       'POST',
       '/email-recovery/prepare',

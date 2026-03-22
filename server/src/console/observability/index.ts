@@ -28,6 +28,8 @@ export type {
   ConsoleObservabilityBillingSponsorshipBlockedInput,
   ConsoleObservabilityBillingStripeWebhookFailureInput,
   ConsoleObservabilityApprovalFailureInput,
+  ConsoleObservabilityRecoveryExecutionFailedInput,
+  ConsoleObservabilityRecoveryExecutionStuckInput,
 } from './types';
 
 export type {
@@ -96,6 +98,8 @@ export {
   buildBillingSponsorshipBlockedObservabilityEvent,
   buildBillingStripeWebhookFailureObservabilityEvent,
   buildApprovalFailureObservabilityEvent,
+  buildRecoveryExecutionFailedObservabilityEvent,
+  buildRecoveryExecutionStuckObservabilityEvent,
 } from './adapters';
 
 export {

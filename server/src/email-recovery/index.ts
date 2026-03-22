@@ -20,6 +20,8 @@ export * from './types';
  *   `{ account_id, network_id, payer_account_id }`,
  * - Calling the per-account EmailRecoverer contract with
  *   `verify_encrypted_email_and_recover(encrypted_email_blob, aead_context, expected_hashed_email, expected_new_public_key, request_id)`.
+ * - Binding those NEAR contract args to a canonical recovery payload that also
+ *   includes the EVM owner, session id, and expiry used by EVM recovery.
  */
 export class EmailRecoveryService {
   private readonly deps: EmailRecoveryServiceDeps;
@@ -53,6 +55,7 @@ export class EmailRecoveryService {
     return this.verifyEncryptedEmailAndRecover({
       accountId: request.accountId,
       emailBlob: request.emailBlob,
+      recoveryPayload: request.recoveryPayload,
     });
   }
 
@@ -71,6 +74,7 @@ export class EmailRecoveryService {
   ): Promise<EmailRecoveryResult> {
     const accountId = (request.accountId || '').trim();
     const emailBlob = request.emailBlob;
+    const recoveryPayload = request.recoveryPayload;
 
     if (!accountId) {
       const errMsg = 'accountId is required';
@@ -78,6 +82,10 @@ export class EmailRecoveryService {
     }
     if (!emailBlob || typeof emailBlob !== 'string') {
       const errMsg = 'emailBlob (raw email) is required';
+      return { success: false, error: errMsg, message: errMsg };
+    }
+    if (!recoveryPayload || recoveryPayload.nearAccountId !== accountId) {
+      const errMsg = 'recoveryPayload must match accountId';
       return { success: false, error: errMsg, message: errMsg };
     }
 
@@ -99,6 +107,7 @@ export class EmailRecoveryService {
     const { actions, receiverId } = await buildEncryptedEmailRecoveryActions(this.deps, {
       accountId,
       emailBlob,
+      recoveryPayload,
       recipientPk,
       encrypt: async ({ emailRaw, aeadContext, recipientPk: pk }) => {
         const { envelope } = await encryptEmailForOutlayer({

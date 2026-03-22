@@ -1,15 +1,23 @@
 import { test, expect } from '@playwright/test';
 import { parseRecoverEmailRequest } from '@server/email-recovery/emailParsers';
+import { buildRecoveryEmailBody, buildRecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 
 test.describe('parseRecoverEmailRequest', () => {
   test('parses accountId from Subject header', async () => {
+    const payload = buildRecoveryEmailPayload({
+      nearAccountId: 'bob.testnet',
+      recoverySessionId: 'ABC123',
+      newNearPublicKey: 'ed25519:somepk',
+      newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+      deadlineEpochSeconds: 1893456000,
+    });
     const body = {
       from: 'sender@example.com',
       to: 'recover@web3authn.org',
       headers: {
-        Subject: 'recover-ABC123 bob.testnet ed25519:somepk',
+        Subject: 'recover-v1 bob.testnet ABC123',
       },
-      raw: 'Subject: recover-ABC123 bob.testnet ed25519:somepk\r\n\r\nhello',
+      raw: ['Subject: recover-v1 bob.testnet ABC123', '', buildRecoveryEmailBody(payload)].join('\r\n'),
       rawSize: 1,
     };
 
@@ -26,8 +34,9 @@ test.describe('parseRecoverEmailRequest', () => {
       from: 'sender@example.com',
       to: 'recover@web3authn.org',
       headers: {
-        Subject: 'recover-ABC123 bob.testnet ed25519:somepk',
+        Subject: 'recover-v1 bob.testnet ABC123',
       },
+      rawSize: 1,
     };
 
     const parsed = parseRecoverEmailRequest(body);

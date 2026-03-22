@@ -676,6 +676,62 @@ export class PasskeyClientDBManager {
     }
   }
 
+  private isDeployableSmartAccountModel(accountModel: AccountModel): boolean {
+    const normalized = normalizeAccountModel(accountModel);
+    return normalized === 'erc4337' || normalized === 'tempo-native';
+  }
+
+  private async reconcilePendingSignerStateOnDeployment(args: {
+    tx: any;
+    previous?: ChainAccountRecord;
+    next: ChainAccountRecord;
+    now: number;
+  }): Promise<void> {
+    if (args.next.deployed !== true || args.previous?.deployed === true) return;
+    if (!this.isDeployableSmartAccountModel(args.next.accountModel)) return;
+
+    const signerStore = args.tx.objectStore(DB_CONFIG.accountSignersStore);
+    const pendingSigners = (await signerStore
+      .index('chainIdKey_accountAddress_status')
+      .getAll([args.next.chainIdKey, args.next.accountAddress, 'pending'])) as AccountSignerRecord[];
+    if (!pendingSigners.length) return;
+
+    const promotedSignerIds = new Set<string>();
+    for (const signer of pendingSigners) {
+      const promoted: AccountSignerRecord = {
+        ...signer,
+        status: 'active',
+        updatedAt: args.now,
+      };
+      await this.assertSignerWriteInvariants(signerStore, {
+        next: promoted,
+        accountModel: args.next.accountModel,
+        existingSignerId: signer.signerId,
+        existingStatus: signer.status,
+      });
+      await signerStore.put(promoted);
+      promotedSignerIds.add(promoted.signerId);
+    }
+
+    const outboxStore = args.tx.objectStore(DB_CONFIG.signerOpsOutboxStore);
+    const queuedOps = (await outboxStore
+      .index('chainIdKey_accountAddress')
+      .getAll([args.next.chainIdKey, args.next.accountAddress])) as SignerOpOutboxRecord[];
+    for (const op of queuedOps) {
+      if (!promotedSignerIds.has(toTrimmedString(op.signerId || ''))) continue;
+      if (op.opType !== 'add-signer' && op.opType !== 'activate-recovery-signer') continue;
+      if (op.status === 'confirmed' || op.status === 'dead-letter') continue;
+      await outboxStore.put({
+        ...op,
+        status: 'confirmed',
+        nextAttemptAt: args.now,
+        updatedAt: args.now,
+        lastError: undefined,
+        ...(args.next.deploymentTxHash ? { txHash: args.next.deploymentTxHash } : {}),
+      } satisfies SignerOpOutboxRecord);
+    }
+  }
+
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
     const profileId = toTrimmedString(input.profileId || '');
     const chainIdKey = normalizeChainIdKey(input.chainIdKey);
@@ -697,8 +753,11 @@ export class PasskeyClientDBManager {
         { profileId, chainIdKey, accountAddress },
       );
     }
-    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readwrite');
-    const store = tx.store;
+    const tx = db.transaction(
+      [DB_CONFIG.chainAccountsStore, DB_CONFIG.accountSignersStore, DB_CONFIG.signerOpsOutboxStore],
+      'readwrite',
+    );
+    const store = tx.objectStore(DB_CONFIG.chainAccountsStore);
     const existing = (await store.get([profileId, chainIdKey, accountAddress])) as
       | ChainAccountRecord
       | undefined;
@@ -786,6 +845,12 @@ export class PasskeyClientDBManager {
     }
 
     await store.put(next);
+    await this.reconcilePendingSignerStateOnDeployment({
+      tx,
+      previous: existing,
+      next,
+      now,
+    });
     await tx.done;
     return next;
   }
@@ -832,6 +897,24 @@ export class PasskeyClientDBManager {
       .getAll([normalizedProfileId, normalizedChainIdKey]);
     await tx.done;
     return (rows as ChainAccountRecord[]) || [];
+  }
+
+  async getChainAccount(args: {
+    profileId: string;
+    chainIdKey: string;
+    accountAddress: string;
+  }): Promise<ChainAccountRecord | null> {
+    const profileId = toTrimmedString(args.profileId || '');
+    const chainIdKey = normalizeChainIdKey(args.chainIdKey);
+    const accountAddress = normalizeAccountAddress(args.accountAddress);
+    if (!profileId || !chainIdKey || !accountAddress) return null;
+    const db = await this.getDB();
+    const row = (await db.get(DB_CONFIG.chainAccountsStore, [
+      profileId,
+      chainIdKey,
+      accountAddress,
+    ])) as ChainAccountRecord | undefined;
+    return row || null;
   }
 
   async listProfileAuthenticators(profileId: string): Promise<ProfileAuthenticatorRecord[]> {

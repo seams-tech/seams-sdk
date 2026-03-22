@@ -107,6 +107,15 @@ export async function ensurePostgresSchema(input: {
         IF to_regclass('tatchi_app_session_versions') IS NOT NULL AND to_regclass('app_session_versions') IS NULL THEN
           ALTER TABLE tatchi_app_session_versions RENAME TO app_session_versions;
         END IF;
+        IF to_regclass('tatchi_account_signers') IS NOT NULL AND to_regclass('account_signers') IS NULL THEN
+          ALTER TABLE tatchi_account_signers RENAME TO account_signers;
+        END IF;
+        IF to_regclass('tatchi_smart_account_recovery_subjects') IS NOT NULL AND to_regclass('smart_account_recovery_subjects') IS NULL THEN
+          ALTER TABLE tatchi_smart_account_recovery_subjects RENAME TO smart_account_recovery_subjects;
+        END IF;
+        IF to_regclass('tatchi_recovery_sessions') IS NOT NULL AND to_regclass('recovery_sessions') IS NULL THEN
+          ALTER TABLE tatchi_recovery_sessions RENAME TO recovery_sessions;
+        END IF;
       END $$;
     `);
 
@@ -290,6 +299,85 @@ export async function ensurePostgresSchema(input: {
         updated_at_ms BIGINT NOT NULL,
         PRIMARY KEY (namespace, user_id)
       )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS account_signers (
+        namespace TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        chain_id_key TEXT NOT NULL,
+        account_address TEXT NOT NULL,
+        signer_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, user_id, chain_id_key, account_address, signer_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_account_signers_user_idx
+      ON account_signers (namespace, user_id, chain_id_key, account_address)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_account_signers_account_idx
+      ON account_signers (namespace, chain_id_key, account_address, signer_id)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS smart_account_recovery_subjects (
+        namespace TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        near_account_id TEXT NOT NULL,
+        chain_id_key TEXT NOT NULL,
+        account_address TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, chain_id_key, account_address)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_smart_account_recovery_subjects_near_idx
+      ON smart_account_recovery_subjects (namespace, near_account_id, chain_id_key, account_address)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS recovery_sessions (
+        namespace TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        near_account_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, session_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_recovery_sessions_near_idx
+      ON recovery_sessions (namespace, near_account_id, updated_at_ms)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_recovery_sessions_expires_idx
+      ON recovery_sessions (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS recovery_executions (
+        namespace TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        chain_id_key TEXT NOT NULL,
+        account_address TEXT NOT NULL,
+        action TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, session_id, chain_id_key, account_address, action)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS tatchi_recovery_executions_session_idx
+      ON recovery_executions (namespace, session_id, updated_at_ms)
     `);
 
     // ==========================

@@ -7,3 +7,4 @@ export * from './near';
 export * from './digests';
 export * from './theme';
 export * from './keccak';
+export * from './recoveryEmail';

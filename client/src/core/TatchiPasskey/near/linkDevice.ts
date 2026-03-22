@@ -30,6 +30,16 @@ import {
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
 } from '../thresholdWarmSessionBootstrap';
+import {
+  THRESHOLD_SESSION_POLICY_VERSION,
+  generateThresholdSessionId,
+} from '../../signingEngine/threshold/session/sessionPolicy';
+import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
+import {
+  persistLinkDeviceThresholdEcdsaBootstrap,
+  type PreparedLinkDeviceLinkedAccount,
+  type PreparedLinkDeviceThresholdEcdsa,
+} from './linkDeviceThresholdEcdsa';
 
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
@@ -51,6 +61,46 @@ function parseDeviceNumberFromIntentDigest(intentDigest: string, fallback: numbe
   if (parts.length < 2) return fallback;
   const n = Number(parts[parts.length - 1]);
   return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback;
+}
+
+function coercePositiveInt(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n <= 0) return Math.max(1, Math.floor(fallback));
+  return Math.floor(n);
+}
+
+function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAccount[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PreparedLinkDeviceLinkedAccount[] = [];
+  for (const value of raw) {
+    if (!isObject(value)) continue;
+    const chain = String(value.chain || '').trim().toLowerCase();
+    const chainIdKey = String(value.chainIdKey || '').trim().toLowerCase();
+    const accountAddress = String(value.accountAddress || '').trim();
+    const accountModel = String(value.accountModel || '').trim();
+    const chainId = Number(value.chainId);
+    if ((chain !== 'evm' && chain !== 'tempo') || !chainIdKey || !accountAddress) continue;
+    if (!Number.isFinite(chainId) || chainId <= 0) continue;
+    if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
+    out.push({
+      chain,
+      chainIdKey,
+      accountAddress,
+      chainId: Math.floor(chainId),
+      accountModel,
+      ...(typeof value.factory === 'string' && value.factory.trim()
+        ? { factory: value.factory.trim() }
+        : {}),
+      ...(typeof value.entryPoint === 'string' && value.entryPoint.trim()
+        ? { entryPoint: value.entryPoint.trim() }
+        : {}),
+      ...(typeof value.salt === 'string' && value.salt.trim() ? { salt: value.salt.trim() } : {}),
+      ...(typeof value.counterfactualAddress === 'string' && value.counterfactualAddress.trim()
+        ? { counterfactualAddress: value.counterfactualAddress.trim() }
+        : {}),
+    });
+  }
+  return out;
 }
 
 // Lazy-load QRCode to keep it an optional peer and reduce baseline bundle size.
@@ -345,6 +395,53 @@ export class LinkDeviceFlow {
     if (!thresholdWarmPolicyDraft) {
       throw new Error('Threshold warm-session defaults are disabled for link-device');
     }
+    const thresholdEcdsaProvisionTargets = listThresholdEcdsaProvisionTargets(
+      this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
+    );
+    const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
+    let thresholdEcdsaClientVerifyingShareB64u: string | null = null;
+    let thresholdEcdsaSessionPolicy:
+      | {
+          version: 'threshold_session_v1';
+          userId: string;
+          rpId: string;
+          sessionId: string;
+          participantIds?: number[];
+          ttlMs: number;
+          remainingUses: number;
+        }
+      | null = null;
+    if (thresholdEcdsaPrimaryProvisionTarget) {
+      const derivedEcdsa =
+        await this.context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId,
+        });
+      if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
+        throw new Error(
+          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
+        );
+      }
+      thresholdEcdsaClientVerifyingShareB64u = derivedEcdsa.clientVerifyingShareB64u;
+      if (thresholdEcdsaPrimaryProvisionTarget.options.signingSession.kind !== 'jwt') {
+        throw new Error('Threshold ECDSA link-device bootstrap requires sessionKind=jwt');
+      }
+      thresholdEcdsaSessionPolicy = {
+        version: THRESHOLD_SESSION_POLICY_VERSION,
+        userId: String(nearAccountId),
+        rpId,
+        sessionId: generateThresholdSessionId(),
+        participantIds: [...thresholdEcdsaPrimaryProvisionTarget.options.participantIds],
+        ttlMs: coercePositiveInt(
+          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.ttlMs,
+          24 * 60 * 60 * 1000,
+        ),
+        remainingUses: coercePositiveInt(
+          thresholdEcdsaPrimaryProvisionTarget.options.signingSession.remainingUses,
+          10_000,
+        ),
+      };
+    }
 
     const localSignerEnabled = this.options?.localSignerEnabled !== false;
     let localPublicKey: string | null = null;
@@ -388,6 +485,7 @@ export class LinkDeviceFlow {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         account_id: String(nearAccountId),
+        ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         device_number: resolvedDeviceNumber,
         ...(localPublicKey ? { local_public_key: localPublicKey } : {}),
         threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
@@ -396,6 +494,15 @@ export class LinkDeviceFlow {
           rpId,
           policy: thresholdWarmPolicyDraft,
         }),
+        ...(thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaSessionPolicy
+          ? {
+              threshold_ecdsa: {
+                client_verifying_share_b64u: thresholdEcdsaClientVerifyingShareB64u,
+                session_policy: thresholdEcdsaSessionPolicy,
+                session_kind: 'jwt',
+              },
+            }
+          : {}),
         rp_id: rpId,
         webauthn_registration: credentialForRelay,
       }),
@@ -426,6 +533,26 @@ export class LinkDeviceFlow {
     if (!thresholdSession) {
       throw new Error('link-device/prepare did not return threshold session bootstrap data');
     }
+    const credentialIdB64u = String(prepareObj.credentialIdB64u || '').trim();
+    const linkedAccounts = parsePreparedLinkedAccounts(prepareObj.linkedAccounts);
+    const thresholdEcdsaSection: PreparedLinkDeviceThresholdEcdsa | null = isObject(
+      prepareObj.thresholdEcdsa,
+    )
+      ? {
+          relayerKeyId: String(prepareObj.thresholdEcdsa.relayerKeyId || '').trim(),
+          groupPublicKeyB64u: String(prepareObj.thresholdEcdsa.groupPublicKeyB64u || '').trim(),
+          ethereumAddress: String(prepareObj.thresholdEcdsa.ethereumAddress || '').trim(),
+          relayerVerifyingShareB64u: String(
+            prepareObj.thresholdEcdsa.relayerVerifyingShareB64u || '',
+          ).trim(),
+          ...(Array.isArray(prepareObj.thresholdEcdsa.participantIds)
+            ? { participantIds: prepareObj.thresholdEcdsa.participantIds as number[] }
+            : {}),
+          ...(isObject(prepareObj.thresholdEcdsa.session)
+            ? { session: prepareObj.thresholdEcdsa.session as PreparedLinkDeviceThresholdEcdsa['session'] }
+            : {}),
+        }
+      : null;
 
     this.safeOnEvent({
       step: 6,
@@ -544,6 +671,24 @@ export class LinkDeviceFlow {
         : undefined,
       setActiveSigningSessionId: true,
     });
+    if (
+      thresholdEcdsaSection &&
+      thresholdEcdsaClientVerifyingShareB64u &&
+      linkedAccounts.length > 0
+    ) {
+      await persistLinkDeviceThresholdEcdsaBootstrap({
+        indexedDB: IndexedDBManager,
+        signingEngine: this.context.signingEngine,
+        nearAccountId,
+        relayerUrl,
+        deviceNumber: resolvedDeviceNumber,
+        rpId,
+        credentialIdB64u,
+        clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+        thresholdEcdsa: thresholdEcdsaSection,
+        linkedAccounts,
+      });
+    }
 
     // Auto-login: set last-user + warm login state so the device is immediately usable.
     await this.attemptAutoLogin({ accountId: nearAccountId, deviceNumber: resolvedDeviceNumber });

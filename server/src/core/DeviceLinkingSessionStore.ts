@@ -21,6 +21,27 @@ export type DeviceLinkingSessionRecord = {
   accountId?: string;
   deviceNumber?: number;
   addKeyTxHash?: string;
+  preparedThresholdEcdsa?: DeviceLinkingPreparedThresholdEcdsaRecord;
+  preparedLinkedAccounts?: DeviceLinkingPreparedLinkedAccountRecord[];
+};
+
+export type DeviceLinkingPreparedThresholdEcdsaRecord = {
+  relayerKeyId: string;
+  groupPublicKeyB64u: string;
+  ethereumAddress: string;
+  participantIds?: number[];
+};
+
+export type DeviceLinkingPreparedLinkedAccountRecord = {
+  chainIdKey: string;
+  chain: 'evm' | 'tempo';
+  chainId: number;
+  accountAddress: string;
+  accountModel: 'erc4337' | 'tempo-native';
+  factory?: string;
+  entryPoint?: string;
+  salt?: string;
+  counterfactualAddress?: string;
 };
 
 export interface DeviceLinkingSessionStore {
@@ -46,6 +67,68 @@ function toDeviceLinkingSessionPrefix(config: Record<string, unknown>): string {
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   const baseWithColon = toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`);
   return `${baseWithColon}device_linking_session:`;
+}
+
+function normalizeParticipantIds(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map((item) => Math.floor(Number(item)))
+    .filter((item) => Number.isFinite(item) && item > 0);
+  return out.length > 0 ? out : undefined;
+}
+
+function parsePreparedThresholdEcdsaRecord(
+  raw: unknown,
+): DeviceLinkingPreparedThresholdEcdsaRecord | undefined {
+  if (!isObject(raw)) return undefined;
+  const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
+  const groupPublicKeyB64u = toOptionalTrimmedString(raw.groupPublicKeyB64u);
+  const ethereumAddress = toOptionalTrimmedString(raw.ethereumAddress);
+  if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress) return undefined;
+
+  return {
+    relayerKeyId,
+    groupPublicKeyB64u,
+    ethereumAddress,
+    ...(normalizeParticipantIds(raw.participantIds)
+      ? { participantIds: normalizeParticipantIds(raw.participantIds) }
+      : {}),
+  };
+}
+
+function parsePreparedLinkedAccounts(
+  raw: unknown,
+): DeviceLinkingPreparedLinkedAccountRecord[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: DeviceLinkingPreparedLinkedAccountRecord[] = [];
+  for (const value of raw) {
+    if (!isObject(value)) continue;
+    const chainIdKey = toOptionalTrimmedString(value.chainIdKey)?.toLowerCase() || '';
+    const chain = toOptionalTrimmedString(value.chain)?.toLowerCase();
+    const chainId = Math.floor(Number(value.chainId));
+    const accountAddress = toOptionalTrimmedString(value.accountAddress);
+    const accountModel = toOptionalTrimmedString(value.accountModel);
+    if (!chainIdKey || !accountAddress) continue;
+    if (chain !== 'evm' && chain !== 'tempo') continue;
+    if (!Number.isFinite(chainId) || chainId <= 0) continue;
+    if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
+    out.push({
+      chainIdKey,
+      chain,
+      chainId,
+      accountAddress,
+      accountModel,
+      ...(toOptionalTrimmedString(value.factory) ? { factory: toOptionalTrimmedString(value.factory)! } : {}),
+      ...(toOptionalTrimmedString(value.entryPoint)
+        ? { entryPoint: toOptionalTrimmedString(value.entryPoint)! }
+        : {}),
+      ...(toOptionalTrimmedString(value.salt) ? { salt: toOptionalTrimmedString(value.salt)! } : {}),
+      ...(toOptionalTrimmedString(value.counterfactualAddress)
+        ? { counterfactualAddress: toOptionalTrimmedString(value.counterfactualAddress)! }
+        : {}),
+    });
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionRecord | null {
@@ -81,6 +164,8 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
       ? Math.floor(deviceNumberRaw as number)
       : undefined;
   const addKeyTxHash = toOptionalTrimmedString(raw.addKeyTxHash);
+  const preparedThresholdEcdsa = parsePreparedThresholdEcdsaRecord(raw.preparedThresholdEcdsa);
+  const preparedLinkedAccounts = parsePreparedLinkedAccounts(raw.preparedLinkedAccounts);
 
   const out: DeviceLinkingSessionRecord = {
     version: 'device_linking_session_v1',
@@ -94,6 +179,8 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
     ...(accountId ? { accountId } : {}),
     ...(deviceNumber ? { deviceNumber } : {}),
     ...(addKeyTxHash ? { addKeyTxHash } : {}),
+    ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
+    ...(preparedLinkedAccounts ? { preparedLinkedAccounts } : {}),
   };
 
   return out;

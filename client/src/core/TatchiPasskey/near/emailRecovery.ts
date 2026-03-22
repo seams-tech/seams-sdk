@@ -192,22 +192,20 @@ export class EmailRecoveryDomain {
   }
 
   private async buildEmailRecoveryMailtoUrl(args: {
-    accountId: string;
-    nearPublicKey?: string;
+    recoveryEmailSubject?: string;
+    recoveryEmailBody?: string;
   }): Promise<string> {
-    const accountId = toAccountId(args.accountId);
-    const nearPublicKey = String(
-      args.nearPublicKey || this.pendingEmailRecovery?.nearPublicKey || '',
-    ).trim();
-    const requestId = String(this.pendingEmailRecovery?.requestId || '').trim();
     const mailtoAddress = String(
       this.getContext().configs?.network?.relayer?.emailRecovery?.mailtoAddress || '',
     ).trim();
     if (!mailtoAddress) return 'mailto:';
-    if (!nearPublicKey || !requestId) return `mailto:${mailtoAddress}`;
-
-    const subject = `recover-${requestId} ${String(accountId)} ${nearPublicKey}`;
-    const body = 'tee-encrypted';
+    const subject = String(
+      args.recoveryEmailSubject || this.pendingEmailRecovery?.recoveryEmailSubject || '',
+    ).trim();
+    const body = String(
+      args.recoveryEmailBody || this.pendingEmailRecovery?.recoveryEmailBody || '',
+    ).trim();
+    if (!subject || !body) return `mailto:${mailtoAddress}`;
     return `mailto:${mailtoAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
@@ -271,6 +269,16 @@ export class EmailRecoveryDomain {
       if (!thresholdWarmPolicyDraft) {
         throw new Error('Threshold warm-session defaults are disabled for email recovery');
       }
+      const derivedEcdsa =
+        await context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+          credential,
+          nearAccountId,
+        });
+      if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
+        throw new Error(
+          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
+        );
+      }
 
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
@@ -288,6 +296,9 @@ export class EmailRecoveryDomain {
             rpId,
             policy: thresholdWarmPolicyDraft,
           }),
+          threshold_ecdsa: {
+            client_verifying_share_b64u: derivedEcdsa.clientVerifyingShareB64u,
+          },
           rp_id: rpId,
           webauthn_registration: credentialForRelay,
         }),
@@ -308,13 +319,33 @@ export class EmailRecoveryDomain {
       const thresholdSection = isObject(prepareObj.thresholdEd25519)
         ? prepareObj.thresholdEd25519
         : {};
+      const thresholdEcdsaSection = isObject(prepareObj.thresholdEcdsa) ? prepareObj.thresholdEcdsa : {};
+      const recoverySessionSection = isObject(prepareObj.recoverySession) ? prepareObj.recoverySession : {};
+      const recoveryEmailSection = isObject(prepareObj.recoveryEmail) ? prepareObj.recoveryEmail : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
       const relayerVerifyingShareB64u = String(
         thresholdSection.relayerVerifyingShareB64u || '',
       ).trim();
+      const newEvmOwnerAddress = String(thresholdEcdsaSection.ethereumAddress || '').trim();
+      const recoverySessionId = String(recoverySessionSection.sessionId || requestId).trim();
+      const recoveryDeadlineEpochSeconds = Number(recoveryEmailSection.deadlineEpochSeconds);
+      const recoveryEmailPayloadHash = String(recoveryEmailSection.payloadHash || '').trim();
+      const recoveryEmailSubject = String(recoveryEmailSection.subject || '').trim();
+      const recoveryEmailBody = String(recoveryEmailSection.body || '').trim();
       if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
         throw new Error('email-recovery/prepare returned incomplete threshold key material');
+      }
+      if (
+        !newEvmOwnerAddress ||
+        !recoverySessionId ||
+        !Number.isFinite(recoveryDeadlineEpochSeconds) ||
+        recoveryDeadlineEpochSeconds <= 0 ||
+        !recoveryEmailPayloadHash ||
+        !recoveryEmailSubject ||
+        !recoveryEmailBody
+      ) {
+        throw new Error('email-recovery/prepare returned incomplete canonical recovery email data');
       }
       const thresholdSession = isObject(thresholdSection.session) ? thresholdSection.session : null;
       if (!thresholdSession) {
@@ -394,7 +425,13 @@ export class EmailRecoveryDomain {
         accountId: nearAccountId,
         deviceNumber,
         requestId,
+        recoverySessionId,
         nearPublicKey: thresholdPublicKey,
+        newEvmOwnerAddress,
+        deadlineEpochSeconds: Math.floor(recoveryDeadlineEpochSeconds),
+        recoveryEmailPayloadHash,
+        recoveryEmailSubject,
+        recoveryEmailBody,
         credential,
         createdAt: Date.now(),
         status: 'awaiting-email',
@@ -413,8 +450,8 @@ export class EmailRecoveryDomain {
       });
 
       const mailtoUrl = await this.buildEmailRecoveryMailtoUrl({
-        accountId: String(nearAccountId),
-        nearPublicKey: thresholdPublicKey,
+        recoveryEmailSubject,
+        recoveryEmailBody,
       });
       return { mailtoUrl, nearPublicKey: thresholdPublicKey };
     } catch (err: unknown) {

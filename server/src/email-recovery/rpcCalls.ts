@@ -2,8 +2,9 @@ import type { ActionArgsWasm } from '@/core/types/actions';
 import { ActionType, validateActionArgsWasm } from '@/core/types/actions';
 import { parseContractExecutionError } from '../core/errors';
 import { hashRecoveryEmailForAccount, type EmailEncryptionContext } from './emailEncryptor';
-import { parseHeaderValue, parseRecoverSubjectBindings } from './emailParsers';
-import type { EmailRecoveryResult, EmailRecoveryServiceDeps, EmailRecoveryRequest } from './types';
+import { parseHeaderValue } from './emailParsers';
+import type { EmailRecoveryResult, EmailRecoveryServiceDeps } from './types';
+import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 import { toSingleLine } from '@shared/utils/validation';
 
 function formatEmailRecoveryTxError(error: unknown, receiverId: string): string {
@@ -76,6 +77,7 @@ export async function buildEncryptedEmailRecoveryActions(
   input: {
     accountId: string;
     emailBlob: string;
+    recoveryPayload: RecoveryEmailPayload;
     recipientPk: Uint8Array;
     encrypt: (args: {
       emailRaw: string;
@@ -87,7 +89,7 @@ export async function buildEncryptedEmailRecoveryActions(
   },
 ): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
   const { relayerAccount, networkId } = deps;
-  const { accountId, emailBlob, recipientPk, encrypt } = input;
+  const { accountId, emailBlob, recoveryPayload, recipientPk, encrypt } = input;
 
   const aeadContext: EmailEncryptionContext = {
     account_id: accountId,
@@ -101,15 +103,9 @@ export async function buildEncryptedEmailRecoveryActions(
     recipientPk,
   });
 
-  const bindings = parseRecoverSubjectBindings(emailBlob);
-  if (!bindings) {
+  if (recoveryPayload.nearAccountId !== accountId) {
     throw new Error(
-      'Encrypted email recovery requires Subject: recover-<request_id> <accountId> ed25519:<new_public_key>',
-    );
-  }
-  if (bindings.accountId !== accountId) {
-    throw new Error(
-      `Encrypted email recovery subject accountId mismatch (expected "${accountId}", got "${bindings.accountId}")`,
+      `Encrypted email recovery payload accountId mismatch (expected "${accountId}", got "${recoveryPayload.nearAccountId}")`,
     );
   }
 
@@ -126,8 +122,8 @@ export async function buildEncryptedEmailRecoveryActions(
     encrypted_email_blob: envelope,
     aead_context: aeadContext,
     expected_hashed_email: expectedHashedEmail,
-    expected_new_public_key: bindings.newPublicKey,
-    request_id: bindings.requestId,
+    expected_new_public_key: recoveryPayload.newNearPublicKey,
+    request_id: recoveryPayload.recoverySessionId,
   };
 
   const actions: ActionArgsWasm[] = [

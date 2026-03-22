@@ -187,6 +187,18 @@ export function makeFakeAuthService(
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
+    prepareEmailRecovery: AuthService['prepareEmailRecovery'];
+    prepareLinkDevice: AuthService['prepareLinkDevice'];
+    getRecoverySession: AuthService['getRecoverySession'];
+    updateRecoverySessionStatus: AuthService['updateRecoverySessionStatus'];
+    listSmartAccountRecoverySubjects: AuthService['listSmartAccountRecoverySubjects'];
+    getSmartAccountRecoverySubjectByAccount: AuthService['getSmartAccountRecoverySubjectByAccount'];
+    putSmartAccountRecoverySubject: AuthService['putSmartAccountRecoverySubject'];
+    recordRecoveryExecution: AuthService['recordRecoveryExecution'];
+    listRecoveryExecutions: AuthService['listRecoveryExecutions'];
+    listRecoveryExecutionsByStatus: AuthService['listRecoveryExecutionsByStatus'];
+    listAccountSignersByAccount: AuthService['listAccountSignersByAccount'];
+    putAccountSigner: AuthService['putAccountSigner'];
     listIdentities: AuthService['listIdentities'];
     linkIdentity: AuthService['linkIdentity'];
     unlinkIdentity: AuthService['unlinkIdentity'];
@@ -249,6 +261,42 @@ export function makeFakeAuthService(
         code: 'not_implemented',
         message: 'not implemented',
       })),
+    prepareEmailRecovery:
+      overrides.prepareEmailRecovery ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    prepareLinkDevice:
+      overrides.prepareLinkDevice ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    getRecoverySession:
+      overrides.getRecoverySession ||
+      (async () => ({ ok: true, record: null })),
+    updateRecoverySessionStatus:
+      overrides.updateRecoverySessionStatus ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    listSmartAccountRecoverySubjects:
+      overrides.listSmartAccountRecoverySubjects ||
+      (async () => ({ ok: true, records: [] })),
+    getSmartAccountRecoverySubjectByAccount:
+      overrides.getSmartAccountRecoverySubjectByAccount ||
+      (async () => ({ ok: true, record: null })),
+    putSmartAccountRecoverySubject:
+      overrides.putSmartAccountRecoverySubject ||
+      (async (record) => ({ ok: true, record })),
+    recordRecoveryExecution:
+      overrides.recordRecoveryExecution ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    listRecoveryExecutions:
+      overrides.listRecoveryExecutions ||
+      (async () => ({ ok: true, records: [] })),
+    listRecoveryExecutionsByStatus:
+      overrides.listRecoveryExecutionsByStatus ||
+      (async () => ({ ok: true, records: [] })),
+    listAccountSignersByAccount:
+      overrides.listAccountSignersByAccount ||
+      (async () => ({ ok: true, records: [] })),
+    putAccountSigner:
+      overrides.putAccountSigner ||
+      (async (record) => ({ ok: true, record })),
     listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),
     linkIdentity:
       overrides.linkIdentity ||

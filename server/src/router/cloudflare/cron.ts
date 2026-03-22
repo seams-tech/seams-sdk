@@ -16,10 +16,15 @@ import {
   type PostgresConsoleWebhookRetryDispatchOptions,
   type PostgresConsoleWebhookRetryDispatchResult,
 } from '../../console/webhooks';
+import {
+  dispatchRecoveryAuthorityTick,
+  type RecoveryAuthorityDispatchTickResult,
+} from '../recoveryAuthorityDispatch';
 import type { ConsoleObservabilityIngestionService } from '../../console/observability';
 import type { ScheduledHandler } from './types';
 import type { RouterLogger } from '../logger';
 import { coerceRouterLogger } from '../logger';
+import type { RecoveryAuthoritySponsorshipRuntime } from '../recoveryAuthoritySponsorship';
 
 const DEFAULT_BILLING_MONTHLY_FINALIZATION_LOCK_ID = 9452360123591;
 const DEFAULT_RUNTIME_SNAPSHOT_OUTBOX_LOCK_ID = 9452360123592;
@@ -51,6 +56,13 @@ type WebhookRetryDispatchLockProvider = (input: {
   postgresUrl: string;
   lockId: number;
 }) => Promise<{ acquired: boolean; release: () => Promise<void> }>;
+
+type RecoveryAuthorityContinuationRunner = (input: {
+  service: AuthService;
+  logger: RouterLogger;
+  limit?: number;
+  sponsorship?: RecoveryAuthoritySponsorshipRuntime | null;
+}) => Promise<RecoveryAuthorityDispatchTickResult>;
 
 export interface CloudflareBillingMonthlyFinalizationCronOptions {
   /**
@@ -218,6 +230,32 @@ export interface CloudflareWebhookRetryDispatchCronOptions {
   lockProvider?: WebhookRetryDispatchLockProvider;
 }
 
+export interface CloudflareRecoveryAuthorityContinuationCronOptions {
+  /**
+   * Enable recovery-authority continuation processing.
+   * Defaults to false.
+   */
+  enabled?: boolean;
+  /**
+   * Optional cron-expression allowlist for this job.
+   * When provided, the job runs only for matching `event.cron` ticks.
+   */
+  cronExpressions?: string[];
+  /**
+   * Max pending/submitted recovery rows to process per pass.
+   */
+  limit?: number;
+  /**
+   * Optional recovery sponsorship runtime used for deployed execution
+   * and submitted receipt confirmation.
+   */
+  sponsorship?: RecoveryAuthoritySponsorshipRuntime | null;
+  /**
+   * Optional runner override for tests.
+   */
+  runner?: RecoveryAuthorityContinuationRunner;
+}
+
 export interface CloudflareCronOptions {
   /**
    * When false, the handler is a no-op.
@@ -249,6 +287,10 @@ export interface CloudflareCronOptions {
    * Optional webhook retry dispatch job.
    */
   webhookRetryDispatch?: CloudflareWebhookRetryDispatchCronOptions;
+  /**
+   * Optional smart-account recovery continuation job.
+   */
+  recoveryAuthorityContinuation?: CloudflareRecoveryAuthorityContinuationCronOptions;
 }
 
 function toValidLockId(input: unknown, fallback: number): number {
@@ -340,6 +382,11 @@ export function createCloudflareCron(
   const webhookRetryDispatchCronExpressions = normalizeCronExpressions(
     webhookRetryDispatch?.cronExpressions,
   );
+  const recoveryAuthorityContinuation = opts.recoveryAuthorityContinuation;
+  const recoveryAuthorityContinuationEnabled = Boolean(recoveryAuthorityContinuation?.enabled);
+  const recoveryAuthorityContinuationCronExpressions = normalizeCronExpressions(
+    recoveryAuthorityContinuation?.cronExpressions,
+  );
 
   return async (event) => {
     if (!enabled) return;
@@ -352,6 +399,7 @@ export function createCloudflareCron(
         billingMonthlyFinalization: billingFinalizationEnabled,
         runtimeSnapshotOutbox: runtimeSnapshotOutboxEnabled,
         webhookRetryDispatch: webhookRetryDispatchEnabled,
+        recoveryAuthorityContinuation: recoveryAuthorityContinuationEnabled,
       });
     }
 
@@ -566,6 +614,71 @@ export function createCloudflareCron(
             }
           }
         }
+      }
+    }
+
+    if (recoveryAuthorityContinuationEnabled) {
+      const eventCron = typeof event?.cron === 'string' ? event.cron : undefined;
+      const recoveryAuthorityContinuationCronMatches = shouldRunForCronTick(
+        recoveryAuthorityContinuationCronExpressions,
+        eventCron,
+      );
+      if (!recoveryAuthorityContinuationCronMatches) {
+        if (verbose) {
+          logger.info('[cron][recovery-authority] skipped: cron expression mismatch', {
+            eventCron,
+            cronExpressions: recoveryAuthorityContinuationCronExpressions,
+          });
+        }
+      } else {
+        const runner =
+          recoveryAuthorityContinuation?.runner ||
+          (async (input: {
+            service: AuthService;
+            logger: RouterLogger;
+            limit?: number;
+            sponsorship?: RecoveryAuthoritySponsorshipRuntime | null;
+          }) =>
+            await dispatchRecoveryAuthorityTick(input.service, {
+              logger: coerceRouterLogger(input.logger),
+              sponsorship: input.sponsorship || null,
+              ...(typeof input.limit === 'number' ? { limit: input.limit } : {}),
+              monitoring: { enabled: true },
+            }));
+        const result = await runner({
+          service: _service,
+          logger,
+          limit:
+            Number.isFinite(Number(recoveryAuthorityContinuation?.limit)) &&
+            Number(recoveryAuthorityContinuation?.limit) > 0
+              ? Math.floor(Number(recoveryAuthorityContinuation?.limit))
+              : undefined,
+          sponsorship: recoveryAuthorityContinuation?.sponsorship || null,
+        });
+        const monitoring = result.monitoring || {
+          stalePending: 0,
+          staleSubmitted: 0,
+          failed: 0,
+        };
+        logger.info('[cron][recovery-authority] completed', {
+          retriedProcessed: result.retry.processed,
+          retriedCount: result.retry.retried,
+          retrySkipped: result.retry.skipped,
+          retryFailed: result.retry.failed,
+          pendingProcessed: result.pending.processed,
+          pendingConfirmed: result.pending.confirmed,
+          pendingSubmitted: result.pending.submitted,
+          pendingSkipped: result.pending.skipped,
+          pendingFailed: result.pending.failed,
+          submittedProcessed: result.submitted.processed,
+          submittedConfirmed: result.submitted.confirmed,
+          submittedStillPending: result.submitted.submitted,
+          submittedSkipped: result.submitted.skipped,
+          submittedFailed: result.submitted.failed,
+          stalePending: monitoring.stalePending,
+          staleSubmitted: monitoring.staleSubmitted,
+          failedExecutions: monitoring.failed,
+        });
       }
     }
 

@@ -288,6 +288,35 @@ export interface ConsoleObservabilityApprovalFailureInput {
   redactionVersion?: number;
 }
 
+export interface ConsoleObservabilityRecoveryExecutionFailedInput {
+  orgId: string;
+  projectId?: string;
+  environmentId?: string;
+  count: number;
+  sampleExecutionRefs: string[];
+  failureCodes?: string[];
+  requestId?: string;
+  traceId?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
+export interface ConsoleObservabilityRecoveryExecutionStuckInput {
+  orgId: string;
+  projectId?: string;
+  environmentId?: string;
+  status: 'pending' | 'submitted';
+  count: number;
+  staleAfterMs: number;
+  sampleExecutionRefs: string[];
+  requestId?: string;
+  traceId?: string;
+  timestamp?: string;
+  schemaVersion?: number;
+  redactionVersion?: number;
+}
+
 export interface ConsoleObservabilityBillingSponsorshipBlockedInput {
   orgId: string;
   projectId?: string;

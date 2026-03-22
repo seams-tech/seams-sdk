@@ -38,6 +38,16 @@ export interface UnifiedIndexedDBManagerDeps {
   nearKeysDB: PasskeyNearKeysDBManager;
 }
 
+type DeployedSignerMutationRuntime = {
+  executeDeployedAddSigner: (args: {
+    nearAccountId: AccountId;
+    op: SignerOpOutboxRecord;
+    signer: AccountSignerRecord;
+    chainAccount: ChainAccountRecord;
+    now: number;
+  }) => Promise<{ txHash?: string | null }>;
+};
+
 /**
  * Unified IndexedDB interface providing access to both databases
  * This allows centralized access while maintaining separation of concerns
@@ -154,6 +164,14 @@ export class UnifiedIndexedDBManager {
     return this.clientDB.getProfileByAccount(chainIdKey, accountAddress);
   }
 
+  async getChainAccount(args: {
+    profileId: string;
+    chainIdKey: string;
+    accountAddress: string;
+  }): Promise<ChainAccountRecord | null> {
+    return this.clientDB.getChainAccount(args);
+  }
+
   async upsertAccountSigner(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
     return this.clientDB.upsertAccountSigner(input);
   }
@@ -228,6 +246,19 @@ export class UnifiedIndexedDBManager {
   }
 
   async repairSignerMutationSagas(args?: { limit?: number; now?: number }): Promise<{
+    scanned: number;
+    confirmed: number;
+    failed: number;
+    deadLettered: number;
+  }> {
+    return await this.repairSignerMutationSagasWithRuntime(args);
+  }
+
+  async repairSignerMutationSagasWithRuntime(args?: {
+    limit?: number;
+    now?: number;
+    runtime?: DeployedSignerMutationRuntime;
+  }): Promise<{
     scanned: number;
     confirmed: number;
     failed: number;
@@ -310,6 +341,20 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing profileId/signerSlot metadata for add-signer operation');
             continue;
           }
+          const nearAccountId = await this.clientDB.getNearAccountIdForProfile(profileIdRaw);
+          if (!nearAccountId) {
+            await markDeadLetter('Missing NEAR account row for deployed signer operation');
+            continue;
+          }
+          const chainAccount = await this.clientDB.getChainAccount({
+            profileId: signer.profileId,
+            chainIdKey: op.chainIdKey,
+            accountAddress: op.accountAddress,
+          });
+          if (!chainAccount) {
+            await markDeadLetter('Missing chain account row for add-signer operation');
+            continue;
+          }
           const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
             profileIdRaw,
             signerSlot,
@@ -319,7 +364,24 @@ export class UnifiedIndexedDBManager {
             await markFailed('Missing key material for signer operation');
             continue;
           }
-          if (signer.status !== 'active') {
+          if (chainAccount.deployed === true) {
+            if (signer.status === 'active') {
+              await markConfirmed();
+              continue;
+            }
+            if (!args?.runtime?.executeDeployedAddSigner) {
+              await markFailed(
+                'Deployed smart-account signer mutation requires the owner-management executor',
+              );
+              continue;
+            }
+            const executed = await args.runtime.executeDeployedAddSigner({
+              nearAccountId,
+              op,
+              signer,
+              chainAccount,
+              now,
+            });
             await this.clientDB.setAccountSignerStatus({
               chainIdKey: op.chainIdKey,
               accountAddress: op.accountAddress,
@@ -327,6 +389,15 @@ export class UnifiedIndexedDBManager {
               status: 'active',
               mutation: { routeThroughOutbox: false },
             });
+            await this.clientDB.setSignerOperationStatus({
+              opId: op.opId,
+              status: 'confirmed',
+              lastError: null,
+              nextAttemptAt: now,
+              ...(executed?.txHash ? { txHash: executed.txHash } : {}),
+            });
+            summary.confirmed += 1;
+            continue;
           }
           await markConfirmed();
           continue;

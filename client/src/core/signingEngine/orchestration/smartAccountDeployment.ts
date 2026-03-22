@@ -6,6 +6,13 @@ import type {
   SmartAccountDeployerResult,
 } from './ensureSmartAccountDeployed';
 
+const DEFAULT_SMART_ACCOUNT_DEPLOYMENT_MANIFEST_ROUTE = '/smart-account/deployment/manifest';
+
+export type SmartAccountDeploymentTransport = {
+  relayerUrl: string;
+  thresholdSessionJwt: string;
+};
+
 function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer?.url || '').trim();
   if (!relayerUrl) {
@@ -36,21 +43,97 @@ export function resolveSmartAccountDeploymentMaxAttempts(configs: TatchiConfigsR
   );
 }
 
+async function fetchCanonicalSmartAccountDeploymentManifest(input: {
+  transport: SmartAccountDeploymentTransport;
+  chain: SmartAccountDeployerInput['chain'];
+  chainId: number;
+  accountAddress: string;
+}): Promise<
+  | { ok: true; manifest: Record<string, unknown> }
+  | { ok: false; code: string; message: string }
+> {
+  const relayerUrl = String(input.transport.relayerUrl || '').trim();
+  const thresholdSessionJwt = String(input.transport.thresholdSessionJwt || '').trim();
+  const accountAddress = String(input.accountAddress || '').trim();
+  if (!relayerUrl || !thresholdSessionJwt || !accountAddress) {
+    return {
+      ok: false,
+      code: 'missing_transport',
+      message: 'Missing relay transport or smart-account deployment key',
+    };
+  }
+
+  try {
+    const response = await fetch(
+      joinNormalizedUrl(relayerUrl, DEFAULT_SMART_ACCOUNT_DEPLOYMENT_MANIFEST_ROUTE),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${thresholdSessionJwt}`,
+        },
+        credentials: 'omit',
+        body: JSON.stringify({
+          chain: input.chain,
+          chain_id: input.chainId,
+          account_address: accountAddress,
+        }),
+      },
+    );
+    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const manifest =
+      json?.manifest && typeof json.manifest === 'object' && !Array.isArray(json.manifest)
+        ? (json.manifest as Record<string, unknown>)
+        : null;
+    if (!response.ok || json?.ok !== true || !manifest) {
+      return {
+        ok: false,
+        code:
+          normalizeOptionalNonEmptyString(json?.code || json?.error || `http_${response.status}`) ||
+          `http_${response.status}`,
+        message:
+          normalizeOptionalNonEmptyString(json?.message || json?.error || response.statusText) ||
+          'Failed to fetch canonical smart-account deployment manifest',
+      };
+    }
+    return { ok: true, manifest };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'request_failed',
+      message:
+        normalizeOptionalNonEmptyString((error as { message?: unknown })?.message || error) ||
+        'Failed to fetch canonical smart-account deployment manifest',
+    };
+  }
+}
+
 export async function deploySmartAccountForChain(
   configs: TatchiConfigsReadonly,
   input: SmartAccountDeployerInput,
+  transport: SmartAccountDeploymentTransport,
 ): Promise<SmartAccountDeployerResult> {
   const endpoint = resolveSmartAccountDeployEndpoint(configs);
+  const manifest = await fetchCanonicalSmartAccountDeploymentManifest({
+    transport,
+    chain: input.chain,
+    chainId: input.chainId,
+    accountAddress: String(input.account.accountAddress || '').trim(),
+  });
+  if (!manifest.ok) {
+    return {
+      ok: false,
+      code: manifest.code,
+      message: manifest.message,
+    };
+  }
   const body = {
     nearAccountId: String(input.nearAccountId || '').trim(),
     chain: input.chain,
     chainId: input.chainId,
     accountAddress: String(input.account.accountAddress || '').trim(),
     accountModel: String(input.account.accountModel || '').trim(),
-    counterfactualAddress: String(input.account.counterfactualAddress || '').trim(),
-    ...(input.account.factory ? { factory: String(input.account.factory).trim() } : {}),
-    ...(input.account.entryPoint ? { entryPoint: String(input.account.entryPoint).trim() } : {}),
-    ...(input.account.salt ? { salt: String(input.account.salt).trim() } : {}),
+    deploymentManifest: manifest.manifest,
   };
 
   let json: Record<string, unknown> | null = null;

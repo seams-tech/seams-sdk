@@ -1,6 +1,7 @@
 import type { MinimalNearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
 import type { Logger } from '../core/logger';
+import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 
 export interface EmailRecoveryServiceDeps {
   relayerAccount: string;
@@ -33,6 +34,7 @@ export interface EmailRecoveryServiceDeps {
 export interface EmailRecoveryRequest {
   accountId: string;
   emailBlob: string;
+  recoveryPayload: RecoveryEmailPayload;
 }
 
 export interface EmailRecoveryResult {

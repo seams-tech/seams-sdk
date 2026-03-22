@@ -46,8 +46,14 @@ export type PendingEmailRecovery = {
   accountId: AccountId;
   deviceNumber: number;
   requestId: string;
+  recoverySessionId: string;
   // New key material (e.g., a fresh access key) will be derived and added during finalize.
-  nearPublicKey?: string;
+  nearPublicKey: string;
+  newEvmOwnerAddress: string;
+  deadlineEpochSeconds: number;
+  recoveryEmailPayloadHash: string;
+  recoveryEmailSubject: string;
+  recoveryEmailBody: string;
   credential: WebAuthnRegistrationCredential;
   createdAt: number;
   status: PendingEmailRecoveryStatus;
@@ -91,4 +97,5 @@ export type CollectedRecoveryCredential = {
 
 export type DerivedRecoveryKeys = {
   nearPublicKey: string;
+  evmOwnerAddress: string;
 };

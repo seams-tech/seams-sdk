@@ -1,4 +1,7 @@
-import type { AuthService } from '@tatchi-xyz/sdk/server';
+import type {
+  AuthService,
+  RecoveryAuthoritySponsorshipRuntime,
+} from '@tatchi-xyz/sdk/server';
 import {
   createCloudflareCron,
   type CfExecutionContext as Ctx,
@@ -15,6 +18,7 @@ export interface WorkerScheduledEnv extends RelayCloudflareWorkerEnv, WorkerCron
   BILLING_FINALIZATION_ENABLED?: string;
   RUNTIME_SNAPSHOT_OUTBOX_ENABLED?: string;
   WEBHOOK_RETRY_ENABLED?: string;
+  RECOVERY_AUTHORITY_CONTINUATION_ENABLED?: string;
 }
 
 export interface WorkerRuntimeSnapshotOutboxSink {
@@ -29,6 +33,14 @@ export interface WorkerScheduledHandlerDependencies<Env extends WorkerScheduledE
       ) =>
         | Promise<ConsoleObservabilityIngestionService | null>
         | ConsoleObservabilityIngestionService
+        | null)
+    | null;
+  createRecoveryAuthoritySponsorship?:
+    | ((
+        env: Env,
+      ) =>
+        | Promise<RecoveryAuthoritySponsorshipRuntime | null>
+        | RecoveryAuthoritySponsorshipRuntime
         | null)
     | null;
   outboxSink: WorkerRuntimeSnapshotOutboxSink;
@@ -52,6 +64,9 @@ export function createWorkerScheduledHandler<Env extends WorkerScheduledEnv>(
     const observabilityIngestion = deps.createObservabilityIngestion
       ? await deps.createObservabilityIngestion(env)
       : null;
+    const sponsorship = deps.createRecoveryAuthoritySponsorship
+      ? await deps.createRecoveryAuthoritySponsorship(env)
+      : null;
     const cronFlags = resolveWorkerCronFeatureFlags(env);
     const issues = collectWorkerCronConfigIssues(env, cronFlags);
     for (const issue of issues) {
@@ -59,7 +74,13 @@ export function createWorkerScheduledHandler<Env extends WorkerScheduledEnv>(
     }
     const cron = createCron(
       authService,
-      createWorkerCronOptions(env, cronFlags, deps.outboxSink, observabilityIngestion),
+      createWorkerCronOptions(
+        env,
+        cronFlags,
+        deps.outboxSink,
+        observabilityIngestion,
+        sponsorship,
+      ),
     );
     await cron(event, env, ctx);
   };
