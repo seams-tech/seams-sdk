@@ -42,8 +42,7 @@ export interface DelegateActionInput {
   maxBlockHeight: bigint | string | number;
   /**
    * Public key of the signer used to sign the delegate action.
-   * - `local-signer`: the local device key
-   * - `threshold-signer`: the threshold/group key
+   * For NEAR, this is the threshold/group key.
    *
    * Must match the key used to produce the delegate signature.
    */

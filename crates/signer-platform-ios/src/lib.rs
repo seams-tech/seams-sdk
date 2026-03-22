@@ -3,9 +3,6 @@ pub use signer_core::codec;
 #[cfg(feature = "near-crypto")]
 pub use signer_core::near_crypto;
 
-#[cfg(feature = "near-ed25519")]
-pub use signer_core::near_ed25519;
-
 #[cfg(feature = "near-threshold-ed25519")]
 pub use signer_core::near_threshold_ed25519;
 
@@ -298,38 +295,6 @@ pub extern "C" fn signer_platform_ios_v1_add_secp256k1_public_keys_33_hex(
 }
 
 #[no_mangle]
-pub extern "C" fn signer_platform_ios_v1_derive_ed25519_keypair(
-    prf_output_base64: *const c_char,
-    account_id: *const c_char,
-) -> *mut c_char {
-    #[cfg(feature = "near-ed25519")]
-    {
-        let prf_output_base64 = match read_c_string(prf_output_base64) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        let account_id = match read_c_string(account_id) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        let (private_key, public_key) = match v1::derive_ed25519_key_from_prf_output(
-            prf_output_base64,
-            account_id,
-        ) {
-            Ok(v) => v,
-            Err(_) => return ptr::null_mut(),
-        };
-        let combined = format!("{private_key}\n{public_key}");
-        return into_c_string_ptr(combined);
-    }
-    #[cfg(not(feature = "near-ed25519"))]
-    {
-        let _ = (prf_output_base64, account_id);
-        ptr::null_mut()
-    }
-}
-
-#[no_mangle]
 pub extern "C" fn signer_platform_ios_v1_derive_kek_from_wrap_key_seed_b64u_hex(
     wrap_key_seed_b64u: *const c_char,
     wrap_key_salt_b64u: *const c_char,
@@ -519,18 +484,6 @@ pub mod v1 {
             .map_err(|e| e.to_string())
     }
 
-    #[cfg(feature = "near-ed25519")]
-    pub fn derive_ed25519_key_from_prf_output(
-        prf_output_base64: String,
-        account_id: String,
-    ) -> Result<(String, String), String> {
-        crate::near_ed25519::derive_ed25519_key_from_prf_output(
-            prf_output_base64.as_str(),
-            account_id.as_str(),
-        )
-        .map_err(|e| e.to_string())
-    }
-
     #[cfg(feature = "near-crypto")]
     pub fn derive_kek_from_wrap_key_seed_b64u(
         wrap_key_seed_b64u: String,
@@ -572,10 +525,5 @@ pub mod v1 {
     }
 }
 
-#[cfg(all(
-    test,
-    feature = "secp256k1",
-    feature = "near-ed25519",
-    feature = "near-crypto"
-))]
+#[cfg(all(test, feature = "secp256k1", feature = "near-crypto"))]
 mod tests;

@@ -4,15 +4,11 @@ import {
   isWorkerError,
   type ConfirmationConfig,
   type Nep413SigningResponse,
-  type SignerMode,
   type WasmSignNep413MessageRequest,
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import {
-  LocalNearSkV3Material,
-  ThresholdEd25519_2p_V1Material,
-} from '@/core/indexedDB/passkeyNearKeysDB.types';
+import { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -55,7 +51,6 @@ export async function signNep413Message({
     nonce: string;
     state: string | null;
     accountId: string;
-    signerMode: SignerMode;
     deviceNumber?: number;
     title?: string;
     body?: string;
@@ -75,20 +70,12 @@ export async function signNep413Message({
     const sessionId = payload.sessionId ?? generateSessionId();
     const relayerUrl = ctx.relayerUrl;
     const nearAccountId = payload.accountId;
-    const {
-      resolvedSignerMode,
-      localKeyMaterial,
-      thresholdKeyMaterial,
-      localWrapKeySalt,
-      thresholdWrapKeySalt,
-    } = await resolveNearSigningMaterials({
+    const { thresholdKeyMaterial, thresholdWrapKeySalt } = await resolveNearSigningMaterials({
       ctx,
       nearAccountId,
-      signerMode: payload.signerMode,
       deviceNumber: payload.deviceNumber,
       operationLabel: 'NEP-413 signing',
     });
-
     const touchConfirm = ctx.touchConfirm;
     if (!touchConfirm) {
       throw new Error('TouchConfirm bridge not available for NEP-413 signing');
@@ -96,10 +83,8 @@ export async function signNep413Message({
 
     const signingContext = validateAndPrepareNep413SigningContext({
       nearAccountId,
-      resolvedSignerMode,
       relayerUrl,
       rpId: ctx.touchIdPrompt.getRpId(),
-      localKeyMaterial,
       thresholdKeyMaterial,
     });
 
@@ -192,42 +177,17 @@ export async function signNep413Message({
       accountId: nearAccountId,
       nearPublicKey: signingContext.nearPublicKey,
       ...buildNearWorkerSigningEnvelope({
-        signerMode: signingContext.resolvedSignerMode,
         prfFirstB64u,
-        wrapKeySalt: signingContext.threshold ? thresholdWrapKeySalt : localWrapKeySalt,
-        localKeyMaterial: signingContext.threshold ? undefined : localKeyMaterial,
-        threshold: signingContext.threshold
-          ? {
-              relayerUrl: signingContext.threshold.relayerUrl,
-              thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-              thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
-              thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
-            }
-          : undefined,
+        wrapKeySalt: thresholdWrapKeySalt,
+        threshold: {
+          relayerUrl: signingContext.threshold.relayerUrl,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
+          thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+        },
       }),
       credential: credentialForRelayJson,
     };
-
-    if (!signingContext.threshold) {
-      const response = await executeWorkerOperation({
-        ctx,
-        kind: 'nearSigner',
-        request: {
-          sessionId,
-          type: WorkerRequestType.SignNep413Message,
-          payload: requestPayload,
-        },
-      });
-      const okResponse = requireOkSignNep413MessageResponse(response);
-
-      return {
-        success: true,
-        accountId: okResponse.payload.accountId,
-        publicKey: okResponse.payload.publicKey,
-        signature: okResponse.payload.signature,
-        state: okResponse.payload.state || undefined,
-      };
-    }
 
     let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
     try {
@@ -287,7 +247,6 @@ export async function signNep413Message({
 }
 
 type ThresholdNep413SigningContext = {
-  resolvedSignerMode: 'threshold-signer';
   nearPublicKey: string;
   threshold: {
     relayerUrl: string;
@@ -298,37 +257,12 @@ type ThresholdNep413SigningContext = {
   };
 };
 
-type LocalNep413SigningContext = {
-  resolvedSignerMode: 'local-signer';
-  nearPublicKey: string;
-  threshold: null;
-};
-
-type Nep413SigningContext = ThresholdNep413SigningContext | LocalNep413SigningContext;
-
 function validateAndPrepareNep413SigningContext(args: {
   nearAccountId: string;
-  resolvedSignerMode: SignerMode['mode'];
   relayerUrl: string;
   rpId: string | null;
-  localKeyMaterial: LocalNearSkV3Material | null;
   thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
-}): Nep413SigningContext {
-  if (args.resolvedSignerMode !== 'threshold-signer') {
-    if (!args.localKeyMaterial) {
-      throw new Error(`No local key material found for account: ${args.nearAccountId}`);
-    }
-    const localPublicKey = String(args.localKeyMaterial.publicKey || '').trim();
-    if (!localPublicKey) {
-      throw new Error(`Missing local signing public key for ${args.nearAccountId}`);
-    }
-    return {
-      resolvedSignerMode: 'local-signer',
-      nearPublicKey: localPublicKey,
-      threshold: null,
-    };
-  }
-
+}): ThresholdNep413SigningContext {
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
   if (!thresholdKeyMaterial) {
     throw new Error(`Missing threshold key material for ${args.nearAccountId}`);
@@ -370,7 +304,6 @@ function validateAndPrepareNep413SigningContext(args: {
     cachedAuthSession?.sessionKind === 'cookie' ? 'cookie' : 'jwt';
 
   return {
-    resolvedSignerMode: 'threshold-signer',
     nearPublicKey: thresholdPublicKey,
     threshold: {
       relayerUrl,

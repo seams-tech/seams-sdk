@@ -36,7 +36,7 @@ test.describe('signer worker JS guards – PRF rejection', () => {
         await waitFor(() => messages.some((m: any) => m?.type === 'WORKER_READY'), 5000);
         worker.postMessage({
           id: requestId,
-          type: 0, // WorkerRequestType.DeriveNearKeypairAndEncrypt (numeric)
+          type: 5, // WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare (numeric)
           payload: {
             prfOutput: 'leaked-prf',
           },
@@ -92,7 +92,7 @@ test.describe('signer worker JS guards – PRF rejection', () => {
         await waitFor(() => messages.some((m: any) => m?.type === 'WORKER_READY'), 5000);
         worker.postMessage({
           id: requestId,
-          type: 4, // WorkerRequestType.SignTransactionsWithActions (numeric)
+          type: 0, // WorkerRequestType.SignTransactionsWithActions (numeric)
           payload: {
             prfFirst: 'leaked-prf-first',
           },

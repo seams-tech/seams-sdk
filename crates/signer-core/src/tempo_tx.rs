@@ -362,10 +362,9 @@ mod tests {
 
         let err = encode_tempo_signed_tx(&tx, vec![0x99; 65].as_slice())
             .expect_err("aaAuthorizationList must be rejected");
-        assert!(
-            err.to_string()
-                .contains("aaAuthorizationList not supported in MVP (must be empty)")
-        );
+        assert!(err
+            .to_string()
+            .contains("aaAuthorizationList not supported in MVP (must be empty)"));
     }
 
     #[test]
@@ -378,9 +377,8 @@ mod tests {
 
         let err = encode_tempo_signed_tx(&tx, vec![0x99; 65].as_slice())
             .expect_err("keyAuthorization must be rejected");
-        assert!(
-            err.to_string()
-                .contains("keyAuthorization not supported in MVP")
-        );
+        assert!(err
+            .to_string()
+            .contains("keyAuthorization not supported in MVP"));
     }
 }

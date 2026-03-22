@@ -1,21 +1,14 @@
 use crate::threshold::participant_ids::{
     normalize_participant_ids, validate_threshold_ed25519_participant_ids_2p,
 };
-use crate::types::SignerMode;
 use crate::types::ThresholdSignerConfig;
 use crate::WrapKey;
-use ed25519_dalek::Signer;
 #[cfg(target_arch = "wasm32")]
 use js_sys::Date;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
 use std::collections::BTreeMap;
-
-fn threshold_signer_not_implemented_error() -> String {
-    "threshold-signer requires relayer FROST endpoints and threshold key material (client share + relayer share). See docs/lite-signer-refactor/plan.md."
-        .to_string()
-}
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,32 +300,9 @@ async fn resolve_mpc_session_id(
     Err("threshold-signer: missing threshold session token after session mint attempt".to_string())
 }
 
-pub enum Ed25519SignerBackend {
-    Local(LocalEd25519Signer),
-    Threshold(ThresholdEd25519RelayerSigner),
-}
+pub struct Ed25519SignerBackend(ThresholdEd25519RelayerSigner);
 
 impl Ed25519SignerBackend {
-    pub fn from_encrypted_near_private_key(
-        signer_mode: SignerMode,
-        wrap_key: &WrapKey,
-        encrypted_private_key_data: &str,
-        encrypted_private_key_chacha20_nonce_b64u: &str,
-    ) -> Result<Self, String> {
-        match signer_mode {
-            SignerMode::LocalSigner => Ok(Self::Local(
-                LocalEd25519Signer::from_encrypted_near_private_key(
-                    wrap_key,
-                    encrypted_private_key_data,
-                    encrypted_private_key_chacha20_nonce_b64u,
-                )?,
-            )),
-            SignerMode::ThresholdSigner => Ok(Self::Threshold(
-                ThresholdEd25519RelayerSigner::unconfigured(),
-            )),
-        }
-    }
-
     pub fn from_threshold_signer_config(
         wrap_key: &WrapKey,
         near_account_id: &str,
@@ -342,7 +312,7 @@ impl Ed25519SignerBackend {
         authorize_signing_payload_json: Option<String>,
         cfg: &ThresholdSignerConfig,
     ) -> Result<Self, String> {
-        Ok(Self::Threshold(ThresholdEd25519RelayerSigner::new(
+        Ok(Self(ThresholdEd25519RelayerSigner::new(
             wrap_key,
             near_account_id,
             near_public_key_str,
@@ -354,62 +324,15 @@ impl Ed25519SignerBackend {
     }
 
     pub fn public_key_bytes(&self) -> Result<[u8; 32], String> {
-        match self {
-            Self::Local(signer) => Ok(signer.public_key_bytes()),
-            Self::Threshold(signer) => signer.public_key_bytes(),
-        }
+        self.0.public_key_bytes()
     }
 
     pub async fn sign(&self, message: &[u8]) -> Result<[u8; 64], String> {
-        match self {
-            Self::Local(signer) => Ok(signer.sign(message)),
-            Self::Threshold(signer) => signer.sign(message).await,
-        }
+        self.0.sign(message).await
     }
 }
 
-pub struct LocalEd25519Signer {
-    signing_key: ed25519_dalek::SigningKey,
-}
-
-impl LocalEd25519Signer {
-    pub fn from_encrypted_near_private_key(
-        wrap_key: &WrapKey,
-        encrypted_private_key_data: &str,
-        encrypted_private_key_chacha20_nonce_b64u: &str,
-    ) -> Result<Self, String> {
-        let kek = wrap_key.derive_kek()?;
-        let decrypted_private_key_str = crate::crypto::decrypt_data_chacha20(
-            encrypted_private_key_data,
-            encrypted_private_key_chacha20_nonce_b64u,
-            &kek,
-        )
-        .map_err(|e| format!("Failed to decrypt private key: {}", e))?;
-
-        let secret_bytes =
-            signer_platform_web::near_ed25519::parse_near_private_key_secret_key_bytes(
-                &decrypted_private_key_str,
-            )
-            .map_err(|e| e.to_string())?;
-        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
-        Ok(Self { signing_key })
-    }
-
-    pub fn public_key_bytes(&self) -> [u8; 32] {
-        self.signing_key.verifying_key().to_bytes()
-    }
-
-    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
-        self.signing_key.sign(message).to_bytes()
-    }
-}
-
-pub enum ThresholdEd25519RelayerSigner {
-    Unconfigured,
-    Configured(ThresholdEd25519RelayerSignerConfigured),
-}
-
-pub struct ThresholdEd25519RelayerSignerConfigured {
+pub struct ThresholdEd25519RelayerSigner {
     cfg: ThresholdSignerConfig,
     near_account_id: String,
     near_public_key_bytes: [u8; 32],
@@ -423,15 +346,8 @@ pub struct ThresholdEd25519RelayerSignerConfigured {
 }
 
 impl ThresholdEd25519RelayerSigner {
-    pub fn unconfigured() -> Self {
-        Self::Unconfigured
-    }
-
     pub fn public_key_bytes(&self) -> Result<[u8; 32], String> {
-        match self {
-            Self::Unconfigured => Err(threshold_signer_not_implemented_error()),
-            Self::Configured(cfg) => Ok(cfg.near_public_key_bytes),
-        }
+        Ok(self.near_public_key_bytes)
     }
 
     pub fn new(
@@ -515,7 +431,7 @@ impl ThresholdEd25519RelayerSigner {
         let mut cfg_norm = cfg.clone();
         cfg_norm.mpc_session_id = normalized_mpc_session_id.clone();
 
-        Ok(Self::Configured(ThresholdEd25519RelayerSignerConfigured {
+        Ok(Self {
             cfg: cfg_norm,
             near_account_id: near_account_id.to_string(),
             near_public_key_bytes,
@@ -526,23 +442,18 @@ impl ThresholdEd25519RelayerSigner {
             purpose: purpose.to_string(),
             webauthn_authentication_json,
             authorize_signing_payload_json,
-        }))
+        })
     }
 
     pub async fn sign(&self, message: &[u8]) -> Result<[u8; 64], String> {
-        let configured = match self {
-            Self::Unconfigured => return Err(threshold_signer_not_implemented_error()),
-            Self::Configured(cfg) => cfg,
-        };
-
-        let cfg = &configured.cfg;
-        let near_account_id = configured.near_account_id.as_str();
-        let purpose = configured.purpose.as_str();
-        let client_key_package = &configured.client_key_package;
-        let client_identifier = configured.client_identifier;
-        let relayer_identifier = configured.relayer_identifier;
-        let webauthn_authentication_json_opt = &configured.webauthn_authentication_json;
-        let authorize_signing_payload_json_opt = &configured.authorize_signing_payload_json;
+        let cfg = &self.cfg;
+        let near_account_id = self.near_account_id.as_str();
+        let purpose = self.purpose.as_str();
+        let client_key_package = &self.client_key_package;
+        let client_identifier = self.client_identifier;
+        let relayer_identifier = self.relayer_identifier;
+        let webauthn_authentication_json_opt = &self.webauthn_authentication_json;
+        let authorize_signing_payload_json_opt = &self.authorize_signing_payload_json;
 
         if message.len() != 32 {
             return Err(format!(
@@ -555,7 +466,7 @@ impl ThresholdEd25519RelayerSigner {
         {
             let _ = cfg;
             let _ = near_account_id;
-            let _ = configured.client_verifying_share_b64u.as_str();
+            let _ = self.client_verifying_share_b64u.as_str();
             let _ = purpose;
             let _ = client_key_package;
             let _ = client_identifier;
@@ -571,7 +482,7 @@ impl ThresholdEd25519RelayerSigner {
             use super::coordinator;
             use super::transport::HttpThresholdEd25519Transport;
 
-            let client_verifying_share_b64u = configured.client_verifying_share_b64u.as_str();
+            let client_verifying_share_b64u = self.client_verifying_share_b64u.as_str();
             let transport = HttpThresholdEd25519Transport;
 
             // Prefer a provided mpcSessionId; otherwise authorize via session/cached WebAuthn.

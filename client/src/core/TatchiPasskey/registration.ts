@@ -12,7 +12,7 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
 import { IndexedDBManager } from '../indexedDB';
-import { type ConfirmationConfig, mergeSignerMode } from '../types/signer-worker';
+import { type ConfirmationConfig } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
@@ -105,40 +105,18 @@ export async function registerPasskeyInternal(
       message: 'WebAuthn ceremony successful',
     });
 
-    const baseSignerMode = signingEngine.getUserPreferences().getSignerMode();
-    // Registration defaults to threshold mode even when global/user defaults are local-signer.
-    // Explicit per-call overrides can still force local mode for account-key registration.
-    const registrationDefaultSignerMode =
-      baseSignerMode.mode === 'threshold-signer'
-        ? baseSignerMode
-        : { mode: 'threshold-signer' as const };
-    const requestedSignerMode = mergeSignerMode(registrationDefaultSignerMode, options?.signerMode);
-    const requestedSignerModeStr = requestedSignerMode.mode;
-    const deriveLocalBackupKey =
-      requestedSignerModeStr === 'threshold-signer' ? options?.backupLocalKey !== false : true;
     const provisioningDefaults =
-      requestedSignerModeStr === 'threshold-signer'
-        ? options?.signerOptions || configs.signing.thresholdEcdsa.provisioningDefaults
-        : null;
-    const thresholdEcdsaProvisionTargets = provisioningDefaults
-      ? listThresholdEcdsaProvisionTargets(provisioningDefaults)
-      : [];
+      options?.signerOptions || configs.signing.thresholdEcdsa.provisioningDefaults;
+    const thresholdEcdsaProvisionTargets =
+      listThresholdEcdsaProvisionTargets(provisioningDefaults);
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
     const thresholdEcdsaSmartAccountTargetsForRegistration = thresholdEcdsaProvisionTargets
       .map((target) => toRegistrationSmartAccountTarget(target.chain, target.options.smartAccount))
       .filter((target): target is NonNullable<typeof target> => Boolean(target));
 
     const deviceNumber = 1;
-    let accountNearPublicKey: string | null = null;
     let thresholdClientVerifyingShareB64u: string | null = null;
     let thresholdEcdsaClientVerifyingShareB64u: string | null = null;
-    let localKeyMaterialForPersist: {
-      publicKey: string;
-      encryptedSk: string;
-      chacha20NonceB64u: string;
-      wrapKeySalt: string;
-      usage: 'runtime-signing' | 'export-only';
-    } | null = null;
     let thresholdPrfFirstB64u: string | null = null;
     let thresholdEd25519SessionIdForRegistration: string | null = null;
     let thresholdEcdsaSessionIdForRegistration: string | null = null;
@@ -162,94 +140,28 @@ export async function registerPasskeyInternal(
     } | null = null;
     let thresholdEcdsaSessionKindForRegistration: 'jwt' | 'cookie' = 'jwt';
 
-    // 2) Key material:
-    // - threshold-signer: derive client verifying share from PRF.first (default)
-    // - threshold-signer + backupLocalKey: also derive encrypted local backup key material for export
-    // - local-signer: derive encrypted local key material for account key usage
-    if (requestedSignerModeStr === 'threshold-signer') {
-      const derived = await signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-        credential,
-        nearAccountId,
-      });
-      if (!derived.success || !derived.clientVerifyingShareB64u) {
-        throw new Error(derived.error || 'Failed to derive threshold client verifying share');
-      }
-      thresholdClientVerifyingShareB64u = derived.clientVerifyingShareB64u;
-      const derivedEcdsa =
-        await signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
-          credential,
-          nearAccountId,
-        });
-      if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
-        throw new Error(
-          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
-        );
-      }
-      thresholdEcdsaClientVerifyingShareB64u = derivedEcdsa.clientVerifyingShareB64u;
-      thresholdPrfFirstB64u =
-        String(getPrfResultsFromCredential(credential).first || '').trim() || null;
-      if (!thresholdPrfFirstB64u) {
-        throw new Error(
-          'Missing PRF.first output from registration credential (requires a PRF-enabled passkey)',
-        );
-      }
-
-      if (deriveLocalBackupKey) {
-        const localKeyResult = await signingEngine.deriveNearKeypairAndEncryptFromSerialized({
-          credential,
-          nearAccountId,
-          options: { deviceNumber, persistToDb: false },
-        });
-        if (!localKeyResult.success || !localKeyResult.publicKey) {
-          const reason = localKeyResult?.error || 'Failed to derive local backup keypair with PRF';
-          throw new Error(reason);
-        }
-        const localPublicKey = ensureEd25519Prefix(String(localKeyResult.publicKey || '').trim());
-        if (!localPublicKey) {
-          throw new Error('Missing local backup public key after key derivation');
-        }
-        const encryptedSk = String(localKeyResult.encryptedSk || '').trim();
-        const chacha20NonceB64u = String(localKeyResult.chacha20NonceB64u || '').trim();
-        const wrapKeySalt = String(localKeyResult.wrapKeySalt || '').trim();
-        if (!encryptedSk || !chacha20NonceB64u || !wrapKeySalt) {
-          throw new Error('Missing encrypted local backup key material after key derivation');
-        }
-        localKeyMaterialForPersist = {
-          publicKey: localPublicKey,
-          encryptedSk,
-          chacha20NonceB64u,
-          wrapKeySalt,
-          usage: 'export-only',
-        };
-      }
-    } else {
-      const nearKeyResult = await signingEngine.deriveNearKeypairAndEncryptFromSerialized({
-        credential,
-        nearAccountId,
-        options: { deviceNumber, persistToDb: false },
-      });
-      if (!nearKeyResult.success || !nearKeyResult.publicKey) {
-        const reason = nearKeyResult?.error || 'Failed to generate NEAR keypair with PRF';
-        throw new Error(reason);
-      }
-      const localPublicKey = ensureEd25519Prefix(String(nearKeyResult.publicKey || '').trim());
-      if (!localPublicKey) {
-        throw new Error('Missing local signer public key after key derivation');
-      }
-      const encryptedSk = String(nearKeyResult.encryptedSk || '').trim();
-      const chacha20NonceB64u = String(nearKeyResult.chacha20NonceB64u || '').trim();
-      const wrapKeySalt = String(nearKeyResult.wrapKeySalt || '').trim();
-      if (!encryptedSk || !chacha20NonceB64u || !wrapKeySalt) {
-        throw new Error('Missing encrypted local key material after key derivation');
-      }
-      localKeyMaterialForPersist = {
-        publicKey: localPublicKey,
-        encryptedSk,
-        chacha20NonceB64u,
-        wrapKeySalt,
-        usage: 'runtime-signing',
-      };
-      accountNearPublicKey = localPublicKey;
+    const derived = await signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      credential,
+      nearAccountId,
+    });
+    if (!derived.success || !derived.clientVerifyingShareB64u) {
+      throw new Error(derived.error || 'Failed to derive threshold client verifying share');
+    }
+    thresholdClientVerifyingShareB64u = derived.clientVerifyingShareB64u;
+    const derivedEcdsa = await signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
+      credential,
+      nearAccountId,
+    });
+    if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
+      throw new Error(derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share');
+    }
+    thresholdEcdsaClientVerifyingShareB64u = derivedEcdsa.clientVerifyingShareB64u;
+    thresholdPrfFirstB64u =
+      String(getPrfResultsFromCredential(credential).first || '').trim() || null;
+    if (!thresholdPrfFirstB64u) {
+      throw new Error(
+        'Missing PRF.first output from registration credential (requires a PRF-enabled passkey)',
+      );
     }
 
     // Step 4-5: Create account and register using the relay (atomic)
@@ -257,15 +169,10 @@ export async function registerPasskeyInternal(
       step: 2,
       phase: RegistrationPhase.STEP_2_KEY_GENERATION,
       status: RegistrationStatus.SUCCESS,
-      message:
-        requestedSignerModeStr === 'threshold-signer'
-          ? deriveLocalBackupKey
-            ? 'Derived threshold client share and local backup key from passkey'
-            : 'Derived threshold client share from passkey'
-          : 'Wallet derived successfully from passkey',
+      message: 'Derived threshold client share from passkey',
       verified: true,
       nearAccountId: nearAccountId,
-      nearPublicKey: accountNearPublicKey || null,
+      nearPublicKey: null,
     });
 
     const rpId = signingEngine.getRpId();
@@ -273,7 +180,7 @@ export async function registerPasskeyInternal(
       throw new Error('Missing rpId for relay registration');
     }
 
-    if (requestedSignerModeStr === 'threshold-signer' && thresholdClientVerifyingShareB64u) {
+    if (thresholdClientVerifyingShareB64u) {
       thresholdEd25519SessionIdForRegistration = generateThresholdSessionId();
       thresholdEd25519SessionPolicyForRegistration = {
         version: THRESHOLD_SESSION_POLICY_VERSION,
@@ -285,11 +192,7 @@ export async function registerPasskeyInternal(
       };
     }
 
-    if (
-      requestedSignerModeStr === 'threshold-signer' &&
-      thresholdEcdsaClientVerifyingShareB64u &&
-      thresholdEcdsaPrimaryProvisionTarget
-    ) {
+    if (thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaPrimaryProvisionTarget) {
       thresholdEcdsaSessionIdForRegistration = generateThresholdSessionId();
       thresholdEcdsaSessionKindForRegistration =
         thresholdEcdsaPrimaryProvisionTarget.options.signingSession.kind;
@@ -316,7 +219,6 @@ export async function registerPasskeyInternal(
     const accountAndRegistrationResult = await createAccountAndRegisterWithRelayServer(
       context,
       nearAccountId,
-      requestedSignerModeStr === 'threshold-signer' ? undefined : accountNearPublicKey || undefined,
       credential,
       rpId,
       authenticatorOptions,
@@ -437,7 +339,6 @@ export async function registerPasskeyInternal(
       }
     }
     if (
-      requestedSignerModeStr === 'threshold-signer' &&
       thresholdEcdsaClientVerifyingShareB64u &&
       thresholdEcdsaSessionPolicyForRegistration &&
       (!thresholdEcdsaRelayerKeyId ||
@@ -448,10 +349,7 @@ export async function registerPasskeyInternal(
         '[Registration] threshold ECDSA keygen result missing key material; canonical threshold session record cannot be built',
       );
     }
-    const accountCreationPublicKey =
-      requestedSignerModeStr === 'threshold-signer'
-        ? thresholdPublicKey
-        : String(accountNearPublicKey || '').trim();
+    const accountCreationPublicKey = thresholdPublicKey;
     if (!accountCreationPublicKey) {
       throw new Error('Missing account public key after registration');
     }
@@ -483,59 +381,50 @@ export async function registerPasskeyInternal(
       });
     }
 
-    // For threshold-signer registrations, the account is created directly with the threshold key.
-    // Confirm threshold key availability and continue.
-    if (requestedSignerModeStr === 'threshold-signer') {
-      if (
-        !thresholdPublicKey ||
-        !relayerKeyId ||
-        !thresholdClientVerifyingShareB64u ||
-        !relayerVerifyingShareB64u
-      ) {
-        throw new Error('Threshold registration did not return required key material');
-      }
-
-      // Step 7: ensure threshold key is available on-chain.
-      onEvent?.({
-        step: 7,
-        phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
-        status: RegistrationStatus.PROGRESS,
-        message: 'Confirming threshold key…',
-        thresholdPublicKey,
-        relayerKeyId,
-        deviceNumber,
-      });
-
-      const thresholdConfirmed =
-        accessKeyVerified ||
-        (await verifyAccountAccessKeysPresent(
-          context.nearClient,
-          String(nearAccountId),
-          [thresholdPublicKey],
-          { attempts: 10, delayMs: 250, finality: 'optimistic' },
-        ));
-      if (!thresholdConfirmed) {
-        console.warn(
-          '[Registration] Threshold key not yet visible after atomic registration; continuing optimistically',
-        );
-      }
-
-      onEvent?.({
-        step: 7,
-        phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
-        status: RegistrationStatus.SUCCESS,
-        message: thresholdConfirmed
-          ? 'Threshold key ready'
-          : 'Threshold key verification pending (optimistic)',
-        thresholdKeyReady: thresholdConfirmed,
-        thresholdPublicKey,
-        relayerKeyId,
-        deviceNumber,
-      });
+    if (
+      !thresholdPublicKey ||
+      !relayerKeyId ||
+      !thresholdClientVerifyingShareB64u ||
+      !relayerVerifyingShareB64u
+    ) {
+      throw new Error('Threshold registration did not return required key material');
     }
 
+    onEvent?.({
+      step: 7,
+      phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
+      status: RegistrationStatus.PROGRESS,
+      message: 'Confirming threshold key…',
+      thresholdPublicKey,
+      relayerKeyId,
+      deviceNumber,
+    });
+
+    const thresholdConfirmed =
+      accessKeyVerified ||
+      (await verifyAccountAccessKeysPresent(context.nearClient, String(nearAccountId), [
+        thresholdPublicKey,
+      ], { attempts: 10, delayMs: 250, finality: 'optimistic' }));
+    if (!thresholdConfirmed) {
+      console.warn(
+        '[Registration] Threshold key not yet visible after atomic registration; continuing optimistically',
+      );
+    }
+
+    onEvent?.({
+      step: 7,
+      phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
+      status: RegistrationStatus.SUCCESS,
+      message: thresholdConfirmed
+        ? 'Threshold key ready'
+        : 'Threshold key verification pending (optimistic)',
+      thresholdKeyReady: thresholdConfirmed,
+      thresholdPublicKey,
+      relayerKeyId,
+      deviceNumber,
+    });
+
     const thresholdEcdsaKeyRef =
-      requestedSignerModeStr === 'threshold-signer' &&
       thresholdEcdsaClientVerifyingShareB64u &&
       thresholdEcdsaRelayerKeyId &&
       context.configs.network.relayer.url
@@ -578,10 +467,7 @@ export async function registerPasskeyInternal(
       message: 'Storing passkey wallet metadata...',
     });
 
-    const clientNearPublicKey =
-      requestedSignerModeStr === 'threshold-signer'
-        ? String(thresholdPublicKey || '').trim()
-        : accountCreationPublicKey;
+    const clientNearPublicKey = String(thresholdPublicKey || '').trim();
 
     await signingEngine.atomicStoreRegistrationData({
       nearAccountId,
@@ -591,19 +477,6 @@ export async function registerPasskeyInternal(
 
     // Mark database as stored for rollback tracking
     registrationState.databaseStored = true;
-
-    if (localKeyMaterialForPersist) {
-      await IndexedDBManager.storeNearLocalKeyMaterial({
-        nearAccountId,
-        deviceNumber,
-        publicKey: localKeyMaterialForPersist.publicKey,
-        encryptedSk: localKeyMaterialForPersist.encryptedSk,
-        chacha20NonceB64u: localKeyMaterialForPersist.chacha20NonceB64u,
-        wrapKeySalt: localKeyMaterialForPersist.wrapKeySalt,
-        usage: localKeyMaterialForPersist.usage,
-        timestamp: Date.now(),
-      });
-    }
 
     if (thresholdPublicKey && relayerKeyId && thresholdClientVerifyingShareB64u) {
       await IndexedDBManager.storeNearThresholdKeyMaterial({
@@ -633,7 +506,7 @@ export async function registerPasskeyInternal(
       message: 'Registration metadata stored successfully',
     });
 
-    if (requestedSignerModeStr === 'threshold-signer' && thresholdPrfFirstB64u) {
+    if (thresholdPrfFirstB64u) {
       if (thresholdEd25519SessionPolicyForRegistration && thresholdEd25519Session && relayerKeyId) {
         const edSessionId = String(thresholdEd25519Session.sessionId || '').trim();
         const edSessionJwt = String(thresholdEd25519Session.jwt || '').trim();

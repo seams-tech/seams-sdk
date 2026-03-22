@@ -326,7 +326,7 @@ pub(super) async fn mint_threshold_session(
 ) -> Result<ThresholdSessionResponse, String> {
     let cred_js = js_sys::JSON::parse(credential_json)
         .map_err(|e| format!("threshold-signer: invalid credential JSON: {:?}", e))?;
-    let webauthn: crate::types::WebAuthnAuthenticationCredential =
+    let webauthn: crate::types::webauthn::WebAuthnAuthenticationCredential =
         serde_wasm_bindgen::from_value(cred_js)
             .map_err(|e| format!("threshold-signer: invalid webauthn_authentication: {e}"))?;
     let webauthn_val = serde_wasm_bindgen::to_value(&webauthn).map_err(|e| {

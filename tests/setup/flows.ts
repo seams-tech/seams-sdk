@@ -300,7 +300,6 @@ export async function executeTransfer(
               amount: args.amountYocto,
             },
             options: {
-              signerMode: { mode: 'local-signer' },
               onEvent: (event: any) => {
                 events.push(event);
                 console.log(`[flow:transfer]   -> ${event.phase} | ${event.message}`);

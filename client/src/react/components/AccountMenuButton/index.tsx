@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { KeyIcon } from './icons/KeyIcon';
 import { ScanIcon } from './icons/ScanIcon';
@@ -17,7 +17,6 @@ import { LinkedDevicesModal } from './LinkedDevicesModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
-import type { SignerMode } from '@/core/types/signer-worker';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -96,8 +95,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
-  const [currentSignerMode, setCurrentSignerMode] = useState<SignerMode | null>(null);
-  const lastThresholdSignerModeRef = useRef<SignerMode | null>(null);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -113,7 +110,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     if (!tatchi) return;
     if (!loginState.isLoggedIn || !loggedInAccountId) {
       setCurrentConfirmConfig(null);
-      setCurrentSignerMode(null);
       return;
     }
 
@@ -123,29 +119,17 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       tatchi.preferences.setCurrentUser(toAccountId(loggedInAccountId));
     }
     setCurrentConfirmConfig(tatchi.getConfirmationConfig());
-    setCurrentSignerMode(tatchi.getSignerMode());
 
     const unsubConfirmConfig = tatchi.preferences.onConfirmationConfigChange?.((cfg: any) => {
       if (cancelled) return;
       setCurrentConfirmConfig(cfg);
     });
-    const unsubSignerMode = tatchi.preferences.onSignerModeChange?.((mode) => {
-      if (cancelled) return;
-      setCurrentSignerMode(mode);
-    });
 
     return () => {
       cancelled = true;
       unsubConfirmConfig?.();
-      unsubSignerMode?.();
     };
   }, [tatchi, loginState.isLoggedIn, loggedInAccountId]);
-
-  useEffect(() => {
-    if (currentSignerMode?.mode === 'threshold-signer') {
-      lastThresholdSignerModeRef.current = currentSignerMode;
-    }
-  }, [currentSignerMode]);
 
   // Handlers for transaction settings
   const handleSetUiMode = (mode: 'none' | 'modal' | 'drawer') => {
@@ -187,15 +171,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         document.body?.removeAttribute('data-w3a-theme-pulse');
       }, 220);
     }
-  };
-
-  const handleToggleThresholdSigning = (enabled: boolean) => {
-    if (enabled) {
-      const prev = lastThresholdSignerModeRef.current;
-      tatchi.setSignerMode(prev?.mode === 'threshold-signer' ? prev : 'threshold-signer');
-      return;
-    }
-    tatchi.setSignerMode('local-signer');
   };
 
   // Menu items configuration with context-aware handlers
@@ -326,8 +301,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         menuItemsRef={refs.menuItemsRef}
         toggleColors={toggleColors}
         currentConfirmConfig={currentConfirmConfig}
-        signerMode={currentSignerMode ?? undefined}
-        onToggleThresholdSigning={handleToggleThresholdSigning}
         onSetUiMode={handleSetUiMode}
         onToggleSkipClick={handleToggleSkipClick}
         onSetDelay={handleSetDelay}

@@ -132,7 +132,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
@@ -152,7 +152,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
                 },
               ],
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });
@@ -259,7 +258,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
@@ -279,7 +278,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
                 },
               ],
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });

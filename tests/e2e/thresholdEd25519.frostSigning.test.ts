@@ -499,7 +499,6 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
               // Session-style threshold signing: login mints a relayer session, then signing uses warm-session auth.
-              signerMode: { mode: 'threshold-signer' },
               signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
               iframeWallet: { walletOrigin: '' },
             });
@@ -512,7 +511,7 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) {
@@ -539,7 +538,6 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: {
-                signerMode: { mode: 'threshold-signer' },
                 confirmationConfig: confirmConfig as any,
               },
             });
@@ -553,7 +551,6 @@ test.describe('threshold-ed25519 (FROST) signing', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: {
-                signerMode: { mode: 'threshold-signer' },
                 confirmationConfig: confirmConfig as any,
               },
             });

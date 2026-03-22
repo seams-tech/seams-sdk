@@ -15,12 +15,11 @@ export function useLoginStateRefresher(args: {
   const refreshLoginState: TatchiContextType['refreshLoginState'] = useCallback(
     async (nearAccountId?: string) => {
       try {
-        const signerMode = tatchi.configs?.signing.mode;
         if (walletIframeConnected) {
           try {
             const session = await tatchi.auth.getWalletSession();
             const { login: st } = session;
-            if (isWalletSessionReadyForUi({ session, signerMode })) {
+            if (isWalletSessionReadyForUi({ session })) {
               setLoginState((prevState) => ({
                 ...prevState,
                 nearAccountId: st.nearAccountId,
@@ -36,7 +35,7 @@ export function useLoginStateRefresher(args: {
 
         const session = await tatchi.auth.getWalletSession(nearAccountId);
         const { login: ls } = session;
-        if (isWalletSessionReadyForUi({ session, signerMode })) {
+        if (isWalletSessionReadyForUi({ session })) {
           if (ls.nearAccountId) {
             try {
               tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId));

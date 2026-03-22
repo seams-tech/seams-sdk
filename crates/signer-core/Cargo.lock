@@ -1166,6 +1166,7 @@ dependencies = [
  "num-traits",
  "rand_core",
  "serde",
+ "serde_json",
  "sha2",
  "sha3",
  "threshold-signatures",

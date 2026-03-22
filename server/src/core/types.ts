@@ -349,14 +349,6 @@ export interface WebAuthnRegistrationCredential {
 export interface CreateAccountAndRegisterRequest {
   new_account_id: string;
   /**
-   * Optional NEAR access key to add to the newly created account.
-   *
-   * - Local-signer flows provide a locally derived public key.
-   * - Threshold-signer flows typically provide a locally derived "backup" key (Option B) so the client
-   *   can add the threshold key after validating it. Older clients may omit this (Option A).
-   */
-  new_public_key?: string;
-  /**
    * Device number used during registration.
    *
    * This is used to deterministically derive the registration WebAuthn challenge

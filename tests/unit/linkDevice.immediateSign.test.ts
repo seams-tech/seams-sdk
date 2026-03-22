@@ -233,7 +233,6 @@ test.describe('Link device → immediate sign (regression)', () => {
               },
             ],
             rpcCall: { nearAccountId },
-            signerMode: { mode: 'local-signer' },
             sessionId: 'linkdevice-regression',
           });
 
@@ -486,7 +485,6 @@ test.describe('Link device → immediate sign (regression)', () => {
               },
             ],
             rpcCall: { nearAccountId },
-            signerMode: { mode: 'local-signer' },
             sessionId: 'linkdevice-regression-string-device',
           });
 

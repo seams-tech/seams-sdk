@@ -153,12 +153,6 @@ fn vectors_v1_match_expected_outputs() {
         ADD_EXPECTED
     );
 
-    let (priv_key, pub_key) =
-        crate::near_ed25519::derive_ed25519_key_from_prf_output(NEAR_PRF_B64U, NEAR_ACCOUNT_ID)
-            .expect("near derive");
-    assert_eq!(priv_key, NEAR_PRIVATE_EXPECTED);
-    assert_eq!(pub_key, NEAR_PUBLIC_EXPECTED);
-
     assert_eq!(
         to_hex(
             crate::near_crypto::derive_kek_from_wrap_key_seed_b64u(WRAP_SEED_B64U, WRAP_SALT_B64U)

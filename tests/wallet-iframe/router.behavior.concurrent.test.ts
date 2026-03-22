@@ -139,7 +139,7 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
             nearAccountId: 'concurrent1.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs,
-            options: { signerMode: { mode: 'local-signer' } },
+            options: {},
           });
 
           // Wait for overlay to be shown by first request
@@ -152,7 +152,7 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
             nearAccountId: 'concurrent2.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs,
-            options: { signerMode: { mode: 'local-signer' } },
+            options: {},
           });
 
           // Ensure second has reached confirmation (show) before first hides

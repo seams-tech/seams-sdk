@@ -2,7 +2,6 @@ import type { ToggleColorProps } from './Toggle';
 import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
 import type { LinkDeviceResult } from '@/core/types/linkDevice';
 import type { ThemeName } from '@/core/signingEngine/touchConfirm/ui/confirm-ui-types';
-import type { SignerMode } from '@/core/types/signer-worker';
 
 export interface ProfileDimensions {
   width: number;
@@ -99,8 +98,6 @@ export interface ProfileDropdownProps {
   toggleColors?: ToggleColorProps;
   theme?: ThemeName;
   currentConfirmConfig?: any;
-  signerMode?: SignerMode;
-  onToggleThresholdSigning?: (enabled: boolean) => void;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
   onToggleSkipClick?: () => void;
@@ -136,8 +133,6 @@ export interface ProfileRelayerToggleSectionProps {
 
 export interface TransactionSettingsSectionProps {
   currentConfirmConfig: any;
-  signerMode?: SignerMode;
-  onToggleThresholdSigning?: (enabled: boolean) => void;
   onSetUiMode?: (mode: 'none' | 'modal' | 'drawer') => void;
   onToggleShowDetails?: () => void;
   onToggleSkipClick: () => void;

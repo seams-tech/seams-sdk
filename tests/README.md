@@ -98,7 +98,7 @@ test('register → login', async ({ passkey }) => {
 
 - Root scripts:
   - `pnpm test` → `pnpm -C tests test` (full suite)
-  - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes local-signer)
+  - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
   - `pnpm test:unit`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report

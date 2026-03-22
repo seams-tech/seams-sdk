@@ -134,7 +134,6 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
     bootstrapUrl: '',
   },
   signing: {
-    mode: { mode: 'threshold-signer' },
     // Warm signing session defaults used by login/unlock flows.
     // Enforcement (TTL/uses) is owned by the UserConfirm worker (wallet origin); signer workers remain one-shot.
     sessionDefaults: {

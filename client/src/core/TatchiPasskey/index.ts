@@ -24,7 +24,6 @@ import type {
 import {
   ConfirmationConfig,
   type ConfirmationBehavior,
-  type SignerMode,
 } from '../types/signer-worker';
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
@@ -128,7 +127,6 @@ export class TatchiPasskey {
       getCurrentUserAccountId: (): AccountId => userPreferences.getCurrentUserAccountId(),
       onConfirmationConfigChange: (callback): (() => void) =>
         userPreferences.onConfirmationConfigChange(callback),
-      onSignerModeChange: (callback): (() => void) => userPreferences.onSignerModeChange(callback),
       onCurrentUserChange: (callback): (() => void) =>
         userPreferences.onCurrentUserChange(callback),
       setConfirmBehavior: (behavior): void => {
@@ -155,11 +153,7 @@ export class TatchiPasskey {
         }
         userPreferences.setConfirmationConfig(config);
       },
-      setSignerMode: (signerMode): void => {
-        userPreferences.setSignerMode(signerMode);
-      },
       getConfirmationConfig: (): ConfirmationConfig => userPreferences.getConfirmationConfig(),
-      getSignerMode: (): SignerMode => userPreferences.getSignerMode(),
     };
     this.auth = {
       unlock: async (nearAccountId, options) => await this.unlock(nearAccountId, options),
@@ -206,16 +200,6 @@ export class TatchiPasskey {
     this.tempo = new TempoSigner(signerDeps);
     this.evm = new EvmSigner(signerDeps);
 
-    // Wallet-iframe mode: delegate signerMode persistence to the wallet host.
-    // Non-iframe mode: ensure any previous writer is cleared (UserPreferences is a singleton).
-    userPreferences.configureWalletIframeSignerModeWriter(
-      this.walletIframe.shouldUseWalletIframe()
-        ? async (next) => {
-            const router = await this.walletIframe.requireRouter();
-            await router.setSignerMode(next);
-          }
-        : null,
-    );
     // UserConfirm worker initializes automatically in the constructor
   }
 
@@ -381,10 +365,6 @@ export class TatchiPasskey {
           confirmationConfig,
           options: {
             onEvent: options?.onEvent,
-            ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-            ...(typeof options?.backupLocalKey === 'boolean'
-              ? { backupLocalKey: options.backupLocalKey }
-              : {}),
             ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
             ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
           },
@@ -431,10 +411,6 @@ export class TatchiPasskey {
           confirmationConfig,
           options: {
             onEvent: options?.onEvent,
-            ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-            ...(typeof options?.backupLocalKey === 'boolean'
-              ? { backupLocalKey: options.backupLocalKey }
-              : {}),
             ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
             ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
           },
@@ -461,73 +437,6 @@ export class TatchiPasskey {
       cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
       confirmationConfigOverride,
     );
-  }
-
-  /**
-   * Post-registration threshold enrollment.
-   * Runs `/threshold-ed25519/keygen` authorization and stores `threshold_ed25519_2p_v1`
-   * key material locally. Intended to be called after the passkey is registered on-chain.
-   */
-  async enrollThresholdEd25519Key(
-    nearAccountId: string,
-    options?: {
-      deviceNumber?: number;
-      relayerUrl?: string;
-    },
-  ): Promise<{
-    success: boolean;
-    publicKey: string;
-    relayerKeyId: string;
-    error?: string;
-  }> {
-    // In wallet-iframe mode, always run inside the wallet origin (no app-origin fallback).
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(nearAccountId);
-      return await router.enrollThresholdEd25519Key({
-        nearAccountId,
-        options: options || {},
-      });
-    }
-
-    return await this.signingEngine.enrollThresholdEd25519KeyPostRegistration({
-      nearAccountId: toAccountId(nearAccountId),
-      deviceNumber: options?.deviceNumber,
-    });
-  }
-
-  /**
-   * Threshold key rotation helper:
-   * keygen → AddKey(new) → DeleteKey(old).
-   */
-  async rotateThresholdEd25519Key(
-    nearAccountId: string,
-    options?: {
-      deviceNumber?: number;
-    },
-  ): Promise<{
-    success: boolean;
-    oldPublicKey: string;
-    oldRelayerKeyId: string;
-    publicKey: string;
-    relayerKeyId: string;
-    deleteOldKeyAttempted: boolean;
-    deleteOldKeySuccess: boolean;
-    warning?: string;
-    error?: string;
-  }> {
-    // In wallet-iframe mode, always run inside the wallet origin (no app-origin fallback).
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(nearAccountId);
-      return await router.rotateThresholdEd25519Key({
-        nearAccountId,
-        options: options || {},
-      });
-    }
-
-    return await this.signingEngine.rotateThresholdEd25519KeyPostRegistration({
-      nearAccountId: toAccountId(nearAccountId),
-      deviceNumber: options?.deviceNumber,
-    });
   }
 
   /**
@@ -594,10 +503,6 @@ export class TatchiPasskey {
     this.preferences.setConfirmationConfig(config);
   }
 
-  setSignerMode(signerMode: SignerMode | SignerMode['mode']): void {
-    this.preferences.setSignerMode(signerMode);
-  }
-
   /**
    * Get the current confirmation configuration
    */
@@ -606,10 +511,6 @@ export class TatchiPasskey {
     // Note: synchronous signature; returns last-known local value if iframe reply is async
     // Callers needing a fresh wallet-host value should await init + wallet iframe readiness first.
     return this.preferences.getConfirmationConfig();
-  }
-
-  getSignerMode(): SignerMode {
-    return this.preferences.getSignerMode();
   }
 
   /**

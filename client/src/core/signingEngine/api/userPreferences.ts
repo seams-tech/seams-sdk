@@ -1,61 +1,20 @@
-import {
-  ConfirmationConfig,
-  DEFAULT_CONFIRMATION_CONFIG,
-  type SignerMode,
-  DEFAULT_SIGNING_MODE,
-  coerceSignerMode,
-  mergeSignerMode,
-} from '../../types/signer-worker';
+import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type { AccountId } from '../../types/accountIds';
 import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
 
 export class UserPreferencesManager {
-  private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> = new Set();
-  private signerModeChangeListeners: Set<(mode: SignerMode) => void> = new Set();
+  private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
+    new Set();
   private currentUserChangeListeners: Set<(nearAccountId: AccountId | null) => void> = new Set();
 
   private currentUserAccountId: AccountId | undefined;
   private confirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
-  private signerMode: SignerMode = DEFAULT_SIGNING_MODE;
-
-  // Optional app-provided default signer mode (e.g., configs.signing.mode). This is NOT a per-user preference.
-  private signerModeOverride: SignerMode | null = null;
-  // Wallet-iframe app-origin: delegate signerMode persistence to the wallet host.
-  private walletIframeSignerModeWriter: ((signerMode: SignerMode) => Promise<void>) | null = null;
+  private unsubscribeFromIndexedDB?: () => void;
 
   constructor() {
-    // Subscribe to IndexedDB change events for automatic sync
     this.subscribeToIndexedDBChanges();
   }
 
-  /**
-   * Apply an app-provided default signer mode (e.g., `configs.signing.mode`) without
-   * persisting it as a per-user preference in IndexedDB.
-   */
-  configureDefaultSignerMode(signerMode?: SignerMode | SignerMode['mode'] | null): void {
-    const next = coerceSignerMode(signerMode, DEFAULT_SIGNING_MODE);
-    this.signerModeOverride = next;
-    // When no user is active, keep in-memory default aligned to config.
-    if (!this.currentUserAccountId) {
-      this.setSignerModeInternal(next, { persist: false, notify: true });
-    }
-  }
-
-  /**
-   * In wallet-iframe mode on the app origin, user preferences must be persisted by the wallet host
-   * (not the app origin). This configures a best-effort writer used by `setSignerMode(...)` when
-   * IndexedDB is disabled.
-   */
-  configureWalletIframeSignerModeWriter(
-    writer: ((signerMode: SignerMode) => Promise<void>) | null,
-  ): void {
-    this.walletIframeSignerModeWriter = writer;
-  }
-
-  /**
-   * Register a callback for confirmation config changes.
-   * Used to keep app UI in sync with the wallet host in wallet-iframe mode.
-   */
   onConfirmationConfigChange(callback: (config: ConfirmationConfig) => void): () => void {
     this.confirmationConfigChangeListeners.add(callback);
     return () => {
@@ -63,21 +22,6 @@ export class UserPreferencesManager {
     };
   }
 
-  /**
-   * Register a callback for signer mode changes.
-   */
-  onSignerModeChange(callback: (mode: SignerMode) => void): () => void {
-    this.signerModeChangeListeners.add(callback);
-    return () => {
-      this.signerModeChangeListeners.delete(callback);
-    };
-  }
-
-  /**
-   * Register a callback for current-user changes (wallet-host authority).
-   * This is used to notify the parent app in wallet-iframe mode when a flow
-   * changes the active account (e.g., device linking auto-login).
-   */
   onCurrentUserChange(callback: (nearAccountId: AccountId | null) => void): () => void {
     this.currentUserChangeListeners.add(callback);
     return () => {
@@ -89,13 +33,6 @@ export class UserPreferencesManager {
     if (this.confirmationConfigChangeListeners.size === 0) return;
     for (const listener of this.confirmationConfigChangeListeners) {
       listener(config);
-    }
-  }
-
-  private notifySignerModeChange(mode: SignerMode): void {
-    if (this.signerModeChangeListeners.size === 0) return;
-    for (const listener of this.signerModeChangeListeners) {
-      listener(mode);
     }
   }
 
@@ -132,23 +69,13 @@ export class UserPreferencesManager {
     };
   }
 
-  /**
-   * Best-effort async initialization from IndexedDB.
-   *
-   * Callers decide when to invoke this so environments that must avoid
-   * app-origin IndexedDB (wallet-iframe mode) can skip it entirely.
-   */
   async initFromIndexedDB(): Promise<void> {
     await this.loadUserSettings().catch((error) => {
       console.warn('[SigningEngine]: Failed to initialize user settings:', error);
     });
   }
 
-  /**
-   * Subscribe to IndexedDB change events for automatic synchronization
-   */
   private subscribeToIndexedDBChanges(): void {
-    // Subscribe to IndexedDB change events
     this.unsubscribeFromIndexedDB = IndexedDBManager.clientDB.onChange((event) => {
       void this.handleIndexedDBEvent(event).catch((error) => {
         console.warn('[SigningEngine]: Error handling IndexedDB event:', error);
@@ -156,28 +83,15 @@ export class UserPreferencesManager {
     });
   }
 
-  /**
-   * Handle IndexedDB change events.
-   * @param event - The IndexedDBEvent: `user-updated`, `preferences-updated`, `user-deleted` to handle.
-   */
   private async handleIndexedDBEvent(event: IndexedDBEvent): Promise<void> {
     switch (event.type) {
       case 'preferences-updated':
-        // Check if this affects the current user
-        if (event.accountId === this.currentUserAccountId) {
-          await this.reloadUserSettings();
-        }
-        break;
-
       case 'user-updated':
-        // Check if this affects the current user
         if (event.accountId === this.currentUserAccountId) {
           await this.reloadUserSettings();
         }
         break;
-
       case 'user-deleted':
-        // Check if the deleted user was the current user
         if (event.accountId === this.currentUserAccountId) {
           this.currentUserAccountId = undefined;
           this.confirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
@@ -186,22 +100,13 @@ export class UserPreferencesManager {
     }
   }
 
-  /**
-   * Unsubscribe function for IndexedDB events
-   */
-  private unsubscribeFromIndexedDB?: () => void;
-
-  /**
-   * Clean up resources and unsubscribe from events
-   */
   destroy(): void {
     if (this.unsubscribeFromIndexedDB) {
       this.unsubscribeFromIndexedDB();
       this.unsubscribeFromIndexedDB = undefined;
     }
-    this.walletIframeSignerModeWriter = null;
     this.confirmationConfigChangeListeners.clear();
-    this.signerModeChangeListeners.clear();
+    this.currentUserChangeListeners.clear();
   }
 
   getCurrentUserAccountId(): AccountId {
@@ -209,8 +114,6 @@ export class UserPreferencesManager {
       console.debug(
         '[UserPreferencesManager]: getCurrentUserAccountId called with no current user; returning empty id',
       );
-      // Return an empty string to keep callers defensive; most consumers
-      // already treat falsy accountIds as "no-op"/logged‑out.
       return '' as AccountId;
     }
     return this.currentUserAccountId;
@@ -220,14 +123,6 @@ export class UserPreferencesManager {
     return this.confirmationConfig;
   }
 
-  getSignerMode(): SignerMode {
-    return this.signerMode;
-  }
-
-  /**
-   * Apply an authoritative confirmation config snapshot from the wallet-iframe host.
-   * This updates in-memory state only; persistence remains owned by the wallet origin.
-   */
   applyWalletHostConfirmationConfig(
     args:
       | {
@@ -253,67 +148,26 @@ export class UserPreferencesManager {
     this.notifyConfirmationConfigChange(this.confirmationConfig);
   }
 
-  /**
-   * Apply an authoritative signer mode snapshot from the wallet-iframe host.
-   * This updates in-memory state only; persistence remains owned by the wallet origin.
-   */
-  applyWalletHostSignerMode(
-    args:
-      | {
-          nearAccountId?: AccountId | null;
-          signerMode: SignerMode;
-        }
-      | undefined,
-  ): void {
-    const nearAccountId = args?.nearAccountId;
-    const signerMode = args?.signerMode;
-    if (nearAccountId) {
-      const prev = this.currentUserAccountId;
-      this.currentUserAccountId = nearAccountId;
-      if (!prev || String(prev) !== String(nearAccountId)) {
-        this.notifyCurrentUserChange(nearAccountId);
-      }
-    }
-    const base = this.signerModeOverride ?? DEFAULT_SIGNING_MODE;
-    const next = coerceSignerMode(signerMode, base);
-    this.setSignerModeInternal(next, { persist: false, notify: true });
-  }
-
   setCurrentUser(nearAccountId: AccountId): void {
     const prev = this.currentUserAccountId;
     this.currentUserAccountId = nearAccountId;
     if (!prev || String(prev) !== String(nearAccountId)) {
       this.notifyCurrentUserChange(nearAccountId);
     }
-    // Load settings for the new user (best-effort). In wallet-iframe mode on the app origin,
-    // IndexedDB is intentionally disabled to avoid creating any tables.
     if (!IndexedDBManager.clientDB.isDisabled()) {
       void this.loadSettingsForUser(nearAccountId).catch(() => undefined);
     }
   }
 
   private applyStoredPreferences(
-    preferences:
-      | { confirmationConfig?: ConfirmationConfig; signerMode?: SignerMode | SignerMode['mode'] }
-      | undefined,
+    preferences: { confirmationConfig?: ConfirmationConfig } | undefined,
   ): void {
-    if (preferences?.confirmationConfig) {
-      const sanitized = this.sanitizeConfirmationConfig(
-        preferences.confirmationConfig as ConfirmationConfig,
-      );
-      this.confirmationConfig = this.mergeConfirmationConfig(this.confirmationConfig, sanitized);
-      this.notifyConfirmationConfigChange(this.confirmationConfig);
-    }
-
-    const base = this.signerModeOverride ?? DEFAULT_SIGNING_MODE;
-    const stored = preferences?.signerMode as SignerMode | SignerMode['mode'] | null | undefined;
-    const nextSignerMode = stored != null ? coerceSignerMode(stored, base) : base;
-    this.setSignerModeInternal(nextSignerMode, { persist: false, notify: true });
+    if (!preferences?.confirmationConfig) return;
+    const sanitized = this.sanitizeConfirmationConfig(preferences.confirmationConfig);
+    this.confirmationConfig = this.mergeConfirmationConfig(this.confirmationConfig, sanitized);
+    this.notifyConfirmationConfigChange(this.confirmationConfig);
   }
 
-  /**
-   * Load settings for a specific user
-   */
   private async loadSettingsForUser(nearAccountId: AccountId): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
     const context = await IndexedDBManager.clientDB
@@ -325,37 +179,25 @@ export class UserPreferencesManager {
     this.applyStoredPreferences(profile.preferences);
   }
 
-  /**
-   * Reload current user settings from IndexedDB
-   */
   async reloadUserSettings(): Promise<void> {
     await this.loadSettingsForUser(this.getCurrentUserAccountId());
   }
 
-  /**
-   * Set confirmation behavior
-   */
   setConfirmBehavior(behavior: 'requireClick' | 'skipClick'): void {
     this.confirmationConfig = this.mergeConfirmationConfig(this.confirmationConfig, { behavior });
     this.notifyConfirmationConfigChange(this.confirmationConfig);
-    this.saveUserSettings();
+    void this.saveUserSettings();
   }
 
-  /**
-   * Set confirmation configuration
-   */
   setConfirmationConfig(config: Partial<ConfirmationConfig>, opts?: { persist?: boolean }): void {
     const sanitized = this.sanitizeConfirmationConfig(config);
     this.confirmationConfig = this.mergeConfirmationConfig(this.confirmationConfig, sanitized);
     this.notifyConfirmationConfigChange(this.confirmationConfig);
     if (opts?.persist !== false) {
-      this.saveUserSettings();
+      void this.saveUserSettings();
     }
   }
 
-  /**
-   * Load user confirmation settings from IndexedDB
-   */
   async loadUserSettings(): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
     const last = await IndexedDBManager.clientDB.getLastSelectedNearAccount().catch(() => null);
@@ -372,9 +214,6 @@ export class UserPreferencesManager {
     this.applyStoredPreferences(profile.preferences);
   }
 
-  /**
-   * Save current confirmation settings to IndexedDB
-   */
   async saveUserSettings(): Promise<void> {
     try {
       const accountId: AccountId | undefined = this.currentUserAccountId ?? undefined;
@@ -392,47 +231,7 @@ export class UserPreferencesManager {
       console.warn('[SigningEngine]: Failed to save user settings:', error);
     }
   }
-
-  /**
-   * Set signer mode preference (in-memory immediately; IndexedDB persistence is best-effort).
-   */
-  setSignerMode(signerMode: SignerMode | SignerMode['mode']): void {
-    const next = mergeSignerMode(this.signerMode, signerMode);
-    // In wallet-iframe mode on the app origin, persistence is owned by the wallet host.
-    // Forward to the host and rely on PREFERENCES_CHANGED mirroring for local state updates.
-    if (this.walletIframeSignerModeWriter && IndexedDBManager.clientDB.isDisabled()) {
-      void this.walletIframeSignerModeWriter(next).catch(() => undefined);
-      return;
-    }
-    this.setSignerModeInternal(next, { persist: true, notify: true });
-  }
-
-  private isSignerModeEqual(a: SignerMode, b: SignerMode): boolean {
-    if (a.mode !== b.mode) return false;
-    if (a.mode !== 'threshold-signer' || b.mode !== 'threshold-signer') return true;
-    return (a.behavior ?? null) === (b.behavior ?? null);
-  }
-
-  private setSignerModeInternal(
-    next: SignerMode,
-    opts: { persist: boolean; notify: boolean },
-  ): void {
-    const prev = this.signerMode;
-    this.signerMode = next;
-    if (opts.notify && !this.isSignerModeEqual(prev, next)) {
-      this.notifySignerModeChange(next);
-    }
-    if (opts.persist) {
-      // Best-effort persistence: only write when we have a current user context.
-      const id = this.currentUserAccountId;
-      if (!id || IndexedDBManager.clientDB.isDisabled()) return;
-      void IndexedDBManager.clientDB
-        .updatePreferences(id, { signerMode: next })
-        .catch(() => undefined);
-    }
-  }
 }
 
-// Create and export singleton instance
 const UserPreferencesInstance = new UserPreferencesManager();
 export default UserPreferencesInstance;

@@ -16,17 +16,6 @@ pub(crate) fn derive_threshold_client_signing_share_bytes_v1(
     .map_err(|e| e.to_string())
 }
 
-pub(crate) fn derive_threshold_client_verifying_share_bytes_v1(
-    wrap_key: &WrapKey,
-    near_account_id: &str,
-) -> Result<[u8; 32], String> {
-    signer_platform_web::near_threshold_ed25519::derive_threshold_client_verifying_share_bytes_v1_from_wrap_key_seed_b64u(
-        &wrap_key.wrap_key_seed,
-        near_account_id,
-    )
-    .map_err(|e| e.to_string())
-}
-
 pub(crate) fn derive_threshold_client_verifying_share_b64u_v1(
     wrap_key: &WrapKey,
     near_account_id: &str,
@@ -57,7 +46,10 @@ mod tests {
             .expect("signing share should derive");
         assert_eq!(s1, s2);
 
-        let v1 = derive_threshold_client_verifying_share_bytes_v1(&wrap_key, "alice.near")
+        let v1 = signer_platform_web::near_threshold_ed25519::derive_threshold_client_verifying_share_bytes_v1_from_wrap_key_seed_b64u(
+            &wrap_key.wrap_key_seed,
+            "alice.near",
+        )
             .expect("verifying share should derive");
         let scalar = CurveScalar::from_bytes_mod_order(s1);
         let expected = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();

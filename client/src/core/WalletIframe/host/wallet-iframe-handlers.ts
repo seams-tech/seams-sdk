@@ -127,26 +127,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_ENROLL_THRESHOLD_ED25519_KEY: async (req: Req<'PM_ENROLL_THRESHOLD_ED25519_KEY'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, options } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-
-      const result = await pm.enrollThresholdEd25519Key(nearAccountId, options);
-      if (respondIfCancelled(req.requestId)) return;
-      respondOkResult(req.requestId, result);
-    },
-
-    PM_ROTATE_THRESHOLD_ED25519_KEY: async (req: Req<'PM_ROTATE_THRESHOLD_ED25519_KEY'>) => {
-      const pm = getTatchiPasskey();
-      const { nearAccountId, options } = req.payload!;
-      if (respondIfCancelled(req.requestId)) return;
-
-      const result = await pm.rotateThresholdEd25519Key(nearAccountId, options);
-      if (respondIfCancelled(req.requestId)) return;
-      respondOkResult(req.requestId, result);
-    },
-
     PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION: async (
       req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>,
     ) => {
@@ -516,8 +496,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
       const pm = getTatchiPasskey();
-      const { ui, cameraId, accountId, deviceNumber, localSignerEnabled, options } =
-        req.payload || {};
+      const { ui, cameraId, accountId, deviceNumber, options } = req.payload || {};
       const accountIdValue = accountId ? toAccountId(accountId) : undefined;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startDevice2LinkingFlow({
@@ -525,7 +504,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         ...(cameraId ? { cameraId } : {}),
         ...(accountIdValue ? { accountId: accountIdValue } : {}),
         ...(typeof deviceNumber === 'number' ? { deviceNumber } : {}),
-        ...(localSignerEnabled === false ? { localSignerEnabled: false } : {}),
         options: {
           ...withProgress(req.requestId, options || {}),
         },
@@ -588,21 +566,6 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_GET_CONFIRMATION_CONFIG: async (req: Req<'PM_GET_CONFIRMATION_CONFIG'>) => {
       const pm = getTatchiPasskey();
       const result = pm.getConfirmationConfig();
-      respondOkResult(req.requestId, result);
-    },
-
-    PM_SET_SIGNER_MODE: async (req: Req<'PM_SET_SIGNER_MODE'>) => {
-      const pm = getTatchiPasskey();
-      const { signerMode } = req.payload!;
-      try {
-        pm.setSignerMode(signerMode);
-      } catch {}
-      respondOk(req.requestId);
-    },
-
-    PM_GET_SIGNER_MODE: async (req: Req<'PM_GET_SIGNER_MODE'>) => {
-      const pm = getTatchiPasskey();
-      const result = pm.getSignerMode();
       respondOkResult(req.requestId, result);
     },
 

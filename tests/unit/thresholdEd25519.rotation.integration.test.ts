@@ -69,7 +69,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
   }) => {
     // What this test validates (end-to-end in browser, with mocked network):
     //
-    // 1) Registration (signerMode=threshold-signer) is threshold-only:
+    // 1) Registration is threshold-only:
     //    - the client does not provide `new_public_key`
     //    - `/registration/bootstrap` returns `{ relayerKeyId, publicKey, relayerVerifyingShareB64u }`
     //    - the relay-created account already has the threshold key on-chain
@@ -414,7 +414,7 @@ test.describe('Threshold Ed25519 rotation helper', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         // Run the SDK flow inside the browser context:
-        // - register a passkey-backed account with signerMode=threshold-signer (threshold-only)
+        // - register a passkey-backed account with threshold-only signing
         // - rotate the threshold key and return the helper output for assertions
         try {
           const { TatchiPasskey } = await import(paths.tatchi);
@@ -442,7 +442,6 @@ test.describe('Threshold Ed25519 rotation helper', () => {
           const reg = await pm.registration.registerPasskeyInternal(
             accountId,
             {
-              signerMode: { mode: 'threshold-signer' },
               signerOptions: {
                 tempo: {
                   enabled: false,

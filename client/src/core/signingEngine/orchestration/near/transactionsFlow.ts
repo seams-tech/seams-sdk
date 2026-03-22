@@ -9,7 +9,6 @@ import {
   isWorkerError,
   type ConfirmationConfig,
   type RpcCallPayload,
-  type SignerMode,
   type TransactionResponse,
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
@@ -20,10 +19,7 @@ import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { TransactionContext } from '@/core/types/rpc';
-import type {
-  LocalNearSkV3Material,
-  ThresholdEd25519_2p_V1Material,
-} from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -82,7 +78,6 @@ export async function signTransactionsWithActions({
   sessionId: providedSessionId,
   transactions,
   rpcCall,
-  signerMode,
   onEvent,
   confirmationConfigOverride,
   title,
@@ -93,7 +88,6 @@ export async function signTransactionsWithActions({
   sessionId?: string;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
-  signerMode: SignerMode;
   onEvent?: (update: onProgressEvents) => void;
   // Allow callers to pass a partial override (e.g., { uiMode: 'drawer' })
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -112,34 +106,22 @@ export async function signTransactionsWithActions({
   const relayerUrl = ctx.relayerUrl;
 
   const warnings: string[] = [];
-  const {
-    resolvedSignerMode,
-    localKeyMaterial,
-    thresholdKeyMaterial,
-    localWrapKeySalt,
-    thresholdWrapKeySalt,
-  } = await resolveNearSigningMaterials({
+  const { thresholdKeyMaterial, thresholdWrapKeySalt } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
-    signerMode,
     deviceNumber,
     operationLabel: 'signing',
     warnings,
-    allowThresholdOnlyUpgrade: true,
   });
-
-  console.debug('[signTransactionsWithActions] resolvedSignerMode', {
+  console.debug('[signTransactionsWithActions] threshold signing', {
     nearAccountId,
-    resolvedSignerMode,
     warnings,
   });
 
   const signingContext = validateAndPrepareSigningContext({
     nearAccountId,
-    resolvedSignerMode,
     relayerUrl,
     rpId: ctx.touchIdPrompt.getRpId(),
-    localKeyMaterial,
     thresholdKeyMaterial,
   });
 
@@ -235,169 +217,90 @@ export async function signTransactionsWithActions({
   }
 
   // Threshold signer: authorize with relayer and pass threshold config into the signer worker.
-  if (signingContext.threshold) {
-    if (
-      (signingContext.threshold.thresholdSessionKind === 'jwt' &&
-        !signingContext.threshold.thresholdSessionJwt) ||
-      signingContext.threshold.thresholdSessionKind === 'cookie'
-    ) {
-      const auth = await resolveThresholdSessionAuth({
-        thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
-        thresholdSessionId: sessionId,
-      });
-      if (auth) {
-        signingContext.threshold.thresholdSessionKind = auth.sessionKind;
-        signingContext.threshold.thresholdSessionJwt = auth.thresholdSessionJwt;
-      }
-    }
-    if (
-      signingContext.threshold.thresholdSessionKind === 'jwt' &&
-      !signingContext.threshold.thresholdSessionJwt
-    ) {
-      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-      throw new Error(
-        '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
-      );
-    }
-    const requestPayload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> = {
-      rpcCall: resolvedRpcCall,
-      createdAt: Date.now(),
-      ...buildNearWorkerSigningEnvelope({
-        signerMode: signingContext.resolvedSignerMode,
-        prfFirstB64u,
-        wrapKeySalt: thresholdWrapKeySalt,
-        threshold: {
-          relayerUrl: signingContext.threshold.relayerUrl,
-          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-          thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
-          thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
-        },
-      }),
-      txSigningRequests,
-      intentDigest,
-      transactionContext,
-      credential: credentialForRelayJson,
-    };
-
-    try {
-      const response = await executeWorkerOperation({
-        ctx,
-        kind: 'nearSigner',
-        request: {
-          sessionId,
-          type: WorkerRequestType.SignTransactionsWithActions,
-          payload: requestPayload,
-          onEvent,
-        },
-      });
-      const okResponse = requireOkSignTransactionsWithActionsResponse(response);
-      return toSignedTransactionResults({
-        okResponse,
-        expectedTransactionCount: transactions.length,
-        nearAccountId,
-        warnings,
-      });
-    } catch (e: unknown) {
-      const err = e instanceof Error ? e : new Error(String(e));
-
-      if (isThresholdSignerMissingKeyError(err)) {
-        const msg =
-          '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
-        console.warn(msg);
-        warnings.push(msg);
-        clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-        signingContext.threshold.thresholdSessionJwt = undefined;
-        throw new Error(msg);
-      }
-
-      if (isThresholdSessionAuthUnavailableError(err)) {
-        clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-        await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-        signingContext.threshold.thresholdSessionJwt = undefined;
-        throw new Error(
-          '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
-        );
-      }
-
-      throw err;
+  if (
+    (signingContext.threshold.thresholdSessionKind === 'jwt' &&
+      !signingContext.threshold.thresholdSessionJwt) ||
+    signingContext.threshold.thresholdSessionKind === 'cookie'
+  ) {
+    const auth = await resolveThresholdSessionAuth({
+      thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
+      thresholdSessionId: sessionId,
+    });
+    if (auth) {
+      signingContext.threshold.thresholdSessionKind = auth.sessionKind;
+      signingContext.threshold.thresholdSessionJwt = auth.thresholdSessionJwt;
     }
   }
-
-  return await signTransactionsWithActionsLocally({
-    ctx,
-    sessionId,
-    onEvent,
-    resolvedRpcCall,
-    localKeyMaterial: (() => {
-      if (!localKeyMaterial)
-        throw new Error(`No local key material found for account: ${nearAccountId}`);
-      return localKeyMaterial;
-    })(),
+  if (
+    signingContext.threshold.thresholdSessionKind === 'jwt' &&
+    !signingContext.threshold.thresholdSessionJwt
+  ) {
+    clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+    throw new Error(
+      '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+    );
+  }
+  const requestPayload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> = {
+    rpcCall: resolvedRpcCall,
+    createdAt: Date.now(),
+    ...buildNearWorkerSigningEnvelope({
+      prfFirstB64u,
+      wrapKeySalt: thresholdWrapKeySalt,
+      threshold: {
+        relayerUrl: signingContext.threshold.relayerUrl,
+        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
+        thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+      },
+    }),
     txSigningRequests,
     intentDigest,
     transactionContext,
     credential: credentialForRelayJson,
-    prfFirstB64u,
-    wrapKeySalt: localWrapKeySalt,
-    expectedTransactionCount: transactions.length,
-    warnings,
-  });
-}
-
-async function signTransactionsWithActionsLocally(args: {
-  ctx: SigningRuntimeDeps;
-  sessionId: string;
-  onEvent?: (update: onProgressEvents) => void;
-  resolvedRpcCall: RpcCallPayload;
-  localKeyMaterial: LocalNearSkV3Material;
-  txSigningRequests: TransactionPayload[];
-  intentDigest: string;
-  transactionContext: TransactionContext;
-  credential: string | undefined;
-  prfFirstB64u: string | undefined;
-  wrapKeySalt: string;
-  expectedTransactionCount: number;
-  warnings: string[];
-}): Promise<
-  Array<{
-    signedTransaction: SignedTransaction;
-    nearAccountId: AccountId;
-    logs?: string[];
-  }>
-> {
-  const localRequestPayload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> = {
-    rpcCall: args.resolvedRpcCall,
-    createdAt: Date.now(),
-    ...buildNearWorkerSigningEnvelope({
-      signerMode: 'local-signer',
-      prfFirstB64u: args.prfFirstB64u,
-      wrapKeySalt: args.wrapKeySalt,
-      localKeyMaterial: args.localKeyMaterial,
-    }),
-    txSigningRequests: args.txSigningRequests,
-    intentDigest: args.intentDigest,
-    transactionContext: args.transactionContext,
-    credential: args.credential,
   };
 
-  const response = await executeWorkerOperation({
-    ctx: args.ctx,
-    kind: 'nearSigner',
-    request: {
-      sessionId: args.sessionId,
-      type: WorkerRequestType.SignTransactionsWithActions,
-      payload: localRequestPayload,
-      onEvent: args.onEvent,
-    },
-  });
+  try {
+    const response = await executeWorkerOperation({
+      ctx,
+      kind: 'nearSigner',
+      request: {
+        sessionId,
+        type: WorkerRequestType.SignTransactionsWithActions,
+        payload: requestPayload,
+        onEvent,
+      },
+    });
+    const okResponse = requireOkSignTransactionsWithActionsResponse(response);
+    return toSignedTransactionResults({
+      okResponse,
+      expectedTransactionCount: transactions.length,
+      nearAccountId,
+      warnings,
+    });
+  } catch (e: unknown) {
+    const err = e instanceof Error ? e : new Error(String(e));
 
-  const okResponse = requireOkSignTransactionsWithActionsResponse(response);
-  return toSignedTransactionResults({
-    okResponse,
-    expectedTransactionCount: args.expectedTransactionCount,
-    nearAccountId: args.resolvedRpcCall.nearAccountId,
-    warnings: args.warnings,
-  });
+    if (isThresholdSignerMissingKeyError(err)) {
+      const msg =
+        '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
+      console.warn(msg);
+      warnings.push(msg);
+      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+      signingContext.threshold.thresholdSessionJwt = undefined;
+      throw new Error(msg);
+    }
+
+    if (isThresholdSessionAuthUnavailableError(err)) {
+      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+      await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
+      signingContext.threshold.thresholdSessionJwt = undefined;
+      throw new Error(
+        '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+      );
+    }
+
+    throw err;
+  }
 }
 
 function toSignedTransactionResults(args: {
@@ -434,7 +337,6 @@ function toSignedTransactionResults(args: {
 }
 
 type ThresholdSigningContext = {
-  resolvedSignerMode: 'threshold-signer';
   signingNearPublicKeyStr: string;
   threshold: {
     relayerUrl: string;
@@ -445,37 +347,12 @@ type ThresholdSigningContext = {
   };
 };
 
-type LocalSigningContext = {
-  resolvedSignerMode: 'local-signer';
-  signingNearPublicKeyStr: string;
-  threshold: null;
-};
-
-type SigningContext = ThresholdSigningContext | LocalSigningContext;
-
 function validateAndPrepareSigningContext(args: {
   nearAccountId: string;
-  resolvedSignerMode: SignerMode['mode'];
   relayerUrl: string;
   rpId: string | null;
-  localKeyMaterial: LocalNearSkV3Material | null;
   thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
-}): SigningContext {
-  if (args.resolvedSignerMode !== 'threshold-signer') {
-    if (!args.localKeyMaterial) {
-      throw new Error(`No local key material found for account: ${args.nearAccountId}`);
-    }
-    const localPublicKey = String(args.localKeyMaterial.publicKey || '').trim();
-    if (!localPublicKey) {
-      throw new Error(`Missing local signing public key for ${args.nearAccountId}`);
-    }
-    return {
-      resolvedSignerMode: 'local-signer',
-      signingNearPublicKeyStr: localPublicKey,
-      threshold: null,
-    };
-  }
-
+}): ThresholdSigningContext {
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
   if (!thresholdKeyMaterial) {
     throw new Error(`Missing threshold key material for ${args.nearAccountId}`);
@@ -517,7 +394,6 @@ function validateAndPrepareSigningContext(args: {
     cachedAuthSession?.sessionKind === 'cookie' ? 'cookie' : 'jwt';
 
   return {
-    resolvedSignerMode: 'threshold-signer',
     signingNearPublicKeyStr: thresholdPublicKey,
     threshold: {
       relayerUrl,

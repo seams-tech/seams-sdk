@@ -379,7 +379,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -400,7 +400,6 @@ test.describe('threshold-ed25519 digest binding', () => {
                 },
               ],
               options: {
-                signerMode: { mode: 'threshold-signer' },
                 confirmationConfig: confirmConfig as any,
               },
             });
@@ -722,7 +721,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -742,7 +741,6 @@ test.describe('threshold-ed25519 digest binding', () => {
                 },
               ],
               options: {
-                signerMode: { mode: 'threshold-signer' },
                 confirmationConfig: confirmConfig as any,
               },
             });

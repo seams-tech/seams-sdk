@@ -22,13 +22,10 @@ function makeSession(overrides?: Partial<WalletSession>): WalletSession {
 }
 
 test.describe('wallet session readiness gate', () => {
-  test('threshold-signer requires active signing session', () => {
-    const signerMode = { mode: 'threshold-signer' };
-
+  test('requires an active signing session', () => {
     expect(
       isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
-        signerMode,
       }),
     ).toBe(false);
 
@@ -37,7 +34,6 @@ test.describe('wallet session readiness gate', () => {
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'expired' },
         }),
-        signerMode,
       }),
     ).toBe(false);
 
@@ -46,37 +42,11 @@ test.describe('wallet session readiness gate', () => {
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'active' },
         }),
-        signerMode,
       }),
     ).toBe(true);
   });
 
-  test('non-threshold signer mode does not require signing session readiness', () => {
-    expect(
-      isWalletSessionReadyForUi({
-        session: makeSession({ signingSession: null }),
-        signerMode: { mode: 'local-signer' },
-      }),
-    ).toBe(true);
-
-    expect(
-      isWalletSessionReadyForUi({
-        session: makeSession({ signingSession: null }),
-        signerMode: { mode: 'evm' },
-      }),
-    ).toBe(true);
-  });
-
-  test('unknown signer mode defaults to local-signer behavior', () => {
-    expect(
-      isWalletSessionReadyForUi({
-        session: makeSession({ signingSession: null }),
-        signerMode: undefined,
-      }),
-    ).toBe(true);
-  });
-
-  test('requires base logged-in snapshot regardless of signer mode', () => {
+  test('requires base logged-in snapshot regardless of signing-session status', () => {
     expect(
       isWalletSessionReadyForUi({
         session: makeSession({
@@ -87,7 +57,6 @@ test.describe('wallet session readiness gate', () => {
             userData: null,
           },
         }),
-        signerMode: { mode: 'threshold-signer' },
       }),
     ).toBe(false);
 
@@ -101,7 +70,6 @@ test.describe('wallet session readiness gate', () => {
             userData: null,
           },
         }),
-        signerMode: { mode: 'local-signer' },
       }),
     ).toBe(false);
   });

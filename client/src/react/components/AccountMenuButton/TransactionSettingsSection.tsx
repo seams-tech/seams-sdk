@@ -4,8 +4,6 @@ import { SegmentedControl } from '../PasskeyAuthMenu/ui/SegmentedControl';
 
 export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProps> = ({
   currentConfirmConfig,
-  signerMode,
-  onToggleThresholdSigning,
   onSetUiMode,
   onToggleShowDetails,
   onToggleSkipClick,
@@ -29,7 +27,6 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
 
   const disableRequireClick = currentConfirmConfig?.uiMode === 'none';
   const disableAll = !isOpen;
-  const selectedSignerMode = signerMode?.mode ?? 'local-signer';
 
   return (
     <div
@@ -51,32 +48,6 @@ export const TransactionSettingsSection: React.FC<TransactionSettingsSectionProp
               gap: 8,
             }}
           >
-            {signerMode && onToggleThresholdSigning && (
-              <div>
-                <div className="w3a-confirmation-options">Signing Mode</div>
-                <div style={{ width: '100%' }}>
-                  <SegmentedControl
-                    items={[
-                      { value: 'local-signer', label: 'Local Signer', disabled: disableAll },
-                      { value: 'threshold-signer', label: 'MPC Signer', disabled: disableAll },
-                    ]}
-                    value={selectedSignerMode}
-                    onValueChange={(v) => onToggleThresholdSigning(v === 'threshold-signer')}
-                    activeBg={'var(--w3a-colors-primary)'}
-                    height={40}
-                    buttonFontSize={12}
-                    containerStyle={{ background: 'var(--w3a-colors-surface2)', width: '100%' }}
-                    buttonStyle={{
-                      display: 'grid',
-                      placeItems: 'center',
-                      lineHeight: 1,
-                      padding: '0 10px',
-                    }}
-                    activeButtonStyle={{ color: 'var(--w3a-colors-textButton)' }}
-                  />
-                </div>
-              </div>
-            )}
             <div>
               <div className="w3a-confirmation-options">Confirmer UI</div>
               <div style={{ width: '100%' }}>

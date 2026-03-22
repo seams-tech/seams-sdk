@@ -144,7 +144,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               onClose={controller.linkDevice.onClose}
               onEvent={controller.linkDevice.onEvent}
               onError={controller.linkDevice.onError}
-              localSignerEnabled={linkDeviceOptions?.localSignerEnabled}
             />
           </React.Suspense>
         }

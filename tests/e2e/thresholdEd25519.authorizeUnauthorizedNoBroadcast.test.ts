@@ -129,7 +129,7 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
@@ -171,7 +171,6 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
             receiverId: 'w3a-v1.testnet',
             actionArgs: { type: ActionType.Transfer, amount: '1' },
             options: {
-              signerMode: { mode: 'threshold-signer', behavior: 'strict' },
               confirmationConfig: confirmConfig,
             },
           });

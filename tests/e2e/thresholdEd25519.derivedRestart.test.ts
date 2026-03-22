@@ -156,7 +156,6 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
               iframeWallet: { walletOrigin: '' },
             });
@@ -165,7 +164,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -185,7 +184,6 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });
@@ -269,7 +267,6 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
               iframeWallet: { walletOrigin: '' },
             });
@@ -288,7 +285,6 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions }],
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });

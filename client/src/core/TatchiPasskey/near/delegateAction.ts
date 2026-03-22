@@ -11,7 +11,7 @@ import type { AccountId } from '../../types/accountIds';
 import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
 import { toError } from '@shared/utils/errors';
-import { mergeSignerMode, type WasmSignedDelegate } from '../../types/signer-worker';
+import type { WasmSignedDelegate } from '../../types/signer-worker';
 import { isObject } from '@shared/utils/validation';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
@@ -30,8 +30,6 @@ export async function signDelegateAction(args: {
   const nearAccountId = toAccountId(String(args.nearAccountId));
   const title = options?.confirmerText?.title;
   const body = options?.confirmerText?.body;
-  const base = context.signingEngine.getUserPreferences().getSignerMode();
-  const signerMode = mergeSignerMode(base, options.signerMode);
 
   const resolvedDelegate: DelegateActionInput = {
     ...delegate,
@@ -65,7 +63,6 @@ export async function signDelegateAction(args: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),
           nearAccountId: String(nearAccountId),
         },
-        signerMode,
         deviceNumber: options?.deviceNumber,
         confirmationConfigOverride: options?.confirmationConfig,
         title,

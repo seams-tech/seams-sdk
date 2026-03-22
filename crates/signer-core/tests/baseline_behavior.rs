@@ -1,23 +1,11 @@
-#[cfg(all(
-    feature = "secp256k1",
-    feature = "near-ed25519",
-    feature = "near-crypto"
-))]
+#[cfg(all(feature = "secp256k1", feature = "near-crypto"))]
 #[path = "../fixtures/signing-vectors/v1_test_vectors.rs"]
 mod vectors;
 
-#[cfg(all(
-    feature = "secp256k1",
-    feature = "near-ed25519",
-    feature = "near-crypto"
-))]
+#[cfg(all(feature = "secp256k1", feature = "near-crypto"))]
 use vectors::*;
 
-#[cfg(all(
-    feature = "secp256k1",
-    feature = "near-ed25519",
-    feature = "near-crypto"
-))]
+#[cfg(all(feature = "secp256k1", feature = "near-crypto"))]
 #[test]
 fn vectors_v1_match_expected_outputs() {
     assert!(VECTORS_JSON.contains("\"version\": \"v1\""));
@@ -119,14 +107,6 @@ fn vectors_v1_match_expected_outputs() {
         ),
         ADD_EXPECTED
     );
-
-    let (priv_key, pub_key) = signer_core::near_ed25519::derive_ed25519_key_from_prf_output(
-        NEAR_PRF_B64U,
-        NEAR_ACCOUNT_ID,
-    )
-    .expect("near derive");
-    assert_eq!(priv_key, NEAR_PRIVATE_EXPECTED);
-    assert_eq!(pub_key, NEAR_PUBLIC_EXPECTED);
 
     assert_eq!(
         to_hex(

@@ -14,16 +14,9 @@ export interface ShowQRCodeProps {
   onClose: () => void;
   onEvent: (event: DeviceLinkingSSEEvent) => void;
   onError: (error: Error) => void;
-  localSignerEnabled?: boolean;
 }
 
-export function ShowQRCode({
-  isOpen,
-  onClose,
-  onEvent,
-  onError,
-  localSignerEnabled,
-}: ShowQRCodeProps) {
+export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
   const { startDevice2LinkingFlow, stopDevice2LinkingFlow, accountInputState, loginState } =
     useTatchi();
 
@@ -54,7 +47,6 @@ export function ShowQRCode({
       try {
         const { qrCodeDataURL } = await startDevice2LinkingFlow({
           ...(accountIdRaw ? { accountId: toAccountId(accountIdRaw) } : {}),
-          ...(localSignerEnabled === false ? { localSignerEnabled: false } : {}),
           options: {
             onEvent: (event: DeviceLinkingSSEEvent) => {
               if (cancelled) return;
@@ -105,7 +97,6 @@ export function ShowQRCode({
   }, [
     accountInputState?.targetAccountId,
     isOpen,
-    localSignerEnabled,
     loginState?.nearAccountId,
     onClose,
     onEvent,

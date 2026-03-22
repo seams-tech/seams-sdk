@@ -130,7 +130,7 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
@@ -150,7 +150,6 @@ test.describe('threshold-ed25519 on-chain scope', () => {
                 },
               ],
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });

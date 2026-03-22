@@ -8,7 +8,6 @@ import type { PasskeyClientDBManager } from '../passkeyClientDB/manager';
 import type { PasskeyNearKeysDBManager } from '../passkeyNearKeysDB/manager';
 import type {
   ClientShareDerivation,
-  LocalNearSkV3Material,
   PasskeyChainIdKeyAlgorithm,
   PasskeyChainIdKeyKind,
   PasskeyChainIdKeyMaterial,
@@ -36,21 +35,6 @@ export interface StoreNearKeyMaterialInput {
   chainIdKey?: string;
 }
 
-export interface StoreNearLocalKeyMaterialInput {
-  nearAccountId: AccountId;
-  deviceNumber: number;
-  publicKey: string;
-  encryptedSk: string;
-  chacha20NonceB64u: string;
-  wrapKeySalt: string;
-  usage?: LocalNearSkV3Material['usage'];
-  signerId?: string;
-  timestamp?: number;
-  schemaVersion?: number;
-  profileId?: string;
-  chainIdKey?: string;
-}
-
 export interface StoreNearThresholdKeyMaterialInput {
   nearAccountId: AccountId;
   deviceNumber: number;
@@ -64,30 +48,6 @@ export interface StoreNearThresholdKeyMaterialInput {
   schemaVersion?: number;
   profileId?: string;
   chainIdKey?: string;
-}
-
-function mapLocalNearKey(
-  nearAccountId: AccountId,
-  deviceNumber: number,
-  rec: PasskeyChainIdKeyMaterial | null,
-): LocalNearSkV3Material | null {
-  if (!rec) return null;
-  const wrapKeySalt = toTrimmedString(rec.wrapKeySalt || '');
-  const encryptedSk = toTrimmedString((rec.payload as any)?.encryptedSk || '');
-  const chacha20NonceB64u = toTrimmedString((rec.payload as any)?.chacha20NonceB64u || '');
-  const usage = toTrimmedString((rec.payload as any)?.usage || '');
-  if (!wrapKeySalt || !encryptedSk || !chacha20NonceB64u) return null;
-  return {
-    nearAccountId,
-    deviceNumber,
-    kind: 'local_near_sk_v3',
-    publicKey: rec.publicKey,
-    wrapKeySalt,
-    encryptedSk,
-    ...(usage === 'runtime-signing' || usage === 'export-only' ? { usage } : {}),
-    chacha20NonceB64u,
-    timestamp: rec.timestamp,
-  };
 }
 
 function mapThresholdNearKey(
@@ -142,22 +102,6 @@ async function resolveNearProfileByAccount(
   return null;
 }
 
-export async function getNearLocalKeyMaterial(
-  deps: NearKeyMaterialDeps,
-  nearAccountId: AccountId,
-  deviceNumber: number,
-): Promise<LocalNearSkV3Material | null> {
-  const resolved = await resolveNearProfileByAccount(deps, nearAccountId);
-  if (!resolved?.profileId || !resolved.chainIdKey) return null;
-  const keyRecord = await deps.nearKeysDB.getKeyMaterial(
-    resolved.profileId,
-    deviceNumber,
-    resolved.chainIdKey,
-    'local_sk_encrypted_v1',
-  );
-  return mapLocalNearKey(nearAccountId, deviceNumber, keyRecord);
-}
-
 export async function getNearThresholdKeyMaterial(
   deps: NearKeyMaterialDeps,
   nearAccountId: AccountId,
@@ -189,7 +133,7 @@ export async function storeNearKeyMaterial(
   if (!keyKind) {
     throw new Error('IndexedDBManager: Missing keyKind for key write');
   }
-  if (keyKind !== 'local_sk_encrypted_v1' && keyKind !== 'threshold_share_v1') {
+  if (keyKind !== 'threshold_share_v1') {
     throw new Error(`IndexedDBManager: Unsupported NEAR keyKind for key write: ${keyKind}`);
   }
   const algorithm = String(input.algorithm || 'ed25519')
@@ -265,40 +209,6 @@ export async function storeNearKeyMaterial(
     ...(input.payload ? { payload: input.payload } : {}),
     timestamp: typeof input.timestamp === 'number' ? input.timestamp : Date.now(),
     schemaVersion,
-  });
-}
-
-export async function storeNearLocalKeyMaterial(
-  deps: NearKeyMaterialDeps,
-  input: StoreNearLocalKeyMaterialInput,
-): Promise<void> {
-  const wrapKeySalt = toTrimmedString(input.wrapKeySalt || '');
-  const encryptedSk = toTrimmedString(input.encryptedSk || '');
-  const chacha20NonceB64u = toTrimmedString(input.chacha20NonceB64u || '');
-  const usage = toTrimmedString(input.usage || '');
-  if (!wrapKeySalt || !encryptedSk || !chacha20NonceB64u) {
-    throw new Error('IndexedDBManager: Missing encrypted local NEAR key fields for key write');
-  }
-  if (usage && usage !== 'runtime-signing' && usage !== 'export-only') {
-    throw new Error(`IndexedDBManager: Invalid local NEAR key usage value: ${usage}`);
-  }
-
-  await storeNearKeyMaterial(deps, {
-    nearAccountId: input.nearAccountId,
-    deviceNumber: input.deviceNumber,
-    keyKind: 'local_sk_encrypted_v1',
-    publicKey: input.publicKey,
-    signerId: input.signerId,
-    wrapKeySalt,
-    payload: {
-      encryptedSk,
-      chacha20NonceB64u,
-      ...(usage ? { usage } : {}),
-    },
-    timestamp: input.timestamp,
-    schemaVersion: input.schemaVersion,
-    profileId: input.profileId,
-    chainIdKey: input.chainIdKey,
   });
 }
 

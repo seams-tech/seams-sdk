@@ -209,7 +209,6 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
   const base = {
     chains: nextChains,
     relayerAccount: payload?.relayerAccount ?? prev.relayerAccount ?? '',
-    signerMode: payload?.signerMode ?? prev.signerMode,
     signingSessionDefaults: payload?.signingSessionDefaults ?? prev.signingSessionDefaults,
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),

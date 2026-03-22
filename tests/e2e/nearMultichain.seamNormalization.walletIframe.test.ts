@@ -61,7 +61,6 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
-            signerMode: { mode: 'local-signer' },
             iframeWallet: {
               walletOrigin,
               servicePath: '/wallet-service',
@@ -77,7 +76,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
           } as const;
           const registration = await tatchi.registration.registerPasskeyInternal(
             accountId,
-            { signerMode: { mode: 'local-signer' } },
+            {},
             confirmationConfig as any,
           );
           if (!registration?.success) {
@@ -95,7 +94,6 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             nearAccountId: accountId,
             transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
             options: {
-              signerMode: { mode: 'local-signer' },
               deviceNumber: 1,
               confirmationConfig: confirmationConfig as any,
             },

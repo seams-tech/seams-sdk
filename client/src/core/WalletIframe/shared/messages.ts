@@ -5,7 +5,6 @@ import { ActionArgs, TransactionInput } from '../../types';
 import { type DeviceLinkingQRData } from '../../types/linkDevice';
 import type { DelegateActionInput } from '../../types/delegate';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { SignerMode } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
@@ -19,8 +18,6 @@ export type ParentToChildType =
   | 'PM_CANCEL'
   // TatchiPasskey API surface
   | 'PM_REGISTER'
-  | 'PM_ENROLL_THRESHOLD_ED25519_KEY'
-  | 'PM_ROTATE_THRESHOLD_ED25519_KEY'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -46,8 +43,6 @@ export type ParentToChildType =
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
-  | 'PM_SET_SIGNER_MODE'
-  | 'PM_GET_SIGNER_MODE'
   | 'PM_SET_THEME'
   | 'PM_HAS_PASSKEY'
   | 'PM_VIEW_ACCESS_KEYS'
@@ -87,7 +82,6 @@ export interface ReadyPayload {
 export interface PreferencesChangedPayload {
   nearAccountId: string | null;
   confirmationConfig: ConfirmationConfig;
-  signerMode: SignerMode;
   updatedAt: number;
 }
 
@@ -108,22 +102,6 @@ export interface PMRegisterPayload {
   // Optional per-call confirmation override
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
-}
-
-export interface PMEnrollThresholdEd25519KeyPayload {
-  nearAccountId: string;
-  options?: {
-    deviceNumber?: number;
-    relayerUrl?: string;
-  };
-}
-
-export interface PMRotateThresholdEd25519KeyPayload {
-  nearAccountId: string;
-  options?: {
-    deviceNumber?: number;
-    relayerUrl?: string;
-  };
 }
 
 export interface PMBootstrapThresholdEcdsaSessionPayload {
@@ -154,7 +132,6 @@ export interface PMSignTxsPayload {
   nearAccountId: string;
   transactions: TransactionInput[];
   options: {
-    signerMode: SignerMode;
     deviceNumber?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
@@ -166,7 +143,6 @@ export interface PMSignAndSendTxsPayload {
   nearAccountId: string;
   transactions: TransactionInput[];
   options: {
-    signerMode: SignerMode;
     deviceNumber?: number;
     // Keep only serializable fields; functions are bridged via PROGRESS
     waitUntil?:
@@ -193,7 +169,6 @@ export interface PMExecuteActionPayload {
   receiverId: string;
   actionArgs: ActionArgs | ActionArgs[];
   options: {
-    signerMode: SignerMode;
     waitUntil?: unknown;
     deviceNumber?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
@@ -206,7 +181,6 @@ export interface PMSignDelegateActionPayload {
   nearAccountId: string;
   delegate: DelegateActionInput;
   options: {
-    signerMode: SignerMode;
     deviceNumber?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
@@ -218,7 +192,6 @@ export interface PMSignNep413Payload {
   nearAccountId: string;
   params: { message: string; recipient: string; state?: string };
   options: {
-    signerMode: SignerMode;
     deviceNumber?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
@@ -295,11 +268,6 @@ export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   };
 }
 
-export interface PMSetSignerModePayload {
-  signerMode: SignerMode;
-  nearAccountId?: string;
-}
-
 export interface PMSetThemePayload {
   theme: 'dark' | 'light';
 }
@@ -316,7 +284,6 @@ export interface PMDeleteDeviceKeyPayload {
   accountId: string;
   publicKeyToDelete: string;
   options: {
-    signerMode: SignerMode;
     [key: string]: unknown;
   };
 }
@@ -347,7 +314,6 @@ export interface PMSetRecoveryEmailsPayload {
   nearAccountId: string;
   recoveryEmails: string[];
   options: {
-    signerMode: SignerMode;
     waitUntil?: unknown;
     confirmationConfig?: Partial<ConfirmationConfig>;
     [key: string]: unknown;
@@ -379,8 +345,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
   | RpcEnvelope<'PM_REGISTER', PMRegisterPayload>
-  | RpcEnvelope<'PM_ENROLL_THRESHOLD_ED25519_KEY', PMEnrollThresholdEd25519KeyPayload>
-  | RpcEnvelope<'PM_ROTATE_THRESHOLD_ED25519_KEY', PMRotateThresholdEd25519KeyPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
@@ -409,8 +373,6 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIRM_BEHAVIOR', PMSetConfirmBehaviorPayload>
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>
-  | RpcEnvelope<'PM_SET_SIGNER_MODE', PMSetSignerModePayload>
-  | RpcEnvelope<'PM_GET_SIGNER_MODE'>
   | RpcEnvelope<'PM_SET_THEME', PMSetThemePayload>
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
   | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
@@ -433,7 +395,6 @@ export type ParentToChildEnvelope =
         cameraId?: string;
         accountId?: string;
         deviceNumber?: number;
-        localSignerEnabled?: boolean;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };

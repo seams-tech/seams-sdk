@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CRATE_DIR="$ROOT_DIR/crates/signer-platform-ios"
 SWIFT_HARNESS="$CRATE_DIR/swift/VectorReplay.swift"
 VECTORS_FILE="$ROOT_DIR/crates/signer-core/fixtures/signing-vectors/v1.json"
-FEATURES="${IOS_SIGNER_FEATURES:-secp256k1,near-ed25519,near-crypto}"
+FEATURES="${IOS_SIGNER_FEATURES:-secp256k1,near-crypto}"
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "[ios-swift-replay] failed: swift toolchain is required"

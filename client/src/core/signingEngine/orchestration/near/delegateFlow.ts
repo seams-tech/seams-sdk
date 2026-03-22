@@ -6,7 +6,6 @@ import { type onProgressEvents } from '@/core/types/sdkSentEvents';
 import {
   ConfirmationConfig,
   RpcCallPayload,
-  type SignerMode,
   WorkerRequestType,
   type DelegateSignResponse,
   type WasmSignDelegateActionRequest,
@@ -16,10 +15,7 @@ import {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import {
-  LocalNearSkV3Material,
-  ThresholdEd25519_2p_V1Material,
-} from '@/core/indexedDB/passkeyNearKeysDB.types';
+import { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -53,7 +49,6 @@ export async function signDelegateAction({
   ctx,
   delegate,
   rpcCall,
-  signerMode,
   onEvent,
   confirmationConfigOverride,
   title,
@@ -64,7 +59,6 @@ export async function signDelegateAction({
   ctx: SigningRuntimeDeps;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
-  signerMode: SignerMode;
   onEvent?: (update: onProgressEvents) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
@@ -105,28 +99,17 @@ export async function signDelegateAction({
     throw new Error('TouchConfirm bridge not available for delegate signing');
   }
 
-  const {
-    resolvedSignerMode,
-    localKeyMaterial,
-    thresholdKeyMaterial,
-    localWrapKeySalt,
-    thresholdWrapKeySalt,
-  } = await resolveNearSigningMaterials({
+  const { thresholdKeyMaterial, thresholdWrapKeySalt } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
-    signerMode,
     deviceNumber,
     operationLabel: 'delegate signing',
     warnings,
-    allowThresholdOnlyUpgrade: true,
   });
-
   const signingContext = validateAndPrepareDelegateSigningContext({
     nearAccountId,
-    resolvedSignerMode,
     relayerUrl,
     rpId: ctx.touchIdPrompt.getRpId(),
-    localKeyMaterial,
     thresholdKeyMaterial,
     providedDelegatePublicKey: delegate.publicKey,
     warnings,
@@ -211,44 +194,6 @@ export async function signDelegateAction({
     publicKey: signingContext.delegatePublicKeyStr,
   };
 
-  if (!signingContext.threshold) {
-    if (!localKeyMaterial) {
-      throw new Error(`No local key material found for account: ${nearAccountId}`);
-    }
-    const localRequestPayload: Omit<WasmSignDelegateActionRequest, 'sessionId'> = {
-      rpcCall: resolvedRpcCall,
-      createdAt: Date.now(),
-      ...buildNearWorkerSigningEnvelope({
-        signerMode: signingContext.resolvedSignerMode,
-        prfFirstB64u,
-        wrapKeySalt: localWrapKeySalt,
-        localKeyMaterial,
-      }),
-      delegate: delegatePayload,
-      intentDigest,
-      transactionContext,
-      credential: credentialForRelayJson,
-    };
-    const response = await executeWorkerOperation({
-      ctx,
-      kind: 'nearSigner',
-      request: {
-        sessionId,
-        type: WorkerRequestType.SignDelegateAction,
-        payload: localRequestPayload,
-        onEvent,
-      },
-    });
-
-    const okResponse = requireOkSignDelegateActionResponse(response);
-    return {
-      signedDelegate: okResponse.payload.signedDelegate!,
-      hash: okResponse.payload.hash!,
-      nearAccountId: toAccountId(nearAccountId),
-      logs: [...(okResponse.payload.logs || []), ...warnings],
-    };
-  }
-
   if (
     (signingContext.threshold.thresholdSessionKind === 'jwt' &&
       !signingContext.threshold.thresholdSessionJwt) ||
@@ -277,7 +222,6 @@ export async function signDelegateAction({
     rpcCall: resolvedRpcCall,
     createdAt: Date.now(),
     ...buildNearWorkerSigningEnvelope({
-      signerMode: signingContext.resolvedSignerMode,
       prfFirstB64u,
       wrapKeySalt: thresholdWrapKeySalt,
       threshold: {
@@ -340,7 +284,6 @@ export async function signDelegateAction({
 }
 
 type ThresholdDelegateSigningContext = {
-  resolvedSignerMode: 'threshold-signer';
   signingNearPublicKeyStr: string;
   delegatePublicKeyStr: string;
   threshold: {
@@ -352,49 +295,17 @@ type ThresholdDelegateSigningContext = {
   };
 };
 
-type LocalDelegateSigningContext = {
-  resolvedSignerMode: 'local-signer';
-  signingNearPublicKeyStr: string;
-  delegatePublicKeyStr: string;
-  threshold: null;
-};
-
-type DelegateSigningContext = ThresholdDelegateSigningContext | LocalDelegateSigningContext;
-
 function validateAndPrepareDelegateSigningContext(args: {
   nearAccountId: string;
-  resolvedSignerMode: SignerMode['mode'];
   relayerUrl: string;
   rpId: string | null;
-  localKeyMaterial: LocalNearSkV3Material | null;
   thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
   providedDelegatePublicKey: DelegateActionInput['publicKey'];
   warnings: string[];
-}): DelegateSigningContext {
+}): ThresholdDelegateSigningContext {
   const providedDelegatePublicKeyStr = ensureEd25519Prefix(
     toPublicKeyString(args.providedDelegatePublicKey),
   );
-
-  if (args.resolvedSignerMode !== 'threshold-signer') {
-    if (!args.localKeyMaterial) {
-      throw new Error(`No local key material found for account: ${args.nearAccountId}`);
-    }
-    const localPublicKey = ensureEd25519Prefix(args.localKeyMaterial.publicKey);
-    if (!localPublicKey) {
-      throw new Error(`Missing local signing public key for ${args.nearAccountId}`);
-    }
-    if (providedDelegatePublicKeyStr && providedDelegatePublicKeyStr !== localPublicKey) {
-      args.warnings.push(
-        `Delegate public key ${providedDelegatePublicKeyStr} does not match local signer key; using ${localPublicKey}`,
-      );
-    }
-    return {
-      resolvedSignerMode: 'local-signer',
-      signingNearPublicKeyStr: localPublicKey,
-      delegatePublicKeyStr: localPublicKey,
-      threshold: null,
-    };
-  }
 
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
   if (!thresholdKeyMaterial) {
@@ -443,7 +354,6 @@ function validateAndPrepareDelegateSigningContext(args: {
     cachedAuthSession?.sessionKind === 'cookie' ? 'cookie' : 'jwt';
 
   return {
-    resolvedSignerMode: 'threshold-signer',
     signingNearPublicKeyStr: thresholdPublicKey,
     delegatePublicKeyStr: thresholdPublicKey,
     threshold: {

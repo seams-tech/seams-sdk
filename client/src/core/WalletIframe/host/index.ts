@@ -113,20 +113,15 @@ export function initWalletIFrame(): void {
           payload: {
             nearAccountId,
             confirmationConfig: up.getConfirmationConfig(),
-            signerMode: up.getSignerMode(),
             updatedAt: Date.now(),
           } satisfies PreferencesChangedPayload,
         });
       };
       const unsubCfg = up.onConfirmationConfigChange?.(() => emitPreferencesChanged()) || null;
-      const unsubSignerMode = up.onSignerModeChange?.(() => emitPreferencesChanged()) || null;
       const unsubCurrentUser = up.onCurrentUserChange?.(() => emitPreferencesChanged()) || null;
       ctx.prefsUnsubscribe = () => {
         try {
           unsubCfg?.();
-        } catch {}
-        try {
-          unsubSignerMode?.();
         } catch {}
         try {
           unsubCurrentUser?.();

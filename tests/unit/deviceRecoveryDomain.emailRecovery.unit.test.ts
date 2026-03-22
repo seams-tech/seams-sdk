@@ -122,9 +122,7 @@ function createLocalDomain(options?: {
         lastUser = {
           nearAccountId: accountId,
           deviceNumber,
-          clientNearPublicKey: String(
-            stored?.clientNearPublicKey || 'ed25519:recovery-key',
-          ),
+          clientNearPublicKey: String(stored?.clientNearPublicKey || 'ed25519:recovery-key'),
         };
       },
       updateLastLogin: async () => undefined,

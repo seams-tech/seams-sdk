@@ -76,11 +76,6 @@ export type StartDevice2LinkingFlowArgs = {
    * When omitted, device2 will attempt `2` and auto-increment on duplicate.
    */
   deviceNumber?: number;
-  /**
-   * Whether to derive and add a local signer key on device2 after linking completes.
-   * Defaults to true.
-   */
-  localSignerEnabled?: boolean;
 } & StartDeviceLinkingOptionsDevice2;
 
 export interface StartDevice2LinkingFlowResults {

@@ -15,8 +15,8 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const wrapperCalls = source.match(/withThresholdEd25519CommitQueue\(\{/g)?.length || 0;
 
     expect(source).toContain('resolveThresholdEd25519CommitQueueKey');
-    expect(source).toContain("if (args.signerMode.mode !== 'threshold-signer')");
     expect(source).toContain('enabled: true,');
+    expect(source).not.toContain('signerMode');
     expect(wrapperCalls).toBeGreaterThanOrEqual(3);
   });
 });

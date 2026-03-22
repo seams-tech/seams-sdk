@@ -9,8 +9,6 @@ import type {
   ThemeName,
   ThemePaletteName,
 } from '../types/tatchi';
-import type { SignerMode } from '../types/signer-worker';
-import { isSignerMode, isThresholdBehavior } from '../types/signer-worker';
 import {
   isEvmChainNetwork,
   isNearChainNetwork,
@@ -89,58 +87,6 @@ export function toColorTokenRecord(value: unknown): Record<string, string> {
     if (typeof v === 'string') out[k] = v;
   }
   return out;
-}
-
-function copySignerMode(mode: SignerMode): SignerMode {
-  if (mode.mode === 'threshold-signer' && isThresholdBehavior(mode.behavior)) {
-    return { mode: 'threshold-signer', behavior: mode.behavior };
-  }
-  return { mode: mode.mode };
-}
-
-export function resolveSignerMode(
-  input: TatchiConfigsInput['signerMode'],
-  fallback: SignerMode,
-): SignerMode {
-  if (input == null) return copySignerMode(fallback);
-
-  if (typeof input === 'string') {
-    if (!isSignerMode(input)) {
-      throw new Error(
-        "[configPresets] Invalid config: signerMode must be 'local-signer' or 'threshold-signer'",
-      );
-    }
-    return { mode: input };
-  }
-
-  if (typeof input !== 'object') {
-    throw new Error('[configPresets] Invalid config: signerMode must be a string or object');
-  }
-
-  if (!isSignerMode(input.mode)) {
-    throw new Error(
-      "[configPresets] Invalid config: signerMode.mode must be 'local-signer' or 'threshold-signer'",
-    );
-  }
-
-  if (input.mode === 'local-signer') {
-    return { mode: 'local-signer' };
-  }
-
-  if (input.behavior == null) {
-    return { mode: 'threshold-signer' };
-  }
-
-  if (!isThresholdBehavior(input.behavior)) {
-    throw new Error(
-      "[configPresets] Invalid config: signerMode.behavior must be 'strict' or 'fallback'",
-    );
-  }
-
-  return {
-    mode: 'threshold-signer',
-    behavior: input.behavior,
-  };
 }
 
 export function resolveTheme(args: { value: unknown; fallback: ThemeName }): ThemeName {

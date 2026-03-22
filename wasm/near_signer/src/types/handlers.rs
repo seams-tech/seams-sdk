@@ -103,8 +103,6 @@ pub struct TransactionContext {
     pub tx_block_hash: String,
 }
 
-// === DECRYPTION TYPES ===
-
 // ******************************************************************************
 // *                                                                            *
 // *                    CONFIRMATION CONFIGURATION TYPES                        *
@@ -162,35 +160,6 @@ impl Default for ConfirmationConfig {
             behavior: ConfirmationBehavior::RequireClick,
             auto_proceed_delay: Some(2000),
             theme: Some("dark".to_string()),
-        }
-    }
-}
-
-// === DECRYPTION TYPES ===
-
-/// Decryption payload (consolidated for deserialization and WASM binding)
-#[wasm_bindgen]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DecryptionPayload {
-    /// Encrypted NEAR private key
-    #[wasm_bindgen(getter_with_clone, js_name = "encryptedPrivateKeyData")]
-    pub encrypted_private_key_data: String,
-    /// ChaCha20-Poly1305 nonce (base64url) for `encryptedPrivateKeyData`.
-    #[wasm_bindgen(getter_with_clone, js_name = "encryptedPrivateKeyChacha20NonceB64u")]
-    pub encrypted_private_key_chacha20_nonce_b64u: String,
-}
-
-#[wasm_bindgen]
-impl DecryptionPayload {
-    #[wasm_bindgen(constructor)]
-    pub fn new(
-        encrypted_private_key_data: String,
-        encrypted_private_key_chacha20_nonce_b64u: String,
-    ) -> DecryptionPayload {
-        DecryptionPayload {
-            encrypted_private_key_data,
-            encrypted_private_key_chacha20_nonce_b64u,
         }
     }
 }

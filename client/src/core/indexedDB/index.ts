@@ -35,7 +35,6 @@ export type {
 
 export type {
   PasskeyNearKeyMaterial,
-  LocalNearSkV3Material,
   ThresholdEd25519_2p_V1Material,
   PasskeyNearKeyMaterialKind,
   ClientShareDerivation,

@@ -2,7 +2,6 @@ import type { PasskeyManagerContext } from '../index';
 import type { SignNEP413HooksOptions } from '../../types/sdkSentEvents';
 import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
 import type { AccountId } from '../../types/accountIds';
-import { mergeSignerMode } from '../../types/signer-worker';
 import { base64Encode } from '@shared/utils/encoders';
 
 /**
@@ -67,8 +66,6 @@ export async function signNEP413Message(args: {
   const deviceNumber = options?.deviceNumber;
   const hasValidDeviceNumber =
     typeof deviceNumber === 'number' && Number.isSafeInteger(deviceNumber) && deviceNumber >= 1;
-  const baseSignerMode = signingEngine.getUserPreferences().getSignerMode();
-  const signerMode = mergeSignerMode(baseSignerMode, options.signerMode);
 
   try {
     // Emit preparation event
@@ -118,7 +115,6 @@ export async function signNEP413Message(args: {
         nonce,
         state: params.state || null,
         accountId: nearAccountId,
-        signerMode,
         deviceNumber: hasValidDeviceNumber ? deviceNumber : undefined,
         title: confirmerText?.title,
         body: confirmerText?.body,

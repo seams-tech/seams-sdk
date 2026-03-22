@@ -42,7 +42,6 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
-          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
@@ -52,7 +51,7 @@ test.describe('NonceManager Integration Tests', () => {
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
-          { signerMode: { mode: 'local-signer' } },
+          {},
           cfg as any,
         );
         if (!registrationResult.success) {
@@ -138,7 +137,6 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
-          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
@@ -148,7 +146,7 @@ test.describe('NonceManager Integration Tests', () => {
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
-          { signerMode: { mode: 'local-signer' } },
+          {},
           cfg as any,
         );
         if (!registrationResult.success) {
@@ -242,7 +240,6 @@ test.describe('NonceManager Integration Tests', () => {
           nearNetwork: configs.nearNetwork,
           nearRpcUrl: configs.nearRpcUrl,
           relayer: configs.relayer,
-          signerMode: { mode: 'local-signer' },
           iframeWallet: { walletOrigin: '' },
         });
 
@@ -252,7 +249,7 @@ test.describe('NonceManager Integration Tests', () => {
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
         const registrationResult = await pm.registration.registerPasskeyInternal(
           testAccountId,
-          { signerMode: { mode: 'local-signer' } },
+          {},
           cfg as any,
         );
         if (!registrationResult.success) {

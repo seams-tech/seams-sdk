@@ -7,23 +7,6 @@ use sha2::{Digest, Sha512};
 use std::collections::BTreeMap;
 use wasm_bindgen::prelude::*;
 
-pub(crate) fn compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
-    client_point: EdwardsPoint,
-    relayer_point: EdwardsPoint,
-    client_participant_id: u16,
-    relayer_participant_id: u16,
-) -> Result<[u8; 32], String> {
-    let client_bytes = client_point.compress().to_bytes();
-    let relayer_bytes = relayer_point.compress().to_bytes();
-    signer_platform_web::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
-        &client_bytes,
-        &relayer_bytes,
-        client_participant_id,
-        relayer_participant_id,
-    )
-    .map_err(|e| e.to_string())
-}
-
 #[wasm_bindgen]
 pub fn threshold_ed25519_keygen_from_client_verifying_share(
     args: JsValue,

@@ -1,5 +1,5 @@
 import type { AccountId } from '../types/accountIds';
-import type { ConfirmationConfig, SignerMode } from '../types/signer-worker';
+import type { ConfirmationConfig } from '../types/signer-worker';
 
 export interface ClientUserData {
   // Primary key - now uses AccountId + deviceNumber for unique identification
@@ -35,7 +35,6 @@ export interface UserPreferences {
   useRelayer: boolean;
   useNetwork: 'testnet' | 'mainnet';
   confirmationConfig: ConfirmationConfig;
-  signerMode?: SignerMode;
   // User preferences can be extended here as needed
 }
 

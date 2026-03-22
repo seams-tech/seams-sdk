@@ -36,7 +36,6 @@ export function createManagerAssembly(args: {
     true,
   );
   const userPreferencesManager = UserPreferencesInstance;
-  userPreferencesManager.configureDefaultSignerMode?.(args.tatchiPasskeyConfigs.signing.mode);
   const nonceManager = NonceManagerInstance;
   const chains = args.tatchiPasskeyConfigs.network.chains;
   const evmNonceManager = createEvmNonceManager({

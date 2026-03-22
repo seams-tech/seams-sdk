@@ -126,7 +126,6 @@ export class WalletIframeCoordinator {
             servicePath: walletIframeConfig?.servicePath || '/wallet-service',
             connectTimeoutMs: 20_000,
             requestTimeoutMs: 60_000,
-            signerMode: this.configs.signing.mode,
             chains: this.configs.network.chains,
             relayerAccount: this.configs.network.relayer.accountId,
             relayer: this.configs.network.relayer,
@@ -176,15 +175,6 @@ export class WalletIframeCoordinator {
           confirmationConfig: cfg,
         });
       }
-      const signerMode = await this.iframeRouter
-        .getSignerMode?.({ timeoutMs: 1000 })
-        .catch(() => null);
-      if (signerMode) {
-        this.userPreferences.applyWalletHostSignerMode?.({
-          nearAccountId: nearAccountId ? toAccountId(nearAccountId) : null,
-          signerMode,
-        });
-      }
     }
 
     await this.refreshWalletSession(nearAccountId);
@@ -214,12 +204,6 @@ export class WalletIframeCoordinator {
         nearAccountId,
         confirmationConfig: payload?.confirmationConfig,
       });
-      if (payload?.signerMode) {
-        this.userPreferences.applyWalletHostSignerMode?.({
-          nearAccountId,
-          signerMode: payload.signerMode,
-        });
-      }
     });
     this.walletIframePrefsUnsubscribe = unsubscribe ?? null;
   }

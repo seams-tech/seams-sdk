@@ -125,12 +125,10 @@ export async function unlock(
     })();
 
     let signingSession: LoginAndCreateSessionResult['signingSession'] | undefined;
-    const isThresholdSignerMode = context.configs?.signing.mode?.mode === 'threshold-signer';
     // Warm sessions are enabled when policy budgets are non-zero.
     const shouldWarmThresholdSigningSession =
       signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.remainingUses > 0;
-    // In threshold-signer mode, warm session creation must succeed during login.
-    const requireThresholdWarmup = isThresholdSignerMode && shouldWarmThresholdSigningSession;
+    const requireThresholdWarmup = shouldWarmThresholdSigningSession;
 
     const requireActiveWarmSession = (source: string): void => {
       if (signingSession?.status === 'active') return;

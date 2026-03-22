@@ -102,7 +102,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -122,7 +122,6 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
               nearAccountId: accountId,
               params: { message, recipient, state },
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });

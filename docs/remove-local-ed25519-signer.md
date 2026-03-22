@@ -1,5 +1,82 @@
 # Remove Legacy Local Ed25519 Signer
 
+## Role In The Seed-Backed Ed25519 Export Roadmap
+
+This document is the prerequisite cleanup plan for
+[`homomorphic-key-export-ED25519.md`](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ED25519.md).
+
+Execution order:
+
+1. Complete this removal plan first.
+2. Then start Phase 0 of the seed-backed Ed25519 export plan.
+
+Reason:
+
+- the legacy local signer keeps an incompatible Ed25519 lifecycle alive,
+- that creates ambiguity in storage, worker export paths, public APIs, and UI,
+- the seed-backed threshold export plan should begin only after NEAR Ed25519 is threshold-only.
+
+## Current Repo Status
+
+Status: complete.
+
+The legacy local-signer codepaths listed below have been deleted from the Rust core, wasm worker,
+client orchestration, storage, relay contract, and test suite.
+
+Completed in the current slice:
+
+- client default signer mode now points to `threshold-signer`
+- account-menu transaction settings no longer expose a local-vs-threshold signing toggle
+- `client/src/core/types/signer-worker.ts` no longer allows `local-signer` in the core `SignerMode` type
+- `client/src/core/config/configHelpers.ts` no longer accepts `local-signer` config input
+- NEAR signing runtime resolution is threshold-only in:
+  - `client/src/core/signingEngine/threshold/session/ed25519RelayerHealth.ts`
+  - `client/src/core/signingEngine/orchestration/near/shared/signingMaterials.ts`
+  - `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts`
+  - `client/src/core/signingEngine/orchestration/near/nep413Flow.ts`
+  - `client/src/core/signingEngine/orchestration/near/delegateFlow.ts`
+- worker-driven private-key export no longer accepts local NEAR key snapshots, and the legacy worker-side NEAR recovery/decrypt shortcut has been removed from:
+  - `client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts`
+  - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
+- NEAR private-key export now hard-fails until threshold-backed export is implemented, instead of silently using the legacy local signer path
+- registration and device-link flows no longer derive or persist local NEAR key material in:
+  - `client/src/core/TatchiPasskey/registration.ts`
+  - `client/src/core/TatchiPasskey/near/linkDevice.ts`
+- client registration/device-link requests no longer send `new_public_key` / `local_public_key` from:
+  - `client/src/core/TatchiPasskey/faucets/createAccountRelayServer.ts`
+  - `client/src/core/TatchiPasskey/near/linkDevice.ts`
+- the client-facing API and wallet-iframe plumbing no longer expose `backupLocalKey` / `localSignerEnabled`
+- relay registration/link-device server handling for `new_public_key` / `local_public_key` has been removed
+- the dead local NEAR derivation/recovery worker APIs have been removed from:
+  - `client/src/core/signingEngine/interfaces/nearKeyOps.ts`
+  - `client/src/core/signingEngine/workerManager/nearKeyOps/*`
+  - `client/src/core/signingEngine/api/recovery/nearKeyDerivation.ts`
+  - `client/src/core/signingEngine/SigningEngine.ts`
+- local NEAR IndexedDB payload kinds and parsing have been removed:
+  - `local_near_sk_v3`
+  - `local_sk_encrypted_v1`
+- NEAR signing/request assembly is threshold-only in client orchestration and worker payloads
+- `SignerMode` has been removed from:
+  - `client/src/core/types/signer-worker.ts`
+  - `client/src/core/signingEngine/api/userPreferences.ts`
+  - `client/src/core/TatchiPasskey/index.ts`
+  - `client/src/core/TatchiPasskey/interfaces.ts`
+  - `client/src/core/WalletIframe/shared/messages.ts`
+  - `client/src/core/WalletIframe/client/router.ts`
+  - `client/src/core/WalletIframe/TatchiPasskeyIframe.ts`
+  - the NEAR signing hook options and NEAR action wrappers
+- `crates/signer-core/src/near_ed25519.rs` and the `near-ed25519` cargo feature have been removed
+- wasm local-key worker request types and handlers have been removed from:
+  - `wasm/near_signer/src/types/worker_messages.rs`
+  - `wasm/near_signer/src/handlers/mod.rs`
+  - `wasm/near_signer/src/lib.rs`
+- the wasm threshold backend is now threshold-only:
+  - no `LocalEd25519Signer`
+  - no local decrypt path
+  - no `SignerMode` in wasm request contracts
+
+Remaining follow-up is normal opportunistic cleanup while the seed-backed Ed25519 refactor lands.
+
 ## Decision
 
 No, these are not the same system.
@@ -21,7 +98,7 @@ Breaking existing local-only accounts is acceptable. Do not add compatibility sh
 ## Target End State
 
 - NEAR Ed25519 is threshold-only.
-- `SignerMode` no longer has `local-signer`.
+- `SignerMode` does not exist.
 - NEAR registration and device linking only provision threshold Ed25519 key material.
 - IndexedDB stores only threshold NEAR material for NEAR.
 - The signer WASM worker no longer derives, encrypts, decrypts, or recovers local NEAR private keys.
@@ -142,9 +219,47 @@ After this phase:
 - NEAR signing requests always require threshold key material.
 - missing threshold material is a hard error
 - relayer unsupported is a hard error
-- there is no `decryption` payload in NEAR worker signing requests
+- local-signer runtime branches are removed from the client NEAR orchestration path
 
-## Phase 4: Remove Local-Signer Registration, Linking, And Migration Paths
+This phase is complete on the client side. Threshold signing is now implicit in the NEAR signing path.
+
+## Phase 4: Remove `SignerMode` Entirely
+
+Once NEAR is threshold-only everywhere, delete the `SignerMode` abstraction instead of carrying a
+single-value mode object through configs, preferences, and SDK APIs.
+
+- Delete `SignerMode`, `DEFAULT_SIGNER_MODE`, `DEFAULT_SIGNING_MODE`, `coerceSignerMode`,
+  `mergeSignerMode`, and related helper code from:
+  - `client/src/core/types/signer-worker.ts`
+- Remove signer-mode preference state and callbacks from:
+  - `client/src/core/signingEngine/api/userPreferences.ts`
+  - `client/src/core/TatchiPasskey/index.ts`
+  - `client/src/core/TatchiPasskey/interfaces.ts`
+- Remove signer-mode config parsing and types from:
+  - `client/src/core/config/configHelpers.ts`
+  - `client/src/core/types/tatchi.ts`
+- Remove wallet-iframe message fields and router plumbing that still serialize signer mode:
+  - `client/src/core/WalletIframe/shared/messages.ts`
+  - `client/src/core/WalletIframe/client/router.ts`
+  - `client/src/core/WalletIframe/TatchiPasskeyIframe.ts`
+- Remove public request options that still accept `signerMode` and make threshold signing implicit:
+  - `client/src/core/types/sdkSentEvents.ts`
+  - `client/src/core/TatchiPasskey/near/actions.ts`
+  - `client/src/core/TatchiPasskey/near/signNEP413.ts`
+  - `client/src/core/TatchiPasskey/near/delegateAction.ts`
+  - `client/src/core/signingEngine/api/nearSigning.ts`
+- Replace any remaining “mode selection” wording in UI/docs with threshold-only wording.
+
+After this phase:
+
+- there is no NEAR signer mode selection anywhere in the SDK,
+- threshold signing is the only NEAR signing behavior,
+- user preferences no longer persist signer-mode state,
+- the public API surface stops encoding a removed feature.
+
+Client-side status: complete.
+
+## Phase 5: Remove Local-Signer Registration, Linking, And Migration Paths
 
 Registration and device-linking still carry legacy local-key branches. Remove them completely.
 
@@ -184,7 +299,7 @@ Legacy migration/activation:
 - Delete the internal worker request `SignAddKeyThresholdPublicKeyNoPrompt` once no local-key activation path remains.
 - Revisit `TatchiPasskey.enrollThresholdEd25519Key(...)`. If it only exists to migrate legacy local accounts, remove the public API instead of preserving it.
 
-## Phase 5: Simplify Relay Contracts To Threshold-Only
+## Phase 6: Simplify Relay Contracts To Threshold-Only
 
 The client and server still preserve compatibility for local-key registration/linking. Remove that compatibility.
 
@@ -206,7 +321,7 @@ Link device:
 
 This should leave registration and link-device payloads threshold-only and easier to reason about.
 
-## Phase 6: UI, Export, And Docs Cleanup
+## Phase 7: UI, Export, And Docs Cleanup
 
 Remove UI that still exposes local signer behavior:
 
@@ -263,4 +378,3 @@ The removal is complete when all of the following are true:
 - `wasm/near_signer` no longer enables or imports `near-ed25519`.
 - NEAR registration/link-device/signing flows compile and run without any local-key branch.
 - There is exactly one NEAR signing model in the codebase: threshold Ed25519.
-

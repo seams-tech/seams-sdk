@@ -443,40 +443,6 @@ export class LinkDeviceFlow {
       };
     }
 
-    const localSignerEnabled = this.options?.localSignerEnabled !== false;
-    let localPublicKey: string | null = null;
-    let localKeyMaterialForPersist: {
-      publicKey: string;
-      encryptedSk: string;
-      chacha20NonceB64u: string;
-      wrapKeySalt: string;
-    } | null = null;
-    if (localSignerEnabled) {
-      const localKeyResult =
-        await this.context.signingEngine.deriveNearKeypairAndEncryptFromSerialized({
-          credential,
-          nearAccountId: String(nearAccountId),
-          options: { deviceNumber: resolvedDeviceNumber, persistToDb: false },
-        });
-      if (!localKeyResult.success || !localKeyResult.publicKey) {
-        throw new Error(localKeyResult.error || 'Failed to derive local signer key');
-      }
-      localPublicKey = ensureEd25519Prefix(String(localKeyResult.publicKey || '').trim());
-      if (!localPublicKey) throw new Error('Local signer public key is empty');
-      const encryptedSk = String(localKeyResult.encryptedSk || '').trim();
-      const chacha20NonceB64u = String(localKeyResult.chacha20NonceB64u || '').trim();
-      const wrapKeySalt = String(localKeyResult.wrapKeySalt || '').trim();
-      if (!encryptedSk || !chacha20NonceB64u || !wrapKeySalt) {
-        throw new Error('Missing encrypted local key material after key derivation');
-      }
-      localKeyMaterialForPersist = {
-        publicKey: localPublicKey,
-        encryptedSk,
-        chacha20NonceB64u,
-        wrapKeySalt,
-      };
-    }
-
     const credentialForRelay = redactCredentialExtensionOutputs(
       normalizeRegistrationCredential(credential),
     );
@@ -487,7 +453,6 @@ export class LinkDeviceFlow {
         account_id: String(nearAccountId),
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         device_number: resolvedDeviceNumber,
-        ...(localPublicKey ? { local_public_key: localPublicKey } : {}),
         threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
           clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
           nearAccountId: String(nearAccountId),
@@ -569,7 +534,6 @@ export class LinkDeviceFlow {
       accountId: String(nearAccountId),
       ephemeralPublicKey,
       thresholdPublicKey,
-      ...(localPublicKey ? { localPublicKey } : {}),
     });
 
     const actions: ActionArgsWasm[] = [
@@ -578,15 +542,6 @@ export class LinkDeviceFlow {
         public_key: thresholdPublicKey,
         access_key: JSON.stringify({ nonce: 0, permission: { FullAccess: {} } }),
       },
-      ...(localPublicKey
-        ? [
-            {
-              action_type: ActionType.AddKey,
-              public_key: localPublicKey,
-              access_key: JSON.stringify({ nonce: 0, permission: { FullAccess: {} } }),
-            } satisfies ActionArgsWasm,
-          ]
-        : []),
       {
         action_type: ActionType.DeleteKey,
         public_key: ephemeralPublicKey,
@@ -622,19 +577,6 @@ export class LinkDeviceFlow {
 
     // Store authenticator + user data first to ensure profile/account mapping exists.
     await this.storeDeviceAuthenticator({ nearPublicKey: thresholdPublicKey, credential });
-
-    if (localKeyMaterialForPersist) {
-      await IndexedDBManager.storeNearLocalKeyMaterial({
-        nearAccountId,
-        deviceNumber: resolvedDeviceNumber,
-        publicKey: localKeyMaterialForPersist.publicKey,
-        encryptedSk: localKeyMaterialForPersist.encryptedSk,
-        chacha20NonceB64u: localKeyMaterialForPersist.chacha20NonceB64u,
-        wrapKeySalt: localKeyMaterialForPersist.wrapKeySalt,
-        usage: 'runtime-signing',
-        timestamp: Date.now(),
-      });
-    }
 
     await IndexedDBManager.storeNearThresholdKeyMaterial({
       nearAccountId,

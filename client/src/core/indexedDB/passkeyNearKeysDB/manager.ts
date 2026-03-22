@@ -2,7 +2,6 @@ import { openDB, type IDBPDatabase } from 'idb';
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
   ClientShareDerivation,
-  LocalNearSkV3Material,
   PasskeyChainIdKeyKind,
   PasskeyChainIdKeyMaterial,
   ThresholdEd25519_2p_V1Material,
@@ -10,7 +9,6 @@ import type {
 import {
   buildEnvelopeAAD,
   normalizeStoredPayloadRecord as normalizeStoredPayloadRecordValue,
-  normalizeLocalSkEnvelope,
   normalizePayloadEnvelope,
   sanitizePayload,
 } from './envelope';
@@ -18,7 +16,6 @@ import { DB_CONFIG, type PasskeyNearKeysDBConfig, upgradePasskeyNearKeysDBSchema
 
 export type {
   ClientShareDerivation,
-  LocalNearSkV3Material,
   PasskeyChainIdKeyAlgorithm,
   PasskeyChainIdKeyKind,
   PasskeyChainIdKeyMaterial,
@@ -147,15 +144,6 @@ export class PasskeyNearKeysDBManager {
       `${profileId}/${data.deviceNumber}/${chainIdKey}/${keyKind}`,
     );
 
-    const normalizedLocalSkEnvelope = normalizeLocalSkEnvelope({
-      keyKind,
-      payload,
-      payloadEnvelope,
-      expectedAAD,
-    });
-    const storedPayload = normalizedLocalSkEnvelope.payload;
-    const storedPayloadEnvelope = normalizedLocalSkEnvelope.payloadEnvelope;
-
     const toStore: PasskeyChainIdKeyMaterial = {
       profileId,
       deviceNumber: data.deviceNumber,
@@ -165,8 +153,8 @@ export class PasskeyNearKeysDBManager {
       publicKey,
       ...(signerId ? { signerId } : {}),
       ...(wrapKeySalt ? { wrapKeySalt } : {}),
-      ...(storedPayload ? { payload: storedPayload } : {}),
-      ...(storedPayloadEnvelope ? { payloadEnvelope: storedPayloadEnvelope } : {}),
+      ...(payload ? { payload } : {}),
+      ...(payloadEnvelope ? { payloadEnvelope } : {}),
       timestamp: data.timestamp,
       schemaVersion: data.schemaVersion,
     };

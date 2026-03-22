@@ -305,8 +305,6 @@ export async function handleRelayRegistrationBootstrap(
 
   const body = input.body as CreateAccountAndRegisterRequest & Record<string, unknown>;
   const new_account_id = String(body.new_account_id || '').trim();
-  const new_public_key =
-    typeof body.new_public_key === 'string' ? String(body.new_public_key || '').trim() : '';
   const device_number = body.device_number;
   const threshold_ed25519 = body.threshold_ed25519;
   const threshold_ecdsa = body.threshold_ecdsa;
@@ -372,7 +370,6 @@ export async function handleRelayRegistrationBootstrap(
 
   const result = await input.services.authService.createAccountAndRegisterUser({
     new_account_id,
-    ...(new_public_key ? { new_public_key } : {}),
     device_number,
     ...(threshold_ed25519 ? { threshold_ed25519 } : {}),
     ...(threshold_ecdsa ? { threshold_ecdsa } : {}),

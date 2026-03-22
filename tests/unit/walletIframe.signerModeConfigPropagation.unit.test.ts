@@ -19,9 +19,6 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
 
       if (data.type === 'PM_SET_CONFIG') {
         try {
-          window.__capturedSignerMode = (data.payload && typeof data.payload === 'object')
-            ? data.payload.signerMode
-            : undefined;
           window.__capturedSigningSessionPersistenceMode = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionPersistenceMode
             : undefined;
@@ -69,10 +66,6 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
       if (data.type === 'PM_GET_CONFIRMATION_CONFIG') {
         respond({ behavior: 'requireClick', uiMode: 'modal' });
       }
-
-      if (data.type === 'PM_GET_SIGNER_MODE') {
-        respond({ mode: 'local-signer' });
-      }
     };
   };
 `;
@@ -92,9 +85,7 @@ test.describe('Wallet iframe config propagation', () => {
     await page.unroute(WALLET_SERVICE_ROUTE.replace('wallet-service', 'service')).catch(() => {});
   });
 
-  test('forwards signerMode in PM_SET_CONFIG (so wallet host registration can use threshold-signer)', async ({
-    page,
-  }) => {
+  test('forwards signing-session config in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
         const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
@@ -102,7 +93,6 @@ test.describe('Wallet iframe config propagation', () => {
 
         const pm = new TatchiPasskey({
           relayer: { url: 'http://localhost:3000' },
-          signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           signingSessionSeal: {
             keyVersion: 'kek-s-2026-02',
@@ -126,16 +116,12 @@ test.describe('Wallet iframe config propagation', () => {
     });
     expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
 
-    const capturedSignerMode = await walletFrame!.evaluate(() => {
-      return (window as any).__capturedSignerMode ?? null;
-    });
     const capturedSigningSessionPersistenceMode = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionPersistenceMode ?? null;
     });
     const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionSeal ?? null;
     });
-    expect(capturedSignerMode).toEqual({ mode: 'threshold-signer', behavior: 'fallback' });
     expect(capturedSigningSessionPersistenceMode).toBe('sealed_refresh_v1');
     expect(capturedSigningSessionSeal).toEqual({
       keyVersion: 'kek-s-2026-02',
@@ -153,7 +139,6 @@ test.describe('Wallet iframe config propagation', () => {
 
         const pm = new TatchiPasskey({
           relayer: { url: 'http://localhost:3000' },
-          signerMode: { mode: 'threshold-signer' },
           signingSessionPersistenceMode: 'none',
           signingSessionSeal: {
             keyVersion: 'should-not-forward',

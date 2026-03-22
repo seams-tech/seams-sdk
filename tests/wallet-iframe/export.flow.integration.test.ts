@@ -354,7 +354,7 @@ test.describe('wallet-origin export flow integration', () => {
             nearAccountId: 'isolation.testnet',
             receiverId: 'w3a-v1.testnet',
             actionArgs: { type: 'Transfer', amount: '1' } as any,
-            options: { signerMode: { mode: 'local-signer' } },
+            options: {},
           });
 
           const visibleDuringSigning = await waitFor(() => {

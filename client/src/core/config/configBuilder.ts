@@ -11,7 +11,6 @@ import {
   resolveBoolean,
   resolveChains,
   resolveIntegerInRange,
-  resolveSignerMode,
   resolveSmartAccountDeploymentMode,
   resolveTheme,
   resolveThemePalette,
@@ -186,7 +185,6 @@ export function buildConfigsFromDefaults(args: {
     path: 'relayer.smartAccountDeploymentMaxAttempts',
   });
 
-  const signerMode = resolveSignerMode(overrides.signerMode, defaults.signing.mode);
   const signingSessionPersistenceMode = resolveSigningSessionPersistenceMode({
     value: overrides.signingSessionPersistenceMode,
     fallback: defaults.signing.sessionPersistenceMode,
@@ -308,7 +306,6 @@ export function buildConfigsFromDefaults(args: {
     },
     registration,
     signing: {
-      mode: signerMode,
       sessionDefaults: {
         ttlMs: overrides.signingSessionDefaults?.ttlMs ?? defaults.signing.sessionDefaults.ttlMs,
         remainingUses:

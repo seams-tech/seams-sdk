@@ -17,18 +17,14 @@ import type {
 } from './passkeyClientDB.types';
 import type { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
 import {
-  type LocalNearSkV3Material,
   type PasskeyChainIdKeyKind,
   type PasskeyChainIdKeyMaterial,
   type ThresholdEd25519_2p_V1Material,
 } from './passkeyNearKeysDB.types';
 import {
-  getNearLocalKeyMaterial as getNearLocalKeyMaterialValue,
   getNearThresholdKeyMaterial as getNearThresholdKeyMaterialValue,
-  storeNearLocalKeyMaterial as storeNearLocalKeyMaterialValue,
   storeNearThresholdKeyMaterial as storeNearThresholdKeyMaterialValue,
   type NearKeyMaterialDeps,
-  type StoreNearLocalKeyMaterialInput,
   type StoreNearThresholdKeyMaterialInput,
 } from './near/keyMaterial';
 import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
@@ -80,7 +76,7 @@ export class UnifiedIndexedDBManager {
       // This will trigger the getDB() method in both managers and ensure databases are created
       await Promise.all([
         this.clientDB.getAppState('_init_check'),
-        this.nearKeysDB.getKeyMaterial('_init_check', 1, 'near:testnet', 'local_sk_encrypted_v1'),
+        this.nearKeysDB.getKeyMaterial('_init_check', 1, 'near:testnet', 'threshold_share_v1'),
       ]);
 
       try {
@@ -110,13 +106,6 @@ export class UnifiedIndexedDBManager {
     };
   }
 
-  async getNearLocalKeyMaterial(
-    nearAccountId: AccountId,
-    deviceNumber: number,
-  ): Promise<LocalNearSkV3Material | null> {
-    return getNearLocalKeyMaterialValue(this.getNearKeyMaterialDeps(), nearAccountId, deviceNumber);
-  }
-
   async getNearThresholdKeyMaterial(
     nearAccountId: AccountId,
     deviceNumber: number,
@@ -126,10 +115,6 @@ export class UnifiedIndexedDBManager {
       nearAccountId,
       deviceNumber,
     );
-  }
-
-  async storeNearLocalKeyMaterial(input: StoreNearLocalKeyMaterialInput): Promise<void> {
-    return storeNearLocalKeyMaterialValue(this.getNearKeyMaterialDeps(), input);
   }
 
   async storeNearThresholdKeyMaterial(input: StoreNearThresholdKeyMaterialInput): Promise<void> {

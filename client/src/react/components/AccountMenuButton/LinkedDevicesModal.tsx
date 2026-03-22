@@ -20,7 +20,7 @@ type RelayAuthenticatorRow = {
   updatedAtMs?: number;
 };
 
-type AccessKeyKind = 'threshold' | 'local' | 'backup';
+type AccessKeyKind = 'threshold' | 'backup';
 
 export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   nearAccountId,
@@ -104,7 +104,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     setDeleteError(null);
 
     try {
-      // Resolve current device number for highlighting + local key lookups
+      // Resolve current device number for highlighting
       let currentDeviceNumberFromState: number | null = null;
       try {
         const { login } = await tatchi.auth.getWalletSession(nearAccountId);
@@ -145,7 +145,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               const pk = typeof row?.publicKey === 'string' ? row.publicKey.trim() : '';
               const kind = typeof row?.kind === 'string' ? row.kind.trim() : '';
               if (!pk || !kind) continue;
-              if (kind !== 'threshold' && kind !== 'local' && kind !== 'backup') continue;
+              if (kind !== 'threshold' && kind !== 'backup') continue;
               const deviceNumber =
                 typeof row?.deviceNumber === 'number' && Number.isFinite(row.deviceNumber)
                   ? Math.floor(row.deviceNumber)
@@ -191,13 +191,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       }
 
       const currentKey = loginState?.nearPublicKey || null;
-      const localKeyMaterial =
-        currentDeviceNumberFromState != null
-          ? await IndexedDBManager.getNearLocalKeyMaterial(
-              toAccountId(nearAccountId),
-              currentDeviceNumberFromState,
-            ).catch(() => null)
-          : null;
       const thresholdKeyMaterial =
         currentDeviceNumberFromState != null
           ? await IndexedDBManager.getNearThresholdKeyMaterial(
@@ -260,8 +253,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             publicKey === thresholdKeyMaterial.publicKey
           )
             return 'threshold';
-          if (publicKey && localKeyMaterial?.publicKey && publicKey === localKeyMaterial.publicKey)
-            return 'local';
           return 'backup';
         })();
 
@@ -284,17 +275,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           if (createdAtMs && Number.isFinite(createdAtMs) && createdAtMs > 0) {
             try {
               return new Date(createdAtMs).toISOString();
-            } catch {
-              return '';
-            }
-          }
-          if (
-            keyKind === 'local' &&
-            localKeyMaterial?.timestamp &&
-            Number.isFinite(localKeyMaterial.timestamp)
-          ) {
-            try {
-              return new Date(localKeyMaterial.timestamp).toISOString();
             } catch {
               return '';
             }
@@ -326,9 +306,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     setDeleteError(null);
 
     try {
-      await tatchi.deleteDeviceKey(nearAccountId, publicKey, {
-        signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
-      });
+      await tatchi.deleteDeviceKey(nearAccountId, publicKey, {});
       await loadAuthenticators();
     } catch (err: any) {
       setDeleteError(err.message || 'Failed to delete access key');

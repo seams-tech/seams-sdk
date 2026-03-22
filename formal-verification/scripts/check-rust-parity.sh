@@ -7,6 +7,6 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cargo test \
   --manifest-path "${REPO_DIR}/crates/signer-core/Cargo.toml" \
   --test baseline_behavior \
-  --features "secp256k1 near-ed25519 near-crypto"
+  --features "secp256k1 near-crypto"
 
 echo "ok: signer-core baseline parity test passed"

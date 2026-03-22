@@ -119,11 +119,7 @@ import {
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { toError } from '@shared/utils/errors';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
-import {
-  mergeSignerMode,
-  type ConfirmationConfig,
-  type SignerMode,
-} from '../../types/signer-worker';
+import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
@@ -140,8 +136,6 @@ export interface WalletIframeRouterOptions {
   servicePath?: string; // default '/wallet-service'
   connectTimeoutMs?: number; // default 8000
   requestTimeoutMs?: number; // default 20000
-  /** Default signer policy applied inside the wallet iframe when per-call options omit `signerMode`. */
-  signerMode?: SignerMode;
   // Enable verbose client-side logging for debugging
   debug?: boolean;
   // Test-only/diagnostic options (not part of the public API contract for apps)
@@ -222,7 +216,6 @@ export class WalletIframeRouter {
     initInFlight: null as Promise<void> | null,
     pending: new Map<string, Pending>(),
     reqCounter: 0,
-    signerModePreference: null as SignerMode | null,
   };
   private readonly listeners = {
     ready: new Set<() => void>(),
@@ -295,7 +288,6 @@ export class WalletIframeRouter {
       servicePath: normalizedServicePath,
       sdkBasePath: normalizedSdkBasePath,
       testOptions,
-      signerMode: options.signerMode ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.signing.mode,
       chains: (options.chains ?? PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains).map(
         cloneResolvedChainConfig,
       ),
@@ -435,11 +427,6 @@ export class WalletIframeRouter {
     // Keep listeners registered; callers can unsubscribe if desired.
   }
 
-  private resolveSignerMode(input?: SignerMode): SignerMode {
-    const base = this.state.signerModePreference ?? this.opts.signerMode;
-    return mergeSignerMode(base, input ?? null);
-  }
-
   /**
    * Initialize the transport and configure the wallet host.
    * Safe to call multiple times; concurrent calls deduplicate via initInFlight.
@@ -469,7 +456,6 @@ export class WalletIframeRouter {
       await this.post({
         type: 'PM_SET_CONFIG',
         payload: {
-          signerMode: this.opts.signerMode,
           chains: this.opts.chains,
           relayerAccount: this.opts.relayerAccount,
           relayer: this.opts.relayer,
@@ -614,7 +600,6 @@ export class WalletIframeRouter {
     nearAccountId: string;
     transactions: TransactionInput[];
     options: {
-      signerMode?: SignerMode;
       deviceNumber?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       onError?: (error: Error) => void;
@@ -626,7 +611,6 @@ export class WalletIframeRouter {
   }): Promise<SignTransactionResult[]> {
     // Do not forward non-cloneable functions in options; host emits its own PROGRESS messages
     const safeOptions = {
-      signerMode: this.resolveSignerMode(payload.options.signerMode),
       ...(typeof payload.options.deviceNumber === 'number'
         ? { deviceNumber: payload.options.deviceNumber }
         : {}),
@@ -651,7 +635,6 @@ export class WalletIframeRouter {
     nearAccountId: string;
     delegate: DelegateActionInput;
     options: {
-      signerMode?: SignerMode;
       deviceNumber?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       onError?: (error: Error) => void;
@@ -661,7 +644,6 @@ export class WalletIframeRouter {
     };
   }): Promise<SignDelegateActionResult> {
     const safeOptions = {
-      signerMode: this.resolveSignerMode(payload.options.signerMode),
       ...(typeof payload.options.deviceNumber === 'number'
         ? { deviceNumber: payload.options.deviceNumber }
         : {}),
@@ -687,8 +669,6 @@ export class WalletIframeRouter {
     confirmationConfig?: Partial<ConfirmationConfig>;
     options?: {
       onEvent?: (ev: RegistrationSSEEvent) => void;
-      signerMode?: SignerMode;
-      backupLocalKey?: boolean;
       signerOptions?: EcdsaSignerProvisioningDefaults;
       confirmerText?: { title?: string; body?: string };
     };
@@ -731,80 +711,6 @@ export class WalletIframeRouter {
       // Step 5: Always release overlay lock and hide when done (success or error)
       this.overlayState.forceFullscreen = false;
       this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
-    }
-  }
-
-  async enrollThresholdEd25519Key(payload: {
-    nearAccountId: string;
-    options?: {
-      deviceNumber?: number;
-    };
-  }): Promise<{
-    success: boolean;
-    publicKey: string;
-    relayerKeyId: string;
-    error?: string;
-  }> {
-    this.showFrameForActivation();
-    try {
-      const safeOptions = removeFunctionsFromOptions(payload.options);
-      const res = await this.post<{
-        success: boolean;
-        publicKey: string;
-        relayerKeyId: string;
-        error?: string;
-      }>({
-        type: 'PM_ENROLL_THRESHOLD_ED25519_KEY',
-        payload: {
-          nearAccountId: payload.nearAccountId,
-          options: safeOptions,
-        },
-      });
-      return res.result;
-    } finally {
-      this.hideFrameForActivation();
-    }
-  }
-
-  async rotateThresholdEd25519Key(payload: {
-    nearAccountId: string;
-    options?: {
-      deviceNumber?: number;
-    };
-  }): Promise<{
-    success: boolean;
-    oldPublicKey: string;
-    oldRelayerKeyId: string;
-    publicKey: string;
-    relayerKeyId: string;
-    deleteOldKeyAttempted: boolean;
-    deleteOldKeySuccess: boolean;
-    warning?: string;
-    error?: string;
-  }> {
-    this.showFrameForActivation();
-    try {
-      const safeOptions = removeFunctionsFromOptions(payload.options);
-      const res = await this.post<{
-        success: boolean;
-        oldPublicKey: string;
-        oldRelayerKeyId: string;
-        publicKey: string;
-        relayerKeyId: string;
-        deleteOldKeyAttempted: boolean;
-        deleteOldKeySuccess: boolean;
-        warning?: string;
-        error?: string;
-      }>({
-        type: 'PM_ROTATE_THRESHOLD_ED25519_KEY',
-        payload: {
-          nearAccountId: payload.nearAccountId,
-          options: safeOptions,
-        },
-      });
-      return res.result;
-    } finally {
       this.hideFrameForActivation();
     }
   }
@@ -919,7 +825,6 @@ export class WalletIframeRouter {
     recipient: string;
     state?: string;
     options: {
-      signerMode?: SignerMode;
       deviceNumber?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       confirmerText?: { title?: string; body?: string };
@@ -927,7 +832,6 @@ export class WalletIframeRouter {
     };
   }): Promise<SignNEP413MessageResult> {
     const safeOptions = {
-      signerMode: this.resolveSignerMode(payload.options.signerMode),
       ...(typeof payload.options.deviceNumber === 'number'
         ? { deviceNumber: payload.options.deviceNumber }
         : {}),
@@ -1156,7 +1060,6 @@ export class WalletIframeRouter {
     // Strip non-cloneable functions from options; host emits PROGRESS events
     const { options } = payload;
     const safeOptions = {
-      signerMode: this.resolveSignerMode(options.signerMode),
       waitUntil: options.waitUntil,
       confirmationConfig: options.confirmationConfig,
       ...(typeof options.deviceNumber === 'number' ? { deviceNumber: options.deviceNumber } : {}),
@@ -1194,15 +1097,6 @@ export class WalletIframeRouter {
 
   async getConfirmationConfig(): Promise<ConfirmationConfig> {
     const res = await this.post<ConfirmationConfig>({ type: 'PM_GET_CONFIRMATION_CONFIG' });
-    return res.result;
-  }
-
-  async setSignerMode(signerMode: SignerMode): Promise<void> {
-    await this.post<void>({ type: 'PM_SET_SIGNER_MODE', payload: { signerMode } });
-  }
-
-  async getSignerMode(opts?: { timeoutMs?: number }): Promise<SignerMode> {
-    const res = await this.post<SignerMode>({ type: 'PM_GET_SIGNER_MODE' }, opts);
     return res.result;
   }
 
@@ -1262,7 +1156,6 @@ export class WalletIframeRouter {
   }): Promise<ActionResult> {
     const { options } = payload;
     const safeOptions = {
-      signerMode: this.resolveSignerMode(options.signerMode),
       waitUntil: options.waitUntil,
       confirmationConfig: options.confirmationConfig,
       ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
@@ -1377,7 +1270,6 @@ export class WalletIframeRouter {
         ...(typeof payload?.deviceNumber === 'number'
           ? { deviceNumber: payload.deviceNumber }
           : {}),
-        ...(payload?.localSignerEnabled === false ? { localSignerEnabled: false } : {}),
         ...(payload?.options
           ? {
               options: {
@@ -1429,7 +1321,6 @@ export class WalletIframeRouter {
     const { options } = payload;
     // cannot send objects/functions through postMessage(), clean options first
     const safeOptions = {
-      signerMode: this.resolveSignerMode(options.signerMode),
       waitUntil: options.waitUntil,
       executionWait: options.executionWait,
       confirmationConfig: options.confirmationConfig,
@@ -1468,16 +1359,14 @@ export class WalletIframeRouter {
   async deleteDeviceKey(payload: {
     accountId: string;
     publicKeyToDelete: string;
-    options: { signerMode?: SignerMode; onEvent?: (ev: ActionSSEEvent) => void };
+    options: { onEvent?: (ev: ActionSSEEvent) => void };
   }): Promise<ActionResult> {
     const res = await this.post<ActionResult>({
       type: 'PM_DELETE_DEVICE_KEY',
       payload: {
         accountId: payload.accountId,
         publicKeyToDelete: payload.publicKeyToDelete,
-        options: {
-          signerMode: this.resolveSignerMode(payload.options.signerMode),
-        },
+        options: {},
       },
       options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
     });
@@ -1564,9 +1453,6 @@ export class WalletIframeRouter {
     // Some wallet-host messages are push-style and are not correlated to a requestId.
     if (msg.type === 'PREFERENCES_CHANGED') {
       const payload = msg.payload as PreferencesChangedPayload;
-      try {
-        this.state.signerModePreference = payload?.signerMode ?? this.state.signerModePreference;
-      } catch {}
       this.emitPreferencesChanged(payload);
       return;
     }

@@ -105,22 +105,6 @@ fn parity_secp256k1_with_web_binding() {
 }
 
 #[test]
-fn parity_near_ed25519_with_web_binding() {
-    assert_eq!(
-        v1::derive_ed25519_key_from_prf_output(
-            NEAR_PRF_B64U.to_string(),
-            NEAR_ACCOUNT_ID.to_string(),
-        )
-        .expect("ios near ed25519"),
-        signer_platform_web::near_ed25519::derive_ed25519_key_from_prf_output(
-            NEAR_PRF_B64U,
-            NEAR_ACCOUNT_ID,
-        )
-        .expect("web near ed25519")
-    );
-}
-
-#[test]
 fn parity_near_crypto_with_web_binding() {
     assert_eq!(
         v1::derive_kek_from_wrap_key_seed_b64u(
@@ -256,14 +240,6 @@ fn vectors_v1_match_expected_outputs() {
         ),
         ADD_EXPECTED
     );
-
-    let (priv_key, pub_key) = v1::derive_ed25519_key_from_prf_output(
-        NEAR_PRF_B64U.to_string(),
-        NEAR_ACCOUNT_ID.to_string(),
-    )
-    .expect("near derive");
-    assert_eq!(priv_key, NEAR_PRIVATE_EXPECTED);
-    assert_eq!(pub_key, NEAR_PUBLIC_EXPECTED);
 
     assert_eq!(
         to_hex(

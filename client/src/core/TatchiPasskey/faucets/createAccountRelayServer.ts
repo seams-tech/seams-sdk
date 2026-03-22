@@ -213,12 +213,6 @@ type ThresholdEcdsaRegistrationSessionPolicy = Omit<EcdsaSessionPolicy, 'relayer
 
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
-  /**
-   * Optional account access key to add during creation.
-   * - Threshold-first registration flows omit this field (relay creates the account with threshold key material).
-   * - Legacy local-signer flows provide a locally derived key.
-   */
-  new_public_key?: string;
   device_number: number;
   threshold_ed25519?: {
     client_verifying_share_b64u: string;
@@ -243,7 +237,6 @@ export interface CreateAccountAndRegisterUserRequest {
 export async function createAccountAndRegisterWithRelayServer(
   context: PasskeyManagerContext,
   nearAccountId: string,
-  publicKey: string | undefined,
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
   rpId: string,
   authenticatorOptions?: AuthenticatorOptions,
@@ -363,10 +356,6 @@ export async function createAccountAndRegisterWithRelayServer(
         authenticatorOptions ?? context.configs.webauthn.authenticatorOptions,
       ),
     };
-    const pk = String(publicKey || '').trim();
-    if (pk) {
-      requestData.new_public_key = pk;
-    }
 
     onEvent?.({
       step: 5,

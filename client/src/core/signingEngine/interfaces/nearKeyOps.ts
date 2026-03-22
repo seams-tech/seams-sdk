@@ -9,23 +9,6 @@ import type {
 } from '@/core/types';
 
 export type NearSigningKeyOps = {
-  deriveNearKeypairAndEncryptFromSerialized(args: {
-    credential: WebAuthnRegistrationCredential;
-    nearAccountId: AccountId;
-    options?: {
-      authenticatorOptions?: AuthenticatorOptions;
-      deviceNumber?: number;
-      persistToDb?: boolean;
-    };
-    sessionId: string;
-  }): Promise<{
-    success: boolean;
-    nearAccountId: AccountId;
-    publicKey: string;
-    chacha20NonceB64u?: string;
-    wrapKeySalt?: string;
-    encryptedSk?: string;
-  }>;
   deriveThresholdEd25519ClientVerifyingShare(args: {
     sessionId: string;
     nearAccountId: AccountId;
@@ -36,30 +19,6 @@ export type NearSigningKeyOps = {
     nearAccountId: string;
     clientVerifyingShareB64u: string;
     error?: string;
-  }>;
-  decryptPrivateKeyWithPrf(args: {
-    nearAccountId: AccountId;
-    authenticators: ClientAuthenticatorData[];
-    sessionId: string;
-    prfFirstB64u?: string;
-    wrapKeySalt?: string;
-    encryptedPrivateKeyData?: string;
-    encryptedPrivateKeyChacha20NonceB64u?: string;
-    deviceNumber?: number;
-  }): Promise<{
-    decryptedPrivateKey: string;
-    nearAccountId: AccountId;
-  }>;
-  recoverKeypairFromPasskey(args: {
-    credential: WebAuthnAuthenticationCredential;
-    accountIdHint?: string;
-    sessionId: string;
-  }): Promise<{
-    publicKey: string;
-    encryptedPrivateKey: string;
-    chacha20NonceB64u: string;
-    accountIdHint?: string;
-    wrapKeySalt: string;
   }>;
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array>;
   signTransactionWithKeyPair(args: {

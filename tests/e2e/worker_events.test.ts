@@ -72,7 +72,6 @@ test.describe('Worker Communication Protocol', () => {
 
           const { tatchi, generateTestAccountId } = (window as any).testUtils;
           const testAccountId = generateTestAccountId();
-          tatchi.setSignerMode('local-signer');
 
           // Track all progress events
           const progressEvents: any[] = [];
@@ -90,7 +89,6 @@ test.describe('Worker Communication Protocol', () => {
                 progressEvents.push(event);
                 registrationEvents.push(event);
               },
-              signerMode: { mode: 'local-signer' },
             },
             cfg,
           );
@@ -353,7 +351,6 @@ test.describe('Worker Communication Protocol', () => {
       try {
         const { tatchi, generateTestAccountId } = (window as any).testUtils;
         const testAccountId = generateTestAccountId();
-        tatchi.setSignerMode('local-signer');
 
         const capturedEvents: Array<{ phase: string; status: string; message: string }> = [];
 
@@ -418,7 +415,6 @@ test.describe('Worker Communication Protocol', () => {
 
         try {
           const testAccountId = utils.generateTestAccountId();
-          utils.tatchi.setSignerMode('local-signer');
           if (!useServer) {
             registrationFlowUtils?.setupRelayServerMock?.(true);
           }
@@ -438,7 +434,6 @@ test.describe('Worker Communication Protocol', () => {
                   status: event?.status ?? '',
                 });
               },
-              signerMode: { mode: 'local-signer' },
             },
             cfg,
           );
@@ -563,7 +558,6 @@ test.describe('Worker Communication Protocol', () => {
       try {
         const { tatchi, generateTestAccountId } = (window as any).testUtils;
         const testAccountId = generateTestAccountId();
-        tatchi.setSignerMode('local-signer');
 
         // Track progress message types
         const messageTypes = new Set<string>();
@@ -580,7 +574,6 @@ test.describe('Worker Communication Protocol', () => {
               progressEvents.push(event);
               messageTypes.add(`${event.phase}:${event.status}`);
             },
-            signerMode: { mode: 'local-signer' },
           },
           cfg2,
         );

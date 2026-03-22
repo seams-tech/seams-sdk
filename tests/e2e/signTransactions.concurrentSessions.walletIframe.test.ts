@@ -63,7 +63,6 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
-            signerMode: { mode: 'local-signer' },
             iframeWallet: {
               walletOrigin,
               servicePath: '/wallet-service',
@@ -80,7 +79,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
 
           const reg1 = await tatchi.registration.registerPasskeyInternal(
             account1,
-            { signerMode: { mode: 'local-signer' } },
+            {},
             confirmConfig as any,
           );
           if (!reg1?.success) {
@@ -89,7 +88,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
 
           const reg2 = await tatchi.registration.registerPasskeyInternal(
             account2,
-            { signerMode: { mode: 'local-signer' } },
+            {},
             confirmConfig as any,
           );
           if (!reg2?.success) {
@@ -119,7 +118,6 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions: [action] }],
               options: {
-                signerMode: { mode: 'local-signer' },
                 deviceNumber: 1,
                 confirmationConfig: confirmConfig as any,
               },

@@ -5,20 +5,10 @@ import type {
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
 import type { ThemeName } from '@/core/types/tatchi';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
-
-type RecoverKeypairResult = {
-  publicKey: string;
-  encryptedPrivateKey: string;
-  chacha20NonceB64u: string;
-  accountIdHint?: string;
-  wrapKeySalt: string;
-  stored?: boolean;
-};
 
 type ExportHardeningErrorCode = 'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT';
 type ExportHardeningError = Error & { code: ExportHardeningErrorCode };
@@ -80,14 +70,6 @@ export type PrivateKeyExportRecoveryDeps = {
     payload: ExportPrivateKeysWithUiWorkerPayload,
   ) => Promise<ExportPrivateKeysWithUiWorkerResult>;
   getTheme: () => ThemeName;
-  signingKeyOps: {
-    recoverKeypairFromPasskey: (args: {
-      credential: WebAuthnAuthenticationCredential;
-      accountIdHint?: string;
-      sessionId: string;
-    }) => Promise<RecoverKeypairResult>;
-  };
-  createSessionId: (prefix: string) => string;
 };
 
 async function runExportWorkerOperation(
@@ -118,35 +100,20 @@ async function runExportWorkerOperation(
     throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
   }
 
-  const [userForAccount, keyMaterial, thresholdKeyMaterial] = await Promise.all([
+  const [userForAccount, thresholdKeyMaterial] = await Promise.all([
     deps.indexedDB.clientDB.getNearAccountProjection(accountId, deviceNumber).catch(() => null),
-    deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber).catch(() => null),
     deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(() => null),
   ]);
 
-  if (!keyMaterial && !thresholdKeyMaterial) {
-    throw new Error(`No key material found for account ${accountId} device ${deviceNumber}`);
+  if (!thresholdKeyMaterial) {
+    throw new Error(
+      `No threshold key material found for account ${accountId} device ${deviceNumber}`,
+    );
   }
 
   const publicKeyHint = String(
-    userForAccount?.clientNearPublicKey ||
-      keyMaterial?.publicKey ||
-      thresholdKeyMaterial?.publicKey ||
-      '',
+    userForAccount?.clientNearPublicKey || thresholdKeyMaterial?.publicKey || '',
   ).trim();
-
-  const encryptedSk = String(keyMaterial?.encryptedSk || '').trim();
-  const chacha20NonceB64u = String(keyMaterial?.chacha20NonceB64u || '').trim();
-  const wrapKeySalt = String(keyMaterial?.wrapKeySalt || '').trim();
-  const localKeyMaterial =
-    encryptedSk && chacha20NonceB64u && wrapKeySalt
-      ? {
-          encryptedSk,
-          chacha20NonceB64u,
-          wrapKeySalt,
-          publicKey: String(keyMaterial?.publicKey || publicKeyHint || '').trim(),
-        }
-      : undefined;
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
@@ -155,8 +122,6 @@ async function runExportWorkerOperation(
         deviceNumber,
         chain: args.options.chain,
         publicKeyHint,
-        hasThresholdKeyMaterial: !!thresholdKeyMaterial,
-        localKeyMaterial,
         variant: args.options.variant,
         theme: resolvedTheme,
       });
@@ -210,39 +175,4 @@ export async function exportKeypairWithUI(
     accountId: result.accountId,
     exportedSchemes: result.exportedSchemes,
   };
-}
-
-export async function recoverKeypairFromPasskey(
-  deps: PrivateKeyExportRecoveryDeps,
-  args: {
-    authenticationCredential: WebAuthnAuthenticationCredential;
-    accountIdHint?: string;
-  },
-): Promise<RecoverKeypairResult> {
-  try {
-    if (!args.authenticationCredential) {
-      throw new Error(
-        'Authentication credential required for account recovery. ' +
-          'Use an existing credential with dual PRF outputs to re-derive the same NEAR keypair.',
-      );
-    }
-
-    const prfResults = args.authenticationCredential.clientExtensionResults?.prf?.results;
-    if (!prfResults?.first || !prfResults?.second) {
-      throw new Error(
-        'Dual PRF outputs required for account recovery - both AES and Ed25519 PRF outputs must be available',
-      );
-    }
-
-    const sessionId = deps.createSessionId('recover');
-    return await deps.signingKeyOps.recoverKeypairFromPasskey({
-      credential: args.authenticationCredential,
-      accountIdHint: args.accountIdHint,
-      sessionId,
-    });
-  } catch (error: unknown) {
-    console.error('SigningEngine: Deterministic keypair derivation error:', error);
-    const message = error instanceof Error ? error.message : String(error || 'Unknown error');
-    throw new Error(`Deterministic keypair derivation failed: ${message}`);
-  }
 }

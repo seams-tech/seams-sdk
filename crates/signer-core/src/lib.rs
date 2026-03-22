@@ -6,8 +6,8 @@ pub mod codec;
 pub mod eip1559;
 #[cfg(feature = "near-crypto")]
 pub mod near_crypto;
-#[cfg(feature = "near-ed25519")]
-pub mod near_ed25519;
+#[cfg(feature = "near-threshold-ed25519")]
+pub mod near_ed25519_seed_export;
 #[cfg(feature = "near-threshold-ed25519")]
 pub mod near_threshold_ed25519;
 #[cfg(feature = "near-threshold-ed25519")]

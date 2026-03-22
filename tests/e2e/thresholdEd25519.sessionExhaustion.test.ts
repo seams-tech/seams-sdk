@@ -213,7 +213,6 @@ test.describe('threshold-ed25519 session exhaustion', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionDefaults: { ttlMs: 60_000, remainingUses: 1 },
               iframeWallet: { walletOrigin: '' },
             });
@@ -223,7 +222,7 @@ test.describe('threshold-ed25519 session exhaustion', () => {
             stage = 'register';
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -246,7 +245,6 @@ test.describe('threshold-ed25519 session exhaustion', () => {
                 nearAccountId: accountId,
                 transactions: [{ receiverId, actions }],
                 options: {
-                  signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                   confirmationConfig: confirmConfig as any,
                 },
               });

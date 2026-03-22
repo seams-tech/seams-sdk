@@ -210,9 +210,6 @@ func runReplay(vectors: Json) throws {
     let secpValidate = try jsonObject(secp, "validate_public_key_33")
     let secpAdd = try jsonObject(secp, "add_public_keys_33")
 
-    let nearEd25519 = try jsonObject(vectors, "near_ed25519")
-    let nearDerive = try jsonObject(nearEd25519, "derive_keypair")
-
     let nearCrypto = try jsonObject(vectors, "near_crypto")
     let nearDeriveKek = try jsonObject(nearCrypto, "derive_kek")
     let nearEncrypt = try jsonObject(nearCrypto, "encrypt_fixed_nonce")
@@ -319,27 +316,6 @@ func runReplay(vectors: Json) throws {
             try jsonString(secpAdd, "left33_hex"),
             try jsonString(secpAdd, "right33_hex")
         )
-    )
-
-    let ed25519Combined = try call2(
-        "derive_ed25519_keypair",
-        signer_platform_ios_v1_derive_ed25519_keypair,
-        try jsonString(nearDerive, "prf_output_b64u"),
-        try jsonString(nearDerive, "account_id")
-    )
-    let keypairParts = ed25519Combined.split(separator: "\n", maxSplits: 1).map(String.init)
-    guard keypairParts.count == 2 else {
-        throw VectorReplayError.shapeFailure("near_ed25519.derive_keypair")
-    }
-    try assertEqual(
-        "near_ed25519.derive_keypair.private",
-        try jsonString(nearDerive, "expected_private_key"),
-        keypairParts[0]
-    )
-    try assertEqual(
-        "near_ed25519.derive_keypair.public",
-        try jsonString(nearDerive, "expected_public_key"),
-        keypairParts[1]
     )
 
     try assertEqual(

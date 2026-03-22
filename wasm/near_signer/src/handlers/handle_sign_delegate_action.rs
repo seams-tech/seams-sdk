@@ -8,8 +8,7 @@ use crate::types::progress::{
 use crate::types::{
     handlers::{ConfirmationConfig, RpcCallPayload},
     wasm_to_json::WasmSignedDelegate,
-    AccountId, DecryptionPayload, DelegateAction, PublicKey, Signature, SignedDelegate, SignerMode,
-    ThresholdSignerConfig,
+    AccountId, DelegateAction, PublicKey, Signature, SignedDelegate, ThresholdSignerConfig,
 };
 use crate::WrapKey;
 use bs58;
@@ -31,7 +30,6 @@ pub struct DelegatePayload {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignDelegateActionRequest {
-    pub signer_mode: SignerMode,
     pub rpc_call: RpcCallPayload,
     pub session_id: String,
     pub created_at: Option<f64>,
@@ -39,10 +37,7 @@ pub struct SignDelegateActionRequest {
     pub prf_first_b64u: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap_key_salt: Option<String>,
-    pub decryption: DecryptionPayload,
-    /// Threshold signer config (required when `signer_mode == threshold-signer`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold: Option<ThresholdSignerConfig>,
+    pub threshold: ThresholdSignerConfig,
     pub delegate: DelegatePayload,
     pub confirmation_config: Option<ConfirmationConfig>,
     pub intent_digest: Option<String>,
@@ -244,69 +239,52 @@ pub async fn handle_sign_delegate_action(
         Some(&ProgressData::new(3, 4).with_context("delegate")),
     );
 
-    let signer = match request.signer_mode {
-        SignerMode::LocalSigner => Ed25519SignerBackend::from_encrypted_near_private_key(
-            SignerMode::LocalSigner,
-            &wrap_key,
-            &request.decryption.encrypted_private_key_data,
-            &request.decryption.encrypted_private_key_chacha20_nonce_b64u,
-        )?,
-        SignerMode::ThresholdSigner => {
-            let cfg = request
-                .threshold
-                .as_ref()
-                .ok_or_else(|| "Missing threshold signer config".to_string())?;
+    #[derive(Debug, Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DelegateAuthorizeSigningPayload<'a> {
+        kind: &'a str,
+        delegate: DelegateAuthorizeDelegate<'a>,
+    }
 
-            #[derive(Debug, Clone, Serialize)]
-            #[serde(rename_all = "camelCase")]
-            struct DelegateAuthorizeSigningPayload<'a> {
-                kind: &'a str,
-                delegate: DelegateAuthorizeDelegate<'a>,
-            }
+    #[derive(Debug, Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DelegateAuthorizeDelegate<'a> {
+        sender_id: &'a str,
+        receiver_id: &'a str,
+        actions: &'a Vec<ActionParams>,
+        nonce: String,
+        max_block_height: String,
+        public_key: &'a str,
+    }
 
-            #[derive(Debug, Clone, Serialize)]
-            #[serde(rename_all = "camelCase")]
-            struct DelegateAuthorizeDelegate<'a> {
-                sender_id: &'a str,
-                receiver_id: &'a str,
-                actions: &'a Vec<ActionParams>,
-                nonce: String,
-                max_block_height: String,
-                public_key: &'a str,
-            }
-
-            let signing_payload_json = {
-                let js_val = serde_wasm_bindgen::to_value(&DelegateAuthorizeSigningPayload {
-                    kind: "nep461_delegate",
-                    delegate: DelegateAuthorizeDelegate {
-                        sender_id: sender_id.0.as_str(),
-                        receiver_id: receiver_id.0.as_str(),
-                        actions: &request.delegate.actions,
-                        nonce: nonce.to_string(),
-                        max_block_height: max_block_height.to_string(),
-                        public_key: transaction_context.near_public_key_str.as_str(),
-                    },
-                })
-                .map_err(|e| format!("Failed to serialize signingPayload: {e}"))?;
-                js_sys::JSON::stringify(&js_val)
-                    .map_err(|e| format!("JSON.stringify signingPayload failed: {:?}", e))?
-                    .as_string()
-                    .ok_or_else(|| {
-                        "JSON.stringify signingPayload did not return a string".to_string()
-                    })?
-            };
-
-            Ed25519SignerBackend::from_threshold_signer_config(
-                &wrap_key,
-                &request.rpc_call.near_account_id,
-                &transaction_context.near_public_key_str,
-                "nep461_delegate",
-                request.credential.clone(),
-                Some(signing_payload_json),
-                cfg,
-            )?
-        }
+    let signing_payload_json = {
+        let js_val = serde_wasm_bindgen::to_value(&DelegateAuthorizeSigningPayload {
+            kind: "nep461_delegate",
+            delegate: DelegateAuthorizeDelegate {
+                sender_id: sender_id.0.as_str(),
+                receiver_id: receiver_id.0.as_str(),
+                actions: &request.delegate.actions,
+                nonce: nonce.to_string(),
+                max_block_height: max_block_height.to_string(),
+                public_key: transaction_context.near_public_key_str.as_str(),
+            },
+        })
+        .map_err(|e| format!("Failed to serialize signingPayload: {e}"))?;
+        js_sys::JSON::stringify(&js_val)
+            .map_err(|e| format!("JSON.stringify signingPayload failed: {:?}", e))?
+            .as_string()
+            .ok_or_else(|| "JSON.stringify signingPayload did not return a string".to_string())?
     };
+
+    let signer = Ed25519SignerBackend::from_threshold_signer_config(
+        &wrap_key,
+        &request.rpc_call.near_account_id,
+        &transaction_context.near_public_key_str,
+        "nep461_delegate",
+        request.credential.clone(),
+        Some(signing_payload_json),
+        &request.threshold,
+    )?;
 
     let verifying_key_bytes = signer.public_key_bytes()?;
     let device_public_key_b58 = bs58::encode(verifying_key_bytes).into_string();

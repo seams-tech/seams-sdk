@@ -31,7 +31,6 @@ test.describe('NearAdapter', () => {
                 actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
               },
             ],
-            signerMode: 'threshold-signer',
           },
         });
 
@@ -74,7 +73,6 @@ test.describe('NearAdapter', () => {
                 nearRpcUrl: 'https://rpc.testnet.near.org',
               },
               transactions: [{ receiverId: 'bob.near', actions: [] }],
-              signerMode: 'threshold-signer',
             },
           });
           return { ok: true };

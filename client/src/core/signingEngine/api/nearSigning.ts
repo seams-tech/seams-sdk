@@ -4,7 +4,6 @@ import type { onProgressEvents } from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
-  SignerMode,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { SignTransactionResult } from '@/core/types/tatchi';
@@ -26,7 +25,6 @@ export type SignNep413MessagePayload = {
   nonce: string;
   state: string | null;
   accountId: AccountId;
-  signerMode: SignerMode;
   deviceNumber?: number;
   title?: string;
   body?: string;
@@ -46,7 +44,6 @@ export type SignTransactionsWithActionsInput = {
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
   deviceNumber?: number;
-  signerMode: SignerMode;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
@@ -58,7 +55,6 @@ export type SignDelegateActionInput = {
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
   deviceNumber?: number;
-  signerMode: SignerMode;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
@@ -137,30 +133,18 @@ function resolveSigningRequestSessionId(args: {
   deps: NearSigningApiDeps;
   providedSessionId?: string;
   nearAccountId: AccountId;
-  signerMode: SignerMode;
 }): string {
   const provided = String(args.providedSessionId || '').trim();
   if (provided) return provided;
-
-  // Keep long-lived active session ids for threshold signing only.
-  if (args.signerMode.mode === 'threshold-signer') {
-    return args.deps.getOrCreateActiveSigningSessionId(args.nearAccountId);
-  }
-
-  // Local signing uses one-off session ids and does not persist account session pointers.
-  return args.deps.createSigningSessionId('signing-request');
+  return args.deps.getOrCreateActiveSigningSessionId(args.nearAccountId);
 }
 
 async function withThresholdEd25519CommitQueue<T>(args: {
   deps: NearSigningApiDeps;
   nearAccountId: AccountId;
-  signerMode: SignerMode;
   thresholdSessionId: string;
   task: () => Promise<T>;
 }): Promise<T> {
-  if (args.signerMode.mode !== 'threshold-signer') {
-    return await args.task();
-  }
   const queueKey = resolveThresholdEd25519CommitQueueKey({
     thresholdSessionId: args.thresholdSessionId,
   });
@@ -181,12 +165,10 @@ export async function signTransactionsWithActions(
     deps,
     providedSessionId: args.sessionId,
     nearAccountId,
-    signerMode: args.signerMode,
   });
   return await withThresholdEd25519CommitQueue({
     deps,
     nearAccountId,
-    signerMode: args.signerMode,
     thresholdSessionId: resolvedSessionId,
     task: async () => {
       const ctx = deps.getSignerWorkerContext();
@@ -198,7 +180,6 @@ export async function signTransactionsWithActions(
           transactions: args.transactions,
           rpcCall: args.rpcCall,
           deviceNumber: args.deviceNumber,
-          signerMode: args.signerMode,
           confirmationConfigOverride: args.confirmationConfigOverride,
           title: args.title,
           body: args.body,
@@ -224,13 +205,11 @@ export async function signDelegateAction(
     const activeSessionId = resolveSigningRequestSessionId({
       deps,
       nearAccountId,
-      signerMode: args.signerMode,
     });
     console.debug('[SigningEngine][delegate] session created', { sessionId: activeSessionId });
     return await withThresholdEd25519CommitQueue({
       deps,
       nearAccountId,
-      signerMode: args.signerMode,
       thresholdSessionId: activeSessionId,
       task: async () => {
         const ctx = deps.getSignerWorkerContext();
@@ -242,7 +221,6 @@ export async function signDelegateAction(
             delegate: args.delegate,
             rpcCall: normalizedRpcCall,
             deviceNumber: args.deviceNumber,
-            signerMode: args.signerMode,
             confirmationConfigOverride: args.confirmationConfigOverride,
             title: args.title,
             body: args.body,
@@ -267,12 +245,10 @@ export async function signNEP413Message(
     const activeSessionId = resolveSigningRequestSessionId({
       deps,
       nearAccountId,
-      signerMode: payload.signerMode,
     });
     const result = await withThresholdEd25519CommitQueue({
       deps,
       nearAccountId,
-      signerMode: payload.signerMode,
       thresholdSessionId: activeSessionId,
       task: async () => {
         const ctx = deps.getSignerWorkerContext();

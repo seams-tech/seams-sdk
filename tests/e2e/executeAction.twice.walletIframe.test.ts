@@ -55,7 +55,6 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
-            signerMode: { mode: 'local-signer' },
             // Ensure the wallet iframe path is exercised (bug repro target).
             iframeWallet: {
               walletOrigin,
@@ -66,11 +65,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
           });
 
           const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
-          const reg = await tatchi.registration.registerPasskeyInternal(
-            accountId,
-            { signerMode: { mode: 'local-signer' } },
-            cfg as any,
-          );
+          const reg = await tatchi.registration.registerPasskeyInternal(accountId, {}, cfg as any);
           if (!reg?.success) {
             return { ok: false as const, error: reg?.error || 'registration failed' };
           }

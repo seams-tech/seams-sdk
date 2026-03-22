@@ -63,7 +63,7 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     }, SDK_ESM_PATHS.base64);
   });
 
-  test('registration defaults to threshold-signer and stores threshold material without local on-chain bootstrap', async ({
+  test('registration stores threshold material without local on-chain bootstrap', async ({
     page,
   }) => {
     let sendTxCount = 0;

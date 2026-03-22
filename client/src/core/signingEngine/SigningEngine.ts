@@ -34,9 +34,6 @@ import {
 } from './api/thresholdLifecycle/thresholdSessionActivation';
 import {
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
-  enrollThresholdEd25519Key as enrollThresholdEd25519KeyValue,
-  enrollThresholdEd25519KeyPostRegistration as enrollThresholdEd25519KeyPostRegistrationValue,
-  rotateThresholdEd25519KeyPostRegistration as rotateThresholdEd25519KeyPostRegistrationValue,
 } from './api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountValue,
@@ -92,10 +89,6 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEd25519CommitQueue';
-import {
-  deriveNearKeypairAndEncryptFromSerialized as deriveNearKeypairAndEncryptFromSerializedValue,
-  deriveNearKeypairFromCredentialViaWorker as deriveNearKeypairFromCredentialViaWorkerValue,
-} from './api/recovery/nearKeyDerivation';
 import { exportKeypairWithUI as exportKeypairWithUIValue } from './api/recovery/privateKeyExportRecovery';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
@@ -198,12 +191,6 @@ export class SigningEngine {
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
       signTempo: (args) => this.signTempo(args),
-      signTransactionsWithActions: (args: SignTransactionsWithActionsInput) =>
-        this.signNear({
-          chain: 'near',
-          kind: 'transactionsWithActions',
-          args,
-        }),
       extractCosePublicKey: (attestationObjectBase64url: string) =>
         this.extractCosePublicKey(attestationObjectBase64url),
       initializeCurrentUser: (nearAccountId: AccountId, nearClientArg?: NearClient) =>
@@ -435,39 +422,6 @@ export class SigningEngine {
   }): Promise<WebAuthnAuthenticationCredential> {
     return getAuthenticationCredentialsSerializedValue(
       this.orchestrationDeps.registrationSessionDeps,
-      args,
-    );
-  }
-
-  deriveNearKeypairAndEncryptFromSerialized(args: {
-    credential: WebAuthnRegistrationCredential;
-    nearAccountId: string;
-    options?: {
-      authenticatorOptions?: AuthenticatorOptions;
-      deviceNumber?: number;
-      persistToDb?: boolean;
-    };
-  }): Promise<{
-    success: boolean;
-    nearAccountId: string;
-    publicKey: string;
-    chacha20NonceB64u?: string;
-    wrapKeySalt?: string;
-    encryptedSk?: string;
-    error?: string;
-  }> {
-    return deriveNearKeypairAndEncryptFromSerializedValue(
-      this.orchestrationDeps.nearKeyDerivationDeps,
-      args,
-    );
-  }
-
-  deriveNearKeypairFromCredentialViaWorker(args: {
-    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    nearAccountId: AccountId;
-  }): Promise<{ publicKey: string; privateKey: string }> {
-    return deriveNearKeypairFromCredentialViaWorkerValue(
-      this.orchestrationDeps.nearKeyDerivationDeps,
       args,
     );
   }
@@ -777,33 +731,6 @@ export class SigningEngine {
     }
   }
 
-  enrollThresholdEd25519KeyPostRegistration(
-    args: Parameters<typeof enrollThresholdEd25519KeyPostRegistrationValue>[1],
-  ): ReturnType<typeof enrollThresholdEd25519KeyPostRegistrationValue> {
-    return enrollThresholdEd25519KeyPostRegistrationValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
-  }
-
-  rotateThresholdEd25519KeyPostRegistration(
-    args: Parameters<typeof rotateThresholdEd25519KeyPostRegistrationValue>[1],
-  ): ReturnType<typeof rotateThresholdEd25519KeyPostRegistrationValue> {
-    return rotateThresholdEd25519KeyPostRegistrationValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
-  }
-
-  enrollThresholdEd25519Key(
-    args: Parameters<typeof enrollThresholdEd25519KeyValue>[1],
-  ): ReturnType<typeof enrollThresholdEd25519KeyValue> {
-    return enrollThresholdEd25519KeyValue(
-      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
-      args,
-    );
-  }
-
   destroy(): void {
     this.userPreferencesManager.destroy();
     this.nonceManager.clear();
@@ -847,7 +774,6 @@ export type SigningEnginePublic = Pick<
   | 'atomicStoreRegistrationData'
   | 'requestRegistrationCredentialConfirmation'
   | 'getAuthenticationCredentialsSerialized'
-  | 'deriveNearKeypairAndEncryptFromSerialized'
   | 'extractCosePublicKey'
   | 'exportKeypairWithUI'
   | 'signTransactionWithKeyPair'
@@ -867,6 +793,4 @@ export type SigningEnginePublic = Pick<
   | 'clearThresholdEcdsaCommitQueue'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'
-  | 'enrollThresholdEd25519KeyPostRegistration'
-  | 'rotateThresholdEd25519KeyPostRegistration'
 >;

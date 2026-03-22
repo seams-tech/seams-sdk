@@ -11,7 +11,6 @@ const PREFERENCES_PUSH_STUB = `
   (function installPreferencesPushStub() {
     const nearAccountId = 'alice.testnet';
     let confirmationConfig = { behavior: 'requireClick', uiMode: 'modal', autoProceedDelay: 0 };
-    const signerMode = { mode: 'local-signer' };
 
     const makeLoginSession = () => ({
       login: {
@@ -39,7 +38,6 @@ const PREFERENCES_PUSH_STUB = `
           payload: {
             nearAccountId,
             confirmationConfig,
-            signerMode,
             updatedAt: Date.now(),
           }
         });

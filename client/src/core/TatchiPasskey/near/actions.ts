@@ -8,11 +8,7 @@ import type {
 import type { ActionResult, SignTransactionResult } from '../../types/tatchi';
 import type { TxExecutionStatus } from '@near-js/types';
 import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../../types/actions';
-import {
-  type ConfirmationConfig,
-  type SignerMode,
-  mergeSignerMode,
-} from '../../types/signer-worker';
+import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { PasskeyManagerContext } from '../index';
 import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { AccountId } from '../../types/accountIds';
@@ -44,7 +40,6 @@ export async function executeAction(args: {
   options: ActionHooksOptions;
 }): Promise<ActionResult> {
   try {
-    const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
     // Thread optional per-call confirmation override when provided; otherwise
     // user preferences determine the confirmation behavior.
     return executeActionInternal({
@@ -52,7 +47,6 @@ export async function executeAction(args: {
       nearAccountId: args.nearAccountId,
       receiverId: args.receiverId,
       actionArgs: args.actionArgs,
-      signerMode,
       options: args.options,
       confirmationConfigOverride: args.options.confirmationConfig,
     });
@@ -84,12 +78,10 @@ export async function signAndSendTransactions(args: {
   transactionInputs: TransactionInput[];
   options: SignAndSendTransactionHooksOptions;
 }): Promise<ActionResult[]> {
-  const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
   return signAndSendTransactionsInternal({
     context: args.context,
     nearAccountId: args.nearAccountId,
     transactionInputs: args.transactionInputs,
-    signerMode,
     options: args.options,
     confirmationConfigOverride: args.options.confirmationConfig,
   });
@@ -111,12 +103,10 @@ export async function signTransactionsWithActions(args: {
   options: SignTransactionHooksOptions;
 }): Promise<SignTransactionResult[]> {
   try {
-    const signerMode = mergeSignerMode(getBaseSignerMode(args.context), args.options?.signerMode);
     return signTransactionsWithActionsInternal({
       context: args.context,
       nearAccountId: args.nearAccountId,
       transactionInputs: args.transactionInputs,
-      signerMode,
       options: args.options,
       confirmationConfigOverride: args.options.confirmationConfig,
       // Public API always uses undefined override (respects user settings)
@@ -272,7 +262,6 @@ export async function executeActionInternal({
   nearAccountId,
   receiverId,
   actionArgs,
-  signerMode,
   options,
   confirmationConfigOverride,
 }: {
@@ -280,7 +269,6 @@ export async function executeActionInternal({
   nearAccountId: AccountId;
   receiverId: AccountId;
   actionArgs: ActionArgs | ActionArgs[];
-  signerMode: SignerMode;
   options?: ActionHooksOptions;
   // Accept partial override and merge later in confirm flow
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
@@ -309,7 +297,6 @@ export async function executeActionInternal({
           actions: actions,
         },
       ],
-      signerMode,
       options: { onEvent, onError, waitUntil, confirmerText },
       confirmationConfigOverride,
     });
@@ -350,14 +337,12 @@ export async function signAndSendTransactionsInternal({
   context,
   nearAccountId,
   transactionInputs,
-  signerMode,
   options,
   confirmationConfigOverride,
 }: {
   context: PasskeyManagerContext;
   nearAccountId: AccountId;
   transactionInputs: TransactionInput[];
-  signerMode: SignerMode;
   options?: SignAndSendTransactionHooksOptions;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
 }): Promise<ActionResult[]> {
@@ -366,7 +351,6 @@ export async function signAndSendTransactionsInternal({
       context,
       nearAccountId,
       transactionInputs,
-      signerMode,
       options,
       confirmationConfigOverride,
     });
@@ -417,14 +401,12 @@ export async function signTransactionsWithActionsInternal({
   context,
   nearAccountId,
   transactionInputs,
-  signerMode,
   options,
   confirmationConfigOverride,
 }: {
   context: PasskeyManagerContext;
   nearAccountId: AccountId;
   transactionInputs: TransactionInput[];
-  signerMode: SignerMode;
   options?: Omit<ActionHooksOptions, 'afterCall'>;
   confirmationConfigOverride?: Partial<ConfirmationConfig> | undefined;
 }): Promise<SignTransactionResult[]> {
@@ -474,7 +456,6 @@ export async function signTransactionsWithActionsInternal({
           nearAccountId: nearAccountId, // caller account
         },
         deviceNumber,
-        signerMode,
         confirmationConfigOverride: confirmationConfigOverride,
         title: confirmerText?.title,
         body: confirmerText?.body,
@@ -573,13 +554,5 @@ async function validateInputsOnly(
         throw new Error('Missing required parameter for transfer: amount');
       }
     }
-  }
-}
-
-function getBaseSignerMode(context: PasskeyManagerContext): SignerMode {
-  try {
-    return context.signingEngine.getUserPreferences().getSignerMode();
-  } catch {
-    return context.configs.signing.mode;
   }
 }

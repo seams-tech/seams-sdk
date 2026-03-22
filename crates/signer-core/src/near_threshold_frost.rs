@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use crate::error::{CoreResult, SignerCoreError};
 use crate::near_threshold_ed25519::{
-    self, CommitmentsWire, parse_near_public_key_to_bytes, signature_share_to_b64u,
+    self, parse_near_public_key_to_bytes, signature_share_to_b64u, CommitmentsWire,
 };
 
 const THRESHOLD_RELAYER_SHARE_INFO_PREFIX_V1: &[u8] = b"w3a/threshold/relayer_share_v1";
@@ -234,8 +234,10 @@ pub fn threshold_ed25519_keygen_from_client_verifying_share(
 ) -> CoreResult<ThresholdEd25519KeygenOutput> {
     let (client_participant_id, relayer_participant_id) =
         resolve_participant_ids(args.client_participant_id, args.relayer_participant_id)?;
-    let client_bytes =
-        decode_base64_url_32(&args.client_verifying_share_b64u, "clientVerifyingShareB64u")?;
+    let client_bytes = decode_base64_url_32(
+        &args.client_verifying_share_b64u,
+        "clientVerifyingShareB64u",
+    )?;
     let _client_point = decompress_verifying_share_point(client_bytes, "client verifying share")?;
 
     let mut rng = frost_ed25519::rand_core::OsRng;
@@ -249,7 +251,8 @@ pub fn threshold_ed25519_keygen_from_client_verifying_share(
     };
 
     let relayer_signing_share_bytes = relayer_scalar.to_bytes();
-    let relayer_verifying_share_bytes = scalar_to_verifying_share_bytes(&relayer_signing_share_bytes);
+    let relayer_verifying_share_bytes =
+        scalar_to_verifying_share_bytes(&relayer_signing_share_bytes);
     let group_pk_bytes = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
         &client_bytes,
         &relayer_verifying_share_bytes,
@@ -262,7 +265,9 @@ pub fn threshold_ed25519_keygen_from_client_verifying_share(
         relayer_key_id: public_key.clone(),
         public_key,
         relayer_signing_share_b64u: Base64UrlUnpadded::encode_string(&relayer_signing_share_bytes),
-        relayer_verifying_share_b64u: Base64UrlUnpadded::encode_string(&relayer_verifying_share_bytes),
+        relayer_verifying_share_b64u: Base64UrlUnpadded::encode_string(
+            &relayer_verifying_share_bytes,
+        ),
     })
 }
 
@@ -272,8 +277,10 @@ pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
     let (client_participant_id, relayer_participant_id) =
         resolve_participant_ids(args.client_participant_id, args.relayer_participant_id)?;
     let master_secret_bytes = decode_master_secret_32(&args.master_secret_b64u)?;
-    let client_bytes =
-        decode_base64_url_32(&args.client_verifying_share_b64u, "clientVerifyingShareB64u")?;
+    let client_bytes = decode_base64_url_32(
+        &args.client_verifying_share_b64u,
+        "clientVerifyingShareB64u",
+    )?;
     let _client_point = decompress_verifying_share_point(client_bytes, "client verifying share")?;
 
     let relayer_scalar = derive_threshold_relayer_share_scalar_v1(
@@ -283,7 +290,8 @@ pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
         &client_bytes,
     )?;
     let relayer_signing_share_bytes = relayer_scalar.to_bytes();
-    let relayer_verifying_share_bytes = scalar_to_verifying_share_bytes(&relayer_signing_share_bytes);
+    let relayer_verifying_share_bytes =
+        scalar_to_verifying_share_bytes(&relayer_signing_share_bytes);
     let group_pk_bytes = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
         &client_bytes,
         &relayer_verifying_share_bytes,
@@ -296,7 +304,9 @@ pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
         relayer_key_id: public_key.clone(),
         public_key,
         relayer_signing_share_b64u: Base64UrlUnpadded::encode_string(&relayer_signing_share_bytes),
-        relayer_verifying_share_b64u: Base64UrlUnpadded::encode_string(&relayer_verifying_share_bytes),
+        relayer_verifying_share_b64u: Base64UrlUnpadded::encode_string(
+            &relayer_verifying_share_bytes,
+        ),
     })
 }
 
@@ -334,29 +344,27 @@ fn build_relayer_round2_context(
     let (client_id, relayer_id) =
         resolve_participant_ids(args.client_participant_id, args.relayer_participant_id)?;
 
-    let share_bytes = decode_base64_url_32(&args.relayer_signing_share_b64u, "relayerSigningShareB64u")?;
+    let share_bytes =
+        decode_base64_url_32(&args.relayer_signing_share_b64u, "relayerSigningShareB64u")?;
     let nonces_bytes = decode_base64_url(&args.relayer_nonces_b64u, "relayerNoncesB64u")?;
-    let nonces =
-        frost_ed25519::round1::SigningNonces::deserialize(&nonces_bytes).map_err(|e| {
-            SignerCoreError::decode_error(format!("Invalid relayer signing nonces: {e}"))
-        })?;
+    let nonces = frost_ed25519::round1::SigningNonces::deserialize(&nonces_bytes).map_err(|e| {
+        SignerCoreError::decode_error(format!("Invalid relayer signing nonces: {e}"))
+    })?;
 
     let message = decode_base64_url(&args.signing_digest_b64u, "signingDigestB64u")?;
     let group_pk_bytes = parse_near_public_key_to_bytes(args.group_public_key.as_str())?;
-    let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_pk_bytes).map_err(|e| {
-        SignerCoreError::decode_error(format!("Invalid group public key: {e}"))
-    })?;
+    let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_pk_bytes)
+        .map_err(|e| SignerCoreError::decode_error(format!("Invalid group public key: {e}")))?;
 
-    let relayer_signing_share =
-        frost_ed25519::keys::SigningShare::deserialize(&share_bytes).map_err(|e| {
+    let relayer_signing_share = frost_ed25519::keys::SigningShare::deserialize(&share_bytes)
+        .map_err(|e| {
             SignerCoreError::decode_error(format!("Invalid relayer signing share: {e}"))
         })?;
     let relayer_verifying_share_bytes = scalar_to_verifying_share_bytes(&share_bytes);
-    let relayer_verifying_share =
-        frost_ed25519::keys::VerifyingShare::deserialize(&relayer_verifying_share_bytes)
-            .map_err(|e| {
-                SignerCoreError::decode_error(format!("Invalid relayer verifying share: {e}"))
-            })?;
+    let relayer_verifying_share = frost_ed25519::keys::VerifyingShare::deserialize(
+        &relayer_verifying_share_bytes,
+    )
+    .map_err(|e| SignerCoreError::decode_error(format!("Invalid relayer verifying share: {e}")))?;
 
     let relayer_identifier: frost_ed25519::Identifier = relayer_id
         .try_into()
@@ -373,7 +381,8 @@ fn build_relayer_round2_context(
         2,
     );
 
-    let client_commitments = near_threshold_ed25519::commitments_from_wire(&args.client_commitments)?;
+    let client_commitments =
+        near_threshold_ed25519::commitments_from_wire(&args.client_commitments)?;
     let relayer_commitments =
         near_threshold_ed25519::commitments_from_wire(&args.relayer_commitments)?;
 
@@ -396,8 +405,11 @@ pub fn threshold_ed25519_round2_sign(
 ) -> CoreResult<ThresholdEd25519Round2SignOutput> {
     let (nonces, signing_package, key_package, _relayer_identifier, _verifying_key) =
         build_relayer_round2_context(&args)?;
-    let share =
-        near_threshold_ed25519::client_round2_signature_share(&signing_package, &nonces, &key_package)?;
+    let share = near_threshold_ed25519::client_round2_signature_share(
+        &signing_package,
+        &nonces,
+        &key_package,
+    )?;
     let relayer_signature_share_b64u = signature_share_to_b64u(&share)?;
     Ok(ThresholdEd25519Round2SignOutput {
         relayer_signature_share_b64u,
@@ -409,15 +421,15 @@ pub fn threshold_ed25519_round2_sign_cosigner(
 ) -> CoreResult<ThresholdEd25519Round2SignOutput> {
     let (client_id, relayer_id) =
         resolve_participant_ids(args.client_participant_id, args.relayer_participant_id)?;
-    let share_bytes = decode_base64_url_32(&args.relayer_signing_share_b64u, "relayerSigningShareB64u")?;
+    let share_bytes =
+        decode_base64_url_32(&args.relayer_signing_share_b64u, "relayerSigningShareB64u")?;
     let share_scalar = Option::<CurveScalar>::from(CurveScalar::from_canonical_bytes(share_bytes))
         .ok_or_else(|| SignerCoreError::decode_error("Invalid relayer signing share scalar"))?;
 
     let nonces_bytes = decode_base64_url(&args.relayer_nonces_b64u, "relayerNoncesB64u")?;
-    let nonces =
-        frost_ed25519::round1::SigningNonces::deserialize(&nonces_bytes).map_err(|e| {
-            SignerCoreError::decode_error(format!("Invalid relayer signing nonces: {e}"))
-        })?;
+    let nonces = frost_ed25519::round1::SigningNonces::deserialize(&nonces_bytes).map_err(|e| {
+        SignerCoreError::decode_error(format!("Invalid relayer signing nonces: {e}"))
+    })?;
 
     let hiding_bytes = nonces.hiding().serialize();
     if hiding_bytes.len() != 32 {
@@ -448,9 +460,8 @@ pub fn threshold_ed25519_round2_sign_cosigner(
 
     let message = decode_base64_url(&args.signing_digest_b64u, "signingDigestB64u")?;
     let group_pk_bytes = parse_near_public_key_to_bytes(args.group_public_key.as_str())?;
-    let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_pk_bytes).map_err(|e| {
-        SignerCoreError::decode_error(format!("Invalid group public key: {e}"))
-    })?;
+    let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_pk_bytes)
+        .map_err(|e| SignerCoreError::decode_error(format!("Invalid group public key: {e}")))?;
 
     let relayer_identifier: frost_ed25519::Identifier = relayer_id
         .try_into()
@@ -459,7 +470,8 @@ pub fn threshold_ed25519_round2_sign_cosigner(
         .try_into()
         .map_err(|_| SignerCoreError::invalid_input("Invalid client identifier"))?;
 
-    let client_commitments = near_threshold_ed25519::commitments_from_wire(&args.client_commitments)?;
+    let client_commitments =
+        near_threshold_ed25519::commitments_from_wire(&args.client_commitments)?;
     let relayer_commitments =
         near_threshold_ed25519::commitments_from_wire(&args.relayer_commitments)?;
 
@@ -519,9 +531,9 @@ pub fn threshold_ed25519_round2_sign_cosigner(
         )
         .map_err(|e| SignerCoreError::decode_error(format!("Invalid binding commitment: {e}")))?;
 
-        let rho = rho_by_id.get(id).ok_or_else(|| {
-            SignerCoreError::internal("Missing binding factor for commitment")
-        })?;
+        let rho = rho_by_id
+            .get(id)
+            .ok_or_else(|| SignerCoreError::internal("Missing binding factor for commitment"))?;
         group_commitment = group_commitment + hiding + (binding * (*rho));
     }
     let group_commitment_bytes = frost_ed25519::Ed25519Group::serialize(&group_commitment)
@@ -578,24 +590,27 @@ mod tests {
             client_verifying_share_b64u: b64u(&client_bytes),
         };
 
-        let out1 = threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
-            args.clone(),
-        )
-        .expect("keygen should succeed");
-        let out2 = threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
-            args.clone(),
-        )
-        .expect("keygen should succeed");
-        assert_eq!(out1.relayer_signing_share_b64u, out2.relayer_signing_share_b64u);
+        let out1 =
+            threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(args.clone())
+                .expect("keygen should succeed");
+        let out2 =
+            threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(args.clone())
+                .expect("keygen should succeed");
+        assert_eq!(
+            out1.relayer_signing_share_b64u,
+            out2.relayer_signing_share_b64u
+        );
         assert_eq!(out1.public_key, out2.public_key);
 
         let mut args_lower = args;
         args_lower.rp_id = "example.com".to_string();
-        let out3 = threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
-            args_lower,
-        )
-        .expect("keygen should succeed");
-        assert_eq!(out1.relayer_signing_share_b64u, out3.relayer_signing_share_b64u);
+        let out3 =
+            threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(args_lower)
+                .expect("keygen should succeed");
+        assert_eq!(
+            out1.relayer_signing_share_b64u,
+            out3.relayer_signing_share_b64u
+        );
     }
 
     #[test]

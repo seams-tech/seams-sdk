@@ -34,7 +34,6 @@ import type {
 import type {
   ConfirmationBehavior,
   ConfirmationConfig,
-  SignerMode,
   WasmSignedDelegate,
 } from '../types/signer-worker';
 import type { AccountId } from '../types/accountIds';
@@ -337,13 +336,10 @@ export interface PreferencesCapability {
   setCurrentUser(nearAccountId: AccountId): void;
   getCurrentUserAccountId(): AccountId;
   onConfirmationConfigChange(callback: (config: ConfirmationConfig) => void): () => void;
-  onSignerModeChange(callback: (mode: SignerMode) => void): () => void;
   onCurrentUserChange(callback: (nearAccountId: AccountId | null) => void): () => void;
   setConfirmBehavior(behavior: ConfirmationBehavior): void;
   setConfirmationConfig(config: ConfirmationConfig): void;
   getConfirmationConfig(): ConfirmationConfig;
-  setSignerMode(signerMode: SignerMode | SignerMode['mode']): void;
-  getSignerMode(): SignerMode;
 }
 
 export interface PasskeyManagerContext {

@@ -1,8 +1,5 @@
 import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyOps';
 import type { SignerWorkerManagerContext } from '..';
-import { decryptPrivateKeyWithPrf } from './decryptPrivateKeyWithPrf';
-import { recoverKeypairFromPasskey } from './recoverKeypairFromPasskey';
-import { deriveNearKeypairAndEncryptFromSerialized } from './deriveNearKeypairAndEncryptFromSerialized';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
   extractCosePublicKeyWasm,
@@ -12,12 +9,6 @@ import {
 
 export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): NearSigningKeyOps {
   return {
-    async deriveNearKeypairAndEncryptFromSerialized(args) {
-      return deriveNearKeypairAndEncryptFromSerialized({
-        ctx: getContext(),
-        ...args,
-      });
-    },
     async deriveThresholdEd25519ClientVerifyingShare(args) {
       const nearAccountId = String(args.nearAccountId);
       try {
@@ -42,18 +33,6 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
           error: message,
         };
       }
-    },
-    async decryptPrivateKeyWithPrf(args) {
-      return decryptPrivateKeyWithPrf({
-        ctx: getContext(),
-        ...args,
-      });
-    },
-    async recoverKeypairFromPasskey(args) {
-      return recoverKeypairFromPasskey({
-        ctx: getContext(),
-        ...args,
-      });
     },
     async extractCosePublicKey(attestationObjectBase64url) {
       return extractCosePublicKeyWasm({

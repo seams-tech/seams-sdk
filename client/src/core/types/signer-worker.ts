@@ -19,118 +19,19 @@ export type WasmSignature = wasmModule.WasmSignature;
 export type ThresholdBehavior = 'strict' | 'fallback';
 export const DEFAULT_THRESHOLD_BEHAVIOR: ThresholdBehavior = 'strict';
 
-/** High-level policy used by SDK APIs (includes optional threshold fallback behavior). */
-export type SignerMode =
-  | { mode: 'local-signer' }
-  | { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-
-export const DEFAULT_SIGNER_MODE: SignerMode['mode'] = 'local-signer';
-export const DEFAULT_SIGNING_MODE: SignerMode = { mode: DEFAULT_SIGNER_MODE };
-
-export function isSignerMode(input: unknown): input is SignerMode['mode'] {
-  return input === 'local-signer' || input === 'threshold-signer';
-}
-
 export function isThresholdBehavior(input: unknown): input is ThresholdBehavior {
   return input === 'fallback' || input === 'strict';
 }
 
-export function coerceSignerMode(
-  input?: SignerMode | SignerMode['mode'] | null,
-  fallback: SignerMode = DEFAULT_SIGNING_MODE,
-): SignerMode {
-  if (input == null) return fallback;
-
-  if (typeof input === 'string') return isSignerMode(input) ? { mode: input } : fallback;
-
-  if (typeof input !== 'object') return fallback;
-
-  if (input.mode === 'local-signer') return { mode: input.mode };
-  const behavior = input.behavior;
-  return isThresholdBehavior(behavior) ? { mode: input.mode, behavior } : { mode: input.mode };
+export function resolveThresholdBehavior(
+  input?: ThresholdBehavior | null,
+  fallback: ThresholdBehavior = DEFAULT_THRESHOLD_BEHAVIOR,
+): ThresholdBehavior {
+  return isThresholdBehavior(input) ? input : fallback;
 }
 
-/** @deprecated use `coerceSignerMode` */
-export const normalizeSignerMode = coerceSignerMode;
-
-/**
- * Merge a mode-only override onto a base signer mode.
- *
- * This is intentionally "partial override" semantics:
- * - override sets `mode` when provided
- * - override sets `behavior` only when explicitly provided
- * - if override switches to `threshold-signer` without specifying `behavior`,
- *   preserve `base.behavior` when base is already `threshold-signer`
- */
-export function mergeSignerMode(
-  base: SignerMode,
-  override?: SignerMode | SignerMode['mode'] | null,
-): SignerMode {
-  const baseNormalized = coerceSignerMode(base, DEFAULT_SIGNING_MODE);
-  if (override == null) return baseNormalized;
-
-  // Shorthand: string overrides only switch mode
-  if (typeof override === 'string') {
-    if (!isSignerMode(override)) return baseNormalized;
-    if (override === 'local-signer') return { mode: 'local-signer' };
-    // override === 'threshold-signer'
-    if (baseNormalized.mode === 'threshold-signer') {
-      const behavior = (baseNormalized as { behavior?: unknown }).behavior;
-      return isThresholdBehavior(behavior)
-        ? { mode: 'threshold-signer', behavior }
-        : { mode: 'threshold-signer' };
-    }
-    return { mode: 'threshold-signer' };
-  }
-
-  if (typeof override !== 'object') return baseNormalized;
-
-  const mode = (override as { mode?: unknown }).mode;
-  if (mode === 'local-signer') return { mode: 'local-signer' };
-  if (mode !== 'threshold-signer') return baseNormalized;
-
-  const behavior = (override as { behavior?: unknown }).behavior;
-  if (isThresholdBehavior(behavior)) return { mode: 'threshold-signer', behavior };
-
-  // Preserve base threshold behavior when override didn't specify it
-  if (baseNormalized.mode === 'threshold-signer') {
-    const baseBehavior = (baseNormalized as { behavior?: unknown }).behavior;
-    if (isThresholdBehavior(baseBehavior))
-      return { mode: 'threshold-signer', behavior: baseBehavior };
-  }
-  return { mode: 'threshold-signer' };
-}
-
-export function getSignerModeString(mode: SignerMode): SignerMode['mode'] {
-  return mode.mode;
-}
-
-export function getThresholdBehaviorFromSignerMode(mode: SignerMode): ThresholdBehavior {
-  if (mode.mode !== 'threshold-signer') return DEFAULT_THRESHOLD_BEHAVIOR;
-  return isThresholdBehavior(mode.behavior) ? mode.behavior : DEFAULT_THRESHOLD_BEHAVIOR;
-}
-
-/**
- * Internal, single-purpose worker request types.
- *
- * These are intentionally *not* exposed as general-purpose "no prompt" signing APIs.
- * They exist to support tightly-scoped post-registration flows without allowing
- * arbitrary actions/receivers to be signed without UserConfirm/WebAuthn binding.
- */
-export const INTERNAL_WORKER_REQUEST_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT =
-  WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt;
-export const INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS =
-  WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptSuccess;
-export const INTERNAL_WORKER_RESPONSE_TYPE_SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE =
-  WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptFailure;
-
-type InternalSignerWorkerRequestType = WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt;
-type InternalSignerWorkerResponseType =
-  | WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptSuccess
-  | WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptFailure;
-
-export type SignerWorkerRequestType = WorkerRequestType | InternalSignerWorkerRequestType;
-export type SignerWorkerResponseType = WorkerResponseType | InternalSignerWorkerResponseType;
+export type SignerWorkerRequestType = WorkerRequestType;
+export type SignerWorkerResponseType = WorkerResponseType;
 
 export interface ThresholdSignerConfig {
   /** Base URL of the relayer server (e.g. https://relay.example.com) */
@@ -188,40 +89,19 @@ export interface RpcCallPayload {
 type DirectPrfFields = {
   prfFirstB64u?: string;
   wrapKeySalt?: string;
-  prfSecondB64u?: string;
 };
 
-export type WasmDeriveNearKeypairAndEncryptRequest =
-  StripFree<wasmModule.DeriveNearKeypairAndEncryptRequest> & DirectPrfFields;
-export type WasmRecoverKeypairRequest = StripFree<wasmModule.RecoverKeypairRequest> &
-  DirectPrfFields;
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
 export interface WasmSignTransactionsWithActionsRequest {
-  signerMode: SignerMode['mode'];
   rpcCall: RpcCallPayload;
   sessionId: string;
   createdAt?: number;
-  decryption: StripFree<wasmModule.DecryptionPayload>;
-  threshold?: ThresholdSignerConfig;
+  threshold: ThresholdSignerConfig;
   txSigningRequests: TransactionPayload[];
   intentDigest?: string;
   transactionContext?: TransactionContext;
   credential?: string;
-  prfFirstB64u?: string;
-  wrapKeySalt?: string;
-}
-
-export interface WasmSignAddKeyThresholdPublicKeyNoPromptRequest {
-  sessionId: string;
-  createdAt?: number;
-  decryption: StripFree<wasmModule.DecryptionPayload>;
-  nearAccountId: string;
-  thresholdPublicKey: string;
-  relayerVerifyingShareB64u: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  transactionContext: TransactionContext;
   prfFirstB64u?: string;
   wrapKeySalt?: string;
 }
@@ -234,12 +114,10 @@ export interface WasmGenerateEphemeralNearKeypairResult {
 }
 
 export interface WasmSignDelegateActionRequest {
-  signerMode: SignerMode['mode'];
   rpcCall: RpcCallPayload;
   sessionId: string;
   createdAt?: number;
-  decryption: StripFree<wasmModule.DecryptionPayload>;
-  threshold?: ThresholdSignerConfig;
+  threshold: ThresholdSignerConfig;
   delegate: DelegatePayload;
   intentDigest?: string;
   transactionContext?: TransactionContext;
@@ -255,16 +133,12 @@ export interface DelegatePayload {
   maxBlockHeight: string;
   publicKey: string;
 }
-export type WasmDecryptPrivateKeyRequest = StripFree<wasmModule.DecryptPrivateKeyRequest> &
-  DirectPrfFields;
 export type WasmExtractCosePublicKeyRequest = StripFree<wasmModule.ExtractCoseRequest>;
 export interface WasmSignNep413MessageRequest {
-  signerMode: SignerMode['mode'];
   sessionId: string;
   accountId: string;
   nearPublicKey: string;
-  decryption: StripFree<wasmModule.DecryptionPayload>;
-  threshold?: ThresholdSignerConfig;
+  threshold: ThresholdSignerConfig;
   message: string;
   recipient: string;
   nonce: string;
@@ -281,40 +155,22 @@ export interface WasmSignTransactionWithKeyPairRequest {
   blockHash: string;
   actions: ActionArgsWasm[];
 }
-// Combined Device2 registration handler (derive + sign in one step)
-export type WasmRegisterDevice2WithDerivedKeyRequest =
-  StripFree<wasmModule.RegisterDevice2WithDerivedKeyRequest> & DirectPrfFields;
 
 export type WasmRequestPayload =
-  | WasmDeriveNearKeypairAndEncryptRequest
-  | WasmRecoverKeypairRequest
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
   | WasmSignTransactionsWithActionsRequest
-  | WasmSignAddKeyThresholdPublicKeyNoPromptRequest
   | WasmGenerateEphemeralNearKeypairRequest
   | WasmSignDelegateActionRequest
-  | WasmDecryptPrivateKeyRequest
   | WasmExtractCosePublicKeyRequest
   | WasmSignNep413MessageRequest
-  | WasmSignTransactionWithKeyPairRequest
-  | WasmRegisterDevice2WithDerivedKeyRequest;
+  | WasmSignTransactionWithKeyPairRequest;
 
 // WASM Worker Response Types
-export type WasmRecoverKeypairResult = InstanceType<typeof wasmModule.RecoverKeypairResult>;
 export type WasmSignedTransaction = InstanceType<typeof wasmModule.WasmSignedTransaction>;
 export type WasmSignedDelegate = wasmModule.WasmSignedDelegate;
 export type WasmDelegateAction = wasmModule.WasmDelegateAction;
 export type WasmTransactionSignResult = InstanceType<typeof wasmModule.TransactionSignResult>;
 export type WasmDelegateSignResult = wasmModule.DelegateSignResult;
-export type WasmDecryptPrivateKeyResult = InstanceType<typeof wasmModule.DecryptPrivateKeyResult>;
-export type WasmDeriveNearKeypairAndEncryptResult = InstanceType<
-  typeof wasmModule.DeriveNearKeypairAndEncryptResult
->;
-// wasm-bindgen generates some classes with private constructors, which breaks
-// `InstanceType<typeof Class>`. Use the class name directly for the instance type.
-export type WasmRegisterDevice2WithDerivedKeyResult = InstanceType<
-  typeof wasmModule.RegisterDevice2WithDerivedKeyResult
->;
 // wasm-bindgen may generate classes with private constructors, which breaks
 // `InstanceType<typeof Class>`. Use the class name directly for the instance type.
 export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
@@ -323,16 +179,6 @@ export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
 // === WORKER REQUEST TYPE MAPPING ===
 // Define the complete type mapping for each worker request
 export interface WorkerRequestTypeMap {
-  [WorkerRequestType.DeriveNearKeypairAndEncrypt]: {
-    type: WorkerRequestType.DeriveNearKeypairAndEncrypt;
-    request: WasmDeriveNearKeypairAndEncryptRequest;
-    result: WasmDeriveNearKeypairAndEncryptResult;
-  };
-  [WorkerRequestType.RecoverKeypairFromPasskey]: {
-    type: WorkerRequestType.RecoverKeypairFromPasskey;
-    request: WasmRecoverKeypairRequest;
-    result: WasmRecoverKeypairResult;
-  };
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: {
     type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare;
     request: WasmDeriveThresholdEd25519ClientVerifyingShareRequest;
@@ -341,11 +187,6 @@ export interface WorkerRequestTypeMap {
   [WorkerRequestType.SignTransactionsWithActions]: {
     type: WorkerRequestType.SignTransactionsWithActions;
     request: WasmSignTransactionsWithActionsRequest;
-    result: WasmTransactionSignResult;
-  };
-  [WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt]: {
-    type: WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt;
-    request: WasmSignAddKeyThresholdPublicKeyNoPromptRequest;
     result: WasmTransactionSignResult;
   };
   [WorkerRequestType.GenerateEphemeralNearKeypair]: {
@@ -357,11 +198,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.SignDelegateAction;
     request: WasmSignDelegateActionRequest;
     result: WasmDelegateSignResult;
-  };
-  [WorkerRequestType.DecryptPrivateKeyWithPrf]: {
-    type: WorkerRequestType.DecryptPrivateKeyWithPrf;
-    request: WasmDecryptPrivateKeyRequest;
-    result: WasmDecryptPrivateKeyResult;
   };
   [WorkerRequestType.ExtractCosePublicKey]: {
     type: WorkerRequestType.ExtractCosePublicKey;
@@ -377,11 +213,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.SignNep413Message;
     request: WasmSignNep413MessageRequest;
     result: wasmModule.SignNep413Result;
-  };
-  [WorkerRequestType.RegisterDevice2WithDerivedKey]: {
-    type: WorkerRequestType.RegisterDevice2WithDerivedKey;
-    request: WasmRegisterDevice2WithDerivedKeyRequest;
-    result: WasmRegisterDevice2WithDerivedKeyResult;
   };
 }
 
@@ -448,12 +279,10 @@ export const mapBehaviorToWasm = (behavior: ConfirmationBehavior): number => {
   }
 };
 export type WasmRequestResult =
-  | WasmRecoverKeypairResult
   | WasmSignedTransaction
   | WasmSignedDelegate
   | WasmTransactionSignResult
-  | WasmDelegateSignResult
-  | WasmDecryptPrivateKeyResult;
+  | WasmDelegateSignResult;
 
 export interface SignerWorkerMessage<
   T extends SignerWorkerRequestType,
@@ -538,18 +367,13 @@ export interface BaseWorkerResponse<TPayload = unknown> {
 
 // Map request types to their expected success response payloads (WASM types)
 export interface RequestResponseMap {
-  [WorkerRequestType.DeriveNearKeypairAndEncrypt]: WasmDeriveNearKeypairAndEncryptResult;
-  [WorkerRequestType.RecoverKeypairFromPasskey]: WasmRecoverKeypairResult;
-  [WorkerRequestType.DecryptPrivateKeyWithPrf]: WasmDecryptPrivateKeyResult;
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
-  [WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt]: WasmTransactionSignResult;
   [WorkerRequestType.GenerateEphemeralNearKeypair]: WasmGenerateEphemeralNearKeypairResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
   [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
   [WorkerRequestType.SignTransactionWithKeyPair]: WasmTransactionSignResult;
   [WorkerRequestType.SignNep413Message]: wasmModule.SignNep413Result;
-  [WorkerRequestType.RegisterDevice2WithDerivedKey]: WasmRegisterDevice2WithDerivedKeyResult;
 }
 
 export type RequestTypeKey = keyof RequestResponseMap;
@@ -594,20 +418,11 @@ export type WorkerResponseForRequest<T extends RequestTypeKey> =
 
 // === CONVENIENCE TYPE ALIASES ===
 
-export type EncryptionResponse = WorkerResponseForRequest<
-  typeof WorkerRequestType.DeriveNearKeypairAndEncrypt
->;
-export type RecoveryResponse = WorkerResponseForRequest<
-  typeof WorkerRequestType.RecoverKeypairFromPasskey
->;
 export type TransactionResponse = WorkerResponseForRequest<
   typeof WorkerRequestType.SignTransactionsWithActions
 >;
 export type DelegateSignResponse = WorkerResponseForRequest<
   typeof WorkerRequestType.SignDelegateAction
->;
-export type DecryptionResponse = WorkerResponseForRequest<
-  typeof WorkerRequestType.DecryptPrivateKeyWithPrf
 >;
 export type CoseExtractionResponse = WorkerResponseForRequest<
   typeof WorkerRequestType.ExtractCosePublicKey
@@ -633,17 +448,12 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
   response: WorkerResponseForRequest<T>,
 ): response is WorkerSuccessResponse<T> {
   return (
-    response.type === WorkerResponseType.DeriveNearKeypairAndEncryptSuccess ||
-    response.type === WorkerResponseType.RecoverKeypairFromPasskeySuccess ||
-    response.type === WorkerResponseType.DecryptPrivateKeyWithPrfSuccess ||
     response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
     response.type === WorkerResponseType.SignDelegateActionSuccess ||
     response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
     response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
-    response.type === WorkerResponseType.RegisterDevice2WithDerivedKeySuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
-    response.type === WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptSuccess ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess
   );
 }
@@ -652,47 +462,22 @@ export function isWorkerError<T extends RequestTypeKey>(
   response: WorkerResponseForRequest<T>,
 ): response is WorkerErrorResponse {
   return (
-    response.type === WorkerResponseType.DeriveNearKeypairAndEncryptFailure ||
-    response.type === WorkerResponseType.RecoverKeypairFromPasskeyFailure ||
-    response.type === WorkerResponseType.DecryptPrivateKeyWithPrfFailure ||
     response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
     response.type === WorkerResponseType.SignDelegateActionFailure ||
     response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
     response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
-    response.type === WorkerResponseType.RegisterDevice2WithDerivedKeyFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
-    response.type === WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptFailure ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure
   );
 }
 
 // === SPECIFIC TYPE GUARDS FOR COMMON OPERATIONS ===
 
-export function isDeriveNearKeypairAndEncryptSuccess(
-  response: EncryptionResponse,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.DeriveNearKeypairAndEncrypt> {
-  return response.type === WorkerResponseType.DeriveNearKeypairAndEncryptSuccess;
-}
-
-export function isRecoverKeypairFromPasskeySuccess(
-  response: RecoveryResponse,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.RecoverKeypairFromPasskey> {
-  return response.type === WorkerResponseType.RecoverKeypairFromPasskeySuccess;
-}
-
 export function isSignTransactionsWithActionsSuccess(
   response: TransactionResponse,
 ): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
   return response.type === WorkerResponseType.SignTransactionsWithActionsSuccess;
-}
-
-export function isSignAddKeyThresholdPublicKeyNoPromptSuccess(
-  response: WorkerResponseForRequest<typeof WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt>,
-): response is WorkerSuccessResponse<
-  typeof WorkerRequestType.SignAddKeyThresholdPublicKeyNoPrompt
-> {
-  return response.type === WorkerResponseType.SignAddKeyThresholdPublicKeyNoPromptSuccess;
 }
 
 export function isGenerateEphemeralNearKeypairSuccess(
@@ -707,12 +492,6 @@ export function isSignDelegateActionSuccess(
   return response.type === WorkerResponseType.SignDelegateActionSuccess;
 }
 
-export function isDecryptPrivateKeyWithPrfSuccess(
-  response: DecryptionResponse,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.DecryptPrivateKeyWithPrf> {
-  return response.type === WorkerResponseType.DecryptPrivateKeyWithPrfSuccess;
-}
-
 export function isExtractCosePublicKeySuccess(
   response: CoseExtractionResponse,
 ): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
@@ -723,10 +502,4 @@ export function isSignNep413MessageSuccess(
   response: Nep413SigningResponse,
 ): response is WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message> {
   return response.type === WorkerResponseType.SignNep413MessageSuccess;
-}
-
-export function isRegisterDevice2WithDerivedKeySuccess(
-  response: WorkerResponseForRequest<typeof WorkerRequestType.RegisterDevice2WithDerivedKey>,
-): response is WorkerSuccessResponse<typeof WorkerRequestType.RegisterDevice2WithDerivedKey> {
-  return response.type === WorkerResponseType.RegisterDevice2WithDerivedKeySuccess;
 }

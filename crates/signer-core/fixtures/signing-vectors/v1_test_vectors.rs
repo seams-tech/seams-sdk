@@ -29,11 +29,6 @@ pub const VALIDATE_PK_HEX: &str =
 pub const ADD_RIGHT_PK_HEX: &str =
     "032a709888f7c7e1087d472005b99064112c1df5442f53ef9af4beae67f913eaca";
 pub const ADD_EXPECTED: &str = "032516721a026f7e3eddc4cb67c9b24ee897ebc2d94ee78760736beb91b7d2f732";
-pub const NEAR_PRF_B64U: &str = "ZGV0ZXJtaW5pc3RpYy1wcmYtb3V0cHV0";
-pub const NEAR_ACCOUNT_ID: &str = "alice.near";
-pub const NEAR_PRIVATE_EXPECTED: &str =
-    "ed25519:2QQCTV5bC1HXBD274gbs2tULUj5Tb8HYihsrn8nxWr6H9TfevhWwwKe8Ekbg2nZCSqPEyDuqXtRn5P2359iGTwCJ";
-pub const NEAR_PUBLIC_EXPECTED: &str = "ed25519:8Y3sr3jSPa7vNj5LkW49LfTZF3ACnjiR9vKv6AYfSmAe";
 pub const WRAP_SEED_B64U: &str = "d3JhcC1zZWVk";
 pub const WRAP_SALT_B64U: &str = "c2FsdA";
 pub const KEK_EXPECTED: &str = "0ab776316f79db94c8125814b46c57e444f668f81ec2324ceae9f91299dfee48";

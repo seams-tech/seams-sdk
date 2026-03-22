@@ -6,7 +6,6 @@ import type { onProgressEvents } from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
-  SignerMode,
   TransactionPayload,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
@@ -17,7 +16,6 @@ export type NearTransactionsWithActionsPayload = {
   sessionId?: string;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
-  signerMode: SignerMode;
   onEvent?: (update: onProgressEvents) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
@@ -29,7 +27,6 @@ export type NearDelegateActionPayload = {
   ctx: SigningRuntimeDeps;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
-  signerMode: SignerMode;
   onEvent?: (update: onProgressEvents) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
@@ -46,7 +43,6 @@ export type NearNep413Payload = {
     nonce: string;
     state: string | null;
     accountId: string;
-    signerMode: SignerMode;
     deviceNumber?: number;
     title?: string;
     body?: string;

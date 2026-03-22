@@ -1,5 +1,5 @@
 import type { TxExecutionStatus } from '@near-js/types';
-import type { ConfirmationConfig, SignerMode, ThresholdBehavior } from './signer-worker';
+import type { ConfirmationConfig } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 import type {
   ActionResult,
@@ -633,28 +633,12 @@ export interface RegistrationHooksOptions {
   onEvent?: EventCallback<RegistrationSSEEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
-  /**
-   * Optional: registration signing policy.
-   * - `{ mode: 'threshold-signer' }`: default registration behavior.
-   *   Derives threshold Ed25519 share material and enrolls threshold key during relay registration.
-   * - `{ mode: 'local-signer' }`: local-key registration path without threshold enrollment.
-   *
-   * Registration defaults to `{ mode: 'threshold-signer' }` when omitted.
-   */
-  signerMode?: SignerMode;
-  /**
-   * When `signerMode` resolves to `threshold-signer`, also derive/store encrypted local NEAR
-   * key material as backup/export data.
-   *
-   * Defaults to `true`.
-   */
-  backupLocalKey?: boolean;
   // Signer provisioning options used during registration.
   // When omitted, defaults are taken from
   // `TatchiConfigsReadonly.signing.thresholdEcdsa.provisioningDefaults`.
   signerOptions?: EcdsaSignerProvisioningDefaults;
   /**
-   * Preferred grouping for per-call confirmer copy.
+  * Preferred grouping for per-call confirmer copy.
    */
   confirmerText?: { title?: string; body?: string };
   // Per-call confirmation configuration. When provided, overrides user preferences
@@ -716,12 +700,6 @@ export interface ActionHooksOptions {
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<ActionResult>;
   /**
-   * Signing policy:
-   * { mode: 'local-signer' }
-   * { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-   */
-  signerMode?: SignerMode;
-  /**
    * Optional: passkey deviceNumber override for this signing request.
    */
   deviceNumber?: number;
@@ -743,12 +721,6 @@ export interface SignAndSendTransactionHooksOptions {
   onEvent?: EventCallback<ActionSSEEvent>;
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
-  /**
-   * Signing policy:
-   * { mode: 'local-signer' }
-   * { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-   */
-  signerMode?: SignerMode;
   /**
    * Optional: passkey deviceNumber override for this signing request.
    */
@@ -778,12 +750,6 @@ export interface SignTransactionHooksOptions {
   afterCall?: AfterCall<SignTransactionResult[]>;
   waitUntil?: TxExecutionStatus;
   /**
-   * Signing policy:
-   * { mode: 'local-signer' }
-   * { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-   */
-  signerMode?: SignerMode;
-  /**
    * Optional: passkey deviceNumber override for this signing request.
    */
   deviceNumber?: number;
@@ -809,12 +775,6 @@ export interface DelegateActionHooksOptions {
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<SignDelegateActionResult>;
-  /**
-   * Signing policy:
-   * { mode: 'local-signer' }
-   * { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-   */
-  signerMode?: SignerMode;
   /**
    * Optional: passkey deviceNumber override for this signing request.
    */
@@ -859,12 +819,6 @@ export interface SignNEP413HooksOptions {
   onError?: (error: Error) => void;
 
   afterCall?: AfterCall<SignNEP413MessageResult>;
-  /**
-   * Signing policy:
-   * { mode: 'local-signer' }
-   * { mode: 'threshold-signer'; behavior?: ThresholdBehavior };
-   */
-  signerMode?: SignerMode;
   /**
    * Optional: passkey deviceNumber override for this signing request.
    */

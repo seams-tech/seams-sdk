@@ -11,22 +11,14 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkerRequestType {
-    DeriveNearKeypairAndEncrypt,
-    RecoverKeypairFromPasskey,
-    DecryptPrivateKeyWithPrf,
     SignTransactionsWithActions,
     ExtractCosePublicKey,
     SignTransactionWithKeyPair,
     SignNep413Message,
-    // Combined Device2 registration: derive + sign in one step
-    RegisterDevice2WithDerivedKey,
     // Delegate action signing (NEP-461)
     SignDelegateAction,
     // Public, deterministic key enrollment helper for threshold mode
     DeriveThresholdEd25519ClientVerifyingShare,
-    /// Single-purpose internal signing path for post-registration activation:
-    /// Sign AddKey(thresholdPublicKey) for receiverId == nearAccountId without SecureConfirm/confirmTxFlow.
-    SignAddKeyThresholdPublicKeyNoPrompt,
     /// Internal helper to generate a fresh ephemeral Ed25519 keypair.
     GenerateEphemeralNearKeypair,
 }
@@ -34,18 +26,13 @@ pub enum WorkerRequestType {
 impl From<u32> for WorkerRequestType {
     fn from(value: u32) -> Self {
         match value {
-            0 => WorkerRequestType::DeriveNearKeypairAndEncrypt,
-            1 => WorkerRequestType::RecoverKeypairFromPasskey,
-            2 => WorkerRequestType::DecryptPrivateKeyWithPrf,
-            3 => WorkerRequestType::SignTransactionsWithActions,
-            4 => WorkerRequestType::ExtractCosePublicKey,
-            5 => WorkerRequestType::SignTransactionWithKeyPair,
-            6 => WorkerRequestType::SignNep413Message,
-            7 => WorkerRequestType::RegisterDevice2WithDerivedKey,
-            8 => WorkerRequestType::SignDelegateAction,
-            9 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
-            10 => WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt,
-            11 => WorkerRequestType::GenerateEphemeralNearKeypair,
+            0 => WorkerRequestType::SignTransactionsWithActions,
+            1 => WorkerRequestType::ExtractCosePublicKey,
+            2 => WorkerRequestType::SignTransactionWithKeyPair,
+            3 => WorkerRequestType::SignNep413Message,
+            4 => WorkerRequestType::SignDelegateAction,
+            5 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
+            6 => WorkerRequestType::GenerateEphemeralNearKeypair,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -53,20 +40,13 @@ impl From<u32> for WorkerRequestType {
 impl WorkerRequestType {
     pub fn name(&self) -> &'static str {
         match self {
-            WorkerRequestType::DeriveNearKeypairAndEncrypt => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT",
-            WorkerRequestType::RecoverKeypairFromPasskey => "RECOVER_KEYPAIR_FROM_PASSKEY",
-            WorkerRequestType::DecryptPrivateKeyWithPrf => "DECRYPT_PRIVATE_KEY_WITH_PRF",
             WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
             WorkerRequestType::SignDelegateAction => "SIGN_DELEGATE_ACTION",
             WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
             WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
             WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
-            WorkerRequestType::RegisterDevice2WithDerivedKey => "REGISTER_DEVICE2_WITH_DERIVED_KEY",
             WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
                 "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
-            }
-            WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
-                "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT"
             }
             WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
         }
@@ -77,20 +57,13 @@ impl WorkerRequestType {
 /// Used in logs to make numeric enum values human-friendly.
 pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str {
     match request_type {
-        WorkerRequestType::DeriveNearKeypairAndEncrypt => "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT",
-        WorkerRequestType::RecoverKeypairFromPasskey => "RECOVER_KEYPAIR_FROM_PASSKEY",
-        WorkerRequestType::DecryptPrivateKeyWithPrf => "DECRYPT_PRIVATE_KEY_WITH_PRF",
         WorkerRequestType::SignTransactionsWithActions => "SIGN_TRANSACTIONS_WITH_ACTIONS",
         WorkerRequestType::SignDelegateAction => "SIGN_DELEGATE_ACTION",
         WorkerRequestType::ExtractCosePublicKey => "EXTRACT_COSE_PUBLIC_KEY",
         WorkerRequestType::SignTransactionWithKeyPair => "SIGN_TRANSACTION_WITH_KEYPAIR",
         WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
-        WorkerRequestType::RegisterDevice2WithDerivedKey => "REGISTER_DEVICE2_WITH_DERIVED_KEY",
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
-        }
-        WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
-            "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT"
         }
         WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
     }
@@ -113,44 +86,32 @@ pub fn parse_typed_payload<T: DeserializeOwned>(
 #[repr(u32)]
 pub enum WorkerResponseType {
     // Success responses - one for each request type (kept in the same order)
-    DeriveNearKeypairAndEncryptSuccess = 0,
-    RecoverKeypairFromPasskeySuccess = 1,
-    DecryptPrivateKeyWithPrfSuccess = 2,
-    SignTransactionsWithActionsSuccess = 3,
-    ExtractCosePublicKeySuccess = 4,
-    SignTransactionWithKeyPairSuccess = 5,
-    SignNep413MessageSuccess = 6,
-    RegisterDevice2WithDerivedKeySuccess = 7,
-    SignDelegateActionSuccess = 8,
+    SignTransactionsWithActionsSuccess = 0,
+    ExtractCosePublicKeySuccess = 1,
+    SignTransactionWithKeyPairSuccess = 2,
+    SignNep413MessageSuccess = 3,
+    SignDelegateActionSuccess = 4,
 
     // Failure responses - one for each request type (same ordering)
-    DeriveNearKeypairAndEncryptFailure = 9,
-    RecoverKeypairFromPasskeyFailure = 10,
-    DecryptPrivateKeyWithPrfFailure = 11,
-    SignTransactionsWithActionsFailure = 12,
-    ExtractCosePublicKeyFailure = 13,
-    SignTransactionWithKeyPairFailure = 14,
-    SignNep413MessageFailure = 15,
-    RegisterDevice2WithDerivedKeyFailure = 16,
-    SignDelegateActionFailure = 17,
+    SignTransactionsWithActionsFailure = 5,
+    ExtractCosePublicKeyFailure = 6,
+    SignTransactionWithKeyPairFailure = 7,
+    SignNep413MessageFailure = 8,
+    SignDelegateActionFailure = 9,
 
     // Progress responses - for real-time updates during operations
-    RegistrationProgress = 18,
-    RegistrationComplete = 19,
-    ExecuteActionsProgress = 20,
-    ExecuteActionsComplete = 21,
+    RegistrationProgress = 10,
+    RegistrationComplete = 11,
+    ExecuteActionsProgress = 12,
+    ExecuteActionsComplete = 13,
 
     // Threshold key enrollment helper
-    DeriveThresholdEd25519ClientVerifyingShareSuccess = 22,
-    DeriveThresholdEd25519ClientVerifyingShareFailure = 23,
-
-    // Internal post-registration activation helper
-    SignAddKeyThresholdPublicKeyNoPromptSuccess = 24,
-    SignAddKeyThresholdPublicKeyNoPromptFailure = 25,
+    DeriveThresholdEd25519ClientVerifyingShareSuccess = 14,
+    DeriveThresholdEd25519ClientVerifyingShareFailure = 15,
 
     // Internal ephemeral key generation helper
-    GenerateEphemeralNearKeypairSuccess = 26,
-    GenerateEphemeralNearKeypairFailure = 27,
+    GenerateEphemeralNearKeypairSuccess = 16,
+    GenerateEphemeralNearKeypairFailure = 17,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -161,38 +122,28 @@ impl From<u32> for WorkerResponseType {
     fn from(value: u32) -> Self {
         match value {
             // Success responses
-            0 => WorkerResponseType::DeriveNearKeypairAndEncryptSuccess,
-            1 => WorkerResponseType::RecoverKeypairFromPasskeySuccess,
-            2 => WorkerResponseType::DecryptPrivateKeyWithPrfSuccess,
-            3 => WorkerResponseType::SignTransactionsWithActionsSuccess,
-            4 => WorkerResponseType::ExtractCosePublicKeySuccess,
-            5 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
-            6 => WorkerResponseType::SignNep413MessageSuccess,
-            7 => WorkerResponseType::RegisterDevice2WithDerivedKeySuccess,
-            8 => WorkerResponseType::SignDelegateActionSuccess,
+            0 => WorkerResponseType::SignTransactionsWithActionsSuccess,
+            1 => WorkerResponseType::ExtractCosePublicKeySuccess,
+            2 => WorkerResponseType::SignTransactionWithKeyPairSuccess,
+            3 => WorkerResponseType::SignNep413MessageSuccess,
+            4 => WorkerResponseType::SignDelegateActionSuccess,
 
             // Failure responses
-            9 => WorkerResponseType::DeriveNearKeypairAndEncryptFailure,
-            10 => WorkerResponseType::RecoverKeypairFromPasskeyFailure,
-            11 => WorkerResponseType::DecryptPrivateKeyWithPrfFailure,
-            12 => WorkerResponseType::SignTransactionsWithActionsFailure,
-            13 => WorkerResponseType::ExtractCosePublicKeyFailure,
-            14 => WorkerResponseType::SignTransactionWithKeyPairFailure,
-            15 => WorkerResponseType::SignNep413MessageFailure,
-            16 => WorkerResponseType::RegisterDevice2WithDerivedKeyFailure,
-            17 => WorkerResponseType::SignDelegateActionFailure,
+            5 => WorkerResponseType::SignTransactionsWithActionsFailure,
+            6 => WorkerResponseType::ExtractCosePublicKeyFailure,
+            7 => WorkerResponseType::SignTransactionWithKeyPairFailure,
+            8 => WorkerResponseType::SignNep413MessageFailure,
+            9 => WorkerResponseType::SignDelegateActionFailure,
 
             // Progress responses - for real-time updates during operations
-            18 => WorkerResponseType::RegistrationProgress,
-            19 => WorkerResponseType::RegistrationComplete,
-            20 => WorkerResponseType::ExecuteActionsProgress,
-            21 => WorkerResponseType::ExecuteActionsComplete,
-            22 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess,
-            23 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
-            24 => WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptSuccess,
-            25 => WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptFailure,
-            26 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
-            27 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
+            10 => WorkerResponseType::RegistrationProgress,
+            11 => WorkerResponseType::RegistrationComplete,
+            12 => WorkerResponseType::ExecuteActionsProgress,
+            13 => WorkerResponseType::ExecuteActionsComplete,
+            14 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess,
+            15 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
+            16 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
+            17 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -203,15 +154,6 @@ impl From<u32> for WorkerResponseType {
 pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static str {
     match response_type {
         // Success responses
-        WorkerResponseType::DeriveNearKeypairAndEncryptSuccess => {
-            "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT_SUCCESS"
-        }
-        WorkerResponseType::RecoverKeypairFromPasskeySuccess => {
-            "RECOVER_KEYPAIR_FROM_PASSKEY_SUCCESS"
-        }
-        WorkerResponseType::DecryptPrivateKeyWithPrfSuccess => {
-            "DECRYPT_PRIVATE_KEY_WITH_PRF_SUCCESS"
-        }
         WorkerResponseType::SignTransactionsWithActionsSuccess => {
             "SIGN_TRANSACTIONS_WITH_ACTIONS_SUCCESS"
         }
@@ -221,20 +163,8 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
             "SIGN_TRANSACTION_WITH_KEYPAIR_SUCCESS"
         }
         WorkerResponseType::SignNep413MessageSuccess => "SIGN_NEP413_MESSAGE_SUCCESS",
-        WorkerResponseType::RegisterDevice2WithDerivedKeySuccess => {
-            "REGISTER_DEVICE2_WITH_DERIVED_KEY_SUCCESS"
-        }
 
         // Failure responses
-        WorkerResponseType::DeriveNearKeypairAndEncryptFailure => {
-            "DERIVE_NEAR_KEYPAIR_AND_ENCRYPT_FAILURE"
-        }
-        WorkerResponseType::RecoverKeypairFromPasskeyFailure => {
-            "RECOVER_KEYPAIR_FROM_PASSKEY_FAILURE"
-        }
-        WorkerResponseType::DecryptPrivateKeyWithPrfFailure => {
-            "DECRYPT_PRIVATE_KEY_WITH_PRF_FAILURE"
-        }
         WorkerResponseType::SignTransactionsWithActionsFailure => {
             "SIGN_TRANSACTIONS_WITH_ACTIONS_FAILURE"
         }
@@ -244,9 +174,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
             "SIGN_TRANSACTION_WITH_KEYPAIR_FAILURE"
         }
         WorkerResponseType::SignNep413MessageFailure => "SIGN_NEP413_MESSAGE_FAILURE",
-        WorkerResponseType::RegisterDevice2WithDerivedKeyFailure => {
-            "REGISTER_DEVICE2_WITH_DERIVED_KEY_FAILURE"
-        }
 
         // Progress responses - for real-time updates during operations
         WorkerResponseType::RegistrationProgress => "REGISTRATION_PROGRESS",
@@ -258,12 +185,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure => {
             "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE_FAILURE"
-        }
-        WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptSuccess => {
-            "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_SUCCESS"
-        }
-        WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptFailure => {
-            "SIGN_ADD_KEY_THRESHOLD_PUBLIC_KEY_NO_PROMPT_FAILURE"
         }
         WorkerResponseType::GenerateEphemeralNearKeypairSuccess => {
             "GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS"

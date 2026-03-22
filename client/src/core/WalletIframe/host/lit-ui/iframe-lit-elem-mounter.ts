@@ -41,7 +41,6 @@ import {
 } from './iframe-lit-element-registry';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject, isString, toTrimmedString } from '@shared/utils/validation';
-import { type SignerMode, coerceSignerMode } from '@/core/types/signer-worker';
 import {
   ensureHostBaseStyles,
   markContainer,
@@ -353,16 +352,13 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
         const nearAccountId = toTrimmedString(input.nearAccountId);
         const transactions = normalizeTransactions(input.transactions || input.txSigningRequests);
         const options = (input.options || {}) as SignAndSendTransactionHooksOptions;
-        const signerModeInput = (options as { signerMode?: SignerMode | SignerMode['mode'] | null })
-          .signerMode;
-        const signerMode = coerceSignerMode(signerModeInput, pm?.configs?.signing.mode);
         if (!nearAccountId || transactions.length === 0) {
           throw new Error('nearAccountId and transactions required');
         }
         return await pm.near.signAndSendTransactions({
           nearAccountId,
           transactions,
-          options: { ...options, signerMode },
+          options,
         });
       }
       default:

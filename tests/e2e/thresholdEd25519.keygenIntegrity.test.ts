@@ -94,7 +94,7 @@ test.describe('threshold-ed25519 keygen integrity', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success)
@@ -190,7 +190,7 @@ test.describe('threshold-ed25519 keygen integrity', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success)

@@ -192,7 +192,7 @@ mod tests {
 
         let split =
             encode_eip1559_signed_tx_parts(&tx, 1, &signature65[0..32], &signature65[32..64])
-            .expect("split");
+                .expect("split");
         let joined = encode_eip1559_signed_tx_from_signature65(&tx, &signature65).expect("joined");
         assert_eq!(joined, split);
     }

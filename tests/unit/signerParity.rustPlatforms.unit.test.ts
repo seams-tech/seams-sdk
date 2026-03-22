@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const parityFeatures = 'secp256k1,near-ed25519,near-crypto,near-threshold-ed25519,tx-finalization';
+const parityFeatures = 'secp256k1,near-crypto,near-threshold-ed25519,tx-finalization';
 const iosSwiftReplayScript = 'crates/signer-platform-ios/scripts/run-swift-vector-replay.sh';
 
 type ParityCommand = {

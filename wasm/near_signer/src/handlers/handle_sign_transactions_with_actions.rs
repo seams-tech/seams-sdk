@@ -16,7 +16,7 @@ use crate::types::{
         ProgressStep,
     },
     wasm_to_json::WasmSignedTransaction,
-    DecryptionPayload, SignedTransaction, SignerMode, ThresholdSignerConfig,
+    SignedTransaction, ThresholdSignerConfig,
 };
 use crate::{actions::ActionParams, WrapKey};
 use bs58;
@@ -26,7 +26,6 @@ use wasm_bindgen::prelude::*;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignTransactionsWithActionsRequest {
-    pub signer_mode: SignerMode,
     pub rpc_call: RpcCallPayload,
     pub session_id: String,
     pub created_at: Option<f64>,
@@ -34,10 +33,7 @@ pub struct SignTransactionsWithActionsRequest {
     pub prf_first_b64u: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap_key_salt: Option<String>,
-    pub decryption: DecryptionPayload,
-    /// Threshold signer config (required when `signer_mode == threshold-signer`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold: Option<ThresholdSignerConfig>,
+    pub threshold: ThresholdSignerConfig,
     pub tx_signing_requests: Vec<TransactionPayload>,
     /// Unified confirmation configuration for controlling the confirmation flow
     pub confirmation_config: Option<ConfirmationConfig>,
@@ -236,55 +232,36 @@ pub async fn handle_sign_transactions_with_actions(
     // Process all transactions using the shared verification and decryption
     let tx_count = tx_batch_request.tx_signing_requests.len();
 
-    let signer = match tx_batch_request.signer_mode {
-        SignerMode::LocalSigner => Ed25519SignerBackend::from_encrypted_near_private_key(
-            SignerMode::LocalSigner,
-            &wrap_key,
-            &tx_batch_request.decryption.encrypted_private_key_data,
-            &tx_batch_request
-                .decryption
-                .encrypted_private_key_chacha20_nonce_b64u,
-        )?,
-        SignerMode::ThresholdSigner => {
-            let cfg = tx_batch_request
-                .threshold
-                .as_ref()
-                .ok_or_else(|| "Missing threshold signer config".to_string())?;
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct NearTxAuthorizeSigningPayload<'a> {
+        kind: &'a str,
+        tx_signing_requests: &'a Vec<TransactionPayload>,
+        transaction_context: &'a crate::types::handlers::TransactionContext,
+    }
 
-            #[derive(Serialize)]
-            #[serde(rename_all = "camelCase")]
-            struct NearTxAuthorizeSigningPayload<'a> {
-                kind: &'a str,
-                tx_signing_requests: &'a Vec<TransactionPayload>,
-                transaction_context: &'a crate::types::handlers::TransactionContext,
-            }
-
-            let signing_payload_json = {
-                let js_val = serde_wasm_bindgen::to_value(&NearTxAuthorizeSigningPayload {
-                    kind: "near_tx",
-                    tx_signing_requests: &tx_batch_request.tx_signing_requests,
-                    transaction_context: &transaction_context,
-                })
-                .map_err(|e| format!("Failed to serialize signingPayload: {e}"))?;
-                js_sys::JSON::stringify(&js_val)
-                    .map_err(|e| format!("JSON.stringify signingPayload failed: {:?}", e))?
-                    .as_string()
-                    .ok_or_else(|| {
-                        "JSON.stringify signingPayload did not return a string".to_string()
-                    })?
-            };
-
-            Ed25519SignerBackend::from_threshold_signer_config(
-                &wrap_key,
-                &tx_batch_request.rpc_call.near_account_id,
-                &transaction_context.near_public_key_str,
-                "near_tx",
-                tx_batch_request.credential.clone(),
-                Some(signing_payload_json),
-                cfg,
-            )?
-        }
+    let signing_payload_json = {
+        let js_val = serde_wasm_bindgen::to_value(&NearTxAuthorizeSigningPayload {
+            kind: "near_tx",
+            tx_signing_requests: &tx_batch_request.tx_signing_requests,
+            transaction_context: &transaction_context,
+        })
+        .map_err(|e| format!("Failed to serialize signingPayload: {e}"))?;
+        js_sys::JSON::stringify(&js_val)
+            .map_err(|e| format!("JSON.stringify signingPayload failed: {:?}", e))?
+            .as_string()
+            .ok_or_else(|| "JSON.stringify signingPayload did not return a string".to_string())?
     };
+
+    let signer = Ed25519SignerBackend::from_threshold_signer_config(
+        &wrap_key,
+        &tx_batch_request.rpc_call.near_account_id,
+        &transaction_context.near_public_key_str,
+        "near_tx",
+        tx_batch_request.credential.clone(),
+        Some(signing_payload_json),
+        &tx_batch_request.threshold,
+    )?;
 
     let result = sign_near_transactions_with_actions_impl(
         tx_batch_request.tx_signing_requests,

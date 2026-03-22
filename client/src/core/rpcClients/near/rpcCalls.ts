@@ -809,9 +809,6 @@ export async function executeDeviceLinkingContractCalls({
           ),
           nearAccountId: device1AccountId,
         },
-        // Prefer threshold signing when available; fall back to local signing if the account
-        // is not enrolled with threshold key material.
-        signerMode: { mode: 'threshold-signer', behavior: 'fallback' },
         confirmationConfigOverride,
         title: confirmerText?.title,
         body: confirmerText?.body,

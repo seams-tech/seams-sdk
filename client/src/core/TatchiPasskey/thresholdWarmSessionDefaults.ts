@@ -4,7 +4,6 @@ import { clampThresholdSessionPolicy } from '../signingEngine/threshold/session/
 export function resolveThresholdWarmSessionDefaults(
   context: PasskeyManagerContext,
 ): { ttlMs: number; remainingUses: number } | null {
-  if (context.configs?.signing.mode?.mode !== 'threshold-signer') return null;
   const clamped = clampThresholdSessionPolicy({
     ttlMs: Number(context.configs?.signing.sessionDefaults?.ttlMs),
     remainingUses: Number(context.configs?.signing.sessionDefaults?.remainingUses),

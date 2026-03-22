@@ -109,11 +109,15 @@ pub fn derive_threshold_secp256k1_relayer_share(
         ));
     }
 
-    let hk = Hkdf::<Sha256>::new(Some(THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1), master_secret);
+    let hk = Hkdf::<Sha256>::new(
+        Some(THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1),
+        master_secret,
+    );
     let mut okm64 = [0u8; 64];
-    hk.expand(relayer_key_id.as_bytes(), &mut okm64).map_err(|_| {
-        SignerCoreError::hkdf_error("HKDF expand failed for threshold secp256k1 relayer share")
-    })?;
+    hk.expand(relayer_key_id.as_bytes(), &mut okm64)
+        .map_err(|_| {
+            SignerCoreError::hkdf_error("HKDF expand failed for threshold secp256k1 relayer share")
+        })?;
 
     let relayer_signing_share32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64)?;
     let secret_key = SecretKey::from_slice(&relayer_signing_share32).map_err(|_| {
@@ -520,8 +524,8 @@ mod tests {
         let public_key33 = &out[32..65];
         let expected_address = &out[65..85];
 
-        let address =
-            secp256k1_public_key_33_to_ethereum_address_20(public_key33).expect("address derivation");
+        let address = secp256k1_public_key_33_to_ethereum_address_20(public_key33)
+            .expect("address derivation");
         assert_eq!(address.len(), 20);
         assert_eq!(address.as_slice(), expected_address);
     }

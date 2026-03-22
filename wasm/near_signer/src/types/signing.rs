@@ -1,19 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SignerMode {
-    #[serde(rename = "local-signer")]
-    LocalSigner,
-    #[serde(rename = "threshold-signer")]
-    ThresholdSigner,
-}
-
-impl Default for SignerMode {
-    fn default() -> Self {
-        Self::LocalSigner
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThresholdSignerConfig {

@@ -116,7 +116,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              { signerMode: { mode: 'local-signer' } },
+              {},
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
@@ -146,7 +146,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
               nearAccountId: accountId,
               delegate,
               options: {
-                signerMode: { mode: 'threshold-signer', behavior: 'strict' },
                 confirmationConfig: confirmConfig as any,
               },
             });

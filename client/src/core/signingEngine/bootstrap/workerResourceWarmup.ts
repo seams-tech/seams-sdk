@@ -46,10 +46,7 @@ export async function warmCriticalResources(
       accountId,
       deps.indexedDB.clientDB,
     ).catch(() => 1);
-    await Promise.all([
-      deps.indexedDB.getNearLocalKeyMaterial(accountId, deviceNumber),
-      deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber),
-    ]).catch(() => null);
+    await deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(() => null);
   }
 
   const warmupTasks: Promise<unknown>[] = [deps.prewarmTouchConfirmUi().catch(() => null)];

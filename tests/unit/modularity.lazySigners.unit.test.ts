@@ -85,7 +85,6 @@ test.describe('modularity lazy signer loading', () => {
                   actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
                 },
               ],
-              signerMode: 'threshold-signer',
             },
           });
 

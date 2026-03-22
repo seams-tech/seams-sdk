@@ -416,7 +416,6 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
         configs: {
           signing: {
-            mode: { mode: 'local-signer' },
             sessionDefaults: { ttlMs: 0, remainingUses: 0 },
           },
         },
@@ -523,7 +522,6 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
         configs: {
           signing: {
-            mode: { mode: 'local-signer' },
             sessionDefaults: { ttlMs: 0, remainingUses: 0 },
           },
         },
@@ -619,7 +617,6 @@ test.describe('unlock threshold warm-session requirements', () => {
         },
         configs: {
           signing: {
-            mode: { mode: 'local-signer' },
             sessionDefaults: { ttlMs: 0, remainingUses: 0 },
           },
         },

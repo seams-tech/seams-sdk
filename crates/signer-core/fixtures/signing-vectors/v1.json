@@ -49,14 +49,6 @@
       "expected_hex": "032516721a026f7e3eddc4cb67c9b24ee897ebc2d94ee78760736beb91b7d2f732"
     }
   },
-  "near_ed25519": {
-    "derive_keypair": {
-      "prf_output_b64u": "ZGV0ZXJtaW5pc3RpYy1wcmYtb3V0cHV0",
-      "account_id": "alice.near",
-      "expected_private_key": "ed25519:2QQCTV5bC1HXBD274gbs2tULUj5Tb8HYihsrn8nxWr6H9TfevhWwwKe8Ekbg2nZCSqPEyDuqXtRn5P2359iGTwCJ",
-      "expected_public_key": "ed25519:8Y3sr3jSPa7vNj5LkW49LfTZF3ACnjiR9vKv6AYfSmAe"
-    }
-  },
   "near_crypto": {
     "derive_kek": {
       "wrap_key_seed_b64u": "d3JhcC1zZWVk",

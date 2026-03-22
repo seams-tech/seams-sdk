@@ -1624,11 +1624,6 @@ export class AuthService {
           );
         }
 
-        // Account creation key:
-        // - Local-signer flows provide a concrete access key here (derived client-side).
-        // - Threshold-signer flows SHOULD provide a "backup"/local key as well (Option B),
-        //   but we keep compatibility with older clients that omit it (Option A).
-        let newPublicKey = String(request?.new_public_key || '').trim();
         const thresholdClientVerifyingShareB64u = String(
           (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
         ).trim();
@@ -1758,14 +1753,10 @@ export class AuthService {
           };
         }
 
-        // Backward compatibility: older threshold-signer clients omitted new_public_key, and the relay created the
-        // account directly with the threshold/group public key. Prefer Option B (client-provided local/backup key),
-        // but fall back to Option A when necessary.
-        if (!newPublicKey && thresholdKeygen) {
-          newPublicKey = thresholdKeygen.publicKey;
+        const newPublicKey = String(thresholdKeygen?.publicKey || '').trim();
+        if (!newPublicKey) {
+          throw new Error('threshold_ed25519 registration key material is required');
         }
-
-        if (!newPublicKey) throw new Error('Missing new_public_key');
 
         const deviceNumber = (() => {
           const raw =
@@ -1905,9 +1896,7 @@ export class AuthService {
           credentialIdB64u,
           userId: accountId,
           deviceNumber,
-          // For threshold signers, the binding "publicKey" is the threshold/group public key (used by sync/session flows),
-          // even when the account was created with a separate local/backup key (Option B).
-          publicKey: thresholdKeygen ? thresholdKeygen.publicKey : newPublicKey,
+          publicKey: newPublicKey,
           ...(thresholdKeygen ? { relayerKeyId: thresholdKeygen.relayerKeyId } : {}),
           ...(thresholdKeygen ? { clientParticipantId: thresholdKeygen.clientParticipantId } : {}),
           ...(thresholdKeygen
@@ -2010,7 +1999,7 @@ export class AuthService {
         // This provides (key kind + timestamp) for access key listings.
         try {
           const pkStore = this.getNearPublicKeyStore();
-          const thresholdPk = thresholdKeygen ? String(thresholdKeygen.publicKey || '').trim() : '';
+          const thresholdPk = String(thresholdKeygen?.publicKey || '').trim();
           if (thresholdPk) {
             const thresholdRecord: NearPublicKeyRecord = {
               version: 'near_public_key_v1',
@@ -2024,26 +2013,6 @@ export class AuthService {
               updatedAtMs: now,
             };
             await pkStore.put(thresholdRecord);
-          }
-
-          const accountCreationPk = String(newPublicKey || '').trim();
-          if (accountCreationPk && accountCreationPk !== thresholdPk) {
-            const accountCreationKind: NearPublicKeyKind = thresholdPk ? 'backup' : 'local';
-            const creationRecord: NearPublicKeyRecord = {
-              version: 'near_public_key_v1',
-              userId: accountId,
-              publicKey: accountCreationPk,
-              kind: accountCreationKind,
-              deviceNumber,
-              rpId,
-              credentialIdB64u,
-              createdAtMs: now,
-              updatedAtMs: now,
-              ...(result?.transaction?.hash
-                ? { addedTxHash: String(result.transaction.hash) }
-                : {}),
-            };
-            await pkStore.put(creationRecord);
           }
         } catch {}
 
@@ -3893,8 +3862,6 @@ export class AuthService {
     sessionId?: unknown;
     device_number?: unknown;
     deviceNumber?: unknown;
-    local_public_key?: unknown;
-    localPublicKey?: unknown;
     threshold_ed25519?: unknown;
     threshold_ecdsa?: unknown;
     rp_id?: unknown;
@@ -3960,17 +3927,6 @@ export class AuthService {
         const n = typeof raw === 'number' ? raw : Number(raw);
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 2;
       })();
-
-      const localPublicKey =
-        String(request?.local_public_key ?? request?.localPublicKey ?? '').trim() || '';
-      if (localPublicKey && !localPublicKey.startsWith('ed25519:')) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Invalid localPublicKey (expected ed25519:...)',
-        };
-      }
-
       const thresholdEd25519Bootstrap = parseThresholdEd25519BootstrapInput(
         (request as any)?.threshold_ed25519,
       );
@@ -4332,20 +4288,6 @@ export class AuthService {
           updatedAtMs: now,
         };
         await pkStore.put(thresholdRecord);
-        if (localPublicKey) {
-          const localRecord: NearPublicKeyRecord = {
-            version: 'near_public_key_v1',
-            userId: accountId,
-            publicKey: localPublicKey,
-            kind: 'local',
-            deviceNumber,
-            rpId,
-            credentialIdB64u,
-            createdAtMs: now,
-            updatedAtMs: now,
-          };
-          await pkStore.put(localRecord);
-        }
       } catch {}
 
       let linkedAccounts: LinkedSmartAccountRecord[] | undefined;

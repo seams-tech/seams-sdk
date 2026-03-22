@@ -82,7 +82,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
               nearAccountId: 'e2e_router_timeout.testnet',
               receiverId: 'w3a-v1.testnet',
               actionArgs: { type: 'Transfer', amount: '1' } as any,
-              options: { signerMode: { mode: 'local-signer' } },
+              options: {},
             })
             .catch((e) => ({ ok: false, error: String(e?.message || e) }));
 
@@ -181,7 +181,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
               nearAccountId: 'e2e_router_progress_timeout.testnet',
               receiverId: 'w3a-v1.testnet',
               actionArgs: { type: 'Transfer', amount: '1' } as any,
-              options: { signerMode: { mode: 'local-signer' } },
+              options: {},
             })
             .then(
               () => ({ ok: true as const }),

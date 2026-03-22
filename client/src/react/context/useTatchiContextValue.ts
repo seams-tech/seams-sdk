@@ -88,10 +88,7 @@ export function useTatchiContextValue(args: {
           ) {
             const session = await tatchi.auth.getWalletSession(nearAccountId);
             const { login } = session;
-            const isLoggedIn = isWalletSessionReadyForUi({
-              session,
-              signerMode: tatchi.configs?.signing.mode,
-            });
+            const isLoggedIn = isWalletSessionReadyForUi({ session });
             setLoginState((prevState) => ({
               ...prevState,
               isLoggedIn,

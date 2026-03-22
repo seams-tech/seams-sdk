@@ -23,13 +23,6 @@ use crate::types::*;
 use log::debug;
 use wasm_bindgen::prelude::*;
 
-pub use handlers::handle_decrypt_private_key_with_prf::{
-    handle_decrypt_private_key_with_prf, DecryptPrivateKeyRequest, DecryptPrivateKeyResult,
-};
-pub use handlers::handle_derive_near_keypair_and_encrypt::{
-    handle_derive_near_keypair_and_encrypt, DeriveNearKeypairAndEncryptRequest,
-    DeriveNearKeypairAndEncryptResult,
-};
 pub use handlers::{
     CoseExtractionResult,
     // Delegate Actions
@@ -41,13 +34,6 @@ pub use handlers::{
     ExtractCoseRequest,
     GenerateEphemeralNearKeypairRequest,
     KeyActionResult,
-    // Recover Account
-    RecoverKeypairRequest,
-    RecoverKeypairResult,
-    // Combined Device2 Registration
-    RegisterDevice2WithDerivedKeyRequest,
-    RegisterDevice2WithDerivedKeyResult,
-    SignAddKeyThresholdPublicKeyNoPromptRequest,
     SignDelegateActionRequest,
     // Sign Nep413 Message
     SignNep413Request,
@@ -175,13 +161,6 @@ fn wrap_key_from_request(
     })
 }
 
-fn prf_second_from_request(
-    prf_second_b64u: &Option<String>,
-    request_type: WorkerRequestType,
-) -> Result<String, JsValue> {
-    require_field("prfSecondB64u", prf_second_b64u, request_type)
-}
-
 // === MESSAGE HANDLER FUNCTIONS ===
 
 /// Unified message handler for all signer worker operations
@@ -207,46 +186,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
 
     // Route message to appropriate handler
     let response_payload = match request_type {
-        WorkerRequestType::DeriveNearKeypairAndEncrypt => {
-            let request: DeriveNearKeypairAndEncryptRequest =
-                parse_typed_payload(&payload_js, request_type)?;
-            let wrap_key = wrap_key_from_request(
-                &request.prf_first_b64u,
-                &request.wrap_key_salt,
-                request_type,
-            )?;
-            let prf_second_b64u = prf_second_from_request(&request.prf_second_b64u, request_type)?;
-            let result = handlers::handle_derive_near_keypair_and_encrypt(
-                request,
-                wrap_key,
-                prf_second_b64u,
-            )
-            .await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
-        WorkerRequestType::RecoverKeypairFromPasskey => {
-            let request: RecoverKeypairRequest = parse_typed_payload(&payload_js, request_type)?;
-            let wrap_key = wrap_key_from_request(
-                &request.prf_first_b64u,
-                &request.wrap_key_salt,
-                request_type,
-            )?;
-            let result = handlers::handle_recover_keypair_from_passkey(request, wrap_key).await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
-        WorkerRequestType::DecryptPrivateKeyWithPrf => {
-            let request: DecryptPrivateKeyRequest = parse_typed_payload(&payload_js, request_type)?;
-            let wrap_key = wrap_key_from_request(
-                &request.prf_first_b64u,
-                &request.wrap_key_salt,
-                request_type,
-            )?;
-            let result = handlers::handle_decrypt_private_key_with_prf(request, wrap_key).await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
         WorkerRequestType::SignTransactionsWithActions => {
             let request: SignTransactionsWithActionsRequest =
                 parse_typed_payload(&payload_js, request_type)?;
@@ -297,24 +236,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
-        WorkerRequestType::RegisterDevice2WithDerivedKey => {
-            let request: handlers::RegisterDevice2WithDerivedKeyRequest =
-                parse_typed_payload(&payload_js, request_type)?;
-            let wrap_key = wrap_key_from_request(
-                &request.prf_first_b64u,
-                &request.wrap_key_salt,
-                request_type,
-            )?;
-            let prf_second_b64u = prf_second_from_request(&request.prf_second_b64u, request_type)?;
-            let result = handlers::handle_register_device2_with_derived_key(
-                request,
-                wrap_key,
-                prf_second_b64u,
-            )
-            .await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             let request: DeriveThresholdEd25519ClientVerifyingShareRequest =
                 parse_typed_payload(&payload_js, request_type)?;
@@ -325,20 +246,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             )?;
             let result =
                 handlers::handle_threshold_ed25519_derive_client_verifying_share(request, wrap_key)
-                    .await?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
-        }
-        WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
-            let request: SignAddKeyThresholdPublicKeyNoPromptRequest =
-                parse_typed_payload(&payload_js, request_type)?;
-            let wrap_key = wrap_key_from_request(
-                &request.prf_first_b64u,
-                &request.wrap_key_salt,
-                request_type,
-            )?;
-            let result =
-                handlers::handle_sign_add_key_threshold_public_key_no_prompt(request, wrap_key)
                     .await?;
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
@@ -357,15 +264,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
 
     // Determine the success response type based on the request type
     let response_type = match request_type {
-        WorkerRequestType::DeriveNearKeypairAndEncrypt => {
-            WorkerResponseType::DeriveNearKeypairAndEncryptSuccess
-        }
-        WorkerRequestType::RecoverKeypairFromPasskey => {
-            WorkerResponseType::RecoverKeypairFromPasskeySuccess
-        }
-        WorkerRequestType::DecryptPrivateKeyWithPrf => {
-            WorkerResponseType::DecryptPrivateKeyWithPrfSuccess
-        }
         WorkerRequestType::SignTransactionsWithActions => {
             WorkerResponseType::SignTransactionsWithActionsSuccess
         }
@@ -375,14 +273,8 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             WorkerResponseType::SignTransactionWithKeyPairSuccess
         }
         WorkerRequestType::SignNep413Message => WorkerResponseType::SignNep413MessageSuccess,
-        WorkerRequestType::RegisterDevice2WithDerivedKey => {
-            WorkerResponseType::RegisterDevice2WithDerivedKeySuccess
-        }
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess
-        }
-        WorkerRequestType::SignAddKeyThresholdPublicKeyNoPrompt => {
-            WorkerResponseType::SignAddKeyThresholdPublicKeyNoPromptSuccess
         }
         WorkerRequestType::GenerateEphemeralNearKeypair => {
             WorkerResponseType::GenerateEphemeralNearKeypairSuccess

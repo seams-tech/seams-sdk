@@ -27,8 +27,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       menuItemsRef,
       toggleColors,
       currentConfirmConfig,
-      signerMode,
-      onToggleThresholdSigning,
       onSetUiMode,
       onToggleShowDetails,
       onToggleSkipClick,
@@ -94,8 +92,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
             onSetDelay && (
               <TransactionSettingsSection
                 currentConfirmConfig={currentConfirmConfig}
-                signerMode={signerMode}
-                onToggleThresholdSigning={onToggleThresholdSigning}
                 onSetUiMode={onSetUiMode}
                 onToggleShowDetails={onToggleShowDetails}
                 onToggleSkipClick={onToggleSkipClick}

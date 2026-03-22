@@ -16,7 +16,6 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../workerManager';
-import type { NearKeyDerivationDeps } from '../api/recovery/nearKeyDerivation';
 import type { NearSigningApiDeps } from '../api/nearSigning';
 import type { PrivateKeyExportRecoveryDeps } from '../api/recovery/privateKeyExportRecovery';
 import type { RegistrationAccountLifecycleDeps } from '../api/registration/registrationAccountLifecycle';
@@ -68,7 +67,6 @@ export type CreateOrchestrationDependencyBundleArgs = {
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
   signTempo: ManagerConvenienceDeps['signTempo'];
-  signTransactionsWithActions: ThresholdEd25519LifecycleDeps['signTransactionsWithActions'];
   extractCosePublicKey: RegistrationAccountLifecycleDeps['extractCosePublicKey'];
   initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
   persistThresholdEcdsaBootstrapChainAccount: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapChainAccount'];
@@ -114,7 +112,6 @@ export type OrchestrationDependencyBundle = {
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: TempoSigningDeps;
   privateKeyExportRecoveryDeps: PrivateKeyExportRecoveryDeps;
-  nearKeyDerivationDeps: NearKeyDerivationDeps;
   registrationAccountLifecycleDeps: RegistrationAccountLifecycleDeps;
   registrationSessionDeps: RegistrationSessionDeps;
   signingSessionStateDeps: SigningSessionStateDeps;
@@ -180,17 +177,8 @@ export function createOrchestrationDependencyBundle(
   return {
     indexedDB: IndexedDBManager,
     thresholdEd25519LifecycleDeps: {
-      indexedDB: IndexedDBManager,
-      touchIdPrompt: args.touchIdPrompt,
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
-      getSignerWorkerRequestOperation: () =>
-        args.signerWorkerManager.getContext().requestWorkerOperation,
       createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
-      nearClient: args.nearClient,
-      nonceManager: args.nonceManager,
-      relayerUrl: args.tatchiPasskeyConfigs.network.relayer.url,
-      nearRpcUrl,
-      signTransactionsWithActions: args.signTransactionsWithActions,
     },
     nearSigningDeps: nearSigningDeps,
     tempoSigningDeps: {
@@ -210,12 +198,6 @@ export function createOrchestrationDependencyBundle(
       requestExportPrivateKeysWithUi: (payload) =>
         args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
       getTheme: args.getTheme,
-      signingKeyOps: args.signerWorkerManager.nearKeyOps,
-      createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
-    },
-    nearKeyDerivationDeps: {
-      createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
-      signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
     registrationAccountLifecycleDeps: {
       indexedDB: IndexedDBManager,

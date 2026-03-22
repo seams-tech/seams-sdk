@@ -6,7 +6,6 @@ import type {
 import { toTrimmedString } from '@shared/utils/validation';
 
 export const KEY_PAYLOAD_ENC_VERSION = 1;
-export const LOCAL_SK_ENVELOPE_ALG = 'chacha20poly1305-b64u-v1';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -120,27 +119,6 @@ export function normalizePayloadEnvelope(
   };
 }
 
-function extractLocalSkFlatPayload(payload: Record<string, unknown> | undefined): {
-  encryptedSk: string;
-  chacha20NonceB64u: string;
-} | null {
-  if (!payload) return null;
-  const encryptedSk = toTrimmedString(payload.encryptedSk || '');
-  const chacha20NonceB64u = toTrimmedString(payload.chacha20NonceB64u || '');
-  if (!encryptedSk || !chacha20NonceB64u) return null;
-  return { encryptedSk, chacha20NonceB64u };
-}
-
-function removeLocalSkFlatPayloadFields(
-  payload: Record<string, unknown> | undefined,
-): Record<string, unknown> | undefined {
-  if (!payload) return undefined;
-  const next = { ...payload };
-  delete next.encryptedSk;
-  delete next.chacha20NonceB64u;
-  return Object.keys(next).length > 0 ? next : undefined;
-}
-
 export function normalizeStoredPayloadRecord(
   rec: PasskeyChainIdKeyMaterial,
 ): PasskeyChainIdKeyMaterial | null {
@@ -171,39 +149,6 @@ export function normalizeStoredPayloadRecord(
     `${profileId}/${rec.deviceNumber}/${chainIdKey}/${keyKind}`,
   );
 
-  if (keyKind === 'local_sk_encrypted_v1') {
-    const flatPayload = extractLocalSkFlatPayload(payload);
-    const encryptedSkFromEnvelope = toTrimmedString(payloadEnvelope?.ciphertext || '');
-    const nonceFromEnvelope = toTrimmedString(payloadEnvelope?.nonce || '');
-    const encryptedSk = String(flatPayload?.encryptedSk || encryptedSkFromEnvelope).trim();
-    const chacha20NonceB64u = String(flatPayload?.chacha20NonceB64u || nonceFromEnvelope).trim();
-    if (!encryptedSk || !chacha20NonceB64u) return null;
-    if (
-      flatPayload &&
-      payloadEnvelope &&
-      (flatPayload.encryptedSk !== encryptedSkFromEnvelope ||
-        flatPayload.chacha20NonceB64u !== nonceFromEnvelope)
-    ) {
-      return null;
-    }
-    return {
-      ...rec,
-      profileId,
-      chainIdKey,
-      keyKind,
-      algorithm,
-      publicKey,
-      ...(signerId ? { signerId } : {}),
-      ...(wrapKeySalt ? { wrapKeySalt } : {}),
-      ...(payloadEnvelope ? { payloadEnvelope } : {}),
-      payload: {
-        ...(removeLocalSkFlatPayloadFields(payload) || {}),
-        encryptedSk,
-        chacha20NonceB64u,
-      },
-    };
-  }
-
   return {
     ...rec,
     profileId,
@@ -215,49 +160,5 @@ export function normalizeStoredPayloadRecord(
     ...(wrapKeySalt ? { wrapKeySalt } : {}),
     ...(payload ? { payload } : {}),
     ...(payloadEnvelope ? { payloadEnvelope } : {}),
-  };
-}
-
-export function normalizeLocalSkEnvelope(args: {
-  keyKind: string;
-  payload: Record<string, unknown> | undefined;
-  payloadEnvelope: PasskeyChainIdKeyPayloadEnvelope | undefined;
-  expectedAAD: PasskeyChainIdKeyPayloadEnvelopeAAD;
-}): {
-  payload: Record<string, unknown> | undefined;
-  payloadEnvelope: PasskeyChainIdKeyPayloadEnvelope | undefined;
-} {
-  if (args.keyKind !== 'local_sk_encrypted_v1') {
-    return { payload: args.payload, payloadEnvelope: args.payloadEnvelope };
-  }
-
-  const flatPayload = extractLocalSkFlatPayload(args.payload);
-  let payloadEnvelope = args.payloadEnvelope;
-  if (!payloadEnvelope) {
-    if (!flatPayload) {
-      throw new Error(
-        'PasskeyNearKeysDB: local_sk_encrypted_v1 requires payloadEnvelope or encryptedSk/chacha20NonceB64u payload fields',
-      );
-    }
-    payloadEnvelope = {
-      encVersion: KEY_PAYLOAD_ENC_VERSION,
-      alg: LOCAL_SK_ENVELOPE_ALG,
-      nonce: flatPayload.chacha20NonceB64u,
-      ciphertext: flatPayload.encryptedSk,
-      aad: args.expectedAAD,
-    };
-  } else if (
-    flatPayload &&
-    (flatPayload.encryptedSk !== payloadEnvelope.ciphertext ||
-      flatPayload.chacha20NonceB64u !== payloadEnvelope.nonce)
-  ) {
-    throw new Error(
-      'PasskeyNearKeysDB: local_sk_encrypted_v1 payload and payloadEnvelope values must match',
-    );
-  }
-
-  return {
-    payload: removeLocalSkFlatPayloadFields(args.payload),
-    payloadEnvelope,
   };
 }

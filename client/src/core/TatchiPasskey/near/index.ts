@@ -201,7 +201,6 @@ export class NearSigner implements NearSignerCapability {
           nearAccountId,
           transactions: txs,
           options: {
-            signerMode: options.signerMode,
             deviceNumber: options.deviceNumber,
             onEvent: options.onEvent,
             confirmationConfig: options.confirmationConfig,
@@ -298,7 +297,6 @@ export class NearSigner implements NearSignerCapability {
           nearAccountId,
           delegate,
           options: {
-            signerMode: options.signerMode,
             deviceNumber: options.deviceNumber,
             onEvent: options.onEvent,
             confirmationConfig: options.confirmationConfig,
@@ -359,7 +357,6 @@ export class NearSigner implements NearSignerCapability {
 
     const signOptions: DelegateActionHooksOptions | undefined = options
       ? {
-          signerMode: options.signerMode,
           deviceNumber: options.deviceNumber,
           onEvent: options.onEvent,
           onError: options.onError,
@@ -437,7 +434,6 @@ export class NearSigner implements NearSignerCapability {
           recipient: args.params.recipient,
           state: args.params.state,
           options: {
-            signerMode: args.options.signerMode,
             deviceNumber: args.options.deviceNumber,
             onEvent: args.options.onEvent,
             confirmerText: args.options.confirmerText,

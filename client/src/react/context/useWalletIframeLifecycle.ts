@@ -20,7 +20,6 @@ export function useWalletIframeLifecycle(args: {
 
     (async () => {
       try {
-        const signerMode = tatchi.configs?.signing.mode;
         const useIframe = tatchi.configs.wallet.mode === 'iframe';
         if (!useIframe) {
           setWalletIframeConnected(false);
@@ -39,7 +38,7 @@ export function useWalletIframeLifecycle(args: {
             if (status?.isLoggedIn && status?.nearAccountId) {
               const session = await tatchi.auth.getWalletSession(status.nearAccountId);
               const { login: state } = session;
-              if (isWalletSessionReadyForUi({ session, signerMode })) {
+              if (isWalletSessionReadyForUi({ session })) {
                 tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -81,7 +80,7 @@ export function useWalletIframeLifecycle(args: {
             try {
               const session = await tatchi.auth.getWalletSession(acct);
               const { login: state } = session;
-              if (isWalletSessionReadyForUi({ session, signerMode }) && state?.nearAccountId) {
+              if (isWalletSessionReadyForUi({ session }) && state?.nearAccountId) {
                 tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -107,7 +106,7 @@ export function useWalletIframeLifecycle(args: {
 
         const session = await tatchi.auth.getWalletSession();
         const { login: st } = session;
-        if (isWalletSessionReadyForUi({ session, signerMode })) {
+        if (isWalletSessionReadyForUi({ session })) {
           setLoginState((prev) => ({
             ...prev,
             isLoggedIn: true,

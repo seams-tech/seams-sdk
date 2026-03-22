@@ -32,8 +32,6 @@ export interface PasskeyAuthMenuProps {
     onError?: (error: Error) => void;
     /** Called when the user manually cancels the link-device flow */
     onCancelled?: () => void;
-    /** Disable local signer provisioning on Device2 (defaults to true). */
-    localSignerEnabled?: boolean;
   };
   /** Optional callbacks for the email recovery flow */
   emailRecoveryOptions?: {

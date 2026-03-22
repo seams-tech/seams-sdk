@@ -57,7 +57,6 @@ import type {
 import type { ActionArgs, TransactionInput, TxExecutionStatus } from '../types';
 import {
   type ConfirmationConfig,
-  type SignerMode,
   type WasmSignedDelegate,
   DEFAULT_CONFIRMATION_CONFIG,
 } from '../types/signer-worker';
@@ -161,7 +160,6 @@ export class TatchiPasskeyIframe {
       // With 3_000ms, boot wait caps at ~750ms; improves sub‑second readiness in dev.
       connectTimeoutMs: 3_000,
       requestTimeoutMs: 60_000,
-      signerMode: this.configs.signing.mode,
       chains: this.configs.network.chains,
       relayerAccount: this.configs.network.relayer.accountId,
       registration: this.configs.registration,
@@ -368,10 +366,6 @@ export class TatchiPasskeyIframe {
         confirmationConfig: options?.confirmationConfig,
         options: {
           onEvent: options?.onEvent,
-          ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-          ...(typeof options?.backupLocalKey === 'boolean'
-            ? { backupLocalKey: options.backupLocalKey }
-            : {}),
           ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
           ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
         }, // Bridge progress events from iframe to parent
@@ -383,62 +377,6 @@ export class TatchiPasskeyIframe {
       await options?.onError?.(e);
       await options?.afterCall?.(false, undefined, e);
       throw e;
-    }
-  }
-
-  async enrollThresholdEd25519Key(
-    nearAccountId: string,
-    options?: { deviceNumber?: number; relayerUrl?: string },
-  ): Promise<{
-    success: boolean;
-    publicKey: string;
-    relayerKeyId: string;
-    error?: string;
-  }> {
-    try {
-      const res = await this.router.enrollThresholdEd25519Key({
-        nearAccountId,
-        options: options || {},
-      });
-      return res;
-    } catch (err: unknown) {
-      const e = toError(err);
-      return { success: false, publicKey: '', relayerKeyId: '', error: e.message };
-    }
-  }
-
-  async rotateThresholdEd25519Key(
-    nearAccountId: string,
-    options?: { deviceNumber?: number; relayerUrl?: string },
-  ): Promise<{
-    success: boolean;
-    oldPublicKey: string;
-    oldRelayerKeyId: string;
-    publicKey: string;
-    relayerKeyId: string;
-    deleteOldKeyAttempted: boolean;
-    deleteOldKeySuccess: boolean;
-    warning?: string;
-    error?: string;
-  }> {
-    try {
-      const res = await this.router.rotateThresholdEd25519Key({
-        nearAccountId,
-        options: options || {},
-      });
-      return res;
-    } catch (err: unknown) {
-      const e = toError(err);
-      return {
-        success: false,
-        oldPublicKey: '',
-        oldRelayerKeyId: '',
-        publicKey: '',
-        relayerKeyId: '',
-        deleteOldKeyAttempted: false,
-        deleteOldKeySuccess: false,
-        error: e.message,
-      };
     }
   }
 
@@ -530,7 +468,6 @@ export class TatchiPasskeyIframe {
         nearAccountId: args.nearAccountId,
         transactions: args.transactions,
         options: {
-          signerMode: args.options?.signerMode,
           deviceNumber: args.options?.deviceNumber,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
@@ -559,7 +496,6 @@ export class TatchiPasskeyIframe {
         recipient: args.params.recipient,
         state: args.params.state,
         options: {
-          signerMode: args.options?.signerMode,
           deviceNumber: args.options?.deviceNumber,
           onEvent: args.options?.onEvent,
           confirmerText: args.options?.confirmerText,
@@ -588,7 +524,6 @@ export class TatchiPasskeyIframe {
         nearAccountId: args.nearAccountId,
         delegate: args.delegate,
         options: {
-          signerMode: options?.signerMode,
           deviceNumber: options?.deviceNumber,
           onEvent: options?.onEvent,
           confirmationConfig: options?.confirmationConfig,
@@ -640,7 +575,6 @@ export class TatchiPasskeyIframe {
 
     const signOptions: DelegateActionHooksOptions | undefined = options
       ? {
-          signerMode: options.signerMode,
           deviceNumber: options.deviceNumber,
           onEvent: options.onEvent,
           onError: options.onError,
@@ -857,10 +791,6 @@ export class TatchiPasskeyIframe {
         confirmationConfig,
         options: {
           onEvent: options?.onEvent,
-          ...(options?.signerMode ? { signerMode: options.signerMode } : {}),
-          ...(typeof options?.backupLocalKey === 'boolean'
-            ? { backupLocalKey: options.backupLocalKey }
-            : {}),
           ...(options?.signerOptions ? { signerOptions: options.signerOptions } : {}),
           ...(options?.confirmerText ? { confirmerText: options.confirmerText } : {}),
         },
@@ -928,7 +858,6 @@ export class TatchiPasskeyIframe {
         accountId,
         publicKeyToDelete,
         options: {
-          signerMode: options?.signerMode,
           onEvent: options?.onEvent,
         },
       });

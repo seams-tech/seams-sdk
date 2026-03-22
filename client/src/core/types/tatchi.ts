@@ -3,7 +3,7 @@ import type { AccountId } from './accountIds';
 import type { SignedTransaction } from '../rpcClients/near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
-import type { SignerMode, WasmSignedDelegate } from './signer-worker';
+import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
@@ -50,7 +50,6 @@ export interface SigningSessionSealConfig {
  *     };
  *   };
  *   relayerAccount?: string;
- *   signerMode?: SignerMode;
  *   signingSessionDefaults?: {
  *     ttlMs?: number;
  *     remainingUses?: number;
@@ -159,13 +158,8 @@ export interface TatchiConfigsInput {
    */
   relayerAccount?: string;
   /**
-   * Default signing mode used by higher-level convenience helpers and UI wrappers when a per-call
-   * `signerMode` is not explicitly provided.
-   *
-   * Defaults to `{ mode: 'local-signer' }`.
-   *
+   * Default warm signing-session budgets for threshold signing flows.
    */
-  signerMode?: SignerMode;
   signingSessionDefaults?: TatchiSigningSessionDefaultsInput;
   /**
    * Warm signing session persistence mode.
@@ -265,7 +259,6 @@ export interface TatchiConfigsInput {
  *         };
  *   };
  *   signing: {
- *     mode: SignerMode;
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
  *     sessionPersistenceMode: SigningSessionPersistenceMode;
  *     sessionSeal: SigningSessionSealConfig;
@@ -680,7 +673,6 @@ export interface TatchiThresholdEcdsaConfig {
 }
 
 export interface TatchiSigningConfig {
-  mode: SignerMode;
   sessionDefaults: TatchiSigningSessionDefaults;
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;

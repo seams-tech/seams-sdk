@@ -1,8 +1,3 @@
-import type { SignerMode, ThresholdBehavior } from '@/core/types/signer-worker';
-import {
-  DEFAULT_THRESHOLD_BEHAVIOR,
-  getThresholdBehaviorFromSignerMode,
-} from '@/core/types/signer-worker';
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
 
 export type Ed25519HealthzResponse =
@@ -12,10 +7,6 @@ export type Ed25519HealthzResponse =
 const DEFAULT_CACHE_TTL_MS = 60_000;
 const cache = new Map<string, { configured: boolean; expiresAtMs: number }>();
 const inFlight = new Map<string, Promise<boolean>>();
-const DEFAULT_WARN_TTL_MS = 10 * 60_000;
-const MAX_WARN_KEYS = 1_000;
-const warnedUnsupportedRelayerByKey = new Map<string, number>();
-
 export async function isRelayerEd25519Configured(
   relayerUrl: string,
   opts?: { cacheTtlMs?: number },
@@ -62,107 +53,15 @@ async function isRelayerEd25519ConfiguredBase(
   return req;
 }
 
-function coerceThresholdBehavior(input?: ThresholdBehavior): ThresholdBehavior {
-  return input === 'fallback' || input === 'strict' ? input : DEFAULT_THRESHOLD_BEHAVIOR;
-}
-
-function pruneWarned(nowMs: number): void {
-  if (warnedUnsupportedRelayerByKey.size <= MAX_WARN_KEYS) return;
-  for (const [key, expiresAtMs] of warnedUnsupportedRelayerByKey.entries()) {
-    if (expiresAtMs <= nowMs) warnedUnsupportedRelayerByKey.delete(key);
-  }
-  while (warnedUnsupportedRelayerByKey.size > MAX_WARN_KEYS) {
-    const first = warnedUnsupportedRelayerByKey.keys().next().value as string | undefined;
-    if (!first) break;
-    warnedUnsupportedRelayerByKey.delete(first);
-  }
-}
-
-function warnOnce(
-  key: string,
-  message: string,
-  opts?: { warnTtlMs?: number; warnings?: string[] },
-): void {
-  const nowMs = Date.now();
-  const ttlMs = Math.max(0, Math.floor(opts?.warnTtlMs ?? DEFAULT_WARN_TTL_MS));
-  if (ttlMs === 0) return;
-  pruneWarned(nowMs);
-  const existing = warnedUnsupportedRelayerByKey.get(key);
-  if (existing && existing > nowMs) return;
-  warnedUnsupportedRelayerByKey.set(key, nowMs + ttlMs);
-  console.warn(message);
-  opts?.warnings?.push(message);
-}
-
-export async function fallbackToLocalSignerIfRelayerUnsupported(args: {
-  nearAccountId: string;
-  signerMode: SignerMode;
+export async function assertThresholdSigningAvailable(args: {
   relayerUrl: string;
-  warnings?: string[];
   cacheTtlMs?: number;
-  warnTtlMs?: number;
-}): Promise<SignerMode['mode']> {
-  const requested = args.signerMode.mode;
-  if (requested !== 'threshold-signer') return requested;
-
+}): Promise<void> {
   const base = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
-  const behavior = coerceThresholdBehavior(getThresholdBehaviorFromSignerMode(args.signerMode));
   const configured = await isRelayerEd25519ConfiguredBase(base, { cacheTtlMs: args.cacheTtlMs });
-  if (configured) return requested;
-
-  const msg =
-    '[SigningEngine] signerMode=threshold-signer requested but the relayer does not support threshold signing';
-  if (behavior === 'fallback') {
-    warnOnce(`${args.nearAccountId}|${base}`, `${msg}; falling back to local-signer`, {
-      warnTtlMs: args.warnTtlMs,
-      warnings: args.warnings,
-    });
-    return 'local-signer';
-  }
-  throw new Error(
-    `${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`,
-  );
-}
-
-export async function resolveSignerModeForThresholdSigning(args: {
-  nearAccountId: string;
-  signerMode: SignerMode;
-  relayerUrl: string;
-  hasThresholdKeyMaterial: boolean;
-  warnings?: string[];
-  cacheTtlMs?: number;
-  warnTtlMs?: number;
-}): Promise<SignerMode['mode']> {
-  const requested = args.signerMode.mode;
-  if (requested !== 'threshold-signer') return requested;
-
-  const behavior = coerceThresholdBehavior(getThresholdBehaviorFromSignerMode(args.signerMode));
-
-  if (!args.hasThresholdKeyMaterial) {
-    const msg =
-      '[SigningEngine] signerMode=threshold-signer requested but threshold key material is unavailable';
-    if (behavior === 'fallback') {
-      warnOnce(
-        `${args.nearAccountId}|threshold-key-material-missing`,
-        `${msg}; falling back to local-signer`,
-        {
-          warnTtlMs: args.warnTtlMs,
-          warnings: args.warnings,
-        },
-      );
-      return 'local-signer';
-    }
+  if (!configured) {
     throw new Error(
-      `${msg}; set signerMode={ mode: 'threshold-signer', behavior: 'fallback' } to allow local-signer fallback`,
+      '[SigningEngine] relayer does not support threshold signing',
     );
   }
-
-  return fallbackToLocalSignerIfRelayerUnsupported({
-    nearAccountId: args.nearAccountId,
-    signerMode: args.signerMode,
-    relayerUrl: args.relayerUrl,
-    warnings: args.warnings,
-    cacheTtlMs: args.cacheTtlMs,
-    warnTtlMs: args.warnTtlMs,
-  });
 }

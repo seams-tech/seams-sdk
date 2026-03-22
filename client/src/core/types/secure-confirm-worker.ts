@@ -77,20 +77,11 @@ export type ThresholdPrfFirstCacheRehydrateResult =
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 
-export type ExportLocalKeyMaterialSnapshot = {
-  publicKey?: string;
-  encryptedSk: string;
-  chacha20NonceB64u: string;
-  wrapKeySalt: string;
-};
-
 export interface ExportPrivateKeysWithUiWorkerPayload {
   nearAccountId: string;
   deviceNumber: number;
   chain: ExportKeypairChain;
   publicKeyHint?: string;
-  hasThresholdKeyMaterial: boolean;
-  localKeyMaterial?: ExportLocalKeyMaterialSnapshot;
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 }

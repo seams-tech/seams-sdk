@@ -104,7 +104,6 @@ test.describe('unified signing pipeline', () => {
                   actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
                 },
               ],
-              signerMode: 'threshold-signer',
             },
           },
           engines: { ed25519: nearEngine },

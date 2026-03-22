@@ -62,8 +62,7 @@ async function installThresholdRegistrationBootstrapMock(
     }) => Promise<Record<string, unknown>>;
   };
 
-  const edRegistrationKeygen = threshold
-    .getSchemeModule?.('threshold-ed25519-frost-2p-v1')
+  const edRegistrationKeygen = threshold.getSchemeModule?.('threshold-ed25519-frost-2p-v1')
     ?.registration?.keygenFromClientVerifyingShare;
   if (typeof edRegistrationKeygen !== 'function') {
     throw new Error('Missing threshold-ed25519 registration keygen hook');
@@ -207,9 +206,7 @@ async function installThresholdRegistrationBootstrapMock(
       }
 
       const policy = thresholdEcdsa?.session_policy || {};
-      const sessionId = String(
-        policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`,
-      );
+      const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
       const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
       const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
       const expiresAtMs = nowMs + ttlMs;
@@ -415,7 +412,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               url: relayerUrl,
               smartAccountDeploymentMode: 'observe',
             },
-            signerMode: { mode: 'threshold-signer' },
             signingSessionPersistenceMode: 'sealed_refresh_v1',
             signingSessionSeal: {
               keyVersion: 'kek-client-mismatch',
@@ -489,7 +485,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -507,9 +502,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             const registration = await tatchi.registration.registerPasskeyInternal(
               accountId,
-              {
-                signerMode: { mode: 'threshold-signer' },
-              },
+              {},
               confirmationConfig as any,
             );
             if (!registration?.success) {
@@ -608,7 +601,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -715,7 +707,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -733,9 +724,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
 
             const registration = await tatchi.registration.registerPasskeyInternal(
               accountId,
-              {
-                signerMode: { mode: 'threshold-signer' },
-              },
+              {},
               confirmationConfig as any,
             );
             if (!registration?.success) {
@@ -840,7 +829,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -1016,7 +1004,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -1033,9 +1020,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             tatchi.setConfirmationConfig(confirmationConfig as any);
             const registration = await tatchi.registration.registerPasskeyInternal(
               accountId,
-              {
-                signerMode: { mode: 'threshold-signer' },
-              },
+              {},
               confirmationConfig as any,
             );
             if (!registration?.success) {
@@ -1095,7 +1080,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
-              signerMode: { mode: 'threshold-signer' },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -1199,7 +1183,6 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                   url: relayerUrl,
                   smartAccountDeploymentMode: 'observe',
                 },
-                signerMode: { mode: 'threshold-signer' },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {
                   keyVersion,
@@ -1211,9 +1194,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
 
               const registration = await tatchi.registration.registerPasskeyInternal(
                 accountId,
-                {
-                  signerMode: { mode: 'threshold-signer' },
-                },
+                {},
                 confirmationConfig as any,
               );
               if (!registration?.success) {
@@ -1411,7 +1392,6 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                   url: relayerUrl,
                   smartAccountDeploymentMode: 'observe',
                 },
-                signerMode: { mode: 'threshold-signer' },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {
                   keyVersion,
