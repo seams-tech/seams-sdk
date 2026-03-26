@@ -1,0 +1,48 @@
+{
+  "contract": "TatchiSmartAccount",
+  "source": "src/TatchiSmartAccount.sol",
+  "abiFile": "abi/TatchiSmartAccount.json",
+  "methodIdentifiers": {
+    "accountVersion()": "0x535e1547",
+    "addOwner(address)": "0x7065cb48",
+    "entryPoint()": "0xb0d691fe",
+    "execute(address,uint256,bytes)": "0xb61d27f6",
+    "executeBatch(address[],uint256[],bytes[])": "0x47e1da2a",
+    "getOwners()": "0xa0e67e2b",
+    "initialize((bytes32,address,address,address[]))": "0x4c31bee4",
+    "isOwner(address)": "0x2f54bf6e",
+    "isRecoveryNonceUsed(bytes32)": "0xa15c67b9",
+    "isValidSignature(bytes32,bytes)": "0x1626ba7e",
+    "nearAccountIdHash()": "0x01c04c8c",
+    "ownerCount()": "0x0db02622",
+    "recoverAddOwner(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)": "0x087af047",
+    "recoveryAuthority()": "0x8a957938",
+    "removeOwner(address)": "0x173825d9",
+    "validateUserOp((address,uint256,bytes,bytes,bytes32,uint256,bytes32,bytes,bytes),bytes32,uint256)": "0x19822f7c",
+    "verifyAndRecover(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)": "0xc3ec1673"
+  },
+  "errorSelectors": {
+    "AlreadyInitialized()": "0x0dc149f0",
+    "ArrayLengthMismatch()": "0xa24a13a6",
+    "ExecutionFailed(bytes)": "0x15fcd675",
+    "InvalidEntryPoint()": "0x2039d3c9",
+    "InvalidNearAccountBinding()": "0xa2c63104",
+    "InvalidOwner()": "0x49e27cff",
+    "InvalidRecoveryAuthority()": "0x9f78d2e3",
+    "InvalidRecoverySignature()": "0x62a281f1",
+    "LastOwnerRemovalForbidden()": "0xf12d1e21",
+    "NotOwner()": "0x30cd7471",
+    "OwnerAlreadyExists(address)": "0x5ba0cba4",
+    "OwnerDoesNotExist(address)": "0x531e21ce",
+    "RecoveryAuthorizationExpired(uint256,uint256)": "0x7d5ffb42",
+    "RecoveryNonceAlreadyUsed(bytes32)": "0xced1345f"
+  },
+  "eventTopics": {
+    "OwnerAdded(address,address)": "0xc82bdbbf677a2462f2a7e22e4ba9abd209496b69cd7b868b3b1d28f76e09a40a",
+    "OwnerRemoved(address,address)": "0xe594d081b4382713733fe631966432c9cea5199afb2db5c3c1931f9f93003679",
+    "RecoveryAuthorityUpdated(address,address)": "0xda344c7dd7c66e51df4f8061919f702d1028098ae8f77cc098394abcd126bda9",
+    "RecoveryOwnerAdded(bytes32,bytes32,address,bytes32,bytes32,address)": "0xb7158a0ca8cd38d9ca6f0f63175e78367b2141202a81ad312c600827971043fb"
+  },
+  "bytecodeHash": "0x2645565cef483562ed5be467ca9c4720443fe78facff17536bf02c92e7a767d8",
+  "deployedBytecodeHash": "0xada132e468a4a46d6f0324f2a4061dc400a71480bc613c7960ebe4a5569044a3"
+}
