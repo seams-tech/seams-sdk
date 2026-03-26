@@ -1,13 +1,16 @@
 import { keccak256Bytes } from '@shared/utils/keccak';
+import {
+  getTatchiSmartAccountMethodSelector,
+  TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE,
+  TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE,
+} from '@shared/utils/evmSmartAccountSpec';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { signSecp256k1Recoverable } from './ThresholdService/ethSignerWasm';
 
 export const RECOVERY_AUTHORITY_DOMAIN_NAME = 'TatchiSmartAccountRecovery';
 export const RECOVERY_AUTHORITY_DOMAIN_VERSION = '1';
-export const VERIFY_AND_RECOVER_SIGNATURE =
-  'verifyAndRecover(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)' as const;
-export const RECOVER_ADD_OWNER_SIGNATURE =
-  'recoverAddOwner(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)' as const;
+export const VERIFY_AND_RECOVER_SIGNATURE = TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE;
+export const RECOVER_ADD_OWNER_SIGNATURE = TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE;
 
 export type RecoveryAuthorityContractMethod = 'verifyAndRecover' | 'recoverAddOwner';
 
@@ -122,10 +125,6 @@ function encodeDynamicBytesWord(value: `0x${string}`): `0x${string}` {
     .join('')}` as `0x${string}`;
 }
 
-function selectorForSignature(signature: string): `0x${string}` {
-  return bytesToHex(keccak256Bytes(new TextEncoder().encode(signature)).slice(0, 4));
-}
-
 function signatureForMethod(method: RecoveryAuthorityContractMethod): string {
   return method === 'recoverAddOwner' ? RECOVER_ADD_OWNER_SIGNATURE : VERIFY_AND_RECOVER_SIGNATURE;
 }
@@ -166,6 +165,30 @@ function buildStructHash(input: {
   return bytesToHex(keccak256Bytes(encoded));
 }
 
+export function deriveRecoveryAuthorityAuthorizationNonce(input: {
+  chainId: number;
+  verifyingContract: string;
+  recoverySessionId: string;
+}): `0x${string}` {
+  const chainId = Math.floor(Number(input.chainId));
+  if (!Number.isFinite(chainId) || chainId <= 0) {
+    throw new Error('Invalid chainId for recovery authorization');
+  }
+  const verifyingContract = assertAddress(input.verifyingContract, 'verifyingContract');
+  const recoverySessionId = toOptionalTrimmedString(input.recoverySessionId);
+  if (!recoverySessionId) {
+    throw new Error('Invalid recoverySessionId');
+  }
+  return utf8KeccakHex(
+    [
+      'recovery-authority',
+      String(chainId),
+      verifyingContract,
+      recoverySessionId,
+    ].join(':'),
+  );
+}
+
 export function buildRecoveryAuthorityAuthorizationDigest(input: {
   contractMethod?: RecoveryAuthorityContractMethod;
   chainId: number;
@@ -190,15 +213,11 @@ export function buildRecoveryAuthorityAuthorizationDigest(input: {
   const nearAccountIdHash = utf8KeccakHex(nearAccountId);
   const newNearKeyHash = utf8KeccakHex(newNearPublicKey);
   const recoverySessionHash = utf8KeccakHex(recoverySessionId);
-  const nonce = utf8KeccakHex(
-    [
-      'recovery-authority',
-      contractMethod,
-      String(input.chainId),
-      verifyingContract.toLowerCase(),
-      recoverySessionId,
-    ].join(':'),
-  );
+  const nonce = deriveRecoveryAuthorityAuthorizationNonce({
+    chainId: input.chainId,
+    verifyingContract,
+    recoverySessionId,
+  });
   const deadline = encodeUint256(BigInt(deadlineEpochSeconds));
   const domain = {
     name: RECOVERY_AUTHORITY_DOMAIN_NAME,
@@ -261,8 +280,7 @@ export async function signRecoveryAuthorityAuthorization(input: {
 export function encodeRecoveryAuthorityCalldata(
   authorization: RecoveryAuthorityAuthorization,
 ): `0x${string}` {
-  const methodSignature = signatureForMethod(authorization.contractMethod);
-  const selector = selectorForSignature(methodSignature);
+  const selector = getRecoveryAuthorityFunctionSelector(authorization.contractMethod);
   const signatureWord = encodeDynamicBytesWord(authorization.signature);
   const head = [
     authorization.payload.nearAccountIdHash,
@@ -279,7 +297,7 @@ export function encodeRecoveryAuthorityCalldata(
 export function getRecoveryAuthorityFunctionSelector(
   method: RecoveryAuthorityContractMethod,
 ): `0x${string}` {
-  return selectorForSignature(signatureForMethod(method));
+  return getTatchiSmartAccountMethodSelector(method);
 }
 
 export function getRecoveryAuthorityFunctionSignature(

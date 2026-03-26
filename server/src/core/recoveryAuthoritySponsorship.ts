@@ -44,8 +44,7 @@ import {
 
 const DEFAULT_RECOVERY_CONTRACT_METHOD: RecoveryAuthorityContractMethod = 'verifyAndRecover';
 const DEFAULT_RECOVERY_AUTHORIZATION_GAS_LIMIT = 250_000n;
-export const RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID =
-  'recovery_authority_sponsored_evm_call_v1';
+export const RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID = 'recovery_authority_sponsored_evm_call_v1';
 const RECOVERY_AUTHORITY_SPONSORED_EVM_API_KEY_ID = 'system:recovery-authority';
 
 type RecoverySponsoredEvmExecution = {
@@ -59,6 +58,21 @@ type RecoverySponsoredEvmExecutionAssessment = SponsorshipExecutionAssessment & 
   txHash: `0x${string}` | null;
   gasUsed: string | null;
   effectiveGasPrice: string | null;
+};
+
+type RecoverySpecMetadata = {
+  version: 'tatchi_evm_recovery_spec_v1';
+  newOwnerAddress: `0x${string}`;
+  call: {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    gasLimit: string;
+    valueWei: '0';
+    contractMethod: RecoveryAuthorityContractMethod;
+    functionSignature: string;
+    selector: `0x${string}`;
+  };
+  authorization: RecoveryAuthorityAuthorization;
 };
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -198,7 +212,9 @@ function buildSuccessfulSponsoredEvmAssessment(
   };
 }
 
-function buildFailedSponsoredEvmAssessment(error: unknown): RecoverySponsoredEvmExecutionAssessment {
+function buildFailedSponsoredEvmAssessment(
+  error: unknown,
+): RecoverySponsoredEvmExecutionAssessment {
   const responseMessage =
     error instanceof Error ? error.message : String(error || 'Sponsored recovery call failed');
   const responseCode =
@@ -240,27 +256,69 @@ function buildFailedSponsoredEvmAssessment(error: unknown): RecoverySponsoredEvm
   };
 }
 
+function buildRecoverySpecMetadata(input: {
+  ownerAddress: `0x${string}`;
+  contractMethod: RecoveryAuthorityContractMethod;
+  functionSignature: string;
+  selector: `0x${string}`;
+  calldata: `0x${string}`;
+  authorization: RecoveryAuthorityAuthorization;
+  accountAddress: `0x${string}`;
+  gasLimit: bigint;
+}): RecoverySpecMetadata {
+  return {
+    version: 'tatchi_evm_recovery_spec_v1',
+    newOwnerAddress: input.ownerAddress,
+    call: {
+      to: input.accountAddress,
+      data: input.calldata,
+      gasLimit: input.gasLimit.toString(10),
+      valueWei: '0',
+      contractMethod: input.contractMethod,
+      functionSignature: input.functionSignature,
+      selector: input.selector,
+    },
+    authorization: input.authorization,
+  };
+}
+
 function buildMetadataPatch(input: {
   scope: RelayRuntimeSnapshotScope;
   chainId: number;
   sponsorAddress: `0x${string}`;
+  ownerAddress: `0x${string}`;
   contractMethod: RecoveryAuthorityContractMethod;
   functionSignature: string;
   selector: `0x${string}`;
+  calldata: `0x${string}`;
   authorization: RecoveryAuthorityAuthorization;
+  accountAddress: `0x${string}`;
+  gasLimit: bigint;
   idempotencyKey: string;
   policyId: string;
   policyName: string;
   templateId: string | null;
   assessment: RecoverySponsoredEvmExecutionAssessment;
   recordId?: string;
-  spendCapSettlement?: (SponsorshipSpendCapSettlement & {
-    sourceEventId: string;
-    estimatedSpendMinor: number;
-  }) | null;
+  spendCapSettlement?:
+    | (SponsorshipSpendCapSettlement & {
+        sourceEventId: string;
+        estimatedSpendMinor: number;
+      })
+    | null;
   bookkeepingError?: string;
 }): Record<string, unknown> {
   return {
+    recoverySpec: buildRecoverySpecMetadata({
+      ownerAddress: input.ownerAddress,
+      contractMethod: input.contractMethod,
+      functionSignature: input.functionSignature,
+      selector: input.selector,
+      calldata: input.calldata,
+      authorization: input.authorization,
+      accountAddress: input.accountAddress,
+      gasLimit: input.gasLimit,
+    }),
     sponsorshipScope: {
       orgId: input.scope.orgId,
       environmentId: input.scope.environmentId,
@@ -271,16 +329,6 @@ function buildMetadataPatch(input: {
     sponsoredExecutorKind: input.assessment.executorKind,
     sponsoredChainId: input.chainId,
     sponsorAddress: input.sponsorAddress,
-    recoveryContractMethod: input.contractMethod,
-    recoveryFunctionSignature: input.functionSignature,
-    sponsoredSelector: input.selector,
-    recoveryAuthorityAddress: input.authorization.authorityAddress,
-    recoveryAuthorizationDigest: input.authorization.digest,
-    recoveryAuthorizationNonce: input.authorization.payload.nonce,
-    recoveryAuthorizationDeadline: input.authorization.payload.deadline,
-    recoveryAuthorizationNearAccountIdHash: input.authorization.payload.nearAccountIdHash,
-    recoveryAuthorizationNewNearKeyHash: input.authorization.payload.newNearKeyHash,
-    recoveryAuthorizationSessionHash: input.authorization.payload.recoverySessionHash,
     sponsoredPolicyId: input.policyId,
     sponsoredPolicyName: input.policyName,
     ...(input.templateId ? { sponsoredTemplateId: input.templateId } : {}),
@@ -324,10 +372,12 @@ function buildDetailsJson(input: {
   accountAddress: `0x${string}`;
   gasLimit: bigint;
   assessment: RecoverySponsoredEvmExecutionAssessment;
-  spendCapSettlement?: (SponsorshipSpendCapSettlement & {
-    sourceEventId: string;
-    estimatedSpendMinor: number;
-  }) | null;
+  spendCapSettlement?:
+    | (SponsorshipSpendCapSettlement & {
+        sourceEventId: string;
+        estimatedSpendMinor: number;
+      })
+    | null;
   prepaidSettlement?: {
     sourceEventId: string | null;
     estimatedSpendMinor: number | null;
@@ -458,10 +508,13 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
       actorUserId: 'recovery-authority',
       roles: ['system'],
     };
-    const latestSnapshot = await input.sponsorship.runtimeSnapshots.getLatestSnapshot(sponsorshipCtx, {
-      environmentId: scope.environmentId,
-      ...(scope.projectId ? { projectId: scope.projectId } : {}),
-    });
+    const latestSnapshot = await input.sponsorship.runtimeSnapshots.getLatestSnapshot(
+      sponsorshipCtx,
+      {
+        environmentId: scope.environmentId,
+        ...(scope.projectId ? { projectId: scope.projectId } : {}),
+      },
+    );
     if (!latestSnapshot) {
       return {
         status: 'failed',
@@ -542,10 +595,17 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         errorCode: matched.code,
         errorMessage: `Recovery sponsorship policy mismatch: ${matched.code}`,
         metadataPatch: {
+          recoverySpec: buildRecoverySpecMetadata({
+            ownerAddress: ownerAddress as `0x${string}`,
+            contractMethod: recoveryContractAuthorization.contractMethod,
+            functionSignature: recoveryContractAuthorization.functionSignature,
+            selector: recoveryContractAuthorization.selector,
+            calldata: call.data,
+            authorization: recoveryContractAuthorization.authorization,
+            accountAddress: accountAddress as `0x${string}`,
+            gasLimit,
+          }),
           sponsorshipScope: scope,
-          recoveryContractMethod: recoveryContractAuthorization.contractMethod,
-          recoveryFunctionSignature: recoveryContractAuthorization.functionSignature,
-          sponsoredSelector: recoveryContractAuthorization.selector,
           sponsoredPolicyMatchCode: matched.code,
         },
       };
@@ -573,25 +633,21 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
       recoverySessionId: execution.sessionId,
       nearAccountId: execution.nearAccountId,
       walletAddress: call.to,
-      newOwnerAddress: ownerAddress,
-      call: {
-        to: call.to,
-        data: call.data,
-        gasLimit: call.gasLimit.toString(10),
-        valueWei: call.value.toString(10),
+      recoverySpec: buildRecoverySpecMetadata({
+        ownerAddress: ownerAddress as `0x${string}`,
         contractMethod: recoveryContractAuthorization.contractMethod,
         functionSignature: recoveryContractAuthorization.functionSignature,
         selector: recoveryContractAuthorization.selector,
-      },
-      authorization: recoveryContractAuthorization.authorization,
+        calldata: call.data,
+        authorization: recoveryContractAuthorization.authorization,
+        accountAddress: accountAddress as `0x${string}`,
+        gasLimit,
+      }),
     } satisfies Record<string, unknown>;
 
     let spendCapReservation = null;
     let prepaidReservation = null;
-    const beforeBalanceState = await readBalanceSnapshot(
-      input.sponsorship.billing,
-      sponsorshipCtx,
-    );
+    const beforeBalanceState = await readBalanceSnapshot(input.sponsorship.billing, sponsorshipCtx);
 
     try {
       spendCapReservation = await reserveSpendCap({
@@ -649,11 +705,22 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         status: 'failed',
         errorCode:
           error && typeof error === 'object' && 'code' in error
-            ? String((error as { code?: unknown }).code || '').trim() || 'sponsorship_spend_cap_failed'
+            ? String((error as { code?: unknown }).code || '').trim() ||
+              'sponsorship_spend_cap_failed'
             : 'sponsorship_spend_cap_failed',
         errorMessage:
           error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
         metadataPatch: {
+          recoverySpec: buildRecoverySpecMetadata({
+            ownerAddress: ownerAddress as `0x${string}`,
+            contractMethod: recoveryContractAuthorization.contractMethod,
+            functionSignature: recoveryContractAuthorization.functionSignature,
+            selector: recoveryContractAuthorization.selector,
+            calldata: call.data,
+            authorization: recoveryContractAuthorization.authorization,
+            accountAddress: accountAddress as `0x${string}`,
+            gasLimit,
+          }),
           sponsorshipScope: scope,
           sponsoredPolicyId: matched.policy.policyId,
         },
@@ -692,8 +759,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
               environmentId: scope.environmentId,
               policyId: matched.policy.policyId,
               idempotencyKey,
-              error:
-                releaseError instanceof Error ? releaseError.message : String(releaseError),
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError),
             },
           );
         }
@@ -727,13 +793,22 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         status: 'failed',
         errorCode:
           error && typeof error === 'object' && 'code' in error
-            ? String((error as { code?: unknown }).code || '').trim() || 'sponsorship_prepaid_failed'
+            ? String((error as { code?: unknown }).code || '').trim() ||
+              'sponsorship_prepaid_failed'
             : 'sponsorship_prepaid_failed',
         errorMessage:
-          error instanceof Error
-            ? error.message
-            : 'Failed to reserve sponsored prepaid balance',
+          error instanceof Error ? error.message : 'Failed to reserve sponsored prepaid balance',
         metadataPatch: {
+          recoverySpec: buildRecoverySpecMetadata({
+            ownerAddress: ownerAddress as `0x${string}`,
+            contractMethod: recoveryContractAuthorization.contractMethod,
+            functionSignature: recoveryContractAuthorization.functionSignature,
+            selector: recoveryContractAuthorization.selector,
+            calldata: call.data,
+            authorization: recoveryContractAuthorization.authorization,
+            accountAddress: accountAddress as `0x${string}`,
+            gasLimit,
+          }),
           sponsorshipScope: scope,
           sponsoredPolicyId: matched.policy.policyId,
         },
@@ -750,10 +825,12 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
       }
     })();
 
-    let spendCapSettlement: (SponsorshipSpendCapSettlement & {
-      sourceEventId: string;
-      estimatedSpendMinor: number;
-    }) | null = null;
+    let spendCapSettlement:
+      | (SponsorshipSpendCapSettlement & {
+          sourceEventId: string;
+          estimatedSpendMinor: number;
+        })
+      | null = null;
     try {
       const settled = await settleSpendCap({
         reservation: spendCapReservation,
@@ -862,8 +939,8 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           prepaidReservationId: prepaidSettlement?.reservationId || null,
           charged: Boolean(
             prepaidSettlement &&
-              !prepaidSettlement.released &&
-              prepaidSettlement.settledSpendMinor > 0,
+            !prepaidSettlement.released &&
+            prepaidSettlement.settledSpendMinor > 0,
           ),
           chargedReason: prepaidSettlement
             ? prepaidSettlement.released
@@ -913,10 +990,14 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
             scope,
             chainId,
             sponsorAddress: adapter.meta.sponsorAddress,
+            ownerAddress: ownerAddress as `0x${string}`,
             contractMethod: recoveryContractAuthorization.contractMethod,
             functionSignature: recoveryContractAuthorization.functionSignature,
             selector: recoveryContractAuthorization.selector,
+            calldata: call.data,
             authorization: recoveryContractAuthorization.authorization,
+            accountAddress: accountAddress as `0x${string}`,
+            gasLimit,
             idempotencyKey,
             policyId: matched.policy.policyId,
             policyName: matched.policy.policyName,
@@ -937,10 +1018,14 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           scope,
           chainId,
           sponsorAddress: adapter.meta.sponsorAddress,
+          ownerAddress: ownerAddress as `0x${string}`,
           contractMethod: recoveryContractAuthorization.contractMethod,
           functionSignature: recoveryContractAuthorization.functionSignature,
           selector: recoveryContractAuthorization.selector,
+          calldata: call.data,
           authorization: recoveryContractAuthorization.authorization,
+          accountAddress: accountAddress as `0x${string}`,
+          gasLimit,
           idempotencyKey,
           policyId: matched.policy.policyId,
           policyName: matched.policy.policyName,
@@ -959,10 +1044,14 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
             scope,
             chainId,
             sponsorAddress: adapter.meta.sponsorAddress,
+            ownerAddress: ownerAddress as `0x${string}`,
             contractMethod: recoveryContractAuthorization.contractMethod,
             functionSignature: recoveryContractAuthorization.functionSignature,
             selector: recoveryContractAuthorization.selector,
+            calldata: call.data,
             authorization: recoveryContractAuthorization.authorization,
+            accountAddress: accountAddress as `0x${string}`,
+            gasLimit,
             idempotencyKey,
             policyId: matched.policy.policyId,
             policyName: matched.policy.policyName,
@@ -970,7 +1059,9 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
             assessment,
             spendCapSettlement,
             bookkeepingError:
-              error instanceof Error ? error.message : 'Failed to record sponsored recovery execution',
+              error instanceof Error
+                ? error.message
+                : 'Failed to record sponsored recovery execution',
           }),
         };
       }
@@ -986,10 +1077,14 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           scope,
           chainId,
           sponsorAddress: adapter.meta.sponsorAddress,
+          ownerAddress: ownerAddress as `0x${string}`,
           contractMethod: recoveryContractAuthorization.contractMethod,
           functionSignature: recoveryContractAuthorization.functionSignature,
           selector: recoveryContractAuthorization.selector,
+          calldata: call.data,
           authorization: recoveryContractAuthorization.authorization,
+          accountAddress: accountAddress as `0x${string}`,
+          gasLimit,
           idempotencyKey,
           policyId: matched.policy.policyId,
           policyName: matched.policy.policyName,
@@ -997,7 +1092,9 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           assessment,
           spendCapSettlement,
           bookkeepingError:
-            error instanceof Error ? error.message : 'Failed to record sponsored recovery execution',
+            error instanceof Error
+              ? error.message
+              : 'Failed to record sponsored recovery execution',
         }),
       };
     }

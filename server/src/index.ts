@@ -53,6 +53,10 @@ export {
   type CanonicalSmartAccountDeploymentManifestOwner,
 } from './core/smartAccountDeploymentManifest';
 export {
+  buildCanonicalEvmSmartAccountDeploymentPlan,
+  type CanonicalEvmSmartAccountDeploymentPlan,
+} from './core/evmSmartAccountDeploymentPlan';
+export {
   createRecoverySessionStore,
   type RecoverySessionStore,
   type RecoverySessionRecord,
@@ -89,6 +93,7 @@ export {
 } from './core/recoveryAuthoritySponsorship';
 export {
   buildRecoveryAuthorityAuthorizationDigest,
+  deriveRecoveryAuthorityAuthorizationNonce,
   encodeRecoveryAuthorityCalldata,
   getRecoveryAuthorityFunctionSelector,
   getRecoveryAuthorityFunctionSignature,
@@ -122,6 +127,7 @@ export {
   readCanonicalSmartAccountDeploymentManifest,
   syncCanonicalSmartAccountDeploymentManifest,
 } from './router/smartAccountDeploymentManifest';
+export { createEvmSmartAccountDeployHandler } from './router/evmSmartAccountDeploy';
 export {
   createRecoveryAuthorityIntervalRunner,
   type RecoveryAuthorityIntervalRunner,

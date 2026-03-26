@@ -10,6 +10,7 @@ import {
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createRecoveryAuthorityIntervalRunner,
+  createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
   createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
   createPrfSessionSealRoutesOptions,
@@ -1393,6 +1394,14 @@ async function main() {
       ...(relayApiKeyUsageMeter ? { apiKeyUsageMeter: relayApiKeyUsageMeter } : {}),
       bootstrapGrantBroker: relayBootstrapGrantBroker,
       bootstrapTokenStore: consoleBootstrapTokens,
+      ...(sponsoredEvmCallConfig
+        ? {
+            smartAccountDeploy: createEvmSmartAccountDeployHandler({
+              config: sponsoredEvmCallConfig,
+              logger: console,
+            }),
+          }
+        : {}),
       sponsoredEvmCall: {
         apiKeys: consoleApiKeys,
         billing: consoleBilling,

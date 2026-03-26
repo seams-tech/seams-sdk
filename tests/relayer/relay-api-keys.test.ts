@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { buildCanonicalEvmSmartAccountDeploymentPlan } from '@server/core/evmSmartAccountDeploymentPlan';
+import { buildCanonicalSmartAccountDeploymentManifest } from '@server/core/smartAccountDeploymentManifest';
 import {
   createConsoleRouter,
   createInMemoryConsoleApiKeyService,
@@ -13,9 +15,17 @@ import {
   type ConsoleWallet,
   type RelayUsageMeterEvent,
 } from '@server/router/express-adaptor';
+import { createEvmSmartAccountDeployHandler } from '@server/router/evmSmartAccountDeploy';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
-import { callCf, fetchJson, getPath, makeCfCtx, makeFakeAuthService, startExpressRouter } from './helpers';
+import {
+  callCf,
+  fetchJson,
+  getPath,
+  makeCfCtx,
+  makeFakeAuthService,
+  startExpressRouter,
+} from './helpers';
 
 const apiKeyCtx = {
   orgId: 'org-relay-api-keys',
@@ -76,6 +86,7 @@ function makeRegistrationBodyWithSmartAccountTargets(): Record<string, unknown> 
           chain_id: 11155111,
           factory: `0x${'bb'.repeat(20)}`,
           entry_point: `0x${'cc'.repeat(20)}`,
+          recovery_authority: `0x${'ff'.repeat(20)}`,
           salt: '0x1234',
           counterfactual_address: `0x${'11'.repeat(20)}`,
         },
@@ -92,11 +103,65 @@ function makeRegistrationBodyWithSmartAccountTargets(): Record<string, unknown> 
   };
 }
 
+function makeCanonicalEvmCounterfactualAddress(): `0x${string}` {
+  const manifest = buildCanonicalSmartAccountDeploymentManifest({
+    recoverySubject: {
+      version: 'smart_account_recovery_subject_v1',
+      userId: 'alice.testnet',
+      nearAccountId: 'alice.testnet',
+      chainIdKey: 'evm:11155111',
+      accountAddress: `0x${'11'.repeat(20)}`,
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      metadata: {
+        chain: 'evm',
+        chainId: 11155111,
+        accountModel: 'erc4337',
+        deployed: false,
+        factory: `0x${'bb'.repeat(20)}`,
+        entryPoint: `0x${'cc'.repeat(20)}`,
+        recoveryAuthority: `0x${'ff'.repeat(20)}`,
+        salt: '0x1234',
+        counterfactualAddress: `0x${'11'.repeat(20)}`,
+      },
+    } as any,
+    signers: [
+      {
+        version: 'account_signer_v1',
+        userId: 'alice.testnet',
+        chainIdKey: 'evm:11155111',
+        accountAddress: `0x${'11'.repeat(20)}`,
+        signerType: 'threshold',
+        signerId: `0x${'aa'.repeat(20)}`,
+        status: 'active',
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        metadata: {
+          chain: 'evm',
+          chainId: 11155111,
+          accountModel: 'erc4337',
+        },
+      },
+    ] as any,
+    materializedAtMs: 1,
+  });
+  if (!manifest) {
+    throw new Error('Failed to build canonical EVM manifest fixture');
+  }
+  const plan = buildCanonicalEvmSmartAccountDeploymentPlan(manifest);
+  if (!plan) {
+    throw new Error('Failed to build canonical EVM deployment plan fixture');
+  }
+  return plan.predictedAddress;
+}
+
 function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {
   const id = String(overrides.id || 'wlt_wallet_1');
   const environmentId = String(overrides.environmentId || 'env-prod');
-  const projectId =
-    String(overrides.projectId || (environmentId.includes(':') ? environmentId.split(':')[0] : 'proj_wallets'));
+  const projectId = String(
+    overrides.projectId ||
+      (environmentId.includes(':') ? environmentId.split(':')[0] : 'proj_wallets'),
+  );
   return {
     id,
     orgId: 'org-relay-api-keys',
@@ -110,7 +175,10 @@ function makeWallet(overrides: Partial<ConsoleWallet> = {}): ConsoleWallet {
     status: overrides.status || 'ACTIVE',
     policyId: overrides.policyId === undefined ? null : overrides.policyId,
     balanceMinor: overrides.balanceMinor === undefined ? 100 : overrides.balanceMinor,
-    lastActivityAt: overrides.lastActivityAt === undefined ? '2026-03-14T00:00:00.000Z' : overrides.lastActivityAt,
+    lastActivityAt:
+      overrides.lastActivityAt === undefined
+        ? '2026-03-14T00:00:00.000Z'
+        : overrides.lastActivityAt,
     createdAt: overrides.createdAt || '2026-03-14T00:00:00.000Z',
     updatedAt: overrides.updatedAt || '2026-03-14T00:00:00.000Z',
     ...overrides,
@@ -447,7 +515,9 @@ test.describe('relay API key auth (express)', () => {
         }),
       });
       expect(project.status).toBe(201);
-      const onboardingEnvironmentId = String(getPath(project.json, 'result', 'environment', 'id') || '');
+      const onboardingEnvironmentId = String(
+        getPath(project.json, 'result', 'environment', 'id') || '',
+      );
       expect(onboardingEnvironmentId.length).toBeGreaterThan(0);
 
       const apiKeyCreate = await fetchJson(`${srv.baseUrl}/console/api-keys`, {
@@ -526,6 +596,14 @@ test.describe('relay API key auth (express)', () => {
               chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
               accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
               deployed: false,
+              ...(chainIdKey.startsWith('tempo:')
+                ? {}
+                : {
+                    factory: `0x${'bb'.repeat(20)}`,
+                    entryPoint: `0x${'cc'.repeat(20)}`,
+                    recoveryAuthority: `0x${'ff'.repeat(20)}`,
+                    salt: '0x1234',
+                  }),
               counterfactualAddress: accountAddress,
             },
           } as any,
@@ -557,21 +635,22 @@ test.describe('relay API key auth (express)', () => {
         },
       }),
       {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
-      smartAccountDeploy: async (request) => {
-        deployCalls.push({
-          nearAccountId: request.nearAccountId,
-          chain: request.chain,
-          chainId: request.chainId,
-          accountAddress: request.accountAddress,
-          accountModel: request.accountModel,
-          deploymentManifest: request.deploymentManifest,
-        });
-        return {
-          ok: true,
-          deploymentTxHash: `0xdeploy-${request.chain}`,
-        };
-      },
+        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+        smartAccountDeploy: async (request) => {
+          deployCalls.push({
+            nearAccountId: request.nearAccountId,
+            chain: request.chain,
+            chainId: request.chainId,
+            accountAddress: request.accountAddress,
+            accountModel: request.accountModel,
+            deploymentManifest: request.deploymentManifest,
+            evmDeploymentPlan: request.evmDeploymentPlan,
+          });
+          return {
+            ok: true,
+            deploymentTxHash: `0xdeploy-${request.chain}`,
+          };
+        },
       },
     );
     const srv = await startExpressRouter(router);
@@ -599,6 +678,11 @@ test.describe('relay API key auth (express)', () => {
             counterfactualAddress: `0x${'11'.repeat(20)}`,
             ownerAddresses: [`0x${'aa'.repeat(20)}`],
           }),
+          evmDeploymentPlan: expect.objectContaining({
+            predictedAddress: expect.stringMatching(/^0x[0-9a-f]{40}$/),
+            matchesAccountAddress: false,
+            createAccountCalldata: expect.stringMatching(/^0xf8a59370/),
+          }),
         }),
         expect.objectContaining({
           nearAccountId: 'alice.testnet',
@@ -610,6 +694,7 @@ test.describe('relay API key auth (express)', () => {
             counterfactualAddress: `0x${'22'.repeat(20)}`,
             ownerAddresses: [`0x${'aa'.repeat(20)}`],
           }),
+          evmDeploymentPlan: undefined,
         }),
       ]);
       expect(res.json?.smartAccountDeployments).toEqual([
@@ -636,10 +721,286 @@ test.describe('relay API key auth (express)', () => {
       expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
         `0x${'aa'.repeat(20)}`,
       ]);
+      expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.predictedAddress).toMatch(
+        /^0x[0-9a-f]{40}$/,
+      );
+      expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
+        /^0xf8a59370/,
+      );
+      expect(
+        Number.isFinite(Number(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlanUpdatedAtMs)),
+      ).toBe(true);
       expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
         `0x${'aa'.repeat(20)}`,
       ]);
+      expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlan).toBeUndefined();
+      expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
     } finally {
+      await srv.close();
+    }
+  });
+
+  test('registration bootstrap executes the canonical EVM deploy adapter from the derived deployment plan', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, {
+      scopes: ['accounts.create'],
+      ipAllowlist: ['127.0.0.1/32'],
+    });
+    const recoverySubjectWrites: Array<Record<string, unknown>> = [];
+    const rpcRequests: Array<{ method: string; params: unknown[] }> = [];
+    const evmCounterfactualAddress = makeCanonicalEvmCounterfactualAddress();
+    const recoverySubjectState = new Map<string, Record<string, unknown>>([
+      [
+        `evm:11155111:${evmCounterfactualAddress.toLowerCase()}`,
+        {
+          version: 'smart_account_recovery_subject_v1',
+          userId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          chainIdKey: 'evm:11155111',
+          accountAddress: evmCounterfactualAddress,
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          metadata: {
+            chain: 'evm',
+            chainId: 11155111,
+            accountModel: 'erc4337',
+            deployed: false,
+            factory: `0x${'bb'.repeat(20)}`,
+            entryPoint: `0x${'cc'.repeat(20)}`,
+            recoveryAuthority: `0x${'ff'.repeat(20)}`,
+            salt: '0x1234',
+            counterfactualAddress: evmCounterfactualAddress,
+          },
+        },
+      ],
+      [
+        `tempo:42431:${`0x${'22'.repeat(20)}`}`,
+        {
+          version: 'smart_account_recovery_subject_v1',
+          userId: 'alice.testnet',
+          nearAccountId: 'alice.testnet',
+          chainIdKey: 'tempo:42431',
+          accountAddress: `0x${'22'.repeat(20)}`,
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          metadata: {
+            chain: 'tempo',
+            chainId: 42431,
+            accountModel: 'tempo-native',
+            deployed: false,
+            counterfactualAddress: `0x${'22'.repeat(20)}`,
+          },
+        },
+      ],
+    ]);
+    const router = createRelayRouter(
+      makeFakeAuthService({
+        createAccountAndRegisterUser: async () => ({
+          success: true,
+          transactionHash: 'tx-123',
+          thresholdEcdsa: {
+            relayerKeyId: 'rk-registration-1',
+            groupPublicKeyB64u: 'group-public-key',
+            ethereumAddress: `0x${'aa'.repeat(20)}`,
+            relayerVerifyingShareB64u: 'relayer-share',
+          },
+        }),
+        getSmartAccountRecoverySubjectByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          record:
+            (recoverySubjectState.get(
+              `${String(chainIdKey).toLowerCase()}:${String(accountAddress).toLowerCase()}`,
+            ) as any) || null,
+        }),
+        listAccountSignersByAccount: async ({ chainIdKey, accountAddress }) => ({
+          ok: true,
+          records: [
+            {
+              version: 'account_signer_v1',
+              userId: 'alice.testnet',
+              chainIdKey,
+              accountAddress,
+              signerType: 'threshold',
+              signerId: `0x${'aa'.repeat(20)}`,
+              status: 'active',
+              createdAtMs: 1,
+              updatedAtMs: 1,
+              metadata: {
+                chain: chainIdKey.startsWith('tempo:') ? 'tempo' : 'evm',
+                chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
+                accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
+              },
+            },
+          ],
+        }),
+        putSmartAccountRecoverySubject: async (record) => {
+          recoverySubjectWrites.push(record as unknown as Record<string, unknown>);
+          recoverySubjectState.set(
+            `${String((record as any).chainIdKey).toLowerCase()}:${String((record as any).accountAddress).toLowerCase()}`,
+            record as unknown as Record<string, unknown>,
+          );
+          return { ok: true, record } as any;
+        },
+      }),
+      {
+        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+        smartAccountDeploy: async (request) => {
+          if (request.chain === 'tempo') {
+            return {
+              ok: true,
+              deploymentTxHash: '0xdeploy-tempo',
+              code: 'deployed',
+            };
+          }
+          const handler = createEvmSmartAccountDeployHandler({
+            config: {
+              executorsByChain: new Map([
+                [
+                  11155111,
+                  {
+                    chainId: 11155111,
+                    rpcUrl: 'https://rpc.example.test',
+                    sponsorAddress: '0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a',
+                    sponsorPrivateKeyHex:
+                      '0x1111111111111111111111111111111111111111111111111111111111111111',
+                    maxPriorityFeePerGasFloor: 2_000_000_000n,
+                    maxFeePerGasFloor: 40_000_000_000n,
+                  },
+                ],
+              ]),
+            },
+            logger: null,
+          });
+          return await handler(request);
+        },
+      },
+    );
+    const srv = await startExpressRouter(router);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith(srv.baseUrl)) {
+        return await originalFetch(input, init);
+      }
+      if (url !== 'https://rpc.example.test') {
+        throw new Error(`Unexpected fetch url: ${url}`);
+      }
+      const body = JSON.parse(String(init?.body || '{}')) as {
+        id: number;
+        method: string;
+        params: unknown[];
+      };
+      rpcRequests.push({ method: body.method, params: body.params });
+      const reply = (result: unknown) =>
+        new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      switch (body.method) {
+        case 'eth_getCode':
+          return reply('0x');
+        case 'eth_estimateGas':
+          return reply('0x61a80');
+        case 'eth_getTransactionCount':
+          return reply('0x1');
+        case 'eth_getBlockByNumber':
+          return reply({ number: '0x10', baseFeePerGas: '0x77359400' });
+        case 'eth_maxPriorityFeePerGas':
+          return reply('0x3b9aca00');
+        case 'eth_gasPrice':
+          return reply('0x77359400');
+        case 'eth_sendRawTransaction':
+          return reply(`0x${'ab'.repeat(32)}`);
+        case 'eth_getTransactionReceipt':
+          return reply({
+            status: '0x1',
+            blockNumber: '0x10',
+            gasUsed: '0x5208',
+            effectiveGasPrice: '0x77359400',
+          });
+        default:
+          throw new Error(`Unexpected rpc method: ${body.method}`);
+      }
+    }) as typeof fetch;
+
+    try {
+      const body = makeRegistrationBodyWithSmartAccountTargets();
+      (
+        (body.threshold_ecdsa as any).smart_account_targets[0] as Record<string, unknown>
+      ).counterfactual_address = evmCounterfactualAddress;
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+          'x-forwarded-for': '127.0.0.1',
+          'x-tatchi-environment-id': 'env-prod',
+        },
+        body: JSON.stringify(body),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.json?.success).toBe(true);
+      expect(res.json?.smartAccountDeployments).toEqual([
+        {
+          chain: 'evm',
+          chainId: 11155111,
+          accountAddress: evmCounterfactualAddress,
+          accountModel: 'erc4337',
+          deployed: true,
+          deploymentTxHash: `0x${'ab'.repeat(32)}`,
+          code: 'deployed',
+          counterfactualAddress: evmCounterfactualAddress,
+        },
+        {
+          chain: 'tempo',
+          chainId: 42431,
+          accountAddress: `0x${'22'.repeat(20)}`,
+          accountModel: 'tempo-native',
+          deployed: true,
+          deploymentTxHash: '0xdeploy-tempo',
+          code: 'deployed',
+          counterfactualAddress: `0x${'22'.repeat(20)}`,
+        },
+      ]);
+      expect(rpcRequests.map((entry) => entry.method)).toEqual([
+        'eth_getCode',
+        'eth_estimateGas',
+        'eth_getTransactionCount',
+        'eth_getBlockByNumber',
+        'eth_maxPriorityFeePerGas',
+        'eth_gasPrice',
+        'eth_sendRawTransaction',
+        'eth_getTransactionReceipt',
+        'eth_getTransactionReceipt',
+      ]);
+      expect(rpcRequests[1]?.params[0]).toEqual({
+        from: '0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a',
+        to: `0x${'bb'.repeat(20)}`,
+        value: '0x0',
+        data: expect.stringMatching(/^0xf8a59370/),
+      });
+      expect(recoverySubjectWrites).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            chainIdKey: 'evm:11155111',
+            accountAddress: evmCounterfactualAddress,
+            metadata: expect.objectContaining({
+              deployed: true,
+              deploymentTxHash: `0x${'ab'.repeat(32)}`,
+              lastDeploymentCode: 'deployed',
+              evmDeploymentPlan: expect.objectContaining({
+                predictedAddress: evmCounterfactualAddress,
+                matchesAccountAddress: true,
+                createAccountCalldata: expect.stringMatching(/^0xf8a59370/),
+              }),
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
       await srv.close();
     }
   });
@@ -958,6 +1319,14 @@ test.describe('relay API key auth (cloudflare)', () => {
               chainId: chainIdKey.startsWith('tempo:') ? 42431 : 11155111,
               accountModel: chainIdKey.startsWith('tempo:') ? 'tempo-native' : 'erc4337',
               deployed: false,
+              ...(chainIdKey.startsWith('tempo:')
+                ? {}
+                : {
+                    factory: `0x${'bb'.repeat(20)}`,
+                    entryPoint: `0x${'cc'.repeat(20)}`,
+                    recoveryAuthority: `0x${'ff'.repeat(20)}`,
+                    salt: '0x1234',
+                  }),
               counterfactualAddress: accountAddress,
             },
           } as any,
@@ -989,21 +1358,22 @@ test.describe('relay API key auth (cloudflare)', () => {
         },
       }),
       {
-      apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
-      smartAccountDeploy: async (request) => {
-        deployCalls.push({
-          nearAccountId: request.nearAccountId,
-          chain: request.chain,
-          chainId: request.chainId,
-          accountAddress: request.accountAddress,
-          accountModel: request.accountModel,
-          deploymentManifest: request.deploymentManifest,
-        });
-        return {
-          ok: true,
-          deploymentTxHash: `0xdeploy-${request.chain}`,
-        };
-      },
+        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+        smartAccountDeploy: async (request) => {
+          deployCalls.push({
+            nearAccountId: request.nearAccountId,
+            chain: request.chain,
+            chainId: request.chainId,
+            accountAddress: request.accountAddress,
+            accountModel: request.accountModel,
+            deploymentManifest: request.deploymentManifest,
+            evmDeploymentPlan: request.evmDeploymentPlan,
+          });
+          return {
+            ok: true,
+            deploymentTxHash: `0xdeploy-${request.chain}`,
+          };
+        },
       },
     );
     const { ctx } = makeCfCtx();
@@ -1031,6 +1401,11 @@ test.describe('relay API key auth (cloudflare)', () => {
           counterfactualAddress: `0x${'11'.repeat(20)}`,
           ownerAddresses: [`0x${'aa'.repeat(20)}`],
         }),
+        evmDeploymentPlan: expect.objectContaining({
+          predictedAddress: expect.stringMatching(/^0x[0-9a-f]{40}$/),
+          matchesAccountAddress: false,
+          createAccountCalldata: expect.stringMatching(/^0xf8a59370/),
+        }),
       }),
       expect.objectContaining({
         nearAccountId: 'alice.testnet',
@@ -1042,6 +1417,7 @@ test.describe('relay API key auth (cloudflare)', () => {
           counterfactualAddress: `0x${'22'.repeat(20)}`,
           ownerAddresses: [`0x${'aa'.repeat(20)}`],
         }),
+        evmDeploymentPlan: undefined,
       }),
     ]);
     expect(res.json?.smartAccountDeployments).toEqual([
@@ -1068,9 +1444,20 @@ test.describe('relay API key auth (cloudflare)', () => {
     expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
     ]);
+    expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.predictedAddress).toMatch(
+      /^0x[0-9a-f]{40}$/,
+    );
+    expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
+      /^0xf8a59370/,
+    );
+    expect(
+      Number.isFinite(Number(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlanUpdatedAtMs)),
+    ).toBe(true);
     expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
     ]);
+    expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlan).toBeUndefined();
+    expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
   });
 
   test('API credential wallet routes require wallets.read scope and stay bound to the key environment', async () => {

@@ -476,13 +476,15 @@ The contract must maintain all of these invariants:
 - recovery expires after `deadline`
 - public callers cannot bypass `recoveryAuthority`
 - normal owner management and privileged recovery remain distinct code paths
+- legacy owners cannot remove the latest recovered owner once recovery succeeds
 
 ## Open choices
 
 These do not change the required recovery surface, but the implementation must choose them explicitly:
 
-- direct-owner execution vs strict `entryPoint`-only execution
-- owner signature format for ERC-1271 / user-op validation
+- V1 choice: direct-owner execution remains enabled and the configured `entryPoint` is also authorized
+- V1 choice: ERC-4337 validation is pinned to the v0.7 `PackedUserOperation` / `validateUserOp(...)` surface
+- V1 choice: ERC-1271 and user-op validation both use raw active-owner ECDSA signatures
 - upgradable proxy vs immutable implementation
 - exact factory address derivation scheme
 
@@ -506,42 +508,68 @@ Everything else should remain out of scope unless a real product requirement app
 
 ### Phase 0: Canonical surface alignment
 
-- [ ] extend the canonical deployment manifest to carry all initializer inputs needed by this spec: `nearAccountIdHash`, `recoveryAuthority`, `entryPoint`, and the canonical owner set
-- [ ] pin one ERC-4337 target for V1 and remove ambiguity: entry point version, validation surface, and direct-owner-vs-`entryPoint` execution policy
-- [ ] align off-chain recovery authorization semantics so `verifyAndRecover` and `recoverAddOwner` differ only by selector, not by replay domain or nonce derivation
-- [ ] add contract-facing integration vectors in this repo for initializer encoding, recovery calldata generation, and expected event payloads
+- [x] extend the canonical deployment manifest to carry all initializer inputs needed by this spec: `nearAccountIdHash`, `recoveryAuthority`, `entryPoint`, and the canonical owner set
+- [x] pin one ERC-4337 target for V1 and remove ambiguity: entry point version, validation surface, and direct-owner-vs-`entryPoint` execution policy
+- [x] align off-chain recovery authorization semantics so `verifyAndRecover` and `recoverAddOwner` differ only by selector, not by replay domain or nonce derivation
+- [x] add contract-facing integration vectors in this repo for initializer encoding, recovery calldata generation, and expected event payloads
 
 ### Phase 1: Smart account contract
 
-- [ ] add an in-repo contract package at `/contracts/evm-smart-account` with its own Solidity toolchain, tests, deployment scripts, and generated ABI artifacts
-- [ ] implement `initialize`, `addOwner`, `removeOwner`, `verifyAndRecover`, `recoverAddOwner`, `execute`, `executeBatch`, and `isValidSignature`
-- [ ] implement one shared `_recoverAddOwner(...)` path and shared replay storage used by both recovery selectors
-- [ ] enforce owner uniqueness, last-owner protection, deadline expiry, EIP-712 domain separation, and public-call recovery semantics
-- [ ] emit the canonical owner and recovery events from this spec
+- [x] add an in-repo contract package at `/contracts/evm-smart-account` with its own Solidity toolchain, tests, deployment scripts, and generated ABI artifacts
+- [x] implement `initialize`, `addOwner`, `removeOwner`, `verifyAndRecover`, `recoverAddOwner`, `execute`, `executeBatch`, and `isValidSignature`
+- [x] implement one shared `_recoverAddOwner(...)` path and shared replay storage used by both recovery selectors
+- [x] enforce owner uniqueness, last-owner protection, deadline expiry, EIP-712 domain separation, and public-call recovery semantics
+- [x] emit the canonical owner and recovery events from this spec
+
+Current package status:
+
+- implemented under `/contracts/evm-smart-account`
+- tested with local forge unit tests and deterministic factory coverage
+- current V1 choice is direct-owner execution plus configured-`entryPoint` authorization
+- current V1 choice is ERC-4337 v0.7 `PackedUserOperation` with local `validateUserOp(...)` support
+- server-side canonical registration + deployment-manifest materialization now persist `recoveryAuthority` and derive `nearAccountIdHash` from canonical `nearAccountId`
+- canonical recovery-subject manifest sync now persists the derived `evmDeploymentPlan` for EVM accounts and clears stale plan metadata for non-EVM targets
+- off-chain recovery authorization now matches the selector-independent digest and shared replay semantics used by the smart-account spec
+- deployed recovery and deployed `addOwner` / `removeOwner` owner-mutation paths now derive canonical selectors from in-repo smart-account spec metadata
+- sponsored recovery execution rows now persist canonical `recoverySpec` metadata for the exact smart-account call plus signed authorization payload
+- targeted verification now covers sponsored recovery submission, retry requeue, and receipt confirmation while preserving canonical `recoverySpec` metadata
+- relayer end-to-end coverage now includes undeployed recovery continuation plus deployed recovery submission and receipt confirmation while preserving canonical `recoverySpec` metadata
+- relayer end-to-end coverage now includes deterministic factory deployment from the canonical `evmDeploymentPlan`
+- a reusable EVM deploy hook now executes deterministic factory deployment directly from the canonical `evmDeploymentPlan`
+- package-local helper scripts now cover init-data encoding, counterfactual address prediction, recovery calldata encoding, and `RecoveryOwnerAdded(...)` event encoding
+- package-local metadata artifacts now export function selectors, error selectors, event topics, and bytecode hashes under `/contracts/evm-smart-account/abi`
+- source-backed verification now covers current deployed owner-mutation runtime and shared replay rejection against the in-repo smart-account spec package
+- canonical deployment planning now preserves manifest owner ordering all the way into smart-account init data
+- spec-package deployment tests now cover undeployed-to-deployed continuity when canonical owner state already includes link-device or recovery mutations
+- the V1 smart-account spec-track checklist is now complete; broader multichain follow-ons remain in [evm-device-linking.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/evm-device-linking.md)
 
 ### Phase 2: Factory and deployment path
 
-- [ ] implement deterministic factory deployment from canonical manifest data
-- [ ] guarantee initializer owner ordering matches the canonical manifest exactly
-- [ ] wire deployment tooling to materialize init data from canonical server-side signer state only, never stale client-local state
-- [ ] add contract tests for undeployed-to-deployed continuity after link-device and recovery mutations
+- [x] implement deterministic factory deployment from canonical manifest data
+- [x] guarantee initializer owner ordering matches the canonical manifest exactly
+- [x] wire deployment tooling to materialize init data from canonical server-side signer state only, never stale client-local state
+- [x] add spec-package tests for undeployed-to-deployed continuity after link-device and recovery mutations
 
 ### Phase 3: Relay and sponsorship integration
 
-- [ ] wire deployed recovery execution against the final contract ABI and selectors
-- [ ] wire deployed link-device owner mutations against the same contract ABI
-- [ ] persist deployment-manifest and recovery metadata needed for contract calls, receipt tracking, and observability
-- [ ] verify sponsored recovery settlement, retry behavior, and receipt confirmation against the final contract implementation
+- [x] wire deployed recovery execution against the final spec ABI and selectors
+- [x] wire deployed link-device owner mutations against the same spec ABI
+- [x] persist deployment-manifest and recovery metadata needed for spec calls, receipt tracking, and observability
+- [x] verify sponsored recovery settlement, retry behavior, and receipt confirmation against the final spec implementation
 
 ### Phase 4: Verification and cleanup
 
-- [ ] add end-to-end tests covering deployed recovery, undeployed recovery, owner add/remove, and replay rejection
-- [ ] add negative tests for expired authorization, bad signer, wrong `nearAccountIdHash`, reused nonce, and duplicate owner recovery
-- [ ] remove any superseded legacy smart-account assumptions once the canonical contract path is active
-- [ ] update the device-linking and recovery docs to mark completed items and delete obsolete transitional notes
+- [x] add end-to-end tests covering undeployed recovery continuation through `/recover-email`
+- [x] add end-to-end tests covering deployed recovery submission and confirmation while preserving canonical `recoverySpec` metadata
+- [x] add end-to-end tests covering deterministic factory deployment from canonical `evmDeploymentPlan`
+- [x] add source-backed verification covering owner add/remove mutations against current client modules
+- [x] add source-backed verification covering replay rejection against the in-repo smart-account spec package
+- [x] add negative tests for expired authorization, bad signer, wrong `nearAccountIdHash`, reused nonce, and duplicate owner recovery
+- [x] remove any superseded legacy smart-account assumptions once the canonical spec path is active
+- [x] update the device-linking and recovery docs to mark completed items and delete obsolete transitional notes
 
 Recommended repo shape for V1:
 
-- keep the EVM smart-account contract in this repo
+- keep the EVM smart-account spec in this repo
 - isolate it as `/contracts/evm-smart-account`
 - keep ABI generation, relayer integration, and recovery authorization fixtures versioned alongside the server/client code that consumes them

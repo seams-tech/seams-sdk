@@ -49,7 +49,7 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
   chainId: number;
   accountAddress: string;
 }): Promise<
-  | { ok: true; manifest: Record<string, unknown> }
+  | { ok: true; manifest: Record<string, unknown>; evmDeploymentPlan?: Record<string, unknown> }
   | { ok: false; code: string; message: string }
 > {
   const relayerUrl = String(input.transport.relayerUrl || '').trim();
@@ -85,6 +85,12 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
       json?.manifest && typeof json.manifest === 'object' && !Array.isArray(json.manifest)
         ? (json.manifest as Record<string, unknown>)
         : null;
+    const evmDeploymentPlan =
+      json?.evmDeploymentPlan &&
+      typeof json.evmDeploymentPlan === 'object' &&
+      !Array.isArray(json.evmDeploymentPlan)
+        ? (json.evmDeploymentPlan as Record<string, unknown>)
+        : null;
     if (!response.ok || json?.ok !== true || !manifest) {
       return {
         ok: false,
@@ -96,7 +102,11 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
           'Failed to fetch canonical smart-account deployment manifest',
       };
     }
-    return { ok: true, manifest };
+    return {
+      ok: true,
+      manifest,
+      ...(evmDeploymentPlan ? { evmDeploymentPlan } : {}),
+    };
   } catch (error: unknown) {
     return {
       ok: false,
@@ -134,6 +144,7 @@ export async function deploySmartAccountForChain(
     accountAddress: String(input.account.accountAddress || '').trim(),
     accountModel: String(input.account.accountModel || '').trim(),
     deploymentManifest: manifest.manifest,
+    ...(manifest.evmDeploymentPlan ? { evmDeploymentPlan: manifest.evmDeploymentPlan } : {}),
   };
 
   let json: Record<string, unknown> | null = null;

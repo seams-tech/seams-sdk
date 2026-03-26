@@ -60,7 +60,9 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
 }
 
 function makeUnsignedJwtWithExp(expSeconds: number): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }), 'utf8').toString('base64url');
+  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' }), 'utf8').toString(
+    'base64url',
+  );
   const payload = Buffer.from(
     JSON.stringify({ sub: 'session-exchange-test', exp: expSeconds }),
     'utf8',
@@ -88,7 +90,11 @@ function makeSignedDelegateBillingSpyWithBalance(
           recentCreditPurchasedMinor: 0,
           lowBalanceThresholdMinor: 2_000,
           liveEnvironmentState:
-            creditBalanceMinor <= 0 ? 'BLOCKED' : creditBalanceMinor <= 2_000 ? 'LOW_BALANCE' : 'HEALTHY',
+            creditBalanceMinor <= 0
+              ? 'BLOCKED'
+              : creditBalanceMinor <= 2_000
+                ? 'LOW_BALANCE'
+                : 'HEALTHY',
           outstandingInvoiceCount: 0,
           outstandingInvoiceAmountMinor: 0,
           currentMonthUsageAmountMinor: 0,
@@ -160,10 +166,7 @@ function makeRelayObservabilityCollector(
   }>,
 ) {
   return {
-    appendEvent: async (
-      ingestCtx: Record<string, unknown>,
-      event: Record<string, unknown>,
-    ) => {
+    appendEvent: async (ingestCtx: Record<string, unknown>, event: Record<string, unknown>) => {
       ingested.push({ ingestCtx, event });
       return { accepted: 1, deduplicated: 0 };
     },
@@ -190,7 +193,11 @@ async function publishAllowedSignedDelegatePolicy(
   options?: {
     networkClass?: 'ANY' | 'TESTNET' | 'MAINNET';
     maxDepositYocto?: string;
-    spendCap?: { mode: string; period: string; capsByChain: Array<{ chainId: number; capMinor: number }> };
+    spendCap?: {
+      mode: string;
+      period: string;
+      capsByChain: Array<{ chainId: number; capMinor: number }>;
+    };
   },
 ): Promise<void> {
   await runtimeSnapshots.publishSnapshot(delegateApiKeyCtx, {
@@ -248,10 +255,16 @@ function makeEd25519ThresholdAdapter(input: {
         healthz: async () => ({ ok: true }),
         keygen: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
         session: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
-        authorize: async (args: { claims: Record<string, unknown>; request: Record<string, unknown> }) =>
-          await input.authorize(args),
+        authorize: async (args: {
+          claims: Record<string, unknown>;
+          request: Record<string, unknown>;
+        }) => await input.authorize(args),
         protocol: {
-          signInit: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          signInit: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
           signFinalize: async () => ({
             ok: false,
             code: 'not_implemented',
@@ -389,17 +402,14 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     const pricing = makeSignedDelegatePricing();
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
-    const created = await apiKeys.createApiKey(
-      delegateApiKeyCtx,
-      {
-        kind: 'publishable_key',
-        name: 'delegate-browser',
-        environmentId: delegateEnvironmentId,
-        allowedOrigins: ['https://example.localhost'],
-        rateLimitBucket: 'default_web_v1',
-        quotaBucket: 'free_registrations_v1',
-      },
-    );
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
@@ -553,17 +563,14 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const spendCaps = createInMemoryConsoleSponsorshipSpendCapService();
     const pricing = makeSignedDelegatePricing();
     const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
-    const created = await apiKeys.createApiKey(
-      delegateApiKeyCtx,
-      {
-        kind: 'publishable_key',
-        name: 'delegate-browser',
-        environmentId: delegateEnvironmentId,
-        allowedOrigins: ['https://example.localhost'],
-        rateLimitBucket: 'default_web_v1',
-        quotaBucket: 'free_registrations_v1',
-      },
-    );
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots, {
       networkClass: 'TESTNET',
       spendCap: {
@@ -662,17 +669,14 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     const pricing = makeSignedDelegatePricing();
-    const created = await apiKeys.createApiKey(
-      delegateApiKeyCtx,
-      {
-        kind: 'publishable_key',
-        name: 'delegate-browser',
-        environmentId: delegateEnvironmentId,
-        allowedOrigins: ['https://example.localhost'],
-        rateLimitBucket: 'default_web_v1',
-        quotaBucket: 'free_registrations_v1',
-      },
-    );
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
@@ -955,17 +959,14 @@ test.describe('relayer router (cloudflare) – P0', () => {
     const runtimeSnapshots = createInMemoryConsoleRuntimeSnapshotService();
     const prepaidReservations = createInMemoryConsoleBillingPrepaidReservationService();
     const pricing = makeSignedDelegatePricing();
-    const created = await apiKeys.createApiKey(
-      delegateApiKeyCtx,
-      {
-        kind: 'publishable_key',
-        name: 'delegate-browser',
-        environmentId: delegateEnvironmentId,
-        allowedOrigins: ['https://example.localhost'],
-        rateLimitBucket: 'default_web_v1',
-        quotaBucket: 'free_registrations_v1',
-      },
-    );
+    const created = await apiKeys.createApiKey(delegateApiKeyCtx, {
+      kind: 'publishable_key',
+      name: 'delegate-browser',
+      environmentId: delegateEnvironmentId,
+      allowedOrigins: ['https://example.localhost'],
+      rateLimitBucket: 'default_web_v1',
+      quotaBucket: 'free_registrations_v1',
+    });
     await publishAllowedSignedDelegatePolicy(runtimeSnapshots);
     const handler = createCloudflareRouter(service, {
       signedDelegate: {
@@ -1086,9 +1087,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(res.json?.challengeId).toBe('sync-cid-123');
     expect(res.json?.credentialIds).toEqual(['cred-a', 'cred-b']);
-    expect((receivedBody as Record<string, unknown> | null)?.['rp_id']).toBe(
-      'example.localhost',
-    );
+    expect((receivedBody as Record<string, unknown> | null)?.['rp_id']).toBe('example.localhost');
     expect((receivedBody as Record<string, unknown> | null)?.['account_id']).toBe('bob.testnet');
   });
 
@@ -1124,6 +1123,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
             chainId: 11155111,
             accountModel: 'erc4337',
             deployed: false,
+            factory: `0x${'33'.repeat(20)}`,
+            entryPoint: `0x${'44'.repeat(20)}`,
+            recoveryAuthority: `0x${'55'.repeat(20)}`,
+            salt: '0x1234',
+            counterfactualAddress: '0xabc111',
           },
         },
       }),
@@ -1181,6 +1185,15 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(getPath(writes[1], 'metadata', 'deploymentManifest', 'ownerAddresses')).toEqual([
       `0x${'11'.repeat(20)}`,
     ]);
+    expect(getPath(writes[1], 'metadata', 'evmDeploymentPlan', 'predictedAddress')).toMatch(
+      /^0x[0-9a-f]{40}$/,
+    );
+    expect(getPath(writes[1], 'metadata', 'evmDeploymentPlan', 'createAccountCalldata')).toMatch(
+      /^0xf8a59370/,
+    );
+    expect(
+      Number.isFinite(Number(getPath(writes[1], 'metadata', 'evmDeploymentPlanUpdatedAtMs'))),
+    ).toBe(true);
   });
 
   test('POST /smart-account/deployment/manifest: returns canonical manifest for authorized threshold session', async () => {
@@ -1214,6 +1227,10 @@ test.describe('relayer router (cloudflare) – P0', () => {
             chainId: 11155111,
             accountModel: 'erc4337',
             deployed: false,
+            factory: `0x${'33'.repeat(20)}`,
+            entryPoint: `0x${'44'.repeat(20)}`,
+            recoveryAuthority: `0x${'55'.repeat(20)}`,
+            salt: '0x1234',
             counterfactualAddress: '0xabc111',
           },
         },
@@ -1269,12 +1286,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
       `0x${'11'.repeat(20)}`,
       `0x${'22'.repeat(20)}`,
     ]);
-    expect(getPath(res.json, 'manifest', 'activeOwnerAddresses')).toEqual([
-      `0x${'11'.repeat(20)}`,
-    ]);
+    expect(getPath(res.json, 'manifest', 'activeOwnerAddresses')).toEqual([`0x${'11'.repeat(20)}`]);
     expect(getPath(res.json, 'manifest', 'pendingOwnerAddresses')).toEqual([
       `0x${'22'.repeat(20)}`,
     ]);
+    expect(getPath(res.json, 'evmDeploymentPlan', 'predictedAddress')).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(getPath(res.json, 'evmDeploymentPlan', 'matchesAccountAddress')).toBe(false);
+    expect(getPath(res.json, 'evmDeploymentPlan', 'createAccountCalldata')).toMatch(/^0xf8a59370/);
   });
 
   test('POST /auth/passkey/verify: invalid body', async () => {
@@ -1458,7 +1476,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
       },
     });
     await webhooks.createEndpoint(
-      { orgId: 'org-relay-cf-auth-identities-parse-fail', actorUserId: 'test-admin', roles: ['admin'] },
+      {
+        orgId: 'org-relay-cf-auth-identities-parse-fail',
+        actorUserId: 'test-admin',
+        roles: ['admin'],
+      },
       {
         url: 'https://example.com/relay-webhooks',
         eventCategories: ['session'],
@@ -2144,7 +2166,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
     const handler = async (request: Request, env?: unknown, ctx?: unknown): Promise<Response> => {
       const pathname = new URL(request.url).pathname;
-      if (pathname.startsWith('/console/')) return await consoleHandler(request, env as any, ctx as any);
+      if (pathname.startsWith('/console/'))
+        return await consoleHandler(request, env as any, ctx as any);
       return await relayHandler(request, env as any, ctx as any);
     };
 
@@ -2251,7 +2274,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
     const handler = async (request: Request, env?: unknown, ctx?: unknown): Promise<Response> => {
       const pathname = new URL(request.url).pathname;
-      if (pathname.startsWith('/console/')) return await consoleHandler(request, env as any, ctx as any);
+      if (pathname.startsWith('/console/'))
+        return await consoleHandler(request, env as any, ctx as any);
       return await relayHandler(request, env as any, ctx as any);
     };
 
@@ -2290,7 +2314,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
     expect(members.status).toBe(200);
     const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
-    const actor = memberRows.find((entry: any) => String(entry?.userId || '') === 'user-provisioning-cf-1');
+    const actor = memberRows.find(
+      (entry: any) => String(entry?.userId || '') === 'user-provisioning-cf-1',
+    );
     expect(actor).toBeTruthy();
 
     const auditEvents = await callCf(handler, {
@@ -2390,9 +2416,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(String((verifyArgs as Record<string, unknown> | null)?.['challengeId'] || '')).toBe(
       'challenge-passkey-cf-1',
     );
-    expect(
-      String((verifyArgs as Record<string, unknown> | null)?.['expected_origin'] || ''),
-    ).toBe('https://wallet.example.localhost');
+    expect(String((verifyArgs as Record<string, unknown> | null)?.['expected_origin'] || '')).toBe(
+      'https://wallet.example.localhost',
+    );
     expect(dispatched.map((item) => item.eventType)).toEqual([
       'session.warm.created',
       'wallet.unlocked',
@@ -3392,9 +3418,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
         from: 'sender@example.com',
         to: 'recover@web3authn.org',
         headers: { Subject: buildRecoveryEmailSubject(payload) },
-        raw: [`Subject: ${buildRecoveryEmailSubject(payload)}`, '', buildRecoveryEmailBody(payload)].join(
-          '\r\n',
-        ),
+        raw: [
+          `Subject: ${buildRecoveryEmailSubject(payload)}`,
+          '',
+          buildRecoveryEmailBody(payload),
+        ].join('\r\n'),
         rawSize: 1,
       },
       ctx,

@@ -17,7 +17,7 @@ Completed foundations:
 - [x] `link-device/prepare` can bootstrap optional threshold-ECDSA device-link material
 - [x] `link-device/prepare` persists pending canonical signer rows for linked smart accounts
 - [x] client `linkDevice` persists threshold-ECDSA bootstrap state and pending linked-account signer rows
-- [x] the authorizing device can execute deployed EVM `addOwner(...)` signer mutations from queued canonical link-device ops
+- [x] the authorizing device can execute deployed EVM `addOwner(...)` / `removeOwner(...)` signer mutations from queued canonical signer ops
 - [x] deployment observation materializes canonical pending signer rows for undeployed smart accounts
 - [x] successful NEAR recovery submission seeds pending per-account EVM `recovery_execution` rows for linked smart accounts
 - [x] canonical `recovery_execution` state can enumerate pending `recover_add_owner` work for future executor pickup
@@ -37,13 +37,23 @@ Completed foundations:
 - [x] `email-recovery/prepare` now creates recovery sessions bound to the new EVM owner, recovery deadline, and canonical payload hash
 - [x] `/recover-email` now rejects mismatched recovery emails before NEAR execution and marks the canonical recovery session `verified`
 - [x] EVM recovery continuation now requires a verified recovery session plus an explicit NEAR-success gate before queuing linked smart-account recovery
-- [x] deployed recovery sponsorship now builds contract-facing `verifyAndRecover` / `recoverAddOwner` authorization payloads with session binding, nonce, and deadline
+- [x] deployed recovery sponsorship now builds spec-facing `verifyAndRecover` / `recoverAddOwner` authorization payloads with session binding, nonce, and deadline
+- [x] off-chain recovery authorization now uses selector-independent digest and nonce derivation so deployed replay semantics match the smart-account spec
+- [x] deployed recovery and deployed `addOwner(...)` owner-mutation execution now derive canonical selectors from the in-repo smart-account spec metadata
+- [x] a reusable relay-side EVM deploy adapter now executes deterministic factory deployment from the canonical `evmDeploymentPlan`
+- [x] canonical deployment-manifest sync now persists derived EVM deployment-plan metadata on recovery subjects and clears stale non-EVM plan metadata
+- [x] sponsored recovery execution rows now persist canonical smart-account call and authorization metadata needed for receipt tracking and observability
+- [x] sponsored recovery verification now covers submission, retry requeue, and receipt confirmation while preserving canonical smart-account metadata
+- [x] in-repo `/contracts/evm-smart-account` package now implements the canonical smart-account surface with forge tests plus generated ABI and metadata artifacts
+- [x] end-to-end relayer verification now covers undeployed recovery continuation from `/recover-email`
+- [x] end-to-end relayer verification now covers deployed recovery submission and confirmation while preserving canonical smart-account metadata
+- [x] end-to-end relayer verification now covers deterministic EVM deployment from canonical deployment-plan metadata
+- [x] source-backed verification now covers deployed owner-mutation and replay paths against current client modules plus the in-repo smart-account spec package
+- [x] canonical deployment-manifest ordering now preserves owner order into EVM init data exactly
+- [x] spec-package deployment tests now cover undeployed-to-deployed continuity after canonical link-device or recovery owner mutations
+- [x] operational runbooks now cover replay incidents, failed sponsorship, and partial completion
 
-In progress:
-
-- [ ] on-chain smart-account implementation of `verifyAndRecover` / `recoverAddOwner`, replay storage, expiry checks, and public-call semantics
-  Current next step: add an in-repo contract package at `/contracts/evm-smart-account` with its own toolchain, tests, deployment scripts, and generated ABI artifacts.
-- [ ] operational runbooks for multichain recovery
+Broader multichain follow-ons remain in the phased checklist below, but the active V1 EVM smart-account track above is complete.
 
 ## Goal
 
@@ -152,6 +162,42 @@ The user should not need:
 - a second recovery approval step after the email recovery succeeded
 
 The repo now has a concrete sponsorship runtime. Recovery sponsorship should use that shared path rather than a custom "relayer pays gas" branch.
+
+## Final Recovery Pipeline
+
+The V1 recovery pipeline is now:
+
+1. `email-recovery/prepare` creates a canonical recovery session bound to `nearAccountId`, `new_near_key`, `new_evm_key`, `recoverySessionId`, `deadline`, and the DKIM-bound payload hash.
+2. `/recover-email` verifies the email payload against that canonical session and records the NEAR recovery submission.
+3. Successful NEAR recovery gates EVM continuation; the relayer will not queue linked smart-account recovery before that gate is satisfied.
+4. For each linked EVM smart account, the relayer records a canonical `recovery_execution` row with deployed vs undeployed target metadata.
+5. Undeployed accounts mutate canonical signer state off-chain only; later deployment materializes the latest canonical owner set into `evmDeploymentPlan.initData`.
+6. Deployed accounts execute `verifyAndRecover(...)` through the shared sponsorship runtime using the canonical EIP-712 recovery authorization.
+7. Receipt confirmation activates the recovered signer canonically, updates deployment/recovery metadata, and reconciles the parent `recovery_session`.
+8. Background continuation handles retryable failures, submitted confirmations, and observability for stuck or failed recovery rows.
+
+## Operational Runbook
+
+### Replay Rejection
+
+- Symptom: a deployed recovery row fails with `tx_reverted` and the preserved `recoverySpec.authorization.payload.nonce` already appears consumed for that smart account.
+- Confirm the failure is a true replay by checking the recovery row metadata, the smart-account event or receipt, and `isRecoveryNonceUsed(...)` on the target account.
+- Do not requeue the same authorization. Recovery nonces are single-use per account, and the worker already treats `tx_reverted` as non-retryable.
+- If recovery still needs to proceed, generate a fresh canonical recovery authorization from the current recovery session and submit a new sponsored execution.
+
+### Failed Sponsorship
+
+- Symptom: deployed recovery remains `pending`, `submitted`, or `failed` with sponsorship metadata but no successful settlement.
+- Confirm sponsorship scope, policy resolution, spend-cap reservation, prepaid-balance state, and relayer RPC health before retrying.
+- If the failure is retryable, let the background recovery loop requeue it; if the failure is non-retryable, fix the billing or policy condition first and then issue a fresh recovery execution.
+- Preserve the existing `recoverySpec` and sponsorship metadata for incident review; do not overwrite prior failure context manually.
+
+### Partial Completion
+
+- Symptom: NEAR recovery succeeded but one or more linked EVM recovery rows are still `pending`, `submitted`, or `failed`.
+- Use the canonical `recovery_execution` rows as the source of truth. The parent `recovery_session` should be reconciled from those per-account rows, not guessed from client state.
+- If the account is undeployed, confirm the recovered signer appears in canonical signer state and in the current deployment manifest before any later deploy.
+- If the account is deployed, confirm receipt status, signer activation, and updated recovery-subject deployment metadata before marking the session fully complete.
 
 ## Recovery proof model
 
@@ -644,31 +690,31 @@ These are implementation details, not alternative architectures. They should be 
 - [x] Add a `recovery_session` store for email-driven multichain recovery.
 - [x] Persist canonical EVM signer metadata at registration.
 - [x] Persist recovery subject metadata per smart account.
-- [ ] Define client/server representation for undeployed smart-account signer sets.
-- [ ] Remove any per-account recovery-attestor-set design from the model.
+- [x] Define client/server representation for undeployed smart-account signer sets.
+- [x] Remove any per-account recovery-attestor-set design from the model.
 
 ### Phase 2: NEAR / Outlayer recovery integration
 
 - [x] Extend the recovery email payload to include both `new_near_key` and `new_evm_key`.
 - [x] Ensure those fields are inside DKIM-covered content.
 - [x] Extend the relayer / Outlayer pipeline to return a canonical verified recovery result for that payload.
-- [ ] Ensure NEAR `EmailRecoverer` can consume that verified result and add `new_near_key`.
+- [x] Ensure NEAR `EmailRecoverer` can consume that verified result and add `new_near_key`.
 - [x] Emit or persist enough recovery-session metadata for `recoveryAuthority` to continue into EVM recovery.
 - [x] Gate EVM recovery on successful NEAR-side recovery completion.
 
-### Phase 3: EVM contract and relayer support
+### Phase 3: EVM smart-account spec and relayer support
 
-- [ ] Implement smart-account owner-management methods for normal device linking.
-- [ ] Implement `verifyAndRecover` / `recoverAddOwner` authorized by `recoveryAuthority`.
+- [x] Implement smart-account owner-management methods for normal device linking.
+- [x] Implement `verifyAndRecover` / `recoverAddOwner` authorized by `recoveryAuthority`.
 - [x] Use an EIP-712 recovery payload with session binding, nonce, and deadline.
-- [ ] Add replay protection and expiry checks for recovery payloads.
+- [x] Add replay protection and expiry checks for recovery payloads.
 - [x] Add internal relayer mutation hooks for add/remove/recover owner flows.
 - [x] Configure one global `recoveryAuthority`.
 - [x] Integrate deployed recovery mutations with the shared sponsorship runtime instead of ad hoc relayer gas handling.
 - [x] Require sponsored execution support for deployed recovery mutations.
 - [x] Reserve and settle sponsored recovery spend through the shared billing / prepaid / sponsored-call path when enabled.
 - [x] Record sponsored recovery executions with route, policy, and billing linkage compatible with sponsored-call history.
-- [ ] Keep `verifyAndRecover()` callable by anyone even though V1 execution is relayer-driven.
+- [x] Keep `verifyAndRecover()` callable by anyone even though V1 execution is relayer-driven.
 
 ### Phase 4: Client flows
 
@@ -699,18 +745,18 @@ These are implementation details, not alternative architectures. They should be 
 - [x] Add a non-Cloudflare interval recovery-continuation runner for Node/Express deployments.
 - [x] Refresh canonical smart-account deployment state after later client-driven deployments so recovery mode stays accurate after undeployed -> deployed transitions.
 - [x] Add monitoring and alerting around failed and stuck per-account recovery executions in background continuation.
-- [ ] Add operational runbooks for replay incidents, failed sponsorship, and partial completion.
+- [x] Add operational runbooks for replay incidents, failed sponsorship, and partial completion.
 - [x] Add observability and reconciliation coverage for sponsored recovery executions.
 - [x] Deduplicate sponsored recovery observability incidents across repeated background ticks with deterministic scope/window alert keys.
 
 ### Phase 6: Cleanup and convergence
 
 - [x] Materialize canonical undeployed deployment manifests from server-side signer state and reuse them for later deployment.
-- [ ] Remove older recovery designs that depended on post-recovery NEAR intent signatures.
-- [ ] Remove legacy assumptions that EVM recovery needs separate backend variants in the smart-account contract.
-- [ ] Refactor NEAR-only recovery flow types into chain-aware recovery domain types.
-- [ ] Consolidate multichain account continuity under one profile + signer-set model.
-- [ ] Document the final recovery pipeline next to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
+- [x] Remove older recovery designs that depended on post-recovery NEAR intent signatures.
+- [x] Remove legacy assumptions that EVM recovery needs separate backend variants in the smart-account spec.
+- [x] Refactor NEAR-only recovery flow types into chain-aware recovery domain types.
+- [x] Consolidate multichain account continuity under one profile + signer-set model.
+- [x] Document the final recovery pipeline next to [smart-accounts-evm.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/smart-accounts-evm.md).
 
 ## Security requirements
 
@@ -737,27 +783,27 @@ Implementation note:
 - [x] recovery session persists `nearAccountId`, `new_near_key`, and `new_evm_key` together
 - [x] verified email result maps back to exactly one pending recovery session
 - [x] `verifyAndRecover` payload includes `nearAccountId`, `new_near_key`, and `recoverySession`
-- [ ] rejecting replayed recovery payloads
+- [x] rejecting replayed recovery payloads
 - [x] rejecting expired recovery payloads
 - [x] rejecting wrong-chain and wrong-wallet recovery payloads
-- [ ] persisting canonical signer sets across client/server state transitions
+- [x] persisting canonical signer sets across client/server state transitions
 
 ### Integration
 
-- [ ] registration provisions undeployed smart account plus first signer
-- [ ] `linkDevice` adds a second EVM owner and new device can sign
-- [ ] one verified recovery email adds `new_near_key` on NEAR and `new_evm_key` on deployed EVM smart accounts
-- [ ] undeployed smart account later deploys with the recovered signer set
-- [ ] recovery is sponsored for deployed EVM accounts
+- [x] registration provisions undeployed smart account plus first signer
+- [x] `linkDevice` adds a second EVM owner and new device can sign
+- [x] one verified recovery email adds `new_near_key` on NEAR and `new_evm_key` on deployed EVM smart accounts
+- [x] undeployed smart account later deploys with the recovered signer set
+- [x] recovery is sponsored for deployed EVM accounts
 
 ### Adversarial
 
-- [ ] tampered recovery email payload outside DKIM-covered content is rejected
+- [x] tampered recovery email payload outside DKIM-covered content is rejected
 - [x] mismatched `new_evm_key` between recovery session and verified email result is rejected
-- [ ] replay of one recovery session across chains or different smart accounts is rejected
+- [x] replay of one recovery session across chains or different smart accounts is rejected
 - [x] stale or expired recovery sessions are rejected
-- [ ] compromised old owner races newly recovered owner
-- [ ] partial failure where NEAR recovery succeeds but some EVM recovery mutations fail
+- [x] compromised old owner races newly recovered owner
+- [x] partial failure where NEAR recovery succeeds but some EVM recovery mutations fail
 - [ ] stale signer metadata after owner removal
 
 ## Billing and sponsorship

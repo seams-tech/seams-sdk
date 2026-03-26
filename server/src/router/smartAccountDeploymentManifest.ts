@@ -1,6 +1,10 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AuthService } from '../core/AuthService';
 import {
+  buildCanonicalEvmSmartAccountDeploymentPlan,
+  type CanonicalEvmSmartAccountDeploymentPlan,
+} from '../core/evmSmartAccountDeploymentPlan';
+import {
   buildCanonicalSmartAccountDeploymentManifest,
   type CanonicalSmartAccountDeploymentManifest,
 } from '../core/smartAccountDeploymentManifest';
@@ -12,6 +16,11 @@ type SmartAccountDeploymentManifestAuthService = Pick<
   | 'putSmartAccountRecoverySubject'
 >;
 
+const EVM_DEPLOYMENT_PLAN_METADATA_KEYS = [
+  'evmDeploymentPlan',
+  'evmDeploymentPlanUpdatedAtMs',
+] as const;
+
 function normalizeChainIdKey(value: unknown): string {
   return toOptionalTrimmedString(value)?.toLowerCase() || '';
 }
@@ -19,6 +28,29 @@ function normalizeChainIdKey(value: unknown): string {
 function normalizeAccountAddress(value: unknown): string {
   const normalized = toOptionalTrimmedString(value) || '';
   return normalized.startsWith('0x') ? normalized.toLowerCase() : normalized;
+}
+
+function buildSyncedRecoverySubjectMetadata(input: {
+  metadata?: Record<string, unknown>;
+  manifest: CanonicalSmartAccountDeploymentManifest;
+  evmDeploymentPlan?: CanonicalEvmSmartAccountDeploymentPlan;
+}): Record<string, unknown> {
+  const next: Record<string, unknown> = {
+    ...(input.metadata || {}),
+    deploymentManifest: input.manifest,
+    deploymentManifestUpdatedAtMs: input.manifest.materializedAtMs,
+  };
+
+  if (input.evmDeploymentPlan) {
+    next.evmDeploymentPlan = input.evmDeploymentPlan;
+    next.evmDeploymentPlanUpdatedAtMs = input.manifest.materializedAtMs;
+    return next;
+  }
+
+  for (const key of EVM_DEPLOYMENT_PLAN_METADATA_KEYS) {
+    delete next[key];
+  }
+  return next;
 }
 
 export async function readCanonicalSmartAccountDeploymentManifest(input: {
@@ -33,6 +65,7 @@ export async function readCanonicalSmartAccountDeploymentManifest(input: {
       chainIdKey: string;
       accountAddress: string;
       manifest: CanonicalSmartAccountDeploymentManifest;
+      evmDeploymentPlan?: CanonicalEvmSmartAccountDeploymentPlan;
     }
   | { ok: false; code: 'invalid_args' | 'not_found' | 'forbidden' | 'internal'; message: string }
 > {
@@ -90,7 +123,15 @@ export async function readCanonicalSmartAccountDeploymentManifest(input: {
     };
   }
 
-  return { ok: true, chainIdKey, accountAddress, manifest };
+  const evmDeploymentPlan = buildCanonicalEvmSmartAccountDeploymentPlan(manifest);
+
+  return {
+    ok: true,
+    chainIdKey,
+    accountAddress,
+    manifest,
+    ...(evmDeploymentPlan ? { evmDeploymentPlan } : {}),
+  };
 }
 
 export async function syncCanonicalSmartAccountDeploymentManifest(input: {
@@ -105,6 +146,7 @@ export async function syncCanonicalSmartAccountDeploymentManifest(input: {
       chainIdKey: string;
       accountAddress: string;
       manifest: CanonicalSmartAccountDeploymentManifest;
+      evmDeploymentPlan?: CanonicalEvmSmartAccountDeploymentPlan;
     }
   | { ok: false; code: 'invalid_args' | 'not_found' | 'forbidden' | 'internal'; message: string }
 > {
@@ -132,11 +174,11 @@ export async function syncCanonicalSmartAccountDeploymentManifest(input: {
   const written = await input.authService.putSmartAccountRecoverySubject({
     ...subject.record,
     updatedAtMs: nowMs,
-    metadata: {
-      ...(subject.record.metadata || {}),
-      deploymentManifest: resolved.manifest,
-      deploymentManifestUpdatedAtMs: resolved.manifest.materializedAtMs,
-    },
+    metadata: buildSyncedRecoverySubjectMetadata({
+      metadata: subject.record.metadata,
+      manifest: resolved.manifest,
+      ...(resolved.evmDeploymentPlan ? { evmDeploymentPlan: resolved.evmDeploymentPlan } : {}),
+    }),
   });
   if (!written.ok) {
     return { ok: false, code: written.code, message: written.message };

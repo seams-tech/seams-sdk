@@ -61,6 +61,7 @@ export function registerSmartAccountDeploymentRoutes(
         chainIdKey: manifest.chainIdKey,
         accountAddress: manifest.accountAddress,
         manifest: manifest.manifest,
+        ...(manifest.evmDeploymentPlan ? { evmDeploymentPlan: manifest.evmDeploymentPlan } : {}),
       });
     } catch (e: any) {
       res

@@ -72,6 +72,7 @@ export async function handleSmartAccountDeployment(
         chainIdKey: manifest.chainIdKey,
         accountAddress: manifest.accountAddress,
         manifest: manifest.manifest,
+        ...(manifest.evmDeploymentPlan ? { evmDeploymentPlan: manifest.evmDeploymentPlan } : {}),
       },
       { status: 200 },
     );

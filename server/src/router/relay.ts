@@ -16,6 +16,7 @@ import type { ConsoleWalletService } from '../console/wallets';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import type { SponsorshipSpendPricingService } from '../sponsorship';
 import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccountDeploymentManifest';
+import type { CanonicalEvmSmartAccountDeploymentPlan } from '../core/evmSmartAccountDeploymentPlan';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
 
@@ -311,6 +312,7 @@ export interface SmartAccountDeployRequest {
   accountAddress: string;
   accountModel: string;
   deploymentManifest: CanonicalSmartAccountDeploymentManifest;
+  evmDeploymentPlan?: CanonicalEvmSmartAccountDeploymentPlan;
 }
 
 export interface SmartAccountDeployResult {
