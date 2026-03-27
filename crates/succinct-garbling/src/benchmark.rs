@@ -13,7 +13,7 @@ use crate::reference::{
     add_le_bytes_mod_2_256, derive_output_shares, eval_f_expand, eval_nonlinear_expansion,
     public_key_from_scalar_bytes, reduce_scalar_mod_l, sha512_one_block, FExpandInput,
 };
-use crate::{ProtoError, ProtoResult};
+use crate::ProtoResult;
 
 pub const PHASE1_REPORT_VERSION: &str = "phase1_eval_report_v1";
 
@@ -308,12 +308,6 @@ pub fn generate_phase1_benchmark_report(
 }
 
 impl Phase1BenchmarkReport {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!("failed to serialize benchmark report: {err}"))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push(format!(

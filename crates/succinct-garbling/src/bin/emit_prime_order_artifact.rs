@@ -36,7 +36,7 @@ fn main() {
     }
 
     let rendered = if args.emit_json {
-        manifest.to_json_pretty().expect("manifest json")
+        serde_json::to_string_pretty(&manifest).expect("manifest json")
     } else {
         manifest.summary_lines().join("\n")
     };

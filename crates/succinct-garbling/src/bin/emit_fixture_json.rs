@@ -1,8 +1,9 @@
-use succinct_garbling::fixtures::serialized_fixture_corpus_json;
+use succinct_garbling::fixtures::serialized_fixture_corpus;
 
 fn main() {
     println!(
         "{}",
-        serialized_fixture_corpus_json().expect("fixture corpus should serialize")
+        serde_json::to_string_pretty(&serialized_fixture_corpus().expect("fixture corpus"))
+            .expect("fixture corpus should serialize")
     );
 }

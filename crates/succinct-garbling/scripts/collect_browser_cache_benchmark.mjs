@@ -116,6 +116,30 @@ async function main() {
         browserDdhHiddenEval?.detailed_result_duration_ns ?? null,
       browser_ddh_evaluate_duration_ns:
         browserDdhHiddenEval?.evaluate_duration_ns ?? null,
+      browser_ddh_ot_open_join_duration_ns:
+        browserDdhHiddenEval?.ot_open_join_duration_ns ?? null,
+      browser_ddh_ot_branch_key_derivation_duration_ns:
+        browserDdhHiddenEval?.ot_branch_key_derivation_duration_ns ?? null,
+      browser_ddh_ot_branch_decrypt_duration_ns:
+        browserDdhHiddenEval?.ot_branch_decrypt_duration_ns ?? null,
+      browser_ddh_ot_point_scalar_reconstruction_duration_ns:
+        browserDdhHiddenEval?.ot_point_scalar_reconstruction_duration_ns ?? null,
+      browser_ddh_ot_commitment_verification_duration_ns:
+        browserDdhHiddenEval?.ot_commitment_verification_duration_ns ?? null,
+      browser_ddh_server_input_open_duration_ns:
+        browserDdhHiddenEval?.server_input_open_duration_ns ?? null,
+      browser_ddh_server_input_share_duration_ns:
+        browserDdhHiddenEval?.server_input_share_duration_ns ?? null,
+      browser_ddh_server_input_commitment_duration_ns:
+        browserDdhHiddenEval?.server_input_commitment_duration_ns ?? null,
+      browser_ddh_server_input_transcript_duration_ns:
+        browserDdhHiddenEval?.server_input_transcript_duration_ns ?? null,
+      browser_ddh_server_input_seal_duration_ns:
+        browserDdhHiddenEval?.server_input_seal_duration_ns ?? null,
+      browser_ddh_output_sealing_finalization_duration_ns:
+        browserDdhHiddenEval?.output_sealing_finalization_duration_ns ?? null,
+      browser_ddh_result_assembly_duration_ns:
+        browserDdhHiddenEval?.result_assembly_duration_ns ?? null,
       browser_ddh_output_open_duration_ns:
         browserDdhHiddenEval?.output_open_duration_ns ?? null,
       browser_ddh_public_key_duration_ns:

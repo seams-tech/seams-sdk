@@ -99,12 +99,6 @@ pub fn materialize_candidate_artifact_stub_bytes(
 }
 
 impl CandidateArtifactStub {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!("failed to serialize artifact stub manifest: {err}"))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
             format!(

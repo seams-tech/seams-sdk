@@ -59,6 +59,18 @@ struct WasmDdhHiddenEvalRun {
     curve_cost_units: u64,
     evaluator_ops: PrimeOrderEvaluatorOps,
     evaluate_duration_ns: u64,
+    ot_open_join_duration_ns: u64,
+    ot_branch_key_derivation_duration_ns: u64,
+    ot_branch_decrypt_duration_ns: u64,
+    ot_point_scalar_reconstruction_duration_ns: u64,
+    ot_commitment_verification_duration_ns: u64,
+    server_input_open_duration_ns: u64,
+    server_input_share_duration_ns: u64,
+    server_input_commitment_duration_ns: u64,
+    server_input_transcript_duration_ns: u64,
+    server_input_seal_duration_ns: u64,
+    output_sealing_finalization_duration_ns: u64,
+    result_assembly_duration_ns: u64,
     output_open_duration_ns: u64,
     public_key_duration_ns: u64,
     total_duration_ns: u64,
@@ -173,7 +185,10 @@ pub fn execute_prime_order_ddh_hidden_eval_once() -> Result<JsValue, JsValue> {
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
         let started_ns = monotonic_now_ns();
         let evaluate_started_ns = started_ns;
-        let report = state.session.evaluate(&state.input).map_err(js_error)?;
+        let (report, evaluate_timing) = state
+            .session
+            .evaluate_with_timing(&state.input)
+            .map_err(js_error)?;
         let evaluate_duration_ns = elapsed_ns(evaluate_started_ns);
         let output_openers = state.session.output_openers();
         let output_open_started_ns = monotonic_now_ns();
@@ -204,6 +219,24 @@ pub fn execute_prime_order_ddh_hidden_eval_once() -> Result<JsValue, JsValue> {
                 .evaluator_ops
                 .clone(),
             evaluate_duration_ns: evaluate_duration_ns as u64,
+            ot_open_join_duration_ns: evaluate_timing.ot_open_join_duration_ns,
+            ot_branch_key_derivation_duration_ns: evaluate_timing
+                .ot_branch_key_derivation_duration_ns,
+            ot_branch_decrypt_duration_ns: evaluate_timing.ot_branch_decrypt_duration_ns,
+            ot_point_scalar_reconstruction_duration_ns: evaluate_timing
+                .ot_point_scalar_reconstruction_duration_ns,
+            ot_commitment_verification_duration_ns: evaluate_timing
+                .ot_commitment_verification_duration_ns,
+            server_input_open_duration_ns: evaluate_timing.server_input_open_duration_ns,
+            server_input_share_duration_ns: evaluate_timing.server_input_share_duration_ns,
+            server_input_commitment_duration_ns: evaluate_timing
+                .server_input_commitment_duration_ns,
+            server_input_transcript_duration_ns: evaluate_timing
+                .server_input_transcript_duration_ns,
+            server_input_seal_duration_ns: evaluate_timing.server_input_seal_duration_ns,
+            output_sealing_finalization_duration_ns: evaluate_timing
+                .output_sealing_finalization_duration_ns,
+            result_assembly_duration_ns: evaluate_timing.result_assembly_duration_ns,
             output_open_duration_ns: output_open_duration_ns as u64,
             public_key_duration_ns: public_key_duration_ns as u64,
             total_duration_ns: elapsed_ns(started_ns) as u64,

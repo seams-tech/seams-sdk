@@ -4,6 +4,7 @@ use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::traits::Identity;
 use merlin::Transcript;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -231,6 +232,14 @@ pub struct DdhHssEvaluator {
     client_output_transport_key: DdhHssTransportKey,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DdhHssOtReconstructTiming {
+    pub branch_key_derivation_duration_ns: u64,
+    pub branch_decrypt_duration_ns: u64,
+    pub point_scalar_reconstruction_duration_ns: u64,
+    pub commitment_verification_duration_ns: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssRoleSet {
     pub garbler: DdhHssGarbler,
@@ -336,6 +345,8 @@ struct DdhHssOtBranchPayload {
     counterparty_commitment: [u8; 32],
     provenance_digest: [u8; 32],
 }
+
+const DDH_HSS_OT_BRANCH_PAYLOAD_BYTES: usize = 2 + 8 + 32 + 32 + 32;
 
 pub fn keygen_prime_order_ddh_hss_backend(
     context_binding: [u8; 32],
@@ -1018,10 +1029,9 @@ impl DdhHssBackend {
         branch_bit: u8,
         payload: &DdhHssOtBranchPayload,
     ) -> ProtoResult<DdhHssOtEncryptedBranch> {
-        let plaintext = bincode::serialize(payload).map_err(|err| {
-            ProtoError::Decode(format!("failed to serialize OT branch payload: {err}"))
-        })?;
-        let payload_digest = Sha256::digest(&plaintext);
+        let plaintext = encode_ot_branch_payload(payload);
+        let aad = ot_branch_aad(owner, label, bit_idx, branch_bit);
+        let payload_digest = Sha256::digest(plaintext);
         let mut payload_digest_array = [0u8; 32];
         payload_digest_array.copy_from_slice(&payload_digest);
 
@@ -1033,7 +1043,7 @@ impl DdhHssBackend {
                 Nonce::from_slice(&nonce),
                 Payload {
                     msg: &plaintext,
-                    aad: &ot_branch_aad(owner, label, bit_idx, branch_bit),
+                    aad: &aad,
                 },
             )
             .map_err(|err| {
@@ -1058,12 +1068,13 @@ impl DdhHssBackend {
         branch: &DdhHssOtEncryptedBranch,
     ) -> ProtoResult<DdhHssOtBranchPayload> {
         let cipher = ChaCha20Poly1305::new(&key.into());
+        let aad = ot_branch_aad(owner, label, bit_idx, branch_bit);
         let plaintext = cipher
             .decrypt(
                 Nonce::from_slice(&branch.nonce),
                 Payload {
                     msg: branch.ciphertext.as_ref(),
-                    aad: &ot_branch_aad(owner, label, bit_idx, branch_bit),
+                    aad: &aad,
                 },
             )
             .map_err(|err| {
@@ -1077,7 +1088,7 @@ impl DdhHssBackend {
                 "OT branch payload digest mismatch for {label}/{bit_idx}/{branch_bit}"
             )));
         }
-        bincode::deserialize(&plaintext).map_err(|err| {
+        decode_ot_branch_payload(&plaintext).map_err(|err| {
             ProtoError::Decode(format!(
                 "failed to decode OT branch payload for {label}/{bit_idx}/{branch_bit}: {err}"
             ))
@@ -1605,63 +1616,7 @@ impl DdhHssGarbler {
         sender_state: &DdhHssOtSenderStateBundle,
         remote: &DdhHssOtRemoteBundle,
     ) -> ProtoResult<()> {
-        if offer.owner != HiddenEvalInputOwner::Client
-            || sender_state.owner != HiddenEvalInputOwner::Client
-            || remote.owner != HiddenEvalInputOwner::Client
-        {
-            return Err(ProtoError::InvalidInput(
-                "client OT validation requires client-owned offer, sender state, and remote bundles"
-                    .to_string(),
-            ));
-        }
-        if offer.label != sender_state.label || offer.label != remote.label {
-            return Err(ProtoError::InvalidInput(format!(
-                "client OT offer label does not match sender state or remote bundle: {}, {}, {}",
-                offer.label, sender_state.label, remote.label
-            )));
-        }
-        if remote.share_side != DdhHssShareSide::Right {
-            return Err(ProtoError::InvalidInput(
-                "client OT remote bundle must carry right-side shares".to_string(),
-            ));
-        }
-        if offer.words.len() != remote.words.len() || offer.words.len() != sender_state.words.len()
-        {
-            return Err(ProtoError::InvalidInput(format!(
-                "client OT offer word count does not match sender state / remote bundle: {} vs {} / {}",
-                offer.words.len(),
-                sender_state.words.len(),
-                remote.words.len()
-            )));
-        }
-        if remote.commitment
-            != ot_remote_bundle_commitment(
-                remote.owner,
-                &remote.label,
-                remote.share_side,
-                &remote.words,
-            )
-        {
-            return Err(ProtoError::InvalidInput(
-                "client OT remote bundle commitment is invalid".to_string(),
-            ));
-        }
-        if offer.commitment != ot_offer_bundle_commitment(offer.owner, &offer.label, &offer.words) {
-            return Err(ProtoError::InvalidInput(
-                "client OT offer commitment is invalid".to_string(),
-            ));
-        }
-        if sender_state.commitment
-            != ot_sender_state_bundle_commitment(
-                sender_state.owner,
-                &sender_state.label,
-                &sender_state.words,
-            )
-        {
-            return Err(ProtoError::InvalidInput(
-                "client OT sender-state commitment is invalid".to_string(),
-            ));
-        }
+        validate_client_ot_offer_preflight(offer, sender_state, remote)?;
 
         for (bit_idx, ((word_offer, sender_state_word), remote_word)) in offer
             .words
@@ -1709,7 +1664,7 @@ impl DdhHssGarbler {
         remote: &DdhHssOtRemoteBundle,
         request: &DdhHssOtSelectionBundle,
     ) -> ProtoResult<(DdhHssOtResponseBundle, DdhHssOtReleasedRemoteBundle)> {
-        self.validate_client_input_ot_bundle_offer(offer, sender_state, remote)?;
+        validate_client_ot_offer_preflight(offer, sender_state, remote)?;
         if request.owner != HiddenEvalInputOwner::Client {
             return Err(ProtoError::InvalidInput(
                 "client OT request must be client-owned".to_string(),
@@ -2032,6 +1987,38 @@ impl DdhHssEvaluator {
             &self.public_state.evaluation_key,
             expected_context_binding,
             local,
+            remote,
+        )
+    }
+
+    pub fn reconstruct_client_ot_bundle(
+        &self,
+        expected_context_binding: [u8; 32],
+        response: &DdhHssOtResponseBundle,
+        local_state: &DdhHssOtReceiverStateBundle,
+        remote: &DdhHssOtReleasedRemoteBundle,
+    ) -> ProtoResult<DdhHssInputShareBundle> {
+        reconstruct_client_ot_bundle_public(
+            &self.public_state.evaluation_key,
+            expected_context_binding,
+            response,
+            local_state,
+            remote,
+        )
+    }
+
+    pub(crate) fn reconstruct_client_ot_bundle_timed(
+        &self,
+        expected_context_binding: [u8; 32],
+        response: &DdhHssOtResponseBundle,
+        local_state: &DdhHssOtReceiverStateBundle,
+        remote: &DdhHssOtReleasedRemoteBundle,
+    ) -> ProtoResult<(DdhHssInputShareBundle, DdhHssOtReconstructTiming)> {
+        reconstruct_client_ot_bundle_timed_public(
+            &self.public_state.evaluation_key,
+            expected_context_binding,
+            response,
+            local_state,
             remote,
         )
     }
@@ -2681,10 +2668,19 @@ fn commit_word(
     provenance_digest: &[u8; 32],
 ) -> [u8; 32] {
     match owner {
-        HiddenEvalInputOwner::Client | HiddenEvalInputOwner::Server => (ED25519_BASEPOINT_POINT
-            * Scalar::from(word))
-        .compress()
-        .to_bytes(),
+        HiddenEvalInputOwner::Client | HiddenEvalInputOwner::Server => {
+            if word == 0 {
+                return curve25519_dalek::edwards::EdwardsPoint::identity()
+                    .compress()
+                    .to_bytes();
+            }
+            if word == 1 {
+                return ED25519_BASEPOINT_POINT.compress().to_bytes();
+            }
+            (ED25519_BASEPOINT_POINT * Scalar::from(word))
+                .compress()
+                .to_bytes()
+        }
         HiddenEvalInputOwner::Derived => {
             let mut hasher = Blake3Hasher::new();
             hasher.update(b"succinct-garbling-proto/ddh-hss/derived-commitment/v0");
@@ -3146,6 +3142,8 @@ fn prepare_client_input_ot_request_public(
 
     let mut request_words = Vec::with_capacity(bit_count);
     let mut local_state_words = Vec::with_capacity(bit_count);
+    let mut random_wide_bytes = vec![0u8; bit_count * 64];
+    OsRng.fill_bytes(&mut random_wide_bytes);
     for (bit_idx, word_offer) in offer.words.iter().enumerate() {
         if word_offer.width_bits != 1 {
             return Err(ProtoError::InvalidInput(format!(
@@ -3156,9 +3154,12 @@ fn prepare_client_input_ot_request_public(
         let byte_idx = bit_idx / 8;
         let inner_bit_idx = bit_idx % 8;
         let selected_branch = (input[byte_idx] >> inner_bit_idx) & 1;
-        let mut wide = [0u8; 64];
-        OsRng.fill_bytes(&mut wide);
-        let receiver_scalar = Scalar::from_bytes_mod_order_wide(&wide);
+        let wide_offset = bit_idx * 64;
+        let receiver_scalar = Scalar::from_bytes_mod_order_wide(
+            random_wide_bytes[wide_offset..wide_offset + 64]
+                .try_into()
+                .expect("random OT scalar slice has fixed width"),
+        );
         let receiver_public_point = if selected_branch == 0 {
             ED25519_BASEPOINT_POINT * receiver_scalar
         } else {
@@ -3205,6 +3206,70 @@ fn prepare_client_input_ot_request_public(
         words: local_state_words,
     };
     Ok((request, local_state))
+}
+
+fn validate_client_ot_offer_preflight(
+    offer: &DdhHssOtInputBundleOffer,
+    sender_state: &DdhHssOtSenderStateBundle,
+    remote: &DdhHssOtRemoteBundle,
+) -> ProtoResult<()> {
+    if offer.owner != HiddenEvalInputOwner::Client
+        || sender_state.owner != HiddenEvalInputOwner::Client
+        || remote.owner != HiddenEvalInputOwner::Client
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT validation requires client-owned offer, sender state, and remote bundles"
+                .to_string(),
+        ));
+    }
+    if offer.label != sender_state.label || offer.label != remote.label {
+        return Err(ProtoError::InvalidInput(format!(
+            "client OT offer label does not match sender state or remote bundle: {}, {}, {}",
+            offer.label, sender_state.label, remote.label
+        )));
+    }
+    if remote.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote bundle must carry right-side shares".to_string(),
+        ));
+    }
+    if offer.words.len() != remote.words.len() || offer.words.len() != sender_state.words.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "client OT offer word count does not match sender state / remote bundle: {} vs {} / {}",
+            offer.words.len(),
+            sender_state.words.len(),
+            remote.words.len()
+        )));
+    }
+    if remote.commitment
+        != ot_remote_bundle_commitment(
+            remote.owner,
+            &remote.label,
+            remote.share_side,
+            &remote.words,
+        )
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote bundle commitment is invalid".to_string(),
+        ));
+    }
+    if offer.commitment != ot_offer_bundle_commitment(offer.owner, &offer.label, &offer.words) {
+        return Err(ProtoError::InvalidInput(
+            "client OT offer commitment is invalid".to_string(),
+        ));
+    }
+    if sender_state.commitment
+        != ot_sender_state_bundle_commitment(
+            sender_state.owner,
+            &sender_state.label,
+            &sender_state.words,
+        )
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT sender-state commitment is invalid".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn derive_ot_branch_key_from_point_for_key(
@@ -3459,6 +3524,234 @@ fn join_client_ot_bundle_public(
     })
 }
 
+fn reconstruct_client_ot_bundle_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    expected_context_binding: [u8; 32],
+    response: &DdhHssOtResponseBundle,
+    local_state: &DdhHssOtReceiverStateBundle,
+    remote: &DdhHssOtReleasedRemoteBundle,
+) -> ProtoResult<DdhHssInputShareBundle> {
+    Ok(reconstruct_client_ot_bundle_timed_public(
+        evaluation_key,
+        expected_context_binding,
+        response,
+        local_state,
+        remote,
+    )?
+    .0)
+}
+
+fn reconstruct_client_ot_bundle_timed_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    expected_context_binding: [u8; 32],
+    response: &DdhHssOtResponseBundle,
+    local_state: &DdhHssOtReceiverStateBundle,
+    remote: &DdhHssOtReleasedRemoteBundle,
+) -> ProtoResult<(DdhHssInputShareBundle, DdhHssOtReconstructTiming)> {
+    let mut timing = DdhHssOtReconstructTiming::default();
+    let commitment_started = monotonic_now_ns();
+    if remote.context_binding != expected_context_binding {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote-share release context binding is invalid".to_string(),
+        ));
+    }
+    if response.owner != HiddenEvalInputOwner::Client
+        || local_state.owner != HiddenEvalInputOwner::Client
+        || remote.owner != HiddenEvalInputOwner::Client
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT reconstruction requires client-owned bundles".to_string(),
+        ));
+    }
+    if response.label != local_state.label || response.label != remote.label {
+        return Err(ProtoError::InvalidInput(format!(
+            "client OT reconstruction labels do not match: response={} local={} remote={}",
+            response.label, local_state.label, remote.label
+        )));
+    }
+    if remote.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote-share release must carry the right share".to_string(),
+        ));
+    }
+    if response.words.len() != local_state.words.len() || response.words.len() != remote.words.len()
+    {
+        return Err(ProtoError::InvalidInput(format!(
+            "client OT reconstruction word counts do not match: response={} local={} remote={}",
+            response.words.len(),
+            local_state.words.len(),
+            remote.words.len()
+        )));
+    }
+    if response.commitment
+        != ot_response_bundle_commitment(response.owner, &response.label, &response.words)
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT response commitment is invalid".to_string(),
+        ));
+    }
+    if local_state.commitment
+        != ot_receiver_state_bundle_commitment(
+            local_state.owner,
+            &local_state.label,
+            &local_state.words,
+        )
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT local state commitment is invalid".to_string(),
+        ));
+    }
+    if remote.commitment
+        != ot_remote_bundle_commitment(
+            remote.owner,
+            &remote.label,
+            remote.share_side,
+            &remote.words,
+        )
+    {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote bundle commitment is invalid".to_string(),
+        ));
+    }
+    let expected_remote_binding = ot_remote_release_transcript_binding(
+        remote.context_binding,
+        remote.owner,
+        &remote.label,
+        remote.offer_commitment,
+        remote.request_commitment,
+        remote.response_commitment,
+        remote.commitment,
+    );
+    if remote.transcript_binding != expected_remote_binding {
+        return Err(ProtoError::InvalidInput(
+            "client OT remote-share release transcript binding is invalid".to_string(),
+        ));
+    }
+    timing.commitment_verification_duration_ns = timing
+        .commitment_verification_duration_ns
+        .saturating_add(elapsed_ns_u64(commitment_started));
+
+    let mut words = Vec::with_capacity(response.words.len());
+    for (bit_idx, ((response_word, state_word), right_word)) in response
+        .words
+        .iter()
+        .zip(&local_state.words)
+        .zip(&remote.words)
+        .enumerate()
+    {
+        if response_word.width_bits != 1 || state_word.width_bits != 1 {
+            return Err(ProtoError::InvalidInput(format!(
+                "client OT response words must be 1-bit at index {bit_idx}"
+            )));
+        }
+        if state_word.selected_branch > 1 {
+            return Err(ProtoError::InvalidInput(format!(
+                "client OT local state branch must be 0 or 1 at index {bit_idx}, got {}",
+                state_word.selected_branch
+            )));
+        }
+        let point_reconstruct_started = monotonic_now_ns();
+        let sender_public_point = CompressedEdwardsY(state_word.sender_public)
+            .decompress()
+            .ok_or_else(|| {
+                ProtoError::InvalidInput(format!(
+                    "client OT sender public point is invalid at bit index {bit_idx}"
+                ))
+            })?;
+        let receiver_scalar = Scalar::from_bytes_mod_order(state_word.receiver_scalar);
+        let shared_point = (sender_public_point * receiver_scalar)
+            .compress()
+            .to_bytes();
+        timing.point_scalar_reconstruction_duration_ns = timing
+            .point_scalar_reconstruction_duration_ns
+            .saturating_add(elapsed_ns_u64(point_reconstruct_started));
+        let selected_branch = if state_word.selected_branch == 0 {
+            &response_word.zero_branch
+        } else {
+            &response_word.one_branch
+        };
+        let key_derivation_started = monotonic_now_ns();
+        let key = derive_ot_branch_key_from_point_for_key(
+            evaluation_key,
+            HiddenEvalInputOwner::Client,
+            &response.label,
+            bit_idx,
+            state_word.selected_branch,
+            shared_point,
+        );
+        timing.branch_key_derivation_duration_ns = timing
+            .branch_key_derivation_duration_ns
+            .saturating_add(elapsed_ns_u64(key_derivation_started));
+        let branch_decrypt_started = monotonic_now_ns();
+        let payload = DdhHssBackend::open_ot_branch_with_key(
+            key,
+            HiddenEvalInputOwner::Client,
+            &response.label,
+            bit_idx,
+            state_word.selected_branch,
+            selected_branch,
+        )?;
+        timing.branch_decrypt_duration_ns = timing
+            .branch_decrypt_duration_ns
+            .saturating_add(elapsed_ns_u64(branch_decrypt_started));
+        let branch_verify_started = monotonic_now_ns();
+        if payload.width_bits != right_word.width_bits {
+            return Err(ProtoError::InvalidInput(format!(
+                "client OT word widths do not match: {} vs {}",
+                payload.width_bits, right_word.width_bits
+            )));
+        }
+        if payload.counterparty_commitment != right_word.share_commitment {
+            return Err(ProtoError::InvalidInput(
+                "client OT counterparty commitment does not match remote share commitment"
+                    .to_string(),
+            ));
+        }
+        let expected_left_commitment = commit_word(
+            HiddenEvalInputOwner::Client,
+            b"left",
+            payload.share_word,
+            &payload.provenance_digest,
+        );
+        if payload.share_commitment != expected_left_commitment {
+            return Err(ProtoError::InvalidInput(
+                "client OT left-share commitment is invalid".to_string(),
+            ));
+        }
+        timing.commitment_verification_duration_ns = timing
+            .commitment_verification_duration_ns
+            .saturating_add(elapsed_ns_u64(branch_verify_started));
+        words.push(DdhHssSharedWord {
+            width_bits: payload.width_bits,
+            left_word: payload.share_word,
+            right_word: right_word.share_word,
+            left_commitment: payload.share_commitment,
+            right_commitment: right_word.share_commitment,
+            provenance_digest: payload.provenance_digest,
+        });
+    }
+
+    let final_commitment_started = monotonic_now_ns();
+    let commitment = input_commitment_for_key(
+        evaluation_key,
+        HiddenEvalInputOwner::Client,
+        &response.label,
+        &words,
+    );
+    timing.commitment_verification_duration_ns = timing
+        .commitment_verification_duration_ns
+        .saturating_add(elapsed_ns_u64(final_commitment_started));
+    Ok((
+        DdhHssInputShareBundle {
+            owner: HiddenEvalInputOwner::Client,
+            label: response.label.clone(),
+            words,
+            commitment,
+        },
+        timing,
+    ))
+}
+
 fn join_share_bundle_public(
     evaluation_key: &DdhHssEvaluationKey,
     left: &DdhHssTransportBundle,
@@ -3707,6 +4000,29 @@ fn open_transport_message_with_key(
         })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn monotonic_now_ns() -> u128 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_nanos()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn monotonic_now_ns() -> u128 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map(|performance| (performance.now() * 1_000_000.0) as u128)
+        .unwrap_or_else(|| (js_sys::Date::now() * 1_000_000.0) as u128)
+}
+
+fn elapsed_ns_u64(started_ns: u128) -> u64 {
+    monotonic_now_ns()
+        .saturating_sub(started_ns)
+        .min(u64::MAX as u128) as u64
+}
+
 fn transport_bundle_commitment(
     owner: HiddenEvalInputOwner,
     label: &str,
@@ -3740,7 +4056,7 @@ fn ot_branch_aad(
     label: &str,
     bit_idx: usize,
     branch_bit: u8,
-) -> Vec<u8> {
+) -> [u8; 32] {
     let mut transcript = Transcript::new(b"succinct-garbling-proto/ddh-hss/ot-branch-aad/v0");
     transcript.append_message(b"owner", owner_tag(owner));
     transcript.append_message(b"label", label.as_bytes());
@@ -3748,7 +4064,38 @@ fn ot_branch_aad(
     transcript.append_message(b"branch_bit", &[branch_bit]);
     let mut out = [0u8; 32];
     transcript.challenge_bytes(b"ot_branch_aad", &mut out);
-    out.to_vec()
+    out
+}
+
+fn encode_ot_branch_payload(
+    payload: &DdhHssOtBranchPayload,
+) -> [u8; DDH_HSS_OT_BRANCH_PAYLOAD_BYTES] {
+    let mut out = [0u8; DDH_HSS_OT_BRANCH_PAYLOAD_BYTES];
+    out[0..2].copy_from_slice(&payload.width_bits.to_le_bytes());
+    out[2..10].copy_from_slice(&payload.share_word.to_le_bytes());
+    out[10..42].copy_from_slice(&payload.share_commitment);
+    out[42..74].copy_from_slice(&payload.counterparty_commitment);
+    out[74..106].copy_from_slice(&payload.provenance_digest);
+    out
+}
+
+fn decode_ot_branch_payload(bytes: &[u8]) -> Result<DdhHssOtBranchPayload, &'static str> {
+    if bytes.len() != DDH_HSS_OT_BRANCH_PAYLOAD_BYTES {
+        return Err("invalid OT branch payload length");
+    }
+    let mut share_commitment = [0u8; 32];
+    share_commitment.copy_from_slice(&bytes[10..42]);
+    let mut counterparty_commitment = [0u8; 32];
+    counterparty_commitment.copy_from_slice(&bytes[42..74]);
+    let mut provenance_digest = [0u8; 32];
+    provenance_digest.copy_from_slice(&bytes[74..106]);
+    Ok(DdhHssOtBranchPayload {
+        width_bits: u16::from_le_bytes(bytes[0..2].try_into().expect("slice width")),
+        share_word: u64::from_le_bytes(bytes[2..10].try_into().expect("slice word")),
+        share_commitment,
+        counterparty_commitment,
+        provenance_digest,
+    })
 }
 
 fn ot_offer_bundle_commitment(

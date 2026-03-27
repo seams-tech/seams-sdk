@@ -24,9 +24,8 @@ fn main() {
 
     let report =
         generate_ddh_hidden_eval_benchmark_report(&config).expect("DDH hidden-eval benchmark");
-    let json = report
-        .to_json_pretty()
-        .expect("serialize DDH hidden-eval benchmark report");
+    let json =
+        serde_json::to_string_pretty(&report).expect("serialize DDH hidden-eval benchmark report");
 
     if let Some(path) = args.output_path {
         fs::write(&path, &json).expect("write DDH hidden-eval benchmark report");

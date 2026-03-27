@@ -173,11 +173,6 @@ pub fn serialized_fixture_corpus() -> ProtoResult<FixtureCorpusFile> {
     })
 }
 
-pub fn serialized_fixture_corpus_json() -> ProtoResult<String> {
-    serde_json::to_string_pretty(&serialized_fixture_corpus()?)
-        .map_err(|err| ProtoError::Decode(format!("failed to serialize fixture corpus: {err}")))
-}
-
 pub fn committed_fixture_corpus_file() -> ProtoResult<FixtureCorpusFile> {
     serde_json::from_str(COMMITTED_FIXTURE_CORPUS_JSON).map_err(|err| {
         ProtoError::Decode(format!("failed to parse committed fixture corpus: {err}"))

@@ -813,6 +813,32 @@
             estimated_js_wasm_gap_ns: benchmarkStats(jsWasmGapSamplesNs),
             detailed_result_duration_ns: detailedResultDurationNs,
             evaluate_duration_ns: wasmNumber(lastRun?.evaluate_duration_ns),
+            ot_open_join_duration_ns: wasmNumber(lastRun?.ot_open_join_duration_ns),
+            ot_branch_key_derivation_duration_ns: wasmNumber(
+              lastRun?.ot_branch_key_derivation_duration_ns,
+            ),
+            ot_branch_decrypt_duration_ns: wasmNumber(
+              lastRun?.ot_branch_decrypt_duration_ns,
+            ),
+            ot_point_scalar_reconstruction_duration_ns: wasmNumber(
+              lastRun?.ot_point_scalar_reconstruction_duration_ns,
+            ),
+            ot_commitment_verification_duration_ns: wasmNumber(
+              lastRun?.ot_commitment_verification_duration_ns,
+            ),
+            server_input_open_duration_ns: wasmNumber(lastRun?.server_input_open_duration_ns),
+            server_input_share_duration_ns: wasmNumber(lastRun?.server_input_share_duration_ns),
+            server_input_commitment_duration_ns: wasmNumber(
+              lastRun?.server_input_commitment_duration_ns,
+            ),
+            server_input_transcript_duration_ns: wasmNumber(
+              lastRun?.server_input_transcript_duration_ns,
+            ),
+            server_input_seal_duration_ns: wasmNumber(lastRun?.server_input_seal_duration_ns),
+            output_sealing_finalization_duration_ns: wasmNumber(
+              lastRun?.output_sealing_finalization_duration_ns,
+            ),
+            result_assembly_duration_ns: wasmNumber(lastRun?.result_assembly_duration_ns),
             output_open_duration_ns: wasmNumber(lastRun?.output_open_duration_ns),
             public_key_duration_ns: wasmNumber(lastRun?.public_key_duration_ns),
             detailed_total_duration_ns: wasmNumber(lastRun?.total_duration_ns),

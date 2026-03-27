@@ -22,9 +22,7 @@ fn main() {
 
     let report =
         generate_prime_order_cpu_executor_benchmark_report(&config).expect("cpu benchmark report");
-    let json = report
-        .to_json_pretty()
-        .expect("serialize cpu benchmark report");
+    let json = serde_json::to_string_pretty(&report).expect("serialize cpu benchmark report");
 
     if let Some(path) = args.output_path {
         fs::write(&path, &json).expect("write cpu benchmark report");

@@ -22,7 +22,7 @@ fn main() {
 
     let report = generate_cache_benchmark_report(&config).expect("cache benchmark report");
     let rendered = if args.emit_json {
-        report.to_json_pretty().expect("cache benchmark json")
+        serde_json::to_string_pretty(&report).expect("cache benchmark json")
     } else {
         report.summary_lines().join("\n")
     };

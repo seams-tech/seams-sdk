@@ -29,7 +29,7 @@ fn main() {
     config.device_label = args.device_label;
 
     let report = generate_phase1_benchmark_report(&config).expect("phase1 benchmark report");
-    let json = report.to_json_pretty().expect("serialize phase1 report");
+    let json = serde_json::to_string_pretty(&report).expect("serialize phase1 report");
 
     if let Some(path) = args.output_path {
         fs::write(&path, &json).expect("write phase1 report");

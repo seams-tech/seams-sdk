@@ -16,9 +16,9 @@ use crate::ddh_hidden_eval_executor::{
 use crate::ddh_hss::{
     keygen_prime_order_ddh_hss_backend, role_views_for_backend, DdhHssBackend, DdhHssEvaluationKey,
     DdhHssEvaluator, DdhHssGarbler, DdhHssInputShareBundle, DdhHssOtInputBundleOffer,
-    DdhHssOtReceiverStateBundle, DdhHssOtReleasedRemoteBundle, DdhHssOtRemoteBundle,
-    DdhHssOtResponseBundle, DdhHssOtSelectionBundle, DdhHssOtSenderStateBundle, DdhHssSharedWord,
-    DdhHssTransportBundle, DdhHssTransportPurpose,
+    DdhHssOtReceiverStateBundle, DdhHssOtReconstructTiming, DdhHssOtReleasedRemoteBundle,
+    DdhHssOtRemoteBundle, DdhHssOtResponseBundle, DdhHssOtSelectionBundle,
+    DdhHssOtSenderStateBundle, DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportPurpose,
 };
 use crate::hidden_eval::{
     compile_prime_order_hidden_eval_program, HiddenEvalInputOwner, HiddenEvalProgram,
@@ -328,6 +328,14 @@ struct PrimeOrderSuccinctHssEncodedServerInputsPayload {
     tau_relayer_right: DdhHssTransportBundle,
 }
 
+#[derive(Debug, Serialize)]
+struct PrimeOrderSuccinctHssEncodedServerInputsPayloadRef<'a> {
+    y_relayer_left: &'a DdhHssTransportBundle,
+    y_relayer_right: &'a DdhHssTransportBundle,
+    tau_relayer_left: &'a DdhHssTransportBundle,
+    tau_relayer_right: &'a DdhHssTransportBundle,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PrimeOrderSuccinctHssOpenedServerInputs {
     y_relayer_left: DdhHssTransportBundle,
@@ -347,6 +355,78 @@ pub struct PrimeOrderSuccinctHssEvaluationReport {
     pub evaluator_witness: PrimeOrderSuccinctHssEvaluatorWitness,
     pub output_delivery: PrimeOrderSuccinctHssOutputDelivery,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PrimeOrderSuccinctHssEvaluateTiming {
+    pub ot_open_join_duration_ns: u64,
+    pub ot_branch_key_derivation_duration_ns: u64,
+    pub ot_branch_decrypt_duration_ns: u64,
+    pub ot_point_scalar_reconstruction_duration_ns: u64,
+    pub ot_commitment_verification_duration_ns: u64,
+    pub server_input_open_duration_ns: u64,
+    pub server_input_share_duration_ns: u64,
+    pub server_input_commitment_duration_ns: u64,
+    pub server_input_transcript_duration_ns: u64,
+    pub server_input_seal_duration_ns: u64,
+    pub output_sealing_finalization_duration_ns: u64,
+    pub result_assembly_duration_ns: u64,
+}
+
+impl PrimeOrderSuccinctHssEvaluateTiming {
+    fn add_assign(&mut self, other: Self) {
+        self.ot_open_join_duration_ns = self
+            .ot_open_join_duration_ns
+            .saturating_add(other.ot_open_join_duration_ns);
+        self.ot_branch_key_derivation_duration_ns = self
+            .ot_branch_key_derivation_duration_ns
+            .saturating_add(other.ot_branch_key_derivation_duration_ns);
+        self.ot_branch_decrypt_duration_ns = self
+            .ot_branch_decrypt_duration_ns
+            .saturating_add(other.ot_branch_decrypt_duration_ns);
+        self.ot_point_scalar_reconstruction_duration_ns = self
+            .ot_point_scalar_reconstruction_duration_ns
+            .saturating_add(other.ot_point_scalar_reconstruction_duration_ns);
+        self.ot_commitment_verification_duration_ns = self
+            .ot_commitment_verification_duration_ns
+            .saturating_add(other.ot_commitment_verification_duration_ns);
+        self.server_input_open_duration_ns = self
+            .server_input_open_duration_ns
+            .saturating_add(other.server_input_open_duration_ns);
+        self.server_input_share_duration_ns = self
+            .server_input_share_duration_ns
+            .saturating_add(other.server_input_share_duration_ns);
+        self.server_input_commitment_duration_ns = self
+            .server_input_commitment_duration_ns
+            .saturating_add(other.server_input_commitment_duration_ns);
+        self.server_input_transcript_duration_ns = self
+            .server_input_transcript_duration_ns
+            .saturating_add(other.server_input_transcript_duration_ns);
+        self.server_input_seal_duration_ns = self
+            .server_input_seal_duration_ns
+            .saturating_add(other.server_input_seal_duration_ns);
+        self.output_sealing_finalization_duration_ns = self
+            .output_sealing_finalization_duration_ns
+            .saturating_add(other.output_sealing_finalization_duration_ns);
+        self.result_assembly_duration_ns = self
+            .result_assembly_duration_ns
+            .saturating_add(other.result_assembly_duration_ns);
+    }
+
+    fn add_ot_reconstruct_timing(&mut self, other: DdhHssOtReconstructTiming) {
+        self.ot_branch_key_derivation_duration_ns = self
+            .ot_branch_key_derivation_duration_ns
+            .saturating_add(other.branch_key_derivation_duration_ns);
+        self.ot_branch_decrypt_duration_ns = self
+            .ot_branch_decrypt_duration_ns
+            .saturating_add(other.branch_decrypt_duration_ns);
+        self.ot_point_scalar_reconstruction_duration_ns = self
+            .ot_point_scalar_reconstruction_duration_ns
+            .saturating_add(other.point_scalar_reconstruction_duration_ns);
+        self.ot_commitment_verification_duration_ns = self
+            .ot_commitment_verification_duration_ns
+            .saturating_add(other.commitment_verification_duration_ns);
+    }
 }
 
 pub fn prepare_prime_order_succinct_hss(
@@ -404,6 +484,7 @@ pub fn prepare_prime_order_succinct_hss(
         client_ot_offer: client_ot_offer.clone(),
         garbler_ot_state: garbler_ot_state.clone(),
     };
+    garbler_session_cached.validate_garbler_ot_state()?;
     let evaluator_session_cached = PrimeOrderSuccinctHssEvaluatorSession {
         context_binding: candidate.context_binding,
         ddh_evaluator: ddh_roles.evaluator.clone(),
@@ -785,6 +866,50 @@ impl PrimeOrderSuccinctHssPreparedSession {
         runtime.finalize_report_from_evaluation_result(garbler_session, &evaluation_result)
     }
 
+    pub fn evaluate_with_timing(
+        &self,
+        input: &FExpandInput,
+    ) -> ProtoResult<(
+        PrimeOrderSuccinctHssEvaluationReport,
+        PrimeOrderSuccinctHssEvaluateTiming,
+    )> {
+        self.ensure_input_context(input)?;
+        let runtime = &self.shared_runtime_cached;
+        let garbler_session = &self.garbler_session_cached;
+        let evaluator_session = &self.evaluator_session_cached;
+        let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
+        let ot_open_join_started = monotonic_now_ns();
+        let (client_packet, evaluator_ot_state) = evaluator_session.prepare_client_ot_request(
+            &garbler_session.client_ot_offer,
+            input.y_client,
+            input.tau_client,
+        )?;
+        timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
+        let (server_packet, trusted_server_inputs, garbler_prepare_timing) = garbler_session
+            .prepare_server_packet_with_trusted_inputs_timed(
+                &client_packet,
+                input.y_relayer,
+                input.tau_relayer,
+            )?;
+        timing.add_assign(garbler_prepare_timing);
+        let (evaluation_result, evaluation_timing) = evaluator_session
+            .evaluate_result_from_packets_timed(
+                runtime,
+                &client_packet,
+                &evaluator_ot_state,
+                &server_packet,
+                &trusted_server_inputs,
+            )?;
+        timing.add_assign(evaluation_timing);
+        let finalization_started = monotonic_now_ns();
+        let report =
+            runtime.finalize_report_from_evaluation_result(garbler_session, &evaluation_result)?;
+        timing.output_sealing_finalization_duration_ns = timing
+            .output_sealing_finalization_duration_ns
+            .saturating_add(elapsed_ns_u64(finalization_started));
+        Ok((report, timing))
+    }
+
     fn ensure_input_context(&self, input: &FExpandInput) -> ProtoResult<()> {
         let input_context_binding = input.context.binding_digest()?;
         if input_context_binding != self.candidate.context_binding {
@@ -1066,8 +1191,28 @@ impl PrimeOrderSuccinctHssGarblerSession {
         y_relayer: [u8; 32],
         tau_relayer: [u8; 32],
     ) -> ProtoResult<(PrimeOrderSuccinctHssServerPacket, DdhHiddenEvalServerInputs)> {
+        let (server_packet, trusted_server_inputs, _timing) = self
+            .prepare_server_packet_with_trusted_inputs_timed(
+                client_packet,
+                y_relayer,
+                tau_relayer,
+            )?;
+        Ok((server_packet, trusted_server_inputs))
+    }
+
+    fn prepare_server_packet_with_trusted_inputs_timed(
+        &self,
+        client_packet: &PrimeOrderSuccinctHssClientPacket,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+    ) -> ProtoResult<(
+        PrimeOrderSuccinctHssServerPacket,
+        DdhHiddenEvalServerInputs,
+        PrimeOrderSuccinctHssEvaluateTiming,
+    )> {
         validate_client_packet_context(self.context_binding, &client_packet)?;
-        self.validate_garbler_ot_state()?;
+        let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
+        let ot_open_join_started = monotonic_now_ns();
         let (y_client_response, y_client_remote_release) =
             self.ddh_garbler.resolve_client_input_ot_selection(
                 self.context_binding,
@@ -1084,18 +1229,28 @@ impl PrimeOrderSuccinctHssGarblerSession {
                 &self.garbler_ot_state.tau_client_remote,
                 &client_packet.tau_client_request,
             )?;
+        timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
+        let server_input_open_started = monotonic_now_ns();
+        let server_input_share_started = monotonic_now_ns();
         let y_relayer_bundle = self
             .ddh_garbler
             .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
         let tau_relayer_bundle = self
             .ddh_garbler
             .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
+        timing.server_input_share_duration_ns = elapsed_ns_u64(server_input_share_started);
         let trusted_server_inputs =
             DdhHiddenEvalServerInputs::from_joint_bundles(&y_relayer_bundle, &tau_relayer_bundle);
+        let server_input_commitment_started = monotonic_now_ns();
         let server_input_commitment = self.ddh_garbler.combined_input_commitment(
             HiddenEvalInputOwner::Server,
             &[&y_relayer_bundle, &tau_relayer_bundle],
         );
+        timing.server_input_commitment_duration_ns =
+            elapsed_ns_u64(server_input_commitment_started);
+        let y_relayer_split = self.ddh_garbler.split_share_bundle(&y_relayer_bundle);
+        let tau_relayer_split = self.ddh_garbler.split_share_bundle(&tau_relayer_bundle);
+        let ot_transcript_started = monotonic_now_ns();
         let ot_transcript = build_ot_transcript(
             self.context_binding,
             &self.client_ot_offer,
@@ -1105,6 +1260,15 @@ impl PrimeOrderSuccinctHssGarblerSession {
             &y_client_remote_release,
             &tau_client_remote_release,
         );
+        timing.server_input_transcript_duration_ns = elapsed_ns_u64(ot_transcript_started);
+        let server_input_seal_started = monotonic_now_ns();
+        let sealed_server_inputs = self.seal_server_inputs_packet(
+            server_input_commitment,
+            &y_relayer_split,
+            &tau_relayer_split,
+        )?;
+        timing.server_input_seal_duration_ns = elapsed_ns_u64(server_input_seal_started);
+        timing.server_input_open_duration_ns = elapsed_ns_u64(server_input_open_started);
         Ok((
             PrimeOrderSuccinctHssServerPacket {
                 context_binding: self.context_binding,
@@ -1113,13 +1277,10 @@ impl PrimeOrderSuccinctHssGarblerSession {
                 tau_client_response,
                 y_client_remote_release,
                 tau_client_remote_release,
-                server_inputs: self.seal_server_inputs_packet(
-                    server_input_commitment,
-                    &y_relayer_bundle,
-                    &tau_relayer_bundle,
-                )?,
+                server_inputs: sealed_server_inputs,
             },
             trusted_server_inputs,
+            timing,
         ))
     }
 
@@ -1315,14 +1476,11 @@ impl PrimeOrderSuccinctHssGarblerSession {
     fn seal_server_inputs_packet(
         &self,
         server_input_commitment: [u8; 32],
-        y_relayer_bundle: &DdhHssInputShareBundle,
-        tau_relayer_bundle: &DdhHssInputShareBundle,
+        y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
     ) -> ProtoResult<PrimeOrderSuccinctHssServerInputsPacket> {
         let aad = server_input_packet_aad(self.context_binding, server_input_commitment);
-        let plaintext = serialize_server_inputs_payload(
-            &self.ddh_garbler.split_share_bundle(y_relayer_bundle),
-            &self.ddh_garbler.split_share_bundle(tau_relayer_bundle),
-        )?;
+        let plaintext = serialize_server_inputs_payload(y_relayer, tau_relayer)?;
         let (nonce, ciphertext) =
             self.ddh_garbler
                 .seal_message(DdhHssTransportPurpose::ServerInput, &aad, &plaintext)?;
@@ -1604,51 +1762,47 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
                     .to_string(),
             ));
         }
-        let y_client_local = self.ddh_evaluator.open_client_input_ot_bundle(
+        let y_client_bundle = self.ddh_evaluator.reconstruct_client_ot_bundle(
+            self.context_binding,
             &server_packet.y_client_response,
             &evaluator_ot_state.y_client_local_state,
-        )?;
-        let tau_client_local = self.ddh_evaluator.open_client_input_ot_bundle(
-            &server_packet.tau_client_response,
-            &evaluator_ot_state.tau_client_local_state,
-        )?;
-        let y_client_bundle = self.ddh_evaluator.join_client_ot_bundle(
-            self.context_binding,
-            &y_client_local,
             &server_packet.y_client_remote_release,
         )?;
-        let tau_client_bundle = self.ddh_evaluator.join_client_ot_bundle(
+        let tau_client_bundle = self.ddh_evaluator.reconstruct_client_ot_bundle(
             self.context_binding,
-            &tau_client_local,
+            &server_packet.tau_client_response,
+            &evaluator_ot_state.tau_client_local_state,
             &server_packet.tau_client_remote_release,
         )?;
         Ok((y_client_bundle, tau_client_bundle))
     }
 
-    fn reconstruct_client_input_bundles_trusted(
+    fn reconstruct_client_input_bundles_trusted_timed(
         &self,
         evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
         server_packet: &PrimeOrderSuccinctHssServerPacket,
-    ) -> ProtoResult<(DdhHssInputShareBundle, DdhHssInputShareBundle)> {
-        let y_client_local = self.ddh_evaluator.open_client_input_ot_bundle(
+    ) -> ProtoResult<(
+        DdhHssInputShareBundle,
+        DdhHssInputShareBundle,
+        PrimeOrderSuccinctHssEvaluateTiming,
+    )> {
+        let (y_client_bundle, y_timing) = self.ddh_evaluator.reconstruct_client_ot_bundle_timed(
+            self.context_binding,
             &server_packet.y_client_response,
             &evaluator_ot_state.y_client_local_state,
-        )?;
-        let tau_client_local = self.ddh_evaluator.open_client_input_ot_bundle(
-            &server_packet.tau_client_response,
-            &evaluator_ot_state.tau_client_local_state,
-        )?;
-        let y_client_bundle = self.ddh_evaluator.join_client_ot_bundle(
-            self.context_binding,
-            &y_client_local,
             &server_packet.y_client_remote_release,
         )?;
-        let tau_client_bundle = self.ddh_evaluator.join_client_ot_bundle(
-            self.context_binding,
-            &tau_client_local,
-            &server_packet.tau_client_remote_release,
-        )?;
-        Ok((y_client_bundle, tau_client_bundle))
+        let (tau_client_bundle, tau_timing) =
+            self.ddh_evaluator.reconstruct_client_ot_bundle_timed(
+                self.context_binding,
+                &server_packet.tau_client_response,
+                &evaluator_ot_state.tau_client_local_state,
+                &server_packet.tau_client_remote_release,
+            )?;
+        let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
+        timing.add_ot_reconstruct_timing(y_timing);
+        timing.add_ot_reconstruct_timing(tau_timing);
+        Ok((y_client_bundle, tau_client_bundle, timing))
     }
 
     pub fn evaluate_hidden_run_from_packets(
@@ -1695,7 +1849,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         Ok(run)
     }
 
-    fn evaluate_hidden_run_from_packets_trusted(
+    fn evaluate_hidden_run_from_packets_trusted_timed(
         &self,
         ddh_evaluator: &DdhHssEvaluator,
         hidden_eval_program: &HiddenEvalProgram,
@@ -1703,9 +1857,16 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
         server_packet: &PrimeOrderSuccinctHssServerPacket,
         trusted_server_inputs: &DdhHiddenEvalServerInputs,
-    ) -> ProtoResult<crate::ddh_hidden_eval_executor::DdhHiddenEvalRun> {
-        let (y_client_bundle, tau_client_bundle) =
-            self.reconstruct_client_input_bundles_trusted(evaluator_ot_state, server_packet)?;
+    ) -> ProtoResult<(
+        crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
+        PrimeOrderSuccinctHssEvaluateTiming,
+    )> {
+        let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
+        let ot_open_join_started = monotonic_now_ns();
+        let (y_client_bundle, tau_client_bundle, ot_timing) =
+            self.reconstruct_client_input_bundles_trusted_timed(evaluator_ot_state, server_packet)?;
+        timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
+        timing.add_assign(ot_timing);
         let expected_client_input_commitment = self.ddh_evaluator.combined_input_commitment(
             HiddenEvalInputOwner::Client,
             &[&y_client_bundle, &tau_client_bundle],
@@ -1731,7 +1892,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
                 "server delivery packet commitment does not match evaluated run".to_string(),
             ));
         }
-        Ok(run)
+        Ok((run, timing))
     }
 
     fn evaluate_result_from_packets(
@@ -1742,8 +1903,30 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         server_packet: &PrimeOrderSuccinctHssServerPacket,
         trusted_server_inputs: &DdhHiddenEvalServerInputs,
     ) -> ProtoResult<PrimeOrderSuccinctHssEvaluationResult> {
+        Ok(self
+            .evaluate_result_from_packets_timed(
+                runtime,
+                client_packet,
+                evaluator_ot_state,
+                server_packet,
+                trusted_server_inputs,
+            )?
+            .0)
+    }
+
+    fn evaluate_result_from_packets_timed(
+        &self,
+        runtime: &PrimeOrderSuccinctHssSharedRuntime,
+        client_packet: &PrimeOrderSuccinctHssClientPacket,
+        evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
+        server_packet: &PrimeOrderSuccinctHssServerPacket,
+        trusted_server_inputs: &DdhHiddenEvalServerInputs,
+    ) -> ProtoResult<(
+        PrimeOrderSuccinctHssEvaluationResult,
+        PrimeOrderSuccinctHssEvaluateTiming,
+    )> {
         let _ = client_packet;
-        let ddh_run = self.evaluate_hidden_run_from_packets_trusted(
+        let (ddh_run, mut timing) = self.evaluate_hidden_run_from_packets_trusted_timed(
             &runtime.ddh_evaluator,
             &runtime.hidden_eval_program,
             &runtime.hidden_eval_constants,
@@ -1751,6 +1934,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             server_packet,
             trusted_server_inputs,
         )?;
+        let result_assembly_started = monotonic_now_ns();
         let executor_result =
             execute_prime_order_cpu_execution_program(&runtime.execution_program)?;
         let run_binding = self.ddh_evaluator.run_binding(
@@ -1764,6 +1948,8 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             &executor_result,
             &ddh_run.output,
         );
+        timing.result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
+        let output_sealing_started = monotonic_now_ns();
         let client_output = self.seal_client_output_packet_message(
             run_binding,
             evaluation_digest,
@@ -1784,7 +1970,9 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             evaluation_digest,
             &server_output_payload,
         );
-        Ok(PrimeOrderSuccinctHssEvaluationResult {
+        timing.output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
+        let result_assembly_finalize_started = monotonic_now_ns();
+        let evaluation_result = PrimeOrderSuccinctHssEvaluationResult {
             context_binding: self.context_binding,
             bindings: PrimeOrderSuccinctHssRunBindings {
                 client_input_commitment: ddh_run.client_input_commitment,
@@ -1803,7 +1991,11 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             client_output_binding,
             server_output_payload_binding,
             server_output_payload,
-        })
+        };
+        timing.result_assembly_duration_ns = timing
+            .result_assembly_duration_ns
+            .saturating_add(elapsed_ns_u64(result_assembly_finalize_started));
+        Ok((evaluation_result, timing))
     }
 
     pub fn evaluate_result_message_from_transport_messages(
@@ -2007,6 +2199,29 @@ fn runtime_output_openers(
         client: evaluator_session.client_output_opener(),
         server: garbler_session.server_output_opener(),
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn monotonic_now_ns() -> u128 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_nanos()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn monotonic_now_ns() -> u128 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map(|performance| (performance.now() * 1_000_000.0) as u128)
+        .unwrap_or_else(|| (js_sys::Date::now() * 1_000_000.0) as u128)
+}
+
+fn elapsed_ns_u64(started_ns: u128) -> u64 {
+    monotonic_now_ns()
+        .saturating_sub(started_ns)
+        .min(u64::MAX as u128) as u64
 }
 
 impl PrimeOrderSuccinctHssClientOutputOpener {
@@ -2324,26 +2539,13 @@ fn serialize_encoded_bundle_payload(bundle: &DdhHssInputShareBundle) -> ProtoRes
 }
 
 impl PrimeOrderSuccinctHssOpenedServerInputs {
-    fn materialize_server_inputs_with_garbler(
-        &self,
-        garbler: &DdhHssGarbler,
-    ) -> ProtoResult<DdhHiddenEvalServerInputs> {
-        DdhHiddenEvalServerInputs::from_transport_bundles(
-            garbler.evaluation_key(),
-            &self.y_relayer_left,
-            &self.y_relayer_right,
-            &self.tau_relayer_left,
-            &self.tau_relayer_right,
-        )
-    }
-
     fn server_input_commitment_with_garbler(
         &self,
         garbler: &DdhHssGarbler,
     ) -> ProtoResult<[u8; 32]> {
-        Ok(combined_server_input_commitment(
+        Ok(combined_server_input_commitment_from_opened(
             garbler.evaluation_key(),
-            &self.materialize_server_inputs_with_garbler(garbler)?,
+            self,
         ))
     }
 
@@ -2364,9 +2566,9 @@ impl PrimeOrderSuccinctHssOpenedServerInputs {
         &self,
         evaluator: &DdhHssEvaluator,
     ) -> ProtoResult<[u8; 32]> {
-        Ok(combined_server_input_commitment(
+        Ok(combined_server_input_commitment_from_opened(
             evaluator.evaluation_key(),
-            &self.materialize_server_inputs_with_evaluator(evaluator)?,
+            self,
         ))
     }
 
@@ -2384,20 +2586,26 @@ impl PrimeOrderSuccinctHssOpenedServerInputs {
     }
 }
 
-fn combined_server_input_commitment(
+fn combined_server_input_commitment_from_opened(
     evaluation_key: &DdhHssEvaluationKey,
-    server_inputs: &DdhHiddenEvalServerInputs,
+    opened_server_inputs: &PrimeOrderSuccinctHssOpenedServerInputs,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"succinct-garbling-proto/ddh-hss/combined-input-commitment/v0");
     hasher.update(evaluation_key.key_id);
     hasher.update(b"server");
     for bundle in [
-        &server_inputs.y_relayer_bits,
-        &server_inputs.tau_relayer_bits,
+        (
+            &opened_server_inputs.y_relayer_left.commitment,
+            opened_server_inputs.y_relayer_left.label.as_bytes(),
+        ),
+        (
+            &opened_server_inputs.tau_relayer_left.commitment,
+            opened_server_inputs.tau_relayer_left.label.as_bytes(),
+        ),
     ] {
-        hasher.update(bundle.commitment);
-        hasher.update(bundle.label.as_bytes());
+        hasher.update(bundle.0);
+        hasher.update(bundle.1);
     }
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
@@ -2418,11 +2626,11 @@ fn serialize_server_inputs_payload(
     y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
     tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
 ) -> ProtoResult<Vec<u8>> {
-    let payload = PrimeOrderSuccinctHssEncodedServerInputsPayload {
-        y_relayer_left: y_relayer.0.clone(),
-        y_relayer_right: y_relayer.1.clone(),
-        tau_relayer_left: tau_relayer.0.clone(),
-        tau_relayer_right: tau_relayer.1.clone(),
+    let payload = PrimeOrderSuccinctHssEncodedServerInputsPayloadRef {
+        y_relayer_left: &y_relayer.0,
+        y_relayer_right: &y_relayer.1,
+        tau_relayer_left: &tau_relayer.0,
+        tau_relayer_right: &tau_relayer.1,
     };
     serialize_transport_payload_with_label("server_inputs", &payload)
 }
@@ -2731,14 +2939,6 @@ fn decode_output_packet_with_garbler<T: OutputPacketView>(
 }
 
 impl PrimeOrderSuccinctHssEvaluationReport {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!(
-                "failed to serialize prime-order succinct HSS evaluation report: {err}"
-            ))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
             format!(

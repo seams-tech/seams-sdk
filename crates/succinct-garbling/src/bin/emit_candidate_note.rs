@@ -33,7 +33,7 @@ fn main() {
             .expect("simulation");
 
     let rendered = if args.emit_json {
-        candidate.to_json_pretty().expect("candidate json")
+        serde_json::to_string_pretty(&candidate).expect("candidate json")
     } else {
         let mut markdown = candidate.to_markdown();
         markdown.push_str("\n## Oracle Simulation\n\n");

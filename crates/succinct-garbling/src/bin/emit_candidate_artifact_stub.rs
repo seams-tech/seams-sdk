@@ -39,7 +39,7 @@ fn main() {
     }
 
     let rendered = if args.emit_json {
-        manifest.to_json_pretty().expect("artifact stub json")
+        serde_json::to_string_pretty(&manifest).expect("artifact stub json")
     } else {
         manifest.summary_lines().join("\n")
     };

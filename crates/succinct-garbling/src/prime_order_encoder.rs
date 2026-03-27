@@ -188,14 +188,6 @@ pub fn materialize_prime_order_size_optimized_bytes(
 }
 
 impl PrimeOrderEncodedArtifact {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!(
-                "failed to serialize prime-order artifact manifest: {err}"
-            ))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
             format!(

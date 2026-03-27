@@ -272,14 +272,6 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
 }
 
 impl DdhHiddenEvalBenchmarkReport {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!(
-                "failed to serialize DDH hidden-eval benchmark report: {err}"
-            ))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(

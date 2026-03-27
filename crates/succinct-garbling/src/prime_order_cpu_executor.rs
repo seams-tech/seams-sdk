@@ -373,14 +373,6 @@ impl PrimeOrderCpuExecutionProgram {
 }
 
 impl PrimeOrderCpuExecutorBenchmarkReport {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!(
-                "failed to serialize prime-order cpu executor benchmark report: {err}"
-            ))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
             format!(

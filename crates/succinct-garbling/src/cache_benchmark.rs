@@ -124,10 +124,17 @@ pub fn materialize_cache_benchmark_targets(
     let candidate = build_fixed_hidden_core_candidate(&fixture.input.context)?;
     let stub_manifest = build_candidate_artifact_stub(&candidate)?;
     let stub_bytes = materialize_candidate_artifact_stub_bytes(&candidate)?;
-    let stub_manifest_json = stub_manifest.to_json_pretty()?;
+    let stub_manifest_json = serde_json::to_string_pretty(&stub_manifest).map_err(|err| {
+        ProtoError::Decode(format!("failed to serialize artifact stub manifest: {err}"))
+    })?;
     let prime_order_manifest = build_prime_order_size_optimized_artifact(&candidate)?;
     let prime_order_bytes = materialize_prime_order_size_optimized_bytes(&candidate)?;
-    let prime_order_manifest_json = prime_order_manifest.to_json_pretty()?;
+    let prime_order_manifest_json =
+        serde_json::to_string_pretty(&prime_order_manifest).map_err(|err| {
+            ProtoError::Decode(format!(
+                "failed to serialize prime-order artifact manifest: {err}"
+            ))
+        })?;
     let cached_gc_bytes = materialize_cached_gc_baseline_bytes(config.cached_gc_baseline_bytes)?;
 
     Ok(vec![
@@ -162,12 +169,6 @@ pub fn materialize_cache_benchmark_targets(
 }
 
 impl CacheBenchmarkReport {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!("failed to serialize cache benchmark report: {err}"))
-        })
-    }
-
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push(format!(

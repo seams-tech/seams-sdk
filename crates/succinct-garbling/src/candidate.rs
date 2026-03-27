@@ -523,12 +523,6 @@ pub fn simulate_fixed_hidden_core_candidate_for_backend(
 }
 
 impl FixedHiddenCoreCandidate {
-    pub fn to_json_pretty(&self) -> ProtoResult<String> {
-        serde_json::to_string_pretty(self).map_err(|err| {
-            ProtoError::Decode(format!("failed to serialize candidate report: {err}"))
-        })
-    }
-
     pub fn to_markdown(&self) -> String {
         let mut out = String::new();
         out.push_str("# Fixed Hidden-Core Candidate V0\n\n");

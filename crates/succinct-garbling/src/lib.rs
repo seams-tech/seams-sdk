@@ -76,8 +76,8 @@ pub use ddh_hss::{
 pub use error::{ProtoError, ProtoResult};
 pub use fixtures::{
     committed_fixture_corpus, committed_fixture_corpus_file, deterministic_fixture_corpus,
-    serialized_fixture_corpus, serialized_fixture_corpus_json, FExpandFixture, FixtureCorpusFile,
-    COMMITTED_FIXTURE_CORPUS_JSON, FIXTURE_FORMAT_VERSION,
+    serialized_fixture_corpus, FExpandFixture, FixtureCorpusFile, COMMITTED_FIXTURE_CORPUS_JSON,
+    FIXTURE_FORMAT_VERSION,
 };
 pub use hidden_eval::{
     compile_prime_order_hidden_eval_program, FixedFunctionHssBackend, HiddenEvalInputOwner,
@@ -146,7 +146,7 @@ mod tests {
     use crate::context::CanonicalContext;
     use crate::ddh_hss::keygen_prime_order_ddh_hss_backend;
     use crate::fixtures::{
-        committed_fixture_corpus, deterministic_fixture_corpus, serialized_fixture_corpus_json,
+        committed_fixture_corpus, deterministic_fixture_corpus, serialized_fixture_corpus,
         COMMITTED_FIXTURE_CORPUS_JSON,
     };
     use crate::hidden_eval::{
@@ -270,7 +270,9 @@ mod tests {
     #[test]
     fn fixture_corpus_round_trips_through_json() {
         let generated = deterministic_fixture_corpus().expect("fixture corpus");
-        let json = serialized_fixture_corpus_json().expect("fixture corpus json");
+        let json =
+            serde_json::to_string_pretty(&serialized_fixture_corpus().expect("fixture corpus"))
+                .expect("fixture corpus json");
         let parsed: crate::fixtures::FixtureCorpusFile =
             serde_json::from_str(&json).expect("parse fixture corpus json");
 
@@ -1064,7 +1066,8 @@ mod tests {
     #[test]
     fn committed_fixture_file_matches_generated_reference() {
         let _generated_json =
-            serialized_fixture_corpus_json().expect("generated fixture corpus json");
+            serde_json::to_string_pretty(&serialized_fixture_corpus().expect("fixture corpus"))
+                .expect("generated fixture corpus json");
         let _committed_json = serde_json::from_str::<crate::fixtures::FixtureCorpusFile>(
             COMMITTED_FIXTURE_CORPUS_JSON,
         )
@@ -1159,7 +1162,7 @@ mod tests {
             .expect("at least one fixture");
         let candidate =
             build_fixed_hidden_core_candidate(&fixture.input.context).expect("candidate build");
-        let json = candidate.to_json_pretty().expect("candidate json");
+        let json = serde_json::to_string_pretty(&candidate).expect("candidate json");
 
         assert!(json.contains("fixed_hidden_core_candidate_v0"));
         assert!(json.contains("succinct_hidden_core_encoding"));

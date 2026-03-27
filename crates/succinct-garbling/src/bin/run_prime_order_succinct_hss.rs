@@ -17,9 +17,7 @@ fn main() {
     let fixture = select_fixture(args.fixture_name.as_deref());
     let report = evaluate_prime_order_succinct_hss(&fixture.input).expect("evaluate succinct HSS");
     let rendered = if args.emit_json {
-        report
-            .to_json_pretty()
-            .expect("serialize succinct HSS report")
+        serde_json::to_string_pretty(&report).expect("serialize succinct HSS report")
     } else {
         report.summary_lines().join("\n")
     };
