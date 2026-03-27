@@ -1,6 +1,7 @@
 import { type ThresholdEd25519ParticipantV1 } from '@shared/threshold/participants';
 
 export type ClientShareDerivation = 'prf_first_v1';
+export type ThresholdEd25519ArtifactKind = 'near-ed25519-option-b-v1';
 
 export type PasskeyNearKeyMaterialKind = 'threshold_ed25519_2p_v1';
 
@@ -16,8 +17,14 @@ export interface BasePasskeyNearKeyMaterial {
 
 export interface ThresholdEd25519_2p_V1Material extends BasePasskeyNearKeyMaterial {
   kind: 'threshold_ed25519_2p_v1';
+  wrapKeySalt: string;
   relayerKeyId: string;
+  recoveryPublicKey: string;
+  artifactKind: ThresholdEd25519ArtifactKind;
+  keyVersion: string;
+  recoveryExportCapable: true;
   clientShareDerivation: ClientShareDerivation;
+  clientExportShareDerivation: ClientShareDerivation;
   /**
    * Versioned participant list for future n-party support.
    * In 2P, participants are `{id:1, role:'client'}` and `{id:2, role:'relayer', ...}`.

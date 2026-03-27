@@ -129,11 +129,11 @@ export async function prepareRecoveryEmails(
 
   void (async () => {
     try {
-      const context = await IndexedDBManager.clientDB
-        .resolveNearAccountContext(accountId)
+      const continuity = await IndexedDBManager.clientDB
+        .resolveNearAccountProfileContinuity(accountId)
         .catch(() => null);
-      if (!context?.profileId) return;
-      await IndexedDBManager.clientDB.upsertRecoveryEmails(context.profileId, pairs);
+      if (!continuity?.profile.profileId) return;
+      await IndexedDBManager.clientDB.upsertRecoveryEmails(continuity.profile.profileId, pairs);
     } catch (error) {
       console.warn('[EmailRecovery] Failed to persist local recovery emails', error);
     }
@@ -146,11 +146,11 @@ export async function getLocalRecoveryEmails(
   nearAccountId: AccountId,
 ): Promise<RecoveryEmailRecord[]> {
   const accountId = toAccountId(nearAccountId);
-  const context = await IndexedDBManager.clientDB
-    .resolveNearAccountContext(accountId)
+  const continuity = await IndexedDBManager.clientDB
+    .resolveNearAccountProfileContinuity(accountId)
     .catch(() => null);
-  if (!context?.profileId) return [];
-  const rows = await IndexedDBManager.clientDB.listRecoveryEmails(context.profileId);
+  if (!continuity?.profile.profileId) return [];
+  const rows = await IndexedDBManager.clientDB.listRecoveryEmails(continuity.profile.profileId);
   return rows.map((row) => ({
     nearAccountId: accountId,
     hashHex: String(row.hashHex || ''),

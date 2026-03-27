@@ -17,6 +17,8 @@ import {
 import type { PasskeyManagerContext } from './index';
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
+export const DUAL_KEY_ED25519_KEY_VERSION_V1 = 'option-b-v1';
+
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
   ttlMs: number;
@@ -26,6 +28,12 @@ export type ThresholdWarmSessionPolicyDraft = {
 
 export type ThresholdWarmSessionBootstrapPayload = {
   client_verifying_share_b64u: string;
+  key_version: string;
+  recovery_export_capable: true;
+  public_key: string;
+  recovery_public_key: string;
+  relayer_signing_share_b64u: string;
+  relayer_verifying_share_b64u: string;
   session_policy: {
     version: typeof THRESHOLD_SESSION_POLICY_VERSION;
     nearAccountId?: string;
@@ -72,13 +80,42 @@ export function createThresholdWarmSessionPolicyDraft(
 
 export function buildThresholdWarmSessionBootstrapPayload(args: {
   clientVerifyingShareB64u: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  publicKey: string;
+  recoveryPublicKey: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
   rpId: string;
   policy: ThresholdWarmSessionPolicyDraft;
   nearAccountId?: string;
   relayerKeyId?: string;
 }): ThresholdWarmSessionBootstrapPayload {
+  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  const keyVersion = String(args.keyVersion || '').trim();
+  const publicKey = String(args.publicKey || '').trim();
+  const recoveryPublicKey = String(args.recoveryPublicKey || '').trim();
+  const relayerSigningShareB64u = String(args.relayerSigningShareB64u || '').trim();
+  const relayerVerifyingShareB64u = String(args.relayerVerifyingShareB64u || '').trim();
+  if (
+    !clientVerifyingShareB64u ||
+    !keyVersion ||
+    args.recoveryExportCapable !== true ||
+    !publicKey ||
+    !recoveryPublicKey ||
+    !relayerSigningShareB64u ||
+    !relayerVerifyingShareB64u
+  ) {
+    throw new Error('threshold-ed25519 warm session bootstrap requires a complete Option B package');
+  }
   return {
-    client_verifying_share_b64u: String(args.clientVerifyingShareB64u || '').trim(),
+    client_verifying_share_b64u: clientVerifyingShareB64u,
+    key_version: keyVersion,
+    recovery_export_capable: true,
+    public_key: publicKey,
+    recovery_public_key: recoveryPublicKey,
+    relayer_signing_share_b64u: relayerSigningShareB64u,
+    relayer_verifying_share_b64u: relayerVerifyingShareB64u,
     session_policy: {
       version: THRESHOLD_SESSION_POLICY_VERSION,
       ...(args.nearAccountId ? { nearAccountId: String(args.nearAccountId || '').trim() } : {}),
@@ -146,6 +183,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
 
   await args.context.signingEngine.hydrateSigningSession({
     nearAccountId: args.nearAccountId,
+    signerKind: 'threshold-ed25519',
     sessionId,
     prfFirstB64u,
     expiresAtMs: Math.floor(expiresAtMs),

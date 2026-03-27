@@ -66,7 +66,10 @@ export type ActivateEcdsaSessionDeps = {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   prfFirstCache: ThresholdPrfFirstCachePort;
   workerCtx: WorkerOperationContext;
-  getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
+  getOrCreateActiveThresholdEcdsaSessionId: (
+    nearAccountId: AccountId,
+    chain: 'tempo' | 'evm',
+  ) => string;
 };
 
 export type ActivateEcdsaSessionRequest = {
@@ -83,7 +86,7 @@ export type ActivateEcdsaSessionRequest = {
 
 export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest,
+  args: ActivateEcdsaSessionRequest & { chain: 'tempo' | 'evm' },
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
 
@@ -96,7 +99,8 @@ export async function activateEcdsaSession(
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
     sessionId:
-      String(args.sessionId || '').trim() || deps.getOrCreateActiveSigningSessionId(nearAccountId),
+      String(args.sessionId || '').trim() ||
+      deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, args.chain),
     clientVerifyingShareB64u: args.clientVerifyingShareB64u,
     bootstrapAuthorizationJwt: args.authorizationJwt,
     ttlMs: args.ttlMs,
@@ -192,12 +196,12 @@ export async function activateEvmEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  return await activateEcdsaSession(deps, args);
+  return await activateEcdsaSession(deps, { ...args, chain: 'evm' });
 }
 
 export async function activateTempoEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  return await activateEcdsaSession(deps, args);
+  return await activateEcdsaSession(deps, { ...args, chain: 'tempo' });
 }

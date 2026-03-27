@@ -4,6 +4,7 @@ import type { EmailRecoverySSEEvent, EventCallback, AfterCall } from './sdkSentE
 import type { WebAuthnRegistrationCredential } from './webauthn';
 import type { PendingStore } from '../../utils/emailRecovery';
 import type { StoreUserDataInput } from '../indexedDB/passkeyClientDB.types';
+import type { RecoverySubjectBinding, RecoveryTargetKeySet } from '@shared/utils';
 
 export enum EmailRecoveryErrorCode {
   REGISTRATION_NOT_VERIFIED = 'EMAIL_RECOVERY_REGISTRATION_NOT_VERIFIED',
@@ -46,11 +47,11 @@ export type PendingEmailRecovery = {
   accountId: AccountId;
   deviceNumber: number;
   requestId: string;
-  recoverySessionId: string;
+  recoverySessionId: RecoverySubjectBinding['recoverySessionId'];
   // New key material (e.g., a fresh access key) will be derived and added during finalize.
-  nearPublicKey: string;
-  newEvmOwnerAddress: string;
-  deadlineEpochSeconds: number;
+  nearPublicKey: RecoveryTargetKeySet['newNearPublicKey'];
+  newEvmOwnerAddress: RecoveryTargetKeySet['newEvmOwnerAddress'];
+  deadlineEpochSeconds: RecoverySubjectBinding['deadlineEpochSeconds'];
   recoveryEmailPayloadHash: string;
   recoveryEmailSubject: string;
   recoveryEmailBody: string;
@@ -96,6 +97,6 @@ export type CollectedRecoveryCredential = {
 };
 
 export type DerivedRecoveryKeys = {
-  nearPublicKey: string;
-  evmOwnerAddress: string;
+  nearPublicKey: RecoveryTargetKeySet['newNearPublicKey'];
+  evmOwnerAddress: RecoveryTargetKeySet['newEvmOwnerAddress'];
 };

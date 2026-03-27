@@ -42,6 +42,13 @@ type DeployedSignerMutationRuntime = {
     chainAccount: ChainAccountRecord;
     now: number;
   }) => Promise<{ txHash?: string | null }>;
+  executeDeployedRemoveSigner?: (args: {
+    nearAccountId: AccountId;
+    op: SignerOpOutboxRecord;
+    signer: AccountSignerRecord;
+    chainAccount: ChainAccountRecord;
+    now: number;
+  }) => Promise<{ txHash?: string | null }>;
 };
 
 /**
@@ -389,6 +396,68 @@ export class UnifiedIndexedDBManager {
         }
 
         if (op.opType === 'revoke-signer') {
+          const chainAccount =
+            signer && signer.profileId
+              ? await this.clientDB.getChainAccount({
+                  profileId: signer.profileId,
+                  chainIdKey: op.chainIdKey,
+                  accountAddress: op.accountAddress,
+                })
+              : null;
+          if (signer && chainAccount?.deployed === true) {
+            const nearAccountId = await this.clientDB.getNearAccountIdForProfile(signer.profileId);
+            if (!nearAccountId) {
+              await markDeadLetter('Missing NEAR account row for deployed signer operation');
+              continue;
+            }
+            if (!args?.runtime?.executeDeployedRemoveSigner) {
+              await markFailed(
+                'Deployed smart-account signer mutation requires the owner-management executor',
+              );
+              continue;
+            }
+            const executed = await args.runtime.executeDeployedRemoveSigner({
+              nearAccountId,
+              op,
+              signer,
+              chainAccount,
+              now,
+            });
+            if (signer.status !== 'revoked') {
+              await this.clientDB.setAccountSignerStatus({
+                chainIdKey: op.chainIdKey,
+                accountAddress: op.accountAddress,
+                signerId: op.signerId,
+                status: 'revoked',
+                removedAt: now,
+                mutation: { routeThroughOutbox: false },
+              });
+            }
+            if (profileIdRaw && signerSlot != null) {
+              const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
+                profileIdRaw,
+                signerSlot,
+                op.chainIdKey,
+              );
+              for (const key of keys) {
+                await this.nearKeysDB.deleteKeyMaterial(
+                  key.profileId,
+                  key.deviceNumber,
+                  key.chainIdKey,
+                  key.keyKind,
+                );
+              }
+            }
+            await this.clientDB.setSignerOperationStatus({
+              opId: op.opId,
+              status: 'confirmed',
+              lastError: null,
+              nextAttemptAt: now,
+              ...(executed?.txHash ? { txHash: executed.txHash } : {}),
+            });
+            summary.confirmed += 1;
+            continue;
+          }
           if (signer) {
             if (signer.status !== 'revoked') {
               await this.clientDB.setAccountSignerStatus({

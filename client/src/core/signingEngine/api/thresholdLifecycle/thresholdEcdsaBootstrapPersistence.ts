@@ -2,6 +2,7 @@ import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import {
   normalizeIndexedDbAccountAddress,
@@ -29,9 +30,11 @@ export type ThresholdEcdsaSmartAccountDeploymentInput = {
 
 export type ThresholdEcdsaBootstrapIndexedDbPort = {
   clientDB: {
-    resolveNearAccountContext: (
-      nearAccountId: AccountId,
-    ) => Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null>;
+    resolveNearAccountContext: (nearAccountId: AccountId) => Promise<{
+      profileId: string;
+      sourceChainIdKey: string;
+      sourceAccountAddress: string;
+    } | null>;
   };
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
@@ -46,7 +49,8 @@ function resolveBootstrapTargetChainIdKey(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 }): string {
   const explicitChainId = normalizeIndexedDbOptionalChainIdNumber(args.smartAccount?.chainId);
-  if (typeof explicitChainId === 'number') return toIndexedDbChainIdKey(args.chain, explicitChainId);
+  if (typeof explicitChainId === 'number')
+    return toIndexedDbChainIdKey(args.chain, explicitChainId);
   const keygenChainId = normalizeIndexedDbOptionalChainIdNumber(args.bootstrap.keygen.chainId);
   if (typeof keygenChainId === 'number') return toIndexedDbChainIdKey(args.chain, keygenChainId);
   return getUnknownChainIdKeyForActivationChain(args.chain);
@@ -65,6 +69,39 @@ function deriveMirrorChainDefaults(chain: ThresholdEcdsaActivationChain): {
   return {
     chainIdKey: 'evm:unknown',
     accountModel: 'erc4337',
+  };
+}
+
+export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
+  accountAddress: string;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+}): UndeployedSmartAccountSignerSet {
+  const participantIds = Array.isArray(args.bootstrap.keygen.participantIds)
+    ? args.bootstrap.keygen.participantIds
+        .map((value) => Math.floor(Number(value)))
+        .filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+  return {
+    version: 'undeployed_smart_account_signer_set_v1',
+    ownerAddresses: [args.accountAddress],
+    activeOwnerAddresses: [args.accountAddress],
+    pendingOwnerAddresses: [],
+    owners: [
+      {
+        signerId: args.accountAddress,
+        signerType: 'threshold',
+        status: 'active',
+        ...(typeof args.bootstrap.keygen.relayerKeyId === 'string' &&
+        args.bootstrap.keygen.relayerKeyId.trim()
+          ? { relayerKeyId: args.bootstrap.keygen.relayerKeyId.trim() }
+          : {}),
+        ...(typeof args.bootstrap.keygen.groupPublicKeyB64u === 'string' &&
+        args.bootstrap.keygen.groupPublicKeyB64u.trim()
+          ? { groupPublicKeyB64u: args.bootstrap.keygen.groupPublicKeyB64u.trim() }
+          : {}),
+        ...(participantIds.length ? { participantIds } : {}),
+      },
+    ],
   };
 }
 
@@ -104,8 +141,14 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   const entryPoint = normalizeOptionalNonEmptyString(
     args.smartAccount?.entryPoint || args.bootstrap.keygen.entryPoint,
   );
-  const salt = normalizeOptionalNonEmptyString(args.smartAccount?.salt || args.bootstrap.keygen.salt);
+  const salt = normalizeOptionalNonEmptyString(
+    args.smartAccount?.salt || args.bootstrap.keygen.salt,
+  );
   const deploymentCheckedAt = args.deployment?.deployed ? Date.now() : null;
+  const undeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSet({
+    accountAddress,
+    bootstrap: args.bootstrap,
+  });
 
   await args.indexedDB.upsertChainAccount({
     profileId: nearContext.profileId,
@@ -123,6 +166,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
         ? normalizeOptionalNonEmptyString(args.deployment.deploymentTxHash) || null
         : null,
     lastDeploymentCheckAt: deploymentCheckedAt,
+    undeployedSignerSet,
   });
 
   // Provisioning once (tempo or evm) should still leave an "unknown" row for the
@@ -143,6 +187,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
       deployed: false,
       deploymentTxHash: null,
       lastDeploymentCheckAt: null,
+      undeployedSignerSet,
     });
   }
 }

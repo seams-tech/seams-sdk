@@ -1,4 +1,3 @@
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { toAccountId } from '@/core/types/accountIds';
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
@@ -17,8 +16,7 @@ import {
   mintEd25519AuthSession,
 } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519AuthSession';
-
-const DUMMY_WRAP_KEY_SALT_B64U = base64UrlEncode(new Uint8Array(32));
+import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../ed25519WrapKeySalt';
 
 /**
  * Wallet-origin helper:
@@ -89,22 +87,54 @@ export async function connectEd25519Session(args: {
     };
   }
 
-  // 2) Derive client verifying share using the signer worker (share stays inside the worker).
+  const storedClientVerifyingShareB64u = await (async (): Promise<string> => {
+    const getNearThresholdKeyMaterial = (
+      args.indexedDB as ThresholdIndexedDbPort & {
+        getNearThresholdKeyMaterial?: (nearAccountId: string) => Promise<{
+          participants?: Array<{ role?: string; verifyingShareB64u?: string }>;
+        } | null>;
+      }
+    ).getNearThresholdKeyMaterial;
+    if (typeof getNearThresholdKeyMaterial !== 'function') return '';
+    try {
+      const material = await getNearThresholdKeyMaterial(args.nearAccountId);
+      const participants = Array.isArray(material?.participants) ? material.participants : [];
+      for (const participant of participants) {
+        if (String(participant?.role || '').trim() !== 'client') continue;
+        const verifyingShareB64u = String(participant?.verifyingShareB64u || '').trim();
+        if (verifyingShareB64u) return verifyingShareB64u;
+      }
+    } catch {}
+    return '';
+  })();
+
+  // 2) Resolve the client verifying share. Option B accounts persist the bootstraped client share
+  // directly, so login/session reconnect must reuse it instead of deriving a mismatched share.
   const sessionId = policy.sessionId;
-  const derive = await args.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
-    sessionId,
-    nearAccountId: toAccountId(args.nearAccountId),
-    prfFirstB64u,
-    wrapKeySalt: DUMMY_WRAP_KEY_SALT_B64U,
-  });
-  if (!derive.success) {
+  let clientVerifyingShareB64u = storedClientVerifyingShareB64u;
+  if (!clientVerifyingShareB64u) {
+    const derive = await args.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
+      sessionId,
+      nearAccountId: toAccountId(args.nearAccountId),
+      prfFirstB64u,
+      wrapKeySalt: THRESHOLD_ED25519_WRAP_KEY_SALT_B64U,
+    });
+    if (!derive.success) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: derive.error || 'Failed to derive client verifying share',
+      };
+    }
+    clientVerifyingShareB64u = derive.clientVerifyingShareB64u;
+  }
+  if (!clientVerifyingShareB64u) {
     return {
       ok: false,
       code: 'internal',
-      message: derive.error || 'Failed to derive client verifying share',
+      message: 'Failed to resolve client verifying share',
     };
   }
-  const clientVerifyingShareB64u = derive.clientVerifyingShareB64u;
   let ecdsaClientVerifyingShareB64u: string | undefined;
   if (args.workerCtx) {
     try {

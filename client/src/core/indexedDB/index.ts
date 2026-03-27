@@ -8,6 +8,7 @@ export type {
   UserPreferences,
   ClientAuthenticatorData,
   ProfileAuthenticatorRecord,
+  ProfileContinuitySnapshot,
   IndexedDBEvent,
   LastProfileState,
   RecoveryEmailRecord,
@@ -33,9 +34,12 @@ export type {
   EnqueueSignerOperationInput,
 } from './passkeyClientDB.types';
 
+export type { UndeployedSmartAccountSignerSet } from '@shared/utils';
+
 export type {
   PasskeyNearKeyMaterial,
   ThresholdEd25519_2p_V1Material,
+  ThresholdEd25519ArtifactKind,
   PasskeyNearKeyMaterialKind,
   ClientShareDerivation,
   PasskeyChainIdKeyMaterial,

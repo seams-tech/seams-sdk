@@ -6,6 +6,7 @@ import {
   WorkerResponseType,
   type WasmTransactionSignResult,
   type WasmDeriveThresholdEd25519ClientVerifyingShareResult,
+  type WasmDeriveThresholdEd25519BootstrapPackageResult,
 } from '@/core/types/signer-worker';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import {
@@ -58,6 +59,95 @@ export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
   return {
     nearAccountId,
     clientVerifyingShareB64u,
+  };
+}
+
+export async function deriveThresholdEd25519BootstrapPackageWasm(args: {
+  sessionId: string;
+  nearAccountId: string;
+  rpId?: string;
+  keyVersion: string;
+  prfFirstB64u: string;
+  recoveryServerShareB64u?: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<{
+  nearAccountId: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  clientParticipantId: number;
+  relayerParticipantId: number;
+  publicKey: string;
+  recoveryPublicKey: string;
+  clientVerifyingShareB64u: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
+}> {
+  const sessionId = String(args.sessionId || '').trim();
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  const rpId = String(args.rpId || '').trim();
+  const keyVersion = String(args.keyVersion || '').trim();
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+  const recoveryServerShareB64u = String(args.recoveryServerShareB64u || '').trim();
+
+  if (!sessionId) throw new Error('Missing sessionId');
+  if (!nearAccountId) throw new Error('Missing nearAccountId');
+  if (!keyVersion) throw new Error('Missing keyVersion');
+  if (!prfFirstB64u) throw new Error('Missing prfFirstB64u');
+
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId,
+      type: WorkerRequestType.DeriveThresholdEd25519BootstrapPackage,
+      payload: {
+        nearAccountId,
+        ...(rpId ? { rpId } : {}),
+        keyVersion,
+        prfFirstB64u,
+        ...(recoveryServerShareB64u ? { recoveryServerShareB64u } : {}),
+      },
+    },
+  });
+
+  if (response.type !== WorkerResponseType.DeriveThresholdEd25519BootstrapPackageSuccess) {
+    throw new Error('DeriveThresholdEd25519BootstrapPackage failed');
+  }
+
+  const wasmResult = response.payload as WasmDeriveThresholdEd25519BootstrapPackageResult;
+  const normalizedKeyVersion = String(wasmResult?.keyVersion || '').trim();
+  const recoveryExportCapable =
+    Boolean((wasmResult as { recoveryExportCapable?: unknown })?.recoveryExportCapable) === true;
+  const publicKey = ensureEd25519Prefix(String(wasmResult?.publicKey || '').trim());
+  const recoveryPublicKey = ensureEd25519Prefix(
+    String((wasmResult as { recoveryPublicKey?: unknown })?.recoveryPublicKey || '').trim(),
+  );
+  const clientVerifyingShareB64u = String(wasmResult?.clientVerifyingShareB64u || '').trim();
+  const relayerSigningShareB64u = String(wasmResult?.relayerSigningShareB64u || '').trim();
+  const relayerVerifyingShareB64u = String(wasmResult?.relayerVerifyingShareB64u || '').trim();
+  if (!normalizedKeyVersion) {
+    throw new Error('Missing keyVersion in threshold Ed25519 bootstrap package');
+  }
+  if (!recoveryExportCapable) {
+    throw new Error('Threshold Ed25519 bootstrap package must set recoveryExportCapable=true');
+  }
+  if (!publicKey || !recoveryPublicKey) {
+    throw new Error('Threshold Ed25519 bootstrap package missing public keys');
+  }
+  if (!clientVerifyingShareB64u || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {
+    throw new Error('Threshold Ed25519 bootstrap package missing share material');
+  }
+  return {
+    nearAccountId,
+    keyVersion: normalizedKeyVersion,
+    recoveryExportCapable: true,
+    clientParticipantId: Number(wasmResult?.clientParticipantId),
+    relayerParticipantId: Number(wasmResult?.relayerParticipantId),
+    publicKey,
+    recoveryPublicKey,
+    clientVerifyingShareB64u,
+    relayerSigningShareB64u,
+    relayerVerifyingShareB64u,
   };
 }
 

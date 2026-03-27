@@ -15,6 +15,7 @@ import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/partici
 import { restoreLocalLoginState } from './restoreLocalLoginState';
 import {
   buildThresholdWarmSessionBootstrapPayload,
+  DUAL_KEY_ED25519_KEY_VERSION_V1,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
 } from './thresholdWarmSessionBootstrap';
@@ -141,27 +142,36 @@ export async function syncAccount(
     const thresholdWarmPolicyDraft = normalizedRequestedAccountId
       ? createThresholdWarmSessionPolicyDraft(context)
       : null;
-    let thresholdBootstrapClientVerifyingShareB64u = '';
+    let thresholdEd25519BootstrapPayload:
+      | ReturnType<typeof buildThresholdWarmSessionBootstrapPayload>
+      | null = null;
     if (thresholdWarmPolicyDraft && normalizedRequestedAccountId) {
       const thresholdDerivedForBootstrap =
-        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+        await context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
           credential,
           nearAccountId: normalizedRequestedAccountId,
+          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
         });
-      if (
-        !thresholdDerivedForBootstrap.success ||
-        !thresholdDerivedForBootstrap.clientVerifyingShareB64u
-      ) {
+      if (!thresholdDerivedForBootstrap.success) {
         throw new Error(
           thresholdDerivedForBootstrap.error ||
-            'Failed to derive threshold client verifying share for sync bootstrap',
+            'Failed to derive Ed25519 Option B bootstrap package for sync bootstrap',
         );
       }
-      thresholdBootstrapClientVerifyingShareB64u = String(
-        thresholdDerivedForBootstrap.clientVerifyingShareB64u || '',
-      ).trim();
-      if (!thresholdBootstrapClientVerifyingShareB64u) {
-        throw new Error('Derived threshold client verifying share is empty');
+      thresholdEd25519BootstrapPayload = buildThresholdWarmSessionBootstrapPayload({
+        clientVerifyingShareB64u: thresholdDerivedForBootstrap.clientVerifyingShareB64u,
+        keyVersion: thresholdDerivedForBootstrap.keyVersion,
+        recoveryExportCapable: thresholdDerivedForBootstrap.recoveryExportCapable,
+        publicKey: thresholdDerivedForBootstrap.publicKey,
+        recoveryPublicKey: thresholdDerivedForBootstrap.recoveryPublicKey,
+        relayerSigningShareB64u: thresholdDerivedForBootstrap.relayerSigningShareB64u,
+        relayerVerifyingShareB64u: thresholdDerivedForBootstrap.relayerVerifyingShareB64u,
+        nearAccountId: String(normalizedRequestedAccountId),
+        rpId,
+        policy: thresholdWarmPolicyDraft,
+      });
+      if (!thresholdEd25519BootstrapPayload.client_verifying_share_b64u) {
+        throw new Error('Derived Ed25519 Option B bootstrap package is incomplete');
       }
     }
 
@@ -171,15 +181,8 @@ export async function syncAccount(
       challengeId,
       webauthn_authentication: credentialForRelay,
     };
-    if (thresholdWarmPolicyDraft && thresholdBootstrapClientVerifyingShareB64u) {
-      verifyRequestBody.threshold_ed25519 = buildThresholdWarmSessionBootstrapPayload({
-        clientVerifyingShareB64u: thresholdBootstrapClientVerifyingShareB64u,
-        nearAccountId: normalizedRequestedAccountId
-          ? String(normalizedRequestedAccountId)
-          : undefined,
-        rpId,
-        policy: thresholdWarmPolicyDraft,
-      });
+    if (thresholdEd25519BootstrapPayload) {
+      verifyRequestBody.threshold_ed25519 = thresholdEd25519BootstrapPayload;
     }
 
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
@@ -229,7 +232,7 @@ export async function syncAccount(
     await context.signingEngine.storeUserData({
       nearAccountId: normalizedAccountId,
       deviceNumber,
-      clientNearPublicKey: publicKey,
+      operationalPublicKey: publicKey,
       lastUpdated: Date.now(),
       passkeyCredential: {
         id: String(credential.id || ''),
@@ -266,11 +269,24 @@ export async function syncAccount(
       const relayerVerifyingShareB64u = String(
         thresholdEd25519.relayerVerifyingShareB64u || '',
       ).trim();
+      const thresholdKeyVersion = String(thresholdEd25519.keyVersion || '').trim();
+      const thresholdRecoveryExportCapable =
+        typeof thresholdEd25519.recoveryExportCapable === 'boolean'
+          ? Boolean(thresholdEd25519.recoveryExportCapable)
+          : undefined;
+      const thresholdRecoveryPublicKey = String(thresholdEd25519.recoveryPublicKey || '').trim();
+      if (
+        thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
+        thresholdRecoveryExportCapable !== true ||
+        !thresholdRecoveryPublicKey
+      ) {
+        throw new Error('sync-account/verify returned incomplete Option B recovery metadata');
+      }
       const clientVerifyingShareB64u =
         normalizedRequestedAccountId &&
         String(normalizedRequestedAccountId) === String(normalizedAccountId) &&
-        thresholdBootstrapClientVerifyingShareB64u
-          ? thresholdBootstrapClientVerifyingShareB64u
+        thresholdEd25519BootstrapPayload?.client_verifying_share_b64u
+          ? String(thresholdEd25519BootstrapPayload.client_verifying_share_b64u || '').trim()
           : await (async () => {
               const derived =
                 await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential(
@@ -287,7 +303,12 @@ export async function syncAccount(
         deviceNumber,
         publicKey,
         relayerKeyId,
+        recoveryPublicKey: thresholdRecoveryPublicKey,
+        artifactKind: 'near-ed25519-option-b-v1',
+        keyVersion: thresholdKeyVersion,
+        recoveryExportCapable: true,
         clientShareDerivation: 'prf_first_v1',
+        clientExportShareDerivation: 'prf_first_v1',
         participants: buildThresholdEd25519Participants2pV1({
           clientParticipantId: Number.isFinite(Number(thresholdEd25519.clientParticipantId))
             ? Math.floor(Number(thresholdEd25519.clientParticipantId))
@@ -306,7 +327,7 @@ export async function syncAccount(
 
       if (
         thresholdWarmPolicyDraft &&
-        thresholdBootstrapClientVerifyingShareB64u &&
+        thresholdEd25519BootstrapPayload?.client_verifying_share_b64u &&
         normalizedRequestedAccountId &&
         String(normalizedRequestedAccountId) === String(normalizedAccountId)
       ) {

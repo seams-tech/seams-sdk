@@ -132,7 +132,7 @@ export async function upsertNearAccountProjectionRecords(args: {
     status: 'active',
     metadata: {
       ...(existingSigner?.metadata || {}),
-      clientNearPublicKey: userData.clientNearPublicKey,
+      operationalPublicKey: userData.operationalPublicKey,
       passkeyCredentialId: userData.passkeyCredential?.id,
       passkeyCredentialRawId: userData.passkeyCredential?.rawId,
     },
@@ -197,8 +197,8 @@ export async function buildNearAccountProjection(args: {
       typeof metadata.passkeyCredentialId === 'string'
         ? metadata.passkeyCredentialId
         : profile.passkeyCredential?.id || passkeyCredentialRawId;
-    const clientNearPublicKey =
-      typeof metadata.clientNearPublicKey === 'string' ? metadata.clientNearPublicKey : '';
+    const operationalPublicKey =
+      typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
 
     return {
       nearAccountId: accountId,
@@ -207,7 +207,7 @@ export async function buildNearAccountProjection(args: {
       registeredAt: profile.createdAt,
       lastLogin: profile.updatedAt,
       lastUpdated: profile.updatedAt,
-      clientNearPublicKey,
+      operationalPublicKey,
       passkeyCredential: {
         id: passkeyCredentialId,
         rawId: passkeyCredentialRawId,

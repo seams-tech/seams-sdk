@@ -11,9 +11,11 @@ import type {
   PasskeyChainIdKeyAlgorithm,
   PasskeyChainIdKeyKind,
   PasskeyChainIdKeyMaterial,
+  ThresholdEd25519ArtifactKind,
   ThresholdEd25519_2p_V1Material,
 } from '../passkeyNearKeysDB.types';
 import { getNearChainCandidates } from './accountProjection';
+import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '@/core/signingEngine/threshold/ed25519WrapKeySalt';
 
 export interface NearKeyMaterialDeps {
   clientDB: Pick<PasskeyClientDBManager, 'getProfileByAccount'>;
@@ -40,9 +42,13 @@ export interface StoreNearThresholdKeyMaterialInput {
   deviceNumber: number;
   publicKey: string;
   relayerKeyId: string;
+  recoveryPublicKey: string;
+  artifactKind: ThresholdEd25519ArtifactKind;
+  keyVersion: string;
+  recoveryExportCapable: true;
   clientShareDerivation: ClientShareDerivation;
+  clientExportShareDerivation: ClientShareDerivation;
   participants?: ThresholdEd25519_2p_V1Material['participants'];
-  wrapKeySalt?: string;
   signerId?: string;
   timestamp?: number;
   schemaVersion?: number;
@@ -58,10 +64,33 @@ function mapThresholdNearKey(
   if (!rec) return null;
   const payload = (rec.payload || {}) as Record<string, unknown>;
   const relayerKeyId = toTrimmedString(payload.relayerKeyId || '');
+  const recoveryPublicKey = toTrimmedString(payload.recoveryPublicKey || '');
+  const artifactKind = toTrimmedString(payload.artifactKind || '') as ThresholdEd25519ArtifactKind;
+  const keyVersion = toTrimmedString(payload.keyVersion || '');
+  const storedWrapKeySalt = toTrimmedString(rec.wrapKeySalt || '');
+  const wrapKeySalt = storedWrapKeySalt || THRESHOLD_ED25519_WRAP_KEY_SALT_B64U;
+  const recoveryExportCapable =
+    typeof payload.recoveryExportCapable === 'boolean'
+      ? payload.recoveryExportCapable
+      : undefined;
   const clientShareDerivation = toTrimmedString(payload.clientShareDerivation || '') as
     | ClientShareDerivation
     | '';
-  if (!relayerKeyId || !clientShareDerivation) return null;
+  const clientExportShareDerivation = toTrimmedString(payload.clientExportShareDerivation || '') as
+    | ClientShareDerivation
+    | '';
+  if (
+    !relayerKeyId ||
+    !recoveryPublicKey ||
+    artifactKind !== 'near-ed25519-option-b-v1' ||
+    !keyVersion ||
+    (storedWrapKeySalt.length > 0 && storedWrapKeySalt !== THRESHOLD_ED25519_WRAP_KEY_SALT_B64U) ||
+    recoveryExportCapable !== true ||
+    !clientShareDerivation ||
+    !clientExportShareDerivation
+  ) {
+    return null;
+  }
   const participants =
     parseThresholdEd25519ParticipantsV1(payload.participants) ||
     buildThresholdEd25519Participants2pV1({
@@ -73,9 +102,14 @@ function mapThresholdNearKey(
     deviceNumber,
     kind: 'threshold_ed25519_2p_v1',
     publicKey: rec.publicKey,
-    ...(rec.wrapKeySalt ? { wrapKeySalt: rec.wrapKeySalt } : {}),
+    wrapKeySalt,
     relayerKeyId,
+    recoveryPublicKey,
+    artifactKind,
+    keyVersion,
+    recoveryExportCapable: true,
     clientShareDerivation,
+    clientExportShareDerivation,
     participants,
     timestamp: rec.timestamp,
   };
@@ -217,11 +251,29 @@ export async function storeNearThresholdKeyMaterial(
   input: StoreNearThresholdKeyMaterialInput,
 ): Promise<void> {
   const relayerKeyId = toTrimmedString(input.relayerKeyId || '');
+  const recoveryPublicKey = toTrimmedString(input.recoveryPublicKey || '');
+  const artifactKind = toTrimmedString(input.artifactKind || '') as ThresholdEd25519ArtifactKind;
+  const keyVersion = toTrimmedString(input.keyVersion || '');
+  const recoveryExportCapable =
+    typeof input.recoveryExportCapable === 'boolean' ? input.recoveryExportCapable : undefined;
   const clientShareDerivation = toTrimmedString(
     input.clientShareDerivation || '',
   ) as ClientShareDerivation;
-  if (!relayerKeyId || !clientShareDerivation) {
-    throw new Error('IndexedDBManager: Missing threshold NEAR key fields for key write');
+  const clientExportShareDerivation = toTrimmedString(
+    input.clientExportShareDerivation || '',
+  ) as ClientShareDerivation;
+  if (
+    !relayerKeyId ||
+    !recoveryPublicKey ||
+    artifactKind !== 'near-ed25519-option-b-v1' ||
+    !keyVersion ||
+    recoveryExportCapable !== true ||
+    !clientShareDerivation ||
+    !clientExportShareDerivation
+  ) {
+    throw new Error(
+      'IndexedDBManager: Threshold NEAR key writes require complete Option B recovery metadata',
+    );
   }
   const participants =
     parseThresholdEd25519ParticipantsV1(input.participants) ||
@@ -236,10 +288,15 @@ export async function storeNearThresholdKeyMaterial(
     keyKind: 'threshold_share_v1',
     publicKey: input.publicKey,
     signerId: input.signerId,
-    ...(input.wrapKeySalt ? { wrapKeySalt: String(input.wrapKeySalt).trim() } : {}),
+    wrapKeySalt: THRESHOLD_ED25519_WRAP_KEY_SALT_B64U,
     payload: {
       relayerKeyId,
+      recoveryPublicKey,
+      artifactKind,
+      keyVersion,
+      recoveryExportCapable: true,
       clientShareDerivation,
+      clientExportShareDerivation,
       participants,
     },
     timestamp: input.timestamp,

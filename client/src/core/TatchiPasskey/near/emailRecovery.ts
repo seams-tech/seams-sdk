@@ -21,6 +21,7 @@ import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/em
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import {
   buildThresholdWarmSessionBootstrapPayload,
+  DUAL_KEY_ED25519_KEY_VERSION_V1,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
 } from '../thresholdWarmSessionBootstrap';
@@ -257,14 +258,6 @@ export class EmailRecoveryDomain {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
       })();
 
-      const derived =
-        await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
-          credential,
-          nearAccountId,
-        });
-      if (!derived.success || !derived.clientVerifyingShareB64u) {
-        throw new Error(derived.error || 'Failed to derive threshold client verifying share');
-      }
       const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context);
       if (!thresholdWarmPolicyDraft) {
         throw new Error('Threshold warm-session defaults are disabled for email recovery');
@@ -280,6 +273,19 @@ export class EmailRecoveryDomain {
         );
       }
 
+      const derived =
+        await context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
+          credential,
+          nearAccountId,
+          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+        });
+      if (!derived.success) {
+        throw new Error(derived.error || 'Failed to derive Ed25519 Option B bootstrap package');
+      }
+      if (!derived.clientVerifyingShareB64u) {
+        throw new Error('Failed to derive Ed25519 Option B bootstrap package');
+      }
+
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
       );
@@ -292,6 +298,12 @@ export class EmailRecoveryDomain {
           device_number: deviceNumber,
           threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
             clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+            keyVersion: derived.keyVersion,
+            recoveryExportCapable: derived.recoveryExportCapable,
+            publicKey: derived.publicKey,
+            recoveryPublicKey: derived.recoveryPublicKey,
+            relayerSigningShareB64u: derived.relayerSigningShareB64u,
+            relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
             nearAccountId: String(nearAccountId),
             rpId,
             policy: thresholdWarmPolicyDraft,
@@ -364,7 +376,7 @@ export class EmailRecoveryDomain {
       await context.signingEngine.storeUserData({
         nearAccountId,
         deviceNumber,
-        clientNearPublicKey: thresholdPublicKey,
+        operationalPublicKey: thresholdPublicKey,
         lastUpdated: Date.now(),
         passkeyCredential: {
           id: String(credential.id || credentialId),
@@ -385,12 +397,30 @@ export class EmailRecoveryDomain {
         deviceNumber,
       });
 
+      const thresholdKeyVersion = String(thresholdSection.keyVersion || '').trim();
+      const thresholdRecoveryExportCapable =
+        typeof thresholdSection.recoveryExportCapable === 'boolean'
+          ? Boolean(thresholdSection.recoveryExportCapable)
+          : undefined;
+      const thresholdRecoveryPublicKey = String(thresholdSection.recoveryPublicKey || '').trim();
+      if (
+        thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
+        thresholdRecoveryExportCapable !== true ||
+        !thresholdRecoveryPublicKey
+      ) {
+        throw new Error('email-recovery bootstrap returned incomplete Option B recovery metadata');
+      }
       await IndexedDBManager.storeNearThresholdKeyMaterial({
         nearAccountId,
         deviceNumber,
         publicKey: thresholdPublicKey,
         relayerKeyId,
+        recoveryPublicKey: thresholdRecoveryPublicKey,
+        artifactKind: 'near-ed25519-option-b-v1',
+        keyVersion: thresholdKeyVersion,
+        recoveryExportCapable: true,
         clientShareDerivation: 'prf_first_v1',
+        clientExportShareDerivation: 'prf_first_v1',
         participants: buildThresholdEd25519Participants2pV1({
           clientParticipantId: Number.isFinite(clientParticipantId)
             ? Math.floor(clientParticipantId)

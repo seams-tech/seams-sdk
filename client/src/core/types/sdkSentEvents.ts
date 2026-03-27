@@ -339,7 +339,7 @@ export interface LoginSSEventStep4 extends BaseLoginSSEEvent {
   phase: LoginPhase.STEP_4_LOGIN_COMPLETE;
   status: LoginStatus.SUCCESS;
   nearAccountId: string;
-  clientNearPublicKey: string;
+  operationalPublicKey: string;
 }
 
 export interface LoginSSEventStep0 extends BaseLoginSSEEvent {

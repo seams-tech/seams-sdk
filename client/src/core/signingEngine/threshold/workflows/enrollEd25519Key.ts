@@ -4,20 +4,39 @@ import { ensureEd25519Prefix } from '@shared/utils/validation';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdWebAuthnPromptPort } from '../webauthn';
 
-type DeriveThresholdClientShareResult = {
-  success: boolean;
-  clientVerifyingShareB64u: string;
-  error?: string;
-};
+const DUAL_KEY_ED25519_KEY_VERSION_V1 = 'option-b-v1';
+
+type DeriveThresholdBootstrapPackageResult =
+  | {
+      success: true;
+      nearAccountId: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      clientParticipantId: number;
+      relayerParticipantId: number;
+      publicKey: string;
+      recoveryPublicKey: string;
+      clientVerifyingShareB64u: string;
+      relayerSigningShareB64u: string;
+      relayerVerifyingShareB64u: string;
+    }
+  | {
+      success: false;
+      nearAccountId: string;
+      keyVersion: string;
+      error?: string;
+    };
 
 export type EnrollThresholdEd25519KeyHandlerContext = {
   signingKeyOps: {
-    deriveThresholdEd25519ClientVerifyingShare: (args: {
+    deriveThresholdEd25519BootstrapPackage: (args: {
       sessionId: string;
       nearAccountId: AccountId;
       prfFirstB64u: string;
-      wrapKeySalt: string;
-    }) => Promise<DeriveThresholdClientShareResult>;
+      rpId?: string;
+      keyVersion: string;
+      recoveryServerShareB64u?: string;
+    }) => Promise<DeriveThresholdBootstrapPackageResult>;
   };
   touchIdPrompt: Pick<ThresholdWebAuthnPromptPort, 'getRpId'>;
   relayerUrl: string;
@@ -25,7 +44,7 @@ export type EnrollThresholdEd25519KeyHandlerContext = {
 
 /**
  * Threshold keygen helper (2-of-2):
- * - derive deterministic client verifying share from WrapKeySeed (via signer worker session)
+ * - derive deterministic bootstrap Ed25519 enrollment material from PRF.first
  * - run `/threshold-ed25519/keygen` to fetch relayer share + group public key
  */
 export async function enrollEd25519KeyHandler(
@@ -38,17 +57,25 @@ export async function enrollEd25519KeyHandler(
     wrapKeySalt: string;
     keygenSessionId?: string;
   },
-): Promise<{
-  success: boolean;
-  publicKey: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  participantIds?: number[];
-  clientVerifyingShareB64u: string;
-  relayerKeyId: string;
-  relayerVerifyingShareB64u: string;
-  error?: string;
-}> {
+): Promise<
+  | {
+      success: true;
+      publicKey: string;
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      clientParticipantId?: number;
+      relayerParticipantId?: number;
+      participantIds?: number[];
+      clientVerifyingShareB64u: string;
+      relayerKeyId: string;
+      relayerVerifyingShareB64u: string;
+    }
+  | {
+      success: false;
+      error?: string;
+    }
+> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const sessionId = String(args.sessionId || '').trim();
   const relayerUrl = String(ctx.relayerUrl || '').trim();
@@ -59,16 +86,27 @@ export async function enrollEd25519KeyHandler(
     if (!args.webauthnAuthentication)
       throw new Error('Missing webauthnAuthentication for threshold keygen');
     if (!args.prfFirstB64u) throw new Error('Missing PRF.first output for threshold keygen');
-    if (!args.wrapKeySalt) throw new Error('Missing wrapKeySalt for threshold keygen');
 
-    const derived = await ctx.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
+    const derived = await ctx.signingKeyOps.deriveThresholdEd25519BootstrapPackage({
       sessionId,
       nearAccountId,
       prfFirstB64u: args.prfFirstB64u,
-      wrapKeySalt: args.wrapKeySalt,
+      rpId: ctx.touchIdPrompt.getRpId() || undefined,
+      keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
     });
     if (!derived.success) {
-      throw new Error(derived.error || 'Failed to derive threshold client verifying share');
+      throw new Error(derived.error || 'Failed to derive Ed25519 Option B bootstrap package');
+    }
+    if (!derived.recoveryPublicKey || derived.recoveryExportCapable !== true) {
+      throw new Error('Threshold Ed25519 bootstrap package is missing Option B recovery metadata');
+    }
+    if (
+      !derived.clientVerifyingShareB64u ||
+      !derived.publicKey ||
+      !derived.relayerSigningShareB64u ||
+      !derived.relayerVerifyingShareB64u
+    ) {
+      throw new Error('Threshold Ed25519 bootstrap package is incomplete');
     }
 
     const rpId = ctx.touchIdPrompt.getRpId();
@@ -82,6 +120,12 @@ export async function enrollEd25519KeyHandler(
       nearAccountId,
       rpId,
       keygenSessionId,
+      keyVersion: derived.keyVersion,
+      recoveryExportCapable: true,
+      publicKey: derived.publicKey,
+      recoveryPublicKey: derived.recoveryPublicKey,
+      relayerSigningShareB64u: derived.relayerSigningShareB64u,
+      relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
       webauthnAuthentication: args.webauthnAuthentication,
     });
     if (!keygen.ok) {
@@ -95,6 +139,12 @@ export async function enrollEd25519KeyHandler(
     if (!relayerKeyId) throw new Error('Threshold keygen returned empty relayerKeyId');
     if (!relayerVerifyingShareB64u)
       throw new Error('Threshold keygen returned empty relayerVerifyingShareB64u');
+    if (String(keygen.recoveryPublicKey || '').trim() !== derived.recoveryPublicKey) {
+      throw new Error('Threshold keygen returned an unexpected recoveryPublicKey');
+    }
+    if (keygen.recoveryExportCapable !== true) {
+      throw new Error('Threshold keygen must return recoveryExportCapable=true');
+    }
 
     const publicKey = ensureEd25519Prefix(publicKeyRaw);
     if (!publicKey) throw new Error('Threshold keygen returned empty publicKey');
@@ -107,6 +157,9 @@ export async function enrollEd25519KeyHandler(
     return {
       success: true,
       publicKey,
+      recoveryPublicKey: derived.recoveryPublicKey,
+      keyVersion: keygen.keyVersion,
+      recoveryExportCapable: true,
       clientParticipantId,
       relayerParticipantId,
       participantIds: Array.isArray(keygen.participantIds) ? keygen.participantIds : undefined,
@@ -118,10 +171,6 @@ export async function enrollEd25519KeyHandler(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       success: false,
-      publicKey: '',
-      clientVerifyingShareB64u: '',
-      relayerKeyId: '',
-      relayerVerifyingShareB64u: '',
       error: message,
     };
   }

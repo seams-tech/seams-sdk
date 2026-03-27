@@ -66,6 +66,7 @@ async function mountExportViewer(
   host.keys = Array.isArray(payload.keys)
     ? (payload.keys as ExportPrivateKeyDisplayEntry[])
     : undefined;
+  host.guidance = payload.guidance;
   host.tokens = sanitizeThemeTokens(ctx.getAppearanceTokens?.());
   host.loading = false;
 
@@ -139,7 +140,9 @@ export async function handleLocalOnlyFlow(
       confirmationConfig.behavior = 'skipClick';
     }
 
-    const challengeB64u = createRandomChallengeB64u();
+    const challengeB64u =
+      String((request.payload as { challengeB64u?: unknown })?.challengeB64u || '').trim() ||
+      createRandomChallengeB64u();
     // When this flow is initiated via worker→host messaging (wallet-iframe mode),
     // there is typically no transient user activation. If confirmationConfig chooses
     // a visible UI mode (modal/drawer), prompt first so the click lands inside the

@@ -27,6 +27,7 @@ import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import {
   buildThresholdWarmSessionBootstrapPayload,
+  DUAL_KEY_ED25519_KEY_VERSION_V1,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
 } from '../thresholdWarmSessionBootstrap';
@@ -384,12 +385,16 @@ export class LinkDeviceFlow {
     );
 
     const derived =
-      await this.context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential({
+      await this.context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
         credential,
         nearAccountId,
+        keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
       });
-    if (!derived.success || !derived.clientVerifyingShareB64u) {
-      throw new Error(derived.error || 'Failed to derive threshold client verifying share');
+    if (!derived.success) {
+      throw new Error(derived.error || 'Failed to derive Ed25519 Option B bootstrap package');
+    }
+    if (!derived.clientVerifyingShareB64u) {
+      throw new Error('Failed to derive Ed25519 Option B bootstrap package');
     }
     const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(this.context);
     if (!thresholdWarmPolicyDraft) {
@@ -455,6 +460,12 @@ export class LinkDeviceFlow {
         device_number: resolvedDeviceNumber,
         threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
           clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+          keyVersion: derived.keyVersion,
+          recoveryExportCapable: derived.recoveryExportCapable,
+          publicKey: derived.publicKey,
+          recoveryPublicKey: derived.recoveryPublicKey,
+          relayerSigningShareB64u: derived.relayerSigningShareB64u,
+          relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
           nearAccountId: String(nearAccountId),
           rpId,
           policy: thresholdWarmPolicyDraft,
@@ -578,12 +589,30 @@ export class LinkDeviceFlow {
     // Store authenticator + user data first to ensure profile/account mapping exists.
     await this.storeDeviceAuthenticator({ nearPublicKey: thresholdPublicKey, credential });
 
+    const thresholdKeyVersion = String(thresholdSection.keyVersion || '').trim();
+    const thresholdRecoveryExportCapable =
+      typeof thresholdSection.recoveryExportCapable === 'boolean'
+        ? Boolean(thresholdSection.recoveryExportCapable)
+        : undefined;
+    const thresholdRecoveryPublicKey = String(thresholdSection.recoveryPublicKey || '').trim();
+    if (
+      thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
+      thresholdRecoveryExportCapable !== true ||
+      !thresholdRecoveryPublicKey
+    ) {
+      throw new Error('link-device/prepare returned incomplete Option B recovery metadata');
+    }
     await IndexedDBManager.storeNearThresholdKeyMaterial({
       nearAccountId,
       deviceNumber: resolvedDeviceNumber,
       publicKey: thresholdPublicKey,
       relayerKeyId,
+      recoveryPublicKey: thresholdRecoveryPublicKey,
+      artifactKind: 'near-ed25519-option-b-v1',
+      keyVersion: thresholdKeyVersion,
+      recoveryExportCapable: true,
       clientShareDerivation: 'prf_first_v1',
+      clientExportShareDerivation: 'prf_first_v1',
       participants: buildThresholdEd25519Participants2pV1({
         clientParticipantId: Number.isFinite(Number(thresholdSection.clientParticipantId))
           ? Math.floor(Number(thresholdSection.clientParticipantId))
@@ -842,7 +871,7 @@ export class LinkDeviceFlow {
     await this.context.signingEngine.storeUserData({
       nearAccountId,
       deviceNumber,
-      clientNearPublicKey: nearPublicKey,
+      operationalPublicKey: nearPublicKey,
       lastUpdated: nowMs(),
       passkeyCredential: {
         id: String(credential.id || credentialId),

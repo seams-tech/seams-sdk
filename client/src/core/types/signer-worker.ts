@@ -38,6 +38,10 @@ export interface ThresholdSignerConfig {
   relayerUrl: string;
   /** Identifies which relayer-held key share to use */
   relayerKeyId: string;
+  /** Frozen Option B bootstrap key version. */
+  keyVersion?: string;
+  /** Persisted client verifying share from the Option B bootstrap package. */
+  clientVerifyingShareB64u?: string;
   /** FROST participant identifier used for the client share (2P only, optional). */
   clientParticipantId?: number;
   /** FROST participant identifier used for the relayer share (2P only, optional). */
@@ -93,6 +97,14 @@ type DirectPrfFields = {
 
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
+export interface WasmDeriveThresholdEd25519BootstrapPackageRequest {
+  nearAccountId: string;
+  rpId?: string;
+  keyVersion: string;
+  sessionId: string;
+  prfFirstB64u?: string;
+  recoveryServerShareB64u?: string;
+}
 export interface WasmSignTransactionsWithActionsRequest {
   rpcCall: RpcCallPayload;
   sessionId: string;
@@ -158,6 +170,7 @@ export interface WasmSignTransactionWithKeyPairRequest {
 
 export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
+  | WasmDeriveThresholdEd25519BootstrapPackageRequest
   | WasmSignTransactionsWithActionsRequest
   | WasmGenerateEphemeralNearKeypairRequest
   | WasmSignDelegateActionRequest
@@ -175,6 +188,8 @@ export type WasmDelegateSignResult = wasmModule.DelegateSignResult;
 // `InstanceType<typeof Class>`. Use the class name directly for the instance type.
 export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
   wasmModule.DeriveThresholdEd25519ClientVerifyingShareResult;
+export type WasmDeriveThresholdEd25519BootstrapPackageResult =
+  wasmModule.DeriveThresholdEd25519BootstrapPackageResult;
 
 // === WORKER REQUEST TYPE MAPPING ===
 // Define the complete type mapping for each worker request
@@ -183,6 +198,11 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare;
     request: WasmDeriveThresholdEd25519ClientVerifyingShareRequest;
     result: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
+  };
+  [WorkerRequestType.DeriveThresholdEd25519BootstrapPackage]: {
+    type: WorkerRequestType.DeriveThresholdEd25519BootstrapPackage;
+    request: WasmDeriveThresholdEd25519BootstrapPackageRequest;
+    result: WasmDeriveThresholdEd25519BootstrapPackageResult;
   };
   [WorkerRequestType.SignTransactionsWithActions]: {
     type: WorkerRequestType.SignTransactionsWithActions;
@@ -249,33 +269,46 @@ export const DEFAULT_CONFIRMATION_CONFIG: ConfirmationConfig = {
   autoProceedDelay: 0,
 };
 
-// WASM enum types for confirmation configuration
-export type WasmConfirmationUIMode = wasmModule.ConfirmationUIMode;
-export type WasmConfirmationBehavior = wasmModule.ConfirmationBehavior;
+const WASM_CONFIRMATION_UI_MODE = {
+  Skip: 0,
+  Modal: 1,
+  Drawer: 2,
+} as const;
+
+const WASM_CONFIRMATION_BEHAVIOR = {
+  RequireClick: 0,
+  AutoProceed: 1,
+} as const;
+
+// WASM enum values for confirmation configuration.
+export type WasmConfirmationUIMode =
+  (typeof WASM_CONFIRMATION_UI_MODE)[keyof typeof WASM_CONFIRMATION_UI_MODE];
+export type WasmConfirmationBehavior =
+  (typeof WASM_CONFIRMATION_BEHAVIOR)[keyof typeof WASM_CONFIRMATION_BEHAVIOR];
 
 // Mapping functions to convert string literals to numeric enum values
 export const mapUIModeToWasm = (uiMode: ConfirmationUIMode): number => {
   switch (uiMode) {
     case 'none':
-      return wasmModule.ConfirmationUIMode.Skip;
+      return WASM_CONFIRMATION_UI_MODE.Skip;
     case 'modal':
-      return wasmModule.ConfirmationUIMode.Modal;
+      return WASM_CONFIRMATION_UI_MODE.Modal;
     // Drawer now has a dedicated WASM enum variant
     case 'drawer':
-      return (wasmModule as any).ConfirmationUIMode.Drawer ?? wasmModule.ConfirmationUIMode.Modal;
+      return WASM_CONFIRMATION_UI_MODE.Drawer;
     default:
-      return wasmModule.ConfirmationUIMode.Modal;
+      return WASM_CONFIRMATION_UI_MODE.Modal;
   }
 };
 
 export const mapBehaviorToWasm = (behavior: ConfirmationBehavior): number => {
   switch (behavior) {
     case 'requireClick':
-      return wasmModule.ConfirmationBehavior.RequireClick;
+      return WASM_CONFIRMATION_BEHAVIOR.RequireClick;
     case 'skipClick':
-      return wasmModule.ConfirmationBehavior.AutoProceed;
+      return WASM_CONFIRMATION_BEHAVIOR.AutoProceed;
     default:
-      return wasmModule.ConfirmationBehavior.RequireClick;
+      return WASM_CONFIRMATION_BEHAVIOR.RequireClick;
   }
 };
 export type WasmRequestResult =
@@ -368,6 +401,7 @@ export interface BaseWorkerResponse<TPayload = unknown> {
 // Map request types to their expected success response payloads (WASM types)
 export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
+  [WorkerRequestType.DeriveThresholdEd25519BootstrapPackage]: WasmDeriveThresholdEd25519BootstrapPackageResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.GenerateEphemeralNearKeypair]: WasmGenerateEphemeralNearKeypairResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
@@ -454,6 +488,7 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519BootstrapPackageSuccess ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess
   );
 }
@@ -468,6 +503,7 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519BootstrapPackageFailure ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure
   );
 }

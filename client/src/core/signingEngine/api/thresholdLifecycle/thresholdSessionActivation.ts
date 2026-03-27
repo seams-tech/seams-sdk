@@ -50,8 +50,20 @@ export type ThresholdSessionActivationDeps = {
   signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   touchConfirm: ThresholdPrfFirstCachePort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
-  getOrCreateActiveSigningSessionId: (nearAccountId: AccountId) => string;
-  setActiveSigningSessionId: (nearAccountId: AccountId | string, sessionId: string) => void;
+  getOrCreateActiveThresholdEd25519SessionId: (nearAccountId: AccountId) => string;
+  setActiveThresholdEd25519SessionId: (
+    nearAccountId: AccountId | string,
+    sessionId: string,
+  ) => void;
+  getOrCreateActiveThresholdEcdsaSessionId: (
+    nearAccountId: AccountId,
+    chain: ThresholdEcdsaActivationChain,
+  ) => string;
+  setActiveThresholdEcdsaSessionId: (
+    nearAccountId: AccountId | string,
+    chain: ThresholdEcdsaActivationChain,
+    sessionId: string,
+  ) => void;
   defaultRelayerUrl: string;
   persistThresholdEcdsaBootstrapChainAccount: (args: {
     nearAccountId: AccountId | string;
@@ -90,7 +102,8 @@ export async function connectEd25519SessionValue(
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
   const workerCtx = deps.getSignerWorkerContext();
   const requestedSessionId = String(args.sessionId || '').trim();
-  const sessionId = requestedSessionId || deps.getOrCreateActiveSigningSessionId(nearAccountId);
+  const sessionId =
+    requestedSessionId || deps.getOrCreateActiveThresholdEd25519SessionId(nearAccountId);
   const connected = await connectEd25519Session({
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
@@ -109,7 +122,7 @@ export async function connectEd25519SessionValue(
   if (connected.ok) {
     const resolvedSessionId = String(connected.sessionId || sessionId).trim();
     if (resolvedSessionId) {
-      deps.setActiveSigningSessionId(nearAccountId, resolvedSessionId);
+      deps.setActiveThresholdEd25519SessionId(nearAccountId, resolvedSessionId);
     }
   }
   return connected;
@@ -129,7 +142,11 @@ export async function bootstrapEcdsaSessionValue(
     touchIdPrompt: deps.touchIdPrompt,
     prfFirstCache: deps.touchConfirm,
     workerCtx: signerWorkerCtx,
-    getOrCreateActiveSigningSessionId: deps.getOrCreateActiveSigningSessionId,
+    getOrCreateActiveThresholdEcdsaSessionId: (
+      accountId: AccountId,
+      activationChain: ThresholdEcdsaActivationChain,
+    ) =>
+      deps.getOrCreateActiveThresholdEcdsaSessionId(accountId, activationChain),
   };
 
   const bootstrap = await activateThresholdKeyForChain({
@@ -180,7 +197,7 @@ export async function bootstrapEcdsaSessionValue(
   }
 
   if (canonicalThresholdSessionId) {
-    deps.setActiveSigningSessionId(nearAccountId, canonicalThresholdSessionId);
+    deps.setActiveThresholdEcdsaSessionId(nearAccountId, chain, canonicalThresholdSessionId);
   }
 
   await deps.persistThresholdEcdsaBootstrapChainAccount({

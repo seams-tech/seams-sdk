@@ -17,9 +17,14 @@ export function buildNearThresholdSignerConfig(
   const thresholdSessionKind = args.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
   const thresholdSessionJwt =
     thresholdSessionKind === 'jwt' ? String(args.thresholdSessionJwt || '').trim() || undefined : undefined;
+  const clientVerifyingShareB64u = args.thresholdKeyMaterial.participants.find(
+    (p) => p.role === 'client',
+  )?.verifyingShareB64u;
   return {
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
+    keyVersion: args.thresholdKeyMaterial.keyVersion,
+    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     clientParticipantId: args.thresholdKeyMaterial.participants.find((p) => p.role === 'client')
       ?.id,
     relayerParticipantId: args.thresholdKeyMaterial.participants.find((p) => p.role === 'relayer')

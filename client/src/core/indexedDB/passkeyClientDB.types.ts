@@ -1,5 +1,6 @@
 import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
+import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 
 export interface ClientUserData {
   // Primary key - now uses AccountId + deviceNumber for unique identification
@@ -13,7 +14,7 @@ export interface ClientUserData {
   lastUpdated?: number;
 
   // WebAuthn/Passkey data (merged from WebAuthnManager)
-  clientNearPublicKey: string;
+  operationalPublicKey: string;
   passkeyCredential: {
     id: string;
     rawId: string;
@@ -163,6 +164,7 @@ export interface ChainAccountRecord {
   deployed?: boolean;
   deploymentTxHash?: string;
   lastDeploymentCheckAt?: number;
+  undeployedSignerSet?: UndeployedSmartAccountSignerSet;
 }
 
 export interface AccountSignerRecord {
@@ -177,6 +179,13 @@ export interface AccountSignerRecord {
   updatedAt: number;
   removedAt?: number;
   metadata?: Record<string, unknown>;
+}
+
+export interface ProfileContinuitySnapshot {
+  profile: ProfileRecord;
+  nearAccountId: AccountId | null;
+  chainAccounts: ChainAccountRecord[];
+  accountSigners: AccountSignerRecord[];
 }
 
 export interface SignerOpOutboxRecord {
@@ -216,6 +225,7 @@ export type UpsertChainAccountInput = {
   deployed?: boolean;
   deploymentTxHash?: string | null;
   lastDeploymentCheckAt?: number | null;
+  undeployedSignerSet?: UndeployedSmartAccountSignerSet | null;
 };
 
 export type UpsertAccountSignerInput = {

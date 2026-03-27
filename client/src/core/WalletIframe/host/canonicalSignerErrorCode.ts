@@ -41,7 +41,7 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
     'Threshold signing commit queue is full. Wait for pending requests and retry.',
   commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
   session_not_ready:
-    'Threshold signing session is not ready. Reconnect threshold session via bootstrapEcdsaSession and retry.',
+    'Threshold signing session is not ready. Refresh the signing session and retry.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',

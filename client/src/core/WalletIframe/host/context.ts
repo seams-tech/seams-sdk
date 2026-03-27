@@ -55,6 +55,45 @@ function coerceThemeName(value: unknown): 'light' | 'dark' | undefined {
   return value === 'light' || value === 'dark' ? value : undefined;
 }
 
+function normalizeForStableSerialize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForStableSerialize(entry));
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      normalized[key] = normalizeForStableSerialize(record[key]);
+    }
+    return normalized;
+  }
+  return value;
+}
+
+function stableSerialize(value: unknown): string {
+  try {
+    return JSON.stringify(normalizeForStableSerialize(value));
+  } catch {
+    return '';
+  }
+}
+
+function buildWalletRuntimeResetFingerprint(config: TatchiConfigsInput | null | undefined): string {
+  return stableSerialize({
+    chains: config?.chains,
+    relayerAccount: config?.relayerAccount,
+    relayer: config?.relayer,
+    registration: config?.registration,
+    signingSessionDefaults: config?.signingSessionDefaults,
+    signingSessionPersistenceMode: config?.signingSessionPersistenceMode,
+    signingSessionSeal: config?.signingSessionSeal,
+    thresholdEcdsaPresignPool: config?.thresholdEcdsaPresignPool,
+    provisioningDefaults: config?.provisioningDefaults,
+    authenticatorOptions: config?.authenticatorOptions,
+    iframeWallet: config?.iframeWallet,
+  });
+}
+
 function sanitizeTokenName(name: string): string | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
@@ -168,6 +207,7 @@ export function updateThemeBridge(ctx: HostContext): void {
 
 export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload): void {
   const prev = ctx.walletConfigs || ({} as TatchiConfigsInput);
+  const prevRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
   const nextSigningSessionPersistenceMode =
     payload?.signingSessionPersistenceMode ?? prev.signingSessionPersistenceMode;
   const nextSigningSessionSeal =
@@ -235,6 +275,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     appearance: nextAppearance ?? prev.appearance,
   } as TatchiConfigsInput;
   ctx.walletConfigs = sanitizeWalletHostConfigs(base);
+  const nextRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
 
   // Keep wallet-host theme + Lit token overrides in sync with app appearance config.
   try {
@@ -273,9 +314,14 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     setEmbeddedBase(resolvedBase);
   } catch {}
 
-  // Reset instances so they re-initialize with new config lazily
-  ctx.nearClient = null;
-  ctx.tatchiPasskey = null;
+  // Reset runtime instances only when signing/runtime config changes. Cosmetic config updates
+  // (theme/tokens/UI registry/assets base) must not drop warm signing session state.
+  if (nextRuntimeResetFingerprint !== prevRuntimeResetFingerprint) {
+    ctx.prefsUnsubscribe?.();
+    ctx.prefsUnsubscribe = null;
+    ctx.nearClient = null;
+    ctx.tatchiPasskey = null;
+  }
 
   // Forward UI registry to iframe-lit-elem-mounter if provided
   try {

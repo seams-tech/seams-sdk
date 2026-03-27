@@ -5,7 +5,10 @@ import DrawerElement from '../Drawer';
 // We no longer map full color sets from DARK_THEME/LIGHT_THEME here.
 import { dispatchLitCancel, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
-import type { ExportPrivateKeyDisplayEntry } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import type {
+  ExportGuidance,
+  ExportPrivateKeyDisplayEntry,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 
 export type ExportViewerTheme = 'dark' | 'light';
 export type ExportViewerVariant = 'drawer' | 'modal';
@@ -20,6 +23,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     publicKey: { type: String, attribute: 'public-key' },
     privateKey: { type: String, attribute: 'private-key' },
     keys: { attribute: false },
+    guidance: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
     showCloseButton: { type: Boolean, attribute: 'show-close-button' },
@@ -31,6 +35,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
   declare publicKey?: string;
   declare privateKey?: string;
   declare keys?: ExportPrivateKeyDisplayEntry[];
+  declare guidance?: ExportGuidance;
   declare loading: boolean;
   declare errorMessage?: string;
   declare showCloseButton: boolean;
@@ -48,6 +53,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     this.theme = 'dark';
     this.variant = 'drawer';
     this.keys = undefined;
+    this.guidance = undefined;
     this.loading = false;
     this.showCloseButton = false;
   }
@@ -272,6 +278,13 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
 
   render() {
     const entries = this.resolveKeyEntries();
+    const guidanceTitle = String(this.guidance?.title || '').trim();
+    const guidanceBody = String(this.guidance?.body || '').trim();
+    const guidanceSteps = Array.isArray(this.guidance?.steps)
+      ? this.guidance!.steps
+          .map((entry) => String(entry || '').trim())
+          .filter((entry) => entry.length > 0)
+      : [];
     return html`
       ${this.showCloseButton
         ? html`<button
@@ -364,6 +377,21 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                 </div>
               `}
         </div>
+        ${guidanceTitle || guidanceBody || guidanceSteps.length
+          ? html`
+              <div class="warning">
+                <strong>${guidanceTitle || 'Next Steps'}</strong>
+                ${guidanceBody ? html`<div>${guidanceBody}</div>` : null}
+                ${guidanceSteps.length
+                  ? html`
+                      <ol>
+                        ${guidanceSteps.map((step) => html`<li>${step}</li>`)}
+                      </ol>
+                    `
+                  : null}
+              </div>
+            `
+          : null}
         <div class="warning">
           Warning: your private keys grant full control of your account and funds. Keep it in a
           secret place.

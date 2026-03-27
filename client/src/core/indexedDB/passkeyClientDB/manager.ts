@@ -1,5 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
@@ -21,6 +22,7 @@ import type {
   IndexedDBEvent,
   LastProfileState,
   ProfileAuthenticatorRecord,
+  ProfileContinuitySnapshot,
   ProfileId,
   ProfileRecord,
   ProfileRecoveryEmailRecord,
@@ -93,6 +95,7 @@ export type {
   LastProfileState,
   MigrationQuarantineRecord,
   ProfileAuthenticatorRecord,
+  ProfileContinuitySnapshot,
   ProfileId,
   ProfileRecord,
   RecoveryEmailRecord,
@@ -118,6 +121,77 @@ function makeScopedAppStateKey(baseKey: string, scope: unknown): string | null {
   const normalized = normalizeLastUserScope(scope);
   if (!normalized) return null;
   return `${baseKey}::${normalized}`;
+}
+
+function normalizeUndeployedSmartAccountSignerSet(
+  value: unknown,
+): UndeployedSmartAccountSignerSet | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const ownerAddresses = Array.isArray(raw.ownerAddresses)
+    ? raw.ownerAddresses.map((entry) => normalizeAccountAddress(entry)).filter((entry) => !!entry)
+    : [];
+  const activeOwnerAddresses = Array.isArray(raw.activeOwnerAddresses)
+    ? raw.activeOwnerAddresses
+        .map((entry) => normalizeAccountAddress(entry))
+        .filter((entry) => !!entry)
+    : [];
+  const pendingOwnerAddresses = Array.isArray(raw.pendingOwnerAddresses)
+    ? raw.pendingOwnerAddresses
+        .map((entry) => normalizeAccountAddress(entry))
+        .filter((entry) => !!entry)
+    : [];
+  const owners = Array.isArray(raw.owners)
+    ? raw.owners
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+          const candidate = entry as Record<string, unknown>;
+          const signerId = normalizeAccountAddress(candidate.signerId);
+          const signerType = normalizeOptionalNonEmptyString(candidate.signerType) || 'threshold';
+          const status = normalizeOptionalNonEmptyString(candidate.status);
+          if (!signerId || (status !== 'active' && status !== 'pending')) return null;
+          const deviceNumberRaw = Number(candidate.deviceNumber);
+          const participantIds = Array.isArray(candidate.participantIds)
+            ? candidate.participantIds
+                .map((value) => Math.floor(Number(value)))
+                .filter((value) => Number.isFinite(value) && value > 0)
+            : [];
+          return {
+            signerId,
+            signerType,
+            status,
+            ...(Number.isFinite(deviceNumberRaw) && deviceNumberRaw > 0
+              ? { deviceNumber: Math.floor(deviceNumberRaw) }
+              : {}),
+            ...(normalizeOptionalNonEmptyString(candidate.relayerKeyId)
+              ? { relayerKeyId: normalizeOptionalNonEmptyString(candidate.relayerKeyId)! }
+              : {}),
+            ...(normalizeOptionalNonEmptyString(candidate.groupPublicKeyB64u)
+              ? {
+                  groupPublicKeyB64u: normalizeOptionalNonEmptyString(
+                    candidate.groupPublicKeyB64u,
+                  )!,
+                }
+              : {}),
+            ...(participantIds.length ? { participantIds } : {}),
+            ...(normalizeOptionalNonEmptyString(candidate.credentialIdB64u)
+              ? { credentialIdB64u: normalizeOptionalNonEmptyString(candidate.credentialIdB64u)! }
+              : {}),
+            ...(normalizeOptionalNonEmptyString(candidate.rpId)
+              ? { rpId: normalizeOptionalNonEmptyString(candidate.rpId)! }
+              : {}),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  if (!ownerAddresses.length && !owners.length) return undefined;
+  return {
+    version: 'undeployed_smart_account_signer_set_v1',
+    ownerAddresses,
+    activeOwnerAddresses,
+    pendingOwnerAddresses,
+    owners: owners as UndeployedSmartAccountSignerSet['owners'],
+  };
 }
 
 export class DBConstraintError extends Error {
@@ -693,7 +767,11 @@ export class PasskeyClientDBManager {
     const signerStore = args.tx.objectStore(DB_CONFIG.accountSignersStore);
     const pendingSigners = (await signerStore
       .index('chainIdKey_accountAddress_status')
-      .getAll([args.next.chainIdKey, args.next.accountAddress, 'pending'])) as AccountSignerRecord[];
+      .getAll([
+        args.next.chainIdKey,
+        args.next.accountAddress,
+        'pending',
+      ])) as AccountSignerRecord[];
     if (!pendingSigners.length) return;
 
     const promotedSignerIds = new Set<string>();
@@ -777,14 +855,9 @@ export class PasskeyClientDBManager {
       input.counterfactualAddress === null
         ? undefined
         : (input.counterfactualAddress ?? existing?.counterfactualAddress);
-    const isSmartAccountModel =
-      accountModel === 'erc4337' || accountModel === 'tempo-native';
+    const isSmartAccountModel = accountModel === 'erc4337' || accountModel === 'tempo-native';
     const hasSmartAccountShape = Boolean(
-      factory ||
-      entryPoint ||
-      salt ||
-      counterfactualAddressInput ||
-      isSmartAccountModel,
+      factory || entryPoint || salt || counterfactualAddressInput || isSmartAccountModel,
     );
     const counterfactualAddress = hasSmartAccountShape
       ? normalizeAccountAddress(counterfactualAddressInput || accountAddress)
@@ -811,6 +884,12 @@ export class PasskeyClientDBManager {
       typeof deploymentCheckCandidate === 'number' && Number.isFinite(deploymentCheckCandidate)
         ? deploymentCheckCandidate
         : undefined;
+    const undeployedSignerSet =
+      input.undeployedSignerSet === null
+        ? undefined
+        : normalizeUndeployedSmartAccountSignerSet(
+            input.undeployedSignerSet ?? existing?.undeployedSignerSet,
+          );
     const next: ChainAccountRecord = {
       profileId,
       chainIdKey,
@@ -826,6 +905,7 @@ export class PasskeyClientDBManager {
       ...(typeof deployed === 'boolean' ? { deployed } : {}),
       ...(deploymentTxHash ? { deploymentTxHash } : {}),
       ...(typeof lastDeploymentCheckAt === 'number' ? { lastDeploymentCheckAt } : {}),
+      ...(undeployedSignerSet ? { undeployedSignerSet } : {}),
     };
 
     if (next.isPrimary) {
@@ -897,6 +977,20 @@ export class PasskeyClientDBManager {
       .getAll([normalizedProfileId, normalizedChainIdKey]);
     await tx.done;
     return (rows as ChainAccountRecord[]) || [];
+  }
+
+  async listAccountSignersByProfile(args: {
+    profileId: string;
+    status?: AccountSignerStatus;
+  }): Promise<AccountSignerRecord[]> {
+    const profileId = toTrimmedString(args.profileId || '');
+    if (!profileId) return [];
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.accountSignersStore, 'readonly');
+    const rows = (await tx.store.index('profileId').getAll(profileId)) as AccountSignerRecord[];
+    await tx.done;
+    if (!args.status) return rows || [];
+    return (rows || []).filter((row) => row.status === args.status);
   }
 
   async getChainAccount(args: {
@@ -977,6 +1071,34 @@ export class PasskeyClientDBManager {
     } catch {
       return null;
     }
+  }
+
+  async getProfileContinuitySnapshot(profileId: string): Promise<ProfileContinuitySnapshot | null> {
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    if (!normalizedProfileId) return null;
+
+    const [profile, nearAccountId, chainAccounts, accountSigners] = await Promise.all([
+      this.getProfile(normalizedProfileId),
+      this.getNearAccountIdForProfile(normalizedProfileId),
+      this.listChainAccountsByProfile(normalizedProfileId),
+      this.listAccountSignersByProfile({ profileId: normalizedProfileId }),
+    ]);
+    if (!profile) return null;
+
+    return {
+      profile,
+      nearAccountId,
+      chainAccounts,
+      accountSigners,
+    };
+  }
+
+  async resolveNearAccountProfileContinuity(
+    nearAccountId: AccountId,
+  ): Promise<ProfileContinuitySnapshot | null> {
+    const context = await this.resolveNearAccountContext(nearAccountId);
+    if (!context?.profileId) return null;
+    return this.getProfileContinuitySnapshot(context.profileId);
   }
 
   async getLastSelectedNearAccount(): Promise<{
@@ -1077,7 +1199,7 @@ export class PasskeyClientDBManager {
       registeredAt: now,
       lastLogin: now,
       lastUpdated: input.lastUpdated ?? now,
-      clientNearPublicKey: input.clientNearPublicKey,
+      operationalPublicKey: input.operationalPublicKey,
       passkeyCredential: input.passkeyCredential,
       preferences: input.preferences ?? {
         useRelayer: false,

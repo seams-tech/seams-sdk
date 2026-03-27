@@ -262,6 +262,15 @@ export function initWalletIFrame(): void {
         code,
         message,
       });
+      if (code === 'session_not_ready') {
+        try {
+          console.error('[WalletIframeHost] signer boundary normalized to session_not_ready', {
+            requestType: req.type,
+            rawCode: String(codeRaw || ''),
+            rawMessage: String(message || ''),
+          });
+        } catch {}
+      }
       if (code === 'cancelled') {
         clearCancelled(requestId);
       }

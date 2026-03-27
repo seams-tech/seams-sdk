@@ -8,7 +8,10 @@ import type { ExportViewerVariant, ExportViewerTheme } from './viewer';
 import { isObject, isString } from '@shared/utils/validation';
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
-import type { ExportPrivateKeyDisplayEntry } from '../../../shared/confirmTypes';
+import type {
+  ExportGuidance,
+  ExportPrivateKeyDisplayEntry,
+} from '../../../shared/confirmTypes';
 import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
 
 type MessageType =
@@ -35,6 +38,7 @@ type MessagePayloads = {
     accountId: string;
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
+    guidance?: ExportGuidance;
     tokens?: ThemeTokenOverridesInput;
   };
   SET_LOADING: boolean;
@@ -55,6 +59,7 @@ export class IframeExportHost extends LitElementWithProps {
     publicKey: { type: String, attribute: 'public-key' },
     privateKey: { type: String, attribute: 'private-key' },
     keys: { attribute: false },
+    guidance: { attribute: false },
     tokens: { attribute: false },
     loading: { type: Boolean },
     errorMessage: { type: String },
@@ -66,6 +71,7 @@ export class IframeExportHost extends LitElementWithProps {
   declare publicKey: string;
   declare privateKey?: string;
   declare keys?: ExportPrivateKeyDisplayEntry[];
+  declare guidance?: ExportGuidance;
   declare tokens?: ThemeTokenOverridesInput;
   declare loading: boolean;
   declare errorMessage?: string;
@@ -87,6 +93,7 @@ export class IframeExportHost extends LitElementWithProps {
     this.publicKey = '';
     this.privateKey = undefined;
     this.keys = undefined;
+    this.guidance = undefined;
     this.tokens = undefined;
     this.loading = false;
   }
@@ -138,6 +145,7 @@ export class IframeExportHost extends LitElementWithProps {
       accountId: this.accountId,
       publicKey: this.publicKey,
       keys: this.keys,
+      guidance: this.guidance,
       tokens: this.tokens,
     });
     if (changed.has('loading')) {
@@ -226,6 +234,7 @@ export class IframeExportHost extends LitElementWithProps {
             accountId: this.accountId,
             publicKey: this.publicKey,
             keys: this.keys,
+            guidance: this.guidance,
             tokens: this.tokens,
           });
           this.postToIframe('SET_LOADING', !!this.loading);
@@ -320,6 +329,7 @@ export type ExportViewerIframeElement = HTMLElement & {
   publicKey?: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
+  guidance?: ExportGuidance;
   tokens?: ThemeTokenOverridesInput;
   loading?: boolean;
   errorMessage?: string;

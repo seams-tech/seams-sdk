@@ -22,9 +22,10 @@ import type { RegistrationAccountLifecycleDeps } from '../api/registration/regis
 import type { RegistrationSessionDeps } from '../api/registration/registrationSession';
 import {
   generateSessionId as generateSessionIdValue,
-  getOrCreateActiveSigningSessionId as getOrCreateActiveSigningSessionIdValue,
-  getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
-  setActiveSigningSessionId as setActiveSigningSessionIdValue,
+  getOrCreateActiveSigningSessionIdForKind as getOrCreateActiveSigningSessionIdForKindValue,
+  getWarmSigningSessionStatusForKind as getWarmSigningSessionStatusForKindValue,
+  setActiveSigningSessionIdForKind as setActiveSigningSessionIdForKindValue,
+  type ActiveSigningSessionKind,
   type SigningSessionStateDeps,
 } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
@@ -50,7 +51,7 @@ export type ManagerConvenienceDeps = {
   signTempo: (args: OrchestrationSignTempoInput) => Promise<TempoSignedResult | EvmSignedResult>;
   prewarmSignerWorkers: () => void;
   warmCriticalResources: (nearAccountId?: string) => Promise<void>;
-  getWarmSigningSessionStatus: (
+  getWarmThresholdEd25519SessionStatus: (
     nearAccountId: AccountId | string,
   ) => Promise<SigningSessionStatus | null>;
 };
@@ -126,13 +127,23 @@ export function createOrchestrationDependencyBundle(
 ): OrchestrationDependencyBundle {
   const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.network.chains);
   const activeSigningSessionIds = new Map<string, string>();
-  const resolveCanonicalSigningSessionId = (nearAccountId: AccountId | string): string | null => {
-    try {
-      const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
-      const thresholdSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
-      if (thresholdSessionId) return thresholdSessionId;
-    } catch {}
-    const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
+  const resolveCanonicalSigningSessionIdForKind = ({
+    nearAccountId,
+    signerKind,
+  }: {
+    nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
+  }): string | null => {
+    if (signerKind === 'threshold-ed25519') {
+      try {
+        const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+        const thresholdSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
+        if (thresholdSessionId) return thresholdSessionId;
+      } catch {}
+      return null;
+    }
+    const chains: Array<'tempo' | 'evm'> =
+      signerKind === 'threshold-ecdsa-tempo' ? ['tempo'] : ['evm'];
     for (const chain of chains) {
       try {
         const keyRef = args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain });
@@ -149,14 +160,34 @@ export function createOrchestrationDependencyBundle(
     touchConfirm: args.touchConfirm,
     createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     signingSessionDefaults: args.tatchiPasskeyConfigs.signing.sessionDefaults,
-    resolveCanonicalSigningSessionId,
+    resolveCanonicalSigningSessionIdForKind,
   };
-  const getOrCreateActiveSigningSessionId = (nearAccountId: AccountId): string =>
-    getOrCreateActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId);
+  const getOrCreateActiveThresholdEd25519SessionId = (nearAccountId: AccountId): string =>
+    getOrCreateActiveSigningSessionIdForKindValue(signingSessionStateDeps, {
+      nearAccountId,
+      signerKind: 'threshold-ed25519',
+    });
+  const getOrCreateActiveThresholdEcdsaSessionId = (
+    nearAccountId: AccountId,
+    chain: 'tempo' | 'evm',
+  ): string =>
+    getOrCreateActiveSigningSessionIdForKindValue(signingSessionStateDeps, {
+      nearAccountId,
+      signerKind: chain === 'tempo' ? 'threshold-ecdsa-tempo' : 'threshold-ecdsa-evm',
+    });
 
   const nearSigningDeps: NearSigningApiDeps = {
     nearRpcUrl,
-    getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
+    resolveCanonicalThresholdEd25519SessionId: (nearAccountId: AccountId): string | null => {
+      try {
+        const record = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+        const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
+        return thresholdSessionId || null;
+      } catch {
+        return null;
+      }
+    },
+    getOrCreateActiveThresholdEd25519SessionId,
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
     withThresholdEd25519CommitQueue: (queueArgs) =>
@@ -195,6 +226,8 @@ export function createOrchestrationDependencyBundle(
     },
     privateKeyExportRecoveryDeps: {
       indexedDB: IndexedDBManager,
+      relayerUrl: args.tatchiPasskeyConfigs.network.relayer.url,
+      getRpId: () => args.touchIdPrompt.getRpId(),
       requestExportPrivateKeysWithUi: (payload) =>
         args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
       getTheme: args.getTheme,
@@ -217,9 +250,21 @@ export function createOrchestrationDependencyBundle(
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
       touchConfirm: args.touchConfirm,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-      getOrCreateActiveSigningSessionId: getOrCreateActiveSigningSessionId,
-      setActiveSigningSessionId: (nearAccountId, sessionId) =>
-        setActiveSigningSessionIdValue(signingSessionStateDeps, nearAccountId, sessionId),
+      getOrCreateActiveThresholdEd25519SessionId,
+      setActiveThresholdEd25519SessionId: (nearAccountId, sessionId) =>
+        setActiveSigningSessionIdForKindValue(signingSessionStateDeps, {
+          nearAccountId,
+          signerKind: 'threshold-ed25519',
+          sessionId,
+        }),
+      getOrCreateActiveThresholdEcdsaSessionId: (nearAccountId, chain) =>
+        getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, chain),
+      setActiveThresholdEcdsaSessionId: (nearAccountId, chain, sessionId) =>
+        setActiveSigningSessionIdForKindValue(signingSessionStateDeps, {
+          nearAccountId,
+          signerKind: chain === 'tempo' ? 'threshold-ecdsa-tempo' : 'threshold-ecdsa-evm',
+          sessionId,
+        }),
       defaultRelayerUrl: args.tatchiPasskeyConfigs.network.relayer?.url || '',
       persistThresholdEcdsaBootstrapChainAccount: args.persistThresholdEcdsaBootstrapChainAccount,
       upsertThresholdEcdsaSessionFromBootstrap: args.upsertThresholdEcdsaSessionFromBootstrap,
@@ -233,8 +278,11 @@ export function createOrchestrationDependencyBundle(
       prewarmSignerWorkers: () => prewarmSignerWorkersValue(getWorkerResourceWarmupDeps()),
       warmCriticalResources: (nearAccountId?: string) =>
         warmCriticalResourcesValue(getWorkerResourceWarmupDeps(), nearAccountId),
-      getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
-        getWarmSigningSessionStatusValue(signingSessionStateDeps, nearAccountId),
+      getWarmThresholdEd25519SessionStatus: (nearAccountId: AccountId | string) =>
+        getWarmSigningSessionStatusForKindValue(signingSessionStateDeps, {
+          nearAccountId,
+          signerKind: 'threshold-ed25519',
+        }),
     }),
   };
 }

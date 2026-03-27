@@ -34,6 +34,7 @@ import {
 } from './api/thresholdLifecycle/thresholdSessionActivation';
 import {
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
+  deriveThresholdEd25519BootstrapPackageFromCredential as deriveThresholdEd25519BootstrapPackageFromCredentialValue,
 } from './api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountValue,
@@ -74,10 +75,11 @@ import {
 } from './api/tempoSigning';
 import {
   clearSigningSessionPrfFirstBestEffort as clearSigningSessionPrfFirstBestEffortValue,
-  clearActiveSigningSessionId as clearActiveSigningSessionIdValue,
   clearAllActiveSigningSessionIds as clearAllActiveSigningSessionIdsValue,
-  getWarmSigningSessionStatus as getWarmSigningSessionStatusValue,
+  clearAllActiveSigningSessionIdsForAccount as clearAllActiveSigningSessionIdsForAccountValue,
+  getWarmSigningSessionStatusForKind as getWarmSigningSessionStatusForKindValue,
   hydrateSigningSession as hydrateSigningSessionValue,
+  type ActiveSigningSessionKind,
 } from './api/session/signingSessionState';
 import {
   clearThresholdEcdsaCommitQueue,
@@ -394,7 +396,7 @@ export class SigningEngine {
   atomicStoreRegistrationData(args: {
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
-    publicKey: string;
+    operationalPublicKey: string;
   }): Promise<void> {
     return atomicStoreRegistrationDataValue(
       this.orchestrationDeps.registrationAccountLifecycleDeps,
@@ -569,12 +571,22 @@ export class SigningEngine {
     });
   }
 
-  getWarmSigningSessionStatus(
+  getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
     return this.orchestrationDeps
       .getManagerConvenienceDeps()
-      .getWarmSigningSessionStatus(nearAccountId);
+      .getWarmThresholdEd25519SessionStatus(nearAccountId);
+  }
+
+  getWarmThresholdEcdsaSessionStatus(
+    nearAccountId: AccountId | string,
+    chain: 'tempo' | 'evm',
+  ): Promise<SigningSessionStatus | null> {
+    return getWarmSigningSessionStatusForKindValue(this.orchestrationDeps.signingSessionStateDeps, {
+      nearAccountId,
+      signerKind: chain === 'tempo' ? 'threshold-ecdsa-tempo' : 'threshold-ecdsa-evm',
+    });
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {
@@ -584,11 +596,31 @@ export class SigningEngine {
   }): Promise<ThresholdEcdsaLoginPrefillResult> {
     return await scheduleThresholdEcdsaLoginPresignPrefillValue(
       {
-        getWarmSigningSessionStatus: (nearAccountId: AccountId | string) =>
-          getWarmSigningSessionStatusValue(
+        getWarmThresholdEcdsaSessionStatus: async (
+          nearAccountId: AccountId | string,
+          thresholdSessionId: string,
+        ) => {
+          const tempoStatus = await getWarmSigningSessionStatusForKindValue(
             this.orchestrationDeps.signingSessionStateDeps,
-            nearAccountId,
-          ),
+            {
+              nearAccountId,
+              signerKind: 'threshold-ecdsa-tempo',
+            },
+          );
+          if (String(tempoStatus?.sessionId || '').trim() === thresholdSessionId) {
+            return tempoStatus;
+          }
+          const evmStatus = await getWarmSigningSessionStatusForKindValue(
+            this.orchestrationDeps.signingSessionStateDeps,
+            {
+              nearAccountId,
+              signerKind: 'threshold-ecdsa-evm',
+            },
+          );
+          return String(evmStatus?.sessionId || '').trim() === thresholdSessionId
+            ? evmStatus
+            : tempoStatus || evmStatus;
+        },
         dispensePrfFirstForThresholdSession: (payload) =>
           this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
         getSignerWorkerContext: () =>
@@ -602,6 +634,7 @@ export class SigningEngine {
 
   async hydrateSigningSession(args: {
     nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
     sessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
@@ -614,13 +647,10 @@ export class SigningEngine {
   async clearWarmSigningSessions(nearAccountId?: AccountId | string): Promise<void> {
     const sessionIds =
       nearAccountId != null
-        ? (() => {
-            const active = clearActiveSigningSessionIdValue(
-              this.orchestrationDeps.signingSessionStateDeps,
-              nearAccountId,
-            );
-            return active ? [active] : [];
-          })()
+        ? clearAllActiveSigningSessionIdsForAccountValue(
+            this.orchestrationDeps.signingSessionStateDeps,
+            nearAccountId,
+          )
         : clearAllActiveSigningSessionIdsValue(this.orchestrationDeps.signingSessionStateDeps);
 
     if (nearAccountId == null && hasThresholdPrfFirstCacheClearAllPort(this.touchConfirm)) {
@@ -689,6 +719,15 @@ export class SigningEngine {
     args: Parameters<typeof deriveThresholdEd25519ClientVerifyingShareFromCredentialValue>[1],
   ): ReturnType<typeof deriveThresholdEd25519ClientVerifyingShareFromCredentialValue> {
     return deriveThresholdEd25519ClientVerifyingShareFromCredentialValue(
+      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
+      args,
+    );
+  }
+
+  deriveThresholdEd25519BootstrapPackageFromCredential(
+    args: Parameters<typeof deriveThresholdEd25519BootstrapPackageFromCredentialValue>[1],
+  ): ReturnType<typeof deriveThresholdEd25519BootstrapPackageFromCredentialValue> {
+    return deriveThresholdEd25519BootstrapPackageFromCredentialValue(
       this.orchestrationDeps.thresholdEd25519LifecycleDeps,
       args,
     );
@@ -786,11 +825,13 @@ export type SigningEnginePublic = Pick<
   | 'clearThresholdEcdsaSessionRecordForAccount'
   | 'clearAllThresholdEcdsaSessionRecords'
   | 'persistThresholdEcdsaBootstrapChainAccount'
-  | 'getWarmSigningSessionStatus'
+  | 'getWarmThresholdEd25519SessionStatus'
+  | 'getWarmThresholdEcdsaSessionStatus'
   | 'scheduleThresholdEcdsaLoginPresignPrefill'
   | 'hydrateSigningSession'
   | 'clearWarmSigningSessions'
   | 'clearThresholdEcdsaCommitQueue'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
+  | 'deriveThresholdEd25519BootstrapPackageFromCredential'
   | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'
 >;

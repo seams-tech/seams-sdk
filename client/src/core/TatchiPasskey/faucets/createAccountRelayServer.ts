@@ -18,6 +18,7 @@ import type {
   CreateAccountAndRegisterResult,
   CreateAccountAndRegisterSmartAccountDeployment,
   CreateAccountAndRegisterSmartAccountTarget,
+  ThresholdEd25519BootstrapRecoveryShareResponse,
 } from '@server/core/types';
 import type {
   EcdsaSessionPolicy,
@@ -124,10 +125,30 @@ function joinUrlPath(baseUrl: string, path: string): string {
   return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
 }
 
+function replaceUrlPathSuffix(url: string, fromPath: string, toPath: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (parsed.pathname === fromPath || parsed.pathname === `${fromPath}/`) {
+      parsed.pathname = toPath;
+      return parsed.toString();
+    }
+  } catch {}
+  if (raw.endsWith(fromPath)) {
+    return `${raw.slice(0, raw.length - fromPath.length)}${toPath}`;
+  }
+  if (raw.endsWith(`${fromPath}/`)) {
+    return `${raw.slice(0, raw.length - fromPath.length - 1)}${toPath}`;
+  }
+  return '';
+}
+
 type ResolvedRegistrationTransport =
   | {
       mode: 'backend_proxy';
       bootstrapUrl: string;
+      recoveryShareUrl: string;
     }
   | {
       mode: 'managed';
@@ -172,12 +193,21 @@ function resolveRegistrationTransport(context: PasskeyManagerContext): ResolvedR
         (registration as { registrationBootstrapUrl?: unknown }).registrationBootstrapUrl ??
         '',
     ).trim();
-    if (bootstrapUrl) return { mode: 'backend_proxy', bootstrapUrl };
+    if (bootstrapUrl) {
+      const recoveryShareUrl =
+        replaceUrlPathSuffix(
+          bootstrapUrl,
+          '/registration/bootstrap',
+          '/registration/recovery-share',
+        ) || joinUrlPath(bootstrapUrl, '/registration/recovery-share');
+      return { mode: 'backend_proxy', bootstrapUrl, recoveryShareUrl };
+    }
   }
   const relayerUrl = String(context.configs.network.relayer.url || '').trim();
   return {
     mode: 'backend_proxy',
     bootstrapUrl: joinUrlPath(relayerUrl, '/registration/bootstrap'),
+    recoveryShareUrl: joinUrlPath(relayerUrl, '/registration/recovery-share'),
   };
 }
 
@@ -201,6 +231,78 @@ async function readJsonObject(response: Response): Promise<Record<string, unknow
   }
 }
 
+export async function prepareThresholdEd25519BootstrapRecoveryShareWithRelayServer(
+  context: PasskeyManagerContext,
+  nearAccountId: string,
+  rpId: string,
+  keyVersion: string,
+): Promise<{ recoveryServerShareB64u: string; keyVersion: string }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const registrationTransport = resolveRegistrationTransport(context);
+  let response: Response;
+  let result: ThresholdEd25519BootstrapRecoveryShareResponse;
+
+  if (registrationTransport.mode === 'managed') {
+    response = await fetch(
+      joinUrlPath(registrationTransport.relayerUrl, '/v1/registration/recovery-share'),
+      {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${registrationTransport.publishableKey}`,
+        },
+        body: JSON.stringify({
+          nearAccountId,
+          rpId,
+          keyVersion,
+          environmentId: registrationTransport.environmentId,
+        }),
+      },
+    );
+  } else {
+    if (!registrationTransport.recoveryShareUrl) {
+      throw new Error('Registration recovery share URL is required for passkey registration');
+    }
+    response = await fetch(registrationTransport.recoveryShareUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        nearAccountId,
+        rpId,
+        keyVersion,
+      }),
+    });
+  }
+
+  result = (await readJsonObject(response)) as unknown as ThresholdEd25519BootstrapRecoveryShareResponse;
+
+  const responseCode = String(result.code || '').trim();
+  const responseMessage =
+    String(result.message || '').trim() || `HTTP ${response.status}: ${response.statusText}`;
+  if (!response.ok || result.ok === false) {
+    if (isRegistrationErrorCode(responseCode)) {
+      throw new RelayRegistrationError({
+        code: responseCode,
+        status: response.status,
+        message: responseMessage,
+      });
+    }
+    throw new Error(responseMessage || 'Threshold Ed25519 recovery-share preparation failed');
+  }
+
+  const recoveryServerShareB64u = String(result.recoveryServerShareB64u || '').trim();
+  if (!recoveryServerShareB64u) {
+    throw new Error(
+      'Threshold Ed25519 recovery-share preparation did not return recoveryServerShareB64u',
+    );
+  }
+
+  return {
+    recoveryServerShareB64u,
+    keyVersion: String(result.keyVersion || '').trim() || keyVersion,
+  };
+}
+
 /**
  * HTTP Request body for the relay server's /registration/bootstrap endpoint
  */
@@ -215,7 +317,13 @@ export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
   device_number: number;
   threshold_ed25519?: {
+    key_version: string;
+    recovery_export_capable: boolean;
+    public_key: string;
+    recovery_public_key: string;
     client_verifying_share_b64u: string;
+    relayer_signing_share_b64u: string;
+    relayer_verifying_share_b64u: string;
     session_policy: ThresholdEd25519RegistrationSessionPolicy;
     session_kind: 'jwt' | 'cookie';
   };
@@ -243,7 +351,13 @@ export async function createAccountAndRegisterWithRelayServer(
   onEvent?: (event: RegistrationSSEEvent) => void,
   opts?: {
     thresholdEd25519?: {
+      keyVersion: string;
+      recoveryExportCapable: true;
+      publicKey: string;
+      recoveryPublicKey: string;
       clientVerifyingShareB64u: string;
+      relayerSigningShareB64u: string;
+      relayerVerifyingShareB64u: string;
       sessionPolicy: ThresholdEd25519RegistrationSessionPolicy;
       sessionKind: 'jwt' | 'cookie';
     };
@@ -258,9 +372,12 @@ export async function createAccountAndRegisterWithRelayServer(
   success: boolean;
   transactionId?: string;
   thresholdEd25519?: {
+    keyVersion: string;
+    recoveryExportCapable: true;
     publicKey: string;
+    recoveryPublicKey: string;
     relayerKeyId: string;
-    relayerVerifyingShareB64u?: string;
+    relayerVerifyingShareB64u: string;
     clientParticipantId?: number;
     relayerParticipantId?: number;
     participantIds?: number[];
@@ -331,7 +448,13 @@ export async function createAccountAndRegisterWithRelayServer(
       ...(opts?.thresholdEd25519?.clientVerifyingShareB64u
         ? {
             threshold_ed25519: {
+              key_version: opts.thresholdEd25519.keyVersion,
+              recovery_export_capable: opts.thresholdEd25519.recoveryExportCapable,
+              public_key: opts.thresholdEd25519.publicKey,
+              recovery_public_key: opts.thresholdEd25519.recoveryPublicKey,
               client_verifying_share_b64u: opts.thresholdEd25519.clientVerifyingShareB64u,
+              relayer_signing_share_b64u: opts.thresholdEd25519.relayerSigningShareB64u,
+              relayer_verifying_share_b64u: opts.thresholdEd25519.relayerVerifyingShareB64u,
               session_policy: opts.thresholdEd25519.sessionPolicy,
               session_kind: opts.thresholdEd25519.sessionKind,
             },
@@ -467,6 +590,17 @@ export async function createAccountAndRegisterWithRelayServer(
       throw new Error(responseMessage || 'Atomic registration failed');
     }
 
+    if (result.thresholdEd25519) {
+      const thresholdKeyVersion = String(result.thresholdEd25519.keyVersion || '').trim();
+      const thresholdRecoveryPublicKey = String(result.thresholdEd25519.recoveryPublicKey || '').trim();
+      const thresholdRelayerVerifyingShare = String(
+        result.thresholdEd25519.relayerVerifyingShareB64u || '',
+      ).trim();
+      if (!thresholdKeyVersion || result.thresholdEd25519.recoveryExportCapable !== true || !thresholdRecoveryPublicKey || !thresholdRelayerVerifyingShare) {
+        throw new Error('Atomic registration returned an incomplete threshold-ed25519 Option B package');
+      }
+    }
+
     onEvent?.({
       step: 5,
       phase: RegistrationPhase.STEP_5_CONTRACT_REGISTRATION,
@@ -479,7 +613,10 @@ export async function createAccountAndRegisterWithRelayServer(
       transactionId: result.transactionHash,
       thresholdEd25519: result.thresholdEd25519
         ? {
+            keyVersion: result.thresholdEd25519.keyVersion,
+            recoveryExportCapable: true,
             publicKey: result.thresholdEd25519.publicKey,
+            recoveryPublicKey: result.thresholdEd25519.recoveryPublicKey,
             relayerKeyId: result.thresholdEd25519.relayerKeyId,
             relayerVerifyingShareB64u: result.thresholdEd25519.relayerVerifyingShareB64u,
             clientParticipantId: result.thresholdEd25519.clientParticipantId,

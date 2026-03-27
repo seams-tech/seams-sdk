@@ -40,8 +40,8 @@ import {
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
 import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
-import { assertThresholdSigningSessionReady } from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
+import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
 
 function normalizeTransactionSigningRequest(args: {
   nearAccountId: string;
@@ -164,16 +164,16 @@ export async function signTransactionsWithActions({
   }
   const touchConfirm = ctx.touchConfirm;
   const usesNeeded = Math.max(1, txSigningRequests.length);
-  const signingAuthMode = signingContext.threshold
-    ? await (async () => {
-        await assertThresholdSigningSessionReady({
-          touchConfirm,
-          sessionId,
-          usesNeeded,
-        });
-        return 'warmSession' as const;
-      })()
-    : undefined;
+  const thresholdAuthPlan = signingContext.threshold
+    ? await resolveNearThresholdSigningAuthPlan({
+        touchConfirm,
+        sessionId,
+        usesNeeded,
+        nearAccountId,
+        operationLabel: 'transaction signing',
+      })
+    : null;
+  const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
   const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
     ctx: { touchConfirm },
     sessionId,
@@ -196,20 +196,22 @@ export async function signTransactionsWithActions({
   const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
   const prfFirstB64u = signingContext.threshold
-    ? await (async () => {
-        const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
-          sessionId,
-          uses: usesNeeded,
-        });
-        if (!delivered.ok) {
-          clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-          throw new Error(
-            `[chains] threshold signingSession is ${delivered.code}; reconnect threshold session before signing`,
-          );
-        }
-        return delivered.prfFirstB64u;
-      })()
+    ? thresholdAuthPlan?.warmSessionReady
+      ? await (async () => {
+          const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
+            sessionId,
+            uses: usesNeeded,
+          });
+          if (!delivered.ok) {
+            clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+            await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
+            throw new Error(
+              `[chains] threshold signingSession is ${delivered.code}; reconnect threshold session before signing`,
+            );
+          }
+          return delivered.prfFirstB64u;
+        })()
+      : requirePrfFirstFromCredential(credentialWithPrf)
     : requirePrfFirstFromCredential(credentialWithPrf);
 
   if (!prfFirstB64u) {

@@ -1,7 +1,10 @@
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { LitComponentEvents, type LitComponentEventDetailMap } from '../../lit-events';
 import { W3A_DRAWER_ID, W3A_EXPORT_KEY_VIEWER_ID } from '../../registry';
-import type { ExportPrivateKeyDisplayEntry } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import type {
+  ExportGuidance,
+  ExportPrivateKeyDisplayEntry,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
 import {
   createCspStylesheetManager,
@@ -30,6 +33,7 @@ type MessagePayloads = {
     accountId: string;
     publicKey?: string;
     keys?: ExportPrivateKeyDisplayEntry[];
+    guidance?: ExportGuidance;
     tokens?: ThemeTokenOverridesInput;
   };
   SET_LOADING: boolean;
@@ -57,6 +61,7 @@ type ExportViewerElement = HTMLElement & {
   publicKey?: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
+  guidance?: ExportGuidance;
   loading?: boolean;
   errorMessage?: string;
 };
@@ -223,6 +228,7 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       viewer.accountId = payload.accountId;
       viewer.publicKey = payload.publicKey || '';
       viewer.keys = Array.isArray(payload.keys) ? payload.keys : undefined;
+      viewer.guidance = payload.guidance;
 
       const drawer = getDrawer();
       if (payload.theme && isString(payload.theme)) drawer.theme = payload.theme;

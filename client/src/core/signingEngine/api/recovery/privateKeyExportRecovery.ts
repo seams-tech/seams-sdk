@@ -10,24 +10,28 @@ import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDe
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
 
-type ExportHardeningErrorCode = 'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT';
-type ExportHardeningError = Error & { code: ExportHardeningErrorCode };
+type ExportRecoveryErrorCode =
+  | 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED'
+  | 'SIGNER_EXPORT_RECOVERY_NOT_PROVISIONED';
+type ExportRecoveryError = Error & { code: ExportRecoveryErrorCode };
 
-const EXPORT_LEGACY_SHORTCUT_DISABLED_CODE: ExportHardeningErrorCode =
-  'SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT';
+const EXPORT_WORKER_BOUNDARY_REQUIRED_CODE: ExportRecoveryErrorCode =
+  'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
+const EXPORT_RECOVERY_NOT_PROVISIONED_CODE: ExportRecoveryErrorCode =
+  'SIGNER_EXPORT_RECOVERY_NOT_PROVISIONED';
 
-function createExportHardeningError(args: {
+function createExportRecoveryError(args: {
   message: string;
-  code: ExportHardeningErrorCode;
-}): ExportHardeningError {
-  const error = new Error(args.message) as ExportHardeningError;
-  error.name = 'SignerExportHardeningError';
+  code: ExportRecoveryErrorCode;
+}): ExportRecoveryError {
+  const error = new Error(args.message) as ExportRecoveryError;
+  error.name = 'SignerExportRecoveryError';
   error.code = args.code;
   return error;
 }
 
-function emitExportHardeningTelemetry(args: {
-  event: 'signer.export.legacy_shortcut_blocked';
+function emitExportRecoveryTelemetry(args: {
+  event: 'signer.export.worker_boundary_required' | 'signer.export.recovery_not_provisioned';
   nearAccountId: string;
   deviceNumber?: number;
   reason: string;
@@ -42,30 +46,44 @@ function emitExportHardeningTelemetry(args: {
   });
 }
 
-// Export orchestration boundary rule:
-// - This module may only invoke the worker-owned export operation.
-// - It must not orchestrate confirm steps or parse PRF material in JS main thread.
-function throwLegacyExportShortcutDisabled(args: {
+function throwExportWorkerBoundaryRequired(args: {
   nearAccountId: string;
   deviceNumber?: number;
   reason: string;
 }): never {
-  emitExportHardeningTelemetry({
-    event: 'signer.export.legacy_shortcut_blocked',
+  emitExportRecoveryTelemetry({
+    event: 'signer.export.worker_boundary_required',
     nearAccountId: args.nearAccountId,
     deviceNumber: args.deviceNumber,
     reason: args.reason,
   });
-  throw createExportHardeningError({
-    code: EXPORT_LEGACY_SHORTCUT_DISABLED_CODE,
-    message:
-      `Export is temporarily disabled until worker-owned export hardening is active ` +
-      `(${EXPORT_LEGACY_SHORTCUT_DISABLED_CODE})`,
+  throw createExportRecoveryError({
+    code: EXPORT_WORKER_BOUNDARY_REQUIRED_CODE,
+    message: `Export requires the worker-owned recovery export operation (${EXPORT_WORKER_BOUNDARY_REQUIRED_CODE})`,
+  });
+}
+
+function throwRecoveryExportNotProvisioned(args: {
+  nearAccountId: string;
+  deviceNumber?: number;
+  reason: string;
+}): never {
+  emitExportRecoveryTelemetry({
+    event: 'signer.export.recovery_not_provisioned',
+    nearAccountId: args.nearAccountId,
+    deviceNumber: args.deviceNumber,
+    reason: args.reason,
+  });
+  throw createExportRecoveryError({
+    code: EXPORT_RECOVERY_NOT_PROVISIONED_CODE,
+    message: `Threshold Ed25519 recovery export is not provisioned (${EXPORT_RECOVERY_NOT_PROVISIONED_CODE})`,
   });
 }
 
 export type PrivateKeyExportRecoveryDeps = {
   indexedDB: UnifiedIndexedDBManager;
+  relayerUrl: string;
+  getRpId: () => string | null;
   requestExportPrivateKeysWithUi?: (
     payload: ExportPrivateKeysWithUiWorkerPayload,
   ) => Promise<ExportPrivateKeysWithUiWorkerResult>;
@@ -85,12 +103,20 @@ async function runExportWorkerOperation(
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
-    throwLegacyExportShortcutDisabled({
+    throwExportWorkerBoundaryRequired({
       nearAccountId: accountId,
       reason: 'missing_export_worker_operation',
     });
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
+  const relayerUrl = String(deps.relayerUrl || '').trim();
+  if (!relayerUrl) {
+    throw new Error('Missing relayerUrl for export recovery');
+  }
+  const rpId = String(deps.getRpId?.() || '').trim();
+  if (!rpId) {
+    throw new Error('Missing rpId for export recovery');
+  }
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
   const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
@@ -100,20 +126,44 @@ async function runExportWorkerOperation(
     throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
   }
 
-  const [userForAccount, thresholdKeyMaterial] = await Promise.all([
-    deps.indexedDB.clientDB.getNearAccountProjection(accountId, deviceNumber).catch(() => null),
-    deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(() => null),
-  ]);
+  const thresholdKeyMaterial = await deps.indexedDB
+    .getNearThresholdKeyMaterial(accountId, deviceNumber)
+    .catch(() => null);
 
   if (!thresholdKeyMaterial) {
-    throw new Error(
-      `No threshold key material found for account ${accountId} device ${deviceNumber}`,
-    );
+    throwRecoveryExportNotProvisioned({
+      nearAccountId: accountId,
+      deviceNumber,
+      reason: 'missing_threshold_key_material',
+    });
   }
-
-  const publicKeyHint = String(
-    userForAccount?.clientNearPublicKey || thresholdKeyMaterial?.publicKey || '',
-  ).trim();
+  if (
+    thresholdKeyMaterial.artifactKind !== 'near-ed25519-option-b-v1' ||
+    thresholdKeyMaterial.recoveryExportCapable !== true ||
+    !String(thresholdKeyMaterial.recoveryPublicKey || '').trim()
+  ) {
+    throwRecoveryExportNotProvisioned({
+      nearAccountId: accountId,
+      deviceNumber,
+      reason: 'threshold_ed25519_recovery_export_not_provisioned',
+    });
+  }
+  const relayerKeyId = String(thresholdKeyMaterial.relayerKeyId || '').trim();
+  if (!relayerKeyId) {
+    throwRecoveryExportNotProvisioned({
+      nearAccountId: accountId,
+      deviceNumber,
+      reason: 'missing_relayer_key_id',
+    });
+  }
+  const recoveryPublicKey = String(thresholdKeyMaterial.recoveryPublicKey || '').trim();
+  if (!recoveryPublicKey) {
+    throwRecoveryExportNotProvisioned({
+      nearAccountId: accountId,
+      deviceNumber,
+      reason: 'missing_recovery_public_key',
+    });
+  }
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
@@ -121,7 +171,13 @@ async function runExportWorkerOperation(
         nearAccountId: accountId,
         deviceNumber,
         chain: args.options.chain,
-        publicKeyHint,
+        artifactKind: thresholdKeyMaterial.artifactKind,
+        keyVersion: thresholdKeyMaterial.keyVersion,
+        recoveryExportCapable: thresholdKeyMaterial.recoveryExportCapable,
+        relayerUrl,
+        relayerKeyId,
+        rpId,
+        recoveryPublicKey,
         variant: args.options.variant,
         theme: resolvedTheme,
       });
@@ -130,7 +186,7 @@ async function runExportWorkerOperation(
       if (
         message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
       ) {
-        throwLegacyExportShortcutDisabled({
+        throwExportWorkerBoundaryRequired({
           nearAccountId: accountId,
           deviceNumber,
           reason: 'worker_missing_export_operation',

@@ -2,6 +2,7 @@ import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyO
 import type { SignerWorkerManagerContext } from '..';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
+  deriveThresholdEd25519BootstrapPackageWasm,
   extractCosePublicKeyWasm,
   generateEphemeralNearKeypairWasm,
   signTransactionWithKeyPairWasm,
@@ -30,6 +31,42 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
           success: false,
           nearAccountId,
           clientVerifyingShareB64u: '',
+          error: message,
+        };
+      }
+    },
+    async deriveThresholdEd25519BootstrapPackage(args) {
+      const nearAccountId = String(args.nearAccountId);
+      const keyVersion = String(args.keyVersion || '').trim();
+      try {
+        const derived = await deriveThresholdEd25519BootstrapPackageWasm({
+          sessionId: args.sessionId,
+          nearAccountId,
+          rpId: args.rpId,
+          keyVersion,
+          prfFirstB64u: args.prfFirstB64u,
+          recoveryServerShareB64u: args.recoveryServerShareB64u,
+          workerCtx: getContext(),
+        });
+        return {
+          success: true,
+          nearAccountId: derived.nearAccountId,
+          keyVersion: derived.keyVersion,
+          recoveryExportCapable: derived.recoveryExportCapable,
+          clientParticipantId: derived.clientParticipantId,
+          relayerParticipantId: derived.relayerParticipantId,
+          publicKey: derived.publicKey,
+          recoveryPublicKey: derived.recoveryPublicKey,
+          clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+          relayerSigningShareB64u: derived.relayerSigningShareB64u,
+          relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
+        };
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          success: false,
+          nearAccountId,
+          keyVersion,
           error: message,
         };
       }

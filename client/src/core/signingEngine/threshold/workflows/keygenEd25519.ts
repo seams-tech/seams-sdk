@@ -1,4 +1,3 @@
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { computeThresholdEd25519KeygenIntentDigest } from '@/utils/intentDigest';
 import { thresholdEd25519Keygen } from '@/core/rpcClients/near/rpcCalls';
 import { toAccountId } from '@/core/types/accountIds';
@@ -6,11 +5,12 @@ import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
   type ThresholdEd25519ClientShareDeriverPort,
+  type ThresholdEd25519BootstrapPackageDeriverPort,
   type ThresholdIndexedDbPort,
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 
-const DUMMY_WRAP_KEY_SALT_B64U = base64UrlEncode(new Uint8Array(32));
+const DUAL_KEY_ED25519_KEY_VERSION_V1 = 'option-b-v1';
 
 function generateKeygenSessionId(): string {
   const id =
@@ -24,8 +24,8 @@ function generateKeygenSessionId(): string {
  * Threshold-ed25519 keygen helper (standard WebAuthn).
  *
  * - Collects a WebAuthn assertion (challenge = keygen policy digest)
- * - Uses PRF.first to derive `clientVerifyingShareB64u` in the signer worker
- * - Calls `POST /threshold-ed25519/keygen` (lite) to obtain relayer key material + group public key
+ * - Uses PRF.first to derive an Ed25519 Option B bootstrap package in the signer worker
+ * - Calls `POST /threshold-ed25519/keygen` to persist relayer key material + return group public key
  *
  * Notes:
  * - PRF outputs are never sent to the relay.
@@ -34,23 +34,34 @@ function generateKeygenSessionId(): string {
 export async function keygenEd25519(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  signingKeyOps: ThresholdEd25519ClientShareDeriverPort;
+  signingKeyOps: ThresholdEd25519ClientShareDeriverPort &
+    ThresholdEd25519BootstrapPackageDeriverPort;
   relayerUrl: string;
   nearAccountId: string;
-}): Promise<{
-  ok: boolean;
-  keygenSessionId?: string;
-  rpId?: string;
-  clientVerifyingShareB64u?: string;
-  publicKey?: string;
-  relayerKeyId?: string;
-  relayerVerifyingShareB64u?: string;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  participantIds?: number[];
-  code?: string;
-  message?: string;
-}> {
+}): Promise<
+  | {
+      ok: true;
+      keygenSessionId: string;
+      rpId: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      clientVerifyingShareB64u: string;
+      publicKey: string;
+      recoveryPublicKey: string;
+      relayerKeyId: string;
+      relayerVerifyingShareB64u: string;
+      clientParticipantId?: number;
+      relayerParticipantId?: number;
+      participantIds?: number[];
+      code?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    }
+> {
   const rpId = args.touchIdPrompt.getRpId();
   if (!rpId) return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
 
@@ -78,19 +89,34 @@ export async function keygenEd25519(args: {
     };
   }
 
-  // 2) Derive the client verifying share inside the signer worker.
+  // 2) Derive the Option B bootstrap package inside the signer worker.
   try {
-    const derived = await args.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
+    const derived = await args.signingKeyOps.deriveThresholdEd25519BootstrapPackage({
       sessionId: keygenSessionId,
       nearAccountId: toAccountId(args.nearAccountId),
+      rpId,
+      keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
       prfFirstB64u,
-      wrapKeySalt: DUMMY_WRAP_KEY_SALT_B64U,
     });
     if (!derived.success) {
       return {
         ok: false,
         code: 'internal',
-        message: derived.error || 'Failed to derive client verifying share',
+        message: derived.error || 'Failed to derive Ed25519 Option B bootstrap package',
+      };
+    }
+    if (
+      !derived.clientVerifyingShareB64u ||
+      !derived.publicKey ||
+      !derived.recoveryPublicKey ||
+      derived.recoveryExportCapable !== true ||
+      !derived.relayerSigningShareB64u ||
+      !derived.relayerVerifyingShareB64u
+    ) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Threshold Ed25519 bootstrap package is incomplete',
       };
     }
 
@@ -99,7 +125,13 @@ export async function keygenEd25519(args: {
       nearAccountId: args.nearAccountId,
       rpId,
       keygenSessionId,
+      keyVersion: derived.keyVersion,
+      recoveryExportCapable: true,
+      publicKey: derived.publicKey,
+      recoveryPublicKey: derived.recoveryPublicKey,
       clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+      relayerSigningShareB64u: derived.relayerSigningShareB64u,
+      relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
       webauthnAuthentication: credential,
     });
     if (!keygen.ok) {
@@ -114,8 +146,11 @@ export async function keygenEd25519(args: {
       ok: true,
       keygenSessionId,
       rpId,
+      keyVersion: keygen.keyVersion,
+      recoveryExportCapable: true,
       clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
       publicKey: keygen.publicKey,
+      recoveryPublicKey: keygen.recoveryPublicKey,
       relayerKeyId: keygen.relayerKeyId,
       relayerVerifyingShareB64u: keygen.relayerVerifyingShareB64u,
       clientParticipantId: keygen.clientParticipantId,

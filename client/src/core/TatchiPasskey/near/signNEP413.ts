@@ -83,8 +83,8 @@ export async function signNEP413Message(args: {
     const userData = hasValidDeviceNumber
       ? await signingEngine.getUserByDevice(nearAccountId, deviceNumber)
       : await signingEngine.getLastUser();
-    if (!userData || !userData.clientNearPublicKey) {
-      throw new Error(`User data not found for ${nearAccountId}`);
+    if (!userData || !userData.operationalPublicKey) {
+      throw new Error(`Operational NEAR key data not found for ${nearAccountId}`);
     }
 
     // Generate a random 32-byte nonce (NEP-413 expects base64-encoded nonce bytes).

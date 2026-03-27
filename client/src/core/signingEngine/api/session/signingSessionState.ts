@@ -7,6 +7,10 @@ import type {
 } from '../../touchConfirm';
 
 export type SigningSessionPolicy = { ttlMs: number; remainingUses: number };
+export type ActiveSigningSessionKind =
+  | 'threshold-ed25519'
+  | 'threshold-ecdsa-tempo'
+  | 'threshold-ecdsa-evm';
 export type SigningSessionCacheEntry = {
   sessionId: string;
   prfFirstB64u: string;
@@ -24,11 +28,15 @@ export type SigningSessionStateDeps = {
     ThresholdPrfFirstCacheClearPort;
   createSessionId: (prefix: string) => string;
   signingSessionDefaults: SigningSessionPolicy;
-  resolveCanonicalSigningSessionId?: (nearAccountId: AccountId | string) => string | null;
+  resolveCanonicalSigningSessionIdForKind?: (args: {
+    nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
+  }) => string | null;
 };
 
 export type HydrateSigningSessionArgs = SigningSessionCacheEntry & {
   nearAccountId: AccountId | string;
+  signerKind: ActiveSigningSessionKind;
   setActiveSigningSessionId?: boolean;
 };
 
@@ -41,6 +49,18 @@ export function generateSessionId(prefix: string): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export function serializeActiveSigningSessionKey(args: {
+  nearAccountId: AccountId | string;
+  signerKind: ActiveSigningSessionKind;
+}): string {
+  const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
+  const signerKind = String(args.signerKind || '').trim();
+  if (!nearAccountId || !signerKind) {
+    throw new Error('Invalid active signing session key input');
+  }
+  return `${nearAccountId}|${signerKind}`;
 }
 
 function normalizeSigningSessionCacheEntry(
@@ -96,32 +116,49 @@ export async function clearSigningSessionPrfFirstBestEffort(
   await clearer.clearPrfFirstForThresholdSession({ sessionId }).catch(() => undefined);
 }
 
-export function getOrCreateActiveSigningSessionId(
+export function getOrCreateActiveSigningSessionIdForKind(
   deps: SigningSessionStateDeps,
-  nearAccountId: AccountId,
+  args: {
+    nearAccountId: AccountId;
+    signerKind: ActiveSigningSessionKind;
+  },
 ): string {
-  const key = String(toAccountId(nearAccountId));
+  const key = serializeActiveSigningSessionKey({
+    nearAccountId: args.nearAccountId,
+    signerKind: args.signerKind,
+  });
   const existing = deps.activeSigningSessionIds.get(key);
   if (existing) return existing;
-  if (typeof deps.resolveCanonicalSigningSessionId === 'function') {
-    const canonicalSessionId = String(deps.resolveCanonicalSigningSessionId(nearAccountId) || '').trim();
+  if (typeof deps.resolveCanonicalSigningSessionIdForKind === 'function') {
+    const canonicalSessionId = String(
+      deps.resolveCanonicalSigningSessionIdForKind({
+        nearAccountId: args.nearAccountId,
+        signerKind: args.signerKind,
+      }) || '',
+    ).trim();
     if (canonicalSessionId) {
       deps.activeSigningSessionIds.set(key, canonicalSessionId);
       return canonicalSessionId;
     }
   }
-  const sessionId = deps.createSessionId('signing-session');
+  const sessionId = deps.createSessionId(args.signerKind);
   deps.activeSigningSessionIds.set(key, sessionId);
   return sessionId;
 }
 
-export function setActiveSigningSessionId(
+export function setActiveSigningSessionIdForKind(
   deps: SigningSessionStateDeps,
-  nearAccountId: AccountId | string,
-  sessionId: string,
+  args: {
+    nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
+    sessionId: string;
+  },
 ): void {
-  const key = String(toAccountId(nearAccountId));
-  const normalizedSessionId = String(sessionId || '').trim();
+  const key = serializeActiveSigningSessionKey({
+    nearAccountId: args.nearAccountId,
+    signerKind: args.signerKind,
+  });
+  const normalizedSessionId = String(args.sessionId || '').trim();
   if (!normalizedSessionId) {
     deps.activeSigningSessionIds.delete(key);
     return;
@@ -129,14 +166,35 @@ export function setActiveSigningSessionId(
   deps.activeSigningSessionIds.set(key, normalizedSessionId);
 }
 
-export function clearActiveSigningSessionId(
+export function clearActiveSigningSessionIdForKind(
   deps: SigningSessionStateDeps,
-  nearAccountId: AccountId | string,
+  args: {
+    nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
+  },
 ): string | null {
-  const key = String(toAccountId(nearAccountId));
+  const key = serializeActiveSigningSessionKey({
+    nearAccountId: args.nearAccountId,
+    signerKind: args.signerKind,
+  });
   const existing = String(deps.activeSigningSessionIds.get(key) || '').trim();
   deps.activeSigningSessionIds.delete(key);
   return existing || null;
+}
+
+export function clearAllActiveSigningSessionIdsForAccount(
+  deps: SigningSessionStateDeps,
+  nearAccountId: AccountId | string,
+): string[] {
+  const normalizedNearAccountId = String(toAccountId(nearAccountId)).trim();
+  const sessionIds: string[] = [];
+  for (const [key, sessionIdRaw] of deps.activeSigningSessionIds.entries()) {
+    if (!key.startsWith(`${normalizedNearAccountId}|`)) continue;
+    const sessionId = String(sessionIdRaw || '').trim();
+    if (sessionId) sessionIds.push(sessionId);
+    deps.activeSigningSessionIds.delete(key);
+  }
+  return sessionIds;
 }
 
 export function clearAllActiveSigningSessionIds(deps: SigningSessionStateDeps): string[] {
@@ -157,20 +215,33 @@ export async function hydrateSigningSession(
   await cacheSigningSessionPrfFirst(deps.touchConfirm, normalized);
 
   if (args.setActiveSigningSessionId !== false) {
-    setActiveSigningSessionId(deps, args.nearAccountId, normalized.sessionId);
+    setActiveSigningSessionIdForKind(deps, {
+      nearAccountId: args.nearAccountId,
+      signerKind: args.signerKind,
+      sessionId: normalized.sessionId,
+    });
   }
 }
 
-export async function getWarmSigningSessionStatus(
+export async function getWarmSigningSessionStatusForKind(
   deps: SigningSessionStateDeps,
-  nearAccountId: AccountId | string,
+  args: {
+    nearAccountId: AccountId | string;
+    signerKind: ActiveSigningSessionKind;
+  },
 ): Promise<SigningSessionStatus | null> {
   try {
-    const key = String(toAccountId(nearAccountId));
+    const key = serializeActiveSigningSessionKey({
+      nearAccountId: args.nearAccountId,
+      signerKind: args.signerKind,
+    });
     let sessionId = deps.activeSigningSessionIds.get(key);
-    if (!sessionId && typeof deps.resolveCanonicalSigningSessionId === 'function') {
+    if (!sessionId && typeof deps.resolveCanonicalSigningSessionIdForKind === 'function') {
       const canonicalSessionId = String(
-        deps.resolveCanonicalSigningSessionId(nearAccountId) || '',
+        deps.resolveCanonicalSigningSessionIdForKind({
+          nearAccountId: args.nearAccountId,
+          signerKind: args.signerKind,
+        }) || '',
       ).trim();
       if (canonicalSessionId) {
         deps.activeSigningSessionIds.set(key, canonicalSessionId);

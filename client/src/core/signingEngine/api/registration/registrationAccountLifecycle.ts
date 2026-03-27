@@ -66,12 +66,12 @@ export async function initializeCurrentUser(
   // Ensure confirmation preferences are loaded before callers read them (best-effort)
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
-  // Initialize NonceManager with the selected user's public key (best-effort)
+  // Initialize NonceManager with the selected operational NEAR key (best-effort)
   const userData = await deps.indexedDB.clientDB
     .getNearAccountProjection(accountId, deviceNumberToUse)
     .catch(() => null);
-  if (userData && userData.clientNearPublicKey) {
-    deps.nonceManager.initializeUser(accountId, userData.clientNearPublicKey);
+  if (userData && userData.operationalPublicKey) {
+    deps.nonceManager.initializeUser(accountId, userData.operationalPublicKey);
   }
 
   // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
@@ -139,7 +139,7 @@ export async function atomicStoreRegistrationData(
   args: {
     nearAccountId: AccountId;
     credential: WebAuthnRegistrationCredential;
-    publicKey: string;
+    operationalPublicKey: string;
   },
 ): Promise<void> {
   await atomicOperation(deps, async () => {
@@ -153,7 +153,7 @@ export async function atomicStoreRegistrationData(
     await storeUserData(deps, {
       nearAccountId: args.nearAccountId,
       deviceNumber: 1,
-      clientNearPublicKey: args.publicKey,
+      operationalPublicKey: args.operationalPublicKey,
       lastUpdated: Date.now(),
       passkeyCredential: {
         id: args.credential.id,

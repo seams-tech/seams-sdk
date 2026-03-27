@@ -64,8 +64,9 @@ export type ThresholdEcdsaLoginPrefillResult =
     };
 
 export type ThresholdEcdsaLoginPrefillDeps = {
-  getWarmSigningSessionStatus: (
+  getWarmThresholdEcdsaSessionStatus: (
     nearAccountId: AccountId | string,
+    thresholdSessionId: string,
   ) => Promise<SigningSessionStatus | null>;
   dispensePrfFirstForThresholdSession: (args: {
     sessionId: string;
@@ -158,7 +159,10 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const warmStatus = await deps.getWarmSigningSessionStatus(nearAccountId);
+    const warmStatus = await deps.getWarmThresholdEcdsaSessionStatus(
+      nearAccountId,
+      thresholdSessionId,
+    );
     if (!isWarmSessionActive(warmStatus)) {
       return {
         status: 'skipped',

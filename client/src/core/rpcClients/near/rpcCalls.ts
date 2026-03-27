@@ -345,20 +345,36 @@ export async function thresholdEd25519Keygen(
     nearAccountId: string;
     rpId: string;
     keygenSessionId: string;
+    keyVersion: string;
+    recoveryExportCapable: true;
+    publicKey: string;
+    recoveryPublicKey: string;
+    relayerSigningShareB64u: string;
+    relayerVerifyingShareB64u: string;
     webauthnAuthentication: WebAuthnAuthenticationCredential;
   },
-): Promise<{
-  ok: boolean;
-  clientParticipantId?: number;
-  relayerParticipantId?: number;
-  participantIds?: number[];
-  relayerKeyId?: string;
-  publicKey?: string;
-  relayerVerifyingShareB64u?: string;
-  code?: string;
-  message?: string;
-  error?: string;
-}> {
+): Promise<
+  | {
+      ok: true;
+      clientParticipantId?: number;
+      relayerParticipantId?: number;
+      participantIds?: number[];
+      relayerKeyId: string;
+      publicKey: string;
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      relayerVerifyingShareB64u: string;
+      code?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+      error?: string;
+    }
+> {
   try {
     const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
     if (!base) throw new Error('Missing relayServerUrl');
@@ -374,6 +390,21 @@ export async function thresholdEd25519Keygen(
 
     const keygenSessionId = String(args.keygenSessionId || '').trim();
     if (!keygenSessionId) throw new Error('Missing keygenSessionId');
+    const keyVersion = String(args.keyVersion || '').trim();
+    const publicKey = String(args.publicKey || '').trim();
+    const recoveryPublicKey = String(args.recoveryPublicKey || '').trim();
+    const relayerSigningShareB64u = String(args.relayerSigningShareB64u || '').trim();
+    const relayerVerifyingShareB64u = String(args.relayerVerifyingShareB64u || '').trim();
+    const recoveryExportCapable = args.recoveryExportCapable === true;
+    if (!keyVersion || !publicKey || !recoveryPublicKey) {
+      throw new Error('Missing Option B key metadata for threshold-ed25519 keygen');
+    }
+    if (!relayerSigningShareB64u || !relayerVerifyingShareB64u) {
+      throw new Error('Missing relayer share material for threshold-ed25519 keygen');
+    }
+    if (!recoveryExportCapable) {
+      throw new Error('threshold-ed25519 keygen requires recoveryExportCapable=true');
+    }
 
     // Never send PRF outputs to the relay.
     const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
@@ -389,6 +420,12 @@ export async function thresholdEd25519Keygen(
         rpId,
         keygenSessionId,
         webauthn_authentication,
+        ...(keyVersion ? { keyVersion } : {}),
+        ...(typeof recoveryExportCapable === 'boolean' ? { recoveryExportCapable } : {}),
+        ...(publicKey ? { publicKey } : {}),
+        ...(recoveryPublicKey ? { recoveryPublicKey } : {}),
+        ...(relayerSigningShareB64u ? { relayerSigningShareB64u } : {}),
+        ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
       }),
     });
 
@@ -398,19 +435,259 @@ export async function thresholdEd25519Keygen(
     }
 
     const json = await response.json();
-    return {
-      ok: !!json?.ok,
+    if (!json?.ok) {
+      return {
+        ok: false,
+        code: json?.code,
+        message: json?.message,
+        error: json?.error,
+      };
+    }
+    const result = {
+      ok: true as const,
       clientParticipantId: json?.clientParticipantId,
       relayerParticipantId: json?.relayerParticipantId,
       participantIds: json?.participantIds,
-      relayerKeyId: json?.relayerKeyId,
-      publicKey: json?.publicKey,
-      relayerVerifyingShareB64u: json?.relayerVerifyingShareB64u,
+      relayerKeyId: String(json?.relayerKeyId || '').trim(),
+      publicKey: String(json?.publicKey || '').trim(),
+      recoveryPublicKey: String(json?.recoveryPublicKey || '').trim(),
+      keyVersion: String(json?.keyVersion || '').trim(),
+      recoveryExportCapable: true as const,
+      relayerVerifyingShareB64u: String(json?.relayerVerifyingShareB64u || '').trim(),
       code: json?.code,
       message: json?.message,
     };
+    if (
+      !result.relayerKeyId ||
+      !result.publicKey ||
+      !result.recoveryPublicKey ||
+      !result.keyVersion ||
+      json?.recoveryExportCapable !== true ||
+      !result.relayerVerifyingShareB64u
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold-ed25519 keygen returned incomplete Option B metadata',
+      };
+    }
+    return result;
   } catch (error: unknown) {
     return { ok: false, error: errorMessage(error) || 'Failed to keygen threshold-ed25519' };
+  }
+}
+
+export async function thresholdEd25519ExportInit(
+  relayServerUrl: string,
+  args: {
+    relayerKeyId: string;
+    keyVersion: string;
+    webauthnAuthentication: WebAuthnAuthenticationCredential;
+  },
+): Promise<
+  | {
+      ok: true;
+      exportId: string;
+      expiresAtMs: number;
+      relayerKeyId: string;
+      artifactKind: 'near-ed25519-option-b-v1';
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      participantIds?: number[];
+      code?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+      error?: string;
+    }
+> {
+  try {
+    const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
+    if (!base) throw new Error('Missing relayServerUrl');
+
+    const relayerKeyId = String(args.relayerKeyId || '').trim();
+    if (!relayerKeyId) throw new Error('Missing relayerKeyId');
+    const keyVersion = String(args.keyVersion || '').trim();
+    if (!keyVersion) throw new Error('Missing keyVersion');
+    const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
+
+    const response = await fetch(`${base}/threshold-ed25519/export/init`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        relayerKeyId,
+        ...(keyVersion ? { keyVersion } : {}),
+        webauthn_authentication,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { ok: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+
+    const json = await response.json();
+    if (!json?.ok) {
+      return {
+        ok: false,
+        code: json?.code,
+        message: json?.message,
+      };
+    }
+    const result = {
+      ok: true as const,
+      exportId: String(json?.exportId || '').trim(),
+      expiresAtMs: Number(json?.expiresAtMs),
+      relayerKeyId: String(json?.relayerKeyId || '').trim(),
+      artifactKind: json?.artifactKind,
+      recoveryPublicKey: String(json?.recoveryPublicKey || '').trim(),
+      keyVersion: String(json?.keyVersion || '').trim(),
+      recoveryExportCapable: json?.recoveryExportCapable === true ? (true as const) : false,
+      participantIds: Array.isArray(json?.participantIds) ? json.participantIds : undefined,
+      code: json?.code,
+      message: json?.message,
+    };
+    if (
+      !result.exportId ||
+      !Number.isFinite(result.expiresAtMs) ||
+      result.expiresAtMs <= 0 ||
+      !result.relayerKeyId ||
+      result.artifactKind !== 'near-ed25519-option-b-v1' ||
+      !result.recoveryPublicKey ||
+      !result.keyVersion ||
+      result.recoveryExportCapable !== true
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold-ed25519 export init returned incomplete Option B metadata',
+      };
+    }
+    return {
+      ...result,
+      artifactKind: 'near-ed25519-option-b-v1' as const,
+      recoveryExportCapable: true as const,
+    };
+  } catch (error: unknown) {
+    return { ok: false, error: errorMessage(error) || 'Failed to initialize threshold-ed25519 export' };
+  }
+}
+
+export async function thresholdEd25519ExportCombine(
+  relayServerUrl: string,
+  args: {
+    exportId: string;
+    relayerKeyId: string;
+    keyVersion: string;
+    artifactKind: 'near-ed25519-option-b-v1';
+    paillierPublicKeyB64u: string;
+    clientCiphertextB64u: string;
+  },
+): Promise<
+  | {
+      ok: true;
+      exportId: string;
+      relayerKeyId: string;
+      artifactKind: 'near-ed25519-option-b-v1';
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      participantIds?: number[];
+      expiresAtMs?: number;
+      serverCiphertextB64u: string;
+      code?: string;
+      message?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+      error?: string;
+    }
+> {
+  try {
+    const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
+    if (!base) throw new Error('Missing relayServerUrl');
+
+    const relayerKeyId = String(args.relayerKeyId || '').trim();
+    if (!relayerKeyId) throw new Error('Missing relayerKeyId');
+    const exportId = String(args.exportId || '').trim();
+    if (!exportId) throw new Error('Missing exportId');
+    const keyVersion = String(args.keyVersion || '').trim();
+    if (!keyVersion) throw new Error('Missing keyVersion');
+    const paillierPublicKeyB64u = String(args.paillierPublicKeyB64u || '').trim();
+    if (!paillierPublicKeyB64u) throw new Error('Missing paillierPublicKeyB64u');
+    const clientCiphertextB64u = String(args.clientCiphertextB64u || '').trim();
+    if (!clientCiphertextB64u) throw new Error('Missing clientCiphertextB64u');
+
+    const response = await fetch(`${base}/threshold-ed25519/export/combine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        exportId,
+        relayerKeyId,
+        keyVersion,
+        artifactKind: args.artifactKind,
+        paillierPublicKeyB64u,
+        clientCiphertextB64u,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { ok: false, error: `HTTP ${response.status}: ${errorText}` };
+    }
+
+    const json = await response.json();
+    if (!json?.ok) {
+      return {
+        ok: false,
+        code: json?.code,
+        message: json?.message,
+      };
+    }
+    const result = {
+      ok: true as const,
+      exportId: String(json?.exportId || '').trim(),
+      relayerKeyId: String(json?.relayerKeyId || '').trim(),
+      artifactKind: json?.artifactKind,
+      recoveryPublicKey: String(json?.recoveryPublicKey || '').trim(),
+      keyVersion: String(json?.keyVersion || '').trim(),
+      recoveryExportCapable: json?.recoveryExportCapable === true ? (true as const) : false,
+      participantIds: Array.isArray(json?.participantIds) ? json.participantIds : undefined,
+      expiresAtMs: Number.isFinite(Number(json?.expiresAtMs)) ? Number(json?.expiresAtMs) : undefined,
+      serverCiphertextB64u: String(json?.serverCiphertextB64u || '').trim(),
+      code: json?.code,
+      message: json?.message,
+    };
+    if (
+      !result.exportId ||
+      !result.relayerKeyId ||
+      result.artifactKind !== 'near-ed25519-option-b-v1' ||
+      !result.recoveryPublicKey ||
+      !result.keyVersion ||
+      result.recoveryExportCapable !== true ||
+      !result.serverCiphertextB64u
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold-ed25519 export combine returned incomplete Option B metadata',
+      };
+    }
+    return {
+      ...result,
+      artifactKind: 'near-ed25519-option-b-v1' as const,
+      recoveryExportCapable: true as const,
+    };
+  } catch (error: unknown) {
+    return { ok: false, error: errorMessage(error) || 'Failed to combine threshold-ed25519 export ciphertext' };
   }
 }
 
@@ -694,7 +971,7 @@ export type RecoveryAttempt = {
   /** Legacy field (string email address). */
   from_address?: string | null;
   email_timestamp_ms?: number | null;
-  new_public_key?: string | null;
+  newPublicKey?: string | null;
 };
 
 function normalizeByteArray(input: unknown): number[] | null | undefined {
@@ -765,6 +1042,10 @@ export async function getEmailRecoveryAttempt(
   return {
     ...raw,
     from_address_hash,
+    newPublicKey:
+      typeof (raw as Record<string, unknown>).new_public_key === 'string'
+        ? String((raw as Record<string, unknown>).new_public_key || '')
+        : raw.newPublicKey ?? null,
     status: status as RecoveryAttemptStatus,
   };
 }

@@ -96,8 +96,10 @@ export async function unlock(
         `User data not found for ${nearAccountId} in IndexedDB. Please register an account.`,
       );
     }
-    if (!userData.clientNearPublicKey) {
-      throw new Error(`No NEAR public key found for ${nearAccountId}. Please register an account.`);
+    if (!userData.operationalPublicKey) {
+      throw new Error(
+        `No NEAR operational key found for ${nearAccountId}. Please register an account.`,
+      );
     }
 
     const baseDeviceNumber =
@@ -164,10 +166,16 @@ export async function unlock(
       }
 
       const participantIds = thresholdKeyMaterial.participants.map((participant) => participant.id);
-      const canonicalEcdsaContext = resolveCanonicalThresholdEcdsaWarmSessionContext(
-        signingEngine as unknown,
-        nearAccountId,
-      );
+      const signersToWarm = await resolveThresholdLoginWarmSigners(nearAccountId);
+      const canonicalEcdsaContext = signersToWarm.includes('ecdsa')
+        ? resolveCanonicalThresholdEcdsaWarmSessionContext(signingEngine as unknown, nearAccountId)
+        : {
+            thresholdSessionId: null,
+            clientVerifyingShareB64u: null,
+          };
+      const preferredEd25519SessionId = signersToWarm.includes('ecdsa')
+        ? undefined
+        : createThresholdLoginWarmSessionId('ed25519-login');
       await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
       await primeThresholdLoginWarmSigners({
         signingEngine,
@@ -178,10 +186,12 @@ export async function unlock(
         ttlMs: signingSessionPolicy.ttlMs,
         remainingUses: signingSessionPolicy.remainingUses,
         canonicalEcdsaContext,
+        signersToWarm,
+        preferredEd25519SessionId,
       });
 
       const warmStatus = await signingEngine
-        .getWarmSigningSessionStatus(nearAccountId)
+        .getWarmThresholdEd25519SessionStatus(nearAccountId)
         .catch(() => null);
       signingSession = warmStatus || signingSession;
       requireActiveWarmSession('threshold warm-up');
@@ -295,12 +305,14 @@ export async function unlock(
             transports: [],
           }));
 
-          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized({
-            nearAccountId,
-            challengeB64u,
-            allowCredentials,
-            includeSecondPrfOutput: false,
-          });
+          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized(
+            {
+              nearAccountId,
+              challengeB64u,
+              allowCredentials,
+              includeSecondPrfOutput: false,
+            },
+          );
           const expectedOrigin = String(
             exchange.expectedOrigin ??
               exchange.expected_origin ??
@@ -315,7 +327,12 @@ export async function unlock(
           };
         }
 
-        const exchanged = await exchangeSession(relayUrl, exchangePath, session.kind, exchangeInput);
+        const exchanged = await exchangeSession(
+          relayUrl,
+          exchangePath,
+          session.kind,
+          exchangeInput,
+        );
         if (!exchanged.success) {
           throw new Error(exchanged.error || 'Session exchange failed');
         }
@@ -335,7 +352,7 @@ export async function unlock(
         const loginResult: LoginResult = {
           success: true,
           loggedInNearAccountId: String(nearAccountId),
-          clientNearPublicKey: userData.clientNearPublicKey,
+          operationalPublicKey: userData.operationalPublicKey,
           nearAccountId,
           ...(exchanged.jwt ? { jwt: exchanged.jwt } : {}),
         };
@@ -384,14 +401,14 @@ export async function unlock(
       ? {
           success: true,
           loggedInNearAccountId: String(nearAccountId),
-          clientNearPublicKey: userData.clientNearPublicKey,
+          operationalPublicKey: userData.operationalPublicKey,
           nearAccountId,
           ...requireThresholdWarmLoginBundle('login'),
         }
       : {
           success: true,
           loggedInNearAccountId: String(nearAccountId),
-          clientNearPublicKey: userData.clientNearPublicKey,
+          operationalPublicKey: userData.operationalPublicKey,
           nearAccountId,
           ...(signingSession ? { signingSession } : {}),
         };
@@ -427,7 +444,7 @@ async function finalizeLoginSuccess(args: {
     status: LoginStatus.SUCCESS,
     message: 'Login completed successfully',
     nearAccountId,
-    clientNearPublicKey: loginResult.clientNearPublicKey ?? '',
+    operationalPublicKey: loginResult.operationalPublicKey ?? '',
   });
   await afterCall?.(true, loginResult);
   return loginResult;
@@ -539,6 +556,7 @@ async function primeThresholdLoginWarmSigners(args: {
   remainingUses: number;
   canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
   signersToWarm?: ThresholdLoginWarmSigner[];
+  preferredEd25519SessionId?: string;
 }): Promise<void> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const warmState: {
@@ -565,7 +583,10 @@ async function primeThresholdLoginWarmSigners(args: {
           sessionKind: 'jwt',
           ttlMs: args.ttlMs,
           remainingUses: args.remainingUses,
-          sessionId: args.canonicalEcdsaContext.thresholdSessionId || undefined,
+          sessionId:
+            args.preferredEd25519SessionId ||
+            args.canonicalEcdsaContext.thresholdSessionId ||
+            undefined,
         });
         if (!connected.ok) {
           const details = String(
@@ -656,7 +677,9 @@ export async function getWalletSession(
 ): Promise<WalletSession> {
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
-    ? await context.signingEngine.getWarmSigningSessionStatus(login.nearAccountId).catch(() => null)
+    ? await context.signingEngine
+        .getWarmThresholdEd25519SessionStatus(login.nearAccountId)
+        .catch(() => null)
     : null;
   return { login, signingSession };
 }
@@ -665,12 +688,9 @@ async function resolveThresholdEcdsaEthereumAddress(
   nearAccountId: AccountId,
 ): Promise<string | null> {
   try {
-    const nearContext = await IndexedDBManager.clientDB.resolveNearAccountContext(nearAccountId);
-    if (!nearContext?.profileId) return null;
-
-    const chainAccounts = await IndexedDBManager.clientDB.listChainAccountsByProfile(
-      nearContext.profileId,
-    );
+    const continuity =
+      await IndexedDBManager.clientDB.resolveNearAccountProfileContinuity(nearAccountId);
+    const chainAccounts = continuity?.chainAccounts || [];
     if (!Array.isArray(chainAccounts) || chainAccounts.length === 0) return null;
 
     const thresholdRows = chainAccounts.filter((row) => {
@@ -702,6 +722,32 @@ async function resolveThresholdEcdsaEthereumAddress(
   } catch {
     return null;
   }
+}
+
+async function resolveThresholdLoginWarmSigners(
+  nearAccountId: AccountId,
+): Promise<ThresholdLoginWarmSigner[]> {
+  try {
+    const continuity =
+      await IndexedDBManager.clientDB.resolveNearAccountProfileContinuity(nearAccountId);
+    const chainAccounts = Array.isArray(continuity?.chainAccounts) ? continuity.chainAccounts : [];
+    const hasThresholdEcdsaAccount = chainAccounts.some((row) => {
+      const accountModel = String(row?.accountModel || '')
+        .trim()
+        .toLowerCase();
+      return accountModel === 'erc4337' || accountModel === 'tempo-native';
+    });
+    return hasThresholdEcdsaAccount ? ['ed25519', 'ecdsa'] : ['ed25519'];
+  } catch {
+    return ['ed25519'];
+  }
+}
+
+function createThresholdLoginWarmSessionId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function resolveCanonicalThresholdEcdsaWarmSessionContext(
@@ -798,13 +844,15 @@ async function getLoginStateInternal(
     }
 
     const userData = lastUser;
-    const publicKey = userData?.clientNearPublicKey || null;
-    const isLoggedIn = !!(userData && userData.clientNearPublicKey);
+    const publicKey = userData?.operationalPublicKey || null;
+    const isLoggedIn = !!(userData && userData.operationalPublicKey);
     const resolvedNearAccountId = targetAccountId ?? null;
 
     if (isLoggedIn && shouldRequireThresholdWarmSession(context)) {
       const warmStatus = resolvedNearAccountId
-        ? await signingEngine.getWarmSigningSessionStatus(resolvedNearAccountId).catch(() => null)
+        ? await signingEngine
+            .getWarmThresholdEd25519SessionStatus(resolvedNearAccountId)
+            .catch(() => null)
         : null;
       if (!warmStatus || warmStatus.status !== 'active') {
         return {

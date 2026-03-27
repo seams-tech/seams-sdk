@@ -11,9 +11,13 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
+import {
+  thresholdEd25519ExportCombine,
+  thresholdEd25519ExportInit,
+} from '@/core/rpcClients/near/rpcCalls';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -21,6 +25,19 @@ import {
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
+import { computeThresholdEd25519RecoveryExportInitChallengeB64u } from '@shared/threshold/ed25519Recovery';
+import {
+  decodeU256Le,
+  destroyPaillierKeyPair,
+  encodeU256Le,
+  generatePaillierKeyPair,
+  paillierDecrypt,
+  paillierEncrypt,
+  parsePaillierCiphertextB64u,
+  RECOVERY_SHARE_DOMAIN_MODULUS,
+  serializePaillierCiphertextB64u,
+  serializePaillierPublicKeyB64u,
+} from '@shared/utils/paillier';
 import { awaitUserConfirmationV2 } from '../../touchConfirm/awaitUserConfirmation';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
@@ -34,6 +51,11 @@ import initEthSigner, {
   derive_secp256k1_keypair_from_prf_second,
   init_eth_signer,
 } from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
+import initNearSigner, {
+  init_worker as init_near_signer_worker,
+  threshold_ed25519_recovery_client_share,
+  threshold_ed25519_recovery_keypair_from_seed,
+} from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitUserConfirmationV2 expects a UserConfirmRequest object.
@@ -74,9 +96,26 @@ const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
 const prfSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const prfSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
+const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer');
 const PRF_SESSION_SEAL_BASE_PATH = '/threshold-ecdsa/prf-seal';
+const NEAR_RECOVERY_EXPORT_GUIDANCE = {
+  title: 'Manual NEAR recovery',
+  body:
+    'This export reveals your NEAR recovery key only. Tatchi does not submit recovery transactions or rotate account keys for you.',
+  steps: [
+    'Store this recovery key in a secure password manager or other protected vault.',
+    'If you need recovery, use this key with normal NEAR wallet or CLI tooling to sign your own recovery transaction.',
+    'If you later decide the operational or recovery keys should change, remove or rotate them manually on-chain.',
+  ],
+} as const;
+
+type NearRecoveryExportWorkerPayload = Extract<
+  ExportPrivateKeysWithUiWorkerPayload,
+  { chain: 'near' }
+>;
 
 let ethSignerWasmInitPromise: Promise<void> | null = null;
+let nearSignerWasmInitPromise: Promise<void> | null = null;
 
 type UserConfirmWorkerIncomingMessage = {
   id?: unknown;
@@ -95,6 +134,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function nowMs(): number {
   return Date.now();
+}
+
+function overwriteBytes(bytes: Uint8Array | null | undefined): void {
+  if (!(bytes instanceof Uint8Array) || bytes.length === 0) return;
+  bytes.fill(0);
 }
 
 function toSessionId(prefix: string): string {
@@ -142,18 +186,59 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
   const deviceNumber = Math.floor(Number(payload.deviceNumber));
   const chain = coerceExportChain(payload.chain);
+  const artifactKind = normalizeOptionalNonEmptyString(payload.artifactKind);
+  const keyVersion = normalizeOptionalNonEmptyString(payload.keyVersion);
   if (!nearAccountId || !Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
   if (!chain) return null;
+  const variant = coerceVariant(payload.variant);
+  const theme = coerceTheme(payload.theme);
+  if (chain === 'near') {
+    const relayerUrl = normalizeOptionalNonEmptyString(payload.relayerUrl);
+    const relayerKeyId = normalizeOptionalNonEmptyString(payload.relayerKeyId);
+    const rpId = normalizeOptionalNonEmptyString(payload.rpId);
+    const recoveryPublicKey = normalizeOptionalNonEmptyString(payload.recoveryPublicKey);
+    if (
+      artifactKind !== 'near-ed25519-option-b-v1' ||
+      !keyVersion ||
+      payload.recoveryExportCapable !== true ||
+      !relayerUrl ||
+      !relayerKeyId ||
+      !rpId ||
+      !recoveryPublicKey
+    ) {
+      return null;
+    }
+    return {
+      nearAccountId,
+      deviceNumber,
+      chain: 'near',
+      artifactKind,
+      keyVersion,
+      recoveryExportCapable: true,
+      relayerUrl,
+      relayerKeyId,
+      rpId,
+      recoveryPublicKey,
+      variant,
+      theme,
+    };
+  }
   return {
     nearAccountId,
     deviceNumber,
     chain,
-    variant: coerceVariant(payload.variant),
-    theme: coerceTheme(payload.theme),
-    ...(typeof payload.publicKeyHint === 'string' && payload.publicKeyHint.trim()
-      ? { publicKeyHint: payload.publicKeyHint.trim() }
-      : {}),
+    variant,
+    theme,
   };
+}
+
+function requireNearRecoveryExportPayload(
+  payload: ExportPrivateKeysWithUiWorkerPayload,
+): NearRecoveryExportWorkerPayload {
+  if (payload.chain !== 'near') {
+    throw new Error('Threshold Ed25519 recovery export metadata missing or invalid');
+  }
+  return payload;
 }
 
 function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport | null {
@@ -336,6 +421,20 @@ async function ensureEthSignerWasmReady(): Promise<void> {
   return ethSignerWasmInitPromise;
 }
 
+async function ensureNearSignerWasmReady(): Promise<void> {
+  if (nearSignerWasmInitPromise) return nearSignerWasmInitPromise;
+  nearSignerWasmInitPromise = (async () => {
+    try {
+      await initNearSigner({ module_or_path: nearSignerWasmUrl });
+      init_near_signer_worker();
+    } catch (error: unknown) {
+      nearSignerWasmInitPromise = null;
+      throw error;
+    }
+  })();
+  return nearSignerWasmInitPromise;
+}
+
 async function deriveSecp256k1FromPrfSecondInWorker(args: {
   prfSecondB64u: string;
   nearAccountId: string;
@@ -362,6 +461,137 @@ async function deriveSecp256k1FromPrfSecondInWorker(args: {
   }
 }
 
+async function recoverNearEd25519KeypairInWorker(args: {
+  prfFirstB64u: string;
+  nearAccountId: string;
+  rpId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  artifactKind: 'near-ed25519-option-b-v1';
+  recoveryPublicKey: string;
+  webauthnAuthentication: WebAuthnAuthenticationCredential;
+}): Promise<{ publicKey: string; privateKey: string }> {
+  await ensureNearSignerWasmReady();
+  let recoveryClientShareB64u = '';
+  let recoveryClientShareBytes = new Uint8Array();
+  let recoveredSeedBytes = new Uint8Array();
+  let recoveryClientShare = 0n;
+  let clientCiphertext = 0n;
+  let serverCiphertext = 0n;
+  let recoveredSeedValue = 0n;
+  let recoveredSeedB64u = '';
+  let paillierKeyPair: Awaited<ReturnType<typeof generatePaillierKeyPair>> | null = null;
+  let recoveryKeypair:
+    | {
+        publicKey?: unknown;
+        privateKey?: unknown;
+      }
+    | null = null;
+  try {
+    const recoveryClientShareResult = threshold_ed25519_recovery_client_share({
+      prfFirstB64u: args.prfFirstB64u,
+      nearAccountId: args.nearAccountId,
+      rpId: args.rpId,
+      keyVersion: args.keyVersion,
+    }) as { recoveryClientShareB64u?: unknown } | null;
+    recoveryClientShareB64u = String(recoveryClientShareResult?.recoveryClientShareB64u || '').trim();
+    if (!recoveryClientShareB64u) {
+      throw new Error('NEAR recovery client share derivation returned an empty share');
+    }
+    recoveryClientShareBytes = base64UrlDecode(recoveryClientShareB64u);
+    recoveryClientShare = decodeU256Le(recoveryClientShareBytes);
+
+    paillierKeyPair = await generatePaillierKeyPair({ bits: 2048 });
+    const paillierPublicKeyB64u = serializePaillierPublicKeyB64u(paillierKeyPair.publicKey);
+    clientCiphertext = paillierEncrypt(paillierKeyPair.publicKey, recoveryClientShare);
+    const clientCiphertextB64u = serializePaillierCiphertextB64u(
+      paillierKeyPair.publicKey,
+      clientCiphertext,
+    );
+
+    const exportInit = await thresholdEd25519ExportInit(args.relayerUrl, {
+      relayerKeyId: args.relayerKeyId,
+      keyVersion: args.keyVersion,
+      webauthnAuthentication: args.webauthnAuthentication,
+    });
+    if (!exportInit.ok) {
+      throw new Error(
+        exportInit.error || exportInit.message || 'threshold-ed25519 export init failed',
+      );
+    }
+    if (exportInit.artifactKind !== args.artifactKind) {
+      throw new Error('threshold-ed25519 export init returned an unexpected artifactKind');
+    }
+    if (String(exportInit.recoveryPublicKey || '').trim() !== args.recoveryPublicKey) {
+      throw new Error('threshold-ed25519 export init returned an unexpected recoveryPublicKey');
+    }
+    const exportId = String(exportInit.exportId || '').trim();
+    if (!exportId) {
+      throw new Error('threshold-ed25519 export init returned an empty exportId');
+    }
+
+    const exportCombine = await thresholdEd25519ExportCombine(args.relayerUrl, {
+      exportId,
+      relayerKeyId: args.relayerKeyId,
+      keyVersion: args.keyVersion,
+      artifactKind: args.artifactKind,
+      paillierPublicKeyB64u,
+      clientCiphertextB64u,
+    });
+    if (!exportCombine.ok) {
+      throw new Error(
+        exportCombine.error || exportCombine.message || 'threshold-ed25519 export combine failed',
+      );
+    }
+    if (String(exportCombine.recoveryPublicKey || '').trim() !== args.recoveryPublicKey) {
+      throw new Error('threshold-ed25519 export combine returned an unexpected recoveryPublicKey');
+    }
+    const serverCiphertextB64u = String(exportCombine.serverCiphertextB64u || '').trim();
+    if (!serverCiphertextB64u) {
+      throw new Error('threshold-ed25519 export combine returned an empty ciphertext');
+    }
+
+    serverCiphertext = parsePaillierCiphertextB64u(
+      paillierKeyPair.publicKey,
+      serverCiphertextB64u,
+    );
+    recoveredSeedValue =
+      paillierDecrypt(paillierKeyPair, serverCiphertext) % RECOVERY_SHARE_DOMAIN_MODULUS;
+    recoveredSeedBytes = encodeU256Le(recoveredSeedValue);
+    recoveredSeedB64u = base64UrlEncode(recoveredSeedBytes);
+    recoveryKeypair = threshold_ed25519_recovery_keypair_from_seed({
+      seedB64u: recoveredSeedB64u,
+    }) as { publicKey?: unknown; privateKey?: unknown } | null;
+    const publicKey = String(recoveryKeypair?.publicKey || '').trim();
+    const privateKey = String(recoveryKeypair?.privateKey || '').trim();
+    if (!publicKey || !privateKey) {
+      throw new Error('NEAR recovery keypair derivation returned an incomplete keypair');
+    }
+    if (publicKey !== args.recoveryPublicKey) {
+      throw new Error('Recovered NEAR recovery keypair does not match the expected public key');
+    }
+    return { publicKey, privateKey };
+  } finally {
+    overwriteBytes(recoveryClientShareBytes);
+    overwriteBytes(recoveredSeedBytes);
+    if (recoveryKeypair && typeof recoveryKeypair === 'object') {
+      recoveryKeypair.privateKey = '';
+    }
+    destroyPaillierKeyPair(paillierKeyPair);
+    recoveryClientShareB64u = '';
+    recoveredSeedB64u = '';
+    recoveryClientShare = 0n;
+    clientCiphertext = 0n;
+    serverCiphertext = 0n;
+    recoveredSeedValue = 0n;
+    recoveryKeypair = null;
+    paillierKeyPair = null;
+    recoveryClientShareBytes = new Uint8Array();
+    recoveredSeedBytes = new Uint8Array();
+  }
+}
+
 async function runExportPrivateKeysWithUi(
   payload: ExportPrivateKeysWithUiWorkerPayload,
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
@@ -371,26 +601,47 @@ async function runExportPrivateKeysWithUi(
   const exportChain = coerceExportChain(payload.chain);
   if (!exportChain) throw new Error('Invalid export chain');
   const exportScheme = schemeForExportChain(exportChain);
+  const nearRecoveryPayload =
+    exportScheme === 'ed25519' ? requireNearRecoveryExportPayload(payload) : null;
+  const exportOperation = exportScheme === 'ed25519' ? 'Export Recovery Key' : 'Export Private Key';
 
-  const publicKeyHint = String(payload.publicKeyHint || '').trim();
+  const recoveryPublicKey = nearRecoveryPayload?.recoveryPublicKey || '';
   const requestId = toSessionId('export-keys');
   const intentDigest = `export-keys:${nearAccountId}:${payload.deviceNumber}`;
 
+  let prfFirstB64u = '';
   let prfSecondB64u = '';
   const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
   try {
+    const exportInitChallengeB64u =
+      exportScheme === 'ed25519'
+        ? await computeThresholdEd25519RecoveryExportInitChallengeB64u({
+            nearAccountId,
+            rpId: nearRecoveryPayload!.rpId,
+            relayerKeyId: nearRecoveryPayload!.relayerKeyId,
+            keyVersion: nearRecoveryPayload!.keyVersion,
+            recoveryPublicKey,
+          })
+        : '';
     const decision = await awaitUserConfirmationV2({
       requestId,
       type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
       summary: {
-        operation: 'Export Private Key',
+        operation: exportOperation,
         accountId: nearAccountId,
-        publicKey: publicKeyHint || '(derived from passkey)',
-        warning: 'Authenticate with your passkey to prepare export keys.',
+        publicKey:
+          exportScheme === 'ed25519'
+            ? recoveryPublicKey || '(threshold recovery key)'
+            : '(derived from passkey)',
+        warning:
+          exportScheme === 'ed25519'
+            ? 'Authenticate with your passkey to reveal your NEAR recovery key.'
+            : 'Authenticate with your passkey to prepare export keys.',
       },
       payload: {
         nearAccountId,
-        publicKey: publicKeyHint,
+        publicKey: exportScheme === 'ed25519' ? recoveryPublicKey : '',
+        ...(exportInitChallengeB64u ? { challengeB64u: exportInitChallengeB64u } : {}),
       },
       intentDigest,
     } satisfies UserConfirmRequest);
@@ -409,14 +660,31 @@ async function runExportPrivateKeysWithUi(
       throw new Error('Missing WebAuthn credential for export request');
     }
 
+    if (exportScheme === 'ed25519') {
+      prfFirstB64u = requirePrfB64uFromCredential(credential, 'first');
+    }
     if (exportScheme === 'secp256k1') {
       prfSecondB64u = requirePrfB64uFromCredential(credential, 'second');
     }
 
     if (exportScheme === 'ed25519') {
-      throw new Error(
-        'NEAR Ed25519 export is disabled until threshold-backed export is implemented',
-      );
+      const derived = await recoverNearEd25519KeypairInWorker({
+        prfFirstB64u,
+        nearAccountId,
+        rpId: nearRecoveryPayload!.rpId,
+        relayerUrl: nearRecoveryPayload!.relayerUrl,
+        relayerKeyId: nearRecoveryPayload!.relayerKeyId,
+        keyVersion: nearRecoveryPayload!.keyVersion,
+        artifactKind: nearRecoveryPayload!.artifactKind,
+        recoveryPublicKey,
+        webauthnAuthentication: credential,
+      });
+      exportKeys.push({
+        scheme: 'ed25519',
+        label: 'NEAR recovery key',
+        publicKey: derived.publicKey,
+        privateKey: derived.privateKey,
+      });
     }
 
     if (exportScheme === 'secp256k1') {
@@ -442,16 +710,20 @@ async function runExportPrivateKeysWithUi(
       requestId: `${requestId}-show`,
       type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
-        operation: 'Export Private Key',
+        operation: exportOperation,
         accountId: nearAccountId,
         publicKey: first.publicKey,
-        warning: 'Anyone with your private key can fully control your account. Never share it.',
+        warning:
+          exportScheme === 'ed25519'
+            ? 'Anyone with your recovery key can fully control your account. Never share it.'
+            : 'Anyone with your private key can fully control your account. Never share it.',
       },
       payload: {
         nearAccountId,
         publicKey: first.publicKey,
         privateKey: first.privateKey,
         keys: exportKeys,
+        ...(exportScheme === 'ed25519' ? { guidance: NEAR_RECOVERY_EXPORT_GUIDANCE } : {}),
         variant: payload.variant,
         theme: payload.theme,
       },
@@ -486,6 +758,7 @@ async function runExportPrivateKeysWithUi(
     }
     throw error;
   } finally {
+    prfFirstB64u = '';
     prfSecondB64u = '';
     for (const key of exportKeys) {
       key.privateKey = '';

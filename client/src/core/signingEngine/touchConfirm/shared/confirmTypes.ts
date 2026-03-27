@@ -126,7 +126,7 @@ export interface RegistrationSummary {
   title?: string;
   body?: string;
 }
-export type ExportOperation = 'Export Private Key' | 'Decrypt Private Key';
+export type ExportOperation = 'Export Private Key' | 'Decrypt Private Key' | 'Export Recovery Key';
 export interface ExportSummary {
   operation: ExportOperation;
   accountId: string;
@@ -206,6 +206,7 @@ export interface RegisterAccountPayload {
 export interface DecryptPrivateKeyWithPrfPayload {
   nearAccountId: string;
   publicKey: string;
+  challengeB64u?: string;
 }
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
@@ -218,11 +219,18 @@ export interface ExportPrivateKeyDisplayEntry {
   address?: string;
 }
 
+export interface ExportGuidance {
+  title: string;
+  body?: string;
+  steps?: string[];
+}
+
 export interface ShowSecurePrivateKeyUiPayload {
   nearAccountId: string;
   publicKey?: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];
+  guidance?: ExportGuidance;
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 }

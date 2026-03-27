@@ -329,7 +329,7 @@ export interface RegistrationResult {
   success: boolean;
   error?: string;
   errorCode?: RegistrationErrorCode;
-  clientNearPublicKey?: string | null;
+  operationalPublicKey?: string | null;
   nearAccountId?: AccountId;
   transactionId?: string | null;
   thresholdEcdsaEthereumAddress?: string;
@@ -376,7 +376,7 @@ export interface LoginResult {
   success: boolean;
   error?: string;
   loggedInNearAccountId?: string;
-  clientNearPublicKey?: string | null;
+  operationalPublicKey?: string | null;
   nearAccountId?: AccountId;
   // Present when session.kind === 'jwt' and verification succeeded
   jwt?: string;
