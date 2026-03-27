@@ -90,12 +90,12 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 });
 
 test.describe('wallet iframe host canonical signer error mapping', () => {
-  test('legacy in-flight wording falls back to session_not_ready', async () => {
+  test('legacy in-flight wording maps to threshold_ecdsa_session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
       message: '[SigningEngine] threshold ECDSA signing already in progress for alice.testnet',
     });
-    expect(code).toBe('session_not_ready');
+    expect(code).toBe('threshold_ecdsa_session_not_ready');
   });
 
   test('maps deployment failure message to deployment_failed', async () => {
@@ -178,30 +178,46 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('nonce_conflict_retryable');
   });
 
-  test('maps threshold session auth errors to session_not_ready', async () => {
+  test('maps threshold session auth errors to threshold_ecdsa_session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
       message: 'relayer threshold session expired',
     });
-    expect(code).toBe('session_not_ready');
+    expect(code).toBe('threshold_ecdsa_session_not_ready');
   });
 
-  test('maps missing canonical session wording to session_not_ready', async () => {
+  test('maps missing canonical session wording to threshold_ecdsa_session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
       message:
         '[SigningEngine] missing canonical threshold ECDSA session for alice.testnet; reconnect threshold session via bootstrapEcdsaSession',
     });
-    expect(code).toBe('session_not_ready');
+    expect(code).toBe('threshold_ecdsa_session_not_ready');
   });
 
-  test('maps threshold signingSession not_found wording to session_not_ready', async () => {
+  test('maps threshold signingSession not_found wording to threshold_ecdsa_session_not_ready', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
       message:
         '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
     });
-    expect(code).toBe('session_not_ready');
+    expect(code).toBe('threshold_ecdsa_session_not_ready');
+  });
+
+  test('maps near threshold session failures to threshold_ed25519_session_not_ready', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_AND_SEND_TXS',
+      message: 'Missing threshold wrapKeySalt for account: alice.testnet',
+    });
+    expect(code).toBe('threshold_ed25519_session_not_ready');
+  });
+
+  test('maps session kind mismatch wording to threshold_session_kind_mismatch', async () => {
+    const code = resolveWalletBoundaryErrorCode({
+      requestType: 'PM_SIGN_TEMPO',
+      message: '[multichain] threshold-ecdsa session kind mismatch; reconnect threshold session',
+    });
+    expect(code).toBe('threshold_session_kind_mismatch');
   });
 
   test('maps user-rejected signing wording to cancelled', async () => {
@@ -221,13 +237,13 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(code).toBe('cancelled');
   });
 
-  test('normalizes signer boundary session_not_ready message', async () => {
+  test('normalizes signer boundary threshold_ecdsa_session_not_ready message', async () => {
     const message = resolveWalletBoundaryErrorMessage({
       requestType: 'PM_SIGN_TEMPO',
-      code: 'session_not_ready',
+      code: 'threshold_ecdsa_session_not_ready',
       message: 'relayer threshold session expired',
     });
-    expect(message).toContain('Threshold signing session is not ready');
+    expect(message).toContain('Threshold ECDSA signing session is not ready');
     expect(message).toContain('Refresh the signing session');
   });
 
@@ -284,6 +300,6 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       rawCode: 'SOME_INTERNAL_RUNTIME_ERROR',
       message: 'unexpected runtime path',
     });
-    expect(code).toBe('session_not_ready');
+    expect(code).toBe('threshold_ecdsa_session_not_ready');
   });
 });

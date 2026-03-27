@@ -118,6 +118,10 @@ export type OrchestrationDependencyBundle = {
   signingSessionStateDeps: SigningSessionStateDeps;
   thresholdSessionActivationDeps: ThresholdSessionActivationDeps;
   nearKeyOpsDeps: NearKeyOpsDeps;
+  resolveCanonicalThresholdEcdsaSessionIdForChain: (
+    nearAccountId: AccountId | string,
+    chain: 'tempo' | 'evm',
+  ) => string | null;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConvenienceDeps: () => ManagerConvenienceDeps;
 };
@@ -127,6 +131,18 @@ export function createOrchestrationDependencyBundle(
 ): OrchestrationDependencyBundle {
   const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.network.chains);
   const activeSigningSessionIds = new Map<string, string>();
+  const resolveCanonicalThresholdEcdsaSessionIdForChain = (
+    nearAccountId: AccountId | string,
+    chain: 'tempo' | 'evm',
+  ): string | null => {
+    try {
+      const keyRef = args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain });
+      const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
+      return thresholdSessionId || null;
+    } catch {
+      return null;
+    }
+  };
   const resolveCanonicalSigningSessionIdForKind = ({
     nearAccountId,
     signerKind,
@@ -142,18 +158,10 @@ export function createOrchestrationDependencyBundle(
       } catch {}
       return null;
     }
-    const chains: Array<'tempo' | 'evm'> =
-      signerKind === 'threshold-ecdsa-tempo' ? ['tempo'] : ['evm'];
-    for (const chain of chains) {
-      try {
-        const keyRef = args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain });
-        const thresholdSessionId = String(keyRef.thresholdSessionId || '').trim();
-        if (thresholdSessionId) {
-          return thresholdSessionId;
-        }
-      } catch {}
-    }
-    return null;
+    return resolveCanonicalThresholdEcdsaSessionIdForChain(
+      nearAccountId,
+      signerKind === 'threshold-ecdsa-tempo' ? 'tempo' : 'evm',
+    );
   };
   const signingSessionStateDeps: SigningSessionStateDeps = {
     activeSigningSessionIds,
@@ -272,6 +280,7 @@ export function createOrchestrationDependencyBundle(
     nearKeyOpsDeps: {
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
+    resolveCanonicalThresholdEcdsaSessionIdForChain,
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,
     getManagerConvenienceDeps: (): ManagerConvenienceDeps => ({
       signTempo: args.signTempo,

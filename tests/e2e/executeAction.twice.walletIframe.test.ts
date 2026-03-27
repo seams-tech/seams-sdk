@@ -76,6 +76,16 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
           if (!login?.success) {
             return { ok: false as const, error: login?.error || 'login failed' };
           }
+          const walletSession = await tatchi.auth.getWalletSession(accountId);
+          const hasThresholdEcdsaState = !!String(
+            walletSession?.login?.thresholdEcdsaEthereumAddress || '',
+          ).trim();
+          if (!hasThresholdEcdsaState) {
+            return {
+              ok: false as const,
+              error: 'dual-state regression: login snapshot missing thresholdEcdsaEthereumAddress',
+            };
+          }
 
           const events: Array<{
             call: number;
@@ -126,6 +136,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             phases1: phasesFor(1),
             phases2: phasesFor(2),
             lastMessage2: events.filter((e) => e.call === 2).slice(-1)[0]?.message || null,
+            hasThresholdEcdsaState,
           };
         } catch (e: any) {
           return { ok: false as const, error: e?.message || String(e) };
@@ -148,6 +159,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
       return;
     }
 
+    expect(result.hasThresholdEcdsaState).toBe(true);
     const terminalPhases = ['broadcasting', 'action-complete', 'action-error'];
     expect(result.phases1.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
     // Regression target: second call must not stall before terminal execution/signer outcome.

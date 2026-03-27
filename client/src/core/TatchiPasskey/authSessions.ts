@@ -189,6 +189,7 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   });
   return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
     nearAccountId,
+    chain,
     thresholdEcdsaKeyRef: keyRef,
     ...(typeof args.waitForPoolReady === 'boolean'
       ? { waitForPoolReady: args.waitForPoolReady }

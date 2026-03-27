@@ -1,9 +1,12 @@
 import type { WalletSession } from '@/core/types/tatchi';
 
-export function isWalletSessionReadyForUi(args: {
+export function isNearThresholdEd25519SessionReadyForUi(args: {
   session: Pick<WalletSession, 'login' | 'signingSession'>;
 }): boolean {
   const { session } = args;
   if (!session?.login?.isLoggedIn || !session?.login?.nearAccountId) return false;
-  return session?.signingSession?.status === 'active';
+  return (
+    session?.signingSession?.status === 'active' &&
+    String(session?.signingSession?.sessionId || '').trim().length > 0
+  );
 }

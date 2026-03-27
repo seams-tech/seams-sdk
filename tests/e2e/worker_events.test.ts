@@ -109,6 +109,16 @@ test.describe('Worker Communication Protocol', () => {
             throw new Error(`Login failed: ${loginResult.error}`);
           }
 
+          const walletSession = await tatchi.auth.getWalletSession(testAccountId);
+          const hasThresholdEcdsaState = !!String(
+            walletSession?.login?.thresholdEcdsaEthereumAddress || '',
+          ).trim();
+          if (!hasThresholdEcdsaState) {
+            throw new Error(
+              'dual-state regression: login snapshot missing thresholdEcdsaEthereumAddress',
+            );
+          }
+
           // Wait for registration to settle
           await new Promise((resolve) => setTimeout(resolve, 5000));
 
@@ -147,6 +157,7 @@ test.describe('Worker Communication Protocol', () => {
             registrationEvents,
             actionEvents,
             // Analysis
+            hasThresholdEcdsaState,
             totalEvents: actionEvents.length,
             phases: actionEvents.map((e) => e.phase),
             uniquePhases: [...new Set(actionEvents.map((e) => e.phase))],
@@ -271,6 +282,7 @@ test.describe('Worker Communication Protocol', () => {
     }
 
     expect(result.success).toBe(true);
+    expect(result.hasThresholdEcdsaState).toBe(true);
 
     // Verify progress events were captured
     expect(result.totalEvents).toBeGreaterThan(0);

@@ -3,6 +3,9 @@ import type { ParentToChildType } from '../shared/messages';
 export type CanonicalWalletSignerErrorCode =
   | 'commit_queue_overflow'
   | 'commit_queue_timeout'
+  | 'threshold_ed25519_session_not_ready'
+  | 'threshold_ecdsa_session_not_ready'
+  | 'threshold_session_kind_mismatch'
   | 'session_not_ready'
   | 'deployment_in_progress'
   | 'deployment_failed'
@@ -10,9 +13,14 @@ export type CanonicalWalletSignerErrorCode =
   | 'nonce_lane_blocked'
   | 'cancelled';
 
+export type WalletSignerBoundaryKind = 'threshold-ed25519' | 'threshold-ecdsa';
+
 const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'commit_queue_overflow',
   'commit_queue_timeout',
+  'threshold_ed25519_session_not_ready',
+  'threshold_ecdsa_session_not_ready',
+  'threshold_session_kind_mismatch',
   'session_not_ready',
   'deployment_in_progress',
   'deployment_failed',
@@ -36,10 +44,34 @@ const SIGNER_BOUNDARY_REQUEST_TYPES = new Set<ParentToChildType>([
   'PM_SIGN_NEP413',
 ]);
 
+const THRESHOLD_ECDSA_REQUEST_TYPES = new Set<ParentToChildType>([
+  'PM_SIGN_TEMPO',
+  'PM_REPORT_TEMPO_BROADCAST_ACCEPTED',
+  'PM_REPORT_TEMPO_BROADCAST_REJECTED',
+  'PM_REPORT_TEMPO_FINALIZED',
+  'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
+  'PM_RECONCILE_TEMPO_NONCE_LANE',
+]);
+
+const THRESHOLD_ED25519_REQUEST_TYPES = new Set<ParentToChildType>([
+  'PM_SIGN_TXS_WITH_ACTIONS',
+  'PM_SIGN_AND_SEND_TXS',
+  'PM_SEND_TRANSACTION',
+  'PM_EXECUTE_ACTION',
+  'PM_SIGN_DELEGATE_ACTION',
+  'PM_SIGN_NEP413',
+]);
+
 const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, string> = {
   commit_queue_overflow:
     'Threshold signing commit queue is full. Wait for pending requests and retry.',
   commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
+  threshold_ed25519_session_not_ready:
+    'Threshold Ed25519 signing session is not ready. Refresh the signing session and retry.',
+  threshold_ecdsa_session_not_ready:
+    'Threshold ECDSA signing session is not ready. Refresh the signing session and retry.',
+  threshold_session_kind_mismatch:
+    'Threshold signing session kind mismatch. Refresh the signing session and retry.',
   session_not_ready:
     'Threshold signing session is not ready. Refresh the signing session and retry.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',
@@ -96,7 +128,37 @@ function looksLikeUserCancellationMessage(message: string): boolean {
   );
 }
 
-function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerErrorCode | null {
+export function resolveWalletBoundarySignerKind(requestType: unknown): WalletSignerBoundaryKind | null {
+  if (!isWalletSignerBoundaryRequestType(requestType)) return null;
+  if (THRESHOLD_ECDSA_REQUEST_TYPES.has(requestType)) return 'threshold-ecdsa';
+  if (THRESHOLD_ED25519_REQUEST_TYPES.has(requestType)) return 'threshold-ed25519';
+  return null;
+}
+
+function defaultSessionNotReadyCanonicalCodeForRequestType(
+  requestType: unknown,
+): CanonicalWalletSignerErrorCode {
+  const signerKind = resolveWalletBoundarySignerKind(requestType);
+  if (signerKind === 'threshold-ecdsa') return 'threshold_ecdsa_session_not_ready';
+  if (signerKind === 'threshold-ed25519') return 'threshold_ed25519_session_not_ready';
+  return 'session_not_ready';
+}
+
+export function isCanonicalSignerSessionBoundaryCode(code: unknown): boolean {
+  const normalized = normalizeCodeToken(code);
+  return (
+    normalized === 'session_not_ready' ||
+    normalized === 'threshold_ed25519_session_not_ready' ||
+    normalized === 'threshold_ecdsa_session_not_ready' ||
+    normalized === 'threshold_session_kind_mismatch'
+  );
+}
+
+function inferCanonicalCodeFromRawCode(args: {
+  rawCode: string;
+  requestType?: unknown;
+}): CanonicalWalletSignerErrorCode | null {
+  const { rawCode, requestType } = args;
   if (!rawCode) return null;
 
   if (CANONICAL_SIGNER_CODES.has(rawCode as CanonicalWalletSignerErrorCode)) {
@@ -122,12 +184,19 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
   }
 
   if (
+    rawCode === 'threshold_session_kind_mismatch' ||
+    (rawCode.includes('session') && rawCode.includes('kind') && rawCode.includes('mismatch'))
+  ) {
+    return 'threshold_session_kind_mismatch';
+  }
+
+  if (
     rawCode === 'session_not_ready' ||
     (rawCode.includes('session') && rawCode.includes('not_ready')) ||
     (rawCode.includes('session') && rawCode.includes('expired')) ||
     (rawCode.includes('session') && rawCode.includes('invalid'))
   ) {
-    return 'session_not_ready';
+    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
   }
 
   if (
@@ -169,7 +238,11 @@ function inferCanonicalCodeFromRawCode(rawCode: string): CanonicalWalletSignerEr
   return null;
 }
 
-function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerErrorCode | null {
+function inferCanonicalCodeFromMessage(args: {
+  message: string;
+  requestType?: unknown;
+}): CanonicalWalletSignerErrorCode | null {
+  const { message, requestType } = args;
   if (!message) return null;
 
   if (looksLikeUserCancellationMessage(message)) {
@@ -216,7 +289,16 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
   }
 
   if (
+    message.includes('session kind mismatch') ||
+    (message.includes('session') && message.includes('kind') && message.includes('mismatch'))
+  ) {
+    return 'threshold_session_kind_mismatch';
+  }
+
+  if (
     message.includes('no cached threshold session token') ||
+    message.includes('missing threshold wrapkeysalt') ||
+    message.includes('missing threshold wrap key salt') ||
     message.includes('threshold-ecdsa session token unavailable') ||
     message.includes('threshold-ecdsa session record not available') ||
     message.includes('missing canonical threshold ecdsa session') ||
@@ -228,7 +310,7 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
     message.includes('/authorize http 401') ||
     message.includes('/authorize http 403')
   ) {
-    return 'session_not_ready';
+    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
   }
 
   if (
@@ -240,7 +322,7 @@ function inferCanonicalCodeFromMessage(message: string): CanonicalWalletSignerEr
       message.includes('invalid') ||
       message.includes('exhausted'))
   ) {
-    return 'session_not_ready';
+    return defaultSessionNotReadyCanonicalCodeForRequestType(requestType);
   }
 
   return null;
@@ -255,11 +337,17 @@ export function resolveCanonicalWalletSignerErrorCode(args: {
   rawCode?: unknown;
   message?: unknown;
 }): CanonicalWalletSignerErrorCode | null {
-  const fromCode = inferCanonicalCodeFromRawCode(normalizeCodeToken(args.rawCode));
+  const fromCode = inferCanonicalCodeFromRawCode({
+    rawCode: normalizeCodeToken(args.rawCode),
+    requestType: args.requestType,
+  });
   if (fromCode) return fromCode;
 
   if (!isWalletSignerBoundaryRequestType(args.requestType)) return null;
-  return inferCanonicalCodeFromMessage(normalizeMessage(args.message));
+  return inferCanonicalCodeFromMessage({
+    message: normalizeMessage(args.message),
+    requestType: args.requestType,
+  });
 }
 
 export function resolveWalletBoundaryErrorCode(args: {
@@ -273,7 +361,7 @@ export function resolveWalletBoundaryErrorCode(args: {
 
   if (isWalletSignerBoundaryRequestType(args.requestType)) {
     // Signer boundary contract: never leak non-canonical internal codes.
-    return 'session_not_ready';
+    return defaultSessionNotReadyCanonicalCodeForRequestType(args.requestType);
   }
 
   const rawCode = String(args.rawCode || '').trim();
@@ -299,7 +387,9 @@ export function resolveWalletBoundaryErrorMessage(args: {
   }
 
   if (isWalletSignerBoundaryRequestType(args.requestType)) {
-    return CANONICAL_SIGNER_ERROR_MESSAGES.session_not_ready;
+    return CANONICAL_SIGNER_ERROR_MESSAGES[
+      defaultSessionNotReadyCanonicalCodeForRequestType(args.requestType)
+    ];
   }
 
   const fallback = String(args.message || '').trim();

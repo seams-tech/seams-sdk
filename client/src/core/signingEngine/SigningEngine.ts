@@ -591,35 +591,39 @@ export class SigningEngine {
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {
     nearAccountId: AccountId | string;
+    chain?: 'tempo' | 'evm';
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<ThresholdEcdsaLoginPrefillResult> {
+    const chain: 'tempo' | 'evm' = args.chain === 'evm' ? 'evm' : 'tempo';
     return await scheduleThresholdEcdsaLoginPresignPrefillValue(
       {
         getWarmThresholdEcdsaSessionStatus: async (
           nearAccountId: AccountId | string,
           thresholdSessionId: string,
+          chain: 'tempo' | 'evm',
         ) => {
-          const tempoStatus = await getWarmSigningSessionStatusForKindValue(
-            this.orchestrationDeps.signingSessionStateDeps,
-            {
+          const canonicalSessionId =
+            this.orchestrationDeps.resolveCanonicalThresholdEcdsaSessionIdForChain(
               nearAccountId,
-              signerKind: 'threshold-ecdsa-tempo',
-            },
-          );
-          if (String(tempoStatus?.sessionId || '').trim() === thresholdSessionId) {
-            return tempoStatus;
+              chain,
+            );
+          if (
+            canonicalSessionId &&
+            canonicalSessionId !== String(thresholdSessionId || '').trim()
+          ) {
+            return {
+              sessionId: canonicalSessionId,
+              status: 'not_found',
+            };
           }
-          const evmStatus = await getWarmSigningSessionStatusForKindValue(
+          return await getWarmSigningSessionStatusForKindValue(
             this.orchestrationDeps.signingSessionStateDeps,
             {
               nearAccountId,
-              signerKind: 'threshold-ecdsa-evm',
+              signerKind: chain === 'tempo' ? 'threshold-ecdsa-tempo' : 'threshold-ecdsa-evm',
             },
           );
-          return String(evmStatus?.sessionId || '').trim() === thresholdSessionId
-            ? evmStatus
-            : tempoStatus || evmStatus;
         },
         dispensePrfFirstForThresholdSession: (payload) =>
           this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
@@ -628,7 +632,7 @@ export class SigningEngine {
         thresholdEcdsaPresignPoolPolicy:
           this.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
       },
-      args,
+      { ...args, chain },
     );
   }
 

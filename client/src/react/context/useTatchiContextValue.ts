@@ -11,7 +11,7 @@ import type { ThemeName } from '@/core/types/tatchi';
 import type { RecoveryCapability } from '@/core/TatchiPasskey';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useTatchiWithSdkFlow } from './useTatchiWithSdkFlow';
-import { isWalletSessionReadyForUi } from './walletSessionReadiness';
+import { isNearThresholdEd25519SessionReadyForUi } from './walletSessionReadiness';
 
 export function useTatchiContextValue(args: {
   tatchi: TatchiContextType['tatchi'];
@@ -88,7 +88,7 @@ export function useTatchiContextValue(args: {
           ) {
             const session = await tatchi.auth.getWalletSession(nearAccountId);
             const { login } = session;
-            const isLoggedIn = isWalletSessionReadyForUi({ session });
+            const isLoggedIn = isNearThresholdEd25519SessionReadyForUi({ session });
             setLoginState((prevState) => ({
               ...prevState,
               isLoggedIn,

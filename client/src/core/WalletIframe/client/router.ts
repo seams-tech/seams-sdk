@@ -186,6 +186,12 @@ const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
   commit_queue_overflow:
     'Threshold signing commit queue is full. Wait for pending requests and retry.',
   commit_queue_timeout: 'Threshold signing commit request timed out in queue. Retry the request.',
+  threshold_ed25519_session_not_ready:
+    'Threshold Ed25519 signing session is not ready. Refresh the signing session and retry.',
+  threshold_ecdsa_session_not_ready:
+    'Threshold ECDSA signing session is not ready. Refresh the signing session and retry.',
+  threshold_session_kind_mismatch:
+    'Threshold signing session kind mismatch. Refresh the signing session and retry.',
   session_not_ready:
     'Threshold signing session is not ready. Refresh the signing session and retry.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',

@@ -35,6 +35,8 @@ import {
 } from './messaging';
 import {
   isWalletSignerBoundaryRequestType,
+  isCanonicalSignerSessionBoundaryCode,
+  resolveWalletBoundarySignerKind,
   resolveWalletBoundaryErrorCode,
   resolveWalletBoundaryErrorMessage,
 } from './canonicalSignerErrorCode';
@@ -262,10 +264,11 @@ export function initWalletIFrame(): void {
         code,
         message,
       });
-      if (code === 'session_not_ready') {
+      if (isCanonicalSignerSessionBoundaryCode(code)) {
         try {
-          console.error('[WalletIframeHost] signer boundary normalized to session_not_ready', {
+          console.error('[WalletIframeHost] signer boundary normalized to session failure', {
             requestType: req.type,
+            normalizedCode: code,
             rawCode: String(codeRaw || ''),
             rawMessage: String(message || ''),
           });
@@ -278,10 +281,22 @@ export function initWalletIFrame(): void {
         const isSignerBoundary = isWalletSignerBoundaryRequestType(req.type);
         const rawCodeText = String(codeRaw || '').trim();
         const rawMessageText = String(message || '').trim();
+        const signerKind = isSignerBoundary ? resolveWalletBoundarySignerKind(req.type) : null;
+        const sessionFailureDetails = isCanonicalSignerSessionBoundaryCode(code)
+          ? {
+              sessionFailureCode: String(code || '').trim(),
+              sessionFailureKind:
+                String(code || '').trim() === 'threshold_session_kind_mismatch'
+                  ? ('kind_mismatch' as const)
+                  : ('not_ready' as const),
+              ...(signerKind ? { signerKind } : {}),
+            }
+          : null;
         if (!isSignerBoundary) return detailsRaw;
         if (detailsRaw && typeof detailsRaw === 'object' && !Array.isArray(detailsRaw)) {
           return {
             ...(detailsRaw as Record<string, unknown>),
+            ...(sessionFailureDetails || {}),
             ...(rawCodeText ? { rawCode: rawCodeText } : {}),
             ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
           };
@@ -289,12 +304,14 @@ export function initWalletIFrame(): void {
         if (detailsRaw !== undefined) {
           return {
             details: detailsRaw,
+            ...(sessionFailureDetails || {}),
             ...(rawCodeText ? { rawCode: rawCodeText } : {}),
             ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
           };
         }
         if (!rawCodeText && !rawMessageText) return undefined;
         return {
+          ...(sessionFailureDetails || {}),
           ...(rawCodeText ? { rawCode: rawCodeText } : {}),
           ...(rawMessageText ? { rawMessage: rawMessageText } : {}),
         };

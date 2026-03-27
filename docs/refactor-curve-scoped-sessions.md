@@ -262,71 +262,14 @@ If any helper with these names remains, it should be a thin compatibility shim o
 - The relevant unit and e2e regressions pass.
 - The codebase no longer contains legacy generic helper names for active signing-session management.
 
-## TODO Checklist
+## Remaining High-Impact TODO
 
-### Phase 1: Session State Core
-
-- [x] Replace `activeSigningSessionIds` with signer-kind-scoped session keys.
-- [x] Add `ActiveSigningSessionKind` type.
-- [x] Add `serializeActiveSigningSessionKey(...)`.
-- [ ] Add `parseActiveSigningSessionKey(...)` if needed for debugging/tests.
-- [x] Replace `getOrCreateActiveSigningSessionId` with `getOrCreateActiveSigningSessionIdForKind`.
-- [x] Replace `setActiveSigningSessionId` with `setActiveSigningSessionIdForKind`.
-- [x] Replace `clearActiveSigningSessionId` with `clearActiveSigningSessionIdForKind`.
-- [x] Replace `clearAllActiveSigningSessionIds` with explicit scoped clear helpers.
-- [x] Replace `getWarmSigningSessionStatus` with `getWarmSigningSessionStatusForKind`.
-
-### Phase 2: Dependency Wiring
-
-- [x] Update `orchestrationDependencyFactory.ts` to expose Ed25519-scoped helpers.
-- [x] Update `orchestrationDependencyFactory.ts` to expose ECDSA-scoped helpers.
-- [x] Add explicit `resolveCanonicalThresholdEd25519SessionId(...)`.
-- [ ] Add explicit `resolveCanonicalThresholdEcdsaSessionIdForChain(...)`.
-- [x] Remove mixed fallback logic from dependency wiring.
-
-### Phase 3: NEAR Threshold Ed25519 Migration
-
-- [x] Update `nearSigning.ts` to use only Ed25519-scoped session helpers.
-- [x] Update `transactionsFlow.ts` to use only Ed25519-scoped session ids.
-- [x] Update `delegateFlow.ts` to use only Ed25519-scoped session ids.
-- [x] Update `nep413Flow.ts` to use only Ed25519-scoped session ids.
-- [ ] Update `thresholdAuthMode.ts` to read Ed25519-scoped readiness only.
-- [x] Remove any generic active-session fallback from NEAR signing.
-
-### Phase 4: Threshold ECDSA Migration
-
-- [x] Update `thresholdSessionActivation.ts` to write only ECDSA-scoped active session ids.
-- [x] Update `login.ts` warm-up flow to keep Ed25519 and ECDSA active session ownership separate.
-- [x] Update `thresholdEcdsaLoginPrefill.ts` to read only ECDSA-scoped warm session state.
-- [x] Update wallet-origin ECDSA orchestration to use ECDSA-scoped session helpers only.
-- [x] Verify one-prompt Ed25519-to-ECDSA bootstrap reuse does not mutate Ed25519 active-session state incorrectly.
-
-### Phase 5: UI Readiness Cleanup
-
-- [ ] Audit `walletSessionReadiness.ts` semantics.
-- [ ] Rename UI readiness helpers if they are Ed25519-specific.
-- [ ] Ensure `useWalletIframeLifecycle.ts` does not conflate Ed25519 and ECDSA readiness.
-- [ ] Ensure `useLoginStateRefresher.ts` does not conflate Ed25519 and ECDSA readiness.
-- [ ] Ensure `useTatchiContextValue.ts` does not derive generic logged-in state from the wrong signer family.
-
-### Phase 6: Error Surface
-
-- [ ] Add signer-kind-specific raw detail fields for session failures.
-- [ ] Add `threshold_session_kind_mismatch` handling if needed.
-- [ ] Keep public boundary messages concise while preserving raw signer-kind detail in `details`.
-
-### Phase 7: Tests
-
-- [x] Add unit tests for Ed25519/ECDSA session-key isolation.
-- [x] Add unit tests for scoped clear semantics.
-- [x] Add unit tests for scoped warm-session readiness lookup.
-- [x] Keep the NEAR signing regression where Ed25519 canonical session beats conflicting other-kind state.
-- [x] Add login warm-up regression covering Ed25519 + ECDSA coexistence.
-- [ ] Add/keep e2e coverage for immediate NEAR sign after login on a multichain-capable account.
-
-### Phase 8: Cleanup
-
-- [x] Remove the legacy generic helper names entirely.
-- [ ] Remove any dead comments describing a shared active signing-session slot.
-- [x] Sweep docs/tests for stale references to generic active signing-session state.
-- [x] Re-run focused typecheck and session/signing regression suites.
+- [x] Harden UI readiness boundaries so Ed25519 NEAR readiness cannot be inferred from ECDSA readiness.
+  - Scope: `walletSessionReadiness.ts`, `useWalletIframeLifecycle.ts`, `useLoginStateRefresher.ts`, `useTatchiContextValue.ts`
+- [x] Add signer-kind-specific error details for session failures, with explicit Ed25519 vs ECDSA failure semantics.
+  - Scope: `canonicalSignerErrorCode.ts`, wallet iframe host/client boundary normalization
+- [x] Add or confirm e2e regression for login followed by immediate NEAR sign on accounts with both Ed25519 and ECDSA state.
+  - Scope: `tests/e2e/executeAction.twice.walletIframe.test.ts` and `tests/e2e/worker_events.test.ts` (or equivalent)
+- [x] Add `resolveCanonicalThresholdEcdsaSessionIdForChain(...)` to remove remaining ECDSA session selection ambiguity.
+  - Scope: `orchestrationDependencyFactory.ts` and ECDSA orchestration consumers
+- [x] Remove remaining dead shared-slot comments/assumptions that can reintroduce cross-curve session coupling.

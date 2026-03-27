@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
+import { isNearThresholdEd25519SessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import type { WalletSession } from '@/core/types/tatchi';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -24,13 +24,13 @@ function makeSession(overrides?: Partial<WalletSession>): WalletSession {
 test.describe('wallet session readiness gate', () => {
   test('requires an active signing session', () => {
     expect(
-      isWalletSessionReadyForUi({
+      isNearThresholdEd25519SessionReadyForUi({
         session: makeSession({ signingSession: null }),
       }),
     ).toBe(false);
 
     expect(
-      isWalletSessionReadyForUi({
+      isNearThresholdEd25519SessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'expired' },
         }),
@@ -38,7 +38,7 @@ test.describe('wallet session readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isWalletSessionReadyForUi({
+      isNearThresholdEd25519SessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'active' },
         }),
@@ -48,7 +48,7 @@ test.describe('wallet session readiness gate', () => {
 
   test('requires base logged-in snapshot regardless of signing-session status', () => {
     expect(
-      isWalletSessionReadyForUi({
+      isNearThresholdEd25519SessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: false,
@@ -61,7 +61,7 @@ test.describe('wallet session readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isWalletSessionReadyForUi({
+      isNearThresholdEd25519SessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: true,
