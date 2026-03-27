@@ -1,0 +1,42 @@
+{
+  "report_version": "prime_order_cpu_executor_benchmark_v0",
+  "fixture_name": "wraparound-seed",
+  "artifact_bytes": 138256,
+  "total_steps": 180,
+  "curve_cost_units": 62748,
+  "evaluator_ops": {
+    "recoded_scalar_digits": 1248,
+    "precomputed_window_bits_loaded": 16576,
+    "bucket_accumulations": 3296,
+    "bucket_reductions": 3980,
+    "accumulator_curve_additions": 712,
+    "dependency_merges": 448,
+    "point_normalizations": 184
+  },
+  "compile_duration_ns": 40424541,
+  "sample_iterations": 20,
+  "sample_count": 8,
+  "execution_latency_ns": {
+    "min": 1860104.15,
+    "median": 1877031.25,
+    "mean": 1934919.275,
+    "p95": 2289520.85,
+    "max": 2289520.85
+  },
+  "throughput_execs_per_sec": {
+    "min": 436.77261117757456,
+    "median": 532.7563364635223,
+    "mean": 519.053908454732,
+    "p95": 537.6043056513798,
+    "max": 537.6043056513798
+  },
+  "latency_ns_per_curve_cost_unit": {
+    "min": 29.644038853828008,
+    "median": 29.91380203353095,
+    "mean": 30.836349764135903,
+    "p95": 36.487550997641364,
+    "max": 36.487550997641364
+  },
+  "output_checksum_hex": "b075ca5b7bd494fe",
+  "final_point_compressed_hex": "21fb5139b5a491423a70a42ff2725b5991cfb110b8ee529b6c532a52b24bee36"
+}

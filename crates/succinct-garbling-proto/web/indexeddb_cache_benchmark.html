@@ -1,0 +1,2185 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Succinct Cache Benchmark</title>
+    <style>
+      :root {
+        --bg: #f5f1e8;
+        --panel: #fffaf0;
+        --ink: #1d1a16;
+        --muted: #6d6359;
+        --accent: #8a4b08;
+        --line: #dccdb7;
+      }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(138, 75, 8, 0.12), transparent 24rem),
+          linear-gradient(180deg, #f7f3eb, var(--bg));
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 32px 20px 64px;
+      }
+
+      h1 {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 28px;
+        margin: 0 0 8px;
+      }
+
+      p,
+      li,
+      button,
+      td,
+      th,
+      code,
+      pre {
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 20px;
+        box-shadow: 0 14px 40px rgba(29, 26, 22, 0.08);
+        margin-top: 18px;
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: end;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      input {
+        width: 360px;
+        max-width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      button {
+        cursor: pointer;
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 18px;
+        color: #fff;
+        background: linear-gradient(135deg, #8a4b08, #b66510);
+      }
+
+      button[disabled] {
+        opacity: 0.6;
+        cursor: progress;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      pre {
+        overflow: auto;
+        background: #201a15;
+        color: #f6efe7;
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      @media (max-width: 720px) {
+        th:nth-child(5),
+        td:nth-child(5),
+        th:nth-child(6),
+        td:nth-child(6),
+        th:nth-child(7),
+        td:nth-child(7) {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>IndexedDB Cache Benchmark</h1>
+      <p class="muted">
+        Benchmarks the real browser cache surface for the succinct-garbling
+        research artifacts. This page writes the generated artifact binaries into
+        <code>IndexedDB</code>, then measures write/read latency per target plus
+        structured decode and execution-trace build latency for the prime-order artifact.
+      </p>
+
+      <section class="panel">
+        <div class="controls">
+          <label class="field">
+            <span>Bundle JSON</span>
+            <input id="bundle-path" value="generated/bundle.json" />
+          </label>
+          <button id="run-button">Run Benchmark</button>
+        </div>
+        <p id="status" class="muted">Idle.</p>
+      </section>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Bytes</th>
+              <th>Write mean</th>
+              <th>Read mean</th>
+              <th>Local ratio</th>
+              <th>10 Mbps</th>
+            </tr>
+          </thead>
+          <tbody id="results-body">
+            <tr>
+              <td colspan="6" class="muted">No benchmark run yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Execution target</th>
+              <th>Decode mean</th>
+              <th>Trace mean</th>
+              <th>Curve cost</th>
+              <th>Stages</th>
+              <th>Records</th>
+              <th>Checksum</th>
+            </tr>
+          </thead>
+          <tbody id="execution-body">
+            <tr>
+              <td colspan="7" class="muted">No execution benchmark run yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Runtime</th>
+              <th>Exec mean</th>
+              <th>ns / unit</th>
+              <th>Steps</th>
+              <th>Curve cost</th>
+              <th>Checksum</th>
+            </tr>
+          </thead>
+          <tbody id="browser-executor-body">
+            <tr>
+              <td colspan="6" class="muted">No browser CPU executor benchmark run yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Runtime</th>
+              <th>Total mean</th>
+              <th>Input mean</th>
+              <th>Schedule mean</th>
+              <th>Round mean</th>
+              <th>Output mean</th>
+              <th>ns / unit</th>
+              <th>Match</th>
+            </tr>
+          </thead>
+          <tbody id="browser-ddh-body">
+            <tr>
+              <td colspan="8" class="muted">No browser DDH hidden-eval benchmark run yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Runtime</th>
+              <th>Setup</th>
+              <th>Recode mean</th>
+              <th>Window mean</th>
+              <th>Reduce mean</th>
+              <th>Merge/Norm mean</th>
+              <th>Total mean</th>
+              <th>ns / proxy unit</th>
+              <th>Steps</th>
+              <th>Checksum</th>
+            </tr>
+          </thead>
+          <tbody id="webgpu-body">
+            <tr>
+              <td colspan="10" class="muted">No browser WebGPU benchmark run yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <strong>JSON report</strong>
+        <pre id="json-output">No report yet.</pre>
+      </section>
+    </main>
+
+    <script>
+      const runButton = document.getElementById("run-button");
+      const bundlePathInput = document.getElementById("bundle-path");
+      const statusEl = document.getElementById("status");
+      const resultsBody = document.getElementById("results-body");
+      const executionBody = document.getElementById("execution-body");
+      const browserExecutorBody = document.getElementById("browser-executor-body");
+      const browserDdhBody = document.getElementById("browser-ddh-body");
+      const webgpuBody = document.getElementById("webgpu-body");
+      const jsonOutput = document.getElementById("json-output");
+      const DECODE_ITERATIONS_PER_SAMPLE = 200;
+      const TRACE_ITERATIONS_PER_SAMPLE = 200;
+      const WASM_EXECUTOR_WARMUP = 1;
+      const WASM_EXECUTOR_ITERATIONS = 10;
+      const WASM_EXECUTOR_SAMPLES = 6;
+      const WASM_DDH_WARMUP = 0;
+      const WASM_DDH_ITERATIONS = 1;
+      const WASM_DDH_SAMPLES = 3;
+      const WEBGPU_DISPATCH_REPEATS = 8;
+      const WEBGPU_SAMPLE_COUNT = 6;
+      const WEBGPU_WORKGROUP_SIZE = 64;
+      const WEBGPU_PROXY_ROUNDS_PER_STEP = 32;
+
+      runButton.addEventListener("click", () => {
+        void runBenchmark();
+      });
+
+      async function runBenchmark() {
+        runButton.disabled = true;
+        statusEl.textContent = "Loading bundle and preparing IndexedDB benchmark...";
+
+        try {
+          const bundleUrl = bundlePathInput.value.trim();
+          const bundle = await loadJson(bundleUrl);
+          const targets = await Promise.all(
+            bundle.targets.map(async (target) => ({
+              ...target,
+              bytesData: await fetchBinary(new URL(target.bytes_path, new URL(bundleUrl, window.location.href))),
+              manifestData: target.manifest_path
+                ? await loadJson(new URL(target.manifest_path, new URL(bundleUrl, window.location.href)))
+                : null,
+            })),
+          );
+
+          const dbName = `succinct-garbling-proto-cache-benchmark-${Date.now()}`;
+          const db = await openDatabase(dbName);
+
+          try {
+            statusEl.textContent = "Running warmups and timed write/read samples...";
+            const targetReports = [];
+            for (const target of targets) {
+              const report = await benchmarkTarget(db, bundle, target);
+              targetReports.push(report);
+            }
+
+            statusEl.textContent = "Running structured execution benchmark on cached artifact bytes...";
+            const executionReport = await benchmarkStructuredExecution(db, bundle, targets);
+
+            statusEl.textContent = "Running browser CPU executor benchmark...";
+            const browserCpuExecutorReport = await benchmarkBrowserCpuExecutor(bundleUrl);
+
+            statusEl.textContent = "Running browser DDH hidden-eval benchmark...";
+            const browserDdhHiddenEvalReport = await benchmarkBrowserDdhHiddenEval(bundleUrl);
+
+            statusEl.textContent = "Running browser WebGPU probe...";
+            const browserWebGpuProbe = await benchmarkBrowserWebGpu(targets, executionReport);
+
+            const finalReport = {
+              report_version: "browser_indexeddb_cache_benchmark_v0",
+              bundle_version: bundle.bundle_version,
+              warmup_samples: bundle.warmup_samples,
+              timed_samples: bundle.timed_samples,
+              decode_iterations_per_sample: DECODE_ITERATIONS_PER_SAMPLE,
+              trace_iterations_per_sample: TRACE_ITERATIONS_PER_SAMPLE,
+              timestamp_iso: new Date().toISOString(),
+              user_agent: navigator.userAgent,
+              targets: targetReports,
+              structured_execution: executionReport,
+              browser_cpu_executor: browserCpuExecutorReport,
+              browser_ddh_hidden_eval: browserDdhHiddenEvalReport,
+              browser_webgpu_probe: browserWebGpuProbe,
+            };
+
+            renderTable(bundle, finalReport);
+            renderExecutionTable(finalReport.structured_execution);
+            renderBrowserExecutorTable(finalReport.browser_cpu_executor);
+            renderBrowserDdhTable(finalReport.browser_ddh_hidden_eval);
+            renderWebGpuTable(finalReport.browser_webgpu_probe);
+            jsonOutput.textContent = JSON.stringify(finalReport, null, 2);
+            statusEl.textContent = "Benchmark complete.";
+          } finally {
+            db.close();
+            indexedDB.deleteDatabase(dbName);
+          }
+        } catch (error) {
+          statusEl.textContent = `Benchmark failed: ${error instanceof Error ? error.message : String(error)}`;
+          throw error;
+        } finally {
+          runButton.disabled = false;
+        }
+      }
+
+      async function benchmarkTarget(db, bundle, target) {
+        const storeName = "artifact_bytes";
+        const key = target.label;
+        const payload = target.bytesData;
+
+        for (let idx = 0; idx < bundle.warmup_samples; idx += 1) {
+          await putValue(db, storeName, key, payload);
+          await getValue(db, storeName, key);
+        }
+
+        const writeSamplesNs = [];
+        const readSamplesNs = [];
+        for (let idx = 0; idx < bundle.timed_samples; idx += 1) {
+          let start = performance.now();
+          await putValue(db, storeName, key, payload);
+          writeSamplesNs.push(Math.round((performance.now() - start) * 1_000_000));
+
+          start = performance.now();
+          await getValue(db, storeName, key);
+          readSamplesNs.push(Math.round((performance.now() - start) * 1_000_000));
+        }
+
+        const localBaseline = bundle.local_file_io_report.targets.find((entry) => entry.label === target.label);
+
+        return {
+          label: target.label,
+          kind: target.kind,
+          backend_family: target.backend_family ?? null,
+          bytes: target.bytes,
+          bytes_sha256_hex: target.bytes_sha256_hex,
+          manifest_bytes: target.manifest_bytes,
+          local_ratio_vs_cached_gc: Number((target.bytes / bundle.cached_gc_baseline_bytes).toFixed(3)),
+          estimated_download_ms: estimateDownloads(target.bytes, bundle.bandwidths_mbps),
+          browser_indexeddb_write_ns: stats(writeSamplesNs),
+          browser_indexeddb_read_ns: stats(readSamplesNs),
+          local_file_io_reference: localBaseline ?? null,
+        };
+      }
+
+      function renderTable(bundle, report) {
+        resultsBody.innerHTML = "";
+        for (const target of report.targets) {
+          const row = document.createElement("tr");
+          const download10 = target.estimated_download_ms.find((entry) => entry.bandwidth_mbps === 10);
+          row.innerHTML = `
+            <td><code>${target.label}</code></td>
+            <td>${formatBytes(target.bytes)}</td>
+            <td>${formatNs(target.browser_indexeddb_write_ns.mean_ns)}</td>
+            <td>${formatNs(target.browser_indexeddb_read_ns.mean_ns)}</td>
+            <td>${target.local_ratio_vs_cached_gc.toFixed(3)}x</td>
+            <td>${download10 ? `${download10.estimated_ms}ms` : "n/a"}</td>
+          `;
+          resultsBody.appendChild(row);
+        }
+      }
+
+      function renderExecutionTable(report) {
+        executionBody.innerHTML = "";
+        if (!report) {
+          executionBody.innerHTML = `<tr><td colspan="7" class="muted">No structured execution benchmark available.</td></tr>`;
+          return;
+        }
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><code>${report.label}</code></td>
+          <td>${formatNs(report.decode_per_iteration_ns.mean_ns)}</td>
+          <td>${formatNs(report.trace_per_iteration_ns.mean_ns)}</td>
+          <td>${formatInteger(report.trace_summary.estimated_curve_cost_units)}</td>
+          <td>${report.trace_summary.stage_count}</td>
+          <td>${report.decode_summary.total_records}</td>
+          <td><code>${report.trace_summary.checksum_hex}</code></td>
+        `;
+        executionBody.appendChild(row);
+      }
+
+      function renderBrowserExecutorTable(report) {
+        browserExecutorBody.innerHTML = "";
+        if (!report || !report.available) {
+          const message = report?.error
+            ? `Browser CPU executor unavailable: ${report.error}`
+            : "No browser CPU executor benchmark available.";
+          browserExecutorBody.innerHTML = `<tr><td colspan="6" class="muted">${message}</td></tr>`;
+          return;
+        }
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><code>wasm_browser_cpu</code></td>
+          <td>${formatNs(report.execution_latency_ns.mean)}</td>
+          <td>${report.latency_ns_per_curve_cost_unit.mean.toFixed(3)}</td>
+          <td>${report.total_steps}</td>
+          <td>${formatInteger(report.curve_cost_units)}</td>
+          <td><code>${report.output_checksum_hex}</code></td>
+        `;
+        browserExecutorBody.appendChild(row);
+      }
+
+      function renderBrowserDdhTable(report) {
+        browserDdhBody.innerHTML = "";
+        if (!report || !report.available) {
+          const message = report?.error
+            ? `Browser DDH hidden eval unavailable: ${report.error}`
+            : "No browser DDH hidden-eval benchmark available.";
+          const probeSummary = report?.probe_results?.length
+            ? `<br /><span class="muted">probe: ${escapeHtml(report.probe_results.map((entry) => entry.ok ? `${entry.stage}=ok` : `${entry.stage}=fail`).join(", "))}</span>`
+            : "";
+          browserDdhBody.innerHTML = `<tr><td colspan="8" class="muted">${message}${probeSummary}</td></tr>`;
+          return;
+        }
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><code>wasm_browser_ddh</code></td>
+          <td>${formatNs(report.execution_latency_ns.mean)}</td>
+          <td>${formatNs(report.stage_timings_ns.input_sharing.mean)}</td>
+          <td>${formatNs(report.stage_timings_ns.message_schedule.mean)}</td>
+          <td>${formatNs(report.stage_timings_ns.round_core.mean)}</td>
+          <td>${formatNs(report.stage_timings_ns.output_projector.mean)}</td>
+          <td>${report.latency_ns_per_curve_cost_unit.mean.toFixed(3)}</td>
+          <td>${report.reference_match ? "yes" : "no"}</td>
+        `;
+        browserDdhBody.appendChild(row);
+      }
+
+      function renderWebGpuTable(report) {
+        webgpuBody.innerHTML = "";
+        if (!report || !report.available) {
+          const message = report?.error
+            ? `Browser WebGPU unavailable: ${report.error}`
+            : "No browser WebGPU benchmark available.";
+          webgpuBody.innerHTML = `<tr><td colspan="10" class="muted">${message}</td></tr>`;
+          return;
+        }
+
+          const adapterSummary = report.adapter_info?.description
+          ?? report.adapter_info?.architecture
+          ?? report.adapter_info?.vendor
+          ?? "webgpu";
+        const recodeMeanNs = report.subkernel_timings_ns?.digit_recode_v0?.mean ?? null;
+        const windowMeanNs = report.subkernel_timings_ns?.window_bucket_accumulate_v0?.mean ?? null;
+        const reduceMeanNs = report.subkernel_timings_ns?.bucket_reduce_v0?.mean ?? null;
+        const dependencyMeanNs = report.subkernel_timings_ns?.dependency_merge_normalize_v0?.mean ?? null;
+        const dominantSummary = report.dominant_subkernel_kind
+          ? `<br /><span class="muted">dominant ${escapeHtml(report.dominant_subkernel_kind)}</span>`
+          : "";
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td><code>webgpu_probe</code><br /><span class="muted">${escapeHtml(adapterSummary)}</span>${dominantSummary}</td>
+          <td>${formatNs(report.setup_total_ns)}</td>
+          <td>${formatNs(recodeMeanNs)}</td>
+          <td>${formatNs(windowMeanNs)}</td>
+          <td>${formatNs(reduceMeanNs)}</td>
+          <td>${formatNs(dependencyMeanNs)}</td>
+          <td>${formatNs(report.execution_latency_ns.mean)}</td>
+          <td>${report.proxy_latency_ns_per_curve_cost_unit.mean.toFixed(3)}</td>
+          <td>${formatInteger(report.step_count)}</td>
+          <td><code>${report.output_checksum_hex}</code></td>
+        `;
+        webgpuBody.appendChild(row);
+      }
+
+      function benchmarkStats(samples) {
+        const sorted = [...samples].sort((left, right) => left - right);
+        const mean = sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+        return {
+          min: sorted[0],
+          median: percentile(sorted, 0.5),
+          mean,
+          p95: percentile(sorted, 0.95),
+          max: sorted[sorted.length - 1],
+        };
+      }
+
+      function wasmNumber(value) {
+        if (typeof value === "bigint") {
+          return Number(value);
+        }
+        return Number(value ?? 0);
+      }
+
+      function stats(samples) {
+        const sorted = [...samples].sort((left, right) => left - right);
+        const mean = Math.round(sorted.reduce((sum, value) => sum + value, 0) / sorted.length);
+        return {
+          min_ns: sorted[0],
+          median_ns: percentile(sorted, 0.5),
+          mean_ns: mean,
+          p95_ns: percentile(sorted, 0.95),
+          max_ns: sorted[sorted.length - 1],
+        };
+      }
+
+      function percentile(sorted, quantile) {
+        const idx = Math.round((sorted.length - 1) * quantile);
+        return sorted[idx];
+      }
+
+      async function benchmarkStructuredExecution(db, bundle, targets) {
+        const structuredTarget = targets.find((target) => target.label === "prime_order_structured_artifact");
+        if (!structuredTarget || !structuredTarget.manifestData) {
+          return null;
+        }
+
+        const cachedPayload = await getValue(db, "artifact_bytes", structuredTarget.label);
+        if (!(cachedPayload instanceof Uint8Array)) {
+          throw new Error("structured artifact missing from IndexedDB cache");
+        }
+
+        const decodeWarmSummary = decodePrimeOrderStructuredArtifact(cachedPayload, structuredTarget.manifestData);
+        const traceWarmSummary = buildPrimeOrderExecutionTrace(cachedPayload, structuredTarget.manifestData);
+        const decodeSamples = [];
+        const traceSamples = [];
+        let lastSummary = { decode: decodeWarmSummary, trace: traceWarmSummary };
+        for (let sampleIdx = 0; sampleIdx < bundle.timed_samples; sampleIdx += 1) {
+          let start = performance.now();
+          let lastDecodeSummary = decodeWarmSummary;
+          for (let iter = 0; iter < DECODE_ITERATIONS_PER_SAMPLE; iter += 1) {
+            lastDecodeSummary = decodePrimeOrderStructuredArtifact(cachedPayload, structuredTarget.manifestData);
+          }
+          decodeSamples.push(
+            Math.round(((performance.now() - start) * 1_000_000) / DECODE_ITERATIONS_PER_SAMPLE),
+          );
+
+          start = performance.now();
+          let lastTraceSummary = traceWarmSummary;
+          for (let iter = 0; iter < TRACE_ITERATIONS_PER_SAMPLE; iter += 1) {
+            lastTraceSummary = buildPrimeOrderExecutionTrace(cachedPayload, structuredTarget.manifestData);
+          }
+          traceSamples.push(
+            Math.round(((performance.now() - start) * 1_000_000) / TRACE_ITERATIONS_PER_SAMPLE),
+          );
+          lastSummary = { decode: lastDecodeSummary, trace: lastTraceSummary };
+        }
+        return {
+          label: structuredTarget.label,
+          decode_per_iteration_ns: stats(decodeSamples),
+          trace_per_iteration_ns: stats(traceSamples),
+          decode_summary: lastSummary.decode,
+          trace_summary: lastSummary.trace,
+        };
+      }
+
+      async function benchmarkBrowserCpuExecutor(bundleUrl) {
+        const wasmModuleUrl = new URL("pkg/succinct_garbling_proto.js", new URL(bundleUrl, window.location.href));
+        wasmModuleUrl.searchParams.set("cache_bust", String(Date.now()));
+        try {
+          const wasmModule = await import(wasmModuleUrl.href);
+          if (typeof wasmModule.default === "function") {
+            await wasmModule.default();
+          }
+          if (typeof wasmModule.reset_prime_order_cpu_executor === "function") {
+            wasmModule.reset_prime_order_cpu_executor();
+          }
+
+          const prepareStart = performance.now();
+          const prepared = await wasmModule.prepare_prime_order_cpu_executor();
+          const prepareDurationNs = Math.round((performance.now() - prepareStart) * 1_000_000);
+
+          for (let idx = 0; idx < WASM_EXECUTOR_WARMUP; idx += 1) {
+            await wasmModule.execute_prime_order_cpu_executor_once_fast();
+          }
+
+          const executionSamplesNs = [];
+          for (let sampleIdx = 0; sampleIdx < WASM_EXECUTOR_SAMPLES; sampleIdx += 1) {
+            const sampleStart = performance.now();
+            for (let iter = 0; iter < WASM_EXECUTOR_ITERATIONS; iter += 1) {
+              await wasmModule.execute_prime_order_cpu_executor_once_fast();
+            }
+            executionSamplesNs.push(
+              ((performance.now() - sampleStart) * 1_000_000) / WASM_EXECUTOR_ITERATIONS,
+            );
+          }
+          const detailedResultStart = performance.now();
+          const lastRun = await wasmModule.execute_prime_order_cpu_executor_once();
+          const detailedResultDurationNs = Math.round(
+            (performance.now() - detailedResultStart) * 1_000_000,
+          );
+
+          const latencyNsPerCurveCostUnitSamples = executionSamplesNs.map(
+            (sampleNs) => sampleNs / wasmNumber(prepared.curve_cost_units),
+          );
+
+          if (typeof wasmModule.reset_prime_order_cpu_executor === "function") {
+            wasmModule.reset_prime_order_cpu_executor();
+          }
+
+          const report = {
+            fixture_name: prepared.fixture_name,
+            artifact_bytes: prepared.artifact_bytes,
+            total_steps: prepared.total_steps,
+            curve_cost_units: wasmNumber(prepared.curve_cost_units),
+            evaluator_ops: prepared.evaluator_ops,
+            prepare_duration_ns: prepareDurationNs,
+            sample_iterations: WASM_EXECUTOR_ITERATIONS,
+            sample_count: WASM_EXECUTOR_SAMPLES,
+            execution_latency_ns: benchmarkStats(executionSamplesNs),
+            detailed_result_duration_ns: detailedResultDurationNs,
+            latency_ns_per_curve_cost_unit: benchmarkStats(latencyNsPerCurveCostUnitSamples),
+            output_checksum_hex: lastRun?.output_checksum_hex ?? null,
+            final_point_compressed_hex: lastRun?.final_point_compressed_hex ?? null,
+          };
+          return {
+            available: true,
+            runtime: "wasm_browser_cpu",
+            wasm_module_url: wasmModuleUrl.href,
+            ...report,
+          };
+        } catch (error) {
+          return {
+            available: false,
+            runtime: "wasm_browser_cpu",
+            wasm_module_url: wasmModuleUrl.href,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+
+      async function benchmarkBrowserDdhHiddenEval(bundleUrl) {
+        const wasmModuleUrl = new URL("pkg/succinct_garbling_proto.js", new URL(bundleUrl, window.location.href));
+        wasmModuleUrl.searchParams.set("cache_bust", String(Date.now()));
+        try {
+          const wasmModule = await import(wasmModuleUrl.href);
+          if (typeof wasmModule.default === "function") {
+            await wasmModule.default();
+          }
+          if (typeof wasmModule.reset_prime_order_ddh_hidden_eval === "function") {
+            wasmModule.reset_prime_order_ddh_hidden_eval();
+          }
+
+          const prepareStart = performance.now();
+          const prepared = await wasmModule.prepare_prime_order_ddh_hidden_eval();
+          const prepareDurationNs = Math.round((performance.now() - prepareStart) * 1_000_000);
+
+          const probeResults = [];
+          for (const stage of ["input_sharing", "add_stage", "message_schedule", "round_core", "output_projector"]) {
+            try {
+              const probe = await wasmModule.probe_prime_order_ddh_hidden_eval(stage);
+              probeResults.push({
+                stage,
+                ok: true,
+                completed_stage: probe.completed_stage,
+                total_duration_ns: wasmNumber(probe.stage_profile.total_duration_ns),
+                message_schedule_accumulation_duration_ns:
+                  wasmNumber(probe.stage_profile.message_schedule_accumulation_duration_ns),
+                round_temp1_duration_ns:
+                  wasmNumber(probe.stage_profile.round_temp1_duration_ns),
+                round_temp2_duration_ns:
+                  wasmNumber(probe.stage_profile.round_temp2_duration_ns),
+              });
+            } catch (probeError) {
+              return {
+                available: false,
+                runtime: "wasm_browser_ddh",
+                wasm_module_url: wasmModuleUrl.href,
+                error: `probe ${stage} failed: ${probeError instanceof Error ? probeError.message : String(probeError)}`,
+                error_stack: probeError instanceof Error ? probeError.stack ?? null : null,
+                probe_results: probeResults,
+              };
+            }
+          }
+          const probeByStage = Object.fromEntries(
+            probeResults.filter((entry) => entry.ok).map((entry) => [entry.stage, entry]),
+          );
+          const inputStageNs = probeByStage.input_sharing?.total_duration_ns ?? 0;
+          const addStageNs = Math.max(
+            0,
+            (probeByStage.add_stage?.total_duration_ns ?? 0) - inputStageNs,
+          );
+          const scheduleStageNs = Math.max(
+            0,
+            (probeByStage.message_schedule?.total_duration_ns ?? 0) -
+              (probeByStage.add_stage?.total_duration_ns ?? 0),
+          );
+          const roundStageNs = Math.max(
+            0,
+            (probeByStage.round_core?.total_duration_ns ?? 0) -
+              (probeByStage.message_schedule?.total_duration_ns ?? 0),
+          );
+          const outputStageNs = Math.max(
+            0,
+            (probeByStage.output_projector?.total_duration_ns ?? 0) -
+              (probeByStage.round_core?.total_duration_ns ?? 0),
+          );
+          const scheduleAccumulationNs =
+            probeByStage.message_schedule?.message_schedule_accumulation_duration_ns ?? 0;
+          const roundTemp1Ns = probeByStage.round_core?.round_temp1_duration_ns ?? 0;
+          const roundTemp2Ns = probeByStage.round_core?.round_temp2_duration_ns ?? 0;
+          const probeTotalHiddenEvalNs =
+            probeByStage.output_projector?.total_duration_ns ?? 0;
+
+          for (let idx = 0; idx < WASM_DDH_WARMUP; idx += 1) {
+            await wasmModule.execute_prime_order_ddh_hidden_eval_once_fast();
+          }
+
+          const wallClockSamplesNs = [];
+          let lastReferenceMatch = true;
+
+          for (let sampleIdx = 0; sampleIdx < WASM_DDH_SAMPLES; sampleIdx += 1) {
+            const wallClockStart = performance.now();
+            for (let iter = 0; iter < WASM_DDH_ITERATIONS; iter += 1) {
+              lastReferenceMatch = await wasmModule.execute_prime_order_ddh_hidden_eval_once_fast();
+            }
+            wallClockSamplesNs.push(
+              ((performance.now() - wallClockStart) * 1_000_000) / WASM_DDH_ITERATIONS,
+            );
+          }
+          const detailedResultStart = performance.now();
+          const lastRun = await wasmModule.execute_prime_order_ddh_hidden_eval_once();
+          const detailedResultDurationNs = Math.round(
+            (performance.now() - detailedResultStart) * 1_000_000,
+          );
+
+          const latencyNsPerCurveCostUnitSamples = wallClockSamplesNs.map(
+            (sampleNs) => sampleNs / wasmNumber(prepared.curve_cost_units),
+          );
+          const jsWasmGapSamplesNs = wallClockSamplesNs.map((sampleNs) =>
+            Math.max(0, sampleNs - probeTotalHiddenEvalNs),
+          );
+          const repeatedStageSamples = (sampleNs) =>
+            Array.from({ length: WASM_DDH_SAMPLES }, () => sampleNs);
+
+          if (typeof wasmModule.reset_prime_order_ddh_hidden_eval === "function") {
+            wasmModule.reset_prime_order_ddh_hidden_eval();
+          }
+
+          return {
+            available: true,
+            runtime: "wasm_browser_ddh",
+            wasm_module_url: wasmModuleUrl.href,
+            fixture_name: prepared.fixture_name,
+            artifact_bytes: prepared.artifact_bytes,
+            active_window_records: prepared.active_window_records,
+            total_steps: prepared.total_steps,
+            curve_cost_units: wasmNumber(prepared.curve_cost_units),
+            evaluator_ops: prepared.evaluator_ops,
+            prepare_duration_ns: prepareDurationNs,
+            sample_iterations: WASM_DDH_ITERATIONS,
+            sample_count: WASM_DDH_SAMPLES,
+            execution_latency_ns: benchmarkStats(wallClockSamplesNs),
+            js_wall_clock_execution_ns: benchmarkStats(wallClockSamplesNs),
+            probe_total_hidden_eval_ns: probeTotalHiddenEvalNs,
+            estimated_js_wasm_gap_ns: benchmarkStats(jsWasmGapSamplesNs),
+            detailed_result_duration_ns: detailedResultDurationNs,
+            evaluate_duration_ns: wasmNumber(lastRun?.evaluate_duration_ns),
+            output_open_duration_ns: wasmNumber(lastRun?.output_open_duration_ns),
+            public_key_duration_ns: wasmNumber(lastRun?.public_key_duration_ns),
+            detailed_total_duration_ns: wasmNumber(lastRun?.total_duration_ns),
+            latency_ns_per_curve_cost_unit: benchmarkStats(latencyNsPerCurveCostUnitSamples),
+            stage_timings_ns: {
+              input_sharing: benchmarkStats(repeatedStageSamples(inputStageNs)),
+              add_stage: benchmarkStats(repeatedStageSamples(addStageNs)),
+              message_schedule: benchmarkStats(repeatedStageSamples(scheduleStageNs)),
+              round_core: benchmarkStats(repeatedStageSamples(roundStageNs)),
+              output_projector: benchmarkStats(repeatedStageSamples(outputStageNs)),
+            },
+            substage_timings_ns: {
+              message_schedule_accumulation: benchmarkStats(
+                repeatedStageSamples(scheduleAccumulationNs),
+              ),
+              round_temp1: benchmarkStats(repeatedStageSamples(roundTemp1Ns)),
+              round_temp2: benchmarkStats(repeatedStageSamples(roundTemp2Ns)),
+            },
+            reference_match: Boolean(lastReferenceMatch && lastRun?.reference_match),
+            output_public_key_hex: lastRun?.output_public_key_hex ?? null,
+            output_x_client_base_hex: lastRun?.output_x_client_base_hex ?? null,
+            probe_results: probeResults,
+          };
+        } catch (error) {
+          return {
+            available: false,
+            runtime: "wasm_browser_ddh",
+            wasm_module_url: wasmModuleUrl.href,
+            error: error instanceof Error ? error.message : String(error),
+            error_stack: error instanceof Error ? error.stack ?? null : null,
+            probe_results: [],
+          };
+        }
+      }
+
+      async function benchmarkBrowserWebGpu(targets, executionReport) {
+        const structuredTarget = targets.find((target) => target.label === "prime_order_structured_artifact");
+        if (!structuredTarget) {
+          return {
+            available: false,
+            runtime: "browser_webgpu_probe",
+            error: "structured prime-order artifact is missing",
+          };
+        }
+        if (!navigator.gpu) {
+          return {
+            available: false,
+            runtime: "browser_webgpu_probe",
+            error: "navigator.gpu is unavailable",
+          };
+        }
+
+        let device = null;
+        try {
+          const adapterRequestStart = performance.now();
+          const adapter = await navigator.gpu.requestAdapter();
+          const adapterRequestNs = Math.round((performance.now() - adapterRequestStart) * 1_000_000);
+          if (!adapter) {
+            return {
+              available: false,
+              runtime: "browser_webgpu_probe",
+              error: "requestAdapter returned null",
+            };
+          }
+
+          const adapterInfo = await readAdapterInfo(adapter);
+          const deviceRequestStart = performance.now();
+          device = await adapter.requestDevice();
+          const deviceRequestNs = Math.round((performance.now() - deviceRequestStart) * 1_000_000);
+
+          const workload = buildPrimeOrderWebGpuProxyWorkload(
+            structuredTarget.bytesData,
+            structuredTarget.manifestData,
+          );
+          const outputBytes = workload.stepCount * 4;
+          const digitBytes = workload.stepCount * workload.digitStrideWords * 4;
+          const bucketBytes = workload.stepCount * workload.bucketStrideWords * 4;
+          const curveCostUnits = executionReport?.trace_summary?.estimated_curve_cost_units ?? workload.stepCount;
+
+          const pipelineCreateStart = performance.now();
+          const recodePipeline = typeof device.createComputePipelineAsync === "function"
+            ? await device.createComputePipelineAsync({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuDigitRecodeShaderCode() }),
+                  entryPoint: "main",
+                },
+              })
+            : device.createComputePipeline({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuDigitRecodeShaderCode() }),
+                  entryPoint: "main",
+                },
+              });
+          const windowPipeline = typeof device.createComputePipelineAsync === "function"
+            ? await device.createComputePipelineAsync({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuWindowBucketAccumulateShaderCode() }),
+                  entryPoint: "main",
+                },
+              })
+            : device.createComputePipeline({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuWindowBucketAccumulateShaderCode() }),
+                  entryPoint: "main",
+                },
+              });
+          const reducePipeline = typeof device.createComputePipelineAsync === "function"
+            ? await device.createComputePipelineAsync({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuBucketReduceShaderCode() }),
+                  entryPoint: "main",
+                },
+              })
+            : device.createComputePipeline({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuBucketReduceShaderCode() }),
+                  entryPoint: "main",
+                },
+              });
+          const dependencyPipeline = typeof device.createComputePipelineAsync === "function"
+            ? await device.createComputePipelineAsync({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuDependencyMergeNormalizeShaderCode() }),
+                  entryPoint: "main",
+                },
+              })
+            : device.createComputePipeline({
+                layout: "auto",
+                compute: {
+                  module: device.createShaderModule({ code: createWebGpuDependencyMergeNormalizeShaderCode() }),
+                  entryPoint: "main",
+                },
+              });
+          const pipelineCreateNs = Math.round((performance.now() - pipelineCreateStart) * 1_000_000);
+
+          const inputBuffer = device.createBuffer({
+            size: workload.inputWords.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+          });
+          const digitBuffer = device.createBuffer({
+            size: digitBytes,
+            usage: GPUBufferUsage.STORAGE,
+          });
+          const bucketBuffer = device.createBuffer({
+            size: bucketBytes,
+            usage: GPUBufferUsage.STORAGE,
+          });
+          const stageTwoBuffer = device.createBuffer({
+            size: outputBytes,
+            usage: GPUBufferUsage.STORAGE,
+          });
+          const outputBuffer = device.createBuffer({
+            size: outputBytes,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+          });
+          const readbackBuffer = device.createBuffer({
+            size: outputBytes,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          });
+          const paramsBuffer = device.createBuffer({
+            size: 32,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+          });
+
+          const paramsWords = new Uint32Array([
+            workload.stepCount,
+            WEBGPU_PROXY_ROUNDS_PER_STEP,
+            0x9e3779b9,
+            workload.wordsPerStep,
+            workload.digitStrideEntries,
+            workload.bucketStrideWords,
+            0,
+            0,
+          ]);
+          const uploadStart = performance.now();
+          device.queue.writeBuffer(inputBuffer, 0, workload.inputWords);
+          device.queue.writeBuffer(paramsBuffer, 0, paramsWords);
+          const uploadNs = Math.round((performance.now() - uploadStart) * 1_000_000);
+
+          const recodeBindGroup = device.createBindGroup({
+            layout: recodePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inputBuffer } },
+              { binding: 1, resource: { buffer: digitBuffer } },
+              { binding: 2, resource: { buffer: paramsBuffer } },
+            ],
+          });
+          const windowBindGroup = device.createBindGroup({
+            layout: windowPipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inputBuffer } },
+              { binding: 1, resource: { buffer: digitBuffer } },
+              { binding: 2, resource: { buffer: bucketBuffer } },
+              { binding: 3, resource: { buffer: paramsBuffer } },
+            ],
+          });
+          const reduceBindGroup = device.createBindGroup({
+            layout: reducePipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inputBuffer } },
+              { binding: 1, resource: { buffer: bucketBuffer } },
+              { binding: 2, resource: { buffer: stageTwoBuffer } },
+              { binding: 3, resource: { buffer: paramsBuffer } },
+            ],
+          });
+          const dependencyBindGroup = device.createBindGroup({
+            layout: dependencyPipeline.getBindGroupLayout(0),
+            entries: [
+              { binding: 0, resource: { buffer: inputBuffer } },
+              { binding: 1, resource: { buffer: stageTwoBuffer } },
+              { binding: 2, resource: { buffer: outputBuffer } },
+              { binding: 3, resource: { buffer: paramsBuffer } },
+            ],
+          });
+
+          const workgroupCount = Math.ceil(workload.stepCount / WEBGPU_WORKGROUP_SIZE);
+          const executionSamplesNs = [];
+          const recodeSamplesNs = [];
+          const windowSamplesNs = [];
+          const reduceSamplesNs = [];
+          const dependencySamplesNs = [];
+          const readbackSamplesNs = [];
+          let lastOutputWords = null;
+
+          for (let sampleIdx = 0; sampleIdx < WEBGPU_SAMPLE_COUNT; sampleIdx += 1) {
+            const recodeEncoder = device.createCommandEncoder();
+            const recodePass = recodeEncoder.beginComputePass();
+            for (let repeatIdx = 0; repeatIdx < WEBGPU_DISPATCH_REPEATS; repeatIdx += 1) {
+              recodePass.setPipeline(recodePipeline);
+              recodePass.setBindGroup(0, recodeBindGroup);
+              recodePass.dispatchWorkgroups(workgroupCount);
+            }
+            recodePass.end();
+
+            const recodeStart = performance.now();
+            device.queue.submit([recodeEncoder.finish()]);
+            await device.queue.onSubmittedWorkDone();
+            const recodePerDispatchNs =
+              ((performance.now() - recodeStart) * 1_000_000) / WEBGPU_DISPATCH_REPEATS;
+            recodeSamplesNs.push(recodePerDispatchNs);
+
+            const windowEncoder = device.createCommandEncoder();
+            const windowPass = windowEncoder.beginComputePass();
+            for (let repeatIdx = 0; repeatIdx < WEBGPU_DISPATCH_REPEATS; repeatIdx += 1) {
+              windowPass.setPipeline(windowPipeline);
+              windowPass.setBindGroup(0, windowBindGroup);
+              windowPass.dispatchWorkgroups(workgroupCount);
+            }
+            windowPass.end();
+
+            const windowStart = performance.now();
+            device.queue.submit([windowEncoder.finish()]);
+            await device.queue.onSubmittedWorkDone();
+            const windowPerDispatchNs =
+              ((performance.now() - windowStart) * 1_000_000) / WEBGPU_DISPATCH_REPEATS;
+            windowSamplesNs.push(windowPerDispatchNs);
+
+            const reduceEncoder = device.createCommandEncoder();
+            const reducePass = reduceEncoder.beginComputePass();
+            for (let repeatIdx = 0; repeatIdx < WEBGPU_DISPATCH_REPEATS; repeatIdx += 1) {
+              reducePass.setPipeline(reducePipeline);
+              reducePass.setBindGroup(0, reduceBindGroup);
+              reducePass.dispatchWorkgroups(workgroupCount);
+            }
+            reducePass.end();
+
+            const reduceStart = performance.now();
+            device.queue.submit([reduceEncoder.finish()]);
+            await device.queue.onSubmittedWorkDone();
+            const reducePerDispatchNs =
+              ((performance.now() - reduceStart) * 1_000_000) / WEBGPU_DISPATCH_REPEATS;
+            reduceSamplesNs.push(reducePerDispatchNs);
+
+            const dependencyEncoder = device.createCommandEncoder();
+            const dependencyPass = dependencyEncoder.beginComputePass();
+            for (let repeatIdx = 0; repeatIdx < WEBGPU_DISPATCH_REPEATS; repeatIdx += 1) {
+              dependencyPass.setPipeline(dependencyPipeline);
+              dependencyPass.setBindGroup(0, dependencyBindGroup);
+              dependencyPass.dispatchWorkgroups(workgroupCount);
+            }
+            dependencyPass.end();
+            dependencyEncoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, outputBytes);
+
+            const dependencyStart = performance.now();
+            device.queue.submit([dependencyEncoder.finish()]);
+            await device.queue.onSubmittedWorkDone();
+            const dependencyPerDispatchNs =
+              ((performance.now() - dependencyStart) * 1_000_000) / WEBGPU_DISPATCH_REPEATS;
+            dependencySamplesNs.push(dependencyPerDispatchNs);
+            executionSamplesNs.push(
+              recodePerDispatchNs + windowPerDispatchNs + reducePerDispatchNs + dependencyPerDispatchNs,
+            );
+
+            const readbackStart = performance.now();
+            await readbackBuffer.mapAsync(GPUMapMode.READ);
+            lastOutputWords = new Uint32Array(readbackBuffer.getMappedRange().slice(0));
+            readbackBuffer.unmap();
+            readbackSamplesNs.push(Math.round((performance.now() - readbackStart) * 1_000_000));
+          }
+
+          const recodeStats = benchmarkStats(recodeSamplesNs);
+          const windowStats = benchmarkStats(windowSamplesNs);
+          const reduceStats = benchmarkStats(reduceSamplesNs);
+          const dependencyStats = benchmarkStats(dependencySamplesNs);
+          const bucketPipelineStats = benchmarkStats(
+            executionSamplesNs.map(
+              (sampleNs, sampleIdx) =>
+                recodeSamplesNs[sampleIdx] + windowSamplesNs[sampleIdx] + reduceSamplesNs[sampleIdx],
+            ),
+          );
+          const dominantSubkernelKind = dominantSubkernel(
+            {
+              digit_recode_v0: recodeStats.mean,
+              window_bucket_accumulate_v0: windowStats.mean,
+              bucket_reduce_v0: reduceStats.mean,
+              dependency_merge_normalize_v0: dependencyStats.mean,
+            },
+          );
+          const totalSubkernelMeanNs =
+            recodeStats.mean + windowStats.mean + reduceStats.mean + dependencyStats.mean;
+          const subkernelMeanShareOfTotal = totalSubkernelMeanNs > 0
+            ? {
+                digit_recode_v0: Number((recodeStats.mean / totalSubkernelMeanNs).toFixed(4)),
+                window_bucket_accumulate_v0: Number((windowStats.mean / totalSubkernelMeanNs).toFixed(4)),
+                bucket_reduce_v0: Number((reduceStats.mean / totalSubkernelMeanNs).toFixed(4)),
+                dependency_merge_normalize_v0: Number((dependencyStats.mean / totalSubkernelMeanNs).toFixed(4)),
+              }
+            : null;
+          const bucketPipelineMeanShareOfTotal = totalSubkernelMeanNs > 0
+            ? Number(((recodeStats.mean + windowStats.mean + reduceStats.mean) / totalSubkernelMeanNs).toFixed(4))
+            : null;
+
+          return {
+            available: true,
+            runtime: "browser_webgpu_probe",
+            adapter_info: adapterInfo,
+            artifact_bytes: structuredTarget.bytes,
+            step_count: workload.stepCount,
+            words_per_step: workload.wordsPerStep,
+            workgroup_size: WEBGPU_WORKGROUP_SIZE,
+            workgroup_count: workgroupCount,
+            proxy_kernel_kind: "digit_recode_v0 + window_bucket_accumulate_v0 + bucket_reduce_v0 + dependency_merge_normalize_v0",
+            proxy_subkernels: [
+              "digit_recode_v0",
+              "window_bucket_accumulate_v0",
+              "bucket_reduce_v0",
+              "dependency_merge_normalize_v0",
+            ],
+            proxy_rounds_per_step: WEBGPU_PROXY_ROUNDS_PER_STEP,
+            dispatch_repeats: WEBGPU_DISPATCH_REPEATS,
+            curve_cost_units_reference: curveCostUnits,
+            adapter_request_ns: adapterRequestNs,
+            device_request_ns: deviceRequestNs,
+            pipeline_create_ns: pipelineCreateNs,
+            upload_ns: uploadNs,
+            setup_total_ns: adapterRequestNs + deviceRequestNs + pipelineCreateNs + uploadNs,
+            subkernel_timings_ns: {
+              digit_recode_v0: recodeStats,
+              window_bucket_accumulate_v0: windowStats,
+              bucket_reduce_v0: reduceStats,
+              dependency_merge_normalize_v0: dependencyStats,
+            },
+            bucket_pipeline_timings_ns: bucketPipelineStats,
+            subkernel_mean_share_of_total: subkernelMeanShareOfTotal,
+            bucket_pipeline_mean_share_of_total: bucketPipelineMeanShareOfTotal,
+            dominant_subkernel_kind: dominantSubkernelKind,
+            execution_latency_ns: benchmarkStats(executionSamplesNs),
+            readback_latency_ns: stats(readbackSamplesNs),
+            proxy_latency_ns_per_curve_cost_unit: benchmarkStats(
+              executionSamplesNs.map((sampleNs) => sampleNs / curveCostUnits),
+            ),
+            output_checksum_hex: checksumUint32Words(lastOutputWords ?? new Uint32Array()),
+          };
+        } catch (error) {
+          return {
+            available: false,
+            runtime: "browser_webgpu_probe",
+            error: error instanceof Error ? error.message : String(error),
+          };
+        } finally {
+          if (device && typeof device.destroy === "function") {
+            device.destroy();
+          }
+        }
+      }
+
+      function decodePrimeOrderStructuredArtifact(bytes, manifest) {
+        const headerSection = requireSection(manifest, "header");
+        const windowsSection = requireSection(manifest, "group_public_data_windows");
+        const header = readSection(bytes, headerSection);
+        const windows = readSection(bytes, windowsSection);
+
+        if (readAscii(header, 0, 8) !== "SGPPRM01") {
+          throw new Error("unexpected structured artifact header magic");
+        }
+        if (readAscii(windows, 0, 8) !== "GRPWNDW2") {
+          throw new Error("unexpected grouped-window section magic");
+        }
+
+        let headerCursor = 8;
+        const artifactVersion = readU16(header, headerCursor); headerCursor += 2;
+        const sectionCount = readU16(header, headerCursor); headerCursor += 2;
+        const backendFamilyId = readU16(header, headerCursor); headerCursor += 2;
+        headerCursor += 2;
+        const expectedTotalBytes = Number(readU64(header, headerCursor)); headerCursor += 8;
+        const templateDescriptorBytes = Number(readU64(header, headerCursor)); headerCursor += 8;
+        const publicDataBytes = Number(readU64(header, headerCursor)); headerCursor += 8;
+        const cpuTargetLatencyMs = readU32(header, headerCursor); headerCursor += 4;
+        const acceleratorTargetLatencyMs = readU32(header, headerCursor); headerCursor += 4;
+        headerCursor += 32 + 32 + 32;
+        const fixedFunctionId = readLenPrefixedString(header, () => headerCursor, (next) => { headerCursor = next; });
+        const encoderVersion = readLenPrefixedString(header, () => headerCursor, (next) => { headerCursor = next; });
+
+        let windowsCursor = 8;
+        const windowsBackendFamilyId = readU16(windows, windowsCursor); windowsCursor += 2;
+        const sectionVersion = readU16(windows, windowsCursor); windowsCursor += 2;
+        const recordBytes = readU16(windows, windowsCursor); windowsCursor += 2;
+        const totalRecords = readU16(windows, windowsCursor); windowsCursor += 2;
+        const classCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const addLaneCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const scheduleDerivedCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const roundConstantCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const roundStateCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const outputProjectorCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const participantCount = readU16(windows, windowsCursor); windowsCursor += 2;
+        const participantIdCount = readU16(windows, windowsCursor); windowsCursor += 2;
+
+        const classCounts = new Map([
+          ["add_lane", 0],
+          ["schedule_derived", 0],
+          ["round_constant", 0],
+          ["round_state", 0],
+          ["output_projector", 0],
+          ["context_participant", 0],
+        ]);
+        let checksum = 0n;
+
+        for (let recordIndex = 0; recordIndex < totalRecords; recordIndex += 1) {
+          const recordOffset = windowsCursor + recordIndex * recordBytes;
+          const recordClass = className(readU8(windows, recordOffset + 2));
+          classCounts.set(recordClass, (classCounts.get(recordClass) ?? 0) + 1);
+          checksum += BigInt(readU16(windows, recordOffset));
+          checksum += BigInt(readU32(windows, recordOffset + 4));
+          checksum += BigInt(readU16(windows, recordOffset + 8));
+          checksum += BigInt(windows[recordOffset + recordBytes - 1]);
+        }
+
+        return {
+          artifact_version: artifactVersion,
+          section_count: sectionCount,
+          backend_family_id: backendFamilyId,
+          windows_backend_family_id: windowsBackendFamilyId,
+          section_version: sectionVersion,
+          expected_total_bytes: expectedTotalBytes,
+          template_descriptor_bytes: templateDescriptorBytes,
+          public_data_bytes: publicDataBytes,
+          cpu_target_latency_ms: cpuTargetLatencyMs,
+          accelerator_target_latency_ms: acceleratorTargetLatencyMs,
+          fixed_function_id: fixedFunctionId,
+          encoder_version: encoderVersion,
+          total_records: totalRecords,
+          record_bytes: recordBytes,
+          class_count: classCount,
+          add_lane_count: addLaneCount,
+          schedule_derived_count: scheduleDerivedCount,
+          round_constant_count: roundConstantCount,
+          round_state_count: roundStateCount,
+          output_projector_count: outputProjectorCount,
+          participant_count: participantCount,
+          participant_id_count: participantIdCount,
+          class_counts: Array.from(classCounts.entries()).map(([name, count]) => `${name}:${count}`),
+          digest_checksum_hex: checksum.toString(16),
+        };
+      }
+
+      function buildPrimeOrderExecutionTrace(bytes, manifest) {
+        const windowsSection = requireSection(manifest, "group_public_data_windows");
+        const windows = readSection(bytes, windowsSection);
+
+        if (readAscii(windows, 0, 8) !== "GRPWNDW2") {
+          throw new Error("unexpected grouped-window section magic");
+        }
+
+        const totalRecords = readU16(windows, 14);
+        const recordBytes = readU16(windows, 12);
+        const stages = [
+          {
+            label: "add_mod_2pow256",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "message_schedule",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "round_state_00_to_19",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "round_state_20_to_39",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "round_state_40_to_59",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "round_state_60_to_79",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+          {
+            label: "output_projector",
+            step_count: 0,
+            evaluator_ops: emptyEvaluatorOps(),
+            estimated_curve_cost_units: 0,
+          },
+        ];
+        let preloadRoundConstantCount = 0;
+        let preloadContextParticipantCount = 0;
+        let totalSteps = 0;
+        const evaluatorOps = emptyEvaluatorOps();
+        let estimatedCurveCostUnits = 0;
+        let checksum = 0n;
+
+        for (let recordIndex = 0; recordIndex < totalRecords; recordIndex += 1) {
+          const offset = 32 + recordIndex * recordBytes;
+          const classId = readU8(windows, offset + 2);
+          const sourceKindId = readU8(windows, offset + 3);
+          const sourceOffset = readU32(windows, offset + 4);
+          const logicalSpan = readU16(windows, offset + 8);
+          const windowBits = readU16(windows, offset + 10);
+          const digitCount = readU16(windows, offset + 12);
+          const bucketCount = readU16(windows, offset + 14);
+          const dependencyLeft = decodeOptionalU16(readU16(windows, offset + 18));
+          const dependencyRight = decodeOptionalU16(readU16(windows, offset + 20));
+          const recordOps = evaluatorOpsForRecord(
+            classId,
+            windowBits,
+            digitCount,
+            bucketCount,
+            dependencyLeft,
+            dependencyRight,
+          );
+          const curveCostUnits = estimatedCurveCostUnitsFor(recordOps);
+
+          let stage = null;
+          if (classId === 1) {
+            stage = stages[0];
+          } else if (classId === 2) {
+            stage = stages[1];
+          } else if (classId === 4) {
+            stage = stages[roundStateStageIndex(sourceKindId)];
+          } else if (classId === 5) {
+            stage = stages[6];
+          } else if (classId === 3) {
+            preloadRoundConstantCount += 1;
+          } else if (classId === 6) {
+            preloadContextParticipantCount += 1;
+          }
+
+          if (stage) {
+            stage.step_count += 1;
+            accumulateEvaluatorOps(stage.evaluator_ops, recordOps);
+            stage.estimated_curve_cost_units += curveCostUnits;
+            totalSteps += 1;
+            accumulateEvaluatorOps(evaluatorOps, recordOps);
+            estimatedCurveCostUnits += curveCostUnits;
+            checksum += BigInt(readU16(windows, offset));
+            checksum += BigInt(curveCostUnits);
+            checksum += BigInt(logicalSpan);
+            checksum += BigInt(sourceOffset);
+            checksum += BigInt(dependencyLeft ?? 0xffff);
+            checksum += BigInt(dependencyRight ?? 0xffff);
+          }
+        }
+
+        return {
+          preload_round_constant_count: preloadRoundConstantCount,
+          preload_context_participant_count: preloadContextParticipantCount,
+          total_steps: totalSteps,
+          stage_count: stages.length,
+          evaluator_ops: evaluatorOps,
+          estimated_curve_cost_units: estimatedCurveCostUnits,
+          checksum_hex: checksum.toString(16),
+          stages: stages.map((stage) => ({
+            label: stage.label,
+            step_count: stage.step_count,
+            evaluator_ops: stage.evaluator_ops,
+            estimated_curve_cost_units: stage.estimated_curve_cost_units,
+          })),
+        };
+      }
+
+      function estimateDownloads(bytes, bandwidths) {
+        return bandwidths.map((bandwidth_mbps) => ({
+          bandwidth_mbps,
+          estimated_ms: Math.ceil((bytes * 8 * 1000) / (bandwidth_mbps * 1_000_000)),
+        }));
+      }
+
+      function formatBytes(bytes) {
+        if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`;
+        if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+        return `${bytes} B`;
+      }
+
+      function formatNs(ns) {
+        if (ns >= 1_000_000) return `${(ns / 1_000_000).toFixed(2)} ms`;
+        if (ns >= 1_000) return `${(ns / 1_000).toFixed(1)} µs`;
+        return `${ns} ns`;
+      }
+
+      function formatInteger(value) {
+        return Number(value).toLocaleString("en-US");
+      }
+
+      async function readAdapterInfo(adapter) {
+        try {
+          if (adapter.info && typeof adapter.info === "object") {
+            return {
+              vendor: adapter.info.vendor ?? null,
+              architecture: adapter.info.architecture ?? null,
+              device: adapter.info.device ?? null,
+              description: adapter.info.description ?? null,
+            };
+          }
+          if (typeof adapter.requestAdapterInfo === "function") {
+            const info = await adapter.requestAdapterInfo();
+            return {
+              vendor: info.vendor ?? null,
+              architecture: info.architecture ?? null,
+              device: info.device ?? null,
+              description: info.description ?? null,
+            };
+          }
+        } catch (_) {
+          return null;
+        }
+        return null;
+      }
+
+      function buildPrimeOrderWebGpuProxyWorkload(bytes, manifest) {
+        const windowsSection = requireSection(manifest, "group_public_data_windows");
+        const windows = readSection(bytes, windowsSection);
+        if (readAscii(windows, 0, 8) !== "GRPWNDW2") {
+          throw new Error("unexpected grouped-window section magic");
+        }
+
+        const recordBytes = readU16(windows, 12);
+        const totalRecords = readU16(windows, 14);
+        const wordsPerStep = 13;
+        const digitStrideEntries = 32;
+        const digitStrideWords = digitStrideEntries * 2;
+        const bucketStrideWords = 32;
+        const activeRecords = [];
+
+        for (let recordIndex = 0; recordIndex < totalRecords; recordIndex += 1) {
+          const offset = 32 + recordIndex * recordBytes;
+          const classId = readU8(windows, offset + 2);
+          if (!(classId === 1 || classId === 2 || classId === 4 || classId === 5)) {
+            continue;
+          }
+
+          activeRecords.push({
+            stepIndex: activeRecords.length,
+            classId,
+            sourceKindId: readU8(windows, offset + 3),
+            sourceOffset: readU32(windows, offset + 4),
+            logicalSpan: readU16(windows, offset + 8),
+            windowBits: readU16(windows, offset + 10),
+            digitCount: readU16(windows, offset + 12),
+            bucketCount: readU16(windows, offset + 14),
+            classValue: readU16(windows, offset + 16),
+            dependencyLeftRaw: readU16(windows, offset + 18),
+            dependencyRightRaw: readU16(windows, offset + 20),
+            reuseScope: readU16(windows, offset + 22),
+            classSlot: readU16(windows, offset + 24),
+            digest0: readU32(windows, offset + 32),
+            digest1: readU32(windows, offset + 36),
+            digest2: readU32(windows, offset + 40),
+            digest3: readU32(windows, offset + 44),
+          });
+        }
+
+        if (activeRecords.length === 0) {
+          throw new Error("no active prime-order records available for WebGPU proxy workload");
+        }
+
+        const messageSlots = new Map();
+        const roundStateSlots = new Map();
+        const stepWords = [];
+
+        for (const record of activeRecords) {
+          let dependencyLeft = 0xffff;
+          let dependencyRight = 0xffff;
+
+          if (record.classId === 2) {
+            dependencyLeft = resolveDependencyIndex(record.dependencyLeftRaw, messageSlots);
+            dependencyRight = resolveDependencyIndex(record.dependencyRightRaw, messageSlots);
+          } else if (record.classId === 4) {
+            dependencyLeft = resolveDependencyIndex(record.dependencyLeftRaw, roundStateSlots);
+            dependencyRight = resolveDependencyIndex(record.dependencyRightRaw, roundStateSlots);
+          }
+
+          if (record.classId === 1 || record.classId === 2) {
+            messageSlots.set(record.classValue, record.stepIndex);
+          } else if (record.classId === 4) {
+            roundStateSlots.set(record.classValue, record.stepIndex);
+          }
+
+          const dependencyCount = Number(dependencyLeft !== 0xffff) + Number(dependencyRight !== 0xffff);
+          const dependencyMergeCount = record.classId === 4 ? dependencyCount * 2 : dependencyCount;
+          const normalizationCount = record.classId === 5 ? 2 : 1;
+
+          stepWords.push(
+            record.classId,
+            record.sourceKindId,
+            record.sourceOffset,
+            record.logicalSpan | (record.windowBits << 16),
+            record.digitCount | (record.bucketCount << 16),
+            record.classValue | (record.reuseScope << 16),
+            dependencyLeft | (dependencyRight << 16),
+            record.classSlot | (record.stepIndex << 16),
+            record.digest0,
+            record.digest1,
+            record.digest2,
+            record.digest3,
+            normalizationCount | (dependencyMergeCount << 16),
+          );
+        }
+
+        return {
+          inputWords: new Uint32Array(stepWords),
+          wordsPerStep,
+          digitStrideEntries,
+          digitStrideWords,
+          bucketStrideWords,
+          stepCount: stepWords.length / wordsPerStep,
+        };
+      }
+
+      function dominantSubkernel(timingsByKind) {
+        let dominantKind = null;
+        let dominantMean = -Infinity;
+        for (const [kind, mean] of Object.entries(timingsByKind)) {
+          if (mean > dominantMean) {
+            dominantKind = kind;
+            dominantMean = mean;
+          }
+        }
+        return dominantKind;
+      }
+
+      function resolveDependencyIndex(rawValue, slots) {
+        if (rawValue === 0xffff) {
+          return 0xffff;
+        }
+        return slots.get(rawValue) ?? 0xffff;
+      }
+
+      function checksumUint32Words(words) {
+        let checksum = 0n;
+        const mask = (1n << 64n) - 1n;
+        for (const word of words) {
+          checksum = (checksum + BigInt(word)) & mask;
+        }
+        return checksum.toString(16).padStart(16, "0");
+      }
+
+      function createWebGpuDigitRecodeShaderCode() {
+        return `
+struct Params {
+  total_steps: u32,
+  proxy_rounds: u32,
+  seed: u32,
+  words_per_step: u32,
+  digit_stride_entries: u32,
+  bucket_stride_words: u32,
+};
+
+@group(0) @binding(0) var<storage, read> input_words: array<u32>;
+@group(0) @binding(1) var<storage, read_write> digit_words: array<u32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+fn rotl32(value: u32, shift: u32) -> u32 {
+  return (value << shift) | (value >> (32u - shift));
+}
+
+fn load_step_word(step_idx: u32, word_idx: u32) -> u32 {
+  return input_words[step_idx * params.words_per_step + word_idx];
+}
+
+fn min_window_bits(window_bits: u32) -> u32 {
+  return max(3u, min(window_bits, 6u));
+}
+
+@compute @workgroup_size(${WEBGPU_WORKGROUP_SIZE})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let step_idx = gid.x;
+  if (step_idx >= params.total_steps) {
+    return;
+  }
+
+  let class_id = load_step_word(step_idx, 0u);
+  let source_kind = load_step_word(step_idx, 1u);
+  let source_offset = load_step_word(step_idx, 2u);
+  let logical_window = load_step_word(step_idx, 3u);
+  let digit_bucket = load_step_word(step_idx, 4u);
+  let class_reuse = load_step_word(step_idx, 5u);
+  let slot_index = load_step_word(step_idx, 7u);
+  let digest_0 = load_step_word(step_idx, 8u);
+  let digest_1 = load_step_word(step_idx, 9u);
+  let digest_2 = load_step_word(step_idx, 10u);
+  let digest_3 = load_step_word(step_idx, 11u);
+
+  let logical_span = logical_window & 0xffffu;
+  let window_bits = logical_window >> 16u;
+  let effective_window_bits = min_window_bits(window_bits);
+  let digit_count = digit_bucket & 0xffffu;
+  let bucket_count = digit_bucket >> 16u;
+  let bounded_bucket_count = max(1u, min(bucket_count, 32u));
+  let bounded_digit_count = min(digit_count, params.digit_stride_entries);
+  var digit_idx = 0u;
+  loop {
+    if (digit_idx >= params.digit_stride_entries) {
+      break;
+    }
+
+    let pair_offset = (step_idx * params.digit_stride_entries + digit_idx) * 2u;
+    if (digit_idx < bounded_digit_count) {
+      var digest_mix = digest_0;
+      if ((digit_idx & 3u) == 1u) {
+        digest_mix = digest_1;
+      } else if ((digit_idx & 3u) == 2u) {
+        digest_mix = digest_2;
+      } else if ((digit_idx & 3u) == 3u) {
+        digest_mix = digest_3;
+      }
+
+      let slot = (
+        digest_mix
+        ^ source_offset
+        ^ (digit_idx * 0x9e3779b9u)
+        ^ (class_reuse * 0x7f4a7c15u)
+      ) % bounded_bucket_count;
+      let window_ordinal = (
+        ((source_offset >> ((digit_idx & 3u) * 4u)) & 0xffu)
+        ^ (class_reuse & 0xffu)
+        ^ digit_idx
+      ) & 0xffu;
+      let raw_digit = rotl32(
+        digest_mix
+        ^ (class_id * 0x45d9f3bu)
+        ^ (source_kind * 0x27d4eb2du)
+        ^ (logical_span * 17u)
+        ^ (window_bits * 31u)
+        ^ (digit_idx + 1u),
+        ((window_bits + digit_idx) & 15u) + 1u,
+      );
+      let signed_odd_digit = ((raw_digit & 7u) * 2u) + 1u;
+      let sign_bit = (raw_digit >> effective_window_bits) & 1u;
+      digit_words[pair_offset] = slot | (window_ordinal << 16u);
+      digit_words[pair_offset + 1u] = signed_odd_digit | (sign_bit << 31u);
+    } else {
+      digit_words[pair_offset] = 0xffffffffu;
+      digit_words[pair_offset + 1u] = 0u;
+    }
+    digit_idx = digit_idx + 1u;
+  }
+}
+        `;
+      }
+
+      function createWebGpuWindowBucketAccumulateShaderCode() {
+        return `
+struct Params {
+  total_steps: u32,
+  proxy_rounds: u32,
+  seed: u32,
+  words_per_step: u32,
+  digit_stride_entries: u32,
+  bucket_stride_words: u32,
+};
+
+@group(0) @binding(0) var<storage, read> input_words: array<u32>;
+@group(0) @binding(1) var<storage, read> digit_words: array<u32>;
+@group(0) @binding(2) var<storage, read_write> bucket_words: array<u32>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+fn rotl32(value: u32, shift: u32) -> u32 {
+  return (value << shift) | (value >> (32u - shift));
+}
+
+fn load_step_word(step_idx: u32, word_idx: u32) -> u32 {
+  return input_words[step_idx * params.words_per_step + word_idx];
+}
+
+fn min_window_bits(window_bits: u32) -> u32 {
+  return max(3u, min(window_bits, 6u));
+}
+
+@compute @workgroup_size(${WEBGPU_WORKGROUP_SIZE})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let step_idx = gid.x;
+  if (step_idx >= params.total_steps) {
+    return;
+  }
+
+  let class_id = load_step_word(step_idx, 0u);
+  let source_kind = load_step_word(step_idx, 1u);
+  let logical_window = load_step_word(step_idx, 3u);
+  let digit_bucket = load_step_word(step_idx, 4u);
+  let digest_0 = load_step_word(step_idx, 8u);
+  let digest_1 = load_step_word(step_idx, 9u);
+  let digest_2 = load_step_word(step_idx, 10u);
+  let digest_3 = load_step_word(step_idx, 11u);
+
+  let logical_span = logical_window & 0xffffu;
+  let window_bits = logical_window >> 16u;
+  let effective_window_bits = min_window_bits(window_bits);
+  let digit_count = digit_bucket & 0xffffu;
+  let bucket_count = digit_bucket >> 16u;
+  let bounded_digit_count = min(digit_count, params.digit_stride_entries);
+  let bounded_bucket_count = max(1u, min(bucket_count, params.bucket_stride_words));
+
+  var bucket_idx = 0u;
+  loop {
+    if (bucket_idx >= params.bucket_stride_words) {
+      break;
+    }
+    bucket_words[step_idx * params.bucket_stride_words + bucket_idx] = 0u;
+    bucket_idx = bucket_idx + 1u;
+  }
+
+  var digit_idx = 0u;
+  loop {
+    if (digit_idx >= bounded_digit_count) {
+      break;
+    }
+    let pair_offset = (step_idx * params.digit_stride_entries + digit_idx) * 2u;
+    let packed_slot = digit_words[pair_offset];
+    let packed_digit = digit_words[pair_offset + 1u];
+    let slot = packed_slot & 0xffffu;
+    let window_ordinal = (packed_slot >> 16u) & 0xffu;
+    let signed_odd_digit = packed_digit & 0xffffu;
+    let sign_bit = packed_digit >> 31u;
+    if (slot != 0xffffu && slot < bounded_bucket_count) {
+      let gathered = rotl32(
+        signed_odd_digit
+        ^ digest_0
+        ^ (digest_1 + window_ordinal + digit_idx)
+        ^ (logical_span * 13u)
+        ^ (effective_window_bits * 29u),
+        ((digit_idx + class_id + source_kind + window_ordinal) & 15u) + 1u,
+      );
+      let signed_gathered = select(gathered, 0u - gathered, sign_bit == 1u);
+      let bucket_offset = step_idx * params.bucket_stride_words + slot;
+      bucket_words[bucket_offset] =
+        bucket_words[bucket_offset] + signed_gathered + digest_2 + digest_3;
+    }
+    digit_idx = digit_idx + 1u;
+  }
+}
+        `;
+      }
+
+      function createWebGpuBucketReduceShaderCode() {
+        return `
+struct Params {
+  total_steps: u32,
+  proxy_rounds: u32,
+  seed: u32,
+  words_per_step: u32,
+  digit_stride_entries: u32,
+  bucket_stride_words: u32,
+};
+
+@group(0) @binding(0) var<storage, read> input_words: array<u32>;
+@group(0) @binding(1) var<storage, read> recode_words: array<u32>;
+@group(0) @binding(2) var<storage, read_write> stage_two_words: array<u32>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+fn rotl32(value: u32, shift: u32) -> u32 {
+  return (value << shift) | (value >> (32u - shift));
+}
+
+fn load_step_word(step_idx: u32, word_idx: u32) -> u32 {
+  return input_words[step_idx * params.words_per_step + word_idx];
+}
+
+@compute @workgroup_size(${WEBGPU_WORKGROUP_SIZE})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let step_idx = gid.x;
+  if (step_idx >= params.total_steps) {
+    return;
+  }
+
+  let class_id = load_step_word(step_idx, 0u);
+  let source_kind = load_step_word(step_idx, 1u);
+  let logical_window = load_step_word(step_idx, 3u);
+  let digit_bucket = load_step_word(step_idx, 4u);
+  let class_reuse = load_step_word(step_idx, 5u);
+  let slot_index = load_step_word(step_idx, 7u);
+  let digest_0 = load_step_word(step_idx, 8u);
+  let digest_1 = load_step_word(step_idx, 9u);
+  let digest_2 = load_step_word(step_idx, 10u);
+  let digest_3 = load_step_word(step_idx, 11u);
+
+  let window_bits = logical_window >> 16u;
+  let bucket_count = digit_bucket >> 16u;
+  let bounded_bucket_count = max(1u, min(bucket_count, params.bucket_stride_words));
+  var running = 0u;
+  var acc = params.seed ^ slot_index ^ class_reuse;
+  var bucket_idx = bounded_bucket_count;
+  loop {
+    if (bucket_idx == 0u) {
+      break;
+    }
+    let current = bucket_idx - 1u;
+    let bucket_value = recode_words[step_idx * params.bucket_stride_words + current];
+    running = running + bucket_value;
+    acc = rotl32(
+      acc ^ running ^ (current * 0x9e3779b9u),
+      ((current + class_id + source_kind + window_bits) & 15u) + 1u,
+    );
+    bucket_idx = current;
+  }
+
+  stage_two_words[step_idx] = acc ^ digest_0 ^ digest_1 ^ digest_2 ^ digest_3;
+}
+        `;
+      }
+
+      function createWebGpuDependencyMergeNormalizeShaderCode() {
+        return `
+struct Params {
+  total_steps: u32,
+  proxy_rounds: u32,
+  seed: u32,
+  words_per_step: u32,
+  digit_stride_entries: u32,
+  bucket_stride_words: u32,
+};
+
+@group(0) @binding(0) var<storage, read> input_words: array<u32>;
+@group(0) @binding(1) var<storage, read> stage_one_words: array<u32>;
+@group(0) @binding(2) var<storage, read_write> output_words: array<u32>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+fn rotl32(value: u32, shift: u32) -> u32 {
+  return (value << shift) | (value >> (32u - shift));
+}
+
+fn load_step_word(step_idx: u32, word_idx: u32) -> u32 {
+  return input_words[step_idx * params.words_per_step + word_idx];
+}
+
+@compute @workgroup_size(${WEBGPU_WORKGROUP_SIZE})
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let step_idx = gid.x;
+  if (step_idx >= params.total_steps) {
+    return;
+  }
+
+  let class_id = load_step_word(step_idx, 0u);
+  let source_kind = load_step_word(step_idx, 1u);
+  let logical_window = load_step_word(step_idx, 3u);
+  let class_reuse = load_step_word(step_idx, 5u);
+  let deps = load_step_word(step_idx, 6u);
+  let digest_0 = load_step_word(step_idx, 8u);
+  let digest_1 = load_step_word(step_idx, 9u);
+  let digest_2 = load_step_word(step_idx, 10u);
+  let digest_3 = load_step_word(step_idx, 11u);
+  let modeled_counts = load_step_word(step_idx, 12u);
+
+  let dependency_left = deps & 0xffffu;
+  let dependency_right = deps >> 16u;
+  let normalization_count = modeled_counts & 0xffffu;
+  let dependency_merge_count = modeled_counts >> 16u;
+  let logical_span = logical_window & 0xffffu;
+  let window_bits = logical_window >> 16u;
+
+  var acc = stage_one_words[step_idx] ^ params.seed ^ class_reuse ^ digest_0 ^ digest_1;
+  if (dependency_left != 0xffffu && dependency_left < params.total_steps) {
+    let merged = stage_one_words[dependency_left];
+    acc = rotl32(acc ^ merged ^ digest_2, ((class_id + 3u) & 15u) + 1u);
+  }
+  if (dependency_right != 0xffffu && dependency_right < params.total_steps) {
+    let merged = stage_one_words[dependency_right];
+    acc = rotl32(acc + merged + digest_3, ((source_kind + 5u) & 15u) + 1u);
+  }
+
+  var merge_round = 0u;
+  loop {
+    if (merge_round >= max(1u, dependency_merge_count)) {
+      break;
+    }
+    let lane = (step_idx + merge_round + class_id + source_kind) % params.total_steps;
+    acc = rotl32(
+      acc ^ stage_one_words[lane] ^ (merge_round * 0x85ebca6bu),
+      ((merge_round + window_bits) & 15u) + 1u,
+    );
+    merge_round = merge_round + 1u;
+  }
+
+  var norm_round = 0u;
+  let total_norm_rounds = max(1u, normalization_count) + params.proxy_rounds;
+  loop {
+    if (norm_round >= total_norm_rounds) {
+      break;
+    }
+    acc = rotl32(
+      acc ^ (acc >> 7u) ^ (logical_span * 31u) ^ (window_bits * 17u),
+      ((norm_round + class_id + source_kind) & 15u) + 1u,
+    );
+    norm_round = norm_round + 1u;
+  }
+
+  output_words[step_idx] = acc ^ digest_0 ^ digest_1 ^ digest_2 ^ digest_3;
+}
+        `;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function requireSection(manifest, kind) {
+        const section = manifest.sections.find((entry) => entry.kind === kind);
+        if (!section) {
+          throw new Error(`missing manifest section: ${kind}`);
+        }
+        return section;
+      }
+
+      function readSection(bytes, section) {
+        return bytes.slice(section.offset_bytes, section.offset_bytes + section.length_bytes);
+      }
+
+      function readAscii(bytes, offset, length) {
+        return new TextDecoder().decode(bytes.slice(offset, offset + length));
+      }
+
+      function readU8(bytes, offset) {
+        return bytes[offset];
+      }
+
+      function decodeOptionalU16(value) {
+        return value === 0xffff ? null : value;
+      }
+
+      function readU16(bytes, offset) {
+        return bytes[offset] | (bytes[offset + 1] << 8);
+      }
+
+      function readU32(bytes, offset) {
+        return (
+          bytes[offset] |
+          (bytes[offset + 1] << 8) |
+          (bytes[offset + 2] << 16) |
+          (bytes[offset + 3] << 24)
+        ) >>> 0;
+      }
+
+      function readU64(bytes, offset) {
+        return (
+          BigInt(readU32(bytes, offset)) |
+          (BigInt(readU32(bytes, offset + 4)) << 32n)
+        );
+      }
+
+      function readLenPrefixedString(bytes, getCursor, setCursor) {
+        const cursor = getCursor();
+        const length = readU16(bytes, cursor);
+        const next = cursor + 2 + length;
+        const value = new TextDecoder().decode(bytes.slice(cursor + 2, next));
+        setCursor(next);
+        return value;
+      }
+
+      function className(classId) {
+        switch (classId) {
+          case 1: return "add_lane";
+          case 2: return "schedule_derived";
+          case 3: return "round_constant";
+          case 4: return "round_state";
+          case 5: return "output_projector";
+          case 6: return "context_participant";
+          default: return `unknown:${classId}`;
+        }
+      }
+
+      function roundStateStageIndex(sourceKindId) {
+        switch (sourceKindId) {
+          case 6: return 2;
+          case 7: return 3;
+          case 8: return 4;
+          case 9: return 5;
+          default: throw new Error(`unexpected round-state source section id: ${sourceKindId}`);
+        }
+      }
+
+      function emptyEvaluatorOps() {
+        return {
+          recoded_scalar_digits: 0,
+          precomputed_window_bits_loaded: 0,
+          bucket_accumulations: 0,
+          bucket_reductions: 0,
+          accumulator_curve_additions: 0,
+          dependency_merges: 0,
+          point_normalizations: 0,
+        };
+      }
+
+      function accumulateEvaluatorOps(into, other) {
+        into.recoded_scalar_digits += other.recoded_scalar_digits;
+        into.precomputed_window_bits_loaded += other.precomputed_window_bits_loaded;
+        into.bucket_accumulations += other.bucket_accumulations;
+        into.bucket_reductions += other.bucket_reductions;
+        into.accumulator_curve_additions += other.accumulator_curve_additions;
+        into.dependency_merges += other.dependency_merges;
+        into.point_normalizations += other.point_normalizations;
+      }
+
+      function evaluatorOpsForRecord(classId, windowBits, digitCount, bucketCount, dependencyLeft, dependencyRight) {
+        const dependencyCount = Number(dependencyLeft !== null) + Number(dependencyRight !== null);
+        const bucketReductions = Math.max(0, bucketCount - 1);
+
+        switch (classId) {
+          case 1:
+            return {
+              recoded_scalar_digits: digitCount,
+              precomputed_window_bits_loaded: windowBits * digitCount,
+              bucket_accumulations: digitCount,
+              bucket_reductions: bucketReductions,
+              accumulator_curve_additions: 1,
+              dependency_merges: 0,
+              point_normalizations: 1,
+            };
+          case 2:
+            return {
+              recoded_scalar_digits: digitCount + dependencyCount,
+              precomputed_window_bits_loaded: windowBits * digitCount,
+              bucket_accumulations: digitCount + dependencyCount,
+              bucket_reductions: bucketReductions,
+              accumulator_curve_additions: 1 + dependencyCount,
+              dependency_merges: dependencyCount,
+              point_normalizations: 1,
+            };
+          case 4:
+            return {
+              recoded_scalar_digits: digitCount + dependencyCount * 2,
+              precomputed_window_bits_loaded: windowBits * (digitCount + dependencyCount),
+              bucket_accumulations: bucketCount + dependencyCount,
+              bucket_reductions: bucketReductions,
+              accumulator_curve_additions: 2 + dependencyCount * 2,
+              dependency_merges: dependencyCount * 2,
+              point_normalizations: 1,
+            };
+          case 5:
+            return {
+              recoded_scalar_digits: digitCount,
+              precomputed_window_bits_loaded: windowBits * digitCount,
+              bucket_accumulations: bucketCount,
+              bucket_reductions: bucketReductions,
+              accumulator_curve_additions: 2,
+              dependency_merges: 0,
+              point_normalizations: 2,
+            };
+          default:
+            return emptyEvaluatorOps();
+        }
+      }
+
+      function estimatedCurveCostUnitsFor(ops) {
+        return (
+          ops.recoded_scalar_digits * 2 +
+          ops.precomputed_window_bits_loaded +
+          ops.bucket_accumulations * 4 +
+          ops.bucket_reductions * 5 +
+          ops.accumulator_curve_additions * 8 +
+          ops.dependency_merges * 6 +
+          ops.point_normalizations * 12
+        );
+      }
+
+      function openDatabase(name) {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(name, 1);
+          request.onupgradeneeded = () => {
+            request.result.createObjectStore("artifact_bytes");
+          };
+          request.onerror = () => reject(request.error ?? new Error("failed to open IndexedDB"));
+          request.onsuccess = () => resolve(request.result);
+        });
+      }
+
+      function putValue(db, storeName, key, value) {
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(storeName, "readwrite");
+          const store = tx.objectStore(storeName);
+          store.put(value, key);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error ?? new Error("IndexedDB put failed"));
+          tx.onabort = () => reject(tx.error ?? new Error("IndexedDB put aborted"));
+        });
+      }
+
+      function getValue(db, storeName, key) {
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(storeName, "readonly");
+          const store = tx.objectStore(storeName);
+          const request = store.get(key);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error ?? new Error("IndexedDB get failed"));
+        });
+      }
+
+      async function loadJson(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`failed to fetch bundle: ${response.status} ${response.statusText}`);
+        }
+        return await response.json();
+      }
+
+      async function fetchBinary(url) {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`failed to fetch binary: ${response.status} ${response.statusText}`);
+        }
+        const buffer = await response.arrayBuffer();
+        return new Uint8Array(buffer);
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const bundleParam = params.get("bundle");
+      if (bundleParam) {
+        bundlePathInput.value = bundleParam;
+      }
+      if (params.get("autorun") === "1") {
+        void runBenchmark();
+      }
+    </script>
+  </body>
+</html>
