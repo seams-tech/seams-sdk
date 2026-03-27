@@ -608,6 +608,89 @@ test.describe('confirmTxFlow – defensive paths', () => {
     expect(result.allowIds).toEqual(['cred-new']);
   });
 
+  test('DECRYPT_PRIVATE_KEY_WITH_PRF forwards a caller-bound challenge when provided', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.localOnly);
+        const types = await import(paths.types);
+        const handleLocalOnlyFlow = mod.handleLocalOnlyFlow as Function;
+
+        let capturedChallengeB64u: string | null = null;
+        const ctx: any = {
+          indexedDB: {
+            clientDB: {
+              resolveNearAccountContext: async (nearAccountId: string) => ({
+                profileId: `legacy-near:${String(nearAccountId)}`,
+                sourceChainIdKey: 'near:testnet',
+                sourceAccountAddress: String(nearAccountId),
+              }),
+              listProfileAuthenticators: async () => [],
+              selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
+                authenticatorsForPrompt: authenticators,
+                wrongPasskeyError: undefined,
+              }),
+            },
+          },
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async ({
+              challengeB64u,
+            }: any) => {
+              capturedChallengeB64u = String(challengeB64u || '');
+              return {
+                id: 'cred-new',
+                type: 'public-key',
+                rawId: 'cred-new',
+                response: {
+                  clientDataJSON: 'AQ',
+                  authenticatorData: 'Ag',
+                  signature: 'Aw',
+                  userHandle: undefined,
+                },
+                clientExtensionResults: {
+                  prf: {
+                    results: { first: 'BQ', second: 'Bg' },
+                  },
+                },
+              } as any;
+            },
+          },
+        };
+
+        const request = {
+          requestId: 'decrypt-bound-challenge',
+          type: types.UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+          summary: {},
+          payload: {
+            nearAccountId: 'alice.testnet',
+            publicKey: 'ed25519:recovery-key',
+            challengeB64u: 'bound-export-challenge-b64u',
+          },
+        } as any;
+
+        const workerMessages: any[] = [];
+        const worker = { postMessage: (msg: any) => workerMessages.push(msg) } as unknown as Worker;
+
+        await handleLocalOnlyFlow(ctx, request, worker, {
+          confirmationConfig: { uiMode: 'none', behavior: 'requireClick', autoProceedDelay: 0 },
+          transactionSummary: {},
+          theme: 'dark',
+        });
+
+        return {
+          confirmed: workerMessages[0]?.data?.confirmed,
+          capturedChallengeB64u,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.confirmed).toBe(true);
+    expect(result.capturedChallengeB64u).toBe('bound-export-challenge-b64u');
+  });
+
   test('Signing flow: missing PRF output surfaces error', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

@@ -98,8 +98,6 @@ async function installThresholdRegistrationBootstrapMock(
     const rpId = String(payload?.rp_id || '').trim() || 'example.localhost';
     const nowMs = Date.now();
 
-    const localNearPublicKey = String(payload?.new_public_key || '').trim();
-    if (localNearPublicKey) input.onNewPublicKey(localNearPublicKey);
     if (accountId) input.onNewAccountId?.(accountId);
 
     const signThresholdSessionJwt = async (args: {

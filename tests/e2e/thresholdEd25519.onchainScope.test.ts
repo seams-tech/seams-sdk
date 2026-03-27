@@ -11,10 +11,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 
@@ -31,8 +31,6 @@ test.describe('threshold-ed25519 on-chain scope', () => {
     const keysOnChainClient = new Set<string>();
     const keysOnChainServer = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChainServer);
     await service.getRelayerAccount();
@@ -50,11 +48,9 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        relayerCounts.keygen += 1;
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        const req = route.request();
+        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
+        await route.fallback();
       });
 
       await page.route(`${srv.baseUrl}/threshold-ed25519/session`, async (route) => {
@@ -79,32 +75,18 @@ test.describe('threshold-ed25519 on-chain scope', () => {
         await route.fallback();
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChainClient.add(pk);
-          keysOnChainServer.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain: keysOnChainClient,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain: keysOnChainClient,
         nonceByPublicKey,
-        onSendTx: () => {
-          // Enrollment AddKey(threshold pk): add ONLY for the client-side chain view.
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChainClient.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-        },
         strictAccessKeyLookup: true,
       });
 
@@ -130,14 +112,23 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              throw new Error(enrollment?.error || 'threshold enrollment failed');
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
@@ -164,7 +155,7 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('not an active access key');
-      expect(relayerCounts.keygen).toBeGreaterThanOrEqual(1);
+      expect(relayerCounts.keygen).toBe(0);
       expect(relayerCounts.session).toBeGreaterThanOrEqual(1);
       expect(relayerCounts.authorize).toBe(0);
       expect(relayerCounts.init).toBe(0);

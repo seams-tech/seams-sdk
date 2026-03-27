@@ -13,10 +13,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_delegate_signing_digest } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -33,8 +33,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
   }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -50,36 +48,21 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        await route.fallback();
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain,
         nonceByPublicKey,
-        onSendTx: () => {
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-        },
         strictAccessKeyLookup: true,
       });
 
@@ -87,8 +70,8 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
         | {
             ok: true;
             accountId: string;
-            thresholdPublicKey: string;
-            localPublicKey: string;
+            operationalPublicKey: string;
+            recoveryPublicKey: string;
             signingPayload: unknown;
             signature: number[];
           }
@@ -99,6 +82,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -116,20 +100,33 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+              accountId,
+              1,
+            );
 
-            const thresholdPublicKey = String(enrollment.publicKey || '');
-            const localPublicKey = String(reg.clientNearPublicKey || '');
+            const operationalPublicKey = String(reg.operationalPublicKey || '');
+            const recoveryPublicKey = String(thresholdKeyMaterial?.recoveryPublicKey || '');
 
             const actions = [{ type: ActionType.Transfer, amount: '1' }];
             const wasmActions = actions.map(toActionArgsWasm);
@@ -139,7 +136,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
               actions,
               nonce: 1,
               maxBlockHeight: 999_999,
-              publicKey: thresholdPublicKey,
+              publicKey: operationalPublicKey,
             };
 
             const signed = await pm.near.signDelegateAction({
@@ -172,8 +169,8 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             return {
               ok: true,
               accountId,
-              thresholdPublicKey,
-              localPublicKey,
+              operationalPublicKey,
+              recoveryPublicKey,
               signingPayload: {
                 kind: 'nep461_delegate',
                 delegate: {
@@ -182,7 +179,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
                   actions: wasmActions,
                   nonce: signedNonce || String(delegate.nonce),
                   maxBlockHeight: signedMaxBlockHeight || String(delegate.maxBlockHeight),
-                  publicKey: thresholdPublicKey,
+                  publicKey: operationalPublicKey,
                 },
               },
               signature: sigBytes,
@@ -214,10 +211,10 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
       const sigBytes = Uint8Array.from(result.signature);
       expect(sigBytes.length).toBe(64);
 
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.operationalPublicKey)))).toBe(
         true,
       );
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.recoveryPublicKey)))).toBe(
         false,
       );
     } finally {

@@ -24,24 +24,20 @@ test.describe('privateKeyExportRecovery method binding', () => {
           clientDB: {
             resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
             getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
-            getNearAccountProjection: async () => ({ clientNearPublicKey: 'ed25519:pub' }),
           },
-          getNearLocalKeyMaterial: async () => ({
-            publicKey: 'ed25519:pub',
-            encryptedSk: 'encrypted-sk',
-            chacha20NonceB64u: 'nonce',
-            wrapKeySalt: 'salt',
+          getNearThresholdKeyMaterial: async () => ({
+            publicKey: 'ed25519:operational-pub',
+            recoveryPublicKey: 'ed25519:recovery-pub',
+            relayerKeyId: 'ed25519:operational-pub',
+            artifactKind: 'near-ed25519-option-b-v1',
+            keyVersion: 'option-b-v1',
+            recoveryExportCapable: true,
           }),
-          getNearThresholdKeyMaterial: async () => null,
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
         getTheme: () => 'dark',
-        signingKeyOps: {
-          recoverKeypairFromPasskey: async () => {
-            throw new Error('unused');
-          },
-        },
-        createSessionId: () => 'session-unused',
+        relayerUrl: 'https://relay.example.test',
+        getRpId: () => 'wallet.example.test',
       },
       {
         nearAccountId: 'alice.testnet' as any,
@@ -59,6 +55,10 @@ test.describe('privateKeyExportRecovery method binding', () => {
       deviceNumber: 9,
       chain: 'near',
       variant: 'drawer',
+      relayerUrl: 'https://relay.example.test',
+      relayerKeyId: 'ed25519:operational-pub',
+      rpId: 'wallet.example.test',
+      recoveryPublicKey: 'ed25519:recovery-pub',
       theme: 'dark',
     });
   });

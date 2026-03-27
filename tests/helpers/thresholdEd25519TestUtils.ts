@@ -4,7 +4,9 @@ import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/
 import { createEcdsaAuthSessionStore } from '@server/core/ThresholdService/stores/AuthSessionStore';
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
+import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import type { WebAuthnAuthenticationCredential } from '@server/core/types';
 import { readFileSync } from 'node:fs';
 import { initSync as initWasmSignerSync } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
@@ -25,17 +27,34 @@ export function silentLogger() {
 
 export function createThresholdSigningServiceForUnitTests(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
+  logger?: {
+    debug?: (...args: unknown[]) => void;
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  } | null;
   keyRecord?: {
+    nearAccountId?: string;
+    rpId?: string;
     publicKey: string;
+    recoveryPublicKey?: string;
     relayerSigningShareB64u: string;
     relayerVerifyingShareB64u: string;
+    keyVersion?: string;
+    recoveryExportCapable?: boolean;
   } | null;
   accessKeysOnChain?: string[] | null;
+  verifyWebAuthnAuthenticationLite?: ((request: {
+    nearAccountId: string;
+    rpId: string;
+    expectedChallenge: string;
+    webauthn_authentication: WebAuthnAuthenticationCredential;
+  }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>) | null;
 }): {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
 } {
-  const logger = silentLogger();
+  const logger = input.logger || silentLogger();
   const sessionStore = createThresholdEd25519SessionStore({
     config: { kind: 'in-memory' },
     logger,
@@ -67,11 +86,34 @@ export function createThresholdSigningServiceForUnitTests(input: {
   });
 
   const keyRecord = input.keyRecord ?? null;
+  const parsedKeyRecord = parseThresholdEd25519KeyRecord(
+    keyRecord
+      ? {
+          nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
+          rpId: keyRecord.rpId || 'wallet.example.test',
+          publicKey: keyRecord.publicKey,
+          ...(keyRecord.recoveryPublicKey ? { recoveryPublicKey: keyRecord.recoveryPublicKey } : {}),
+          relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,
+          relayerVerifyingShareB64u: keyRecord.relayerVerifyingShareB64u,
+          ...(keyRecord.keyVersion ? { keyVersion: keyRecord.keyVersion } : {}),
+          ...(typeof keyRecord.recoveryExportCapable === 'boolean'
+            ? { recoveryExportCapable: keyRecord.recoveryExportCapable }
+            : {}),
+        }
+      : null,
+  );
   const accessKeysOnChain = input.accessKeysOnChain ?? null;
+  const verifyWebAuthnAuthenticationLite =
+    input.verifyWebAuthnAuthenticationLite ||
+    (async () => ({ success: true, verified: true }));
 
   const svc = new ThresholdSigningService({
     logger,
-    keyStore: { get: async () => keyRecord, put: async () => {}, del: async () => {} },
+    keyStore: {
+      get: async () => parsedKeyRecord,
+      put: async () => {},
+      del: async () => {},
+    },
     sessionStore,
     authSessionStore: {
       putSession: async () => {},
@@ -89,7 +131,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
     ensureSignerWasm: async () => {
       ensureSignerWasmForUnitTests();
     },
-    verifyWebAuthnAuthenticationLite: async () => ({ success: true, verified: true }),
+    verifyWebAuthnAuthenticationLite,
     viewAccessKeyList: async () =>
       ({
         keys: (accessKeysOnChain || []).map((publicKey) => ({

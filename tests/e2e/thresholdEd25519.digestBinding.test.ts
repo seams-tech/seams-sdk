@@ -6,83 +6,28 @@
  */
 
 import { test, expect } from '@playwright/test';
-import bs58 from 'bs58';
-import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
-import { AuthService } from '@server/core/AuthService';
-import { createThresholdSigningService } from '@server/core/ThresholdService';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
-import { createInMemoryJwtSessionAdapter } from './thresholdEd25519.testUtils';
-
-function makeAuthServiceForThreshold(keysOnChain: Set<string>): {
-  service: AuthService;
-  threshold: ReturnType<typeof createThresholdSigningService>;
-} {
-  const svc = new AuthService({
-    relayerAccount: 'relayer.testnet',
-    relayerPrivateKey: 'ed25519:dummy',
-    nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
-    networkId: DEFAULT_TEST_CONFIG.nearNetwork,
-    accountInitialBalance: '1',
-    createAccountAndRegisterGas: '1',
-    logger: null,
-  });
-
-  // Avoid WebAuthn ceremony verification in threshold routes; we only want to test digest binding logic.
-  (
-    svc as unknown as {
-      verifyWebAuthnAuthenticationLite: (
-        req: unknown,
-      ) => Promise<{ success: boolean; verified: boolean }>;
-    }
-  ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
-
-  // /authorize requires the relayer key be an active access key on-chain.
-  // Model this with an in-memory set that we mutate in mocked NEAR RPC send_tx.
-  (
-    svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }
-  ).nearClient.viewAccessKeyList = async (_accountId: string) => {
-    const keys = Array.from(keysOnChain).map((publicKey) => ({
-      public_key: publicKey,
-      access_key: { nonce: 0, permission: 'FullAccess' as const },
-    }));
-    return { keys };
-  };
-
-  const threshold = createThresholdSigningService({
-    authService: svc,
-    thresholdEd25519KeyStore: { kind: 'in-memory', THRESHOLD_NODE_ROLE: 'coordinator' },
-    logger: null,
-  });
-
-  return { service: svc, threshold };
-}
+import {
+  createInMemoryJwtSessionAdapter,
+  installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
+  makeAuthServiceForThreshold,
+  persistThresholdEd25519OptionBBootstrap,
+  setupThresholdE2ePage,
+} from './thresholdEd25519.testUtils';
 
 test.describe('threshold-ed25519 digest binding', () => {
   test.setTimeout(180_000);
 
   test.beforeEach(async ({ page }) => {
-    const blankPageUrl = new URL('/__test_blank.html', DEFAULT_TEST_CONFIG.frontendUrl).toString();
-    await setupBasicPasskeyTest(page, {
-      frontendUrl: blankPageUrl,
-      skipPasskeyManagerInit: true,
-    });
-
-    // The WebAuthn mocks expect base64UrlEncode/base64UrlDecode to exist on window.
-    await page.evaluate(async (base64Path) => {
-      const { base64UrlEncode, base64UrlDecode } = await import(base64Path);
-      (window as any).base64UrlEncode = base64UrlEncode;
-      (window as any).base64UrlDecode = base64UrlDecode;
-    }, SDK_ESM_PATHS.base64);
+    await setupThresholdE2ePage(page);
   });
 
   test('rejects tampered signingPayload (signing_digest mismatch)', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    const accountsOnChain = new Set<string>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -99,37 +44,10 @@ test.describe('threshold-ed25519 digest binding', () => {
     const relayerCounts = { authorize: 0, init: 0, finalize: 0, keygen: 0 };
 
     try {
-      // Capture threshold public key from /keygen so mocked NEAR RPC can "activate" it on send_tx.
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
         const req = route.request();
-        const method = req.method().toUpperCase();
-        if (method !== 'POST') return route.fallback();
-        relayerCounts.keygen += 1;
-
-        const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const contentType =
-          req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
-        const body = req.postData() || '';
-
-        const res = await fetch(req.url(), {
-          method: 'POST',
-          headers: {
-            'Content-Type': contentType,
-            ...(origin ? { Origin: origin } : {}),
-          },
-          body,
-        });
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text || '{}');
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-        } catch {}
-
-        await route.fulfill({
-          status: res.status,
-          headers: Object.fromEntries(res.headers.entries()),
-          body: text,
-        });
+        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
+        await route.fallback();
       });
 
       // Tamper the authorize body by mutating the signingPayload after it was intent-bound.
@@ -164,197 +82,19 @@ test.describe('threshold-ed25519 digest binding', () => {
         await route.fallback();
       });
 
-      await page.route(`${srv.baseUrl}/registration/bootstrap`, async (route) => {
-        const req = route.request();
-        const method = req.method().toUpperCase();
-        if (method === 'OPTIONS') return route.fallback();
-
-        const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const corsHeaders = {
-          'Access-Control-Allow-Origin': origin || '*',
-          'Access-Control-Allow-Methods': 'POST,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        };
-
-        const payload = JSON.parse(req.postData() || '{}');
-        localNearPublicKey = String(payload?.new_public_key || '');
-        const accountId = String(payload?.new_account_id || '');
-        if (localNearPublicKey) {
-          keysOnChain.add(localNearPublicKey);
-          nonceByPublicKey.set(localNearPublicKey, 0);
-        }
-        if (accountId) {
-          accountsOnChain.add(accountId);
-        }
-
-        await route.fulfill({
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ success: true, transactionHash: `mock_atomic_tx_${Date.now()}` }),
-        });
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
+        relayerBaseUrl: srv.baseUrl,
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+        },
       });
 
-      await page.route('**://test.rpc.fastnear.com/**', async (route) => {
-        const req = route.request();
-        const method = req.method().toUpperCase();
-        const corsHeaders = {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        };
-        if (method === 'OPTIONS')
-          return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
-        if (method !== 'POST') return route.fallback();
-
-        let body: any = {};
-        try {
-          body = JSON.parse(req.postData() || '{}');
-        } catch {}
-        const rpcMethod = body?.method;
-        const params = body?.params || {};
-        const id = body?.id ?? '1';
-
-        const blockHash = bs58.encode(Buffer.alloc(32, 7));
-        const blockHeight = 424242;
-
-        if (rpcMethod === 'block') {
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: { header: { hash: blockHash, height: blockHeight } },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'call_function') {
-          const resultBytes = Array.from(Buffer.from(JSON.stringify({ verified: true }), 'utf8'));
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { result: resultBytes, logs: [] } }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_account') {
-          const accountId = String(params?.account_id || '');
-          if (!accountsOnChain.has(accountId)) {
-            return route.fulfill({
-              status: 200,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id,
-                error: {
-                  code: -32000,
-                  message: 'UNKNOWN_ACCOUNT',
-                  data: 'UNKNOWN_ACCOUNT',
-                },
-              }),
-            });
-          }
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                amount: '0',
-                locked: '0',
-                code_hash: '11111111111111111111111111111111',
-                storage_usage: 0,
-                storage_paid_at: 0,
-                block_height: blockHeight,
-                block_hash: blockHash,
-              },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_access_key') {
-          const publicKey = String(params?.public_key || '');
-          // Simulate real NEAR behavior: unknown access keys return an RPC error.
-          // This ensures threshold enrollment actually performs AddKey(thresholdPublicKey).
-          if (publicKey && !keysOnChain.has(publicKey)) {
-            return route.fulfill({
-              status: 200,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id,
-                error: {
-                  code: -32000,
-                  message: 'Unknown access key',
-                  data: { public_key: publicKey },
-                },
-              }),
-            });
-          }
-          const nonce = nonceByPublicKey.get(publicKey) ?? 0;
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                block_hash: blockHash,
-                block_height: blockHeight,
-                nonce,
-                permission: 'FullAccess',
-              },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
-          const keys: any[] = Array.from(keysOnChain).map((pk) => ({
-            public_key: pk,
-            access_key: { nonce: nonceByPublicKey.get(pk) ?? 0, permission: 'FullAccess' },
-          }));
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { keys } }),
-          });
-        }
-
-        if (rpcMethod === 'send_tx') {
-          // Enrollment activation AddKey(threshold pk).
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                status: { SuccessValue: '' },
-                transaction: { hash: `mock-tx-${Date.now()}` },
-                transaction_outcome: { id: `mock-tx-outcome-${Date.now()}` },
-                receipts_outcome: [],
-              },
-            }),
-          });
-        }
-
-        return route.fulfill({
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ jsonrpc: '2.0', id, result: {} }),
-        });
+      await installFastNearRpcMock(page, {
+        keysOnChain,
+        nonceByPublicKey,
+        strictAccessKeyLookup: true,
       });
 
       const result = await page.evaluate(
@@ -379,14 +119,23 @@ test.describe('threshold-ed25519 digest binding', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
@@ -414,7 +163,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('signing_digest_mismatch');
-      expect(relayerCounts.keygen).toBeGreaterThanOrEqual(1);
+      expect(relayerCounts.keygen).toBe(0);
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(1);
       expect(relayerCounts.init).toBe(0);
       expect(relayerCounts.finalize).toBe(0);
@@ -426,9 +175,6 @@ test.describe('threshold-ed25519 digest binding', () => {
   test('rejects tampered signing_digest_32 (signing_digest mismatch)', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    const accountsOnChain = new Set<string>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -447,34 +193,8 @@ test.describe('threshold-ed25519 digest binding', () => {
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
         const req = route.request();
-        const method = req.method().toUpperCase();
-        if (method !== 'POST') return route.fallback();
-        relayerCounts.keygen += 1;
-
-        const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const contentType =
-          req.headers()['content-type'] || req.headers()['Content-Type'] || 'application/json';
-        const body = req.postData() || '';
-
-        const res = await fetch(req.url(), {
-          method: 'POST',
-          headers: {
-            'Content-Type': contentType,
-            ...(origin ? { Origin: origin } : {}),
-          },
-          body,
-        });
-        const text = await res.text();
-        try {
-          const json = JSON.parse(text || '{}');
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-        } catch {}
-
-        await route.fulfill({
-          status: res.status,
-          headers: Object.fromEntries(res.headers.entries()),
-          body: text,
-        });
+        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
+        await route.fallback();
       });
 
       // Tamper signing_digest_32 bytes while keeping signingPayload intact.
@@ -507,196 +227,19 @@ test.describe('threshold-ed25519 digest binding', () => {
         await route.fallback();
       });
 
-      await page.route(`${srv.baseUrl}/registration/bootstrap`, async (route) => {
-        const req = route.request();
-        const method = req.method().toUpperCase();
-        if (method === 'OPTIONS') return route.fallback();
-
-        const origin = req.headers()['origin'] || req.headers()['Origin'] || '';
-        const corsHeaders = {
-          'Access-Control-Allow-Origin': origin || '*',
-          'Access-Control-Allow-Methods': 'POST,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        };
-
-        const payload = JSON.parse(req.postData() || '{}');
-        localNearPublicKey = String(payload?.new_public_key || '');
-        const accountId = String(payload?.new_account_id || '');
-        if (localNearPublicKey) {
-          keysOnChain.add(localNearPublicKey);
-          nonceByPublicKey.set(localNearPublicKey, 0);
-        }
-        if (accountId) {
-          accountsOnChain.add(accountId);
-        }
-
-        await route.fulfill({
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ success: true, transactionHash: `mock_atomic_tx_${Date.now()}` }),
-        });
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
+        relayerBaseUrl: srv.baseUrl,
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+        },
       });
 
-      await page.route('**://test.rpc.fastnear.com/**', async (route) => {
-        const req = route.request();
-        const method = req.method().toUpperCase();
-        const corsHeaders = {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'POST,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
-        };
-        if (method === 'OPTIONS')
-          return route.fulfill({ status: 204, headers: corsHeaders, body: '' });
-        if (method !== 'POST') return route.fallback();
-
-        let body: any = {};
-        try {
-          body = JSON.parse(req.postData() || '{}');
-        } catch {}
-        const rpcMethod = body?.method;
-        const params = body?.params || {};
-        const id = body?.id ?? '1';
-
-        const blockHash = bs58.encode(Buffer.alloc(32, 7));
-        const blockHeight = 424242;
-
-        if (rpcMethod === 'block') {
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: { header: { hash: blockHash, height: blockHeight } },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'call_function') {
-          const resultBytes = Array.from(Buffer.from(JSON.stringify({ verified: true }), 'utf8'));
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { result: resultBytes, logs: [] } }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_account') {
-          const accountId = String(params?.account_id || '');
-          if (!accountsOnChain.has(accountId)) {
-            return route.fulfill({
-              status: 200,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id,
-                error: {
-                  code: -32000,
-                  message: 'UNKNOWN_ACCOUNT',
-                  data: 'UNKNOWN_ACCOUNT',
-                },
-              }),
-            });
-          }
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                amount: '0',
-                locked: '0',
-                code_hash: '11111111111111111111111111111111',
-                storage_usage: 0,
-                storage_paid_at: 0,
-                block_height: blockHeight,
-                block_hash: blockHash,
-              },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_access_key') {
-          const publicKey = String(params?.public_key || '');
-          // Simulate real NEAR behavior: unknown access keys return an RPC error.
-          // This ensures threshold enrollment actually performs AddKey(thresholdPublicKey).
-          if (publicKey && !keysOnChain.has(publicKey)) {
-            return route.fulfill({
-              status: 200,
-              headers: { 'Content-Type': 'application/json', ...corsHeaders },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id,
-                error: {
-                  code: -32000,
-                  message: 'Unknown access key',
-                  data: { public_key: publicKey },
-                },
-              }),
-            });
-          }
-          const nonce = nonceByPublicKey.get(publicKey) ?? 0;
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                block_hash: blockHash,
-                block_height: blockHeight,
-                nonce,
-                permission: 'FullAccess',
-              },
-            }),
-          });
-        }
-
-        if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
-          const keys: any[] = Array.from(keysOnChain).map((pk) => ({
-            public_key: pk,
-            access_key: { nonce: nonceByPublicKey.get(pk) ?? 0, permission: 'FullAccess' },
-          }));
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({ jsonrpc: '2.0', id, result: { keys } }),
-          });
-        }
-
-        if (rpcMethod === 'send_tx') {
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-          return route.fulfill({
-            status: 200,
-            headers: { 'Content-Type': 'application/json', ...corsHeaders },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id,
-              result: {
-                status: { SuccessValue: '' },
-                transaction: { hash: `mock-tx-${Date.now()}` },
-                transaction_outcome: { id: `mock-tx-outcome-${Date.now()}` },
-                receipts_outcome: [],
-              },
-            }),
-          });
-        }
-
-        return route.fulfill({
-          status: 200,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ jsonrpc: '2.0', id, result: {} }),
-        });
+      await installFastNearRpcMock(page, {
+        keysOnChain,
+        nonceByPublicKey,
+        strictAccessKeyLookup: true,
       });
 
       const result = await page.evaluate(
@@ -721,14 +264,23 @@ test.describe('threshold-ed25519 digest binding', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
 
@@ -755,7 +307,7 @@ test.describe('threshold-ed25519 digest binding', () => {
 
       expect(result.ok).toBe(true);
       expect(String(result.error)).toContain('signing_digest_mismatch');
-      expect(relayerCounts.keygen).toBeGreaterThanOrEqual(1);
+      expect(relayerCounts.keygen).toBe(0);
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(1);
       expect(relayerCounts.init).toBe(0);
       expect(relayerCounts.finalize).toBe(0);

@@ -13,9 +13,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
+  persistThresholdEd25519OptionBBootstrap,
   proxyPostJsonAndMutate,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
@@ -38,8 +39,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
   test('fails when /sign/init relayer commitments are tampered', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -55,10 +54,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        await route.fallback();
       });
 
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/init`, async (route) => {
@@ -83,30 +79,18 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
         });
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain,
         nonceByPublicKey,
-        onSendTx: () => {
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-        },
         strictAccessKeyLookup: true,
       });
 
@@ -132,14 +116,23 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              throw new Error(enrollment?.error || 'threshold enrollment failed');
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 
@@ -173,8 +166,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
   test('fails when /sign/finalize relayer signature share is tampered', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -190,10 +181,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        await route.fallback();
       });
 
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/finalize`, async (route) => {
@@ -209,30 +197,18 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
         });
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain,
         nonceByPublicKey,
-        onSendTx: () => {
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-        },
         strictAccessKeyLookup: true,
       });
 
@@ -258,14 +234,23 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              throw new Error(enrollment?.error || 'threshold enrollment failed');
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 

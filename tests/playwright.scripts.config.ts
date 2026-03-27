@@ -10,7 +10,7 @@ export default defineConfig({
   tsconfig: './tsconfig.playwright.json',
   build: { external: ['wasm/**/pkg/**'] },
   testDir: '.',
-  testMatch: ['**/unit/postgresVerifySplitDomains.script.unit.test.ts'],
+  testMatch: ['**/unit/*.script.unit.test.ts'],
   fullyParallel: false,
   retries: 0,
   workers: 1,

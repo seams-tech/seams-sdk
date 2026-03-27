@@ -37,6 +37,7 @@ test.describe('smart-account registration canonical records', () => {
             chain_id: 11155111,
             factory: `0x${'bb'.repeat(20)}`,
             entry_point: `0x${'cc'.repeat(20)}`,
+            recovery_authority: `0x${'dd'.repeat(20)}`,
             salt: '0x1234',
             counterfactual_address: `0x${'11'.repeat(20)}`,
           },
@@ -98,6 +99,7 @@ test.describe('smart-account registration canonical records', () => {
 
     expect(result.recoverySubjects[0]?.nearAccountId).toBe('alice.testnet');
     expect(result.recoverySubjects[0]?.metadata?.accountModel).toBe('erc4337');
+    expect(result.recoverySubjects[0]?.metadata?.recoveryAuthority).toBe(`0x${'dd'.repeat(20)}`);
     expect(result.recoverySubjects[1]?.metadata?.accountModel).toBe('tempo-native');
   });
 

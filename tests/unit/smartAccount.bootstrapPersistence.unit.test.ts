@@ -12,7 +12,7 @@ test.describe('smart-account bootstrap persistence', () => {
     await setupBasicPasskeyTest(page);
   });
 
-  test('threshold bootstrap persistence stores counterfactual account as undeployed', async ({
+  test('registration/bootstrap persistence stores undeployed smart account row', async ({
     page,
   }) => {
     const result = await page.evaluate(

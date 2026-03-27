@@ -5,6 +5,7 @@ import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import { makeSessionAdapter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
@@ -31,6 +32,10 @@ const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
 const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
   'base64url',
 );
+const DEFAULT_ED25519_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
+  'base64url',
+);
+const DUAL_KEY_ED25519_KEY_VERSION_V1 = 'option-b-v1';
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -39,6 +44,24 @@ export function makeAuthServiceForThreshold(
   service: AuthService;
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
+  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
+    THRESHOLD_NODE_ROLE: 'coordinator',
+    THRESHOLD_ED25519_MASTER_SECRET_B64U: DEFAULT_ED25519_MASTER_SECRET_B64U,
+    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
+  };
+  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
+    ? {
+        ...thresholdConfigDefaults,
+        ...thresholdEd25519KeyStore,
+        THRESHOLD_ED25519_MASTER_SECRET_B64U:
+          String(thresholdEd25519KeyStore.THRESHOLD_ED25519_MASTER_SECRET_B64U || '').trim() ||
+          DEFAULT_ED25519_MASTER_SECRET_B64U,
+        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
+          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
+          DEFAULT_ECDSA_MASTER_SECRET_B64U,
+      }
+    : thresholdConfigDefaults;
+
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
@@ -46,6 +69,7 @@ export function makeAuthServiceForThreshold(
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
+    thresholdEd25519KeyStore: thresholdConfig,
     logger: null,
   });
 
@@ -67,21 +91,6 @@ export function makeAuthServiceForThreshold(
     }));
     return { keys };
   };
-
-  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
-    THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
-  };
-  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
-    ? {
-        ...thresholdConfigDefaults,
-        ...thresholdEd25519KeyStore,
-        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
-          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
-          DEFAULT_ECDSA_MASTER_SECRET_B64U,
-      }
-    : thresholdConfigDefaults;
-
   const threshold = createThresholdSigningService({
     authService: svc,
     thresholdEd25519KeyStore: thresholdConfig,
@@ -89,6 +98,39 @@ export function makeAuthServiceForThreshold(
   });
 
   return { service: svc, threshold };
+}
+
+export async function persistThresholdEd25519OptionBBootstrap(input: {
+  threshold: ReturnType<typeof createThresholdSigningService>;
+  nearAccountId: string;
+  rpId: string;
+  clientVerifyingShareB64u: string;
+  publicKey: string;
+  recoveryPublicKey: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
+  keyVersion: string;
+}): Promise<void> {
+  const schemeAny = input.threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
+  if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
+    throw new Error(
+      `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
+    );
+  }
+  const keygen = await schemeAny.registration.keygenFromBootstrapPackage({
+    nearAccountId: input.nearAccountId,
+    rpId: input.rpId,
+    clientVerifyingShareB64u: input.clientVerifyingShareB64u,
+    keyVersion: input.keyVersion,
+    recoveryExportCapable: true,
+    publicKey: input.publicKey,
+    recoveryPublicKey: input.recoveryPublicKey,
+    relayerSigningShareB64u: input.relayerSigningShareB64u,
+    relayerVerifyingShareB64u: input.relayerVerifyingShareB64u,
+  });
+  if (!keygen.ok) {
+    throw new Error(keygen.message || 'threshold-ed25519 bootstrap keygen failed');
+  }
 }
 
 export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSessionAdapter> {
@@ -150,6 +192,25 @@ export async function installCreateAccountAndRegisterUserMock(
     onNewAccountId?: (accountId: string) => void;
   },
 ): Promise<void> {
+  await page.route(`${input.relayerBaseUrl}/registration/recovery-share`, async (route) => {
+    const req = route.request();
+    const method = req.method().toUpperCase();
+    if (method === 'OPTIONS') {
+      await route.fallback();
+      return;
+    }
+    const corsHeaders = corsHeadersForRoute(route);
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      body: JSON.stringify({
+        ok: true,
+        recoveryServerShareB64u: base64UrlEncode(new Uint8Array(32).fill(5)),
+        keyVersion: 'option-b-v1',
+      }),
+    });
+  });
+
   await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
     const req = route.request();
     const method = req.method().toUpperCase();
@@ -160,7 +221,6 @@ export async function installCreateAccountAndRegisterUserMock(
 
     const corsHeaders = corsHeadersForRoute(route);
     const payload = JSON.parse(req.postData() || '{}');
-    const localNearPublicKey = String(payload?.new_public_key || '');
     const thresholdClientVerifyingShareB64u = String(
       payload?.threshold_ed25519?.client_verifying_share_b64u || '',
     ).trim();
@@ -170,13 +230,16 @@ export async function installCreateAccountAndRegisterUserMock(
     const thresholdMode = !!thresholdClientVerifyingShareB64u;
     const thresholdEcdsaMode = !!thresholdEcdsaClientVerifyingShareB64u;
     const thresholdPublicKey = `ed25519:${bs58.encode(Buffer.alloc(32, 17))}`;
+    const thresholdRecoveryPublicKey = String(
+      payload?.threshold_ed25519?.recovery_public_key || `ed25519:${bs58.encode(Buffer.alloc(32, 29))}`,
+    ).trim();
     const relayerKeyId = 'ed25519:mock-relayer-key-id';
     const relayerVerifyingShareB64u = base64UrlEncode(new Uint8Array(32).fill(23));
     const thresholdEcdsaRelayerKeyId = 'secp256k1:mock-relayer-key-id';
     const thresholdEcdsaGroupPublicKeyB64u = base64UrlEncode(new Uint8Array(33).fill(61));
     const thresholdEcdsaRelayerVerifyingShareB64u = base64UrlEncode(new Uint8Array(33).fill(31));
     const thresholdEcdsaEthereumAddress = `0x${'12'.repeat(20)}`;
-    const registeredPublicKey = localNearPublicKey || (thresholdMode ? thresholdPublicKey : '');
+    const registeredPublicKey = thresholdMode ? thresholdPublicKey : '';
     const accountId = String(payload?.new_account_id || '');
     const nowMs = Date.now();
     const edSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
@@ -230,6 +293,7 @@ export async function installCreateAccountAndRegisterUserMock(
         : undefined;
 
     if (registeredPublicKey) input.onNewPublicKey(registeredPublicKey);
+    if (thresholdMode && thresholdRecoveryPublicKey) input.onNewPublicKey(thresholdRecoveryPublicKey);
     if (accountId) {
       input.onNewAccountId?.(accountId);
       const accountsOnChain = input.accountsOnChain ?? DEFAULT_ACCOUNTS_ON_CHAIN;
@@ -245,7 +309,10 @@ export async function installCreateAccountAndRegisterUserMock(
         ...(thresholdMode
           ? {
               thresholdEd25519: {
+                keyVersion: 'option-b-v1',
+                recoveryExportCapable: true,
                 publicKey: thresholdPublicKey,
+                recoveryPublicKey: thresholdRecoveryPublicKey,
                 relayerKeyId,
                 relayerVerifyingShareB64u,
                 clientParticipantId: 1,
@@ -457,6 +524,165 @@ export async function installFastNearRpcMock(
       status: 200,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
       body: JSON.stringify({ jsonrpc: '2.0', id, result: {} }),
+    });
+  });
+}
+
+export async function installThresholdEd25519OptionBBootstrapMocks(
+  page: Page,
+  input: {
+    relayerBaseUrl: string;
+    keysOnChain: Set<string>;
+    nonceByPublicKey: Map<string, number>;
+    accountsOnChain?: Set<string>;
+    onBootstrap?: (input: {
+      nearAccountId: string;
+      rpId: string;
+      clientVerifyingShareB64u: string;
+      relayerKeyId: string;
+      publicKey: string;
+      recoveryPublicKey: string;
+      relayerSigningShareB64u: string;
+      relayerVerifyingShareB64u: string;
+      keyVersion: string;
+    }) => void | Promise<void>;
+    mutateThresholdEd25519Response?: (
+      thresholdEd25519: Record<string, unknown>,
+    ) => Record<string, unknown>;
+  },
+): Promise<void> {
+  const accountsOnChain = input.accountsOnChain ?? DEFAULT_ACCOUNTS_ON_CHAIN;
+  const coercePositive = (value: unknown, fallback: number): number => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  };
+
+  await page.route(`${input.relayerBaseUrl}/registration/recovery-share`, async (route) => {
+    const req = route.request();
+    const method = req.method().toUpperCase();
+    const corsHeaders = corsHeadersForRoute(route);
+    if (method === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+      return;
+    }
+    if (method !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      body: JSON.stringify({
+        ok: true,
+        recoveryServerShareB64u: Buffer.alloc(32, 5).toString('base64url'),
+        keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+      }),
+    });
+  });
+
+  await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
+    const req = route.request();
+    const method = req.method().toUpperCase();
+    const corsHeaders = corsHeadersForRoute(route);
+    if (method === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+      return;
+    }
+    if (method !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    const payload = JSON.parse(req.postData() || '{}');
+    const accountId = String(payload?.new_account_id || '').trim();
+    const rpId = String(payload?.rp_id || '').trim();
+    const thresholdEd25519 = payload?.threshold_ed25519 || {};
+    const clientVerifyingShareB64u = String(
+      thresholdEd25519?.client_verifying_share_b64u || '',
+    ).trim();
+    const publicKey = String(thresholdEd25519?.public_key || '').trim();
+    const relayerKeyId = publicKey || 'ed25519:mock-relayer-key-id';
+    const recoveryPublicKey = String(thresholdEd25519?.recovery_public_key || '').trim();
+    const relayerSigningShareB64u = String(
+      thresholdEd25519?.relayer_signing_share_b64u || '',
+    ).trim();
+    const relayerVerifyingShareB64u = String(
+      thresholdEd25519?.relayer_verifying_share_b64u || '',
+    ).trim();
+    const keyVersion =
+      String(thresholdEd25519?.key_version || '').trim() || DUAL_KEY_ED25519_KEY_VERSION_V1;
+    const sessionPolicy = thresholdEd25519?.session_policy || null;
+    const sessionId = String(sessionPolicy?.sessionId || sessionPolicy?.session_id || '').trim();
+    const ttlMs = coercePositive(sessionPolicy?.ttlMs || sessionPolicy?.ttl_ms, 60_000);
+    const remainingUses = coercePositive(
+      sessionPolicy?.remainingUses || sessionPolicy?.remaining_uses,
+      10_000,
+    );
+
+    if (accountId) {
+      accountsOnChain.add(accountId);
+    }
+    if (publicKey) {
+      input.keysOnChain.add(publicKey);
+      input.nonceByPublicKey.set(publicKey, input.nonceByPublicKey.get(publicKey) ?? 0);
+    }
+    if (recoveryPublicKey) {
+      input.keysOnChain.add(recoveryPublicKey);
+      input.nonceByPublicKey.set(
+        recoveryPublicKey,
+        input.nonceByPublicKey.get(recoveryPublicKey) ?? 0,
+      );
+    }
+
+    await input.onBootstrap?.({
+      nearAccountId: accountId,
+      rpId,
+      clientVerifyingShareB64u,
+      relayerKeyId,
+      publicKey,
+      recoveryPublicKey,
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+      keyVersion,
+    });
+
+    const responseThresholdEd25519Base: Record<string, unknown> = {
+      relayerKeyId,
+      publicKey,
+      recoveryPublicKey,
+      keyVersion,
+      recoveryExportCapable: true,
+      relayerVerifyingShareB64u,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      ...(sessionId
+        ? {
+            session: {
+              sessionKind: 'jwt',
+              sessionId,
+              expiresAtMs: Date.now() + ttlMs,
+              participantIds: [1, 2],
+              remainingUses,
+              jwt: 'mock-threshold-ed25519-registration-jwt',
+            },
+          }
+        : {}),
+    };
+
+    const responseThresholdEd25519 = input.mutateThresholdEd25519Response
+      ? input.mutateThresholdEd25519Response(responseThresholdEd25519Base)
+      : responseThresholdEd25519Base;
+
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      body: JSON.stringify({
+        success: true,
+        transactionHash: `mock_atomic_tx_${Date.now()}`,
+        thresholdEd25519: responseThresholdEd25519,
+      }),
     });
   });
 }

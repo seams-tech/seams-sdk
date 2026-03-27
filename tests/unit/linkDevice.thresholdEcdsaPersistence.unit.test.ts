@@ -37,7 +37,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
         await clientDB.upsertNearAccountProjection({
           nearAccountId,
           deviceNumber: 2,
-          clientNearPublicKey: 'ed25519:pk-device2',
+          operationalPublicKey: 'ed25519:pk-device2',
           lastUpdated: Date.now(),
           passkeyCredential: {
             id: 'cred-id',

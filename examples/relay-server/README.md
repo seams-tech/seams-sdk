@@ -21,7 +21,7 @@ NEAR relay server that creates accounts on behalf of users, where the relayer pa
 
 Atomically create a NEAR account and register a WebAuthn authenticator in relay storage (contract-free).
 
-- Request body (abridged): `{ new_account_id, new_public_key, device_number?, rp_id, webauthn_registration, authenticator_options? }`
+- Request body (abridged): `{ new_account_id, device_number?, threshold_ed25519?, threshold_ecdsa?, rp_id, webauthn_registration, authenticator_options? }`
 - Response: `{ success, transactionHash?, error?, message? }`
 - When `RELAY_API_KEY_AUTH_ENABLED=1` (default in example), this route requires:
   - `Authorization: Bearer <secret_key>`

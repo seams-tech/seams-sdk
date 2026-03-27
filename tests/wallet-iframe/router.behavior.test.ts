@@ -280,7 +280,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     if (result.outcome.ok) return;
     expect(result.outcome.code).toBe('session_not_ready');
     expect(result.outcome.message).toContain('Threshold signing session is not ready');
-    expect(result.outcome.message).toContain('bootstrapEcdsaSession');
+    expect(result.outcome.message).toContain('Refresh the signing session');
     expect(result.outcome.message).not.toContain('missing canonical threshold ECDSA session');
   });
 });

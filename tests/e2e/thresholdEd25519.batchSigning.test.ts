@@ -13,10 +13,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -33,8 +33,6 @@ test.describe('threshold-ed25519 batch signing', () => {
   }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
     let sendTxCount = 0;
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
@@ -78,19 +76,17 @@ test.describe('threshold-ed25519 batch signing', () => {
       });
 
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        relayerCounts.keygen += 1;
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        const req = route.request();
+        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
+        await route.fallback();
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
@@ -99,16 +95,6 @@ test.describe('threshold-ed25519 batch signing', () => {
         nonceByPublicKey,
         onSendTx: () => {
           sendTxCount += 1;
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
         },
         strictAccessKeyLookup: true,
       });
@@ -126,8 +112,8 @@ test.describe('threshold-ed25519 batch signing', () => {
         | {
             ok: true;
             accountId: string;
-            localPublicKey: string;
-            thresholdPublicKey: string;
+            operationalPublicKey: string;
+            recoveryPublicKey: string;
             txInput: { receiverId: string; wasmActions: unknown[] };
             signedTxs: ExtractedSignedTx[];
           }
@@ -138,6 +124,7 @@ test.describe('threshold-ed25519 batch signing', () => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -156,17 +143,30 @@ test.describe('threshold-ed25519 batch signing', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+              accountId,
+              1,
+            );
 
             const receiverId = 'w3a-v1.testnet';
             const actions = [{ type: ActionType.Transfer, amount: '1' }];
@@ -211,8 +211,8 @@ test.describe('threshold-ed25519 batch signing', () => {
             return {
               ok: true,
               accountId,
-              localPublicKey: String(reg.clientNearPublicKey || ''),
-              thresholdPublicKey: String(enrollment.publicKey || ''),
+              operationalPublicKey: String(reg.operationalPublicKey || ''),
+              recoveryPublicKey: String(thresholdKeyMaterial?.recoveryPublicKey || ''),
               txInput: { receiverId, wasmActions },
               signedTxs: [extractSigned(signed[0]), extractSigned(signed[1])],
             };
@@ -227,16 +227,16 @@ test.describe('threshold-ed25519 batch signing', () => {
         throw new Error(`batch signing test failed: ${result.error || 'unknown'}`);
       }
 
-      expect(sendTxCount).toBe(1);
-      expect(relayerCounts.keygen).toBe(1);
+      expect(sendTxCount).toBe(0);
+      expect(relayerCounts.keygen).toBe(0);
       expect(relayerCounts.session).toBe(1);
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(2);
       expect(relayerCounts.authorize).toBeLessThanOrEqual(4);
       expect(relayerCounts.init).toBe(2);
       expect(relayerCounts.finalize).toBe(2);
 
-      const thresholdPkStr = String(result.thresholdPublicKey);
-      const localPkStr = String(result.localPublicKey);
+      const operationalPkStr = String(result.operationalPublicKey);
+      const recoveryPkStr = String(result.recoveryPublicKey);
 
       const toPkBytes = (pk: string): Uint8Array => {
         const raw = pk.includes(':') ? pk.split(':')[1] : pk;
@@ -254,7 +254,7 @@ test.describe('threshold-ed25519 batch signing', () => {
             },
           ],
           transactionContext: {
-            nearPublicKeyStr: thresholdPkStr,
+            nearPublicKeyStr: operationalPkStr,
             nextNonce: String(signed.nonce),
             txBlockHash: bs58.encode(Uint8Array.from(signed.blockHash)),
             txBlockHeight: '424242',
@@ -277,8 +277,8 @@ test.describe('threshold-ed25519 batch signing', () => {
         const digest = computeDigest(signed);
         const sigBytes = Uint8Array.from(signed.signature);
         expect(sigBytes.length).toBe(64);
-        expect(ed25519.verify(sigBytes, digest, toPkBytes(thresholdPkStr))).toBe(true);
-        expect(ed25519.verify(sigBytes, digest, toPkBytes(localPkStr))).toBe(false);
+        expect(ed25519.verify(sigBytes, digest, toPkBytes(operationalPkStr))).toBe(true);
+        expect(ed25519.verify(sigBytes, digest, toPkBytes(recoveryPkStr))).toBe(false);
       }
     } finally {
       await srv.close().catch(() => undefined);

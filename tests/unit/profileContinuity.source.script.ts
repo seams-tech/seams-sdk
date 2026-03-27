@@ -1,0 +1,126 @@
+import { PasskeyClientDBManager } from '../../client/src/core/indexedDB/passkeyClientDB/manager.ts';
+
+const chainAccounts = [
+  {
+    profileId: 'profile-alice',
+    chainIdKey: 'near:testnet',
+    accountAddress: 'alice.testnet',
+    accountModel: 'near-native',
+    isPrimary: true,
+  },
+  {
+    profileId: 'profile-alice',
+    chainIdKey: 'evm:11155111',
+    accountAddress: `0x${'11'.repeat(20)}`,
+    accountModel: 'erc4337',
+    isPrimary: true,
+    counterfactualAddress: `0x${'22'.repeat(20)}`,
+    deployed: false,
+  },
+];
+
+const accountSigners = [
+  {
+    profileId: 'profile-alice',
+    chainIdKey: 'near:testnet',
+    accountAddress: 'alice.testnet',
+    signerId: 'near-passkey-1',
+    signerSlot: 1,
+    signerType: 'passkey',
+    status: 'active',
+  },
+  {
+    profileId: 'profile-alice',
+    chainIdKey: 'evm:11155111',
+    accountAddress: `0x${'11'.repeat(20)}`,
+    signerId: `0x${'aa'.repeat(20)}`,
+    signerSlot: 1,
+    signerType: 'threshold',
+    status: 'active',
+  },
+  {
+    profileId: 'profile-alice',
+    chainIdKey: 'evm:11155111',
+    accountAddress: `0x${'11'.repeat(20)}`,
+    signerId: `0x${'bb'.repeat(20)}`,
+    signerSlot: 2,
+    signerType: 'threshold',
+    status: 'pending',
+  },
+];
+
+const fakeManager = {
+  async getProfile(profileId: string) {
+    if (profileId !== 'profile-alice') return null;
+    return {
+      profileId,
+      defaultDeviceNumber: 1,
+      passkeyCredential: { id: 'cred-alice', rawId: 'raw-alice' },
+      createdAt: 1,
+      updatedAt: 2,
+    };
+  },
+  async getNearAccountIdForProfile(profileId: string) {
+    return profileId === 'profile-alice' ? 'alice.testnet' : null;
+  },
+  async listChainAccountsByProfile(profileId: string) {
+    return profileId === 'profile-alice' ? chainAccounts : [];
+  },
+  async listAccountSignersByProfile(args: { profileId: string; status?: string }) {
+    if (args.profileId !== 'profile-alice') return [];
+    if (!args.status) return accountSigners;
+    return accountSigners.filter((row) => row.status === args.status);
+  },
+  async resolveNearAccountContext(nearAccountId: string) {
+    if (nearAccountId !== 'alice.testnet') return null;
+    return {
+      profileId: 'profile-alice',
+      sourceChainIdKey: 'near:testnet',
+      sourceAccountAddress: 'alice.testnet',
+    };
+  },
+  async getProfileContinuitySnapshot(profileId: string) {
+    return PasskeyClientDBManager.prototype.getProfileContinuitySnapshot.call(
+      this as unknown as PasskeyClientDBManager,
+      profileId,
+    );
+  },
+};
+
+const snapshot = await PasskeyClientDBManager.prototype.getProfileContinuitySnapshot.call(
+  fakeManager as unknown as PasskeyClientDBManager,
+  'profile-alice',
+);
+const resolvedSnapshot =
+  await PasskeyClientDBManager.prototype.resolveNearAccountProfileContinuity.call(
+    fakeManager as unknown as PasskeyClientDBManager,
+    'alice.testnet',
+  );
+const activeSigners = await fakeManager.listAccountSignersByProfile({
+  profileId: 'profile-alice',
+  status: 'active',
+});
+
+console.log(
+  'RESULT:' +
+    JSON.stringify({
+      profileId: snapshot?.profile.profileId || null,
+      nearAccountId: snapshot?.nearAccountId || null,
+      resolvedProfileId: resolvedSnapshot?.profile.profileId || null,
+      chainAccounts:
+        resolvedSnapshot?.chainAccounts.map((row) => ({
+          chainIdKey: row.chainIdKey,
+          accountAddress: row.accountAddress,
+          accountModel: row.accountModel,
+          isPrimary: !!row.isPrimary,
+        })) || [],
+      accountSigners:
+        resolvedSnapshot?.accountSigners.map((row) => ({
+          chainIdKey: row.chainIdKey,
+          signerId: row.signerId,
+          signerSlot: row.signerSlot,
+          status: row.status,
+        })) || [],
+      activeSignerIds: activeSigners.map((row) => row.signerId),
+    }),
+);

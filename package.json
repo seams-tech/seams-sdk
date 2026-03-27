@@ -45,7 +45,9 @@
     "test:signers:gates": "pnpm -C tests test:signers:gates",
     "show-report": "pnpm -C tests show-report",
     "benchmark:threshold-ecdsa": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs",
-    "benchmark:threshold-ecdsa:report-only": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs --skip-doc-sync"
+    "benchmark:threshold-ecdsa:report-only": "node ./benchmarks/threshold-ecdsa-presign/src/runner.mjs --skip-doc-sync",
+    "benchmark:threshold-ed25519": "pnpm exec tsx ./benchmarks/threshold-ed25519-dual-key/src/runner.ts",
+    "benchmark:threshold-ed25519:browser": "pnpm -C tests exec tsx ../benchmarks/threshold-ed25519-dual-key/src/browser-runner.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

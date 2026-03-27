@@ -1,6 +1,6 @@
 # Homomorphic Key Export Support Plan (Ed25519)
 
-Date updated: March 22, 2026
+Date updated: March 23, 2026
 
 ## Objective
 
@@ -20,10 +20,10 @@ Goals:
 
 ## Current Repo Constraints
 
-Current code paths use two different private-material representations:
+Current code paths now distinguish two Ed25519 concerns more explicitly:
 
-- `crates/signer-core/src/near_ed25519.rs` exports NEAR private keys in seed-based form: `ed25519:` + base58(`seed || publicKey`),
-- `crates/signer-core/src/near_threshold_frost.rs` and `crates/signer-core/src/near_threshold_ed25519.rs` use FROST signing shares in scalar form.
+- `crates/signer-core/src/near_ed25519_seed_export.rs` owns the seed-based export math and canonical NEAR `ed25519:` encoding for the new design,
+- `crates/signer-core/src/near_threshold_frost.rs` and `crates/signer-core/src/near_threshold_ed25519.rs` still use FROST signing shares in scalar form for threshold signing.
 
 Important consequence:
 
@@ -94,6 +94,21 @@ Out of scope for v1:
 2. Retire existing scalar-only Ed25519 threshold accounts instead of carrying them forward into the export design.
 3. Refactor Ed25519 threshold enrollment/rotation so every new threshold account is created with a canonical seed-backed export lifecycle.
 4. Treat standard seed-compatible Ed25519 export as the only v1 product target.
+
+## Strict Architectural Rule
+
+There is exactly one Ed25519 lifecycle in this repo:
+
+- seed-backed threshold Ed25519,
+- one canonical public key per `(orgId, accountId, keyPurpose, keyVersion)`,
+- threshold signing shares and export-seed shares both bound to that same public key,
+- no alternate Ed25519 enrollment mode,
+- no local Ed25519 fallback,
+- no server-side Ed25519 share derivation from relay master secret for new accounts.
+
+Implementation consequence:
+
+- any Ed25519 path that still treats `clientVerifyingShareB64u` as the primary identity artifact, or that changes behavior based on `shareMode=derived|auto`, is legacy and must be removed rather than preserved behind fallback logic.
 
 ## Seed-Backed Design Requirements
 
@@ -205,13 +220,13 @@ Important consequence:
 - `prefix` is derived from `d` during export verification only; it is not a threshold share,
 - no new scalar-only Ed25519 threshold accounts may be created after this refactor.
 
-### Enrollment / rotation output contract
+### Enrollment / rotation output spec
 
 After the refactor, Ed25519 enrollment or rotation should output and bind all of the following under one `(orgId, accountId, keyPurpose, keyVersion)`:
 
 - canonical public key `A`,
-- client share derivation contract for signing-share recovery,
-- client share derivation contract for export-share recovery,
+- client share derivation spec for signing-share recovery,
+- client share derivation spec for export-share recovery,
 - relayer signing share material,
 - relayer export-seed share material,
 - participant-id set and derivation version,
@@ -263,7 +278,7 @@ No silent downgrade from standard seed export to any non-wallet-compatible scala
 Client worker:
 
 1. decrypts seed-form private material,
-2. validates seed encoding/length contract,
+2. validates seed encoding/length spec,
 3. derives the Ed25519 signing key and public key from the seed,
 4. compares it to the expected public key,
 5. emits wrapped `near-ed25519-seed-v1` artifact, and only then the canonical `ed25519:` string if the product surface needs it,
@@ -301,29 +316,20 @@ Client worker:
 - v1 scope is seed-backed 2-of-2 threshold Ed25519 only.
 - ambiguous "expanded secret" terminology has been removed from this plan.
 
-## Remaining Spec Ambiguities To Freeze
+## Frozen Implementation Specs
 
-The plan is materially clearer than the original version, but these items should still be frozen before implementation starts.
+These decisions are already frozen for v1 and should now be treated as implementation inputs, not open design questions.
 
-### 1. Canonical seed ownership
+### Canonical seed ownership
 
-- `d` should be generated in the client worker, not by the relayer,
-- `d` should be uniformly random per key version, not deterministically derived from PRF output,
-- the client worker should compute `x_relayer` and `y_relayer` locally and send only relayer-side shares to the backend,
-- the backend should never observe plaintext `d`, `m`, `a`, or `prefix`.
+- `d` is generated in the client worker, not by the relayer,
+- `d` is uniformly random per key version, not deterministically derived from PRF output,
+- the client worker computes `x_relayer` and `y_relayer` locally and sends only relayer-side shares to the backend,
+- the backend must never observe plaintext `d`, `m`, `a`, or `prefix`.
 
-### 2. Deterministic client-share derivation contract
+### Deterministic client-share derivation
 
-The current threshold signer derives the client signing share from `prf.first`. The seed-backed design should freeze the same model for both client-side share domains:
-
-- `x_client` should be derived from `prf.first` via HKDF-SHA256 with a dedicated signing-share label,
-- `y_client` should be derived from `prf.first` via HKDF-SHA256 with a separate export-share label,
-- the HKDF info layout should explicitly bind `nearAccountId`, `keyVersion`, participant ids, and derivation path,
-- rotation must change `keyVersion`, so a rotated account cannot silently reuse the old client-share derivation context.
-
-Frozen v1 derivation contract:
-
-- participant ids are fixed to `(client=1, relayer=2)` for v1 and must be enforced at the type/API level, not only by runtime validation,
+- participant ids are fixed to `(client=1, relayer=2)` for v1 and must be enforced at the type/API level,
 - `x_client` uses HKDF-SHA256 with salt `tatchi/lite/threshold-ed25519/client-signing-share:v2`,
 - `y_client` uses HKDF-SHA256 with salt `tatchi/lite/threshold-ed25519/client-export-share:v1`,
 - HKDF info bytes are:
@@ -342,52 +348,37 @@ Frozen v1 derivation contract:
 - `y_client` may be zero,
 - signing-share and export-share derivation must never reuse the same salt label.
 
-### 3. Integer and byte encoding contract
+### Integer and byte encoding
 
 - `d` is exactly 32 bytes,
 - `m = LE256(d)` is the canonical unsigned integer encoding of the seed,
 - `y_client` and `y_relayer` live in `Z_(2^256)`,
-- export finalize must decode the decrypted value as `m mod 2^256`, then re-encode it as 32 little-endian bytes before deriving the Ed25519 key,
-- the standard NEAR wallet artifact remains `ed25519:` + base58(`d || A`).
+- export finalize decodes the decrypted value as `m mod 2^256`, then re-encodes it as 32 little-endian bytes before deriving the Ed25519 key,
+- the standard NEAR wallet artifact is `ed25519:` + base58(`d || A`).
 
-### 4. Persistent storage schema
+### Storage and capability model
 
-- client storage should distinguish seed-backed threshold Ed25519 material from the current scalar-only record shape,
-- relayer storage should separate signing-share material from export-seed-share material,
-- both sides should bind those materials to the same `keyVersion` and public key,
+- client storage must distinguish seed-backed threshold Ed25519 material from the old scalar-only record shape,
+- relayer storage must separate signing-share material from export-seed-share material,
+- both sides must bind those materials to the same `keyVersion` and public key,
 - capability metadata such as `near-ed25519-seed-v1` support must be stored explicitly and checked before export begins.
 
-### 5. Export route contract
-
-- `init` must return capability, expected public key, artifact kind, participant ids, and `keyVersion`,
-- the relayer combine step should operate only on export-seed share material for `near-ed25519-seed-v1`,
-- accounts without seed-backed capability must be rejected before HE initialization,
-- stale `keyVersion`, stale `exportId`, or mismatched participant metadata must fail closed.
-
-Frozen v1 route shape:
+### Export route spec
 
 - reuse the shared export route family used by the ECDSA export plan,
 - use `POST /export/init` and `POST /export/combine`,
 - require `artifactKind = near-ed25519-seed-v1` on every Ed25519 export request and response,
+- `init` returns capability, expected public key, artifact kind, participant ids, and `keyVersion`,
+- accounts without seed-backed capability must be rejected before HE initialization,
+- stale `keyVersion`, stale `exportId`, or mismatched participant metadata must fail closed,
 - do not introduce a dedicated Ed25519-only export route in v1.
 
-### 6. Worker/runtime boundary
+### Worker boundary and interoperability
 
-- Ed25519 export must stay worker-owned end to end,
+- Ed25519 export stays worker-owned end to end,
 - main-thread TypeScript must never hold plaintext `d`, `a`, `m`, `x_client`, `y_client`, or the emitted private key string,
-- the current export worker shortcut that falls back to `recoverKeypairFromPasskey()` for Ed25519 should not remain the threshold export path,
-- HE code must remain lazy-loaded and scoped to the export worker only.
-
-### 7. NEAR wallet interoperability target
-
-- the output must be accepted by the repo's own `ed25519:` parser,
-- the output should also be validated against at least one external NEAR-compatible import/parser surface before this plan is considered complete,
-- the doc should record exactly which compatibility targets are required for sign-off.
-
-Frozen v1 sign-off targets:
-
-- repo-native `ed25519:` parser/import surface,
-- `near-api-js` private-key parsing/import surface.
+- HE code remains lazy-loaded and scoped to the export worker only,
+- sign-off targets are the repo-native `ed25519:` parser/import surface and `near-api-js` private-key parsing/import surface.
 
 ## Test Vector Publication Contract
 
@@ -426,10 +417,10 @@ Before Phase 0 of this plan, complete
 
 Required outcome:
 
-- no local-only NEAR Ed25519 signer,
-- no local fallback in worker export/signing paths,
-- no local NEAR key material branches in client storage or orchestration,
-- no UI or relay contract that still treats local Ed25519 as a supported NEAR lifecycle.
+- [x] no local-only NEAR Ed25519 signer,
+- [x] no local fallback in worker export/signing paths,
+- [x] no local NEAR key material branches in client storage or orchestration,
+- [x] no UI or relay spec that still treats local Ed25519 as a supported NEAR lifecycle.
 
 ### Phase 0 — Scope Freeze And Breaking Cleanup
 
@@ -462,11 +453,47 @@ Required outcome:
 - [x] Freeze the seed export encoding as `ed25519:` + base58(`d || A`).
 - [x] Publish fixed test vectors for `d`, `a`, `A`, `x_client`, `x_relayer`, `y_client`, `y_relayer`, and the final `ed25519:` string.
 
-## Immediate Next Steps
+## Linear Execution Order From Here
 
-1. Extend the new seed-backed core helper module into enrollment/rotation and relayer-share packaging.
-2. Replace the current relayer-master-secret-plus-client-verifying-share path for new seed-backed accounts.
-3. Record the compatibility matrix for the published `near-ed25519-seed-v1` vectors across Rust, wasm, and SDK consumers.
+1. Define the new seed-backed Ed25519 enrollment spec.
+   - add explicit request/response types for a prepared relayer-share package,
+   - stop treating `clientVerifyingShareB64u` as the primary Ed25519 enrollment artifact for new accounts.
+2. Remove the old server-side Ed25519 lifecycle.
+   - delete the Ed25519 path that derives relayer shares from server master secret plus client verifying share,
+   - stop letting `shareMode=derived|auto` affect Ed25519 behavior,
+   - require persisted seed-backed relayer key material for Ed25519 session bootstrap and signing.
+3. Refactor client worker enrollment and rotation.
+   - generate canonical seed `d`,
+   - derive `a`, `A`, `x_client`, `y_client`, `x_relayer`, and `y_relayer`,
+   - validate the bundle before any enrollment request leaves worker memory.
+4. Change client and relayer storage to the new seed-backed record shape.
+   - persist only metadata on the client,
+   - persist relayer-side signing/export shares on the backend,
+   - bind both to the same `keyVersion` and public key.
+5. Remove legacy Ed25519 field names and session assumptions on the server.
+   - stop requiring `clientVerifyingShareB64u` for Ed25519 session bootstrap when persisted key material exists,
+   - stop validating Ed25519 `relayerKeyId` by re-deriving from `clientVerifyingShareB64u`,
+   - collapse request/session/store types so seed-backed Ed25519 is the only supported server model.
+6. Record and verify runtime compatibility.
+   - prove Rust, wasm, and SDK consumers all accept the published vectors and the standard `ed25519:` output.
+
+Progress:
+
+- seed-backed Ed25519 enrollment package is now implemented through Rust core, wasm worker, client registration flow, and relay registration bootstrap,
+- registration bootstrap now accepts prepared relayer signing/export shares for new Ed25519 accounts,
+- standalone `/threshold-ed25519/keygen` now accepts the same seed-backed package,
+- `link-device` and `email-recovery` bootstrap requests now send the same seed-backed Ed25519 package from the client worker,
+- client IndexedDB threshold-key metadata now persists `artifactKind`, `keyVersion`, `seedExportCapable`, and export-derivation metadata for seed-backed Ed25519 accounts,
+- export recovery now rejects threshold Ed25519 records that are not explicitly provisioned as `near-ed25519-seed-v1`,
+- export worker requests now carry `artifactKind`, `keyVersion`, and `seedExportCapable`, and the worker rejects NEAR export calls that are not explicitly seed-backed,
+- relay route scaffolding now exists for `POST /threshold-ed25519/export/init` and `POST /threshold-ed25519/export/combine`,
+- `POST /threshold-ed25519/export/init` now mints a short-lived `exportId` bound to `(relayerKeyId, keyVersion, artifactKind, publicKey, participantIds)`,
+- `POST /threshold-ed25519/export/combine` now requires that `exportId` and validates the bound export session before any combine work,
+- the client RPC layer now has typed wrappers for those Ed25519 export routes,
+- `sync-account` now derives the seed-backed package on the client side, but the server side still only uses the bound credential for session bootstrap,
+- server Ed25519 key resolution now requires persisted seed-backed relayer key material and no longer uses derived-share fallback or `shareMode`,
+- Ed25519 session bootstrap and signing now resolve by persisted `relayerKeyId/publicKey` rather than re-deriving from `clientVerifyingShareB64u`,
+- rotation remains the main unimplemented lifecycle migration.
 
 ### Phase 2 — Rust / Wasm Core Refactor
 
@@ -479,13 +506,17 @@ Required outcome:
   - implemented in `crates/signer-core/src/near_ed25519_seed_export.rs`
 - [x] Add explicit types for seed-backed Ed25519 key material rather than reusing scalar-only names.
 - [x] Add a pure helper to verify that the threshold public key equals the seed-derived public key.
-- [ ] Remove or replace the current relayer-share derivation path that starts from relayer master secret plus client verifying share for new seed-backed accounts.
+- [x] Delete the Ed25519 relayer-share derivation path that starts from relayer master secret plus client verifying share.
+- [x] Remove Ed25519 dependence on `shareMode=derived|auto` in Rust/wasm/server integration paths.
 - [x] Add unit tests for the first byte-order, modulo, and seed/public-key consistency boundaries.
+- [x] Expose the new seed-backed bundle helper through the wasm worker boundary for enrollment and rotation flows.
 
 ### Phase 3 — Enrollment / Rotation Refactor
 
+- [ ] Replace `clientVerifyingShareB64u`-driven Ed25519 enrollment with a seed-backed enrollment package across all Ed25519 enrollment surfaces.
 - [ ] Generate canonical seed `d` inside the client worker during Ed25519 threshold enrollment and rotation.
 - [ ] Derive `a`, `A`, `x_client`, `y_client`, `x_relayer`, and `y_relayer` inside the same worker session.
+- [ ] Validate the generated seed/share bundle in the worker before sending any enrollment payload.
 - [ ] Send only relayer-side shares plus public metadata to the relayer enrollment route.
 - [ ] Ensure relayer enrollment persists both:
   - relayer signing share material
@@ -494,9 +525,35 @@ Required outcome:
 - [ ] Bind the on-chain access key, relayer share records, and client metadata to the same `keyVersion` and public key.
 - [ ] Rotation must replace the old share package completely; no new scalar-only Ed25519 accounts may be created after this phase.
 
+Progress:
+
+- registration bootstrap now uses a seed-backed enrollment package for new Ed25519 account creation,
+- client worker now generates canonical seed-backed Ed25519 enrollment material in one request,
+- standalone `/threshold-ed25519/keygen` now uses the same spec,
+- `link-device` and `email-recovery` now use the same client-side package format,
+- remaining work is to finish the sync-account server-side spec and move rotation onto the same spec.
+
+### Phase 3.5 — Server Lifecycle Unification
+
+- [x] Make persisted seed-backed key material mandatory for Ed25519 session bootstrap.
+- [x] Remove `deriveRelayerKeyMaterial(...)` from the Ed25519 server path.
+- [x] Remove `usesDerivedRelayerShares()` from Ed25519 flow control, or make it a no-op for Ed25519 and then delete it.
+- [x] Remove Ed25519-only use of `THRESHOLD_ED25519_MASTER_SECRET_B64U` for new-account lifecycle behavior.
+- [x] Remove Ed25519-only `shareMode` branching from:
+  - keygen bootstrap,
+  - session bootstrap,
+  - relayer key resolution,
+  - signing init/finalize,
+  - export init/combine.
+- [x] Make `relayerKeyId = publicKey` the only supported Ed25519 identity binding for new accounts.
+- [x] Stop treating `clientVerifyingShareB64u` as an Ed25519 key-binding proof; keep it only if needed as auxiliary threshold metadata.
+- [x] Collapse Ed25519 server request/session/store types so they no longer imply a derivable-share lifecycle.
+- [ ] Add negative tests proving Ed25519 registration/signing/export fail when persisted key material is missing, rather than falling back to derivation.
+- [ ] Remove dead config/docs/comments that still describe Ed25519 as `derived`, `auto`, or master-secret-backed.
+
 ### Phase 4 — Client And Relayer Data-Model Break
 
-- [ ] Replace the current client IndexedDB record shape with a seed-backed threshold Ed25519 material type.
+- [ ] Replace the current client IndexedDB record shape with a seed-backed threshold Ed25519 metadata type.
 - [ ] Add explicit fields for:
   - `keyVersion`
   - `artifactKind`
@@ -509,22 +566,57 @@ Required outcome:
 - [ ] Update relayer persistence so signing-share state and export-seed-share state are stored as separate, typed materials.
 - [ ] Remove old scalar-only Ed25519 material names and branches once callers are migrated.
 
+Progress:
+
+- client IndexedDB threshold-key storage now persists `artifactKind`, `keyVersion`, `seedExportCapable`, and `clientExportShareDerivation`,
+- registration, sync-account, email-recovery, and link-device local persistence now write that metadata when the relay returns it,
+- relayer key persistence already stores `keyVersion`, `seedExportCapable`, and `relayerExportShareB64u`,
+- remaining work is to make sync-account return seed-backed metadata consistently and then collapse the remaining old field names.
+
+### Server-Side Cleanup Checklist
+
+The following server cleanups are directly related to the one-lifecycle refactor and should be completed as part of Phase 3.5, not deferred indefinitely:
+
+- `server/src/core/ThresholdService/relayerKeyMaterial.ts`
+  - [x] remove the Ed25519 derived fallback entirely once persisted seed-backed records are required.
+- `server/src/core/ThresholdService/keygenStrategy.ts`
+  - [x] remove `deriveRelayerKeyMaterial(...)` from the Ed25519 implementation,
+  - [x] keep only seed-backed package ingestion for Ed25519 keygen.
+- `server/src/core/ThresholdService/config.ts`
+  - [x] stop exposing Ed25519 `derived|auto|kv` lifecycle choice if Ed25519 is no longer configurable that way.
+- `server/src/core/types.ts`
+  - [x] remove Ed25519 request/response comments and fields that imply `clientVerifyingShareB64u` is the primary key-binding artifact,
+  - [x] collapse Ed25519 types around the seed-backed package and persisted `relayerKeyId/publicKey`.
+- `server/src/core/AuthService.ts`
+  - [x] remove registration, sync-account, link-device, and email-recovery branches that still pass Ed25519 through legacy verifying-share assumptions.
+- `server/src/core/ThresholdService/stores/SessionStore.ts`
+  - [x] remove Ed25519 session requirements that exist only to support derived-share reconstruction.
+- `server/src/core/ThresholdService/signingHandlers.ts`
+  - [x] require persisted Ed25519 relayer key material and stop using session-level `clientVerifyingShareB64u` as a fallback key-binding check.
+- docs and runtime logging
+  - [x] remove `shareMode: derived/auto` language for Ed25519 from logs and operator-facing comments,
+  - [ ] remove any remaining README text that still documents the removed lifecycle.
+
 ### Phase 5 — Export API And HE Protocol
 
-- [ ] Define `POST /export/init` for seed-backed Ed25519 export. Response should include:
-  - `exportId`
-  - `artifactKind = near-ed25519-seed-v1`
-  - `keyVersion`
-  - expected public key
-  - participant ids
+- [x] Define the initial `POST /export/init` scaffold for seed-backed Ed25519 export.
+  Progress:
+  - route is live on express and cloudflare threshold routers as `/threshold-ed25519/export/init`
+  - current response returns `exportId`, `expiresAtMs`, `artifactKind`, `keyVersion`, expected public key, `participantIds`, and export-capability gating
+  - current route still does not return an HE profile / parameter version yet
+- [x] Add the initial relayer combine route scaffold.
+  Progress:
+  - route is live on express and cloudflare threshold routers as `/threshold-ed25519/export/combine`
+  - route currently validates the export session and relayer key binding, then fails with `not_implemented` until the HE combine runtime is wired
+- [ ] Extend `POST /export/init` to return:
   - HE profile / parameter version
   - TTL / anti-replay metadata
-- [ ] Add a relayer combine route that:
+- [ ] Implement the relayer combine route so it:
   - loads the relayer export-seed share for the bound key version
   - applies homomorphic add-constant to the client ciphertext
   - returns the combined ciphertext
   - never exposes plaintext share material
-- [ ] Define the client worker finalize contract:
+- [ ] Define the client worker finalize spec:
   - derive `y_client`
   - HE-encrypt `y_client`
   - submit ciphertext to combine route
@@ -539,8 +631,8 @@ Required outcome:
 
 ### Phase 6 — Worker, UI, And Runtime Refactor
 
-- [ ] Change `EXPORT_PRIVATE_KEYS_WITH_UI` inputs so the worker receives concrete threshold export capability metadata, not only `hasThresholdKeyMaterial`.
-- [ ] Remove the current Ed25519 threshold-export fallback that reconstructs a local keypair via `recoverKeypairFromPasskey()`.
+- [x] Change Ed25519 export worker inputs so the worker receives concrete threshold export capability metadata for `near-ed25519-seed-v1`.
+- [x] Remove the old Ed25519 threshold-export fallback that reconstructed a local keypair via `recoverKeypairFromPasskey()`.
 - [ ] Keep the entire seed reconstruction and `ed25519:` string emission inside secure worker memory only.
 - [ ] Lazy-load the HE runtime only after explicit export confirmation and capability preflight.
 - [ ] Update export UI copy to state that the output is a standard NEAR Ed25519 private key and that export fails closed on any public-key mismatch.
@@ -552,6 +644,7 @@ Required outcome:
   - `x_client` / `x_relayer` recombine to `a`
   - `y_client` / `y_relayer` recombine to `m`
 - [ ] Add cross-runtime tests so Rust core, Wasm worker, and TypeScript orchestration agree on public key, share derivation, and export string.
+- [ ] Record the compatibility matrix for the published `near-ed25519-seed-v1` vectors across Rust, wasm, SDK, repo-native parser, and `near-api-js`.
 - [ ] Add end-to-end tests for:
   - enroll seed-backed threshold Ed25519 key
   - sign successfully with threshold flow
@@ -576,7 +669,7 @@ Required outcome:
 
 ## Remaining Decision Gates Before Coding
 
-No major design gates remain for v1. The remaining work is implementation and test-vector publication, blocked first on local-signer removal.
+No major design gates remain for v1. The remaining work is implementation.
 
 ## Notation and Math Appendix
 

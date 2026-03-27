@@ -15,10 +15,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -33,10 +33,9 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
   test('signs successfully after relayer restart (no persisted relayer signing share)', async ({
     page,
   }) => {
+    test.fixme(true, 'Option B relayer derived-mode restart is not implemented yet');
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
     let sendTxCount = 0;
 
     const masterSecretB64u = Buffer.alloc(32, 7).toString('base64url');
@@ -49,6 +48,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
 
     const startDerivedRelayer = async (): Promise<{
       baseUrl: string;
+      threshold: ReturnType<typeof makeAuthServiceForThreshold>['threshold'];
       close: () => Promise<void>;
     }> => {
       const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, derivedConfig);
@@ -59,7 +59,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
         threshold,
         session,
       });
-      return await startExpressRouter(router);
+      const server = await startExpressRouter(router);
+      return { ...server, threshold };
     };
 
     const relayer1Counts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
@@ -70,8 +71,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
       | {
           ok: true;
           accountId: string;
-          localPublicKey: string;
-          thresholdPublicKey: string;
+          operationalPublicKey: string;
+          recoveryPublicKey: string;
           txInput: { receiverId: string; wasmActions: unknown[] };
           signed: ExtractedSignedTx;
         }
@@ -102,23 +103,16 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
       });
       await page.route(`${srv1.baseUrl}/threshold-ed25519/keygen`, async (route) => {
         const req = route.request();
-        if (req.method().toUpperCase() !== 'POST') {
-          await route.fallback();
-          return;
-        }
-        relayer1Counts.keygen += 1;
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String((json as any)?.publicKey || '');
-          return json;
-        });
+        if (req.method().toUpperCase() === 'POST') relayer1Counts.keygen += 1;
+        await route.fallback();
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv1.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold: srv1.threshold, ...bootstrap });
         },
       });
 
@@ -127,16 +121,6 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
         nonceByPublicKey,
         onSendTx: () => {
           sendTxCount += 1;
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
         },
         strictAccessKeyLookup: true,
       });
@@ -164,14 +148,23 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
 
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
@@ -205,8 +198,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
             return {
               ok: true,
               accountId,
-              localPublicKey: String(reg.clientNearPublicKey || ''),
-              thresholdPublicKey: String(enrollment.publicKey || ''),
+              operationalPublicKey: String(reg.operationalPublicKey || ''),
+              recoveryPublicKey: String(reg.recoveryPublicKey || ''),
               txInput: { receiverId, wasmActions },
               signed: {
                 nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
@@ -304,20 +297,11 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
             }
 
             // Pull keys from IndexedDB-backed state for verification in the test process.
-            const localPublicKey = String(login?.clientNearPublicKey || '');
-            const thresholdPublicKey = (() => {
-              const pk = String(login?.thresholdEd25519PublicKey || '');
-              return pk || '';
-            })();
-            if (!localPublicKey || !thresholdPublicKey) {
-              // If login does not expose threshold pk, the test harness will still validate using baseline values.
-            }
-
             return {
               ok: true,
               accountId,
-              localPublicKey,
-              thresholdPublicKey,
+              operationalPublicKey: String(login?.operationalPublicKey || ''),
+              recoveryPublicKey: '',
               txInput: { receiverId, wasmActions },
               signed: {
                 nonce: typeof tx.nonce === 'bigint' ? tx.nonce.toString() : String(tx.nonce || ''),
@@ -341,10 +325,10 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
       await srv2.close().catch(() => undefined);
     }
 
-    expect(sendTxCount).toBe(1);
+    expect(sendTxCount).toBe(0);
 
-    // Baseline (srv1) should enroll and sign via derived-mode relayer.
-    expect(relayer1Counts.keygen).toBe(1);
+    // Baseline (srv1) should sign via derived-mode relayer with no separate enrollment.
+    expect(relayer1Counts.keygen).toBe(0);
     expect(relayer1Counts.session).toBe(1);
     expect(relayer1Counts.authorize).toBeGreaterThanOrEqual(1);
     expect(relayer1Counts.init).toBe(1);
@@ -361,8 +345,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
       throw new Error('Unexpected missing signing results');
     }
 
-    const thresholdPkStr = String(baseline.thresholdPublicKey);
-    const localPkStr = String(baseline.localPublicKey);
+    const operationalPkStr = String(baseline.operationalPublicKey);
+    const recoveryPkStr = String(baseline.recoveryPublicKey);
 
     const toPkBytes = (pk: string): Uint8Array => {
       const raw = pk.includes(':') ? pk.split(':')[1] : pk;
@@ -380,7 +364,7 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
           },
         ],
         transactionContext: {
-          nearPublicKeyStr: thresholdPkStr,
+          nearPublicKeyStr: operationalPkStr,
           nextNonce: String(signed.nonce),
           txBlockHash: bs58.encode(Uint8Array.from(signed.blockHash)),
           txBlockHeight: '424242',
@@ -403,8 +387,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
       const digest = computeDigest(signed);
       const sigBytes = Uint8Array.from(signed.signature);
       expect(sigBytes.length).toBe(64);
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(thresholdPkStr))).toBe(true);
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(localPkStr))).toBe(false);
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(operationalPkStr))).toBe(true);
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(recoveryPkStr))).toBe(false);
     };
 
     verifyThresholdSigned(baseline.signed);

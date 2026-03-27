@@ -660,7 +660,6 @@ Requirements:
 - Use a deterministic JSON serialization for the exact relay body.
 - Hash input includes:
   - `new_account_id`
-  - `new_public_key` when present
   - `device_number`
   - `threshold_ed25519`
   - `threshold_ecdsa`

@@ -228,7 +228,7 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       message: 'relayer threshold session expired',
     });
     expect(message).toContain('Threshold signing session is not ready');
-    expect(message).toContain('bootstrapEcdsaSession');
+    expect(message).toContain('Refresh the signing session');
   });
 
   test('normalizes signer boundary commit_queue_overflow message', async () => {

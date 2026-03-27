@@ -9,6 +9,7 @@ const IMPORT_PATHS = {
   indexedDb: sdkEsmPath('core/indexedDB/index.js'),
   tatchi: SDK_ESM_PATHS.tatchiPasskey,
 } as const;
+const DUAL_KEY_ED25519_KEY_VERSION_V1 = 'option-b-v1';
 
 function toB64u(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
@@ -67,10 +68,20 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     page,
   }) => {
     let sendTxCount = 0;
-    let localNearPublicKey = '';
     let thresholdPublicKey = '';
-    let newPublicKeyProvided = false;
+    let recoveryPublicKey = '';
     let relayIntentDigest32: number[] | null = null;
+    let recoveryShareRequestCount = 0;
+    let recoveryShareRequest:
+      | {
+          nearAccountId: string;
+          rpId: string;
+          keyVersion: string;
+        }
+      | null = null;
+    let bootstrapRecoveryPublicKey = '';
+    let bootstrapRecoveryExportCapable = false;
+    let bootstrapKeyVersion = '';
     const relayerKeyId = 'relayer-keyid-mock-1';
     const relayerVerifyingShareB64u = toB64u(ed25519PointToBytes(getEd25519PointCtor().BASE));
     let thresholdActivatedOnChain = false;
@@ -236,15 +247,15 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
         const keys: any[] = [];
-        if (localNearPublicKey) {
-          keys.push({
-            public_key: localNearPublicKey,
-            access_key: { nonce: 0, permission: 'FullAccess' },
-          });
-        }
         if (thresholdActivatedOnChain && thresholdPublicKey) {
           keys.push({
             public_key: thresholdPublicKey,
+            access_key: { nonce: 0, permission: 'FullAccess' },
+          });
+        }
+        if (thresholdActivatedOnChain && recoveryPublicKey) {
+          keys.push({
+            public_key: recoveryPublicKey,
             access_key: { nonce: 0, permission: 'FullAccess' },
           });
         }
@@ -287,6 +298,39 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       });
     });
 
+    await page.route('**/registration/recovery-share', async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+
+      const payload = JSON.parse(req.postData() || '{}');
+      recoveryShareRequestCount += 1;
+      recoveryShareRequest = {
+        nearAccountId: String(payload?.nearAccountId || ''),
+        rpId: String(payload?.rpId || ''),
+        keyVersion: String(payload?.keyVersion || ''),
+      };
+
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          ok: true,
+          recoveryServerShareB64u: Buffer.alloc(32, 5).toString('base64url'),
+          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+        }),
+      });
+    });
+
     await page.route('**/registration/bootstrap', async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
@@ -304,8 +348,6 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
       const post = req.postData() || '{}';
       const payload = JSON.parse(post);
-      newPublicKeyProvided = Object.prototype.hasOwnProperty.call(payload, 'new_public_key');
-      localNearPublicKey = payload?.new_public_key || '';
       const accountId = String(payload?.new_account_id || '');
       if (accountId) {
         accountsOnChain.add(accountId);
@@ -340,11 +382,17 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         );
         return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10_000;
       })();
+      bootstrapRecoveryPublicKey = String(
+        payload?.threshold_ed25519?.recovery_public_key || '',
+      ).trim();
+      bootstrapRecoveryExportCapable = payload?.threshold_ed25519?.recovery_export_capable === true;
+      bootstrapKeyVersion = String(payload?.threshold_ed25519?.key_version || '').trim();
 
       thresholdPublicKey = compute2of2GroupPk({
         clientVerifyingShareB64u,
         relayerVerifyingShareB64u,
       });
+      recoveryPublicKey = bootstrapRecoveryPublicKey;
       // Threshold-only: relay creates the account directly with the threshold key.
       thresholdActivatedOnChain = true;
 
@@ -357,6 +405,9 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
           thresholdEd25519: {
             relayerKeyId,
             publicKey: thresholdPublicKey,
+            keyVersion: bootstrapKeyVersion,
+            recoveryExportCapable: bootstrapRecoveryExportCapable,
+            recoveryPublicKey,
             relayerVerifyingShareB64u,
             ...(thresholdSessionId
               ? {
@@ -437,12 +488,19 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     }
 
     expect(sendTxCount).toBe(0);
-    expect(newPublicKeyProvided).toBe(false);
-    expect(localNearPublicKey).toBe('');
     expect(thresholdActivatedOnChain).toBe(true);
     expect(thresholdPublicKey).toMatch(/^ed25519:/);
+    expect(recoveryPublicKey).toMatch(/^ed25519:/);
     expect(relayIntentDigest32).toBeTruthy();
     expect(relayIntentDigest32).toHaveLength(32);
+    expect(recoveryShareRequestCount).toBe(1);
+    expect(recoveryShareRequest).not.toBeNull();
+    expect(recoveryShareRequest?.nearAccountId).toBe(registration.accountId);
+    expect(String(recoveryShareRequest?.rpId || '')).toMatch(/^(localhost|127\.0\.0\.1)$/);
+    expect(recoveryShareRequest?.keyVersion).toBe(DUAL_KEY_ED25519_KEY_VERSION_V1);
+    expect(bootstrapKeyVersion).toBe(DUAL_KEY_ED25519_KEY_VERSION_V1);
+    expect(bootstrapRecoveryExportCapable).toBe(true);
+    expect(bootstrapRecoveryPublicKey).toBe(recoveryPublicKey);
     // ConfirmTxFlow binds `sha256("register:<accountId>:<deviceNumber>")` into the WebAuthn challenge.
     const expectedIntentDigest32 = Array.from(
       createHash('sha256').update(`register:${registration.accountId}:1`, 'utf8').digest(),
@@ -508,14 +566,28 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
         const normalizedAccountId = String(accountId || '')
           .trim()
           .toLowerCase();
+        const context = await IndexedDBManager.clientDB.resolveNearAccountContext(normalizedAccountId);
         const thresholdRec = await IndexedDBManager.getNearThresholdKeyMaterial(
           normalizedAccountId,
           1,
         );
-        const localRec = await IndexedDBManager.getNearLocalKeyMaterial(normalizedAccountId, 1);
+        const rawThresholdRec =
+          context?.profileId && context?.sourceChainIdKey
+            ? await IndexedDBManager.nearKeysDB.getKeyMaterial(
+                context.profileId,
+                1,
+                context.sourceChainIdKey,
+                'threshold_share_v1',
+              )
+            : null;
         return {
           threshold: thresholdRec ? { ...thresholdRec } : null,
-          local: localRec ? { ...localRec } : null,
+          rawThreshold: rawThresholdRec
+            ? {
+                ...rawThresholdRec,
+                payload: rawThresholdRec.payload ? { ...rawThresholdRec.payload } : null,
+              }
+            : null,
         };
       },
       { paths: IMPORT_PATHS, accountId: registration.accountId },
@@ -523,17 +595,32 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
     expect(stored?.threshold?.kind).toBe('threshold_ed25519_2p_v1');
     expect(stored?.threshold?.publicKey).toBe(thresholdPublicKey);
+    expect(String(stored?.threshold?.wrapKeySalt || '')).not.toBe('');
     expect(String(stored?.threshold?.relayerKeyId || '')).toBe(relayerKeyId);
-    expect(stored?.local?.kind).toBe('local_near_sk_v3');
-    expect(String(stored?.local?.usage || '')).toBe('export-only');
+    expect(String(stored?.threshold?.recoveryPublicKey || '')).toBe(recoveryPublicKey);
+    expect(String(stored?.threshold?.keyVersion || '')).toBe(DUAL_KEY_ED25519_KEY_VERSION_V1);
+    expect(stored?.threshold?.recoveryExportCapable).toBe(true);
+    expect(String(stored?.rawThreshold?.wrapKeySalt || '')).not.toBe('');
+    expect(stored?.rawThreshold?.payload).toMatchObject({
+      relayerKeyId,
+      recoveryPublicKey,
+      keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+      recoveryExportCapable: true,
+      clientShareDerivation: 'prf_first_v1',
+    });
+    expect(stored?.rawThreshold?.payload?.recoveryClientShareB64u).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.recoveryServerShareB64u).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.seedB64u).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.recoveredSeedB64u).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.privateKey).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.nearPrivateKey).toBeUndefined();
+    expect(stored?.rawThreshold?.payload?.paillierPrivateKeyB64u).toBeUndefined();
   });
 
   test('registration fails if relay omits threshold key material (no stored threshold material)', async ({
     page,
   }) => {
     let sendTxCount = 0;
-    let localNearPublicKey = '';
-    let newPublicKeyProvided = false;
     const accountsOnChain = new Set<string>();
 
     await page.route('**://test.rpc.fastnear.com/**', async (route) => {
@@ -683,11 +770,6 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
 
       if (rpcMethod === 'query' && params?.request_type === 'view_access_key_list') {
         const keys: any[] = [];
-        if (localNearPublicKey)
-          keys.push({
-            public_key: localNearPublicKey,
-            access_key: { nonce: 0, permission: 'FullAccess' },
-          });
         await route.fulfill({
           status: 200,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -722,6 +804,30 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       });
     });
 
+    await page.route('**/registration/recovery-share', async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          ok: true,
+          recoveryServerShareB64u: Buffer.alloc(32, 6).toString('base64url'),
+          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+        }),
+      });
+    });
+
     await page.route('**/registration/bootstrap', async (route) => {
       const req = route.request();
       const method = req.method().toUpperCase();
@@ -736,8 +842,6 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
       }
 
       const payload = JSON.parse(req.postData() || '{}');
-      newPublicKeyProvided = Object.prototype.hasOwnProperty.call(payload, 'new_public_key');
-      localNearPublicKey = payload?.new_public_key || '';
       const accountId = String(payload?.new_account_id || '');
       if (accountId) {
         accountsOnChain.add(accountId);
@@ -812,8 +916,274 @@ test.describe('Threshold Ed25519 (registration) — threshold-first account crea
     expect(registration.success).toBe(false);
     expect(Boolean(registration.error)).toBe(true);
     expect(sendTxCount).toBe(0);
-    expect(newPublicKeyProvided).toBe(false);
-    expect(localNearPublicKey).toBe('');
+
+    const stored = await page.evaluate(
+      async ({ paths, accountId }) => {
+        const { IndexedDBManager } = await import(paths.indexedDb);
+        const rec = await IndexedDBManager.getNearThresholdKeyMaterial(
+          String(accountId || '')
+            .trim()
+            .toLowerCase(),
+          1,
+        );
+        return rec ? { ...rec } : null;
+      },
+      { paths: IMPORT_PATHS, accountId: registration.accountId },
+    );
+
+    expect(stored).toBeNull();
+  });
+
+  test('registration fails before bootstrap when recovery-share preflight fails', async ({ page }) => {
+    let recoveryShareRequestCount = 0;
+    let bootstrapRequestCount = 0;
+
+    await page.route('**/registration/recovery-share', async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+      recoveryShareRequestCount += 1;
+      await route.fulfill({
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          ok: false,
+          code: 'internal',
+          message: 'threshold-ed25519 recovery-share preparation failed in test',
+        }),
+      });
+    });
+
+    await page.route('**/registration/bootstrap', async (route) => {
+      const method = route.request().method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+      bootstrapRequestCount += 1;
+      await route.fulfill({
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({ success: false, error: 'bootstrap should not be reached' }),
+      });
+    });
+
+    const registration = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const { TatchiPasskey } = await import(paths.tatchi);
+          const suffix =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const accountId = `e2e${suffix}.w3a-v1.testnet`;
+
+          const pm = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: { walletOrigin: '' },
+          });
+
+          const confirmConfig = {
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          };
+
+          const res = await pm.registration.registerPasskeyInternal(
+            accountId,
+            {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+              },
+            },
+            confirmConfig as any,
+          );
+          return { accountId, success: !!res?.success, error: res?.error };
+        } catch (error: any) {
+          return { accountId: 'unknown', success: false, error: error?.message || String(error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(registration.success).toBe(false);
+    expect(String(registration.error || '')).toContain('recovery-share');
+    expect(recoveryShareRequestCount).toBe(1);
+    expect(bootstrapRequestCount).toBe(0);
+  });
+
+  test('registration rejects operational-only threshold bootstrap results', async ({ page }) => {
+    let recoveryShareRequestCount = 0;
+    let bootstrapRequestCount = 0;
+    const relayerVerifyingShareB64u = toB64u(ed25519PointToBytes(getEd25519PointCtor().BASE));
+
+    await page.route('**/registration/recovery-share', async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+      recoveryShareRequestCount += 1;
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          ok: true,
+          recoveryServerShareB64u: Buffer.alloc(32, 8).toString('base64url'),
+          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+        }),
+      });
+    });
+
+    await page.route('**/registration/bootstrap', async (route) => {
+      const req = route.request();
+      const method = req.method().toUpperCase();
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      };
+      if (method === 'OPTIONS') {
+        await route.fulfill({ status: 204, headers: corsHeaders, body: '' });
+        return;
+      }
+      bootstrapRequestCount += 1;
+      const payload = JSON.parse(req.postData() || '{}');
+      const thresholdSessionPolicy = payload?.threshold_ed25519?.session_policy || null;
+      const thresholdSessionId = String(
+        thresholdSessionPolicy?.sessionId || thresholdSessionPolicy?.session_id || '',
+      ).trim();
+      const thresholdSessionTtlMs = (() => {
+        const n = Number(thresholdSessionPolicy?.ttlMs || thresholdSessionPolicy?.ttl_ms);
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 60_000;
+      })();
+      const thresholdSessionRemainingUses = (() => {
+        const n = Number(
+          thresholdSessionPolicy?.remainingUses || thresholdSessionPolicy?.remaining_uses,
+        );
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 10_000;
+      })();
+      const thresholdPublicKey = compute2of2GroupPk({
+        clientVerifyingShareB64u: String(
+          payload?.threshold_ed25519?.client_verifying_share_b64u || '',
+        ),
+        relayerVerifyingShareB64u,
+      });
+
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          success: true,
+          transactionHash: `mock_atomic_tx_${Date.now()}`,
+          thresholdEd25519: {
+            relayerKeyId: 'relayer-keyid-mock-1',
+            publicKey: thresholdPublicKey,
+            keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
+            recoveryExportCapable: true,
+            relayerVerifyingShareB64u,
+            ...(thresholdSessionId
+              ? {
+                  session: {
+                    sessionKind: 'jwt',
+                    sessionId: thresholdSessionId,
+                    expiresAtMs: Date.now() + thresholdSessionTtlMs,
+                    participantIds: [1, 2],
+                    remainingUses: thresholdSessionRemainingUses,
+                    jwt: 'mock-threshold-ed25519-registration-jwt',
+                  },
+                }
+              : {}),
+          },
+        }),
+      });
+    });
+
+    const registration = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const { TatchiPasskey } = await import(paths.tatchi);
+          const suffix =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+          const accountId = `e2e${suffix}.w3a-v1.testnet`;
+
+          const pm = new TatchiPasskey({
+            nearNetwork: 'testnet',
+            nearRpcUrl: 'https://test.rpc.fastnear.com',
+            relayer: { url: 'http://localhost:3000' },
+            iframeWallet: { walletOrigin: '' },
+          });
+
+          const confirmConfig = {
+            uiMode: 'none',
+            behavior: 'skipClick',
+            autoProceedDelay: 0,
+          };
+
+          const res = await pm.registration.registerPasskeyInternal(
+            accountId,
+            {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+              },
+            },
+            confirmConfig as any,
+          );
+          return { accountId, success: !!res?.success, error: res?.error };
+        } catch (error: any) {
+          return { accountId: 'unknown', success: false, error: error?.message || String(error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(registration.success).toBe(false);
+    expect(String(registration.error || '')).toContain(
+      'Atomic registration returned an incomplete threshold-ed25519 Option B package',
+    );
+    expect(recoveryShareRequestCount).toBe(1);
+    expect(bootstrapRequestCount).toBe(1);
 
     const stored = await page.evaluate(
       async ({ paths, accountId }) => {

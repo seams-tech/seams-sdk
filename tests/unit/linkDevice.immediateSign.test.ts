@@ -95,7 +95,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           await signingEngine.storeUserData({
             nearAccountId,
             deviceNumber: normalizedDeviceNumber,
-            clientNearPublicKey: deterministicKeysResult.nearPublicKey,
+            operationalPublicKey: deterministicKeysResult.nearPublicKey,
             lastUpdated: Date.now(),
             passkeyCredential: {
               id: String(deterministicKeysResult.credential.id || credentialId),
@@ -347,7 +347,7 @@ test.describe('Link device → immediate sign (regression)', () => {
           await signingEngine.storeUserData({
             nearAccountId,
             deviceNumber: normalizedDeviceNumber,
-            clientNearPublicKey: deterministicKeysResult.nearPublicKey,
+            operationalPublicKey: deterministicKeysResult.nearPublicKey,
             lastUpdated: Date.now(),
             passkeyCredential: {
               id: String(deterministicKeysResult.credential.id || credentialId),

@@ -24,12 +24,12 @@ test.describe('Worker Communication Protocol', () => {
   test('Progress Messages - SignTransactionsWithActions', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
+    let operationalNearPublicKey = '';
 
     await installCreateAccountAndRegisterUserMock(page, {
       relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
       onNewPublicKey: (pk) => {
-        localNearPublicKey = pk;
+        if (!operationalNearPublicKey) operationalNearPublicKey = pk;
         keysOnChain.add(pk);
         nonceByPublicKey.set(pk, 0);
       },
@@ -39,10 +39,10 @@ test.describe('Worker Communication Protocol', () => {
       keysOnChain,
       nonceByPublicKey,
       onSendTx: () => {
-        if (localNearPublicKey) {
+        if (operationalNearPublicKey) {
           nonceByPublicKey.set(
-            localNearPublicKey,
-            (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+            operationalNearPublicKey,
+            (nonceByPublicKey.get(operationalNearPublicKey) ?? 0) + 1,
           );
         }
       },
@@ -529,12 +529,12 @@ test.describe('Worker Communication Protocol', () => {
   test('Progress Message Types - All Message Types', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
+    let operationalNearPublicKey = '';
 
     await installCreateAccountAndRegisterUserMock(page, {
       relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
       onNewPublicKey: (pk) => {
-        localNearPublicKey = pk;
+        if (!operationalNearPublicKey) operationalNearPublicKey = pk;
         keysOnChain.add(pk);
         nonceByPublicKey.set(pk, 0);
       },
@@ -544,10 +544,10 @@ test.describe('Worker Communication Protocol', () => {
       keysOnChain,
       nonceByPublicKey,
       onSendTx: () => {
-        if (localNearPublicKey) {
+        if (operationalNearPublicKey) {
           nonceByPublicKey.set(
-            localNearPublicKey,
-            (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
+            operationalNearPublicKey,
+            (nonceByPublicKey.get(operationalNearPublicKey) ?? 0) + 1,
           );
         }
       },

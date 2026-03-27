@@ -6,6 +6,7 @@ import {
   THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
 } from '@server/core/ThresholdService/schemes/schemeIds';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
+import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 
 function makeThresholdAdapter(module: unknown) {
   const requestedSchemeIds: string[] = [];
@@ -126,5 +127,280 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
     expect(res.json).toEqual(expected);
     expect(signInitBodies).toEqual([body]);
     expect(requestedSchemeIds).toEqual([THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID]);
+  });
+
+  test('express: export/init fails closed when webauthn_authentication is missing', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        recoveryPublicKey: 'ed25519:recovery-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async (request) => {
+        if (!request.webauthn_authentication) {
+          return {
+            success: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'Missing webauthn_authentication',
+          };
+        }
+        return { success: true, verified: true };
+      },
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, { threshold: threshold as any });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/threshold-ed25519/export/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relayerKeyId: 'ed25519:operational-key',
+          keyVersion: 'option-b-v1',
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(res.json?.ok).toBe(false);
+      expect(res.json?.code).toBe('invalid_body');
+      expect(String(res.json?.message || '')).toContain('webauthn_authentication');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('express: export/init fails closed when step-up verification is denied', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        recoveryPublicKey: 'ed25519:recovery-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async () => ({
+        success: false,
+        verified: false,
+        code: 'unauthorized',
+        message: 'Authentication verification failed',
+      }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, { threshold: threshold as any });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/threshold-ed25519/export/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relayerKeyId: 'ed25519:operational-key',
+          keyVersion: 'option-b-v1',
+          webauthn_authentication: {
+            id: 'cred-1',
+            rawId: 'cred-1',
+            type: 'public-key',
+            response: {
+              clientDataJSON: 'AQ',
+              authenticatorData: 'Ag',
+              signature: 'Aw',
+            },
+          },
+        }),
+      });
+      expect(res.status).toBe(401);
+      expect(res.json?.ok).toBe(false);
+      expect(res.json?.code).toBe('unauthorized');
+      expect(String(res.json?.message || '')).toContain('Authentication verification failed');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('cloudflare: export/init fails closed when webauthn_authentication is missing', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        recoveryPublicKey: 'ed25519:recovery-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async (request) => {
+        if (!request.webauthn_authentication) {
+          return {
+            success: false,
+            verified: false,
+            code: 'invalid_body',
+            message: 'Missing webauthn_authentication',
+          };
+        }
+        return { success: true, verified: true };
+      },
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { threshold: threshold as any });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/export/init',
+      body: {
+        relayerKeyId: 'ed25519:operational-key',
+        keyVersion: 'option-b-v1',
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('invalid_body');
+    expect(String(res.json?.message || '')).toContain('webauthn_authentication');
+  });
+
+  test('cloudflare: export/init fails closed when step-up verification is denied', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        recoveryPublicKey: 'ed25519:recovery-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async () => ({
+        success: false,
+        verified: false,
+        code: 'unauthorized',
+        message: 'Authentication verification failed',
+      }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { threshold: threshold as any });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/export/init',
+      body: {
+        relayerKeyId: 'ed25519:operational-key',
+        keyVersion: 'option-b-v1',
+        webauthn_authentication: {
+          id: 'cred-1',
+          rawId: 'cred-1',
+          type: 'public-key',
+          response: {
+            clientDataJSON: 'AQ',
+            authenticatorData: 'Ag',
+            signature: 'Aw',
+          },
+        },
+      },
+    });
+
+    expect(res.status).toBe(401);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('unauthorized');
+    expect(String(res.json?.message || '')).toContain('Authentication verification failed');
+  });
+
+  test('express: export/init fails closed when persisted recovery metadata is missing', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async () => ({
+        success: true,
+        verified: true,
+      }),
+    });
+    const service = makeFakeAuthService();
+    const router = createRelayRouter(service, { threshold: threshold as any });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/threshold-ed25519/export/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relayerKeyId: 'ed25519:operational-key',
+          keyVersion: 'option-b-v1',
+          webauthn_authentication: {
+            id: 'cred-1',
+            rawId: 'cred-1',
+            type: 'public-key',
+            response: {
+              clientDataJSON: 'AQ',
+              authenticatorData: 'Ag',
+              signature: 'Aw',
+            },
+          },
+        }),
+      });
+      expect(res.status).toBe(501);
+      expect(res.json?.ok).toBe(false);
+      expect(res.json?.code).toBe('not_implemented');
+      expect(String(res.json?.message || '')).toContain('not provisioned');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('cloudflare: export/init fails closed when persisted recovery metadata is missing', async () => {
+    const { svc: threshold } = createThresholdSigningServiceForUnitTests({
+      keyRecord: {
+        nearAccountId: 'alice.testnet',
+        rpId: 'wallet.example.test',
+        publicKey: 'ed25519:operational-key',
+        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
+        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+      },
+      verifyWebAuthnAuthenticationLite: async () => ({
+        success: true,
+        verified: true,
+      }),
+    });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, { threshold: threshold as any });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/export/init',
+      body: {
+        relayerKeyId: 'ed25519:operational-key',
+        keyVersion: 'option-b-v1',
+        webauthn_authentication: {
+          id: 'cred-1',
+          rawId: 'cred-1',
+          type: 'public-key',
+          response: {
+            clientDataJSON: 'AQ',
+            authenticatorData: 'Ag',
+            signature: 'Aw',
+          },
+        },
+      },
+    });
+
+    expect(res.status).toBe(501);
+    expect(res.json?.ok).toBe(false);
+    expect(res.json?.code).toBe('not_implemented');
+    expect(String(res.json?.message || '')).toContain('not provisioned');
   });
 });

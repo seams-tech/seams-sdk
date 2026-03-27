@@ -13,10 +13,10 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   corsHeadersForRoute,
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 
@@ -30,8 +30,6 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
   test('401 from /authorize surfaces error and does not broadcast', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
     let sendTxCount = 0;
     let forceAuthorizeUnauthorized = false;
     let authorizePostCount = 0;
@@ -50,10 +48,7 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String((json as any)?.publicKey || '');
-          return json;
-        });
+        await route.fallback();
       });
 
       await page.route('**/threshold-ed25519/authorize', async (route) => {
@@ -80,12 +75,12 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
         });
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
@@ -94,16 +89,6 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
         nonceByPublicKey,
         onSendTx: () => {
           sendTxCount += 1;
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
         },
         strictAccessKeyLookup: true,
       });
@@ -129,14 +114,23 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
-
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              throw new Error(enrollment?.error || 'threshold enrollment failed');
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');
 

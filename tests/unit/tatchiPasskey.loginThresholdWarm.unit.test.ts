@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import { unlock } from '@/core/TatchiPasskey/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
+import {
+  clearAllStoredThresholdEd25519SessionRecords,
+  upsertStoredThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
 
@@ -16,12 +20,12 @@ function createBaseContext(args?: {
       getUserByDevice: async () => ({
         nearAccountId: 'alice.testnet',
         deviceNumber: 1,
-        clientNearPublicKey: 'ed25519:alice',
+        operationalPublicKey: 'ed25519:alice',
       }),
       getLastUser: async () => ({
         nearAccountId: 'alice.testnet',
         deviceNumber: 1,
-        clientNearPublicKey: 'ed25519:alice',
+        operationalPublicKey: 'ed25519:alice',
       }),
       getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', deviceNumber: 1 }],
       connectEd25519Session: async () => ({
@@ -60,7 +64,7 @@ function createBaseContext(args?: {
         },
       }),
       clearWarmSigningSessions: async () => undefined,
-      getWarmSigningSessionStatus: async () => ({
+      getWarmThresholdEd25519SessionStatus: async () => ({
         sessionId: 'session-1',
         status: 'active',
         remainingUses: 3,
@@ -88,12 +92,29 @@ function createBaseContext(args?: {
   };
 }
 
-async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<T> {
+async function withMockedMostRecentProjection<T>(
+  fn: () => Promise<T>,
+  options?: { includeThresholdEcdsaProfiles?: boolean },
+): Promise<T> {
   const clientDb = IndexedDBManager.clientDB as { getMostRecentNearAccountProjection?: unknown };
+  const continuityClientDb = IndexedDBManager.clientDB as {
+    resolveNearAccountProfileContinuity?: unknown;
+  };
   const nearDb = IndexedDBManager as { getNearThresholdKeyMaterial?: unknown };
   const original = clientDb.getMostRecentNearAccountProjection;
+  const originalContinuity = continuityClientDb.resolveNearAccountProfileContinuity;
   const originalThreshold = nearDb.getNearThresholdKeyMaterial;
   clientDb.getMostRecentNearAccountProjection = async () => null;
+  continuityClientDb.resolveNearAccountProfileContinuity = async () =>
+    options?.includeThresholdEcdsaProfiles
+      ? {
+          chainAccounts: [
+            {
+              accountModel: 'erc4337',
+            },
+          ],
+        }
+      : { chainAccounts: [] };
   nearDb.getNearThresholdKeyMaterial = async () => ({
     kind: 'threshold_ed25519_2p_v1',
     publicKey: 'ed25519:threshold',
@@ -105,6 +126,7 @@ async function withMockedMostRecentProjection<T>(fn: () => Promise<T>): Promise<
     return await fn();
   } finally {
     clientDb.getMostRecentNearAccountProjection = original;
+    continuityClientDb.resolveNearAccountProfileContinuity = originalContinuity;
     nearDb.getNearThresholdKeyMaterial = originalThreshold;
   }
 }
@@ -157,6 +179,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     });
     const result = await withMockedMostRecentProjection(
       async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: true },
     );
 
     expect(result.success).toBe(true);
@@ -231,6 +254,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     const result = await withMockedMostRecentProjection(
       async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: true },
     );
 
     expect(result.success).toBe(false);
@@ -254,6 +278,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     const result = await withMockedMostRecentProjection(
       async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: true },
     );
 
     expect(result.success).toBe(true);
@@ -282,6 +307,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     const result = await withMockedMostRecentProjection(
       async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: true },
     );
 
     expect(result.success).toBe(false);
@@ -314,12 +340,83 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     const result = await withMockedMostRecentProjection(
       async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: true },
     );
 
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
     expect(capturedConnectArgs).not.toBeNull();
     expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
+  });
+
+  test('NEAR-only threshold warm-up does not bootstrap ECDSA sessions', async () => {
+    let bootstrapCalls = 0;
+    const context = createBaseContext({
+      signingEngine: {
+        bootstrapEcdsaSession: async () => {
+          bootstrapCalls += 1;
+          throw new Error('should not be called for NEAR-only warm-up');
+        },
+      },
+    });
+
+    const result = await withMockedMostRecentProjection(
+      async () => await unlock(context, ACCOUNT_ID),
+      { includeThresholdEcdsaProfiles: false },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.signingSession?.status).toBe('active');
+    expect(bootstrapCalls).toBe(0);
+  });
+
+  test('NEAR-only warm-up does not reuse a stored Ed25519 threshold session id', async () => {
+    let capturedConnectArgs: Record<string, unknown> | null = null;
+    const context = createBaseContext({
+      signingEngine: {
+        connectEd25519Session: async (args: Record<string, unknown>) => {
+          capturedConnectArgs = args;
+          return {
+            ok: true,
+            sessionId: String(args.sessionId || ''),
+            jwt: 'jwt-ed25519',
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+            ecdsaClientVerifyingShareB64u: 'AQ',
+          };
+        },
+      },
+    });
+
+    clearAllStoredThresholdEd25519SessionRecords();
+    upsertStoredThresholdEd25519SessionRecord({
+      nearAccountId: ACCOUNT_ID,
+      rpId: 'wallet.example.localhost',
+      relayerUrl: 'https://relay.example',
+      relayerKeyId: 'rk-1',
+      participantIds: [1, 2],
+      thresholdSessionKind: 'jwt',
+      thresholdSessionId: 'stored-ed25519-session-1',
+      thresholdSessionJwt: 'jwt-stale',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+      source: 'manual-connect',
+    });
+
+    try {
+      const result = await withMockedMostRecentProjection(
+        async () => await unlock(context, ACCOUNT_ID),
+        { includeThresholdEcdsaProfiles: false },
+      );
+
+      expect(result.success).toBe(true);
+      expect(capturedConnectArgs).not.toBeNull();
+      expect(String(capturedConnectArgs?.['sessionId'] || '')).not.toBe(
+        'stored-ed25519-session-1',
+      );
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
   });
 
   test('fails fast when /session/exchange route is requested without session.exchange payload', async () => {

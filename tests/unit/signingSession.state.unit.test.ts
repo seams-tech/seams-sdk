@@ -47,18 +47,25 @@ test.describe('signing session state', () => {
 
         await mod.hydrateSigningSession(deps as any, {
           nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
           sessionId: 'session-hydrated',
           prfFirstB64u: 'AQ',
           expiresAtMs: 123_456,
           remainingUses: 2,
         });
 
-        const reused = mod.getOrCreateActiveSigningSessionId(deps as any, 'alice.testnet');
-        const cleared = mod.clearActiveSigningSessionId(deps as any, 'alice.testnet');
-        const createdAfterClear = mod.getOrCreateActiveSigningSessionId(
+        const reused = mod.getOrCreateActiveSigningSessionIdForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
+        const cleared = mod.clearAllActiveSigningSessionIdsForAccount(
           deps as any,
           'alice.testnet',
         );
+        const createdAfterClear = mod.getOrCreateActiveSigningSessionIdForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
         const clearedAll = mod.clearAllActiveSigningSessionIds(deps as any);
 
         return {
@@ -81,9 +88,9 @@ test.describe('signing session state', () => {
       },
     ]);
     expect(result.reused).toBe('session-hydrated');
-    expect(result.cleared).toBe('session-hydrated');
-    expect(result.createdAfterClear).toBe('signing-session-1');
-    expect(result.clearedAll).toEqual(['signing-session-1']);
+    expect(result.cleared).toEqual(['session-hydrated']);
+    expect(result.createdAfterClear).toBe('threshold-ed25519-1');
+    expect(result.clearedAll).toEqual(['threshold-ed25519-1']);
   });
 
   test('hydrate can skip active session pointer mutation', async ({ page }) => {
@@ -108,6 +115,7 @@ test.describe('signing session state', () => {
 
         await mod.hydrateSigningSession(deps as any, {
           nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
           sessionId: 'session-not-active',
           prfFirstB64u: 'AQ',
           expiresAtMs: 123_456,
@@ -116,13 +124,16 @@ test.describe('signing session state', () => {
         });
 
         return {
-          created: mod.getOrCreateActiveSigningSessionId(deps as any, 'alice.testnet'),
+          created: mod.getOrCreateActiveSigningSessionIdForKind(deps as any, {
+            nearAccountId: 'alice.testnet',
+            signerKind: 'threshold-ed25519',
+          }),
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.created).toBe('signing-session-1');
+    expect(result.created).toBe('threshold-ed25519-1');
   });
 
   test('status resolves active and terminal states', async ({ page }) => {
@@ -132,8 +143,15 @@ test.describe('signing session state', () => {
 
         let canonicalSessionId: string | null = null;
         const deps = {
-          activeSigningSessionIds: new Map<string, string>([['alice.testnet', 'session-1']]),
-          resolveCanonicalSigningSessionId: (_nearAccountId: string) => canonicalSessionId,
+          activeSigningSessionIds: new Map<string, string>([
+            ['alice.testnet|threshold-ed25519', 'session-1'],
+          ]),
+          resolveCanonicalSigningSessionIdForKind: ({
+            signerKind,
+          }: {
+            nearAccountId: string;
+            signerKind: string;
+          }) => (signerKind === 'threshold-ed25519' ? canonicalSessionId : null),
           touchConfirm: {
             peekPrfFirstForThresholdSession: async ({ sessionId }: { sessionId: string }) => {
               if (sessionId === 'session-active') {
@@ -153,24 +171,43 @@ test.describe('signing session state', () => {
           signingSessionDefaults: { ttlMs: 1_000, remainingUses: 3 },
         };
 
-        deps.activeSigningSessionIds.set('alice.testnet', 'session-active');
-        const active = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        deps.activeSigningSessionIds.set('alice.testnet|threshold-ed25519', 'session-active');
+        const active = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
 
-        deps.activeSigningSessionIds.set('alice.testnet', 'session-expired');
-        const expired = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        deps.activeSigningSessionIds.set('alice.testnet|threshold-ed25519', 'session-expired');
+        const expired = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
 
-        deps.activeSigningSessionIds.set('alice.testnet', 'session-exhausted');
-        const exhausted = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        deps.activeSigningSessionIds.set('alice.testnet|threshold-ed25519', 'session-exhausted');
+        const exhausted = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
 
-        deps.activeSigningSessionIds.set('alice.testnet', 'session-missing');
-        const notFound = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        deps.activeSigningSessionIds.set('alice.testnet|threshold-ed25519', 'session-missing');
+        const notFound = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
 
         deps.activeSigningSessionIds.clear();
-        const absent = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
+        const absent = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
 
         canonicalSessionId = 'session-active';
-        const restored = await mod.getWarmSigningSessionStatus(deps as any, 'alice.testnet');
-        const restoredPointer = deps.activeSigningSessionIds.get('alice.testnet') || null;
+        const restored = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
+        const restoredPointer =
+          deps.activeSigningSessionIds.get('alice.testnet|threshold-ed25519') || null;
 
         return { active, expired, exhausted, notFound, absent, restored, restoredPointer };
       },
@@ -203,6 +240,89 @@ test.describe('signing session state', () => {
       expiresAtMs: 999_999,
     });
     expect(result.restoredPointer).toBe('session-active');
+  });
+
+  test('session keys stay isolated across signer kinds', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.signingSessionState);
+
+        const deps = {
+          activeSigningSessionIds: new Map<string, string>(),
+          touchConfirm: {
+            peekPrfFirstForThresholdSession: async ({ sessionId }: { sessionId: string }) => {
+              if (sessionId === 'ed25519-session') {
+                return { ok: true, remainingUses: 4, expiresAtMs: 222_222 };
+              }
+              if (sessionId === 'tempo-session') {
+                return { ok: true, remainingUses: 7, expiresAtMs: 333_333 };
+              }
+              return { ok: false, code: 'not_found', message: 'missing' };
+            },
+            putPrfFirstForThresholdSession: async () => undefined,
+          },
+          createSessionId: (prefix: string) => `${prefix}-generated`,
+          signingSessionDefaults: { ttlMs: 1_000, remainingUses: 3 },
+        };
+
+        mod.setActiveSigningSessionIdForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+          sessionId: 'ed25519-session',
+        });
+        mod.setActiveSigningSessionIdForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ecdsa-tempo',
+          sessionId: 'tempo-session',
+        });
+
+        const ed25519Status = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ed25519',
+        });
+        const tempoStatus = await mod.getWarmSigningSessionStatusForKind(deps as any, {
+          nearAccountId: 'alice.testnet',
+          signerKind: 'threshold-ecdsa-tempo',
+        });
+        const clearedEd25519 = mod.clearAllActiveSigningSessionIdsForAccount(
+          {
+            ...deps,
+            activeSigningSessionIds: new Map<string, string>([
+              ['alice.testnet|threshold-ed25519', 'ed25519-session'],
+              ['alice.testnet|threshold-ecdsa-tempo', 'tempo-session'],
+              ['bob.testnet|threshold-ed25519', 'bob-ed25519-session'],
+            ]),
+          } as any,
+          'alice.testnet',
+        );
+
+        return {
+          activeKeys: Array.from(deps.activeSigningSessionIds.keys()).sort(),
+          ed25519Status,
+          tempoStatus,
+          clearedEd25519,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.activeKeys).toEqual([
+      'alice.testnet|threshold-ecdsa-tempo',
+      'alice.testnet|threshold-ed25519',
+    ]);
+    expect(result.ed25519Status).toEqual({
+      sessionId: 'ed25519-session',
+      status: 'active',
+      remainingUses: 4,
+      expiresAtMs: 222_222,
+    });
+    expect(result.tempoStatus).toEqual({
+      sessionId: 'tempo-session',
+      status: 'active',
+      remainingUses: 7,
+      expiresAtMs: 333_333,
+    });
+    expect(result.clearedEd25519).toEqual(['ed25519-session', 'tempo-session']);
   });
 
   test('registration uses high-level signing session hydrate API', () => {

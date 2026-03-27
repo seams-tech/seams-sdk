@@ -13,10 +13,10 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
-  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  installThresholdEd25519OptionBBootstrapMocks,
   makeAuthServiceForThreshold,
-  proxyPostJsonAndMutate,
+  persistThresholdEd25519OptionBBootstrap,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_nep413_signing_digest } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -31,8 +31,6 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
   test('happy path: threshold NEP-413 signature verifies under threshold key', async ({ page }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
-    let localNearPublicKey = '';
-    let thresholdPublicKeyFromKeygen = '';
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
@@ -48,36 +46,21 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
 
     try {
       await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await proxyPostJsonAndMutate(route, (json) => {
-          thresholdPublicKeyFromKeygen = String(json?.publicKey || '');
-          return json;
-        });
+        await route.fallback();
       });
 
-      await installCreateAccountAndRegisterUserMock(page, {
+      await installThresholdEd25519OptionBBootstrapMocks(page, {
         relayerBaseUrl: srv.baseUrl,
-        onNewPublicKey: (pk) => {
-          localNearPublicKey = pk;
-          keysOnChain.add(pk);
-          nonceByPublicKey.set(pk, 0);
+        keysOnChain,
+        nonceByPublicKey,
+        onBootstrap: async (bootstrap) => {
+          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
         },
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain,
         nonceByPublicKey,
-        onSendTx: () => {
-          if (thresholdPublicKeyFromKeygen) {
-            keysOnChain.add(thresholdPublicKeyFromKeygen);
-            nonceByPublicKey.set(thresholdPublicKeyFromKeygen, 0);
-            if (localNearPublicKey) {
-              nonceByPublicKey.set(
-                localNearPublicKey,
-                (nonceByPublicKey.get(localNearPublicKey) ?? 0) + 1,
-              );
-            }
-          }
-        },
         strictAccessKeyLookup: true,
       });
 
@@ -85,6 +68,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         async ({ relayerUrl }) => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -102,19 +86,33 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
 
             const reg = await pm.registration.registerPasskeyInternal(
               accountId,
-              {},
+              {
+                signerOptions: {
+                  tempo: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                  evm: {
+                    enabled: false,
+                    participantIds: [1, 2],
+                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                  },
+                },
+              },
               confirmConfig as any,
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-            const enrollment = await pm.enrollThresholdEd25519Key(accountId, { relayerUrl });
-            if (!enrollment?.success)
-              return { ok: false, error: enrollment?.error || 'threshold enrollment failed' };
-
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+              accountId,
+              1,
+            );
 
-            const localPublicKey = String(reg.clientNearPublicKey || '');
+            const operationalPublicKey = String(reg.operationalPublicKey || '');
+            const recoveryPublicKey = String(thresholdKeyMaterial?.recoveryPublicKey || '');
             const message = 'hello threshold nep413';
             const recipient = 'example.localhost';
             const state = 'test-state';
@@ -134,8 +132,8 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
               recipient,
               state,
               nonce: String((signed as any)?.nonce || ''),
-              localPublicKey,
-              thresholdPublicKey: String(enrollment.publicKey || ''),
+              operationalPublicKey,
+              recoveryPublicKey,
               signerPublicKey: String(signed.publicKey || ''),
               signature: String(signed.signature || ''),
             };
@@ -150,9 +148,9 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         throw new Error(`nep413 threshold signing test failed: ${result.error || 'unknown'}`);
       }
 
-      expect(String(result.thresholdPublicKey)).toMatch(/^ed25519:/);
-      expect(String(result.localPublicKey)).toMatch(/^ed25519:/);
-      expect(String(result.signerPublicKey)).toBe(String(result.thresholdPublicKey));
+      expect(String(result.operationalPublicKey)).toMatch(/^ed25519:/);
+      expect(String(result.recoveryPublicKey)).toMatch(/^ed25519:/);
+      expect(String(result.signerPublicKey)).toBe(String(result.operationalPublicKey));
 
       const toPkBytes = (pk: string): Uint8Array => {
         const raw = pk.includes(':') ? pk.split(':')[1] : pk;
@@ -180,10 +178,10 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         throw new Error('Expected NEP-413 signing digest to be a 32-byte Uint8Array');
       }
 
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.thresholdPublicKey)))).toBe(
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.operationalPublicKey)))).toBe(
         true,
       );
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.localPublicKey)))).toBe(
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.recoveryPublicKey)))).toBe(
         false,
       );
     } finally {

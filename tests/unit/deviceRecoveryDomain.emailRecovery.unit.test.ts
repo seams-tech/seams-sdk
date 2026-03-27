@@ -93,9 +93,15 @@ function createLocalDomain(options?: {
         },
         intentDigest: 'threshold:email-recovery:7',
       }),
-      deriveThresholdEd25519ClientVerifyingShareFromCredential: async () => ({
+      deriveThresholdEd25519BootstrapPackageFromCredential: async () => ({
         success: true,
         clientVerifyingShareB64u: 'client-verifying-share',
+        keyVersion: 'option-b-v1',
+        recoveryExportCapable: true,
+        publicKey: 'ed25519:threshold-public-key',
+        recoveryPublicKey: 'ed25519:recovery-public-key',
+        relayerSigningShareB64u: 'relayer-signing-share',
+        relayerVerifyingShareB64u: 'relayer-verifying-share',
       }),
       deriveThresholdEcdsaClientVerifyingShareFromCredential: async () => ({
         success: true,
@@ -122,13 +128,13 @@ function createLocalDomain(options?: {
         lastUser = {
           nearAccountId: accountId,
           deviceNumber,
-          clientNearPublicKey: String(stored?.clientNearPublicKey || 'ed25519:recovery-key'),
+          operationalPublicKey: String(stored?.operationalPublicKey || 'ed25519:recovery-key'),
         };
       },
       updateLastLogin: async () => undefined,
       initializeCurrentUser: async () => undefined,
       getLastUser: async () => lastUser,
-      getWarmSigningSessionStatus: async () =>
+      getWarmThresholdEd25519SessionStatus: async () =>
         warmSigningSession
           ? {
               sessionId: warmSigningSession.sessionId,
@@ -179,7 +185,10 @@ test.describe('EmailRecoveryDomain', () => {
           JSON.stringify({
             ok: true,
             thresholdEd25519: {
-              publicKey: 'ed25519:recovery-key',
+              keyVersion: 'option-b-v1',
+              recoveryExportCapable: true,
+              publicKey: 'ed25519:threshold-public-key',
+              recoveryPublicKey: 'ed25519:recovery-public-key',
               relayerKeyId: 'relayer-key-1',
               relayerVerifyingShareB64u: 'relayer-share',
               clientParticipantId: 1,
@@ -227,12 +236,12 @@ test.describe('EmailRecoveryDomain', () => {
         },
       });
 
-      expect(result.nearPublicKey).toBe('ed25519:recovery-key');
+      expect(result.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(result.mailtoUrl).toContain('mailto:recovery@example.test');
       expect(result.mailtoUrl).toContain(encodeURIComponent('recover-v1 alice.testnet ABC123'));
       expect(result.mailtoUrl).toContain(encodeURIComponent('tatchi-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
-      expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:recovery-key');
+      expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(pendingStore.setCalls[0]?.newEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
       expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
       expect(pendingStore.setCalls[0]?.deviceNumber).toBe(7);
@@ -244,7 +253,8 @@ test.describe('EmailRecoveryDomain', () => {
       expect(storeUserDataCalls).toHaveLength(1);
       expect(storeAuthenticatorCalls).toHaveLength(1);
       expect(thresholdMaterialWrites).toHaveLength(1);
-      expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:recovery-key');
+      expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:threshold-public-key');
+      expect(thresholdMaterialWrites[0]?.recoveryPublicKey).toBe('ed25519:recovery-public-key');
     } finally {
       globalThis.fetch = originalFetch;
       (IndexedDBManager as any).storeNearThresholdKeyMaterial = originalStoreThreshold;

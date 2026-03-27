@@ -117,7 +117,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             ok: true as const,
             account: {
               id: accountId,
-              publicKey: String(registration.clientNearPublicKey || ''),
+              publicKey: String(registration.operationalPublicKey || ''),
             },
             rawReceiverId,
             normalizedReceiverId: rawReceiverId.trim(),

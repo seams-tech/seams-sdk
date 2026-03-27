@@ -156,8 +156,8 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
 
           return {
             ok: true as const,
-            account1: { id: account1, publicKey: String(reg1.clientNearPublicKey || '') },
-            account2: { id: account2, publicKey: String(reg2.clientNearPublicKey || '') },
+            account1: { id: account1, publicKey: String(reg1.operationalPublicKey || '') },
+            account2: { id: account2, publicKey: String(reg2.operationalPublicKey || '') },
             receiver,
             alternateReceiver,
             wasmActions,

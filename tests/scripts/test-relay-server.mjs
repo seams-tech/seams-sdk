@@ -183,7 +183,6 @@ async function main() {
         const body = await readJson(req);
         const {
           new_account_id,
-          new_public_key: requested_public_key,
           threshold_ed25519,
           device_number,
           rp_id,
@@ -191,49 +190,18 @@ async function main() {
           authenticator_options,
         } = body || {};
 
-        const thresholdClientVerifyingShareB64u = String(
-          threshold_ed25519?.client_verifying_share_b64u || '',
-        ).trim();
-        let new_public_key = String(requested_public_key || '').trim();
-        let thresholdEd25519 = null;
-
-        if (!new_public_key && thresholdClientVerifyingShareB64u) {
-          const scheme = threshold.getSchemeModule('threshold-ed25519-frost-2p-v1');
-          if (!scheme || scheme.schemeId !== 'threshold-ed25519-frost-2p-v1') {
-            return sendJson(res, 404, {
-              success: false,
-              error: 'threshold-ed25519 scheme is not enabled on this server',
-            });
-          }
-          const out = await scheme.registration.keygenFromClientVerifyingShare({
-            nearAccountId: new_account_id,
-            rpId: rp_id,
-            clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
-          });
-          if (!out.ok) {
-            return sendJson(res, 400, {
-              success: false,
-              error: out.message || 'threshold keygen failed',
-            });
-          }
-          new_public_key = out.publicKey;
-          thresholdEd25519 = {
-            relayerKeyId: out.relayerKeyId,
-            publicKey: out.publicKey,
-            relayerVerifyingShareB64u: out.relayerVerifyingShareB64u,
-            clientParticipantId: out.clientParticipantId,
-            relayerParticipantId: out.relayerParticipantId,
-            participantIds: out.participantIds,
-          };
-        }
-
-        if (!new_account_id || !new_public_key || !rp_id || !webauthn_registration) {
+        if (
+          !new_account_id ||
+          !rp_id ||
+          !webauthn_registration ||
+          !threshold_ed25519 ||
+          !String(threshold_ed25519?.public_key || '').trim()
+        ) {
           return sendJson(res, 400, { success: false, error: 'missing required fields' });
         }
         const expected_origin = String(req.headers?.origin || '').trim();
         const result = await authService.createAccountAndRegisterUser({
           new_account_id,
-          new_public_key,
           device_number,
           threshold_ed25519,
           rp_id,
@@ -241,9 +209,7 @@ async function main() {
           ...(expected_origin ? { expected_origin } : {}),
           authenticator_options,
         });
-        const response =
-          thresholdEd25519 && result?.success ? { ...result, thresholdEd25519 } : result;
-        return sendJson(res, result.success ? 200 : 400, response);
+        return sendJson(res, result.success ? 200 : 400, result);
       }
       sendJson(res, 404, { error: 'not_found' });
     } catch (e) {

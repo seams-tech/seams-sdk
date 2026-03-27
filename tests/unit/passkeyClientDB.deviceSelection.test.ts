@@ -22,13 +22,13 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'bob.testnet',
           deviceNumber: 2,
-          clientNearPublicKey: 'ed25519:pkbob',
+          operationalPublicKey: 'ed25519:pkbob',
           passkeyCredential: { id: 'c-bob', rawId: 'r-bob' },
         });
         await db.upsertNearAccountProjection({
           nearAccountId: 'alice.testnet',
           deviceNumber: 1,
-          clientNearPublicKey: 'ed25519:pkalice',
+          operationalPublicKey: 'ed25519:pkalice',
           passkeyCredential: { id: 'c-alice', rawId: 'r-alice' },
         });
         // Point lastUser back to a different account so bob has no last-user session
@@ -60,13 +60,13 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'carol.testnet',
           deviceNumber: 3,
-          clientNearPublicKey: 'ed25519:pk-3',
+          operationalPublicKey: 'ed25519:pk-3',
           passkeyCredential: { id: 'c-3', rawId: 'r-3' },
         });
         await db.upsertNearAccountProjection({
           nearAccountId: 'carol.testnet',
           deviceNumber: 6,
-          clientNearPublicKey: 'ed25519:pk-6',
+          operationalPublicKey: 'ed25519:pk-6',
           passkeyCredential: { id: 'c-6', rawId: 'r-6' },
         });
         // Last logged-in device is 6
@@ -133,14 +133,14 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'dana.testnet',
           deviceNumber: 3,
-          clientNearPublicKey: 'ed25519:pk-3',
+          operationalPublicKey: 'ed25519:pk-3',
           passkeyCredential: { id: 'c-3', rawId: 'r-3' },
           lastUpdated: 1000,
         });
         await db.upsertNearAccountProjection({
           nearAccountId: 'dana.testnet',
           deviceNumber: 6,
-          clientNearPublicKey: 'ed25519:pk-6',
+          operationalPublicKey: 'ed25519:pk-6',
           passkeyCredential: { id: 'c-6', rawId: 'r-6' },
           lastUpdated: 2000,
         });
@@ -212,7 +212,7 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'alice.testnet',
           deviceNumber: 1,
-          clientNearPublicKey: 'ed25519:pk-a',
+          operationalPublicKey: 'ed25519:pk-a',
           passkeyCredential: { id: 'c-a', rawId: 'r-a' },
         });
         await db.setLastProfileStateForNearAccount('alice.testnet', 1);
@@ -221,7 +221,7 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'bob.testnet',
           deviceNumber: 2,
-          clientNearPublicKey: 'ed25519:pk-b',
+          operationalPublicKey: 'ed25519:pk-b',
           passkeyCredential: { id: 'c-b', rawId: 'r-b' },
         });
         await db.setLastProfileStateForNearAccount('bob.testnet', 2);
@@ -259,7 +259,7 @@ test.describe('PasskeyClientDB device selection', () => {
         await db.upsertNearAccountProjection({
           nearAccountId: 'erin.testnet',
           deviceNumber: 1,
-          clientNearPublicKey: 'ed25519:pk-e',
+          operationalPublicKey: 'ed25519:pk-e',
           passkeyCredential: { id: 'c-e', rawId: 'r-e' },
         });
         await db.setLastProfileStateForNearAccount('erin.testnet', 1);

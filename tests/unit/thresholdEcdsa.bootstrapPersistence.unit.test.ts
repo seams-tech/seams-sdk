@@ -58,6 +58,19 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(primary.deployed).toBe(false);
     expect(primary.deploymentTxHash).toBeNull();
     expect(primary.lastDeploymentCheckAt).toBeNull();
+    expect(primary.undeployedSignerSet).toEqual({
+      version: 'undeployed_smart_account_signer_set_v1',
+      ownerAddresses: [`0x${'ab'.repeat(20)}`],
+      activeOwnerAddresses: [`0x${'ab'.repeat(20)}`],
+      pendingOwnerAddresses: [],
+      owners: [
+        {
+          signerId: `0x${'ab'.repeat(20)}`,
+          signerType: 'threshold',
+          status: 'active',
+        },
+      ],
+    });
 
     const mirror = calls[1]!;
     expect(mirror.chainIdKey).toBe('tempo:42431');
@@ -65,6 +78,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(mirror.deployed).toBe(false);
     expect(mirror.deploymentTxHash).toBeNull();
     expect(mirror.lastDeploymentCheckAt).toBeNull();
+    expect(mirror.undeployedSignerSet).toEqual(primary.undeployedSignerSet);
   });
 
   test('falls back to unknown chain id when bootstrap chain id is invalid', async () => {
@@ -114,11 +128,25 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(primary.deployed).toBe(true);
     expect(primary.deploymentTxHash).toBe('0xdeploytempo');
     expect(typeof primary.lastDeploymentCheckAt).toBe('number');
+    expect(primary.undeployedSignerSet).toEqual({
+      version: 'undeployed_smart_account_signer_set_v1',
+      ownerAddresses: [`0x${'12'.repeat(20)}`],
+      activeOwnerAddresses: [`0x${'12'.repeat(20)}`],
+      pendingOwnerAddresses: [],
+      owners: [
+        {
+          signerId: `0x${'12'.repeat(20)}`,
+          signerType: 'threshold',
+          status: 'active',
+        },
+      ],
+    });
 
     const mirror = calls[1]!;
     expect(mirror.chainIdKey).toBe('evm:unknown');
     expect(mirror.deployed).toBe(false);
     expect(mirror.deploymentTxHash).toBeNull();
     expect(mirror.lastDeploymentCheckAt).toBeNull();
+    expect(mirror.undeployedSignerSet).toEqual(primary.undeployedSignerSet);
   });
 });
