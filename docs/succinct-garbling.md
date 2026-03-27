@@ -1130,7 +1130,7 @@ Current blocker:
   - sealed server-input transport ciphertexts now carry one-share left/right
     `DdhHssTransportBundle` pairs instead of joint-share words, and relayer
     joint-share bundles are reconstructed only during explicit server-input
-    materialization for evaluation or test decode
+    materialization for clear-input simulation or test decode
   - the shared runtime now materializes `DdhHssEvaluator`, not
     `DdhHssBackend`, so evaluator-visible state is limited to public arithmetic
     state plus evaluator-owned transport keys
@@ -1158,6 +1158,7 @@ Tasks:
     transport
   - the executor input surface no longer types relayer inputs as generic
     joint-share bundles
+    closed before evaluation starts
   - validation and server-input commitment hashing now also run on
     server-input-specific executor types
   - sealed server-input transport ciphertexts no longer deserialize into
