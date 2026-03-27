@@ -32,6 +32,17 @@ declare global {
 
 let googleIdentityScriptLoadPromise: Promise<void> | null = null;
 
+type GooglePromptStage = 'not_displayed' | 'skipped';
+
+type GooglePromptFailureDetails = {
+  stage: GooglePromptStage;
+  reason: string;
+};
+
+type GooglePromptError = Error & {
+  details?: GooglePromptFailureDetails;
+};
+
 function normalizeGooglePromptReason(value: unknown, fallback: string): string {
   const normalized = String(value || '')
     .trim()
@@ -39,7 +50,10 @@ function normalizeGooglePromptReason(value: unknown, fallback: string): string {
   return normalized || fallback;
 }
 
-function buildGooglePromptErrorMessage(input: { stage: 'not_displayed' | 'skipped'; reason: string }): string {
+function buildGooglePromptErrorMessage(input: {
+  stage: 'not_displayed' | 'skipped';
+  reason: string;
+}): string {
   const { stage, reason } = input;
   if (reason === 'unknown_reason') {
     return 'Google sign-in is blocked by browser sign-in settings (FedCM/third-party sign-in). Enable Google sign-in for this site and retry.';
@@ -50,8 +64,20 @@ function buildGooglePromptErrorMessage(input: { stage: 'not_displayed' | 'skippe
   return `Google sign-in was skipped (${reason}).`;
 }
 
+function makeGooglePromptError(details: GooglePromptFailureDetails): GooglePromptError {
+  const error = new Error(buildGooglePromptErrorMessage(details)) as GooglePromptError;
+  error.details = details;
+  return error;
+}
+
+function isUnknownPromptFailure(error: unknown): boolean {
+  const details = (error as GooglePromptError | null)?.details;
+  return details?.reason === 'unknown_reason';
+}
+
 export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('Browser runtime is required'));
+  if (typeof window === 'undefined')
+    return Promise.reject(new Error('Browser runtime is required'));
   if (window.google?.accounts?.id) return Promise.resolve();
   if (googleIdentityScriptLoadPromise) return googleIdentityScriptLoadPromise;
 
@@ -74,7 +100,10 @@ export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
   return googleIdentityScriptLoadPromise;
 }
 
-export function requestGoogleIdToken(clientId: string): Promise<string> {
+function requestGoogleIdTokenWithPromptMode(
+  clientId: string,
+  useFedcmForPrompt: boolean,
+): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const googleIdApi = window.google?.accounts?.id;
     if (!googleIdApi) {
@@ -88,10 +117,14 @@ export function requestGoogleIdToken(clientId: string): Promise<string> {
       settled = true;
       resolve(token);
     };
-    const finishReject = (message: string) => {
+    const finishReject = (input: string | Error) => {
       if (settled) return;
       settled = true;
-      reject(new Error(message));
+      if (input instanceof Error) {
+        reject(input);
+        return;
+      }
+      reject(new Error(input));
     };
 
     googleIdApi.initialize({
@@ -106,9 +139,7 @@ export function requestGoogleIdToken(clientId: string): Promise<string> {
       },
       auto_select: false,
       cancel_on_tap_outside: true,
-      // Prefer non-FedCM prompt mode for dashboard login so browser-level FedCM disables
-      // do not hard-fail the only sign-in path.
-      use_fedcm_for_prompt: false,
+      use_fedcm_for_prompt: useFedcmForPrompt,
     });
 
     googleIdApi.prompt((notification) => {
@@ -120,13 +151,27 @@ export function requestGoogleIdToken(clientId: string): Promise<string> {
           notification?.getNotDisplayedReason?.(),
           'not_displayed',
         );
-        finishReject(buildGooglePromptErrorMessage({ stage: 'not_displayed', reason }));
+        finishReject(makeGooglePromptError({ stage: 'not_displayed', reason }));
         return;
       }
       if (skipped) {
         const reason = normalizeGooglePromptReason(notification?.getSkippedReason?.(), 'skipped');
-        finishReject(buildGooglePromptErrorMessage({ stage: 'skipped', reason }));
+        finishReject(makeGooglePromptError({ stage: 'skipped', reason }));
       }
     });
   });
+}
+
+export async function requestGoogleIdToken(clientId: string): Promise<string> {
+  try {
+    // First prefer non-FedCM prompt mode.
+    return await requestGoogleIdTokenWithPromptMode(clientId, false);
+  } catch (error: unknown) {
+    if (!isUnknownPromptFailure(error)) {
+      throw error;
+    }
+  }
+
+  // If browser returns unknown prompt failure, retry with FedCM prompt mode.
+  return await requestGoogleIdTokenWithPromptMode(clientId, true);
 }

@@ -3,6 +3,7 @@ import { ChevronDown, Menu, X } from 'lucide-react';
 import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import TatchiLogo from '../icons/TatchiLogo';
+import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { FRONTEND_CONFIG } from '@/config';
 import {
@@ -1018,18 +1019,56 @@ export function NavbarStatic(): React.JSX.Element {
             setIsDashboardAuthOpen(false);
           }}
         >
-          <div
-            className="navbar-static__auth-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="navbar-dashboard-auth-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="navbar-static__auth-header">
-              <div className="navbar-static__auth-heading">
-                <p className="navbar-static__auth-eyebrow">Dashboard</p>
-                <h2 id="navbar-dashboard-auth-title">Sign In To Open Dashboard</h2>
-              </div>
+          <DashboardGoogleAuthCard
+            classNames={{
+              root: 'navbar-static__auth-modal',
+              header: 'navbar-static__auth-header',
+              heading: 'navbar-static__auth-heading',
+              eyebrow: 'navbar-static__auth-eyebrow',
+              copy: 'navbar-static__auth-copy',
+              provider: 'navbar-static__auth-provider',
+              providerIcon: 'navbar-static__auth-provider-icon',
+              providerBody: 'navbar-static__auth-provider-body',
+              providerLabel: 'navbar-static__auth-provider-label',
+              providerCopy: 'navbar-static__auth-provider-copy',
+              ctaButton: 'navbar-static__auth-google-button',
+              ctaIcon: 'navbar-static__auth-google-button-icon',
+              note: 'navbar-static__auth-note',
+              error: 'navbar-static__auth-error',
+            }}
+            rootAttributes={{
+              role: 'dialog',
+              'aria-modal': true,
+              'aria-labelledby': 'navbar-dashboard-auth-title',
+              onMouseDown: (event) => event.stopPropagation(),
+            }}
+            titleId="navbar-dashboard-auth-title"
+            title="Sign In To Open Dashboard"
+            description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
+            providerLabel="Google SSO"
+            providerDescription="One secure sign-in to open the dashboard and start managing billing."
+            continueLabel={
+              googleSigningIn
+                ? 'Signing in with Google...'
+                : !googleClientId
+                  ? 'Google SSO unavailable'
+                  : !googleConfigChecked
+                    ? 'Checking Google SSO...'
+                    : !googleConfigured
+                      ? 'Google SSO not configured'
+                      : 'Continue with Google'
+            }
+            continueDisabled={googleSigningIn || relaySessionLoading || !googleConfigured}
+            onContinue={() => {
+              void onGoogleSignIn();
+            }}
+            note={
+              googleConfigChecked && googleConfigured
+                ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
+                : 'Set GOOGLE_OIDC_CLIENT_ID(S) on the relay and VITE_GOOGLE_OIDC_CLIENT_ID on the site to enable dashboard sign-in.'
+            }
+            errorMessage={dashboardAuthError}
+            closeControl={
               <button
                 type="button"
                 className="navbar-static__auth-close"
@@ -1038,90 +1077,8 @@ export function NavbarStatic(): React.JSX.Element {
               >
                 <X size={18} aria-hidden />
               </button>
-            </div>
-            <p className="navbar-static__auth-copy">
-              Use Google SSO to enter the console. Wallet passkeys can be added later inside the
-              dashboard when you create wallets for stablecoin billing.
-            </p>
-            <div className="navbar-static__auth-provider">
-              <div className="navbar-static__auth-provider-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" focusable="false">
-                  <path
-                    fill="#4285F4"
-                    d="M21.6 12.23c0-.68-.06-1.34-.18-1.98H12v3.74h5.39a4.6 4.6 0 0 1-2 3.02v2.5h3.23c1.9-1.75 2.98-4.34 2.98-7.28Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 22c2.7 0 4.97-.9 6.63-2.44l-3.23-2.5c-.9.6-2.04.96-3.4.96-2.62 0-4.84-1.77-5.63-4.15H3.03v2.57A10 10 0 0 0 12 22Z"
-                  />
-                  <path
-                    fill="#FBBC04"
-                    d="M6.37 13.87A5.99 5.99 0 0 1 6.05 12c0-.65.11-1.28.32-1.87V7.56H3.03A10 10 0 0 0 2 12c0 1.6.38 3.11 1.03 4.44l3.34-2.57Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.98c1.47 0 2.78.5 3.82 1.48l2.86-2.86C16.96 2.98 14.7 2 12 2a10 10 0 0 0-8.97 5.56l3.34 2.57c.79-2.38 3-4.15 5.63-4.15Z"
-                  />
-                </svg>
-              </div>
-              <div className="navbar-static__auth-provider-body">
-                <p className="navbar-static__auth-provider-label">Google SSO</p>
-                <p className="navbar-static__auth-provider-copy">
-                  One secure sign-in to open the dashboard and start managing billing.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="navbar-static__auth-google-button"
-              onClick={() => {
-                void onGoogleSignIn();
-              }}
-              disabled={googleSigningIn || relaySessionLoading || !googleConfigured}
-            >
-              <span className="navbar-static__auth-google-button-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" focusable="false">
-                  <path
-                    fill="#4285F4"
-                    d="M21.6 12.23c0-.68-.06-1.34-.18-1.98H12v3.74h5.39a4.6 4.6 0 0 1-2 3.02v2.5h3.23c1.9-1.75 2.98-4.34 2.98-7.28Z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 22c2.7 0 4.97-.9 6.63-2.44l-3.23-2.5c-.9.6-2.04.96-3.4.96-2.62 0-4.84-1.77-5.63-4.15H3.03v2.57A10 10 0 0 0 12 22Z"
-                  />
-                  <path
-                    fill="#FBBC04"
-                    d="M6.37 13.87A5.99 5.99 0 0 1 6.05 12c0-.65.11-1.28.32-1.87V7.56H3.03A10 10 0 0 0 2 12c0 1.6.38 3.11 1.03 4.44l3.34-2.57Z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.98c1.47 0 2.78.5 3.82 1.48l2.86-2.86C16.96 2.98 14.7 2 12 2a10 10 0 0 0-8.97 5.56l3.34 2.57c.79-2.38 3-4.15 5.63-4.15Z"
-                  />
-                </svg>
-              </span>
-              <span>
-                {googleSigningIn
-                  ? 'Signing in with Google...'
-                  : !googleClientId
-                    ? 'Google SSO unavailable'
-                    : !googleConfigChecked
-                      ? 'Checking Google SSO...'
-                      : !googleConfigured
-                        ? 'Google SSO not configured'
-                        : 'Continue with Google'}
-              </span>
-            </button>
-            <p className="navbar-static__auth-note">
-              {googleConfigChecked && googleConfigured
-                ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
-                : 'Set GOOGLE_OIDC_CLIENT_ID(S) on the relay and VITE_GOOGLE_OIDC_CLIENT_ID on the site to enable dashboard sign-in.'}
-            </p>
-            {dashboardAuthError ? (
-              <p className="navbar-static__auth-error" role="alert">
-                {dashboardAuthError}
-              </p>
-            ) : null}
-          </div>
+            }
+          />
         </div>
       ) : null}
 

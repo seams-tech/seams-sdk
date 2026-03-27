@@ -1,10 +1,13 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import { FRONTEND_CONFIG } from '@/config';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
+import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import {
   ensureGoogleIdentityScriptLoaded,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
+import '@/components/Navbar/Navbar.css';
 import { fetchDashboardConsoleSession } from '../consoleSession';
 import '../styles.css';
 
@@ -15,7 +18,9 @@ interface GoogleOptionsResponse {
 }
 
 function normalizeBaseUrl(input: unknown): string {
-  return String(input || '').trim().replace(/\/+$/, '');
+  return String(input || '')
+    .trim()
+    .replace(/\/+$/, '');
 }
 
 async function parseOptionalJson(response: Response): Promise<any> {
@@ -133,43 +138,62 @@ export function DashboardLoginPage(): React.JSX.Element {
     }
   }, [go, googleClientId, googleConfigured, loading, relayerBaseUrl]);
 
+  const ctaLabel = initializing
+    ? 'Checking existing session...'
+    : loading
+      ? 'Signing in with Google...'
+      : !googleClientId
+        ? 'Google SSO unavailable'
+        : !googleConfigured
+          ? 'Google SSO not configured'
+          : 'Continue with Google';
+
+  const footerNote = googleConfigured
+    ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
+    : 'Set GOOGLE_OIDC_CLIENT_ID(S) on the relay and VITE_GOOGLE_OIDC_CLIENT_ID on the site to enable dashboard sign-in.';
+
   return (
     <main className="dashboard-login" aria-label="Dashboard login page">
-      <section className="dashboard-login__card">
-        <p className="dashboard-login__eyebrow">Dashboard</p>
-        <h1 className="dashboard-login__title">Sign in with Google</h1>
-        <p className="dashboard-login__copy">
-          Use Google SSO to create a relay app session and open the console dashboard.
-        </p>
-        <div className="dashboard-login__actions">
-          <button
-            type="button"
-            className="dashboard-pagination-button dashboard-login__button"
-            onClick={() => {
-              void onGoogleSignIn();
-            }}
-            disabled={initializing || loading || !googleConfigured}
+      <DashboardGoogleAuthCard
+        classNames={{
+          root: 'navbar-static__auth-modal',
+          header: 'navbar-static__auth-header',
+          heading: 'navbar-static__auth-heading',
+          eyebrow: 'navbar-static__auth-eyebrow',
+          copy: 'navbar-static__auth-copy',
+          provider: 'navbar-static__auth-provider',
+          providerIcon: 'navbar-static__auth-provider-icon',
+          providerBody: 'navbar-static__auth-provider-body',
+          providerLabel: 'navbar-static__auth-provider-label',
+          providerCopy: 'navbar-static__auth-provider-copy',
+          ctaButton: 'navbar-static__auth-google-button',
+          ctaIcon: 'navbar-static__auth-google-button-icon',
+          note: 'navbar-static__auth-note',
+          error: 'navbar-static__auth-error',
+        }}
+        titleId="dashboard-login-title"
+        title="Sign In To Open Dashboard"
+        description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
+        providerLabel="Google SSO"
+        providerDescription="One secure sign-in to open the dashboard and start managing billing."
+        continueLabel={ctaLabel}
+        continueDisabled={initializing || loading || !googleConfigured}
+        onContinue={() => {
+          void onGoogleSignIn();
+        }}
+        note={footerNote}
+        errorMessage={errorMessage}
+        closeControl={
+          <a
+            className="navbar-static__auth-close"
+            href={homeProps.href}
+            onClick={homeProps.onClick}
+            aria-label="Back to site"
           >
-            {initializing
-              ? 'Checking existing session...'
-              : loading
-                ? 'Signing in with Google...'
-                : !googleClientId
-                  ? 'Google client ID missing'
-                  : !googleConfigured
-                    ? 'Google SSO not configured'
-                    : 'Continue with Google'}
-          </button>
-          <a className="dashboard-inline-link" href={homeProps.href} onClick={homeProps.onClick}>
-            Back to site
+            <X size={18} aria-hidden />
           </a>
-        </div>
-        {errorMessage ? (
-          <p className="dashboard-pagination-note dashboard-login__error" role="alert">
-            {errorMessage}
-          </p>
-        ) : null}
-      </section>
+        }
+      />
     </main>
   );
 }
