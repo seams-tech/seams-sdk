@@ -13,6 +13,23 @@ import type {
   SearchConsoleWalletsRequest,
 } from './types';
 
+export interface UpsertConsoleWalletRequest {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  userId: string;
+  externalRefId: string;
+  address: string;
+  chain: ConsoleWallet['chain'];
+  walletType?: ConsoleWallet['walletType'];
+  status?: ConsoleWallet['status'];
+  policyId?: string | null;
+  balanceMinor?: number;
+  lastActivityAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ConsoleWalletsContext {
   orgId: string;
   actorUserId: string;
@@ -34,6 +51,10 @@ export interface ConsoleWalletService {
     ctx: ConsoleWalletsContext,
     walletId: string,
   ): Promise<ConsoleWallet | null>;
+  upsertWallet?(
+    ctx: ConsoleWalletsContext,
+    request: UpsertConsoleWalletRequest,
+  ): Promise<ConsoleWallet>;
 }
 
 export interface InMemoryConsoleWalletServiceOptions {
@@ -158,6 +179,43 @@ function cloneWallet(wallet: ConsoleWallet): ConsoleWallet {
   return { ...wallet };
 }
 
+function normalizeUpsertRequest(
+  ctx: ConsoleWalletsContext,
+  request: UpsertConsoleWalletRequest,
+  existing?: ConsoleWallet | null,
+): ConsoleWallet {
+  const nowIso = new Date().toISOString();
+  const id = String(request.id || '').trim();
+  const projectId = String(request.projectId || '').trim();
+  const environmentId = String(request.environmentId || '').trim();
+  const userId = String(request.userId || '').trim();
+  const externalRefId = String(request.externalRefId || '').trim();
+  const address = String(request.address || '').trim();
+  if (!id || !projectId || !environmentId || !userId || !externalRefId || !address) {
+    throw new ConsoleWalletError('invalid_body', 400, 'Wallet upsert requires id/project/environment/user/ref/address');
+  }
+  return {
+    id,
+    orgId: ctx.orgId,
+    projectId,
+    environmentId,
+    userId,
+    externalRefId,
+    address,
+    chain: request.chain,
+    walletType: request.walletType || existing?.walletType || 'EOA',
+    status: request.status || existing?.status || 'ACTIVE',
+    policyId: request.policyId === undefined ? (existing?.policyId ?? null) : request.policyId,
+    balanceMinor: Number.isFinite(Number(request.balanceMinor))
+      ? Number(request.balanceMinor)
+      : (existing?.balanceMinor ?? 0),
+    lastActivityAt:
+      request.lastActivityAt === undefined ? (existing?.lastActivityAt ?? nowIso) : request.lastActivityAt,
+    createdAt: String(request.createdAt || existing?.createdAt || nowIso),
+    updatedAt: String(request.updatedAt || nowIso),
+  };
+}
+
 function applyPage(
   wallets: ConsoleWallet[],
   request: ListConsoleWalletsRequest,
@@ -259,6 +317,21 @@ export function createInMemoryConsoleWalletService(
       if (!store) return null;
       const wallet = store.wallets.get(walletId);
       return wallet ? cloneWallet(wallet) : null;
+    },
+
+    async upsertWallet(
+      ctx: ConsoleWalletsContext,
+      request: UpsertConsoleWalletRequest,
+    ): Promise<ConsoleWallet> {
+      let store = getOrgStore(ctx);
+      if (!store) {
+        store = { wallets: new Map<string, ConsoleWallet>() };
+        stores.set(ctx.orgId, store);
+      }
+      const existing = store.wallets.get(String(request.id || '').trim()) || null;
+      const normalized = normalizeUpsertRequest(ctx, request, existing);
+      store.wallets.set(normalized.id, cloneWallet(normalized));
+      return cloneWallet(normalized);
     },
   };
 }

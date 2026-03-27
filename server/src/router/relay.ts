@@ -13,6 +13,7 @@ import type { ConsoleRuntimeSnapshotService } from '../console/runtimeSnapshots'
 import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWalletService } from '../console/wallets';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import type { SponsorshipSpendPricingService } from '../sponsorship';
 import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccountDeploymentManifest';
@@ -458,6 +459,10 @@ export interface RelayRouterOptions {
    * Optional high-level wallet read service used by API credential wallet routes.
    */
   wallets?: ConsoleWalletService | null;
+  /**
+   * Optional org/project/environment service used to resolve environment -> project scope.
+   */
+  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   // Optional logger; defaults to silent.
   logger?: RouterLogger | null;
 }

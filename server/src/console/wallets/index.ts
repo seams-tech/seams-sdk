@@ -14,6 +14,7 @@ export type {
   ConsoleWalletsContext,
   ConsoleWalletService,
   InMemoryConsoleWalletServiceOptions,
+  UpsertConsoleWalletRequest,
 } from './service';
 export { createInMemoryConsoleWalletService } from './service';
 

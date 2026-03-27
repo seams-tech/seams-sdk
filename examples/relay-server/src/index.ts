@@ -1229,7 +1229,10 @@ async function main() {
     ? createRelayPublishableKeyAuthAdapter(consoleApiKeys)
     : null;
   const relayApiKeyUsageMeter = relayApiKeyAuthEnabled
-    ? createRelayBillingUsageMeterAdapter(consoleBilling)
+    ? createRelayBillingUsageMeterAdapter(consoleBilling, {
+        orgProjectEnv: consoleOrgProjectEnv,
+        wallets: consoleWallets,
+      })
     : null;
   const relayBootstrapGrantBroker = createRelayBootstrapGrantBroker({
     apiKeys: consoleApiKeys,
@@ -1409,6 +1412,7 @@ async function main() {
         runtimeSnapshots: consoleRuntimeSnapshots,
         config: sponsoredEvmCallConfig,
       },
+      orgProjectEnv: consoleOrgProjectEnv,
       prfSessionSeal,
       logger: console,
     }),

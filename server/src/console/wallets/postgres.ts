@@ -16,7 +16,11 @@ import {
   normalizeWalletSortBy as normalizeSortBy,
   normalizeWalletSortOrder as normalizeSortOrder,
 } from './normalization';
-import type { ConsoleWalletService, ConsoleWalletsContext } from './service';
+import type {
+  ConsoleWalletService,
+  ConsoleWalletsContext,
+  UpsertConsoleWalletRequest,
+} from './service';
 import type {
   ConsoleWallet,
   ConsoleWalletPage,
@@ -117,6 +121,12 @@ function parseWalletRow(row: PgRow): ConsoleWallet {
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
     updatedAt: toIso(toNumber(row.updated_at_ms)) || new Date(0).toISOString(),
   };
+}
+
+function toMsFromIso(value: string | null | undefined, fallbackMs: number): number {
+  if (!value) return fallbackMs;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
 }
 
 async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<PgRow | null> {
@@ -384,6 +394,97 @@ export async function createPostgresConsoleWalletService(
           [namespace, ctx.orgId, walletId],
         );
         return row ? parseWalletRow(row) : null;
+      });
+    },
+
+    async upsertWallet(
+      ctx: ConsoleWalletsContext,
+      request: UpsertConsoleWalletRequest,
+    ): Promise<ConsoleWallet> {
+      return withTenantTx(ctx, async (q) => {
+        const nowMs = Date.now();
+        const id = String(request.id || '').trim();
+        const projectId = String(request.projectId || '').trim();
+        const environmentId = String(request.environmentId || '').trim();
+        const userId = String(request.userId || '').trim();
+        const externalRefId = String(request.externalRefId || '').trim();
+        const address = String(request.address || '').trim();
+        if (!id || !projectId || !environmentId || !userId || !externalRefId || !address) {
+          throw new ConsoleWalletError(
+            'invalid_body',
+            400,
+            'Wallet upsert requires id/project/environment/user/ref/address',
+          );
+        }
+
+        const createdAtMs = toMsFromIso(request.createdAt, nowMs);
+        const updatedAtMs = toMsFromIso(request.updatedAt, nowMs);
+        const lastActivityAtMs =
+          request.lastActivityAt === null ? null : toMsFromIso(request.lastActivityAt, updatedAtMs);
+        const row = await queryOne(
+          q,
+          `
+            INSERT INTO console_wallet_index (
+              namespace,
+              id,
+              org_id,
+              project_id,
+              environment_id,
+              user_id,
+              external_ref_id,
+              address,
+              chain,
+              wallet_type,
+              status,
+              policy_id,
+              balance_minor,
+              last_activity_at_ms,
+              created_at_ms,
+              updated_at_ms
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+            )
+            ON CONFLICT (namespace, id)
+            DO UPDATE SET
+              project_id = EXCLUDED.project_id,
+              environment_id = EXCLUDED.environment_id,
+              user_id = EXCLUDED.user_id,
+              external_ref_id = EXCLUDED.external_ref_id,
+              address = EXCLUDED.address,
+              chain = EXCLUDED.chain,
+              wallet_type = EXCLUDED.wallet_type,
+              status = EXCLUDED.status,
+              policy_id = EXCLUDED.policy_id,
+              balance_minor = EXCLUDED.balance_minor,
+              last_activity_at_ms = EXCLUDED.last_activity_at_ms,
+              created_at_ms = LEAST(console_wallet_index.created_at_ms, EXCLUDED.created_at_ms),
+              updated_at_ms = GREATEST(console_wallet_index.updated_at_ms, EXCLUDED.updated_at_ms)
+            RETURNING *
+          `,
+          [
+            namespace,
+            id,
+            ctx.orgId,
+            projectId,
+            environmentId,
+            userId,
+            externalRefId,
+            address,
+            request.chain,
+            request.walletType || 'EOA',
+            request.status || 'ACTIVE',
+            request.policyId === undefined ? null : request.policyId,
+            Number.isFinite(Number(request.balanceMinor)) ? Number(request.balanceMinor) : 0,
+            lastActivityAtMs,
+            createdAtMs,
+            updatedAtMs,
+          ],
+        );
+        if (!row) {
+          throw new ConsoleWalletError('internal', 500, 'Failed to upsert wallet');
+        }
+        return parseWalletRow(row);
       });
     },
   };

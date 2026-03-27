@@ -5,6 +5,8 @@ import type {
   ConsoleApiKey,
 } from '../console/apiKeys';
 import type { ConsoleBillingService } from '../console/billing';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import type { ConsoleWalletService } from '../console/wallets';
 import { normalizeSourceIp } from '../console/apiKeys/ipAllowlist';
 import type {
   RelayApiKeyAuthAdapter,
@@ -96,7 +98,57 @@ export function createRelayPublishableKeyAuthAdapter(
 
 export function createRelayBillingUsageMeterAdapter(
   billing: ConsoleBillingService,
+  options: {
+    orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+    wallets?: ConsoleWalletService | null;
+  } = {},
 ): RelayUsageMeterAdapter {
+  async function recordWalletProjection(input: {
+    orgId: string;
+    environmentId: string;
+    walletId: string;
+    occurredAt?: string;
+  }): Promise<void> {
+    const orgProjectEnv = options.orgProjectEnv || null;
+    const walletService = options.wallets || null;
+    if (!orgProjectEnv || !walletService?.upsertWallet) return;
+    const envs = await orgProjectEnv.listEnvironments({
+      orgId: input.orgId,
+      actorUserId: 'relay-api-key',
+      roles: ['system'],
+      environmentId: input.environmentId,
+    });
+    const environment =
+      envs.find((entry) => entry.id === input.environmentId) || null;
+    if (!environment) return;
+    const nowIso = String(input.occurredAt || '').trim() || new Date().toISOString();
+    await walletService.upsertWallet(
+      {
+        orgId: input.orgId,
+        actorUserId: 'relay-api-key',
+        roles: ['system'],
+        projectId: environment.projectId,
+        environmentId: environment.id,
+      },
+      {
+        id: input.walletId,
+        projectId: environment.projectId,
+        environmentId: environment.id,
+        userId: input.walletId,
+        externalRefId: input.walletId,
+        address: input.walletId,
+        chain: 'NEAR',
+        walletType: 'EOA',
+        status: 'ACTIVE',
+        policyId: null,
+        balanceMinor: 0,
+        lastActivityAt: nowIso,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      },
+    );
+  }
+
   return {
     recordEvent: async (input) => {
       await billing.recordUsageEvent(
@@ -113,6 +165,14 @@ export function createRelayBillingUsageMeterAdapter(
           ...(input.sourceEventId ? { sourceEventId: input.sourceEventId } : {}),
         },
       );
+      if (input.action === 'wallet_created' && input.succeeded) {
+        await recordWalletProjection({
+          orgId: input.orgId,
+          environmentId: input.environmentId,
+          walletId: input.walletId,
+          ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
+        });
+      }
     },
   };
 }
