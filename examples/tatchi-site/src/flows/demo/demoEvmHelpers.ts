@@ -25,6 +25,7 @@ export const SET_GREETING_SELECTOR = '0xa4136862';
 export const TEMPO_GREETING_SELECTOR = '0xef690cc0';
 export const ARC_GREET_SELECTOR = '0xcfae3217';
 export const TEMPO_DRIP_TO_SELECTOR = '0x867ae9d4';
+export const TEMPO_HAS_DRIPPED_SELECTOR = '0xf540d0c5';
 export const EVM_RPC_REQUEST_TIMEOUT_MS = 15_000;
 export const EIP1559_FEE_CAP_REFRESH_INTERVAL_MS = 20_000;
 export const EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS = 180_000;
@@ -96,6 +97,44 @@ export function encodeTempoDripToInput(
   const offsetHex = (64).toString(16).padStart(64, '0');
   const lengthHex = tokenAddresses.length.toString(16).padStart(64, '0');
   return `0x${TEMPO_DRIP_TO_SELECTOR.slice(2)}${recipientHex}${offsetHex}${lengthHex}${encodedAddresses}` as `0x${string}`;
+}
+
+function encodeTempoHasDrippedInput(account: `0x${string}`): `0x${string}` {
+  if (!isEvmAddress(account)) {
+    throw new Error(`Invalid faucet account address: ${account}`);
+  }
+  const accountHex = account.slice(2).toLowerCase().padStart(64, '0');
+  return `0x${TEMPO_HAS_DRIPPED_SELECTOR.slice(2)}${accountHex}` as `0x${string}`;
+}
+
+function decodeAbiBoolResult(rawHex: string): boolean {
+  const normalized = String(rawHex || '').trim();
+  if (!/^0x[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error('Invalid eth_call bool response');
+  }
+  return BigInt(normalized) !== 0n;
+}
+
+export async function readTempoFaucetHasDripped(params: {
+  rpcUrl: string;
+  contract: `0x${string}`;
+  account: `0x${string}`;
+  timeoutMs?: number;
+}): Promise<boolean> {
+  if (!isEvmAddress(params.contract)) {
+    throw new Error(`Invalid faucet contract address: ${params.contract}`);
+  }
+  const client = createDemoEvmClient({
+    rpcUrl: params.rpcUrl,
+    ...(params.timeoutMs != null ? { requestTimeoutMs: params.timeoutMs } : {}),
+  });
+  const data = encodeTempoHasDrippedInput(params.account);
+  const result = await client.request<string>({
+    method: 'eth_call',
+    params: [{ to: params.contract, data }, 'latest'],
+    ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
+  });
+  return decodeAbiBoolResult(result);
 }
 
 export function decodeStringResultData(rawHex: string): string {

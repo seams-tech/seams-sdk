@@ -2,11 +2,7 @@ import express, { Express } from 'express';
 import { Pool } from 'pg';
 import {
   AuthService,
-  createInMemoryConsoleBillingPrepaidReservationService,
-  createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleSponsorshipSpendCapService,
-  createPostgresConsoleBillingPrepaidReservationService,
-  createPostgresConsoleSponsoredCallService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createRecoveryAuthorityIntervalRunner,
@@ -32,6 +28,8 @@ import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
   createInMemoryConsoleBillingService,
+  createInMemoryConsoleBillingPrepaidReservationService,
+  createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleAuditService,
   createInMemoryConsoleBootstrapTokenService,
@@ -49,6 +47,7 @@ import {
   createPostgresConsoleApiKeyService,
   createPostgresConsoleAuditService,
   createPostgresConsoleBillingService,
+  createPostgresConsoleBillingPrepaidReservationService,
   createPostgresConsoleBootstrapTokenService,
   createPostgresConsoleObservabilityIngestionService,
   createPostgresConsoleObservabilityService,
@@ -58,6 +57,7 @@ import {
   createPostgresConsoleTeamRbacService,
   createPostgresConsoleWalletService,
   createPostgresConsoleWebhookService,
+  createPostgresConsoleSponsoredCallService,
   createRelayApiKeyAuthAdapter,
   createRelayBillingUsageMeterAdapter,
   createRelayBootstrapGrantBroker,
@@ -186,6 +186,25 @@ function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-r
 function hasConsoleErrorCode(error: unknown, code: string): boolean {
   if (!error || typeof error !== 'object') return false;
   return String((error as { code?: unknown }).code || '').trim() === code;
+}
+
+function readServiceRuntimeBySymbolDescription(
+  service: unknown,
+  symbolDescription: string,
+): { pool: unknown; namespace: string } | null {
+  if (!service || typeof service !== 'object') return null;
+  for (const symbolKey of Object.getOwnPropertySymbols(service)) {
+    if (symbolKey.description !== symbolDescription) continue;
+    const runtime = (service as Record<symbol, unknown>)[symbolKey];
+    if (!runtime || typeof runtime !== 'object') return null;
+    const namespace = String((runtime as { namespace?: unknown }).namespace || '').trim();
+    if (!namespace) return null;
+    return {
+      pool: (runtime as { pool?: unknown }).pool,
+      namespace,
+    };
+  }
+  return null;
 }
 
 async function resolveConsoleDemoOrgId(input: {
@@ -781,7 +800,10 @@ async function main() {
     expectedOrigin: env.EXPECTED_ORIGIN || 'https://localhost', // Frontend origin
     expectedWalletOrigin: env.EXPECTED_WALLET_ORIGIN || 'https://localhost:8443', // Wallet origin (optional)
   };
+  const startupHost = config.host || '0.0.0.0';
+  console.log(`[relay-server] startup target http://${startupHost}:${config.port}`);
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
+  const requiresAtomicSponsoredSettlement = Boolean(sponsoredEvmCallConfig);
   const recoveryAuthorityContinuationEnabled = parseBooleanFlag(
     env.RECOVERY_AUTHORITY_CONTINUATION_ENABLED,
   );
@@ -888,8 +910,10 @@ async function main() {
       : undefined,
   });
 
+  console.log('[relay-server] initializing storage');
   await authService.initStorage();
 
+  console.log('[relay-server] initializing threshold services');
   const threshold = createThresholdSigningService({
     authService,
     thresholdEd25519KeyStore,
@@ -1011,6 +1035,19 @@ async function main() {
         }),
       }
     : undefined;
+  const effectiveConsoleBillingBackend = requiresAtomicSponsoredSettlement
+    ? 'postgres'
+    : consoleBillingBackend;
+  if (requiresAtomicSponsoredSettlement && !consolePostgresUrl) {
+    throw new Error(
+      'Sponsored EVM call requires CONSOLE_POSTGRES_URL because atomic sponsored settlement needs Postgres billing/prepaid/ledger services',
+    );
+  }
+  if (requiresAtomicSponsoredSettlement && consoleBillingBackend !== 'postgres') {
+    console.warn(
+      `[relay-server] forcing CONSOLE_BILLING_BACKEND=postgres because sponsored EVM call is enabled (configured=${consoleBillingBackend})`,
+    );
+  }
   let consoleBilling: ConsoleBillingService;
   let consoleWebhooks: ConsoleWebhookService;
   let consoleObservability: ConsoleObservabilityService;
@@ -1032,7 +1069,7 @@ async function main() {
   const consoleCoreNamespace = consoleBillingNamespace;
   let consoleDemoOrgId = '';
   let demoWalletSeeds: ConsoleWallet[] = [];
-  if (consoleBillingBackend === 'postgres') {
+  if (effectiveConsoleBillingBackend === 'postgres') {
     if (!consolePostgresUrl) {
       throw new Error('CONSOLE_BILLING_BACKEND=postgres requires CONSOLE_POSTGRES_URL');
     }
@@ -1325,6 +1362,59 @@ async function main() {
     faucetContractAddress: normalizedOnboardingContractAddress,
   });
 
+  if (requiresAtomicSponsoredSettlement) {
+    const billingRuntime = readServiceRuntimeBySymbolDescription(
+      consoleBilling,
+      'consoleBillingPostgresRuntime',
+    );
+    const prepaidRuntime = readServiceRuntimeBySymbolDescription(
+      consoleBillingPrepaidReservations,
+      'consoleBillingPrepaidReservationPostgresRuntime',
+    );
+    const sponsoredRuntime = readServiceRuntimeBySymbolDescription(
+      consoleSponsoredCalls,
+      'consoleSponsoredCallPostgresRuntime',
+    );
+    const hasAllRuntimes = Boolean(billingRuntime && prepaidRuntime && sponsoredRuntime);
+    const samePool = Boolean(
+      billingRuntime &&
+        prepaidRuntime &&
+        sponsoredRuntime &&
+        billingRuntime.pool === prepaidRuntime.pool &&
+        billingRuntime.pool === sponsoredRuntime.pool,
+    );
+    const sameNamespace = Boolean(
+      billingRuntime &&
+        prepaidRuntime &&
+        sponsoredRuntime &&
+        billingRuntime.namespace === prepaidRuntime.namespace &&
+        billingRuntime.namespace === sponsoredRuntime.namespace,
+    );
+    if (!hasAllRuntimes || !samePool || !sameNamespace) {
+      const diagnostics = {
+        requiresAtomicSponsoredSettlement,
+        effectiveConsoleBillingBackend,
+        consoleBillingBackendConfigured: consoleBillingBackend,
+        hasConsolePostgresUrl: Boolean(consolePostgresUrl),
+        hasBillingRuntime: Boolean(billingRuntime),
+        hasPrepaidRuntime: Boolean(prepaidRuntime),
+        hasSponsoredRuntime: Boolean(sponsoredRuntime),
+        samePool,
+        sameNamespace,
+        billingNamespace: billingRuntime?.namespace || null,
+        prepaidNamespace: prepaidRuntime?.namespace || null,
+        sponsoredNamespace: sponsoredRuntime?.namespace || null,
+      };
+      console.error('[relay-server] atomic sponsorship storage wiring invalid', diagnostics);
+      throw new Error(
+        'Atomic sponsored settlement startup check failed. Require Postgres billing, prepaidReservations, and sponsoredCalls with one shared pool and namespace.',
+      );
+    }
+    console.log(
+      `[relay-server] atomic sponsorship storage wiring: ok (namespace=${billingRuntime!.namespace})`,
+    );
+  }
+
   if (recoveryAuthorityContinuationEnabled) {
     recoveryAuthorityRunner = createRecoveryAuthorityIntervalRunner(authService, {
       logger: console,
@@ -1447,8 +1537,15 @@ async function main() {
   );
 
   const onListening = () => {
-    const listenHost = config.host || 'localhost';
-    console.log(`Server listening on http://${listenHost}:${config.port}`);
+    const boundAddress = server?.address();
+    if (boundAddress && typeof boundAddress === 'object') {
+      const host = boundAddress.address || config.host || 'localhost';
+      const printableHost = host.includes(':') ? `[${host}]` : host;
+      console.log(`[relay-server] listening on http://${printableHost}:${boundAddress.port}`);
+    } else {
+      const listenHost = config.host || 'localhost';
+      console.log(`[relay-server] listening on http://${listenHost}:${config.port}`);
+    }
     console.log(`Expected Frontend Origin: ${config.expectedOrigin}`);
     const sponsoredExecutors = sponsoredEvmCallConfig
       ? [...sponsoredEvmCallConfig.executorsByChain.values()]
@@ -1511,8 +1608,8 @@ async function main() {
     if (stripeApiPublishableKey) {
       console.log('Stripe publishable key detected (frontend can use STRIPE_API_PK if needed).');
     }
-    console.log(`Console billing backend: ${consoleBillingBackend}`);
-    if (consoleBillingBackend === 'postgres') {
+    console.log(`Console billing backend: ${effectiveConsoleBillingBackend}`);
+    if (effectiveConsoleBillingBackend === 'postgres') {
       console.log(`Console billing namespace: ${consoleBillingNamespace}`);
       console.log(
         `Console billing ensure schema: ${consoleBillingEnsureSchema ? 'enabled' : 'disabled'}`,
@@ -1565,9 +1662,18 @@ async function main() {
     recoveryAuthorityRunner?.start();
   };
 
+  const requestedListenHost = config.host || '0.0.0.0';
+  console.log('[relay-server] startup complete, binding http listener');
+  console.log(`[relay-server] attempting listen on http://${requestedListenHost}:${config.port}`);
   server = config.host
     ? app.listen(config.port, config.host, onListening)
     : app.listen(config.port, onListening);
+  server.on('error', (error: Error) => {
+    console.error(
+      `[relay-server] failed to listen on http://${requestedListenHost}:${config.port}`,
+      error,
+    );
+  });
 }
 
 main().catch((err) => {

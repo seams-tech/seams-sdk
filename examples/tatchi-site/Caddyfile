@@ -29,7 +29,24 @@ localhost:9444 {
 		output stdout
 		format console
 	}
-	reverse_proxy 127.0.0.1:8444
+	@relay_allowed_origin header_regexp relay_origin Origin ^https://localhost(:8443)?$
+	@relay_preflight {
+		method OPTIONS
+		header_regexp Origin ^https://localhost(:8443)?$
+	}
+	header @relay_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
+	header @relay_allowed_origin Access-Control-Allow-Credentials true
+	header @relay_allowed_origin Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+	header @relay_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Tatchi-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret"
+	header @relay_allowed_origin Vary Origin
+	respond @relay_preflight 204
+	reverse_proxy 127.0.0.1:8444 {
+		header_down -Access-Control-Allow-Origin
+		header_down -Access-Control-Allow-Credentials
+		header_down -Access-Control-Allow-Methods
+		header_down -Access-Control-Allow-Headers
+		header_down -Vary
+	}
 }
 
 # Relay server (cosigner instance #1)

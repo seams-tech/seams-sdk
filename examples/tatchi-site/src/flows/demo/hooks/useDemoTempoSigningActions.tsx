@@ -17,6 +17,7 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   resolveClickTimeEip1559FeeCaps,
+  readTempoFaucetHasDripped,
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
@@ -29,6 +30,20 @@ type TempoSponsoredCallResponse = {
   message?: string;
   code?: string;
 };
+
+const TEMPO_FEE_TOKEN_DECIMALS = 6n;
+
+function formatTempoFeeTokenAmount(raw: bigint | null): string {
+  if (raw == null) return 'unknown';
+  const negative = raw < 0n;
+  const abs = negative ? -raw : raw;
+  const scale = 10n ** TEMPO_FEE_TOKEN_DECIMALS;
+  const whole = abs / scale;
+  const fraction = (abs % scale).toString().padStart(Number(TEMPO_FEE_TOKEN_DECIMALS), '0');
+  const trimmedFraction = fraction.replace(/0+$/, '');
+  const value = trimmedFraction ? `${whole}.${trimmedFraction}` : `${whole}`;
+  return negative ? `-${value}` : value;
+}
 
 function buildTempoSponsoredCallUrl(relayerUrl: string): string {
   const trimmed = String(relayerUrl || '').trim();
@@ -85,6 +100,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     setTempoDripLoading(true);
     toast.loading('Requesting Tempo token drip…', { id: toastId, description: null });
     let executedTxHash: `0x${string}` | undefined;
+    let thresholdSenderForAttempt: EvmAddress | null = null;
     let dripTokensForAttempt: EvmAddress[] = [];
     try {
       const managedRegistration = frontendConfig.managedRegistration;
@@ -103,6 +119,35 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const thresholdSender = await resolveThresholdSenderForEvmFamily();
       if (!isEvmAddress(thresholdSender)) {
         throw new Error('Unable to resolve the Tempo threshold sender address.');
+      }
+      thresholdSenderForAttempt = thresholdSender;
+      const alreadyDripped = await readTempoFaucetHasDripped({
+        rpcUrl: frontendConfig.tempoRpcUrl,
+        contract: TEMPO_GREETING_CONTRACT,
+        account: thresholdSender,
+      });
+      if (alreadyDripped) {
+        const tokenBalance = await refreshTempoUserFeeTokenBalance({
+          silent: true,
+          userAddress: thresholdSender,
+          feeToken: dripToken,
+        });
+        toast.success('Tempo drip already claimed for this wallet', {
+          id: toastId,
+          description: (
+            <span>
+              Wallet:&nbsp;
+              <code>{compactHex(thresholdSender)}</code>
+              <br />
+              Token:&nbsp;
+              <code>{compactHex(dripToken)}</code>
+              <br />
+              Balance:&nbsp;
+              <code>{formatTempoFeeTokenAmount(tokenBalance)} AlphaUSD</code>
+            </span>
+          ),
+        });
+        return;
       }
       const idempotencyKey = createIntentId('tempo_drip_click');
       const response = await fetch(buildTempoSponsoredCallUrl(relayerUrl), {
@@ -136,8 +181,12 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         const reason =
           String(payload?.message || '').trim() ||
           `Relay returned ${response.status} ${response.statusText || 'request failed'}`;
-        const failure = new Error(reason) as Error & { code?: string };
+        const failure = new Error(reason) as Error & { code?: string; txHash?: `0x${string}` };
         failure.code = String(payload?.code || '').trim() || undefined;
+        const payloadTxHash = String(payload?.txHash || '').trim();
+        if (/^0x[0-9a-fA-F]{64}$/.test(payloadTxHash)) {
+          failure.txHash = payloadTxHash as `0x${string}`;
+        }
         throw failure;
       }
       const txHash = String(payload.txHash || '').trim();
@@ -182,20 +231,47 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         resolvedError && typeof resolvedError === 'object' && 'code' in resolvedError
           ? String((resolvedError as { code?: unknown }).code || '')
           : '';
+      const errorTxHash =
+        resolvedError &&
+        typeof resolvedError === 'object' &&
+        'txHash' in resolvedError &&
+        /^0x[0-9a-fA-F]{64}$/.test(String((resolvedError as { txHash?: unknown }).txHash || '').trim())
+          ? (String((resolvedError as { txHash?: unknown }).txHash || '').trim() as `0x${string}`)
+          : undefined;
+      let resolvedMessage = message;
+      if (errorCode === 'tx_reverted' && thresholdSenderForAttempt) {
+        try {
+          const alreadyDripped = await readTempoFaucetHasDripped({
+            rpcUrl: frontendConfig.tempoRpcUrl,
+            contract: TEMPO_GREETING_CONTRACT,
+            account: thresholdSenderForAttempt,
+          });
+          if (alreadyDripped) {
+            const tokenBalance = await refreshTempoUserFeeTokenBalance({
+              silent: true,
+              userAddress: thresholdSenderForAttempt,
+              feeToken: dripTokensForAttempt[0] || TEMPO_ALPHA_USD_FEE_TOKEN,
+            });
+            resolvedMessage = `Faucet already claimed for ${compactHex(thresholdSenderForAttempt)} (balance ${formatTempoFeeTokenAmount(tokenBalance)} AlphaUSD).`;
+          }
+        } catch {}
+      }
       const unavailable =
         errorCode === 'sponsored_evm_call_disabled' ||
         errorCode === 'runtime_snapshot_not_found' ||
         errorCode === 'publishable_key_auth_unavailable';
       toast.error(
-        unavailable ? `Tempo sponsorship unavailable: ${message}` : `Tempo drip failed: ${message}`,
+        unavailable
+          ? `Tempo sponsorship unavailable: ${resolvedMessage}`
+          : `Tempo drip failed: ${resolvedMessage}`,
         { id: toastId, description: null },
       );
       console.error('[DemoPage][TempoDripError]', {
         atIso: new Date().toISOString(),
         error: resolvedError,
-        message,
+        message: resolvedMessage,
         dripTokensForAttempt,
-        txHash: executedTxHash,
+        txHash: executedTxHash || errorTxHash,
       });
     } finally {
       setTempoDripLoading(false);

@@ -436,26 +436,27 @@ export function useDashboardUiPreferences(
     const project = String(persisted.project || '').trim();
     const environment = String(persisted.environment || '').trim();
     const accountSettings = String(persisted.accountSettings || '').trim();
-    if (!organization && !project && !environment && !accountSettings) return;
-    setSelectedContext((current) => {
-      const next: TopbarContextState = {
-        ...current,
-        ...(organization ? { organization } : {}),
-        ...(project ? { project } : {}),
-        ...(environment ? { environment } : {}),
-        ...(accountSettings ? { accountSettings } : {}),
-      };
-      const sanitized = sanitizeSelectedContext(next, dropdownOptions, defaultContext);
-      if (
-        sanitized.organization === current.organization &&
-        sanitized.project === current.project &&
-        sanitized.environment === current.environment &&
-        sanitized.accountSettings === current.accountSettings
-      ) {
-        return current;
-      }
-      return sanitized;
-    });
+    if (organization || project || environment || accountSettings) {
+      setSelectedContext((current) => {
+        const next: TopbarContextState = {
+          ...current,
+          ...(organization ? { organization } : {}),
+          ...(project ? { project } : {}),
+          ...(environment ? { environment } : {}),
+          ...(accountSettings ? { accountSettings } : {}),
+        };
+        const sanitized = sanitizeSelectedContext(next, dropdownOptions, defaultContext);
+        if (
+          sanitized.organization === current.organization &&
+          sanitized.project === current.project &&
+          sanitized.environment === current.environment &&
+          sanitized.accountSettings === current.accountSettings
+        ) {
+          return current;
+        }
+        return sanitized;
+      });
+    }
     setPreferencesHydrated(true);
   }, [defaultContext, dropdownOptions, pathname]);
 
