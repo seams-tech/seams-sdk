@@ -8,16 +8,6 @@ import {
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
 
-export type ThresholdEd25519ShareMode = 'auto' | 'kv' | 'derived';
-
-export function coerceThresholdEd25519ShareMode(input: unknown): ThresholdEd25519ShareMode {
-  const mode = toOptionalTrimmedString(input);
-  // Accept a small alias set for env var ergonomics.
-  if (mode === 'derive') return 'derived';
-  if (mode === 'kv' || mode === 'derived' || mode === 'auto') return mode;
-  return 'auto';
-}
-
 export type ThresholdNodeRole = 'cosigner' | 'coordinator';
 
 export function coerceThresholdNodeRole(input: unknown): ThresholdNodeRole {
@@ -129,18 +119,6 @@ export function parseThresholdCoordinatorSharedSecretBytes(input: unknown): Uint
   return decoded;
 }
 
-export function validateThresholdEd25519MasterSecretB64u(input: unknown): string | null {
-  const masterSecretB64u = toOptionalTrimmedString(input);
-  if (!masterSecretB64u) return null;
-  const decoded = base64UrlDecode(masterSecretB64u);
-  if (decoded.length !== 32) {
-    throw new Error(
-      `THRESHOLD_ED25519_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
-    );
-  }
-  return masterSecretB64u;
-}
-
 export function validateThresholdSecp256k1MasterSecretB64u(input: unknown): string | null {
   const masterSecretB64u = toOptionalTrimmedString(input);
   if (!masterSecretB64u) return null;
@@ -155,6 +133,25 @@ export function validateThresholdSecp256k1MasterSecretB64u(input: unknown): stri
   if (decoded.length !== 32) {
     throw new Error(
       `THRESHOLD_SECP256K1_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
+    );
+  }
+  return masterSecretB64u;
+}
+
+export function validateThresholdEd25519MasterSecretB64u(input: unknown): string | null {
+  const masterSecretB64u = toOptionalTrimmedString(input);
+  if (!masterSecretB64u) return null;
+
+  let decoded: Uint8Array;
+  try {
+    decoded = base64UrlDecode(masterSecretB64u);
+  } catch {
+    throw new Error('THRESHOLD_ED25519_MASTER_SECRET_B64U must be valid base64url');
+  }
+
+  if (decoded.length !== 32) {
+    throw new Error(
+      `THRESHOLD_ED25519_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
     );
   }
   return masterSecretB64u;

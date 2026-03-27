@@ -5,6 +5,8 @@ import type {
   ThresholdEd25519AuthorizeResponse,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignInitRequest,
+  ThresholdEd25519ExportCombineRequest,
+  ThresholdEd25519ExportInitRequest,
   ThresholdEd25519KeygenRequest,
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignInitRequest,
@@ -43,6 +45,8 @@ export async function handleThresholdEd25519(
   if (
     pathname !== '/threshold-ed25519/keygen' &&
     pathname !== '/threshold-ed25519/session' &&
+    pathname !== '/threshold-ed25519/export/init' &&
+    pathname !== '/threshold-ed25519/export/combine' &&
     pathname !== '/threshold-ed25519/authorize' &&
     pathname !== '/threshold-ed25519/sign/init' &&
     pathname !== '/threshold-ed25519/sign/finalize' &&
@@ -72,9 +76,20 @@ export async function handleThresholdEd25519(
         route: pathname,
         method: ctx.method,
         nearAccountId: typeof b.nearAccountId === 'string' ? b.nearAccountId : undefined,
+        keyVersion: b.keyVersion,
+        recoveryExportCapable: b.recoveryExportCapable,
         clientVerifyingShareB64u_len:
           typeof b.clientVerifyingShareB64u === 'string'
             ? b.clientVerifyingShareB64u.length
+            : undefined,
+        publicKey: b.publicKey,
+        relayerSigningShareB64u_len:
+          typeof b.relayerSigningShareB64u === 'string'
+            ? b.relayerSigningShareB64u.length
+            : undefined,
+        relayerVerifyingShareB64u_len:
+          typeof b.relayerVerifyingShareB64u === 'string'
+            ? b.relayerVerifyingShareB64u.length
             : undefined,
       });
       const result = await ed25519.keygen(b);
@@ -219,6 +234,44 @@ export async function handleThresholdEd25519(
         res.headers.set('Set-Cookie', session.buildSetCookie(token));
       }
       return res;
+    }
+    case '/threshold-ed25519/export/init': {
+      const b = (body || {}) as ThresholdEd25519ExportInitRequest;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        keyVersion: typeof b.keyVersion === 'string' ? b.keyVersion : undefined,
+      });
+      const result = await ed25519.export.init(b);
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        ...(result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case '/threshold-ed25519/export/combine': {
+      const b = (body || {}) as ThresholdEd25519ExportCombineRequest;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        exportId: typeof b.exportId === 'string' ? b.exportId : undefined,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        keyVersion: typeof b.keyVersion === 'string' ? b.keyVersion : undefined,
+        artifactKind: typeof b.artifactKind === 'string' ? b.artifactKind : undefined,
+        clientCiphertextB64u_len:
+          typeof b.clientCiphertextB64u === 'string' ? b.clientCiphertextB64u.length : undefined,
+      });
+      const result = await ed25519.export.combine(b);
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        ...(result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
     }
     case '/threshold-ed25519/authorize': {
       const b = (body || {}) as Record<string, unknown>;

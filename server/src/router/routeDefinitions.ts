@@ -1383,6 +1383,32 @@ export function createRelayRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
       ['authService'],
     ),
+    publicRoute(
+      'registration_recovery_share',
+      'POST',
+      '/registration/recovery-share',
+      'Prepare threshold-ed25519 bootstrap recovery share for backend-proxy registration',
+      {
+        plane: 'public',
+        rationale: 'Backend-proxy registration preflight is delegated to the app backend or local relay.',
+      },
+      ['authService'],
+      { kind: 'none' },
+    ),
+    apiCredentialRoute(
+      'registration_recovery_share_managed',
+      'POST',
+      '/v1/registration/recovery-share',
+      'Prepare threshold-ed25519 bootstrap recovery share for managed browser registration',
+      {
+        plane: 'api_credentials',
+        credentials: ['publishable_key'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ['authService', 'publishableKeyAuth'],
+    ),
     apiCredentialRoute(
       'api_wallets_list',
       'GET',
@@ -1576,6 +1602,32 @@ export function createRelayRouteDefinitions(
           'Threshold session bootstrap is intentionally public because session issuance validates proof payloads.',
       },
       ['threshold', 'session'],
+    ),
+    publicRoute(
+      'threshold_ed25519_export_init',
+      'POST',
+      '/threshold-ed25519/export/init',
+      'Load threshold Ed25519 seed-export metadata',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Export init only loads scoped export metadata for a relayer key id and returns no secret share material.',
+      },
+      ['threshold'],
+    ),
+    publicRoute(
+      'threshold_ed25519_export_combine',
+      'POST',
+      '/threshold-ed25519/export/combine',
+      'Homomorphically combine threshold Ed25519 export shares',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'Export combine is a low-level threshold continuation that will operate on client-supplied ciphertext and relayer-held share material.',
+      },
+      ['threshold'],
     ),
     thresholdSessionRoute(
       'threshold_ed25519_authorize',

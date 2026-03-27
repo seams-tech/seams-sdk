@@ -3,6 +3,8 @@ import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignInitRequest,
+  ThresholdEd25519ExportCombineRequest,
+  ThresholdEd25519ExportInitRequest,
   ThresholdEd25519KeygenRequest,
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignInitRequest,
@@ -89,9 +91,20 @@ export function registerThresholdEd25519Routes(
       '/threshold-ed25519/keygen',
       {
         nearAccountId: typeof body.nearAccountId === 'string' ? body.nearAccountId : undefined,
+        keyVersion: body.keyVersion,
+        recoveryExportCapable: body.recoveryExportCapable,
         clientVerifyingShareB64u_len:
           typeof body.clientVerifyingShareB64u === 'string'
             ? body.clientVerifyingShareB64u.length
+            : undefined,
+        publicKey: body.publicKey,
+        relayerSigningShareB64u_len:
+          typeof body.relayerSigningShareB64u === 'string'
+            ? body.relayerSigningShareB64u.length
+            : undefined,
+        relayerVerifyingShareB64u_len:
+          typeof body.relayerVerifyingShareB64u === 'string'
+            ? body.relayerVerifyingShareB64u.length
             : undefined,
         rpId: (body as unknown as { rpId?: unknown }).rpId,
         keygenSessionId: (body as unknown as { keygenSessionId?: unknown }).keygenSessionId,
@@ -226,6 +239,60 @@ export function registerThresholdEd25519Routes(
         }
 
         return { ...result, jwt: token };
+      },
+    );
+  });
+
+  router.post('/threshold-ed25519/export/init', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEd25519ExportInitRequest;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ed25519/export/init',
+      {
+        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
+        keyVersion: typeof body.keyVersion === 'string' ? body.keyVersion : undefined,
+      },
+      async () => {
+        const resolved = resolveThresholdScheme(
+          ctx.opts.threshold,
+          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+          {
+            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
+          },
+        );
+        if (!resolved.ok) return resolved;
+        return resolved.scheme.export.init(body);
+      },
+    );
+  });
+
+  router.post('/threshold-ed25519/export/combine', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEd25519ExportCombineRequest;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ed25519/export/combine',
+      {
+        exportId: typeof body.exportId === 'string' ? body.exportId : undefined,
+        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
+        keyVersion: typeof body.keyVersion === 'string' ? body.keyVersion : undefined,
+        artifactKind: typeof body.artifactKind === 'string' ? body.artifactKind : undefined,
+        clientCiphertextB64u_len:
+          typeof body.clientCiphertextB64u === 'string' ? body.clientCiphertextB64u.length : undefined,
+      },
+      async () => {
+        const resolved = resolveThresholdScheme(
+          ctx.opts.threshold,
+          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+          {
+            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
+          },
+        );
+        if (!resolved.ok) return resolved;
+        return resolved.scheme.export.combine(body);
       },
     );
   });

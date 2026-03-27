@@ -1,5 +1,6 @@
 import { base64UrlDecode, base64UrlEncode } from './encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
+import type { MultichainRecoveryPayloadFields, RecoverySubjectBinding } from './recoveryDomain';
 import { ensureEd25519Prefix, isValidAccountId, toOptionalTrimmedString } from './validation';
 
 export const RECOVERY_EMAIL_SUBJECT_PREFIX = 'recover-v1';
@@ -7,13 +8,7 @@ export const RECOVERY_EMAIL_BODY_PREFIX = 'tatchi-recovery-v1:';
 
 export type RecoveryEmailPayload = {
   version: 'recovery_email_payload_v1';
-  nearAccountId: string;
-  recoverySessionId: string;
-  newNearPublicKey: string;
-  newEvmOwnerAddress: string;
-  deadlineEpochSeconds: number;
-  scope?: string;
-};
+} & MultichainRecoveryPayloadFields;
 
 export type ParsedRecoveryEmailArtifact = {
   subject: string;
@@ -67,19 +62,17 @@ function extractSubjectText(rawEmailOrSubject: string): string {
   if (!raw.trim()) return '';
   const lines = raw.split(/\r?\n/);
   const subjectLine = lines.find((line) => /^subject:/i.test(line));
-  const value = subjectLine
-    ? subjectLine.slice(subjectLine.indexOf(':') + 1).trim()
-    : raw.trim();
+  const value = subjectLine ? subjectLine.slice(subjectLine.indexOf(':') + 1).trim() : raw.trim();
   return value.replace(/^(re|fwd):\s*/i, '').trim();
 }
 
 export function buildRecoveryEmailPayload(input: {
-  nearAccountId: string;
-  recoverySessionId: string;
-  newNearPublicKey: string;
-  newEvmOwnerAddress: string;
-  deadlineEpochSeconds: number;
-  scope?: string;
+  nearAccountId: MultichainRecoveryPayloadFields['nearAccountId'];
+  recoverySessionId: MultichainRecoveryPayloadFields['recoverySessionId'];
+  newNearPublicKey: MultichainRecoveryPayloadFields['newNearPublicKey'];
+  newEvmOwnerAddress: MultichainRecoveryPayloadFields['newEvmOwnerAddress'];
+  deadlineEpochSeconds: MultichainRecoveryPayloadFields['deadlineEpochSeconds'];
+  scope?: MultichainRecoveryPayloadFields['scope'];
 }): RecoveryEmailPayload {
   const payload = normalizeRecoveryEmailPayload({
     version: 'recovery_email_payload_v1',
@@ -129,14 +122,15 @@ export function buildRecoveryEmailSubject(payload: RecoveryEmailPayload): string
 }
 
 export function buildRecoveryEmailBody(payload: RecoveryEmailPayload): string {
-  return ['tee-encrypted', `${RECOVERY_EMAIL_BODY_PREFIX}${encodeRecoveryEmailPayloadToken(payload)}`].join(
-    '\n',
-  );
+  return [
+    'tee-encrypted',
+    `${RECOVERY_EMAIL_BODY_PREFIX}${encodeRecoveryEmailPayloadToken(payload)}`,
+  ].join('\n');
 }
 
 export function parseRecoveryEmailSubject(
   rawEmailOrSubject: string | undefined | null,
-): { nearAccountId: string; recoverySessionId: string } | null {
+): Pick<RecoverySubjectBinding, 'nearAccountId' | 'recoverySessionId'> | null {
   const subject = extractSubjectText(rawEmailOrSubject || '');
   if (!subject) return null;
   const match = subject.match(/^recover-v1\s+([^\s]+)\s+([A-Za-z0-9_-]{3,64})\s*$/i);
@@ -147,7 +141,9 @@ export function parseRecoveryEmailSubject(
   return { nearAccountId, recoverySessionId };
 }
 
-export function extractRecoveryEmailPayloadToken(rawEmail: string | undefined | null): string | null {
+export function extractRecoveryEmailPayloadToken(
+  rawEmail: string | undefined | null,
+): string | null {
   const raw = String(rawEmail || '');
   if (!raw.trim()) return null;
   const lines = raw.split(/\r?\n/);

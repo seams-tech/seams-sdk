@@ -81,20 +81,49 @@ export function toThresholdEcdsaPrefixFromBase(
 }
 
 export type ParsedThresholdEd25519KeyRecord = {
+  nearAccountId: string;
+  rpId: string;
   publicKey: string;
+  recoveryPublicKey: string;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
 };
 
 export function parseThresholdEd25519KeyRecord(
   raw: unknown,
 ): ParsedThresholdEd25519KeyRecord | null {
   if (!isObject(raw)) return null;
+  const nearAccountId = toOptionalString(raw.nearAccountId);
+  const rpId = toOptionalString(raw.rpId);
   const publicKey = toOptionalString(raw.publicKey);
+  const recoveryPublicKey = toOptionalString(raw.recoveryPublicKey);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
   const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
-  if (!publicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u) return null;
-  return { publicKey, relayerSigningShareB64u, relayerVerifyingShareB64u };
+  const keyVersion = toOptionalString(raw.keyVersion);
+  const recoveryExportCapable = raw.recoveryExportCapable === true ? (true as const) : false;
+  if (
+    !nearAccountId ||
+    !rpId ||
+    !publicKey ||
+    !recoveryPublicKey ||
+    !relayerSigningShareB64u ||
+    !relayerVerifyingShareB64u ||
+    !keyVersion ||
+    recoveryExportCapable !== true
+  )
+    return null;
+  return {
+    nearAccountId,
+    rpId,
+    publicKey,
+    recoveryPublicKey,
+    relayerSigningShareB64u,
+    relayerVerifyingShareB64u,
+    keyVersion,
+    recoveryExportCapable: true,
+  };
 }
 
 export type ParsedThresholdEd25519Commitments = { hiding: string; binding: string };
@@ -137,7 +166,7 @@ export type ParsedThresholdEd25519MpcSessionRecord = {
   signingDigestB64u: string;
   userId: string;
   rpId: string;
-  clientVerifyingShareB64u: string;
+  clientVerifyingShareB64u?: string;
   participantIds: number[];
 };
 
@@ -163,8 +192,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     !intentDigestB64u ||
     !signingDigestB64u ||
     !userId ||
-    !rpId ||
-    !clientVerifyingShareB64u
+    !rpId
   )
     return null;
   return {
@@ -175,7 +203,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     signingDigestB64u,
     userId,
     rpId,
-    clientVerifyingShareB64u,
+    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
   };
 }
@@ -187,7 +215,6 @@ export type ParsedThresholdEd25519SigningSessionRecord = {
   signingDigestB64u: string;
   userId: string;
   rpId: string;
-  clientVerifyingShareB64u: string;
   commitmentsById: ParsedThresholdEd25519CommitmentsById;
   relayerSigningShareB64u?: string;
   relayerNoncesB64u: string;
@@ -204,7 +231,6 @@ export function parseThresholdEd25519SigningSessionRecord(
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
-  const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const commitmentsById = parseThresholdEd25519CommitmentsById(raw.commitmentsById);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
   const relayerNoncesB64u = toOptionalString(raw.relayerNoncesB64u);
@@ -218,7 +244,6 @@ export function parseThresholdEd25519SigningSessionRecord(
     !signingDigestB64u ||
     !userId ||
     !rpId ||
-    !clientVerifyingShareB64u ||
     !commitmentsById ||
     !relayerNoncesB64u
   ) {
@@ -231,7 +256,6 @@ export function parseThresholdEd25519SigningSessionRecord(
     signingDigestB64u,
     userId,
     rpId,
-    clientVerifyingShareB64u,
     commitmentsById,
     ...(relayerSigningShareB64u ? { relayerSigningShareB64u } : {}),
     relayerNoncesB64u,
@@ -255,6 +279,46 @@ export function parseThresholdEd25519StringById(
   return Object.keys(out).length ? out : null;
 }
 
+export type ParsedThresholdEd25519ExportSessionRecord = {
+  expiresAtMs: number;
+  relayerKeyId: string;
+  nearAccountId: string;
+  rpId: string;
+  recoveryPublicKey: string;
+  keyVersion: string;
+  artifactKind: 'near-ed25519-option-b-v1';
+  participantIds: number[];
+};
+
+export function parseThresholdEd25519ExportSessionRecord(
+  raw: unknown,
+): ParsedThresholdEd25519ExportSessionRecord | null {
+  if (!isObject(raw)) return null;
+  const expiresAtMs = raw.expiresAtMs;
+  const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const nearAccountId = toOptionalString(raw.nearAccountId);
+  const rpId = toOptionalString(raw.rpId);
+  const recoveryPublicKey = toOptionalString(raw.recoveryPublicKey);
+  const keyVersion = toOptionalString(raw.keyVersion);
+  const artifactKind = toOptionalString(raw.artifactKind);
+  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
+    ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
+  ];
+  if (!isValidNumber(expiresAtMs)) return null;
+  if (!relayerKeyId || !nearAccountId || !rpId || !recoveryPublicKey || !keyVersion) return null;
+  if (artifactKind !== 'near-ed25519-option-b-v1') return null;
+  return {
+    expiresAtMs,
+    relayerKeyId,
+    nearAccountId,
+    rpId,
+    recoveryPublicKey,
+    keyVersion,
+    artifactKind: 'near-ed25519-option-b-v1',
+    participantIds,
+  };
+}
+
 export type ParsedThresholdEd25519CoordinatorSigningSessionRecord = {
   mode: 'cosigner';
   expiresAtMs: number;
@@ -263,7 +327,6 @@ export type ParsedThresholdEd25519CoordinatorSigningSessionRecord = {
   signingDigestB64u: string;
   userId: string;
   rpId: string;
-  clientVerifyingShareB64u: string;
   commitmentsById: ParsedThresholdEd25519CommitmentsById;
   participantIds: number[];
   groupPublicKey: string;
@@ -283,7 +346,6 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
-  const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const commitmentsById = parseThresholdEd25519CommitmentsById(raw.commitmentsById);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
@@ -299,7 +361,6 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
     !signingDigestB64u ||
     !userId ||
     !rpId ||
-    !clientVerifyingShareB64u ||
     !commitmentsById ||
     !relayerVerifyingSharesById
   ) {
@@ -325,7 +386,6 @@ export function parseThresholdEd25519CoordinatorSigningSessionRecord(
     signingDigestB64u,
     userId,
     rpId,
-    clientVerifyingShareB64u,
     commitmentsById,
     participantIds,
     groupPublicKey,

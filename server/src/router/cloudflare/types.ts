@@ -41,8 +41,6 @@ export interface RelayCloudflareWorkerEnv {
 
   // Optional: Threshold signing (2-party FROST).
   // The SDK enables `/threshold-ed25519/*` endpoints when `thresholdEd25519KeyStore` is configured.
-  THRESHOLD_ED25519_SHARE_MODE?: string;
-  THRESHOLD_ED25519_MASTER_SECRET_B64U?: string;
 }
 
 export interface CfExecutionContext {

@@ -57,7 +57,6 @@ export function createThresholdSigningService(input: {
         THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID: env.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
         THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
         THRESHOLD_SECP256K1_MASTER_SECRET_B64U: env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U,
-        THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
         THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
         THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
         THRESHOLD_COORDINATOR_INSTANCE_ID: env.THRESHOLD_COORDINATOR_INSTANCE_ID,
@@ -96,26 +95,14 @@ export function createThresholdSigningService(input: {
       const parsed = JSON.parse(cosignersRaw);
       return Array.isArray(parsed) ? parsed.length : null;
     })();
-    const shareMode = (config as { THRESHOLD_ED25519_SHARE_MODE?: unknown })
-      ?.THRESHOLD_ED25519_SHARE_MODE;
     const nodeRole = (config as { THRESHOLD_NODE_ROLE?: unknown })?.THRESHOLD_NODE_ROLE;
     const cosignerId = (config as { THRESHOLD_ED25519_RELAYER_COSIGNER_ID?: unknown })
       ?.THRESHOLD_ED25519_RELAYER_COSIGNER_ID;
     const cosignerT = (config as { THRESHOLD_ED25519_RELAYER_COSIGNER_T?: unknown })
       ?.THRESHOLD_ED25519_RELAYER_COSIGNER_T;
-    const hasMasterSecret = Boolean(
-      typeof (config as { THRESHOLD_ED25519_MASTER_SECRET_B64U?: unknown })
-        ?.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string' &&
-      (
-        config as { THRESHOLD_ED25519_MASTER_SECRET_B64U?: string }
-      )?.THRESHOLD_ED25519_MASTER_SECRET_B64U?.trim(),
-    );
-
     logger.info('[threshold-ed25519] init', {
       isNode,
       nodeRole: typeof nodeRole === 'string' ? nodeRole : null,
-      shareMode: typeof shareMode === 'string' ? shareMode : null,
-      hasMasterSecret,
       cosignerId: typeof cosignerId === 'string' ? cosignerId : null,
       cosignerT: typeof cosignerT === 'string' ? cosignerT : null,
       cosignerCount,

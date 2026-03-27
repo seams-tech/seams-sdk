@@ -18,6 +18,8 @@ export * from './types';
  * - Fetching and caching the Outlayer X25519 public key from the global EmailDKIMVerifier,
  * - Encrypting raw RFC822 emails with encryptEmailForOutlayer, binding an AEAD context
  *   `{ account_id, network_id, payer_account_id }`,
+ * - Building a canonical verified recovery request that binds the verified email payload
+ *   to `{ nearAccountId, newNearPublicKey, newEvmOwnerAddress, recoverySessionId, deadlineEpochSeconds }`,
  * - Calling the per-account EmailRecoverer contract with
  *   `verify_encrypted_email_and_recover(encrypted_email_blob, aead_context, expected_hashed_email, expected_new_public_key, request_id)`.
  * - Binding those NEAR contract args to a canonical recovery payload that also
@@ -63,7 +65,8 @@ export class EmailRecoveryService {
    * Helper for encrypted DKIM-based email recovery:
    * - Encrypts the raw email blob for the Outlayer worker.
    * - Calls the per-account EmailRecoverer contract's
-   *   `verify_encrypted_email_and_recover` entrypoint on the user's account.
+   *   `verify_encrypted_email_and_recover` entrypoint on the user's account, deriving
+   *   the NEAR args from the canonical verified recovery request.
    *
    * The per-account EmailRecoverer records a pollable attempt keyed by
    * `request_id` (parsed from the email Subject) so the frontend can observe

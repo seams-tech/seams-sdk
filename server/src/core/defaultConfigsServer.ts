@@ -15,9 +15,5 @@ export const THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT = 'threshold-ed25519-store
 // This matches the SDK's legacy prefix defaults (w3a:threshold-ed25519:*).
 export const THRESHOLD_PREFIX_DEFAULT = 'w3a' as const;
 
-// Safe default: do not require a master secret. When a master secret is provided, `auto` will
-// still select derived relayer share mode.
-export const THRESHOLD_ED25519_SHARE_MODE_DEFAULT = 'auto' as const;
-
 // DKIM verifier contract used by server-side email recovery when no override is provided.
 export const EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT = 'email-dkim-verifier-v1.testnet' as const;

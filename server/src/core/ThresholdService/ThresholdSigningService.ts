@@ -1,6 +1,13 @@
 import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  decodeU256Le,
+  paillierAddConst,
+  parsePaillierCiphertextB64u,
+  parsePaillierPublicKeyB64u,
+  serializePaillierCiphertextB64u,
+} from '@shared/utils';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { ThresholdEd25519KeyStore } from './stores/KeyStore';
 import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
@@ -10,7 +17,7 @@ import type {
   ThresholdEcdsaSigningSessionStore,
 } from './stores/EcdsaSigningStore';
 import type { Ed25519AuthSessionStore, Ed25519AuthSessionRecord } from './stores/AuthSessionStore';
-import type { ThresholdEd25519KeygenStrategy } from './keygenStrategy';
+import type { ThresholdEd25519KeygenMaterial, ThresholdEd25519KeygenStrategy } from './keygenStrategy';
 import { ThresholdEd25519KeygenStrategyV1 } from './keygenStrategy';
 import type {
   VerifyAuthenticationResponse,
@@ -18,6 +25,10 @@ import type {
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
   ThresholdEd25519AuthorizeWithSessionRequest,
+  ThresholdEd25519ExportCombineRequest,
+  ThresholdEd25519ExportCombineResponse,
+  ThresholdEd25519ExportInitRequest,
+  ThresholdEd25519ExportInitResponse,
   ThresholdEd25519KeygenRequest,
   ThresholdEd25519KeygenResponse,
   Ed25519SessionPolicy,
@@ -56,6 +67,7 @@ import {
   threshold_ed25519_compute_delegate_signing_digest,
   threshold_ed25519_compute_near_tx_signing_digests,
   threshold_ed25519_compute_nep413_signing_digest,
+  threshold_ed25519_bootstrap_recovery_share,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import {
   ensureRelayerKeyIsActiveAccessKey,
@@ -68,13 +80,12 @@ import {
   verifyThresholdEd25519AuthorizeSigningPayloadSigningDigestOnly,
 } from './validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { computeThresholdEd25519RecoveryExportInitChallengeB64u } from '@shared/threshold/ed25519Recovery';
 import {
-  normalizeThresholdEd25519ParticipantIds,
   normalizeThresholdEd25519ParticipantId,
+  normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
-import type { ThresholdEd25519ShareMode } from './config';
 import {
-  coerceThresholdEd25519ShareMode,
   coerceThresholdNodeRole,
   parseThresholdCoordinatorPeers,
   parseThresholdCoordinatorSharedSecretBytes,
@@ -86,10 +97,7 @@ import {
 } from './config';
 import { ThresholdEcdsaSigningHandlers } from './ecdsaSigningHandlers';
 import { ThresholdEd25519SigningHandlers } from './signingHandlers';
-import {
-  resolveThresholdEd25519RelayerKeyMaterial,
-  shouldUseDerivedRelayerShares,
-} from './relayerKeyMaterial';
+import { resolveThresholdEd25519RelayerKeyMaterial } from './relayerKeyMaterial';
 import type {
   ThresholdAnySchemeModule,
   ThresholdEd25519RegistrationKeygenRequest,
@@ -113,6 +121,50 @@ function errorMessage(error: unknown): string {
       ? (error as { message?: unknown }).message
       : error || '',
   );
+}
+
+function buildThresholdEd25519ExportAuditFields(input: {
+  relayerKeyId?: string | null;
+  nearAccountId?: string | null;
+  rpId?: string | null;
+  keyVersion?: string | null;
+  exportId?: string | null;
+  expiresAtMs?: number | null;
+  code?: string | null;
+  reason?: string | null;
+  artifactKind?: string | null;
+  participantIds?: number[] | null;
+  recoveryPublicKey?: string | null;
+}): Record<string, unknown> {
+  const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
+  const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
+  const rpId = toOptionalTrimmedString(input.rpId);
+  const keyVersion = toOptionalTrimmedString(input.keyVersion);
+  const exportId = toOptionalTrimmedString(input.exportId);
+  const code = toOptionalTrimmedString(input.code);
+  const reason = toOptionalTrimmedString(input.reason);
+  const artifactKind = toOptionalTrimmedString(input.artifactKind);
+  const participantIds =
+    (Array.isArray(input.participantIds)
+      ? normalizeThresholdEd25519ParticipantIds(input.participantIds)
+      : null) || [];
+  const recoveryPublicKeyConfigured = Boolean(toOptionalTrimmedString(input.recoveryPublicKey));
+
+  return {
+    ...(relayerKeyId ? { relayerKeyId } : {}),
+    ...(nearAccountId ? { nearAccountId } : {}),
+    ...(rpId ? { rpId } : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(exportId ? { exportId } : {}),
+    ...(typeof input.expiresAtMs === 'number' && Number.isFinite(input.expiresAtMs)
+      ? { expiresAtMs: input.expiresAtMs }
+      : {}),
+    ...(code ? { code } : {}),
+    ...(reason ? { reason } : {}),
+    ...(artifactKind ? { artifactKind } : {}),
+    ...(participantIds.length ? { participantIds } : {}),
+    ...(recoveryPublicKeyConfigured ? { recoveryPublicKeyConfigured: true } : {}),
+  };
 }
 
 function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
@@ -210,6 +262,12 @@ type ParsedThresholdEd25519KeygenRequest = {
   clientVerifyingShareB64u: string;
   rpId: string;
   keygenSessionId: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  publicKey: string;
+  recoveryPublicKey: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
 };
 
 function parseThresholdEd25519KeygenRequest(
@@ -237,9 +295,49 @@ function parseThresholdEd25519KeygenRequest(
     return { ok: false, code: 'invalid_body', message: 'keygenSessionId is required' };
   }
 
+  const keyVersion = toOptionalTrimmedString(rec.keyVersion);
+  if (!keyVersion) {
+    return { ok: false, code: 'invalid_body', message: 'keyVersion is required' };
+  }
+  const publicKey = toOptionalTrimmedString(rec.publicKey);
+  if (!publicKey) {
+    return { ok: false, code: 'invalid_body', message: 'publicKey is required' };
+  }
+  const recoveryPublicKey = toOptionalTrimmedString(rec.recoveryPublicKey);
+  if (!recoveryPublicKey) {
+    return { ok: false, code: 'invalid_body', message: 'recoveryPublicKey is required' };
+  }
+  const relayerSigningShareB64u = toOptionalTrimmedString(rec.relayerSigningShareB64u);
+  if (!relayerSigningShareB64u) {
+    return { ok: false, code: 'invalid_body', message: 'relayerSigningShareB64u is required' };
+  }
+  const relayerVerifyingShareB64u = toOptionalTrimmedString(rec.relayerVerifyingShareB64u);
+  if (!relayerVerifyingShareB64u) {
+    return { ok: false, code: 'invalid_body', message: 'relayerVerifyingShareB64u is required' };
+  }
+  if (rec.recoveryExportCapable !== true) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'recoveryExportCapable must be true',
+    };
+  }
+
   return {
     ok: true,
-    value: { kind: 'webauthn', nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId },
+    value: {
+      kind: 'webauthn',
+      nearAccountId,
+      clientVerifyingShareB64u,
+      rpId,
+      keygenSessionId,
+      keyVersion,
+      recoveryExportCapable: true,
+      publicKey,
+      recoveryPublicKey,
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+    },
   };
 }
 
@@ -302,7 +400,6 @@ function parseThresholdEd25519AuthorizeWithSessionRequest(
   request: ThresholdEd25519AuthorizeWithSessionRequest,
 ): ParseResult<{
   relayerKeyId: string;
-  clientVerifyingShareB64u: string;
   purpose: string;
   signingDigest32: Uint8Array;
   signingPayload: unknown;
@@ -311,10 +408,6 @@ function parseThresholdEd25519AuthorizeWithSessionRequest(
   const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
   if (!relayerKeyId)
     return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
-  }
   const purpose = toOptionalTrimmedString(rec.purpose);
   if (!purpose) return { ok: false, code: 'invalid_body', message: 'purpose is required' };
   const signingDigest32 = normalizeByteArray32(rec.signing_digest_32);
@@ -329,7 +422,6 @@ function parseThresholdEd25519AuthorizeWithSessionRequest(
     ok: true,
     value: {
       relayerKeyId,
-      clientVerifyingShareB64u,
       purpose,
       signingDigest32,
       signingPayload: rec.signingPayload,
@@ -342,7 +434,6 @@ function parseThresholdEd25519SessionRequest(
   participantIds2p: number[],
 ): ParseResult<{
   relayerKeyId: string;
-  clientVerifyingShareB64u: string;
   nearAccountId: string;
   rpId: string;
   sessionId: string;
@@ -354,10 +445,6 @@ function parseThresholdEd25519SessionRequest(
   const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
   if (!relayerKeyId) {
     return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
-  }
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
   }
 
   const policyRaw = (rec as { sessionPolicy?: unknown }).sessionPolicy;
@@ -446,7 +533,6 @@ function parseThresholdEd25519SessionRequest(
     ok: true,
     value: {
       relayerKeyId,
-      clientVerifyingShareB64u,
       nearAccountId,
       rpId,
       sessionId,
@@ -824,9 +910,7 @@ export class ThresholdSigningService {
   private readonly clientParticipantId: number;
   private readonly relayerParticipantId: number;
   private readonly participantIds2p: number[];
-  private readonly shareMode: ThresholdEd25519ShareMode;
-  private readonly relayerMasterSecretB64u: string | null;
-  private readonly useDerivedRelayerShares: boolean;
+  private readonly ed25519MasterSecretB64u: string | null;
   private readonly secp256k1MasterSecretB64u: string | null;
   private readonly keygenStrategy: ThresholdEd25519KeygenStrategy;
   private readonly signingHandlers: ThresholdEd25519SigningHandlers;
@@ -914,19 +998,9 @@ export class ThresholdSigningService {
     this.relayerParticipantId = ids.relayerParticipantId;
     this.participantIds2p = ids.participantIds2p;
 
-    this.shareMode = coerceThresholdEd25519ShareMode(cfg.THRESHOLD_ED25519_SHARE_MODE);
-    this.relayerMasterSecretB64u = validateThresholdEd25519MasterSecretB64u(
+    this.ed25519MasterSecretB64u = validateThresholdEd25519MasterSecretB64u(
       cfg.THRESHOLD_ED25519_MASTER_SECRET_B64U,
     );
-    if (this.shareMode === 'derived' && !this.relayerMasterSecretB64u) {
-      throw new Error(
-        'threshold-ed25519 derived share mode requires THRESHOLD_ED25519_MASTER_SECRET_B64U',
-      );
-    }
-    this.useDerivedRelayerShares = shouldUseDerivedRelayerShares({
-      shareMode: this.shareMode,
-      relayerMasterSecretB64u: this.relayerMasterSecretB64u,
-    });
     this.secp256k1MasterSecretB64u = validateThresholdSecp256k1MasterSecretB64u(
       cfg.THRESHOLD_SECP256K1_MASTER_SECRET_B64U,
     );
@@ -935,11 +1009,8 @@ export class ThresholdSigningService {
     this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite || null;
     this.viewAccessKeyList = input.viewAccessKeyList;
     this.keygenStrategy = new ThresholdEd25519KeygenStrategyV1({
-      useDerivedShares: this.useDerivedRelayerShares,
-      relayerMasterSecretB64u: this.relayerMasterSecretB64u,
       clientParticipantId: this.clientParticipantId,
       relayerParticipantId: this.relayerParticipantId,
-      ensureSignerWasm: this.ensureSignerWasm,
     });
     this.signingHandlers = new ThresholdEd25519SigningHandlers({
       logger: this.logger,
@@ -986,8 +1057,10 @@ export class ThresholdSigningService {
       if (schemeId === THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
         return createThresholdEd25519Frost2pSchemeModule({
           keygen: (request) => this.ed25519Keygen(request),
-          registrationKeygenFromClientVerifyingShare: (request) =>
-            this.ed25519RegistrationKeygenFromClientVerifyingShare(request),
+          exportInit: (request) => this.ed25519ExportInit(request),
+          exportCombine: (request) => this.ed25519ExportCombine(request),
+          registrationKeygenFromBootstrapPackage: (request) =>
+            this.ed25519RegistrationKeygenFromBootstrapPackage(request),
           session: (request) => this.ed25519Session(request),
           authorize: (input) => this.ed25519AuthorizeWithSession(input),
           protocol: {
@@ -1032,9 +1105,6 @@ export class ThresholdSigningService {
 
   private async resolveRelayerKeyMaterial(input: {
     relayerKeyId: string;
-    nearAccountId: string;
-    rpId: string;
-    clientVerifyingShareB64u: string;
   }): Promise<
     | {
         ok: true;
@@ -1045,11 +1115,8 @@ export class ThresholdSigningService {
     | { ok: false; code: string; message: string }
   > {
     return await resolveThresholdEd25519RelayerKeyMaterial({
-      ...input,
-      shareMode: this.shareMode,
-      relayerMasterSecretB64u: this.relayerMasterSecretB64u,
+      relayerKeyId: input.relayerKeyId,
       keyStore: this.keyStore,
-      keygenStrategy: this.keygenStrategy,
     });
   }
 
@@ -1127,7 +1194,54 @@ export class ThresholdSigningService {
     return `sign-${id}`;
   }
 
-  private async ed25519RegistrationKeygenFromClientVerifyingShare(
+  private createThresholdEd25519ExportSessionId(): string {
+    const id =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `export-${id}`;
+  }
+
+  private async resolveEd25519KeygenMaterial(input: {
+    nearAccountId: string;
+    rpId: string;
+    clientVerifyingShareB64u: string;
+    keyVersion: string;
+    recoveryExportCapable: true;
+    publicKey: string;
+    recoveryPublicKey: string;
+    relayerSigningShareB64u: string;
+    relayerVerifyingShareB64u: string;
+  }): Promise<
+    | { ok: true; keyMaterial: ThresholdEd25519KeygenMaterial }
+    | { ok: false; code: string; message: string }
+  > {
+    const keyVersion = toOptionalTrimmedString(input.keyVersion);
+    const publicKey = toOptionalTrimmedString(input.publicKey);
+    const recoveryPublicKey = toOptionalTrimmedString(input.recoveryPublicKey);
+    const relayerSigningShareB64u = toOptionalTrimmedString(input.relayerSigningShareB64u);
+    const relayerVerifyingShareB64u = toOptionalTrimmedString(input.relayerVerifyingShareB64u);
+
+    if (!keyVersion || !publicKey || !recoveryPublicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold-ed25519 keygen requires a complete bootstrap package',
+      };
+    }
+
+    return await this.keygenStrategy.keygenFromBootstrapPackage({
+      keyVersion,
+      publicKey,
+      recoveryPublicKey,
+      clientVerifyingShareB64u: input.clientVerifyingShareB64u,
+      relayerSigningShareB64u,
+      relayerVerifyingShareB64u,
+      recoveryExportCapable: true,
+    });
+  }
+
+  private async ed25519RegistrationKeygenFromBootstrapPackage(
     input: ThresholdEd25519RegistrationKeygenRequest,
   ): Promise<ThresholdEd25519RegistrationKeygenResult> {
     try {
@@ -1144,22 +1258,56 @@ export class ThresholdSigningService {
       if (!clientVerifyingShareB64u) {
         return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
       }
+      const keyVersion = toOptionalTrimmedString((input as { keyVersion?: unknown }).keyVersion);
+      const publicKey = toOptionalTrimmedString((input as { publicKey?: unknown }).publicKey);
+      const recoveryPublicKey = toOptionalTrimmedString(
+        (input as { recoveryPublicKey?: unknown }).recoveryPublicKey,
+      );
+      const relayerSigningShareB64u = toOptionalTrimmedString(
+        (input as { relayerSigningShareB64u?: unknown }).relayerSigningShareB64u,
+      );
+      const relayerVerifyingShareB64u = toOptionalTrimmedString(
+        (input as { relayerVerifyingShareB64u?: unknown }).relayerVerifyingShareB64u,
+      );
+      if (!keyVersion || !publicKey || !recoveryPublicKey || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'threshold-ed25519 keygen requires a complete bootstrap package',
+        };
+      }
+      if ((input as { recoveryExportCapable?: unknown }).recoveryExportCapable !== true) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'recoveryExportCapable must be true',
+        };
+      }
 
-      const keygen = await this.keygenStrategy.keygenFromClientVerifyingShare({
+      const keygen = await this.resolveEd25519KeygenMaterial({
         nearAccountId,
         rpId,
         clientVerifyingShareB64u,
+        keyVersion,
+        recoveryExportCapable: true,
+        publicKey,
+        recoveryPublicKey,
+        relayerSigningShareB64u,
+        relayerVerifyingShareB64u,
       });
       if (!keygen.ok) return keygen;
       const { keyMaterial } = keygen;
 
-      if (!this.useDerivedRelayerShares) {
-        await this.keyStore.put(keyMaterial.relayerKeyId, {
-          publicKey: keyMaterial.publicKey,
-          relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
-        });
-      }
+      await this.keyStore.put(keyMaterial.relayerKeyId, {
+        nearAccountId,
+        rpId,
+        publicKey: keyMaterial.publicKey,
+        recoveryPublicKey: keyMaterial.recoveryPublicKey,
+        relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
+        relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
+        keyVersion: keyMaterial.keyVersion,
+        recoveryExportCapable: keyMaterial.recoveryExportCapable,
+      });
 
       return {
         ok: true,
@@ -1168,6 +1316,9 @@ export class ThresholdSigningService {
         participantIds: [...this.participantIds2p],
         relayerKeyId: keyMaterial.relayerKeyId,
         publicKey: keyMaterial.publicKey,
+        recoveryPublicKey: keyMaterial.recoveryPublicKey,
+        keyVersion: keyMaterial.keyVersion,
+        recoveryExportCapable: keyMaterial.recoveryExportCapable,
         relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
       };
     } catch (e: unknown) {
@@ -1180,6 +1331,67 @@ export class ThresholdSigningService {
     }
   }
 
+  async prepareEd25519BootstrapRecoveryShare(input: {
+    nearAccountId: string;
+    rpId: string;
+    keyVersion: string;
+  }): Promise<
+    | { ok: true; recoveryServerShareB64u: string; keyVersion: string }
+    | { ok: false; code: string; message: string }
+  > {
+    try {
+      await this.ensureReady();
+      await this.ensureSignerWasm();
+
+      if (!this.ed25519MasterSecretB64u) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold-ed25519 bootstrap recovery share requires THRESHOLD_ED25519_MASTER_SECRET_B64U',
+        };
+      }
+
+      const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
+      const rpId = toOptionalTrimmedString(input.rpId);
+      const keyVersion = toOptionalTrimmedString(input.keyVersion);
+      if (!nearAccountId) {
+        return { ok: false, code: 'invalid_body', message: 'nearAccountId is required' };
+      }
+      if (!rpId) {
+        return { ok: false, code: 'invalid_body', message: 'rpId is required' };
+      }
+      if (!keyVersion) {
+        return { ok: false, code: 'invalid_body', message: 'keyVersion is required' };
+      }
+
+      const result = threshold_ed25519_bootstrap_recovery_share({
+        masterSecretB64u: this.ed25519MasterSecretB64u,
+        nearAccountId,
+        rpId,
+        keyVersion,
+      }) as { recoveryServerShareB64u?: unknown } | null;
+      const recoveryServerShareB64u = toOptionalTrimmedString(result?.recoveryServerShareB64u);
+      if (!recoveryServerShareB64u) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'threshold-ed25519 bootstrap recovery share derivation returned an empty share',
+        };
+      }
+      return {
+        ok: true,
+        recoveryServerShareB64u,
+        keyVersion,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to prepare threshold-ed25519 bootstrap recovery share',
+      };
+    }
+  }
+
   private async ed25519Keygen(
     request: ThresholdEd25519KeygenRequest,
   ): Promise<ThresholdEd25519KeygenResponse> {
@@ -1189,8 +1401,18 @@ export class ThresholdSigningService {
 
       await this.ensureReady();
 
-      const { nearAccountId, clientVerifyingShareB64u, rpId, keygenSessionId } =
-        parsedRequest.value;
+      const {
+        nearAccountId,
+        clientVerifyingShareB64u,
+        rpId,
+        keygenSessionId,
+        keyVersion,
+        recoveryExportCapable,
+        publicKey: requestedPublicKey,
+        recoveryPublicKey,
+        relayerSigningShareB64u,
+        relayerVerifyingShareB64u,
+      } = parsedRequest.value;
       const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown })
         .webauthn_authentication;
 
@@ -1226,23 +1448,32 @@ export class ThresholdSigningService {
         };
       }
 
-      const keygen = await this.keygenStrategy.keygenFromClientVerifyingShare({
+      const keygen = await this.resolveEd25519KeygenMaterial({
         nearAccountId,
         rpId,
         clientVerifyingShareB64u,
+        keyVersion,
+        recoveryExportCapable,
+        publicKey: requestedPublicKey,
+        recoveryPublicKey,
+        relayerSigningShareB64u,
+        relayerVerifyingShareB64u,
       });
       if (!keygen.ok) return keygen;
       const { keyMaterial } = keygen;
       const publicKey = keyMaterial.publicKey;
       const relayerKeyId = keyMaterial.relayerKeyId;
 
-      if (!this.useDerivedRelayerShares) {
-        await this.keyStore.put(relayerKeyId, {
-          publicKey,
-          relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
-        });
-      }
+      await this.keyStore.put(relayerKeyId, {
+        nearAccountId,
+        rpId,
+        publicKey,
+        recoveryPublicKey: keyMaterial.recoveryPublicKey,
+        relayerSigningShareB64u: keyMaterial.relayerSigningShareB64u,
+        relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
+        keyVersion: keyMaterial.keyVersion,
+        recoveryExportCapable: keyMaterial.recoveryExportCapable,
+      });
 
       return {
         ok: true,
@@ -1251,6 +1482,9 @@ export class ThresholdSigningService {
         participantIds: [...this.participantIds2p],
         relayerKeyId,
         publicKey,
+        recoveryPublicKey: keyMaterial.recoveryPublicKey,
+        keyVersion: keyMaterial.keyVersion,
+        recoveryExportCapable: keyMaterial.recoveryExportCapable,
         relayerVerifyingShareB64u: keyMaterial.relayerVerifyingShareB64u,
       };
     } catch (e: unknown) {
@@ -1260,6 +1494,284 @@ export class ThresholdSigningService {
           ? (e as { message?: unknown }).message
           : e || 'Internal error',
       );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  private async ed25519ExportInit(
+    request: ThresholdEd25519ExportInitRequest,
+  ): Promise<ThresholdEd25519ExportInitResponse> {
+    try {
+      await this.ensureReady();
+
+      const relayerKeyId = toOptionalTrimmedString(request.relayerKeyId);
+      if (!relayerKeyId) {
+        return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
+      }
+      const expectedKeyVersion = toOptionalTrimmedString(request.keyVersion);
+      if (!expectedKeyVersion) {
+        return { ok: false, code: 'invalid_body', message: 'keyVersion is required' };
+      }
+      const keyRecord = await this.keyStore.get(relayerKeyId);
+      if (!keyRecord) {
+        return { ok: false, code: 'not_found', message: 'Unknown relayerKeyId' };
+      }
+      const persistedKeyVersion = String(keyRecord.keyVersion || '').trim();
+      if (keyRecord.keyVersion !== expectedKeyVersion) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'keyVersion does not match relayer key material',
+        };
+      }
+      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown })
+        .webauthn_authentication;
+      if (!this.verifyWebAuthnAuthenticationLite) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'Lite WebAuthn verification is not configured on this server',
+        };
+      }
+      const expectedChallenge = await computeThresholdEd25519RecoveryExportInitChallengeB64u({
+        nearAccountId: keyRecord.nearAccountId,
+        rpId: keyRecord.rpId,
+        relayerKeyId,
+        keyVersion: persistedKeyVersion,
+        recoveryPublicKey: keyRecord.recoveryPublicKey,
+      });
+      const verification = await this.verifyWebAuthnAuthenticationLite({
+        nearAccountId: keyRecord.nearAccountId,
+        rpId: keyRecord.rpId,
+        expectedChallenge,
+        webauthn_authentication: webauthnAuthentication as WebAuthnAuthenticationCredential,
+      });
+      if (!verification.success || !verification.verified) {
+        this.logger?.warn?.(
+          '[threshold-ed25519] export-init denied',
+          buildThresholdEd25519ExportAuditFields({
+            relayerKeyId,
+            nearAccountId: keyRecord.nearAccountId,
+            rpId: keyRecord.rpId,
+            keyVersion: persistedKeyVersion,
+            code: verification.code || 'not_verified',
+            recoveryPublicKey: keyRecord.recoveryPublicKey,
+          }),
+        );
+        return {
+          ok: false,
+          code: verification.code || 'not_verified',
+          message: verification.message || 'Authentication verification failed',
+        };
+      }
+
+      const exportId = this.createThresholdEd25519ExportSessionId();
+      const ttlMs = 5 * 60_000;
+      const expiresAtMs = Date.now() + ttlMs;
+      await this.sessionStore.putExportSession(
+        exportId,
+        {
+          expiresAtMs,
+          relayerKeyId,
+          nearAccountId: keyRecord.nearAccountId,
+          rpId: keyRecord.rpId,
+          recoveryPublicKey: keyRecord.recoveryPublicKey,
+          keyVersion: persistedKeyVersion,
+          artifactKind: 'near-ed25519-option-b-v1',
+          participantIds: [...this.participantIds2p],
+        },
+        ttlMs,
+      );
+      this.logger?.info?.(
+        '[threshold-ed25519] export-init authorized',
+        buildThresholdEd25519ExportAuditFields({
+          relayerKeyId,
+          nearAccountId: keyRecord.nearAccountId,
+          rpId: keyRecord.rpId,
+          keyVersion: persistedKeyVersion,
+          exportId,
+          expiresAtMs,
+          artifactKind: 'near-ed25519-option-b-v1',
+          participantIds: [...this.participantIds2p],
+          recoveryPublicKey: keyRecord.recoveryPublicKey,
+        }),
+      );
+
+      return {
+        ok: true,
+        exportId,
+        expiresAtMs,
+        relayerKeyId,
+        artifactKind: 'near-ed25519-option-b-v1',
+        recoveryPublicKey: keyRecord.recoveryPublicKey,
+        keyVersion: persistedKeyVersion,
+        recoveryExportCapable: true,
+        participantIds: [...this.participantIds2p],
+      };
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Internal error';
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  private async ed25519ExportCombine(
+    request: ThresholdEd25519ExportCombineRequest,
+  ): Promise<ThresholdEd25519ExportCombineResponse> {
+    try {
+      await this.ensureReady();
+
+      if (request.artifactKind !== 'near-ed25519-option-b-v1') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'artifactKind must be near-ed25519-option-b-v1',
+        };
+      }
+      const exportId = toOptionalTrimmedString(request.exportId);
+      if (!exportId) {
+        return { ok: false, code: 'invalid_body', message: 'exportId is required' };
+      }
+      const paillierPublicKeyB64u = toOptionalTrimmedString(request.paillierPublicKeyB64u);
+      if (!paillierPublicKeyB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'paillierPublicKeyB64u is required',
+        };
+      }
+      const clientCiphertextB64u = toOptionalTrimmedString(request.clientCiphertextB64u);
+      if (!clientCiphertextB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientCiphertextB64u is required',
+        };
+      }
+      let paillierPublicKey: ReturnType<typeof parsePaillierPublicKeyB64u>;
+      let clientCiphertext: bigint;
+      try {
+        paillierPublicKey = parsePaillierPublicKeyB64u(paillierPublicKeyB64u);
+        clientCiphertext = parsePaillierCiphertextB64u(paillierPublicKey, clientCiphertextB64u);
+      } catch (e: unknown) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: errorMessage(e) || 'Invalid Paillier export payload',
+        };
+      }
+      const session = await this.sessionStore.takeExportSession(exportId);
+      if (!session) {
+        this.logger?.warn?.(
+          '[threshold-ed25519] export-combine denied',
+          buildThresholdEd25519ExportAuditFields({
+            relayerKeyId: String(request.relayerKeyId || '').trim(),
+            exportId,
+            reason: 'missing_or_expired_session',
+          }),
+        );
+        return { ok: false, code: 'unauthorized', message: 'threshold export session expired or invalid' };
+      }
+      if (session.relayerKeyId !== request.relayerKeyId) {
+        this.logger?.warn?.(
+          '[threshold-ed25519] export-combine denied',
+          buildThresholdEd25519ExportAuditFields({
+            relayerKeyId: String(request.relayerKeyId || '').trim(),
+            exportId,
+            reason: 'relayer_key_mismatch',
+          }),
+        );
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'exportId does not match relayerKeyId',
+        };
+      }
+      if (session.keyVersion !== request.keyVersion) {
+        this.logger?.warn?.(
+          '[threshold-ed25519] export-combine denied',
+          buildThresholdEd25519ExportAuditFields({
+            relayerKeyId: String(request.relayerKeyId || '').trim(),
+            exportId,
+            reason: 'key_version_mismatch',
+          }),
+        );
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'exportId does not match keyVersion',
+        };
+      }
+      if (session.artifactKind !== request.artifactKind) {
+        this.logger?.warn?.(
+          '[threshold-ed25519] export-combine denied',
+          buildThresholdEd25519ExportAuditFields({
+            relayerKeyId: String(request.relayerKeyId || '').trim(),
+            exportId,
+            reason: 'artifact_kind_mismatch',
+          }),
+        );
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'exportId does not match artifactKind',
+        };
+      }
+      const recoveryShare = await this.prepareEd25519BootstrapRecoveryShare({
+        nearAccountId: session.nearAccountId,
+        rpId: session.rpId,
+        keyVersion: session.keyVersion,
+      });
+      if (!recoveryShare.ok) {
+        return {
+          ok: false,
+          code: recoveryShare.code,
+          message: recoveryShare.message,
+        };
+      }
+      const recoveryServerShareBytes = base64UrlDecode(recoveryShare.recoveryServerShareB64u);
+      if (recoveryServerShareBytes.length !== 32) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'threshold-ed25519 recovery share must be exactly 32 bytes',
+        };
+      }
+      const recoveryServerShare = decodeU256Le(recoveryServerShareBytes);
+      const combinedCiphertext = paillierAddConst(
+        paillierPublicKey,
+        clientCiphertext,
+        recoveryServerShare,
+      );
+      this.logger?.info?.(
+        '[threshold-ed25519] export-combine completed',
+        buildThresholdEd25519ExportAuditFields({
+          relayerKeyId: session.relayerKeyId,
+          nearAccountId: session.nearAccountId,
+          rpId: session.rpId,
+          keyVersion: session.keyVersion,
+          exportId,
+          artifactKind: session.artifactKind,
+          participantIds: session.participantIds,
+          recoveryPublicKey: session.recoveryPublicKey,
+        }),
+      );
+      return {
+        ok: true,
+        exportId,
+        relayerKeyId: session.relayerKeyId,
+        artifactKind: session.artifactKind,
+        recoveryPublicKey: session.recoveryPublicKey,
+        keyVersion: session.keyVersion,
+        recoveryExportCapable: true,
+        participantIds: session.participantIds,
+        expiresAtMs: session.expiresAtMs,
+        serverCiphertextB64u: serializePaillierCiphertextB64u(
+          paillierPublicKey,
+          combinedCiphertext,
+        ),
+      };
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Internal error';
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -1353,7 +1865,6 @@ export class ThresholdSigningService {
     nearAccountId: string;
     rpId: string;
     relayerKeyId: string;
-    clientVerifyingShareB64u: string;
     sessionPolicy: Ed25519SessionPolicy;
   }): Promise<ThresholdEd25519SessionResponse> {
     try {
@@ -1362,8 +1873,7 @@ export class ThresholdSigningService {
       const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
       const rpId = toOptionalTrimmedString(input.rpId);
       const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
-      const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
-      if (!nearAccountId || !rpId || !relayerKeyId || !clientVerifyingShareB64u) {
+      if (!nearAccountId || !rpId || !relayerKeyId) {
         return {
           ok: false,
           code: 'invalid_body',
@@ -1444,9 +1954,6 @@ export class ThresholdSigningService {
 
       const relayerKey = await this.resolveRelayerKeyMaterial({
         relayerKeyId,
-        nearAccountId,
-        rpId,
-        clientVerifyingShareB64u,
       });
       if (!relayerKey.ok) {
         return { ok: false, code: relayerKey.code, message: relayerKey.message };
@@ -2329,7 +2836,6 @@ export class ThresholdSigningService {
       if (!parsedRequest.ok) return parsedRequest;
       const {
         relayerKeyId,
-        clientVerifyingShareB64u,
         nearAccountId,
         rpId,
         sessionId,
@@ -2351,9 +2857,6 @@ export class ThresholdSigningService {
 
       const relayerKey = await this.resolveRelayerKeyMaterial({
         relayerKeyId,
-        nearAccountId,
-        rpId,
-        clientVerifyingShareB64u,
       });
       if (!relayerKey.ok) {
         return { ok: false, code: relayerKey.code, message: relayerKey.message };
@@ -2509,8 +3012,7 @@ export class ThresholdSigningService {
 
       const parsedRequest = parseThresholdEd25519AuthorizeWithSessionRequest(input.request);
       if (!parsedRequest.ok) return parsedRequest;
-      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32, signingPayload } =
-        parsedRequest.value;
+      const { relayerKeyId, purpose, signingDigest32, signingPayload } = parsedRequest.value;
 
       await this.ensureReady();
 
@@ -2546,9 +3048,6 @@ export class ThresholdSigningService {
 
       const relayerKey = await this.resolveRelayerKeyMaterial({
         relayerKeyId,
-        nearAccountId: userId,
-        rpId: tokenRpId,
-        clientVerifyingShareB64u,
       });
       if (!relayerKey.ok) {
         return { ok: false, code: relayerKey.code, message: relayerKey.message };
@@ -2592,7 +3091,6 @@ export class ThresholdSigningService {
           signingDigestB64u: base64UrlEncode(signingDigest32),
           userId,
           rpId: tokenRpId,
-          clientVerifyingShareB64u,
           participantIds: [...participantIds],
         },
         ttlMs,

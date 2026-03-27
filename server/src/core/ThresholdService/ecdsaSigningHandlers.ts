@@ -1269,6 +1269,15 @@ export class ThresholdEcdsaSigningHandlers {
       await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
       return { ok: false, code: 'unauthorized', message: 'mpcSessionId expired' };
     }
+    const clientVerifyingShareB64u = toOptionalTrimmedString(sess.clientVerifyingShareB64u);
+    if (!clientVerifyingShareB64u) {
+      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'mpcSessionId is missing clientVerifyingShareB64u',
+      };
+    }
 
     const signingSessionId = this.createSigningSessionId();
     const entropyB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
@@ -1280,7 +1289,7 @@ export class ThresholdEcdsaSigningHandlers {
       signingDigestB64u: sess.signingDigestB64u,
       userId: sess.userId,
       rpId: sess.rpId,
-      clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
+      clientVerifyingShareB64u,
       participantIds,
       presignatureId: presignature.presignatureId,
       entropyB64u,

@@ -3,7 +3,11 @@ import { ActionType, validateActionArgsWasm } from '@/core/types/actions';
 import { parseContractExecutionError } from '../core/errors';
 import { hashRecoveryEmailForAccount, type EmailEncryptionContext } from './emailEncryptor';
 import { parseHeaderValue } from './emailParsers';
-import type { EmailRecoveryResult, EmailRecoveryServiceDeps } from './types';
+import type {
+  EmailRecoveryResult,
+  EmailRecoveryServiceDeps,
+  VerifiedEmailRecoveryRequest,
+} from './types';
 import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 import { toSingleLine } from '@shared/utils/validation';
 
@@ -87,7 +91,11 @@ export async function buildEncryptedEmailRecoveryActions(
       envelope: { version: number; ephemeral_pub: string; nonce: string; ciphertext: string };
     }>;
   },
-): Promise<{ actions: ActionArgsWasm[]; receiverId: string }> {
+): Promise<{
+  actions: ActionArgsWasm[];
+  receiverId: string;
+  verifiedRecoveryRequest: VerifiedEmailRecoveryRequest;
+}> {
   const { relayerAccount, networkId } = deps;
   const { accountId, emailBlob, recoveryPayload, recipientPk, encrypt } = input;
 
@@ -103,11 +111,10 @@ export async function buildEncryptedEmailRecoveryActions(
     recipientPk,
   });
 
-  if (recoveryPayload.nearAccountId !== accountId) {
-    throw new Error(
-      `Encrypted email recovery payload accountId mismatch (expected "${accountId}", got "${recoveryPayload.nearAccountId}")`,
-    );
-  }
+  const verifiedRecoveryRequest = buildVerifiedEmailRecoveryRequest({
+    accountId,
+    recoveryPayload,
+  });
 
   const fromHeader = parseHeaderValue(emailBlob, 'from');
   if (!fromHeader) {
@@ -122,8 +129,8 @@ export async function buildEncryptedEmailRecoveryActions(
     encrypted_email_blob: envelope,
     aead_context: aeadContext,
     expected_hashed_email: expectedHashedEmail,
-    expected_new_public_key: recoveryPayload.newNearPublicKey,
-    request_id: recoveryPayload.recoverySessionId,
+    expected_new_public_key: verifiedRecoveryRequest.newNearPublicKey,
+    request_id: verifiedRecoveryRequest.recoverySessionId,
   };
 
   const actions: ActionArgsWasm[] = [
@@ -140,6 +147,33 @@ export async function buildEncryptedEmailRecoveryActions(
   return {
     actions,
     receiverId: accountId,
+    verifiedRecoveryRequest,
+  };
+}
+
+export function buildVerifiedEmailRecoveryRequest(input: {
+  accountId: string;
+  recoveryPayload: RecoveryEmailPayload;
+}): VerifiedEmailRecoveryRequest {
+  const accountId = String(input.accountId || '').trim();
+  const recoveryPayload = input.recoveryPayload;
+  if (!accountId) {
+    throw new Error('Encrypted email recovery accountId is required');
+  }
+  if (!recoveryPayload || recoveryPayload.nearAccountId !== accountId) {
+    throw new Error(
+      `Encrypted email recovery payload accountId mismatch (expected "${accountId}", got "${String(recoveryPayload?.nearAccountId || '')}")`,
+    );
+  }
+
+  return {
+    version: 'verified_email_recovery_request_v1',
+    nearAccountId: accountId,
+    recoverySessionId: recoveryPayload.recoverySessionId,
+    newNearPublicKey: recoveryPayload.newNearPublicKey,
+    newEvmOwnerAddress: recoveryPayload.newEvmOwnerAddress,
+    deadlineEpochSeconds: recoveryPayload.deadlineEpochSeconds,
+    ...(recoveryPayload.scope ? { scope: recoveryPayload.scope } : {}),
   };
 }
 

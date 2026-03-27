@@ -27,6 +27,8 @@ export type WebAuthnCredentialBindingRecord = {
   publicKey: string;
   /** Threshold relayer key id (often equal to `publicKey`). */
   relayerKeyId?: string;
+  keyVersion?: string;
+  recoveryExportCapable?: boolean;
   clientParticipantId?: number;
   relayerParticipantId?: number;
   participantIds?: number[];
@@ -94,6 +96,11 @@ function parseWebAuthnCredentialBindingRecord(
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
   const relayerKeyId = toOptionalTrimmedString((raw as { relayerKeyId?: unknown }).relayerKeyId);
+  const keyVersion = toOptionalTrimmedString((raw as { keyVersion?: unknown }).keyVersion);
+  const recoveryExportCapable =
+    typeof (raw as { recoveryExportCapable?: unknown }).recoveryExportCapable === 'boolean'
+      ? Boolean((raw as { recoveryExportCapable?: unknown }).recoveryExportCapable)
+      : undefined;
   const relayerVerifyingShareB64u = toOptionalTrimmedString(
     (raw as { relayerVerifyingShareB64u?: unknown }).relayerVerifyingShareB64u,
   );
@@ -123,6 +130,8 @@ function parseWebAuthnCredentialBindingRecord(
     deviceNumber: Math.floor(deviceNumber),
     publicKey,
     ...(relayerKeyId ? { relayerKeyId } : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(typeof recoveryExportCapable === 'boolean' ? { recoveryExportCapable } : {}),
     ...(Number.isFinite(clientParticipantId) && clientParticipantId >= 1
       ? { clientParticipantId: Math.floor(clientParticipantId) }
       : {}),

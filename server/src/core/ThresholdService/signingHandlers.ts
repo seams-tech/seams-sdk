@@ -240,9 +240,6 @@ function requireParticipantIdsIncludeSignerSet(
 
 type ResolveRelayerKeyMaterialFn = (input: {
   relayerKeyId: string;
-  nearAccountId: string;
-  rpId: string;
-  clientVerifyingShareB64u: string;
 }) => Promise<
   | {
       ok: true;
@@ -550,9 +547,6 @@ export class ThresholdEd25519SigningHandlers {
 
         const key = await this.resolveRelayerKeyMaterial({
           relayerKeyId: sess.relayerKeyId,
-          nearAccountId: sess.userId,
-          rpId: sess.rpId,
-          clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
         });
         if (!key.ok) {
           return { ok: false, code: key.code, message: key.message };
@@ -748,7 +742,6 @@ export class ThresholdEd25519SigningHandlers {
             signingDigestB64u: sess.signingDigestB64u,
             userId: sess.userId,
             rpId: sess.rpId,
-            clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
             commitmentsById,
             participantIds: [...this.participantIds2p],
             groupPublicKey: key.publicKey,
@@ -881,7 +874,6 @@ export class ThresholdEd25519SigningHandlers {
           signingDigestB64u: mpcSession.signingDigestB64u,
           userId: mpcSession.userId,
           rpId: mpcSession.rpId,
-          clientVerifyingShareB64u: mpcSession.clientVerifyingShareB64u,
           commitmentsById,
           relayerSigningShareB64u: cosignerShareB64u,
           relayerNoncesB64u: commit.relayerNoncesB64u,
@@ -1011,15 +1003,6 @@ export class ThresholdEd25519SigningHandlers {
           message: 'signingSessionId does not match coordinatorGrant scope',
         };
       }
-      if (sess.clientVerifyingShareB64u !== mpcSession.clientVerifyingShareB64u) {
-        await restoreOnMismatch();
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'signingSessionId does not match coordinatorGrant scope',
-        };
-      }
-
       const storedShareB64u = toOptionalTrimmedString(sess.relayerSigningShareB64u);
       if (!storedShareB64u) {
         return {
@@ -1099,9 +1082,6 @@ export class ThresholdEd25519SigningHandlers {
 
     const key = await this.resolveRelayerKeyMaterial({
       relayerKeyId: sess.relayerKeyId,
-      nearAccountId: sess.userId,
-      rpId: sess.rpId,
-      clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
     });
     if (!key.ok) {
       return { ok: false, code: key.code, message: key.message };
@@ -1137,7 +1117,6 @@ export class ThresholdEd25519SigningHandlers {
         signingDigestB64u,
         userId: sess.userId,
         rpId: sess.rpId,
-        clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
         commitmentsById,
         relayerNoncesB64u: commit.relayerNoncesB64u,
         participantIds,
@@ -1161,7 +1140,6 @@ export class ThresholdEd25519SigningHandlers {
     expectedSigningDigestB64u?: string;
     expectedUserId?: string;
     expectedRpId?: string;
-    expectedClientVerifyingShareB64u?: string;
   }): Promise<PeerSignFinalizeResult> {
     const signingSessionId = input.signingSessionId;
     const clientSignatureShareB64u = input.clientSignatureShareB64u;
@@ -1223,18 +1201,6 @@ export class ThresholdEd25519SigningHandlers {
         message: 'signingSessionId does not match coordinatorGrant scope',
       };
     }
-    if (
-      input.expectedClientVerifyingShareB64u &&
-      sess.clientVerifyingShareB64u !== input.expectedClientVerifyingShareB64u
-    ) {
-      await restoreOnMismatch();
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'signingSessionId does not match coordinatorGrant scope',
-      };
-    }
-
     const participantIdsRes = requireParticipantIdsIncludeSignerSet(
       sess.participantIds,
       this.participantIds2p,
@@ -1244,9 +1210,6 @@ export class ThresholdEd25519SigningHandlers {
 
     const key = await this.resolveRelayerKeyMaterial({
       relayerKeyId: sess.relayerKeyId,
-      nearAccountId: sess.userId,
-      rpId: sess.rpId,
-      clientVerifyingShareB64u: sess.clientVerifyingShareB64u,
     });
     if (!key.ok) {
       return { ok: false, code: key.code, message: key.message };

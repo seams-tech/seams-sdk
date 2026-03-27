@@ -7,7 +7,6 @@ import type {
 } from './types';
 import {
   THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
-  THRESHOLD_ED25519_SHARE_MODE_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
 import { toOptionalTrimmedString, toTrimmedString } from '@shared/utils/validation';
@@ -148,7 +147,6 @@ function normalizeThresholdEd25519KeyStoreConfig(
   const c = input as Record<string, unknown>;
   const anyProvided = Boolean(
     // Minimal (env-shaped)
-    toOptionalTrimmedString(c.THRESHOLD_ED25519_SHARE_MODE) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_MASTER_SECRET_B64U) ||
     toOptionalTrimmedString(c.THRESHOLD_SECP256K1_MASTER_SECRET_B64U) ||
     toOptionalTrimmedString(c.THRESHOLD_NODE_ROLE) ||
@@ -181,7 +179,6 @@ function normalizeThresholdEd25519KeyStoreConfig(
 
   // Apply sane defaults for common serverless/Worker configurations.
   //
-  // Note: never default `THRESHOLD_ED25519_MASTER_SECRET_B64U` — it is always explicitly provided as a secret.
   const normalized: Record<string, unknown> = { ...(input as Record<string, unknown>) };
   const kind = toOptionalTrimmedString(normalized.kind);
   if (kind === 'cloudflare-do') {
@@ -198,8 +195,6 @@ function normalizeThresholdEd25519KeyStoreConfig(
       normalized.THRESHOLD_PREFIX = THRESHOLD_PREFIX_DEFAULT;
     }
 
-    const shareMode = toOptionalTrimmedString(normalized.THRESHOLD_ED25519_SHARE_MODE);
-    if (!shareMode) normalized.THRESHOLD_ED25519_SHARE_MODE = THRESHOLD_ED25519_SHARE_MODE_DEFAULT;
   }
 
   return normalized as AuthServiceConfig['thresholdEd25519KeyStore'];

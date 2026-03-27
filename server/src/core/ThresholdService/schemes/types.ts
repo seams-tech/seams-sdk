@@ -5,6 +5,10 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
+  ThresholdEd25519ExportCombineRequest,
+  ThresholdEd25519ExportCombineResponse,
+  ThresholdEd25519ExportInitRequest,
+  ThresholdEd25519ExportInitResponse,
   ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaBootstrapResponse,
   ThresholdEcdsaKeygenRequest,
@@ -93,7 +97,13 @@ export interface ThresholdSchemeModule<
 export type ThresholdEd25519RegistrationKeygenRequest = {
   nearAccountId: string;
   rpId: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
+  publicKey: string;
+  recoveryPublicKey: string;
   clientVerifyingShareB64u: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
 };
 
 export type ThresholdEd25519RegistrationKeygenResult =
@@ -104,6 +114,9 @@ export type ThresholdEd25519RegistrationKeygenResult =
       participantIds: number[];
       relayerKeyId: string;
       publicKey: string;
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
       relayerVerifyingShareB64u: string;
     }
   | { ok: false; code: string; message: string };
@@ -126,8 +139,14 @@ export type ThresholdEd25519Frost2pSchemeModule = ThresholdSchemeModule<
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse
 > & {
+  export: {
+    init(request: ThresholdEd25519ExportInitRequest): Promise<ThresholdEd25519ExportInitResponse>;
+    combine(
+      request: ThresholdEd25519ExportCombineRequest,
+    ): Promise<ThresholdEd25519ExportCombineResponse>;
+  };
   registration: {
-    keygenFromClientVerifyingShare(
+    keygenFromBootstrapPackage(
       request: ThresholdEd25519RegistrationKeygenRequest,
     ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   };

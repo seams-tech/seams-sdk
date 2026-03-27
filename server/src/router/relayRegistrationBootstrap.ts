@@ -117,6 +117,9 @@ function normalizeRegistrationSmartAccountTargets(
       ...(normalizeOptionalString(entry.entry_point)
         ? { entry_point: normalizeOptionalString(entry.entry_point) }
         : {}),
+      ...(normalizeOptionalString(entry.recovery_authority)
+        ? { recovery_authority: normalizeOptionalString(entry.recovery_authority) }
+        : {}),
       ...(normalizeOptionalString(entry.salt) ? { salt: normalizeOptionalString(entry.salt) } : {}),
       ...(normalizeOptionalString(entry.counterfactual_address)
         ? { counterfactual_address: normalizeOptionalString(entry.counterfactual_address) }
@@ -197,6 +200,7 @@ async function deployRegistrationSmartAccounts(input: {
         accountAddress,
         accountModel,
         deploymentManifest: manifest.manifest,
+        ...(manifest.evmDeploymentPlan ? { evmDeploymentPlan: manifest.evmDeploymentPlan } : {}),
       },
     );
 

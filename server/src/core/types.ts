@@ -133,9 +133,8 @@ export type ThresholdEd25519KeyStoreEnvInput = {
    */
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID?: string;
   /**
-   * 32-byte base64url master secret used to deterministically derive relayer signing shares.
-   * When set (and enabled via `THRESHOLD_ED25519_SHARE_MODE`), the relayer can be stateless for
-   * long-lived threshold key material.
+   * 32-byte base64url master secret used to derive bootstrap-only Option B recovery shares
+   * and future stateless Ed25519 recovery export material.
    */
   THRESHOLD_ED25519_MASTER_SECRET_B64U?: string;
   /**
@@ -143,13 +142,6 @@ export type ThresholdEd25519KeyStoreEnvInput = {
    * for secp256k1-based threshold schemes (e.g. threshold ECDSA).
    */
   THRESHOLD_SECP256K1_MASTER_SECRET_B64U?: string;
-  /**
-   * Relayer share mode:
-   * - "kv": use persisted relayer signing shares (current default behavior)
-   * - "derived": derive relayer signing shares from the master secret (stateless relayer)
-   * - "auto": prefer derived when master secret is configured, otherwise kv
-   */
-  THRESHOLD_ED25519_SHARE_MODE?: string;
   /**
    * Threshold node role.
    * - "coordinator" (default): exposes `/threshold-ed25519/sign/*` and can fan out to cosigners when configured.
@@ -320,6 +312,7 @@ export type AuthServiceConfigInput = Omit<
 export interface AccountCreationRequest {
   accountId: string;
   publicKey: string;
+  recoveryPublicKey?: string;
 }
 
 export interface AccountCreationResult {
@@ -356,7 +349,13 @@ export interface CreateAccountAndRegisterRequest {
    */
   device_number?: number;
   threshold_ed25519?: {
+    key_version: string;
+    recovery_export_capable: boolean;
+    public_key: string;
+    recovery_public_key: string;
     client_verifying_share_b64u: string;
+    relayer_signing_share_b64u: string;
+    relayer_verifying_share_b64u: string;
     session_policy: Omit<Ed25519SessionPolicy, 'relayerKeyId'> & {
       relayerKeyId?: string;
     };
@@ -391,6 +390,7 @@ export interface CreateAccountAndRegisterSmartAccountTarget {
   chain_id: number;
   factory?: string;
   entry_point?: string;
+  recovery_authority?: string;
   salt?: string;
   counterfactual_address?: string;
 }
@@ -413,9 +413,12 @@ export interface CreateAccountAndRegisterResult {
   code?: string;
   transactionHash?: string;
   thresholdEd25519?: {
+    keyVersion: string;
+    recoveryExportCapable: true;
     relayerKeyId: string;
     publicKey: string;
-    relayerVerifyingShareB64u?: string;
+    recoveryPublicKey: string;
+    relayerVerifyingShareB64u: string;
     clientParticipantId?: number;
     relayerParticipantId?: number;
     participantIds?: number[];
@@ -560,8 +563,8 @@ export type Ed25519SessionPolicy = {
 
 export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
-  /** Base64url-encoded 32-byte client verifying share (Ed25519 compressed point) for participant id=1. */
-  clientVerifyingShareB64u: string;
+  /** Optional client verifying share supplied by the caller; the server resolves persisted bootstrap key material by `relayerKeyId`. */
+  clientVerifyingShareB64u?: string;
   sessionPolicy: Ed25519SessionPolicy;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   // Optional: whether to return JWT in JSON or set an HttpOnly cookie
@@ -584,8 +587,8 @@ export interface ThresholdEd25519SessionResponse {
 
 export interface ThresholdEd25519AuthorizeWithSessionRequest {
   relayerKeyId: string;
-  /** Base64url-encoded 32-byte client verifying share (Ed25519 compressed point) for participant id=1. */
-  clientVerifyingShareB64u: string;
+  /** Optional client verifying share carried by caller-side session state; authorization binds key identity through `relayerKeyId`. */
+  clientVerifyingShareB64u?: string;
   purpose: ThresholdEd25519Purpose;
   signing_digest_32: number[];
   signingPayload?: unknown;
@@ -598,6 +601,21 @@ export interface ThresholdEd25519AuthorizeResponse {
   message?: string;
   mpcSessionId?: string;
   expiresAt?: string;
+}
+
+export interface ThresholdEd25519BootstrapRecoveryShareRequest {
+  nearAccountId: string;
+  rpId: string;
+  keyVersion: string;
+  environmentId?: string;
+}
+
+export interface ThresholdEd25519BootstrapRecoveryShareResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  recoveryServerShareB64u?: string;
+  keyVersion?: string;
 }
 
 export type ThresholdEd25519KeygenRequest = ThresholdEd25519KeygenWithWebAuthnRequest;
@@ -620,29 +638,121 @@ export interface ThresholdEd25519KeygenWithWebAuthnRequest {
    * Client-generated keygen session id (used to bind the WebAuthn challenge).
    */
   keygenSessionId: string;
+  /**
+   * Option B Ed25519 lifecycle version for recovery-export-capable threshold keys.
+   */
+  keyVersion: string;
+  /**
+   * When true, the key is eligible for explicit recovery export.
+   */
+  recoveryExportCapable: true;
+  /**
+   * NEAR Ed25519 public key string derived from the canonical seed.
+   */
+  publicKey: string;
+  /**
+   * Recovery Ed25519 public key string for the sibling recovery key lifecycle.
+   */
+  recoveryPublicKey: string;
+  /**
+   * Base64url-encoded relayer signing share for participant id=2.
+   */
+  relayerSigningShareB64u: string;
+  /**
+   * Base64url-encoded relayer verifying share for participant id=2.
+   */
+  relayerVerifyingShareB64u: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
 }
 
-export interface ThresholdEd25519KeygenResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  /** FROST participant identifier (u16, >= 1) used for the client share. */
-  clientParticipantId?: number;
-  /** FROST participant identifier (u16, >= 1) used for the relayer share. */
-  relayerParticipantId?: number;
-  /** Convenience list of participant ids for this 2P signer set. */
-  participantIds?: number[];
-  /**
-   * Opaque identifier for the relayer-held share record.
-   * Default: equals `publicKey` for stateless recovery.
-   */
-  relayerKeyId?: string;
-  /** NEAR ed25519 public key string (`ed25519:<base58>`). */
-  publicKey?: string;
-  /** Base64url-encoded 32-byte relayer verifying share (Ed25519 compressed point). */
-  relayerVerifyingShareB64u?: string;
+export type ThresholdEd25519KeygenResponse =
+  | {
+      ok: true;
+      code?: string;
+      message?: string;
+      /** FROST participant identifier (u16, >= 1) used for the client share. */
+      clientParticipantId?: number;
+      /** FROST participant identifier (u16, >= 1) used for the relayer share. */
+      relayerParticipantId?: number;
+      /** Convenience list of participant ids for this 2P signer set. */
+      participantIds?: number[];
+      /**
+       * Opaque identifier for the relayer-held share record.
+       * For Ed25519 this is the canonical public key string.
+       */
+      relayerKeyId: string;
+      /** NEAR ed25519 public key string (`ed25519:<base58>`). */
+      publicKey: string;
+      /** Recovery NEAR ed25519 public key string (`ed25519:<base58>`). */
+      recoveryPublicKey: string;
+      /** Option B Ed25519 lifecycle version used for this key. */
+      keyVersion: string;
+      /** Whether this key is eligible for explicit recovery export. */
+      recoveryExportCapable: true;
+      /** Base64url-encoded 32-byte relayer verifying share (Ed25519 compressed point). */
+      relayerVerifyingShareB64u: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
+export interface ThresholdEd25519ExportInitRequest {
+  relayerKeyId: string;
+  keyVersion: string;
+  webauthn_authentication: WebAuthnAuthenticationCredential;
 }
+
+export type ThresholdEd25519ExportInitResponse =
+  | {
+      ok: true;
+      code?: string;
+      message?: string;
+      exportId: string;
+      expiresAtMs: number;
+      relayerKeyId: string;
+      artifactKind: 'near-ed25519-option-b-v1';
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      participantIds?: number[];
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
+export interface ThresholdEd25519ExportCombineRequest {
+  exportId: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  artifactKind: 'near-ed25519-option-b-v1';
+  paillierPublicKeyB64u: string;
+  clientCiphertextB64u: string;
+}
+
+export type ThresholdEd25519ExportCombineResponse =
+  | {
+      ok: true;
+      code?: string;
+      message?: string;
+      exportId: string;
+      relayerKeyId: string;
+      artifactKind: 'near-ed25519-option-b-v1';
+      recoveryPublicKey: string;
+      keyVersion: string;
+      recoveryExportCapable: true;
+      participantIds?: number[];
+      expiresAtMs?: number;
+      serverCiphertextB64u: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
 
 export interface ThresholdEd25519SignInitRequest {
   mpcSessionId: string;

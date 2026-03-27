@@ -12,6 +12,7 @@ import { registerEmailRecoveryRoutes } from './routes/emailRecovery';
 import { registerHealthRoutes } from './routes/health';
 import { registerLinkDeviceRoutes } from './routes/linkDevice';
 import { registerRecoverEmailRoute } from './routes/recoverEmail';
+import { registerRegistrationRecoveryShareRoutes } from './routes/registrationRecoveryShare';
 import { registerSessionRoutes } from './routes/sessions';
 import { registerSignedDelegateRoutes } from './routes/signedDelegate';
 import { registerSmartAccountDeploymentRoutes } from './routes/smartAccountDeployment';
@@ -69,6 +70,7 @@ export function createRelayRouter(
   };
 
   registerBootstrapGrantRoutes(router, ctx);
+  registerRegistrationRecoveryShareRoutes(router, ctx);
   registerCreateAccountAndRegisterUser(router, ctx);
   registerApiWalletRoutes(router, ctx);
   registerSponsoredEvmCallRoutes(router, ctx);

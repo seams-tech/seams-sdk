@@ -3,7 +3,6 @@ import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
 
 const REGISTRATION_BOOTSTRAP_HASH_FIELDS = [
   'new_account_id',
-  'new_public_key',
   'device_number',
   'threshold_ed25519',
   'threshold_ecdsa',

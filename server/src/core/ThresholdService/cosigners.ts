@@ -1,11 +1,32 @@
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  threshold_ed25519_add_scalars_b64u,
   threshold_ed25519_derive_relayer_cosigner_shares,
   threshold_ed25519_lagrange_coefficient_at_zero,
   threshold_ed25519_multiply_scalar_b64u_by_scalar_le32,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+
+const ED25519_SCALAR_MODULUS =
+  (1n << 252n) + 27742317777372353535851937790883648493n;
+
+function scalarLeBytesToBigInt(bytes: Uint8Array): bigint {
+  let acc = 0n;
+  for (let i = bytes.length - 1; i >= 0; i -= 1) {
+    acc = (acc << 8n) + BigInt(bytes[i]);
+  }
+  return acc;
+}
+
+function scalarBigIntToLe32(value: bigint): Uint8Array {
+  let v = value % ED25519_SCALAR_MODULUS;
+  if (v < 0n) v += ED25519_SCALAR_MODULUS;
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i += 1) {
+    out[i] = Number(v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
 
 function errorMessage(e: unknown): string {
   return String(
@@ -252,6 +273,7 @@ export function addEd25519ScalarsB64u(input: {
     return { ok: false, code: 'invalid_body', message: 'scalarsB64u must be a non-empty array' };
   }
 
+  let sum = 0n;
   for (const item of input.scalarsB64u) {
     const raw = toOptionalTrimmedString(item);
     if (!raw)
@@ -273,18 +295,10 @@ export function addEd25519ScalarsB64u(input: {
         message: `scalar must be 32 bytes, got ${bytes.length}`,
       };
     }
+    sum = (sum + scalarLeBytesToBigInt(bytes)) % ED25519_SCALAR_MODULUS;
   }
-  try {
-    const out = threshold_ed25519_add_scalars_b64u({
-      scalarsB64u: input.scalarsB64u,
-    });
-    const scalarOut = toOptionalTrimmedString(out);
-    if (!scalarOut) {
-      return { ok: false, code: 'internal', message: 'Missing scalar output from WASM' };
-    }
-    return { ok: true, scalarB64u: scalarOut };
-  } catch (e: unknown) {
-    const mapped = mapWasmError(errorMessage(e));
-    return { ok: false, code: mapped.code, message: mapped.message };
+  if (sum === 0n) {
+    return { ok: false, code: 'internal', message: 'Sum of scalars is zero' };
   }
+  return { ok: true, scalarB64u: base64UrlEncode(scalarBigIntToLe32(sum)) };
 }

@@ -10,6 +10,7 @@ type RegistrationSmartAccountTarget = {
   chainId: number;
   factory?: string;
   entryPoint?: string;
+  recoveryAuthority?: string;
   salt?: string;
   counterfactualAddress?: string;
 };
@@ -37,6 +38,9 @@ function normalizeTarget(
       : {}),
     ...(normalizeSmartAccountHexLike(target?.entry_point)
       ? { entryPoint: normalizeSmartAccountHexLike(target.entry_point) }
+      : {}),
+    ...(normalizeSmartAccountHexLike(target?.recovery_authority)
+      ? { recoveryAuthority: normalizeSmartAccountHexLike(target.recovery_authority) }
       : {}),
     ...(toOptionalTrimmedString(target?.salt) ? { salt: toOptionalTrimmedString(target.salt)! } : {}),
     ...(normalizeSmartAccountHexLike(target?.counterfactual_address)
@@ -152,6 +156,7 @@ export function buildRegistrationSmartAccountRecords(input: {
           deployed: false,
           ...(target.factory ? { factory: target.factory } : {}),
           ...(target.entryPoint ? { entryPoint: target.entryPoint } : {}),
+          ...(target.recoveryAuthority ? { recoveryAuthority: target.recoveryAuthority } : {}),
           ...(target.salt ? { salt: target.salt } : {}),
           ...(target.counterfactualAddress
             ? { counterfactualAddress: target.counterfactualAddress }

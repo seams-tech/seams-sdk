@@ -11,6 +11,7 @@ import {
   parseThresholdEcdsaSigningSessionRecord,
   parseEd25519AuthSessionRecord,
   parseThresholdEd25519CoordinatorSigningSessionRecord,
+  parseThresholdEd25519ExportSessionRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
   parseThresholdEd25519SigningSessionRecord,
@@ -33,6 +34,7 @@ import type {
 import type { ThresholdEd25519KeyRecord, ThresholdEd25519KeyStore } from './KeyStore';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
+  ThresholdEd25519ExportSessionRecord,
   ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519SessionStore,
   ThresholdEd25519SigningSessionRecord,
@@ -289,6 +291,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
+  private readonly exportPrefix: string;
 
   constructor(input: {
     namespace: CloudflareDurableObjectNamespaceLike;
@@ -298,6 +301,7 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.keyPrefix = input.keyPrefix;
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
+    this.exportPrefix = `${this.keyPrefix}export:`;
   }
 
   private key(id: string): string {
@@ -306,6 +310,10 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
+  }
+
+  private exportKey(id: string): string {
+    return `${this.exportPrefix}${id}`;
   }
 
   async putMpcSession(
@@ -368,6 +376,26 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.coordKey(id) });
     if (!resp.ok) return null;
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
+  }
+
+  async putExportSession(
+    id: string,
+    record: ThresholdEd25519ExportSessionRecord,
+    ttlMs: number,
+  ): Promise<void> {
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.exportKey(id),
+      value: record,
+      ttlMs,
+    });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+
+  async takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null> {
+    const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.exportKey(id) });
+    if (!resp.ok) return null;
+    return parseThresholdEd25519ExportSessionRecord(resp.value);
   }
 }
 

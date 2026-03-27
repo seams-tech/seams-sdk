@@ -1,5 +1,6 @@
 import type { MinimalNearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
+import type { RecoverySubjectBinding, RecoveryTargetKeySet } from '@shared/utils';
 import type { Logger } from '../core/logger';
 import type { RecoveryEmailPayload } from '@shared/utils/recoveryEmail';
 
@@ -32,9 +33,19 @@ export interface EmailRecoveryServiceDeps {
 }
 
 export interface EmailRecoveryRequest {
-  accountId: string;
+  accountId: RecoverySubjectBinding['nearAccountId'];
   emailBlob: string;
   recoveryPayload: RecoveryEmailPayload;
+}
+
+export interface VerifiedEmailRecoveryRequest {
+  version: 'verified_email_recovery_request_v1';
+  nearAccountId: RecoverySubjectBinding['nearAccountId'];
+  recoverySessionId: RecoverySubjectBinding['recoverySessionId'];
+  newNearPublicKey: RecoveryTargetKeySet['newNearPublicKey'];
+  newEvmOwnerAddress: RecoveryTargetKeySet['newEvmOwnerAddress'];
+  deadlineEpochSeconds: RecoverySubjectBinding['deadlineEpochSeconds'];
+  scope?: RecoverySubjectBinding['scope'];
 }
 
 export interface EmailRecoveryResult {

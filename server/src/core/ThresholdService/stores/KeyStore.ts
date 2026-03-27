@@ -23,9 +23,14 @@ import {
 } from './CloudflareDurableObjectStore';
 
 export type ThresholdEd25519KeyRecord = {
+  nearAccountId: string;
+  rpId: string;
   publicKey: string;
+  recoveryPublicKey: string;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
+  keyVersion: string;
+  recoveryExportCapable: true;
 };
 
 export interface ThresholdEd25519KeyStore {

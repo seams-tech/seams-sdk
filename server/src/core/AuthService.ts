@@ -10,7 +10,11 @@ import { createAuthServiceConfig } from './config';
 import { formatGasToTGas, formatYoctoToNear } from './utils';
 import { parseContractExecutionError } from './errors';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
-import { isValidAccountId, toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  ensureEd25519Prefix,
+  isValidAccountId,
+  toOptionalTrimmedString,
+} from '@shared/utils/validation';
 import {
   buildRecoveryEmailBody,
   buildRecoveryEmailPayload,
@@ -18,10 +22,7 @@ import {
   hashRecoveryEmailPayload,
   type RecoveryEmailPayload,
 } from '@shared/utils/recoveryEmail';
-import {
-  coerceThresholdEd25519ShareMode,
-  coerceThresholdNodeRole,
-} from './ThresholdService/config';
+import { coerceThresholdNodeRole } from './ThresholdService/config';
 import type { ThresholdSigningService as ThresholdSigningServiceType } from './ThresholdService';
 import type { ThresholdEd25519RegistrationKeygenResult } from './ThresholdService';
 import {
@@ -225,6 +226,12 @@ function parseJwtAud(input: unknown): string[] {
 
 type ThresholdEd25519BootstrapInput = {
   clientVerifyingShareB64u: string;
+  keyVersion: string;
+  recoveryExportCapable?: boolean;
+  publicKey: string;
+  recoveryPublicKey?: string;
+  relayerSigningShareB64u: string;
+  relayerVerifyingShareB64u: string;
   sessionPolicy: Record<string, unknown> | null;
   sessionKind: string;
 };
@@ -249,6 +256,15 @@ function parseThresholdEd25519BootstrapInput(raw: unknown): ThresholdEd25519Boot
   const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
   return {
     clientVerifyingShareB64u: String(body?.client_verifying_share_b64u || '').trim(),
+    keyVersion: String(body?.key_version || '').trim(),
+    recoveryExportCapable:
+      typeof body?.recovery_export_capable === 'boolean'
+        ? Boolean(body.recovery_export_capable)
+        : undefined,
+    publicKey: String(body?.public_key || '').trim(),
+    recoveryPublicKey: String(body?.recovery_public_key || '').trim() || undefined,
+    relayerSigningShareB64u: String(body?.relayer_signing_share_b64u || '').trim(),
+    relayerVerifyingShareB64u: String(body?.relayer_verifying_share_b64u || '').trim(),
     sessionPolicy: isObject(body?.session_policy)
       ? (body!.session_policy as Record<string, unknown>)
       : null,
@@ -268,6 +284,38 @@ function parseThresholdEcdsaBootstrapInput(raw: unknown): ThresholdEcdsaBootstra
     sessionKind: String(body?.session_kind || '')
       .trim()
       .toLowerCase(),
+  };
+}
+
+function buildFullAccessAddKeyAction(publicKey: string): ActionArgsWasm {
+  return {
+    action_type: ActionType.AddKey,
+    public_key: publicKey,
+    access_key: JSON.stringify({
+      nonce: 0,
+      permission: { FullAccess: {} },
+    }),
+  };
+}
+
+function normalizeBootstrapPublicKeys(args: {
+  publicKey: string;
+  recoveryPublicKey?: string;
+}): { publicKey: string; recoveryPublicKey?: string; expectedPublicKeys: string[] } {
+  const publicKey = ensureEd25519Prefix(toOptionalTrimmedString(args.publicKey) || '');
+  if (!publicKey) {
+    throw new Error('Missing or invalid bootstrap operational public key');
+  }
+  const recoveryPublicKey = ensureEd25519Prefix(
+    toOptionalTrimmedString(args.recoveryPublicKey) || '',
+  );
+  if (recoveryPublicKey && recoveryPublicKey === publicKey) {
+    throw new Error('Bootstrap recovery public key must differ from the operational public key');
+  }
+  return {
+    publicKey,
+    ...(recoveryPublicKey ? { recoveryPublicKey } : {}),
+    expectedPublicKeys: recoveryPublicKey ? [publicKey, recoveryPublicKey] : [publicKey],
   };
 }
 
@@ -359,12 +407,6 @@ function summarizeThresholdEd25519Config(
   if (!cfg) return 'thresholdEd25519: not configured';
 
   const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
-  const shareMode = coerceThresholdEd25519ShareMode(cfg.THRESHOLD_ED25519_SHARE_MODE);
-
-  const masterSecretSet = (() => {
-    if ('kind' in cfg) return false;
-    return Boolean(toOptionalTrimmedString(cfg.THRESHOLD_ED25519_MASTER_SECRET_B64U));
-  })();
 
   const store = (() => {
     if ('kind' in cfg) {
@@ -384,10 +426,8 @@ function summarizeThresholdEd25519Config(
   const parts = [
     `thresholdEd25519: configured`,
     `nodeRole=${nodeRole}`,
-    `shareMode=${shareMode}`,
     `store=${store}`,
   ];
-  if (masterSecretSet) parts.push('masterSecret=set');
   return parts.join(' ');
 }
 
@@ -562,6 +602,25 @@ export class AuthService {
       isNode: this.isNodeEnvironment(),
     });
     return this.thresholdSigningService;
+  }
+
+  async prepareThresholdEd25519BootstrapRecoveryShare(input: {
+    nearAccountId: string;
+    rpId: string;
+    keyVersion: string;
+  }): Promise<
+    | { ok: true; recoveryServerShareB64u: string; keyVersion: string }
+    | { ok: false; code: string; message: string }
+  > {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false,
+        code: 'not_configured',
+        message: 'Threshold signing is not configured on this server',
+      };
+    }
+    return await threshold.prepareEd25519BootstrapRecoveryShare(input);
   }
 
   private getWebAuthnAuthenticatorStore(): WebAuthnAuthenticatorStore {
@@ -1539,22 +1598,20 @@ export class AuthService {
         this.logger.info(`Account ${request.accountId} is available for creation`);
 
         const initialBalance = this.config.accountInitialBalance;
+        const { publicKey, recoveryPublicKey, expectedPublicKeys } = normalizeBootstrapPublicKeys({
+          publicKey: request.publicKey,
+          recoveryPublicKey: request.recoveryPublicKey,
+        });
 
         this.logger.info(`Creating account: ${request.accountId}`);
         this.logger.info(`Initial balance: ${initialBalance} yoctoNEAR`);
 
-        // Build actions for CreateAccount + Transfer + AddKey(FullAccess)
+        // Build actions for CreateAccount + Transfer + AddKey(FullAccess) for bootstrap keys.
         const actions: ActionArgsWasm[] = [
           { action_type: ActionType.CreateAccount },
           { action_type: ActionType.Transfer, deposit: String(initialBalance) },
-          {
-            action_type: ActionType.AddKey,
-            public_key: request.publicKey,
-            access_key: JSON.stringify({
-              nonce: 0,
-              permission: { FullAccess: {} },
-            }),
-          },
+          buildFullAccessAddKeyAction(publicKey),
+          ...(recoveryPublicKey ? [buildFullAccessAddKeyAction(recoveryPublicKey)] : []),
         ];
 
         actions.forEach(validateActionArgsWasm);
@@ -1576,7 +1633,19 @@ export class AuthService {
         });
 
         // Broadcast transaction via MinimalNearClient using a strongly typed SignedTransaction
-        const result = await this.nearClient.sendTransaction(signed);
+        const result = await this.nearClient.sendTransaction(signed, 'FINAL');
+        const keysVerified = await this.verifyAccountAccessKeysPresent(
+          request.accountId,
+          expectedPublicKeys,
+          { attempts: 4, delayMs: 250, finality: 'final' },
+        );
+        if (!keysVerified) {
+          throw new Error(
+            recoveryPublicKey
+              ? 'Bootstrap committed but operational and recovery access keys were not both visible on-chain'
+              : 'Bootstrap committed but the operational access key was not visible on-chain',
+          );
+        }
 
         this.logger.info(`Account creation completed: ${result.transaction.hash}`);
         const nearAmount = (Number(BigInt(initialBalance)) / 1e24).toFixed(6);
@@ -1627,6 +1696,23 @@ export class AuthService {
         const thresholdClientVerifyingShareB64u = String(
           (request as any)?.threshold_ed25519?.client_verifying_share_b64u || '',
         ).trim();
+        const thresholdEd25519KeyVersion = String(
+          (request as any)?.threshold_ed25519?.key_version || '',
+        ).trim();
+        const thresholdEd25519PublicKey = String(
+          (request as any)?.threshold_ed25519?.public_key || '',
+        ).trim();
+        const thresholdEd25519RecoveryPublicKey = String(
+          (request as any)?.threshold_ed25519?.recovery_public_key || '',
+        ).trim();
+        const thresholdEd25519RelayerSigningShareB64u = String(
+          (request as any)?.threshold_ed25519?.relayer_signing_share_b64u || '',
+        ).trim();
+        const thresholdEd25519RelayerVerifyingShareB64u = String(
+          (request as any)?.threshold_ed25519?.relayer_verifying_share_b64u || '',
+        ).trim();
+        const thresholdEd25519RecoveryExportCapable =
+          (request as any)?.threshold_ed25519?.recovery_export_capable === true;
         const thresholdEcdsaClientVerifyingShareB64u = String(
           (request as any)?.threshold_ecdsa?.client_verifying_share_b64u || '',
         ).trim();
@@ -1684,6 +1770,18 @@ export class AuthService {
           if (thresholdEd25519SessionKind !== 'jwt') {
             throw new Error('threshold_ed25519.session_kind must be jwt');
           }
+          if (
+            !thresholdEd25519KeyVersion ||
+            !thresholdEd25519PublicKey ||
+            !thresholdEd25519RecoveryPublicKey ||
+            !thresholdEd25519RelayerSigningShareB64u ||
+            !thresholdEd25519RelayerVerifyingShareB64u
+          ) {
+            throw new Error('threshold_ed25519 bootstrap package is incomplete');
+          }
+          if (!thresholdEd25519RecoveryExportCapable) {
+            throw new Error('threshold_ed25519.recovery_export_capable must be true');
+          }
         }
         if (thresholdEcdsaClientVerifyingShareB64u) {
           if (!thresholdEcdsaSessionPolicy || typeof thresholdEcdsaSessionPolicy !== 'object') {
@@ -1711,10 +1809,16 @@ export class AuthService {
               `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
             );
           }
-          const out = await schemeAny.registration.keygenFromClientVerifyingShare({
+          const out = await schemeAny.registration.keygenFromBootstrapPackage({
             nearAccountId: accountId,
             rpId,
+            keyVersion: thresholdEd25519KeyVersion,
+            recoveryExportCapable: true,
+            publicKey: thresholdEd25519PublicKey,
+            recoveryPublicKey: thresholdEd25519RecoveryPublicKey,
             clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+            relayerSigningShareB64u: thresholdEd25519RelayerSigningShareB64u,
+            relayerVerifyingShareB64u: thresholdEd25519RelayerVerifyingShareB64u,
           });
           if (!out.ok) {
             throw new Error(out.message || 'threshold-ed25519 registration keygen failed');
@@ -1753,9 +1857,24 @@ export class AuthService {
           };
         }
 
-        const newPublicKey = String(thresholdKeygen?.publicKey || '').trim();
+        const {
+          publicKey: newPublicKey,
+          recoveryPublicKey: recoveryPublicKeyForBootstrap,
+          expectedPublicKeys,
+        } = normalizeBootstrapPublicKeys({
+          publicKey: String(thresholdKeygen?.publicKey || '').trim(),
+          recoveryPublicKey:
+            String(thresholdKeygen?.recoveryPublicKey || '').trim() ||
+            thresholdEd25519RecoveryPublicKey,
+        });
+        const thresholdRecoveryPublicKeyForBootstrap = thresholdKeygen
+          ? String(recoveryPublicKeyForBootstrap || '').trim()
+          : '';
         if (!newPublicKey) {
           throw new Error('threshold_ed25519 registration key material is required');
+        }
+        if (thresholdKeygen && !thresholdRecoveryPublicKeyForBootstrap) {
+          throw new Error('threshold_ed25519 registration key material is missing recoveryPublicKey');
         }
 
         const deviceNumber = (() => {
@@ -1834,14 +1953,10 @@ export class AuthService {
             action_type: ActionType.Transfer,
             deposit: String(this.config.accountInitialBalance),
           },
-          {
-            action_type: ActionType.AddKey,
-            public_key: newPublicKey,
-            access_key: JSON.stringify({
-              nonce: 0,
-              permission: { FullAccess: {} },
-            }),
-          },
+          buildFullAccessAddKeyAction(newPublicKey),
+          ...(recoveryPublicKeyForBootstrap
+            ? [buildFullAccessAddKeyAction(recoveryPublicKeyForBootstrap)]
+            : []),
         ];
         actions.forEach(validateActionArgsWasm);
 
@@ -1860,6 +1975,18 @@ export class AuthService {
         // Atomic registration immediately validates relayer key scope against account access keys.
         // Wait for FINAL so the key list reflects the just-created account/key state.
         const result = await this.nearClient.sendTransaction(signed, 'FINAL');
+        const bootstrapKeysVerified = await this.verifyAccountAccessKeysPresent(
+          accountId,
+          expectedPublicKeys,
+          { attempts: 4, delayMs: 250, finality: 'final' },
+        );
+        if (!bootstrapKeysVerified) {
+          throw new Error(
+            recoveryPublicKeyForBootstrap
+              ? 'Atomic registration committed but operational and recovery access keys were not both visible on-chain'
+              : 'Atomic registration committed but the operational access key was not visible on-chain',
+          );
+        }
 
         // 3) Persist the authenticator privately on the relay.
         const credentialIdB64u = String(
@@ -1898,6 +2025,8 @@ export class AuthService {
           deviceNumber,
           publicKey: newPublicKey,
           ...(thresholdKeygen ? { relayerKeyId: thresholdKeygen.relayerKeyId } : {}),
+          ...(thresholdKeygen ? { keyVersion: thresholdKeygen.keyVersion } : {}),
+          ...(thresholdKeygen ? { recoveryExportCapable: thresholdKeygen.recoveryExportCapable } : {}),
           ...(thresholdKeygen ? { clientParticipantId: thresholdKeygen.clientParticipantId } : {}),
           ...(thresholdKeygen
             ? { relayerParticipantId: thresholdKeygen.relayerParticipantId }
@@ -1929,7 +2058,6 @@ export class AuthService {
             nearAccountId: accountId,
             rpId,
             relayerKeyId: thresholdKeygen.relayerKeyId,
-            clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
             sessionPolicy: thresholdEd25519PolicyWithRelayerKeyId,
           });
           if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
@@ -1999,7 +2127,7 @@ export class AuthService {
         // This provides (key kind + timestamp) for access key listings.
         try {
           const pkStore = this.getNearPublicKeyStore();
-          const thresholdPk = String(thresholdKeygen?.publicKey || '').trim();
+          const thresholdPk = newPublicKey;
           if (thresholdPk) {
             const thresholdRecord: NearPublicKeyRecord = {
               version: 'near_public_key_v1',
@@ -2013,6 +2141,19 @@ export class AuthService {
               updatedAtMs: now,
             };
             await pkStore.put(thresholdRecord);
+          }
+          if (recoveryPublicKeyForBootstrap) {
+            const recoveryRecord: NearPublicKeyRecord = {
+              version: 'near_public_key_v1',
+              userId: accountId,
+              publicKey: recoveryPublicKeyForBootstrap,
+              kind: 'backup',
+              rpId,
+              credentialIdB64u,
+              createdAtMs: now,
+              updatedAtMs: now,
+            };
+            await pkStore.put(recoveryRecord);
           }
         } catch {}
 
@@ -2036,8 +2177,11 @@ export class AuthService {
           ...(thresholdKeygen
             ? {
                 thresholdEd25519: {
+                  keyVersion: thresholdKeygen.keyVersion,
+                  recoveryExportCapable: thresholdKeygen.recoveryExportCapable,
                   relayerKeyId: thresholdKeygen.relayerKeyId,
-                  publicKey: thresholdKeygen.publicKey,
+                  publicKey: newPublicKey,
+                  recoveryPublicKey: thresholdRecoveryPublicKeyForBootstrap,
                   relayerVerifyingShareB64u: thresholdKeygen.relayerVerifyingShareB64u,
                   clientParticipantId: thresholdKeygen.clientParticipantId,
                   relayerParticipantId: thresholdKeygen.relayerParticipantId,
@@ -3349,6 +3493,8 @@ export class AuthService {
     thresholdEd25519?: {
       relayerKeyId: string;
       publicKey: string;
+      keyVersion?: string;
+      recoveryExportCapable?: boolean;
       relayerVerifyingShareB64u?: string;
       clientParticipantId?: number;
       relayerParticipantId?: number;
@@ -3483,6 +3629,10 @@ export class AuthService {
         ? {
             relayerKeyId: binding.relayerKeyId,
             publicKey: binding.publicKey,
+            ...(binding.keyVersion ? { keyVersion: binding.keyVersion } : {}),
+            ...(typeof binding.recoveryExportCapable === 'boolean'
+              ? { recoveryExportCapable: binding.recoveryExportCapable }
+              : {}),
             ...(binding.relayerVerifyingShareB64u
               ? { relayerVerifyingShareB64u: binding.relayerVerifyingShareB64u }
               : {}),
@@ -3548,7 +3698,6 @@ export class AuthService {
           nearAccountId: binding.userId,
           rpId: binding.rpId,
           relayerKeyId,
-          clientVerifyingShareB64u: thresholdEd25519ClientVerifyingShareB64u,
           sessionPolicy: {
             ...requestedSessionPolicy,
             nearAccountId: binding.userId,
@@ -3876,6 +4025,8 @@ export class AuthService {
         thresholdEd25519: {
           relayerKeyId: string;
           publicKey: string;
+          keyVersion?: string;
+          recoveryExportCapable?: boolean;
           relayerVerifyingShareB64u: string;
           clientParticipantId?: number;
           relayerParticipantId?: number;
@@ -3931,6 +4082,17 @@ export class AuthService {
         (request as any)?.threshold_ed25519,
       );
       const thresholdClientVerifyingShareB64u = thresholdEd25519Bootstrap.clientVerifyingShareB64u;
+      const thresholdEd25519KeyVersion = thresholdEd25519Bootstrap.keyVersion;
+      const thresholdEd25519RecoveryExportCapable =
+        thresholdEd25519Bootstrap.recoveryExportCapable;
+      const thresholdEd25519PublicKey = thresholdEd25519Bootstrap.publicKey;
+      const thresholdEd25519RecoveryPublicKey = String(
+        thresholdEd25519Bootstrap.recoveryPublicKey || '',
+      ).trim();
+      const thresholdEd25519RelayerSigningShareB64u =
+        thresholdEd25519Bootstrap.relayerSigningShareB64u;
+      const thresholdEd25519RelayerVerifyingShareB64u =
+        thresholdEd25519Bootstrap.relayerVerifyingShareB64u;
       if (!thresholdClientVerifyingShareB64u) {
         return {
           ok: false,
@@ -4093,10 +4255,16 @@ export class AuthService {
           message: `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
         };
       }
-      const keygen = await schemeAny.registration.keygenFromClientVerifyingShare({
+      const keygen = await schemeAny.registration.keygenFromBootstrapPackage({
         nearAccountId: accountId,
         rpId,
         clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+        keyVersion: thresholdEd25519KeyVersion,
+        recoveryExportCapable: true,
+        publicKey: thresholdEd25519PublicKey,
+        recoveryPublicKey: thresholdEd25519RecoveryPublicKey,
+        relayerSigningShareB64u: thresholdEd25519RelayerSigningShareB64u,
+        relayerVerifyingShareB64u: thresholdEd25519RelayerVerifyingShareB64u,
       });
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
       let thresholdEd25519Session:
@@ -4130,7 +4298,6 @@ export class AuthService {
           nearAccountId: accountId,
           rpId,
           relayerKeyId: keygen.relayerKeyId,
-          clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
           sessionPolicy: {
             ...requestedSessionPolicy,
             nearAccountId: accountId,
@@ -4381,6 +4548,11 @@ export class AuthService {
         thresholdEd25519: {
           relayerKeyId: keygen.relayerKeyId,
           publicKey: keygen.publicKey,
+          ...(keygen.recoveryPublicKey ? { recoveryPublicKey: keygen.recoveryPublicKey } : {}),
+          ...(keygen.keyVersion ? { keyVersion: keygen.keyVersion } : {}),
+          ...(typeof keygen.recoveryExportCapable === 'boolean'
+            ? { recoveryExportCapable: keygen.recoveryExportCapable }
+            : {}),
           relayerVerifyingShareB64u: keygen.relayerVerifyingShareB64u,
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
@@ -4428,6 +4600,8 @@ export class AuthService {
         thresholdEd25519: {
           relayerKeyId: string;
           publicKey: string;
+          keyVersion?: string;
+          recoveryExportCapable?: boolean;
           relayerVerifyingShareB64u: string;
           clientParticipantId?: number;
           relayerParticipantId?: number;
@@ -4501,6 +4675,17 @@ export class AuthService {
         (request as any)?.threshold_ed25519,
       );
       const thresholdClientVerifyingShareB64u = thresholdEd25519Bootstrap.clientVerifyingShareB64u;
+      const thresholdEd25519KeyVersion = thresholdEd25519Bootstrap.keyVersion;
+      const thresholdEd25519RecoveryExportCapable =
+        thresholdEd25519Bootstrap.recoveryExportCapable;
+      const thresholdEd25519PublicKey = thresholdEd25519Bootstrap.publicKey;
+      const thresholdEd25519RecoveryPublicKey = String(
+        thresholdEd25519Bootstrap.recoveryPublicKey || '',
+      ).trim();
+      const thresholdEd25519RelayerSigningShareB64u =
+        thresholdEd25519Bootstrap.relayerSigningShareB64u;
+      const thresholdEd25519RelayerVerifyingShareB64u =
+        thresholdEd25519Bootstrap.relayerVerifyingShareB64u;
       if (!thresholdClientVerifyingShareB64u) {
         return {
           ok: false,
@@ -4664,10 +4849,16 @@ export class AuthService {
           message: `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled on this server`,
         };
       }
-      const keygen = await schemeAny.registration.keygenFromClientVerifyingShare({
+      const keygen = await schemeAny.registration.keygenFromBootstrapPackage({
         nearAccountId: accountId,
         rpId,
         clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
+        keyVersion: thresholdEd25519KeyVersion,
+        recoveryExportCapable: true,
+        publicKey: thresholdEd25519PublicKey,
+        recoveryPublicKey: thresholdEd25519RecoveryPublicKey,
+        relayerSigningShareB64u: thresholdEd25519RelayerSigningShareB64u,
+        relayerVerifyingShareB64u: thresholdEd25519RelayerVerifyingShareB64u,
       });
       if (!keygen.ok) return { ok: false, code: keygen.code, message: keygen.message };
       let thresholdEd25519Session:
@@ -4701,7 +4892,6 @@ export class AuthService {
           nearAccountId: accountId,
           rpId,
           relayerKeyId: keygen.relayerKeyId,
-          clientVerifyingShareB64u: thresholdClientVerifyingShareB64u,
           sessionPolicy: {
             ...requestedSessionPolicy,
             nearAccountId: accountId,
@@ -4917,6 +5107,11 @@ export class AuthService {
         thresholdEd25519: {
           relayerKeyId: keygen.relayerKeyId,
           publicKey: keygen.publicKey,
+          ...(keygen.recoveryPublicKey ? { recoveryPublicKey: keygen.recoveryPublicKey } : {}),
+          ...(keygen.keyVersion ? { keyVersion: keygen.keyVersion } : {}),
+          ...(typeof keygen.recoveryExportCapable === 'boolean'
+            ? { recoveryExportCapable: keygen.recoveryExportCapable }
+            : {}),
           relayerVerifyingShareB64u: keygen.relayerVerifyingShareB64u,
           clientParticipantId: keygen.clientParticipantId,
           relayerParticipantId: keygen.relayerParticipantId,
@@ -5058,6 +5253,38 @@ export class AuthService {
   }
 
   // === Internal helpers for signing & RPC ===
+  private async verifyAccountAccessKeysPresent(
+    accountId: string,
+    expectedPublicKeys: string[],
+    opts?: { attempts?: number; delayMs?: number; finality?: 'optimistic' | 'final' },
+  ): Promise<boolean> {
+    const unique = Array.from(
+      new Set(expectedPublicKeys.map((k) => ensureEd25519Prefix(k)).filter(Boolean)),
+    );
+    if (!unique.length) return false;
+
+    const attempts = Math.max(1, Math.floor(opts?.attempts ?? 4));
+    const delayMs = Math.max(50, Math.floor(opts?.delayMs ?? 250));
+    const finality = opts?.finality ?? 'final';
+
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const accessKeyList = await this.nearClient.viewAccessKeyList(accountId, { finality });
+        const keys = accessKeyList.keys
+          .map((k) => ensureEd25519Prefix(String(k?.public_key || '').trim()))
+          .filter(Boolean);
+        if (unique.every((expected) => keys.includes(expected))) return true;
+      } catch {
+        // tolerate transient RPC lag during finality propagation
+      }
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    return false;
+  }
+
   private async fetchTxContext(
     accountId: string,
     publicKey: string,
