@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChevronDown, Menu, X } from 'lucide-react';
-import { MoonIcon, SunIcon, useTatchi, useTheme } from '@tatchi-xyz/sdk/react';
+import { MoonIcon, SunIcon, useTheme } from '@tatchi-xyz/sdk/react';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import TatchiLogo from '../icons/TatchiLogo';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
@@ -235,7 +235,6 @@ export function NavbarStatic(): React.JSX.Element {
   const SCROLL_THRESHOLD_PX = 8;
 
   const { theme, setTheme } = useTheme();
-  const { loginState } = useTatchi();
   const { go, linkProps } = useSiteRouter();
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
@@ -677,7 +676,7 @@ export function NavbarStatic(): React.JSX.Element {
   const pricingProps = getNavLinkProps('/pricing/');
   const contactSalesProps = getNavLinkProps('/contact/');
   const getStartedProps = getNavLinkProps('/dashboard');
-  const dashboardEntryAuthenticated = loginState.isLoggedIn || relaySessionAuthenticated;
+  const dashboardEntryAuthenticated = relaySessionAuthenticated;
 
   const openDashboardAuthModal = React.useCallback(() => {
     closeMenus();

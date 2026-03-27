@@ -15,6 +15,7 @@ export interface GoogleIdentityApi {
     callback: (response: GoogleIdCredentialResponse) => void;
     auto_select?: boolean;
     cancel_on_tap_outside?: boolean;
+    use_fedcm_for_prompt?: boolean;
   }): void;
   prompt(notification?: (event: GoogleIdPromptMomentNotification) => void): void;
 }
@@ -30,6 +31,24 @@ declare global {
 }
 
 let googleIdentityScriptLoadPromise: Promise<void> | null = null;
+
+function normalizeGooglePromptReason(value: unknown, fallback: string): string {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized || fallback;
+}
+
+function buildGooglePromptErrorMessage(input: { stage: 'not_displayed' | 'skipped'; reason: string }): string {
+  const { stage, reason } = input;
+  if (reason === 'unknown_reason') {
+    return 'Google sign-in is blocked by browser sign-in settings (FedCM/third-party sign-in). Enable Google sign-in for this site and retry.';
+  }
+  if (stage === 'not_displayed') {
+    return `Google sign-in is unavailable (${reason}).`;
+  }
+  return `Google sign-in was skipped (${reason}).`;
+}
 
 export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Browser runtime is required'));
@@ -87,6 +106,9 @@ export function requestGoogleIdToken(clientId: string): Promise<string> {
       },
       auto_select: false,
       cancel_on_tap_outside: true,
+      // Prefer non-FedCM prompt mode for dashboard login so browser-level FedCM disables
+      // do not hard-fail the only sign-in path.
+      use_fedcm_for_prompt: false,
     });
 
     googleIdApi.prompt((notification) => {
@@ -94,13 +116,16 @@ export function requestGoogleIdToken(clientId: string): Promise<string> {
       const notDisplayed = notification?.isNotDisplayed?.() === true;
       const skipped = notification?.isSkippedMoment?.() === true;
       if (notDisplayed) {
-        const reason = String(notification?.getNotDisplayedReason?.() || 'not_displayed').trim();
-        finishReject(`Google sign-in is unavailable (${reason}).`);
+        const reason = normalizeGooglePromptReason(
+          notification?.getNotDisplayedReason?.(),
+          'not_displayed',
+        );
+        finishReject(buildGooglePromptErrorMessage({ stage: 'not_displayed', reason }));
         return;
       }
       if (skipped) {
-        const reason = String(notification?.getSkippedReason?.() || 'skipped').trim();
-        finishReject(`Google sign-in was skipped (${reason}).`);
+        const reason = normalizeGooglePromptReason(notification?.getSkippedReason?.(), 'skipped');
+        finishReject(buildGooglePromptErrorMessage({ stage: 'skipped', reason }));
       }
     });
   });
