@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 
@@ -11,21 +11,7 @@ function run(cmd, args, opts = {}) {
   return p;
 }
 
-function runSync(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { stdio: 'inherit', ...opts });
-  if ((result.status ?? 0) !== 0) process.exit(result.status ?? 1);
-}
-
-function ensureFreshSdkBuild() {
-  const freshness = spawnSync('pnpm', ['-C', '../../sdk', 'run', 'build:check:server-runtime'], {
-    stdio: 'inherit',
-  });
-  if (freshness.status === 0) return;
-  runSync('pnpm', ['-C', '../../sdk', 'build:rolldown']);
-}
-
 dotenv.config();
-ensureFreshSdkBuild();
 
 function requireEnv(name) {
   const v = String(process.env[name] || '').trim();
@@ -41,8 +27,15 @@ const coordinatorSharedSecretB64u =
   String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim() ||
   crypto.randomBytes(32).toString('base64url');
 
-// Keep the relay fleet runtime aligned with SDK router changes during local dev.
-const sdk = run('pnpm', ['-C', '../../sdk', 'dev']);
+// Default behavior: keep startup deterministic by avoiding concurrent SDK rebuilds while
+// relay `node --watch` is running. This prevents transient ESM export mismatches mid-restart.
+const watchSdk =
+  String(process.env.RELAY_WATCH_SDK || '').trim() === '1' ||
+  String(process.env.RELAY_WATCH_SDK || '').trim().toLowerCase() === 'true';
+const sdk = watchSdk ? run('pnpm', ['-C', '../../sdk', 'dev']) : null;
+if (!watchSdk) {
+  console.log('[relay dev] SDK watch disabled (set RELAY_WATCH_SDK=1 to enable)');
+}
 
 // Run TypeScript compiler in watch mode once.
 const tsc = run('pnpm', ['run', 'build:watch']);
@@ -107,7 +100,7 @@ const cosigner3 = run('node', ['--watch', 'dist/index.js'], {
 function shutdown(signal) {
   console.log(`[shutdown] received ${signal}, closing relay fleet...`);
   try {
-    sdk.kill();
+    sdk?.kill();
   } catch {}
   try {
     tsc.kill();
