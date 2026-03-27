@@ -451,7 +451,7 @@ Tasks:
 - [x] freeze that this is a registration / rebuild-only backend experiment
 - [x] freeze cached GC as the benchmark baseline
 - [x] create the dedicated crate:
-  - `crates/succinct-garbling-proto/`
+  - `crates/succinct-garbling/`
 - [x] implement a plaintext reference path for:
   - `m = y_client + y_relayer mod 2^256`
   - `d = LE32(m)`
@@ -489,9 +489,9 @@ Deliverables:
 
 Status:
 
-- completed in `crates/succinct-garbling-proto/`
+- completed in `crates/succinct-garbling/`
 - committed fixture corpus frozen at
-  `crates/succinct-garbling-proto/fixtures/f_expand_v1.json`
+  `crates/succinct-garbling/fixtures/f_expand_v1.json`
 
 ### Phase 1 — Evaluation and hardware profiling
 
@@ -535,9 +535,9 @@ Deliverable:
 
 Status:
 
-- benchmark harness implemented in `crates/succinct-garbling-proto/src/benchmark.rs`
+- benchmark harness implemented in `crates/succinct-garbling/src/benchmark.rs`
 - CLI entrypoint available via
-  `crates/succinct-garbling-proto/src/bin/profile_fixed_sha512.rs`
+  `crates/succinct-garbling/src/bin/profile_fixed_sha512.rs`
 - current native CPU runs cover:
   - output-width accounting,
   - per-component cost breakdown,
@@ -581,16 +581,16 @@ Status:
 - first candidate note checked in at
   [`succinct-garbling-candidate-v0.md`](/Users/pta/Dev/rust/simple-threshold-signer/docs/succinct-garbling-candidate-v0.md)
 - code-level candidate model implemented in
-  `crates/succinct-garbling-proto/src/candidate.rs`
+  `crates/succinct-garbling/src/candidate.rs`
 - oracle-backed simulation available via
-  `crates/succinct-garbling-proto/src/bin/emit_candidate_note.rs`
+  `crates/succinct-garbling/src/bin/emit_candidate_note.rs`
 - first concrete backend family selected:
   - prime-order size-optimized,
   - estimated public data: `138,256` bytes from the paper-backed formula
 - structured prime-order artifact now available for the default backend:
   - exact structured artifact size: `138,256` bytes
   - sectioned manifest emitted by
-    `crates/succinct-garbling-proto/src/bin/emit_prime_order_artifact.rs`
+    `crates/succinct-garbling/src/bin/emit_prime_order_artifact.rs`
   - section payloads now include fixed-function records for:
     - canonical context
     - one-block `SHA-512` schedule structure and round constants
@@ -607,15 +607,15 @@ Status:
 - deterministic stub artifact retained only as a benchmark/control artifact:
   - exact stub size: `138,256` bytes
   - cacheable manifest and digest emitted by
-    `crates/succinct-garbling-proto/src/bin/emit_candidate_artifact_stub.rs`
+    `crates/succinct-garbling/src/bin/emit_candidate_artifact_stub.rs`
 - alternate modeled families are available for comparison:
   - Paillier compressed: `395,536` bytes
   - prime-order compute-optimized: `5,320,016` bytes
   - lattice RLWE: `74,885,136` bytes
 - main prime-order prepared-session path now wired in
-  [`succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling-proto/src/succinct_hss.rs)
+  [`succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/succinct_hss.rs)
   and
-  [`run_prime_order_succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling-proto/src/bin/run_prime_order_succinct_hss.rs)
+  [`run_prime_order_succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/bin/run_prime_order_succinct_hss.rs)
   - prepares the context-bound prime-order artifact once
   - compiles the deterministic evaluator program once
   - binds a run and returns `x_client_base`, `x_relayer_base`, and `A`
@@ -662,7 +662,7 @@ Tasks:
   matters
 
 Phase 2b DDH dependency shortlist in
-`crates/succinct-garbling-proto/Cargo.toml`:
+`crates/succinct-garbling/Cargo.toml`:
 
 - `curve25519-dalek = { version = "=4.1.3", features = ["group", "rand_core"] }`
 - `group = "0.13.0"`
@@ -685,12 +685,12 @@ Intended use:
 Status:
 
 - DDH hidden-evaluation IR compiler now implemented in
-  `crates/succinct-garbling-proto/src/hidden_eval.rs`
+  `crates/succinct-garbling/src/hidden_eval.rs`
   - compiles the 262-window prime-order artifact into a DDH-targeted fixed
     hidden-evaluation program
   - records active windows, dependency edges, and primitive-op inventory
 - first DDH primitive baseline now implemented in
-  `crates/succinct-garbling-proto/src/ddh_hss.rs`
+  `crates/succinct-garbling/src/ddh_hss.rs`
   - transcript-bound `KeyGen`
   - byte/word `Share`
   - `EvalAdd`
@@ -698,7 +698,7 @@ Status:
   - `Decode`
   - group commitments for the split word shares using the Ed25519 basepoint
 - prime-order prepared-session path now owns the DDH baseline in
-  `crates/succinct-garbling-proto/src/succinct_hss.rs`
+  `crates/succinct-garbling/src/succinct_hss.rs`
   - prepares the compiled hidden-eval IR once
   - prepares the DDH backend and evaluation key once
   - derives per-run client/server input commitments and run binding through the
@@ -707,11 +707,11 @@ Status:
   - remaining work is final 2-party delivery semantics, security review, and
     performance hardening
 - first DDH primitive and hidden-eval benchmark tooling now implemented in
-  `crates/succinct-garbling-proto/src/ddh_hidden_eval_benchmark.rs`
+  `crates/succinct-garbling/src/ddh_hidden_eval_benchmark.rs`
   - runnable CLI:
-    `crates/succinct-garbling-proto/src/bin/benchmark_ddh_hidden_eval.rs`
+    `crates/succinct-garbling/src/bin/benchmark_ddh_hidden_eval.rs`
   - first saved release report:
-    `crates/succinct-garbling-proto/reports/phase3/ddh-hidden-eval-native-release.json`
+    `crates/succinct-garbling/reports/phase3/ddh-hidden-eval-native-release.json`
   - current native release baseline on `wraparound-seed`:
     - `share_bit`: `~44.3 us`
     - `eval_add_bit`: `~1.74 us`
@@ -726,11 +726,11 @@ Status:
     - substage split: schedule accumulation `~138.8 ms`, `temp1` `~228.1 ms`,
       `temp2` `~56.8 ms`
   - first browser wasm DDH benchmark surface now also implemented through:
-    - `crates/succinct-garbling-proto/src/wasm.rs`
-    - `crates/succinct-garbling-proto/web/indexeddb_cache_benchmark.html`
-    - `crates/succinct-garbling-proto/scripts/collect_browser_cache_benchmark.mjs`
+    - `crates/succinct-garbling/src/wasm.rs`
+    - `crates/succinct-garbling/web/indexeddb_cache_benchmark.html`
+    - `crates/succinct-garbling/scripts/collect_browser_cache_benchmark.mjs`
   - first Chrome report saved at:
-    `crates/succinct-garbling-proto/reports/phase3/browser-ddh-hidden-eval-chrome.json`
+    `crates/succinct-garbling/reports/phase3/browser-ddh-hidden-eval-chrome.json`
   - browser wasm DDH path now benchmarks cleanly after switching the internal
     stage timers onto a wasm-safe monotonic clock
   - current desktop Chrome baseline on `wraparound-seed`:
@@ -765,15 +765,15 @@ Deliverable:
 Status:
 
 - end-to-end prime-order prepared-session path now implemented in
-  [`succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling-proto/src/succinct_hss.rs)
+  [`succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/succinct_hss.rs)
   - `prepare_prime_order_succinct_hss(context)` builds the candidate, artifact,
     compiled hidden-eval IR, DDH backend baseline, and compiled evaluator once
   - `evaluate(input)` binds the run and returns the output shares plus evaluator
     witness data
 - runnable CLI implemented in
-  [`run_prime_order_succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling-proto/src/bin/run_prime_order_succinct_hss.rs)
+  [`run_prime_order_succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/bin/run_prime_order_succinct_hss.rs)
 - fixture-conformance tests added in
-  [`lib.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling-proto/src/lib.rs)
+  [`lib.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/lib.rs)
 - the prepared-session path no longer depends on the candidate simulator for
   per-run bindings or input sharing
 - the nonlinear stage now executes through the compiled DDH hidden-eval
@@ -966,7 +966,7 @@ Deliverables:
 Status:
 
 - compiled DDH hidden-eval executor now implemented in
-  `crates/succinct-garbling-proto/src/ddh_hidden_eval_executor.rs`
+  `crates/succinct-garbling/src/ddh_hidden_eval_executor.rs`
   - executes the compiled add stage, message schedule, and round-state core as
     shared-bit DDH evaluation
   - now also executes hash-prefix extraction and RFC 8032 clamp as shared-bit
@@ -975,7 +975,7 @@ Status:
   - now also executes output-share projection as shared-bit DDH evaluation
   - now derives `A` from the projected output shares instead of from clear `a`
 - explicit delivery surface now implemented in
-  `crates/succinct-garbling-proto/src/succinct_hss.rs`
+  `crates/succinct-garbling/src/succinct_hss.rs`
   - cached delivery material now separates artifact/evaluation-key state from
     per-run messages
   - DDH transport/output handling is now split across garbler/evaluator role
@@ -1076,7 +1076,7 @@ Status:
     transcript-bound garbler-held remote-share release
   - default debug test lane now keeps the expensive end-to-end DDH conformance
     runs behind ignored tests in
-    `crates/succinct-garbling-proto/src/lib.rs`
+    `crates/succinct-garbling/src/lib.rs`
   - single-fixture hidden-eval conformance is available as an ignored test
   - all `4` ignored DDH Phase 3b tests now pass
   - full five-fixture conformance now passes as an ignored Phase 3b milestone
@@ -1239,41 +1239,41 @@ Deliverable:
 Status:
 
 - cache/download benchmark harness implemented in
-  `crates/succinct-garbling-proto/src/cache_benchmark.rs`
+  `crates/succinct-garbling/src/cache_benchmark.rs`
 - browser `IndexedDB` benchmark harness implemented at
-  `crates/succinct-garbling-proto/web/indexeddb_cache_benchmark.html`
+  `crates/succinct-garbling/web/indexeddb_cache_benchmark.html`
 - browser bundle emitter implemented at
-  `crates/succinct-garbling-proto/src/bin/emit_browser_cache_benchmark_bundle.rs`
+  `crates/succinct-garbling/src/bin/emit_browser_cache_benchmark_bundle.rs`
 - structured prime-order decoder implemented at
-  `crates/succinct-garbling-proto/src/prime_order_decoder.rs`
+  `crates/succinct-garbling/src/prime_order_decoder.rs`
 - structured prime-order execution-trace builder implemented at
-  `crates/succinct-garbling-proto/src/prime_order_trace.rs`
+  `crates/succinct-garbling/src/prime_order_trace.rs`
   - now reports backend-shaped evaluator ops and derived curve-cost totals for
     the prime-order candidate
 - native prime-order CPU executor implemented at
-  `crates/succinct-garbling-proto/src/prime_order_cpu_executor.rs`
+  `crates/succinct-garbling/src/prime_order_cpu_executor.rs`
   - compiles the decoded grouped-window records into deterministic point tables
     and bucket schedules
   - executes real `curve25519-dalek` point additions, bucket reductions,
     dependency merges, and compress/decompress normalizations
 - native executor benchmark CLI implemented at
-  `crates/succinct-garbling-proto/src/bin/benchmark_prime_order_cpu_executor.rs`
+  `crates/succinct-garbling/src/bin/benchmark_prime_order_cpu_executor.rs`
 - browser wasm CPU executor exports implemented at
-  `crates/succinct-garbling-proto/src/wasm.rs`
+  `crates/succinct-garbling/src/wasm.rs`
   - prepares the same compiled prime-order CPU program as native
   - executes the same point/window program from browser wasm
   - returns structured JSON so browser and native runs stay comparable
 - browser CDP collector script implemented at
-  `crates/succinct-garbling-proto/scripts/collect_browser_cache_benchmark.mjs`
+  `crates/succinct-garbling/scripts/collect_browser_cache_benchmark.mjs`
   - drives the benchmark page through a remote-debugging Chrome instance
   - writes machine-readable browser benchmark reports to disk
 - browser WebGPU probe implemented in
-  `crates/succinct-garbling-proto/web/indexeddb_cache_benchmark.html`
+  `crates/succinct-garbling/web/indexeddb_cache_benchmark.html`
   - measures adapter/device/pipeline setup against the current browser stack
   - dispatches a backend-shaped proxy kernel over active prime-order step vectors
   - is a setup/throughput proxy only, not real curve arithmetic
 - committed Phase 1 baseline reports saved at
-  `crates/succinct-garbling-proto/reports/phase1`
+  `crates/succinct-garbling/reports/phase1`
 - current local proxy benchmark uses:
   - cached GC baseline: `1,200,000` bytes
   - prime-order stub artifact: `138,256` bytes
@@ -1417,7 +1417,7 @@ from production signer code until feasibility is proven.
 
 Suggested path:
 
-- `crates/succinct-garbling-proto/`
+- `crates/succinct-garbling/`
 
 Suggested scope for that crate:
 
