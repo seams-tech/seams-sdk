@@ -1828,17 +1828,13 @@ export async function ensureConsoleBillingPostgresSchema(
     await pool.query(`
       DO $$
       BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-            FROM pg_constraint
-           WHERE conname = 'console_invoice_line_items_item_type_check_v2'
-        ) THEN
-          ALTER TABLE console_invoice_line_items
-            DROP CONSTRAINT IF EXISTS console_invoice_line_items_item_type_check;
-          ALTER TABLE console_invoice_line_items
-            ADD CONSTRAINT console_invoice_line_items_item_type_check_v2
-            CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT'));
-        END IF;
+        ALTER TABLE console_invoice_line_items
+          DROP CONSTRAINT IF EXISTS console_invoice_line_items_item_type_check;
+        ALTER TABLE console_invoice_line_items
+          DROP CONSTRAINT IF EXISTS console_invoice_line_items_item_type_check_v2;
+        ALTER TABLE console_invoice_line_items
+          ADD CONSTRAINT console_invoice_line_items_item_type_check_v2
+          CHECK (item_type IN ('CREDIT_TOP_UP', 'MAW_USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT'));
       END
       $$;
     `);
@@ -1955,17 +1951,13 @@ export async function ensureConsoleBillingPostgresSchema(
     await pool.query(`
       DO $$
       BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-            FROM pg_constraint
-           WHERE conname = 'console_billing_ledger_entries_entry_type_check_v2'
-        ) THEN
-          ALTER TABLE console_billing_ledger_entries
-            DROP CONSTRAINT IF EXISTS console_billing_ledger_entries_entry_type_check;
-          ALTER TABLE console_billing_ledger_entries
-            ADD CONSTRAINT console_billing_ledger_entries_entry_type_check_v2
-            CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL'));
-        END IF;
+        ALTER TABLE console_billing_ledger_entries
+          DROP CONSTRAINT IF EXISTS console_billing_ledger_entries_entry_type_check;
+        ALTER TABLE console_billing_ledger_entries
+          DROP CONSTRAINT IF EXISTS console_billing_ledger_entries_entry_type_check_v2;
+        ALTER TABLE console_billing_ledger_entries
+          ADD CONSTRAINT console_billing_ledger_entries_entry_type_check_v2
+          CHECK (entry_type IN ('CREDIT_PURCHASE', 'USAGE_DEBIT', 'SPONSORED_EXECUTION_DEBIT', 'MANUAL_ADJUSTMENT', 'REFUND', 'REVERSAL'));
       END
       $$;
     `);
