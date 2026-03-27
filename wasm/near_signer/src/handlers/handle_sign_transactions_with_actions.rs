@@ -255,6 +255,7 @@ pub async fn handle_sign_transactions_with_actions(
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
         &wrap_key,
+        tx_batch_request.prf_first_b64u.as_deref(),
         &tx_batch_request.rpc_call.near_account_id,
         &transaction_context.near_public_key_str,
         "near_tx",

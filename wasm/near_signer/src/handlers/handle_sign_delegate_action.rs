@@ -278,6 +278,7 @@ pub async fn handle_sign_delegate_action(
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
         &wrap_key,
+        request.prf_first_b64u.as_deref(),
         &request.rpc_call.near_account_id,
         &transaction_context.near_public_key_str,
         "nep461_delegate",

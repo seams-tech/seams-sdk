@@ -9,6 +9,8 @@ pub use signer_core::secp256k1;
 pub use signer_core::threshold_ecdsa;
 
 #[cfg(feature = "near-threshold-ed25519")]
+pub use signer_core::near_ed25519_recovery;
+#[cfg(feature = "near-threshold-ed25519")]
 pub use signer_core::near_threshold_ed25519;
 #[cfg(feature = "near-threshold-ed25519")]
 pub use signer_core::near_threshold_frost;

@@ -1,7 +1,7 @@
 {
-  "version": "near-ed25519-seed-v1",
+  "version": "near-ed25519-option-b-v1",
   "nearAccountId": "alice.near",
-  "keyVersion": "seed-v1",
+  "keyVersion": "option-b-v1",
   "clientParticipantId": 1,
   "relayerParticipantId": 2,
   "prfFirstB64u": "ycrLzM3Oz9DR0tPU1dbX2Nna29zd3t_g4eLj5OXm5-g",
@@ -10,12 +10,12 @@
   "noncePrefixB64u": "Vz38m2_-sceGoWNJ5w-YNodqdDwxwKeipwcnqFLuw3I",
   "publicKey": "ed25519:9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj",
   "nearPrivateKey": "ed25519:2Ana1pUpv2ZbMVkwF5FXapYeBEjdxDatLn7nvJkhgTSdZd8hbDHTd21as7EAsg7ypityqfsw2pMQKJcVDVcAEsd",
-  "xClientB64u": "NogvX10Bz8Px5OS3qJgScvq_pulU2Fjs5NtuXh_dew4",
-  "xRelayerB64u": "wxOxuv1B1HVAb9ZyHMEEHNV3eB-aYPj1LcyyRBySZwg",
-  "yClientB64u": "mowhF4jEXqqrNQsMpjI9mu7ELEjIc8PAqs2GPvGQ9fg",
-  "yRelayerB64u": "Z3Xh7HxBqF1d1P__ZtvRdSJN5stMolNXbkyU3SuNKSc",
-  "clientVerifyingShareB64u": "24_iU67Zp2GfyJbC4TF-_QhGeluTGFSg1HAr5Ly4iz0",
-  "relayerVerifyingShareB64u": "fcwVSWQu8zDNWczTzTQdTiA4TApCvQZT92DWsTMFQ1Y",
+  "xClientB64u": "S2lkjr5W4wkqrBk1oiRj3OVmGxFriHAc_rDs7_gV-w0",
+  "xRelayerB64u": "7dUaGcDs_AGx_T9tD9ml8KvFYW7GwCdWYHauZ88DZgc",
+  "yClientB64u": "7Lwg-eQMY56HvNtVEKTUzt1Je-IrVF7a1fwMGf2P1zI",
+  "yRelayerB64u": "FUXiCiD5o2mBTS-2_Gk6QTPIlzHpwbg9Qx0OAyCOR-0",
+  "clientVerifyingShareB64u": "jPxgt45WYzvGKFz199SCDZxpDkbZMVl85MPbB3NQesM",
+  "relayerVerifyingShareB64u": "ZEPrAEbjcquCxf2iTWSUhMysANWQ2OzB8kTp2qyGB4Y",
   "thresholdPublicKey": "ed25519:9C6hybhQ6Aycep9jaUnP6uL9ZYvDjUp1aSkFWPUFJtpj",
   "recombinedSeedB64u": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
 }

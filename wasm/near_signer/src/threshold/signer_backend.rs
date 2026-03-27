@@ -305,6 +305,7 @@ pub struct Ed25519SignerBackend(ThresholdEd25519RelayerSigner);
 impl Ed25519SignerBackend {
     pub fn from_threshold_signer_config(
         wrap_key: &WrapKey,
+        prf_first_b64u: Option<&str>,
         near_account_id: &str,
         near_public_key_str: &str,
         purpose: &str,
@@ -312,8 +313,9 @@ impl Ed25519SignerBackend {
         authorize_signing_payload_json: Option<String>,
         cfg: &ThresholdSignerConfig,
     ) -> Result<Self, String> {
+        let _ = wrap_key;
         Ok(Self(ThresholdEd25519RelayerSigner::new(
-            wrap_key,
+            prf_first_b64u,
             near_account_id,
             near_public_key_str,
             purpose,
@@ -351,7 +353,7 @@ impl ThresholdEd25519RelayerSigner {
     }
 
     pub fn new(
-        wrap_key: &WrapKey,
+        prf_first_b64u: Option<&str>,
         near_account_id: &str,
         near_public_key_str: &str,
         purpose: &str,
@@ -361,6 +363,22 @@ impl ThresholdEd25519RelayerSigner {
     ) -> Result<Self, String> {
         let relayer_url = cfg.relayer_url.trim();
         let relayer_key_id = cfg.relayer_key_id.trim();
+        let key_version = cfg
+            .key_version
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "threshold-signer: missing keyVersion".to_string())?;
+        let persisted_client_verifying_share_b64u = cfg
+            .client_verifying_share_b64u
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "threshold-signer: missing clientVerifyingShareB64u".to_string())?;
+        let prf_first_b64u = prf_first_b64u
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| "threshold-signer: missing prfFirstB64u".to_string())?;
         if relayer_url.is_empty() {
             return Err("threshold-signer: missing relayerUrl".to_string());
         }
@@ -416,17 +434,26 @@ impl ThresholdEd25519RelayerSigner {
             .try_into()
             .map_err(|_| "threshold-signer: invalid relayer identifier".to_string())?;
 
-        let key_package = signer_platform_web::near_threshold_ed25519::derive_client_key_package_from_wrap_key_seed_b64u(
-            &wrap_key.wrap_key_seed,
-            near_account_id,
-            &near_public_key_bytes,
-            client_identifier,
-        )
-        .map_err(|e| e.to_string())?;
-        let client_verifying_share_b64u = crate::threshold::threshold_client_share::derive_threshold_client_verifying_share_b64u_v1(
-            wrap_key,
-            near_account_id,
-        )?;
+        let client_verifying_share_b64u =
+            crate::threshold::threshold_client_share::derive_option_b_client_verifying_share_b64u_v1(
+                &prf_first_b64u,
+                near_account_id,
+                &key_version,
+            )?;
+        if client_verifying_share_b64u != persisted_client_verifying_share_b64u {
+            return Err(
+                "threshold-signer: Option B clientVerifyingShareB64u does not match persisted key material"
+                    .to_string(),
+            );
+        }
+        let key_package =
+            crate::threshold::threshold_client_share::derive_option_b_client_key_package_v1(
+                &prf_first_b64u,
+                near_account_id,
+                &key_version,
+                &near_public_key_bytes,
+                client_identifier,
+            )?;
 
         let mut cfg_norm = cfg.clone();
         cfg_norm.mpc_session_id = normalized_mpc_session_id.clone();

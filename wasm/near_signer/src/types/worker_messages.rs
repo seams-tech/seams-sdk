@@ -19,6 +19,8 @@ pub enum WorkerRequestType {
     SignDelegateAction,
     // Public, deterministic key enrollment helper for threshold mode
     DeriveThresholdEd25519ClientVerifyingShare,
+    // Public helper that prepares bootstrap Ed25519 enrollment material in worker memory
+    DeriveThresholdEd25519BootstrapPackage,
     /// Internal helper to generate a fresh ephemeral Ed25519 keypair.
     GenerateEphemeralNearKeypair,
 }
@@ -32,7 +34,8 @@ impl From<u32> for WorkerRequestType {
             3 => WorkerRequestType::SignNep413Message,
             4 => WorkerRequestType::SignDelegateAction,
             5 => WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare,
-            6 => WorkerRequestType::GenerateEphemeralNearKeypair,
+            6 => WorkerRequestType::DeriveThresholdEd25519BootstrapPackage,
+            7 => WorkerRequestType::GenerateEphemeralNearKeypair,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -47,6 +50,9 @@ impl WorkerRequestType {
             WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
             WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
                 "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
+            }
+            WorkerRequestType::DeriveThresholdEd25519BootstrapPackage => {
+                "DERIVE_THRESHOLD_ED25519_BOOTSTRAP_PACKAGE"
             }
             WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
         }
@@ -64,6 +70,9 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         WorkerRequestType::SignNep413Message => "SIGN_NEP413_MESSAGE",
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE"
+        }
+        WorkerRequestType::DeriveThresholdEd25519BootstrapPackage => {
+            "DERIVE_THRESHOLD_ED25519_BOOTSTRAP_PACKAGE"
         }
         WorkerRequestType::GenerateEphemeralNearKeypair => "GENERATE_EPHEMERAL_NEAR_KEYPAIR",
     }
@@ -108,10 +117,12 @@ pub enum WorkerResponseType {
     // Threshold key enrollment helper
     DeriveThresholdEd25519ClientVerifyingShareSuccess = 14,
     DeriveThresholdEd25519ClientVerifyingShareFailure = 15,
+    DeriveThresholdEd25519BootstrapPackageSuccess = 16,
+    DeriveThresholdEd25519BootstrapPackageFailure = 17,
 
     // Internal ephemeral key generation helper
-    GenerateEphemeralNearKeypairSuccess = 16,
-    GenerateEphemeralNearKeypairFailure = 17,
+    GenerateEphemeralNearKeypairSuccess = 18,
+    GenerateEphemeralNearKeypairFailure = 19,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -142,8 +153,10 @@ impl From<u32> for WorkerResponseType {
             13 => WorkerResponseType::ExecuteActionsComplete,
             14 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess,
             15 => WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure,
-            16 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
-            17 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
+            16 => WorkerResponseType::DeriveThresholdEd25519BootstrapPackageSuccess,
+            17 => WorkerResponseType::DeriveThresholdEd25519BootstrapPackageFailure,
+            18 => WorkerResponseType::GenerateEphemeralNearKeypairSuccess,
+            19 => WorkerResponseType::GenerateEphemeralNearKeypairFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -185,6 +198,12 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareFailure => {
             "DERIVE_THRESHOLD_ED25519_CLIENT_VERIFYING_SHARE_FAILURE"
+        }
+        WorkerResponseType::DeriveThresholdEd25519BootstrapPackageSuccess => {
+            "DERIVE_THRESHOLD_ED25519_BOOTSTRAP_PACKAGE_SUCCESS"
+        }
+        WorkerResponseType::DeriveThresholdEd25519BootstrapPackageFailure => {
+            "DERIVE_THRESHOLD_ED25519_BOOTSTRAP_PACKAGE_FAILURE"
         }
         WorkerResponseType::GenerateEphemeralNearKeypairSuccess => {
             "GENERATE_EPHEMERAL_NEAR_KEYPAIR_SUCCESS"

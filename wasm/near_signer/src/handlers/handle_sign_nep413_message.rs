@@ -118,6 +118,7 @@ pub async fn handle_sign_nep413_message(
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
         &wrap_key,
+        request.prf_first_b64u.as_deref(),
         &request.account_id,
         &request.near_public_key,
         "nep413",

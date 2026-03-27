@@ -7,6 +7,12 @@ pub struct ThresholdSignerConfig {
     pub relayer_url: String,
     /// Identifies which relayer-held key share to use.
     pub relayer_key_id: String,
+    /// Frozen Option B bootstrap key version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_version: Option<String>,
+    /// Persisted client verifying share from the Option B bootstrap package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_verifying_share_b64u: Option<String>,
     /// Optional FROST participant identifier used for the client share (2P only for now).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_participant_id: Option<u16>,

@@ -1,8 +1,10 @@
 use crate::crypto::WrapKey;
+use base64ct::{Base64UrlUnpadded, Encoding};
 #[cfg(test)]
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 #[cfg(test)]
 use curve25519_dalek::scalar::Scalar as CurveScalar;
+use frost_ed25519::keys::{KeyPackage, SigningShare, VerifyingShare};
 
 #[cfg(test)]
 pub(crate) fn derive_threshold_client_signing_share_bytes_v1(
@@ -25,6 +27,63 @@ pub(crate) fn derive_threshold_client_verifying_share_b64u_v1(
         near_account_id,
     )
     .map_err(|e| e.to_string())
+}
+
+pub(crate) fn derive_option_b_client_signing_share_bytes_v1(
+    prf_first_b64u: &str,
+    near_account_id: &str,
+    key_version: &str,
+) -> Result<[u8; 32], String> {
+    let prf_first =
+        Base64UrlUnpadded::decode_vec(prf_first_b64u).map_err(|e| format!("Invalid prfFirstB64u: {e}"))?;
+    signer_platform_web::near_ed25519_recovery::derive_bootstrap_client_signing_share_v2(
+        prf_first.as_slice(),
+        near_account_id,
+        key_version,
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub(crate) fn derive_option_b_client_verifying_share_b64u_v1(
+    prf_first_b64u: &str,
+    near_account_id: &str,
+    key_version: &str,
+) -> Result<String, String> {
+    let signing_share =
+        derive_option_b_client_signing_share_bytes_v1(prf_first_b64u, near_account_id, key_version)?;
+    Ok(Base64UrlUnpadded::encode_string(
+        &signer_platform_web::near_ed25519_recovery::derive_bootstrap_verifying_share_2p_v1(
+            signing_share,
+        ),
+    ))
+}
+
+pub(crate) fn derive_option_b_client_key_package_v1(
+    prf_first_b64u: &str,
+    near_account_id: &str,
+    key_version: &str,
+    near_public_key_bytes: &[u8; 32],
+    client_identifier: frost_ed25519::Identifier,
+) -> Result<KeyPackage, String> {
+    let signing_share_bytes =
+        derive_option_b_client_signing_share_bytes_v1(prf_first_b64u, near_account_id, key_version)?;
+    let signing_share = SigningShare::deserialize(&signing_share_bytes)
+        .map_err(|e| format!("threshold-signer: invalid Option B signing share: {e}"))?;
+    let verifying_share_bytes =
+        signer_platform_web::near_ed25519_recovery::derive_bootstrap_verifying_share_2p_v1(
+            signing_share_bytes,
+        );
+    let verifying_share = VerifyingShare::deserialize(&verifying_share_bytes)
+        .map_err(|e| format!("threshold-signer: invalid Option B verifying share: {e}"))?;
+    let verifying_key = frost_ed25519::VerifyingKey::deserialize(near_public_key_bytes)
+        .map_err(|e| format!("threshold-signer: invalid group public key: {e}"))?;
+    Ok(KeyPackage::new(
+        client_identifier,
+        signing_share,
+        verifying_share,
+        verifying_key,
+        2,
+    ))
 }
 
 #[cfg(test)]

@@ -33,6 +33,114 @@ pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize keygen output: {e}")))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519BootstrapRecoveryShareArgs {
+    master_secret_b64u: String,
+    near_account_id: String,
+    rp_id: String,
+    key_version: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519BootstrapRecoveryShareOutput {
+    recovery_server_share_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RecoveryClientShareArgs {
+    prf_first_b64u: String,
+    near_account_id: String,
+    rp_id: String,
+    key_version: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RecoveryClientShareOutput {
+    recovery_client_share_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RecoveryKeypairFromSeedArgs {
+    seed_b64u: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519RecoveryKeypairFromSeedOutput {
+    public_key: String,
+    private_key: String,
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_bootstrap_recovery_share(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519BootstrapRecoveryShareArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let master_secret = base64_url_decode(&args.master_secret_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Invalid masterSecretB64u: {e}")))?;
+    let recovery_server_share =
+        signer_platform_web::near_ed25519_recovery::derive_dual_key_recovery_server_share_v1(
+            master_secret.as_slice(),
+            args.near_account_id.as_str(),
+            args.rp_id.as_str(),
+            args.key_version.as_str(),
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&ThresholdEd25519BootstrapRecoveryShareOutput {
+        recovery_server_share_b64u: base64_url_encode(&recovery_server_share),
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize bootstrap recovery share: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_recovery_client_share(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519RecoveryClientShareArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let prf_first = base64_url_decode(&args.prf_first_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Invalid prfFirstB64u: {e}")))?;
+    let recovery_client_share =
+        signer_platform_web::near_ed25519_recovery::derive_dual_key_recovery_client_share_v1(
+            prf_first.as_slice(),
+            args.near_account_id.as_str(),
+            args.rp_id.as_str(),
+            args.key_version.as_str(),
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&ThresholdEd25519RecoveryClientShareOutput {
+        recovery_client_share_b64u: base64_url_encode(&recovery_client_share),
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize recovery client share: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_recovery_keypair_from_seed(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519RecoveryKeypairFromSeedArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let seed = base64_url_decode(&args.seed_b64u)
+        .map_err(|e| JsValue::from_str(&format!("Invalid seedB64u: {e}")))?;
+    if seed.len() != 32 {
+        return Err(JsValue::from_str(&format!(
+            "seedB64u must decode to 32 bytes, got {}",
+            seed.len()
+        )));
+    }
+    let mut seed32 = [0u8; 32];
+    seed32.copy_from_slice(seed.as_slice());
+    serde_wasm_bindgen::to_value(&ThresholdEd25519RecoveryKeypairFromSeedOutput {
+        public_key: signer_platform_web::near_ed25519_recovery::encode_near_ed25519_public_key_from_seed(
+            seed32,
+        ),
+        private_key: signer_platform_web::near_ed25519_recovery::encode_near_ed25519_private_key_from_seed(
+            seed32,
+        ),
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize recovery keypair: {e}")))
+}
+
 #[wasm_bindgen]
 pub fn threshold_ed25519_round1_commit(
     relayer_signing_share_b64u: String,

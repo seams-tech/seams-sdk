@@ -30,6 +30,8 @@ pub use handlers::{
     DelegateSignResult,
     // Threshold Signing
     DeriveThresholdEd25519ClientVerifyingShareRequest,
+    DeriveThresholdEd25519BootstrapPackageRequest,
+    DeriveThresholdEd25519BootstrapPackageResult,
     // Extract Cose Public Key
     ExtractCoseRequest,
     GenerateEphemeralNearKeypairRequest,
@@ -250,6 +252,14 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
+        WorkerRequestType::DeriveThresholdEd25519BootstrapPackage => {
+            let request: DeriveThresholdEd25519BootstrapPackageRequest =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result =
+                handlers::handle_threshold_ed25519_derive_bootstrap_package(request).await?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
         WorkerRequestType::GenerateEphemeralNearKeypair => {
             let request: GenerateEphemeralNearKeypairRequest =
                 parse_typed_payload(&payload_js, request_type)?;
@@ -275,6 +285,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         WorkerRequestType::SignNep413Message => WorkerResponseType::SignNep413MessageSuccess,
         WorkerRequestType::DeriveThresholdEd25519ClientVerifyingShare => {
             WorkerResponseType::DeriveThresholdEd25519ClientVerifyingShareSuccess
+        }
+        WorkerRequestType::DeriveThresholdEd25519BootstrapPackage => {
+            WorkerResponseType::DeriveThresholdEd25519BootstrapPackageSuccess
         }
         WorkerRequestType::GenerateEphemeralNearKeypair => {
             WorkerResponseType::GenerateEphemeralNearKeypairSuccess
