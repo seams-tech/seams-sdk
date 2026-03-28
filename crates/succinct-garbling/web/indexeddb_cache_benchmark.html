@@ -713,6 +713,10 @@
                 total_duration_ns: wasmNumber(probe.stage_profile.total_duration_ns),
                 message_schedule_accumulation_duration_ns:
                   wasmNumber(probe.stage_profile.message_schedule_accumulation_duration_ns),
+                round_sigma1_duration_ns:
+                  wasmNumber(probe.stage_profile.round_sigma1_duration_ns),
+                round_ch_duration_ns:
+                  wasmNumber(probe.stage_profile.round_ch_duration_ns),
                 round_temp1_duration_ns:
                   wasmNumber(probe.stage_profile.round_temp1_duration_ns),
                 round_temp2_duration_ns:
@@ -754,6 +758,8 @@
           );
           const scheduleAccumulationNs =
             probeByStage.message_schedule?.message_schedule_accumulation_duration_ns ?? 0;
+          const roundSigma1Ns = probeByStage.round_core?.round_sigma1_duration_ns ?? 0;
+          const roundChNs = probeByStage.round_core?.round_ch_duration_ns ?? 0;
           const roundTemp1Ns = probeByStage.round_core?.round_temp1_duration_ns ?? 0;
           const roundTemp2Ns = probeByStage.round_core?.round_temp2_duration_ns ?? 0;
           const probeTotalHiddenEvalNs =
@@ -854,6 +860,8 @@
               message_schedule_accumulation: benchmarkStats(
                 repeatedStageSamples(scheduleAccumulationNs),
               ),
+              round_sigma1: benchmarkStats(repeatedStageSamples(roundSigma1Ns)),
+              round_ch: benchmarkStats(repeatedStageSamples(roundChNs)),
               round_temp1: benchmarkStats(repeatedStageSamples(roundTemp1Ns)),
               round_temp2: benchmarkStats(repeatedStageSamples(roundTemp2Ns)),
             },

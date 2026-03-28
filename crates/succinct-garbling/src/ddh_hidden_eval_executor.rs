@@ -161,6 +161,8 @@ pub struct DdhHiddenEvalStageProfile {
     pub message_schedule_duration_ns: u128,
     pub message_schedule_accumulation_duration_ns: u128,
     pub round_core_duration_ns: u128,
+    pub round_sigma1_duration_ns: u128,
+    pub round_ch_duration_ns: u128,
     pub round_temp1_duration_ns: u128,
     pub round_temp2_duration_ns: u128,
     pub output_projector_duration_ns: u128,
@@ -294,6 +296,8 @@ struct MessageScheduleStageOutput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RoundStagesOutput {
     hash_core: SharedHashCoreOutput,
+    sigma1_duration_ns: u128,
+    ch_duration_ns: u128,
     temp1_duration_ns: u128,
     temp2_duration_ns: u128,
 }
@@ -522,6 +526,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 message_schedule_duration_ns: 0,
                 message_schedule_accumulation_duration_ns: 0,
                 round_core_duration_ns: 0,
+                round_sigma1_duration_ns: 0,
+                round_ch_duration_ns: 0,
                 round_temp1_duration_ns: 0,
                 round_temp2_duration_ns: 0,
                 output_projector_duration_ns: 0,
@@ -549,6 +555,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 message_schedule_duration_ns: 0,
                 message_schedule_accumulation_duration_ns: 0,
                 round_core_duration_ns: 0,
+                round_sigma1_duration_ns: 0,
+                round_ch_duration_ns: 0,
                 round_temp1_duration_ns: 0,
                 round_temp2_duration_ns: 0,
                 output_projector_duration_ns: 0,
@@ -574,6 +582,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 message_schedule_duration_ns,
                 message_schedule_accumulation_duration_ns,
                 round_core_duration_ns: 0,
+                round_sigma1_duration_ns: 0,
+                round_ch_duration_ns: 0,
                 round_temp1_duration_ns: 0,
                 round_temp2_duration_ns: 0,
                 output_projector_duration_ns: 0,
@@ -589,6 +599,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
         execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
+    let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
+    let round_ch_duration_ns = round_output.ch_duration_ns;
     let round_temp1_duration_ns = round_output.temp1_duration_ns;
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     if stop_after == DdhHiddenEvalCheckpoint::RoundCore {
@@ -600,6 +612,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 message_schedule_duration_ns,
                 message_schedule_accumulation_duration_ns,
                 round_core_duration_ns,
+                round_sigma1_duration_ns,
+                round_ch_duration_ns,
                 round_temp1_duration_ns,
                 round_temp2_duration_ns,
                 output_projector_duration_ns: 0,
@@ -629,6 +643,8 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
             message_schedule_duration_ns,
             message_schedule_accumulation_duration_ns,
             round_core_duration_ns,
+            round_sigma1_duration_ns,
+            round_ch_duration_ns,
             round_temp1_duration_ns,
             round_temp2_duration_ns,
             output_projector_duration_ns,
@@ -706,6 +722,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
+    let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
+    let round_ch_duration_ns = round_output.ch_duration_ns;
     let round_temp1_duration_ns = round_output.temp1_duration_ns;
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
 
@@ -727,6 +745,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
             message_schedule_duration_ns,
             message_schedule_accumulation_duration_ns,
             round_core_duration_ns,
+            round_sigma1_duration_ns,
+            round_ch_duration_ns,
             round_temp1_duration_ns,
             round_temp2_duration_ns,
             output_projector_duration_ns,
@@ -866,6 +886,8 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
     let iv_words = constant_pool.sha512_iv_words.clone();
     let round_constants = &constant_pool.sha512_round_constants;
     let mut state = iv_words.clone();
+    let mut sigma1_duration_ns = 0u128;
+    let mut ch_duration_ns = 0u128;
     let mut temp1_duration_ns = 0u128;
     let mut temp2_duration_ns = 0u128;
     let mut sigma0 = Vec::with_capacity(64);
@@ -892,7 +914,10 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
 
         for window in &stage.windows {
             let round = usize::from(window.class_value);
+            let sigma1_started_ns = monotonic_now_ns();
             big_sigma1_bits_into(backend, &state[4], &mut sigma1)?;
+            sigma1_duration_ns += elapsed_ns(sigma1_started_ns);
+            let ch_started_ns = monotonic_now_ns();
             ch_bits_into(
                 backend,
                 &format!("round_core/{round}/ch"),
@@ -901,6 +926,7 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
                 &state[6],
                 &mut choose,
             )?;
+            ch_duration_ns += elapsed_ns(ch_started_ns);
             let temp1_started_ns = monotonic_now_ns();
             add_five_words_bits_into(
                 backend,
@@ -983,6 +1009,8 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
     }
     Ok(RoundStagesOutput {
         hash_core: SharedHashCoreOutput { final_words },
+        sigma1_duration_ns,
+        ch_duration_ns,
         temp1_duration_ns,
         temp2_duration_ns,
     })

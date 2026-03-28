@@ -1214,7 +1214,7 @@ impl PrimeOrderSuccinctHssGarblerSession {
         let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
         let ot_open_join_started = monotonic_now_ns();
         let (y_client_response, y_client_remote_release) =
-            self.ddh_garbler.resolve_client_input_ot_selection(
+            self.ddh_garbler.resolve_client_input_ot_selection_trusted(
                 self.context_binding,
                 &self.client_ot_offer.y_client_offer,
                 &self.garbler_ot_state.y_client_sender_state,
@@ -1222,7 +1222,7 @@ impl PrimeOrderSuccinctHssGarblerSession {
                 &client_packet.y_client_request,
             )?;
         let (tau_client_response, tau_client_remote_release) =
-            self.ddh_garbler.resolve_client_input_ot_selection(
+            self.ddh_garbler.resolve_client_input_ot_selection_trusted(
                 self.context_binding,
                 &self.client_ot_offer.tau_client_offer,
                 &self.garbler_ot_state.tau_client_sender_state,

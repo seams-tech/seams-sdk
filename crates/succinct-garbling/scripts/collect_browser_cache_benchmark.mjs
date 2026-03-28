@@ -150,6 +150,10 @@ async function main() {
         browserDdhHiddenEval?.reference_match ?? null,
       browser_ddh_round_temp1_mean_ns:
         browserDdhHiddenEval?.substage_timings_ns?.round_temp1?.mean ?? null,
+      browser_ddh_round_sigma1_mean_ns:
+        browserDdhHiddenEval?.substage_timings_ns?.round_sigma1?.mean ?? null,
+      browser_ddh_round_ch_mean_ns:
+        browserDdhHiddenEval?.substage_timings_ns?.round_ch?.mean ?? null,
       browser_ddh_round_temp2_mean_ns:
         browserDdhHiddenEval?.substage_timings_ns?.round_temp2?.mean ?? null,
       browser_ddh_probe_results:

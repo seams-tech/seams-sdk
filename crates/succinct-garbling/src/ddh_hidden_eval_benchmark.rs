@@ -119,6 +119,8 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let mut message_schedule_samples = Vec::with_capacity(config.sample_count);
     let mut message_schedule_accumulation_samples = Vec::with_capacity(config.sample_count);
     let mut round_core_samples = Vec::with_capacity(config.sample_count);
+    let mut round_sigma1_samples = Vec::with_capacity(config.sample_count);
+    let mut round_ch_samples = Vec::with_capacity(config.sample_count);
     let mut round_temp1_samples = Vec::with_capacity(config.sample_count);
     let mut round_temp2_samples = Vec::with_capacity(config.sample_count);
     let mut output_projector_samples = Vec::with_capacity(config.sample_count);
@@ -130,6 +132,8 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         let mut message_schedule_total_ns = 0f64;
         let mut message_schedule_accumulation_total_ns = 0f64;
         let mut round_core_total_ns = 0f64;
+        let mut round_sigma1_total_ns = 0f64;
+        let mut round_ch_total_ns = 0f64;
         let mut round_temp1_total_ns = 0f64;
         let mut round_temp2_total_ns = 0f64;
         let mut output_projector_total_ns = 0f64;
@@ -174,6 +178,8 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
                 .message_schedule_accumulation_duration_ns
                 as f64;
             round_core_total_ns += profile.stage_profile.round_core_duration_ns as f64;
+            round_sigma1_total_ns += profile.stage_profile.round_sigma1_duration_ns as f64;
+            round_ch_total_ns += profile.stage_profile.round_ch_duration_ns as f64;
             round_temp1_total_ns += profile.stage_profile.round_temp1_duration_ns as f64;
             round_temp2_total_ns += profile.stage_profile.round_temp2_duration_ns as f64;
             output_projector_total_ns += profile.stage_profile.output_projector_duration_ns as f64;
@@ -189,6 +195,8 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         message_schedule_accumulation_samples
             .push(message_schedule_accumulation_total_ns / iterations);
         round_core_samples.push(round_core_total_ns / iterations);
+        round_sigma1_samples.push(round_sigma1_total_ns / iterations);
+        round_ch_samples.push(round_ch_total_ns / iterations);
         round_temp1_samples.push(round_temp1_total_ns / iterations);
         round_temp2_samples.push(round_temp2_total_ns / iterations);
         output_projector_samples.push(output_projector_total_ns / iterations);
@@ -233,6 +241,12 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             config.stage_sample_iterations,
             message_schedule_accumulation_samples,
         ),
+        component_report(
+            "round_sigma1",
+            config.stage_sample_iterations,
+            round_sigma1_samples,
+        ),
+        component_report("round_ch", config.stage_sample_iterations, round_ch_samples),
         component_report(
             "round_temp1",
             config.stage_sample_iterations,

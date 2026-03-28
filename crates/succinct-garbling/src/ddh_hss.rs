@@ -1665,6 +1665,23 @@ impl DdhHssGarbler {
         request: &DdhHssOtSelectionBundle,
     ) -> ProtoResult<(DdhHssOtResponseBundle, DdhHssOtReleasedRemoteBundle)> {
         validate_client_ot_offer_preflight(offer, sender_state, remote)?;
+        self.resolve_client_input_ot_selection_trusted(
+            context_binding,
+            offer,
+            sender_state,
+            remote,
+            request,
+        )
+    }
+
+    pub(crate) fn resolve_client_input_ot_selection_trusted(
+        &self,
+        context_binding: [u8; 32],
+        offer: &DdhHssOtInputBundleOffer,
+        sender_state: &DdhHssOtSenderStateBundle,
+        remote: &DdhHssOtRemoteBundle,
+        request: &DdhHssOtSelectionBundle,
+    ) -> ProtoResult<(DdhHssOtResponseBundle, DdhHssOtReleasedRemoteBundle)> {
         if request.owner != HiddenEvalInputOwner::Client {
             return Err(ProtoError::InvalidInput(
                 "client OT request must be client-owned".to_string(),
@@ -1725,16 +1742,6 @@ impl DdhHssGarbler {
                         "client OT receiver public point is invalid at bit index {bit_idx}"
                     ))
                 })?;
-            if sender_state_word.sender_public != word_offer.sender_public {
-                return Err(ProtoError::InvalidInput(format!(
-                    "client OT sender-state public point does not match offer at bit index {bit_idx}"
-                )));
-            }
-            if sender_public_point != (ED25519_BASEPOINT_POINT * sender_scalar) {
-                return Err(ProtoError::InvalidInput(format!(
-                    "client OT sender-state scalar does not match sender public point at bit index {bit_idx}"
-                )));
-            }
 
             let zero_left_word = reduce_word(
                 modulus_for_width(1).wrapping_sub(u128::from(remote_word.share_word)),
