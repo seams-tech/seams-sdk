@@ -4,14 +4,14 @@ use sha2::{Digest, Sha256};
 
 use crate::candidate::{CandidateBackendFamily, FixedHiddenCoreCandidate};
 use crate::context::CanonicalContext;
-#[cfg(test)]
-use crate::ddh_hidden_eval_executor::DdhHiddenEvalServerInputBundle;
 use crate::ddh_hidden_eval_executor::{
     execute_prime_order_ddh_hidden_eval_program_for_clear_input_profiled_with_pool,
-    execute_prime_order_ddh_hidden_eval_program_with_pool, prepare_ddh_hidden_eval_constant_pool,
-    probe_prime_order_ddh_hidden_eval_program_with_pool, DdhHiddenEvalCheckpoint,
-    DdhHiddenEvalConstantPool, DdhHiddenEvalInputBundles, DdhHiddenEvalOutputBundles,
-    DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalServerInputs,
+    execute_prime_order_ddh_hidden_eval_program_with_pool,
+    execute_prime_order_ddh_hidden_eval_program_with_transport_server_inputs_with_pool,
+    prepare_ddh_hidden_eval_constant_pool, probe_prime_order_ddh_hidden_eval_program_with_pool,
+    DdhHiddenEvalCheckpoint, DdhHiddenEvalConstantPool, DdhHiddenEvalInputBundles,
+    DdhHiddenEvalOutputBundles, DdhHiddenEvalProbe, DdhHiddenEvalProfile,
+    DdhHiddenEvalServerInputs,
 };
 use crate::ddh_hss::{
     keygen_prime_order_ddh_hss_backend, role_views_for_backend, DdhHssBackend, DdhHssEvaluationKey,
@@ -781,16 +781,16 @@ impl PrimeOrderSuccinctHssPreparedSession {
         let (_runtime, _garbler_session, evaluator_session) = self.split_runtime();
         let opened_server_inputs =
             evaluator_session.open_server_inputs_packet(&server_packet.server_inputs)?;
-        let server_inputs = opened_server_inputs
-            .materialize_server_inputs_with_evaluator(&evaluator_session.ddh_evaluator)?;
         Ok((
             self.decode_server_input_bit_bundle_array(
-                &server_inputs.y_relayer_bits,
+                &opened_server_inputs.y_relayer_left,
+                &opened_server_inputs.y_relayer_right,
                 HiddenEvalInputOwner::Server,
                 "y_relayer_bits",
             )?,
             self.decode_server_input_bit_bundle_array(
-                &server_inputs.tau_relayer_bits,
+                &opened_server_inputs.tau_relayer_left,
+                &opened_server_inputs.tau_relayer_right,
                 HiddenEvalInputOwner::Server,
                 "tau_relayer_bits",
             )?,
@@ -962,13 +962,15 @@ impl PrimeOrderSuccinctHssPreparedSession {
     #[cfg(test)]
     fn decode_server_input_bit_bundle_array(
         &self,
-        bundle: &DdhHiddenEvalServerInputBundle,
+        left: &DdhHssTransportBundle,
+        right: &DdhHssTransportBundle,
         expected_owner: HiddenEvalInputOwner,
         expected_label: &str,
     ) -> ProtoResult<[u8; 32]> {
         decode_server_input_bit_bundle_array_with_backend(
             &self.ddh_backend,
-            bundle,
+            left,
+            right,
             expected_owner,
             expected_label,
         )
@@ -1824,18 +1826,18 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             &[&y_client_bundle, &tau_client_bundle],
         );
         let opened_server_inputs = self.open_server_inputs_packet(&server_packet.server_inputs)?;
-        let hidden_eval_inputs = opened_server_inputs
-            .into_hidden_eval_input_bundles_with_evaluator(
-                &self.ddh_evaluator,
-                y_client_bundle,
-                tau_client_bundle,
+        let run =
+            execute_prime_order_ddh_hidden_eval_program_with_transport_server_inputs_with_pool(
+                hidden_eval_program,
+                ddh_evaluator,
+                hidden_eval_constants,
+                &y_client_bundle,
+                &opened_server_inputs.y_relayer_left,
+                &opened_server_inputs.y_relayer_right,
+                &tau_client_bundle,
+                &opened_server_inputs.tau_relayer_left,
+                &opened_server_inputs.tau_relayer_right,
             )?;
-        let run = execute_prime_order_ddh_hidden_eval_program_with_pool(
-            hidden_eval_program,
-            ddh_evaluator,
-            hidden_eval_constants,
-            &hidden_eval_inputs,
-        )?;
         if run.client_input_commitment != expected_client_input_commitment {
             return Err(ProtoError::InvalidInput(
                 "client delivery packet commitment does not match evaluated run".to_string(),
@@ -1914,6 +1916,26 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             .0)
     }
 
+    fn evaluate_result_from_packets_untrusted(
+        &self,
+        runtime: &PrimeOrderSuccinctHssSharedRuntime,
+        client_packet: &PrimeOrderSuccinctHssClientPacket,
+        evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
+        server_packet: &PrimeOrderSuccinctHssServerPacket,
+    ) -> ProtoResult<PrimeOrderSuccinctHssEvaluationResult> {
+        let ddh_run = self.evaluate_hidden_run_from_packets(
+            &runtime.ddh_evaluator,
+            &runtime.hidden_eval_program,
+            &runtime.hidden_eval_constants,
+            client_packet,
+            evaluator_ot_state,
+            server_packet,
+        )?;
+        Ok(self
+            .build_evaluation_result_from_hidden_run(runtime, ddh_run)?
+            .0)
+    }
+
     fn evaluate_result_from_packets_timed(
         &self,
         runtime: &PrimeOrderSuccinctHssSharedRuntime,
@@ -1934,6 +1956,25 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             server_packet,
             trusted_server_inputs,
         )?;
+        let (
+            evaluation_result,
+            result_assembly_duration_ns,
+            output_sealing_finalization_duration_ns,
+        ) = self.build_evaluation_result_from_hidden_run(runtime, ddh_run)?;
+        timing.result_assembly_duration_ns = timing
+            .result_assembly_duration_ns
+            .saturating_add(result_assembly_duration_ns);
+        timing.output_sealing_finalization_duration_ns = timing
+            .output_sealing_finalization_duration_ns
+            .saturating_add(output_sealing_finalization_duration_ns);
+        Ok((evaluation_result, timing))
+    }
+
+    fn build_evaluation_result_from_hidden_run(
+        &self,
+        runtime: &PrimeOrderSuccinctHssSharedRuntime,
+        ddh_run: crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
+    ) -> ProtoResult<(PrimeOrderSuccinctHssEvaluationResult, u64, u64)> {
         let result_assembly_started = monotonic_now_ns();
         let executor_result =
             execute_prime_order_cpu_execution_program(&runtime.execution_program)?;
@@ -1948,7 +1989,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             &executor_result,
             &ddh_run.output,
         );
-        timing.result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
+        let result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
         let output_sealing_started = monotonic_now_ns();
         let client_output = self.seal_client_output_packet_message(
             run_binding,
@@ -1970,32 +2011,31 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             evaluation_digest,
             &server_output_payload,
         );
-        timing.output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
-        let result_assembly_finalize_started = monotonic_now_ns();
-        let evaluation_result = PrimeOrderSuccinctHssEvaluationResult {
-            context_binding: self.context_binding,
-            bindings: PrimeOrderSuccinctHssRunBindings {
-                client_input_commitment: ddh_run.client_input_commitment,
-                server_input_commitment: ddh_run.server_input_commitment,
-                run_binding,
-                evaluation_digest,
+        let output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
+        Ok((
+            PrimeOrderSuccinctHssEvaluationResult {
+                context_binding: self.context_binding,
+                bindings: PrimeOrderSuccinctHssRunBindings {
+                    client_input_commitment: ddh_run.client_input_commitment,
+                    server_input_commitment: ddh_run.server_input_commitment,
+                    run_binding,
+                    evaluation_digest,
+                },
+                evaluator_witness: PrimeOrderSuccinctHssEvaluatorWitness {
+                    total_steps: runtime.execution_program.trace.total_steps,
+                    curve_cost_units: runtime.execution_program.trace.estimated_curve_cost_units,
+                    evaluator_ops: runtime.execution_program.trace.evaluator_ops.clone(),
+                    output_checksum: executor_result.output_checksum,
+                    final_point_compressed: executor_result.final_point_compressed,
+                },
+                client_output,
+                client_output_binding,
+                server_output_payload_binding,
+                server_output_payload,
             },
-            evaluator_witness: PrimeOrderSuccinctHssEvaluatorWitness {
-                total_steps: runtime.execution_program.trace.total_steps,
-                curve_cost_units: runtime.execution_program.trace.estimated_curve_cost_units,
-                evaluator_ops: runtime.execution_program.trace.evaluator_ops.clone(),
-                output_checksum: executor_result.output_checksum,
-                final_point_compressed: executor_result.final_point_compressed,
-            },
-            client_output,
-            client_output_binding,
-            server_output_payload_binding,
-            server_output_payload,
-        };
-        timing.result_assembly_duration_ns = timing
-            .result_assembly_duration_ns
-            .saturating_add(elapsed_ns_u64(result_assembly_finalize_started));
-        Ok((evaluation_result, timing))
+            result_assembly_duration_ns,
+            output_sealing_finalization_duration_ns,
+        ))
     }
 
     pub fn evaluate_result_message_from_transport_messages(
@@ -2015,15 +2055,11 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             PrimeOrderSuccinctHssTransportKind::ServerPacket,
             server_message,
         )?;
-        let trusted_server_inputs = self
-            .open_server_inputs_packet(&server_packet.server_inputs)?
-            .materialize_server_inputs_with_evaluator(&self.ddh_evaluator)?;
-        let evaluation_result = self.evaluate_result_from_packets(
+        let evaluation_result = self.evaluate_result_from_packets_untrusted(
             runtime,
             &client_packet,
             evaluator_ot_state,
             &server_packet,
-            &trusted_server_inputs,
         )?;
         encode_transport_message(
             self.context_binding,
@@ -2549,19 +2585,6 @@ impl PrimeOrderSuccinctHssOpenedServerInputs {
         ))
     }
 
-    fn materialize_server_inputs_with_evaluator(
-        &self,
-        evaluator: &DdhHssEvaluator,
-    ) -> ProtoResult<DdhHiddenEvalServerInputs> {
-        DdhHiddenEvalServerInputs::from_transport_bundles(
-            evaluator.evaluation_key(),
-            &self.y_relayer_left,
-            &self.y_relayer_right,
-            &self.tau_relayer_left,
-            &self.tau_relayer_right,
-        )
-    }
-
     fn server_input_commitment_with_evaluator(
         &self,
         evaluator: &DdhHssEvaluator,
@@ -2570,19 +2593,6 @@ impl PrimeOrderSuccinctHssOpenedServerInputs {
             evaluator.evaluation_key(),
             self,
         ))
-    }
-
-    fn into_hidden_eval_input_bundles_with_evaluator(
-        self,
-        evaluator: &DdhHssEvaluator,
-        y_client_bits: DdhHssInputShareBundle,
-        tau_client_bits: DdhHssInputShareBundle,
-    ) -> ProtoResult<crate::ddh_hidden_eval_executor::DdhHiddenEvalInputBundles> {
-        Ok(crate::ddh_hidden_eval_executor::DdhHiddenEvalInputBundles {
-            y_client_bits,
-            server_inputs: self.materialize_server_inputs_with_evaluator(evaluator)?,
-            tau_client_bits,
-        })
     }
 }
 
@@ -2808,43 +2818,46 @@ fn decode_input_bit_bundle_array_with_backend(
 #[cfg(test)]
 fn decode_server_input_bit_bundle_array_with_backend(
     backend: &DdhHssBackend,
-    bundle: &DdhHiddenEvalServerInputBundle,
+    left: &DdhHssTransportBundle,
+    right: &DdhHssTransportBundle,
     expected_owner: HiddenEvalInputOwner,
     expected_label: &str,
 ) -> ProtoResult<[u8; 32]> {
-    if bundle.owner != expected_owner {
+    if left.owner != expected_owner {
         return Err(ProtoError::InvalidInput(format!(
             "server input bundle owner mismatch for {expected_label}: expected {:?}, got {:?}",
-            expected_owner, bundle.owner
+            expected_owner, left.owner
         )));
     }
-    if bundle.label != expected_label {
+    if left.label != expected_label {
         return Err(ProtoError::InvalidInput(format!(
             "server input bundle label mismatch: expected {expected_label}, got {}",
-            bundle.label
+            left.label
         )));
     }
-    if bundle.words.len() != 256 {
+    if left.words.len() != 256 || right.words.len() != 256 {
         return Err(ProtoError::Decode(format!(
-            "decoded server input bit bundle {expected_label} must be exactly 256 bits, got {}",
-            bundle.words.len()
+            "decoded server input bit bundle {expected_label} must be exactly 256 bits, got {} and {}",
+            left.words.len(),
+            right.words.len()
         )));
     }
-    let joint_words = bundle
+    let joint_words = left
         .words
         .iter()
-        .map(|word| DdhHssSharedWord {
-            width_bits: word.width_bits,
-            left_word: word.left.share_word,
-            right_word: word.right.share_word,
-            left_commitment: word.left.share_commitment,
-            right_commitment: word.right.share_commitment,
-            provenance_digest: word.left.provenance_digest,
+        .zip(&right.words)
+        .map(|(left_word, right_word)| DdhHssSharedWord {
+            width_bits: left_word.width_bits,
+            left_word: left_word.share_word,
+            right_word: right_word.share_word,
+            left_commitment: left_word.share_commitment,
+            right_commitment: right_word.share_commitment,
+            provenance_digest: left_word.provenance_digest,
         })
         .collect::<Vec<_>>();
     let expected_commitment =
         backend.input_commitment(expected_owner, expected_label, &joint_words);
-    if expected_commitment != bundle.commitment {
+    if expected_commitment != left.commitment || expected_commitment != right.commitment {
         return Err(ProtoError::InvalidInput(format!(
             "server input bundle commitment mismatch for {expected_label}"
         )));
@@ -2853,8 +2866,9 @@ fn decode_server_input_bit_bundle_array_with_backend(
     for byte_idx in 0..32 {
         let mut value = 0u8;
         for bit_idx in 0..8 {
-            let word = &bundle.words[byte_idx * 8 + bit_idx];
-            let bit = (word.left.share_word + word.right.share_word) & 1;
+            let left_word = &left.words[byte_idx * 8 + bit_idx];
+            let right_word = &right.words[byte_idx * 8 + bit_idx];
+            let bit = (left_word.share_word + right_word.share_word) & 1;
             value |= (bit as u8) << bit_idx;
         }
         out[byte_idx] = value;

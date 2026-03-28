@@ -1195,6 +1195,181 @@ Tasks:
   - assert that no server-owned joint-share type accidentally implements the
     interparty wire format
 
+Implementation section:
+
+- true role-local execution
+  - evaluator execution must consume only evaluator-local client state, public
+    artifact state, and explicitly transmitted garbler material
+  - garbler execution must retain the server-local relayer share state and any
+    secret-seeded helper state that is not required by the evaluator
+  - no normal execution path may reconstruct a generic object that can decode a
+    server-owned hidden input into plaintext on the evaluator side
+- execution helpers that operate on split state
+  - add / projector / scalar-reduction helpers that currently take generic
+    joined server-input structures should be replaced with helpers that consume
+    split left/right transport-bundle state directly
+  - joined helper material should remain allowed only inside trusted local
+    simulation, test decode, or explicit clear-input profiling paths
+  - the preferred shape is borrow-oriented helper APIs over compact split-state
+    views, not heavier owned transport-pair objects threaded through the whole
+    runtime
+- type-level enforcement
+  - introduce explicit garbler-local, evaluator-local, and trusted-simulation
+    types for relayer input state
+  - only wire-safe role-local types may cross the interparty boundary or
+    implement `Serialize` / `Deserialize`
+  - any type that semantically contains both relayer share halves must stay
+    crate-internal and test-only unless there is a narrowly scoped trusted
+    reason for it to exist
+  - evaluator-facing runtime APIs should be written so reconstructing a
+    plaintext-capable relayer object is structurally impossible without calling
+    an explicitly trusted-only helper
+
+Implementation order:
+
+1. move the normal packet-based evaluator path onto borrowed split-state server
+   input views without changing the prepared-session benchmark fast path
+2. replace remaining executor helpers that still require joined server-input
+   objects with split-state variants
+3. delete dead generic server-input materialization helpers from production
+   paths as soon as each split-state caller lands
+4. then tighten the type surface so only trusted simulation paths can still
+   build joined relayer objects
+
+Staged implementation plan:
+
+#### Phase A — Split the arithmetic value model
+
+Goal:
+
+- stop treating `DdhHssSharedWord` as the production execution value type for
+  the role-local evaluator / garbler path
+
+Tasks:
+
+- introduce explicit evaluator-local and garbler-local word/state types in
+  `crates/succinct-garbling/src/ddh_hss.rs`
+- keep `DdhHssSharedWord` only for trusted simulation, clear-input profiling,
+  and compatibility helpers that are explicitly marked as trusted
+- define the minimum local operations each role can do without reconstructing a
+  joined word:
+  - local add / xor on shares
+  - local commitment carrying
+  - explicit open / join checkpoints only where the specs require them
+
+Exit criteria:
+
+- production execution code no longer depends on `DdhHssSharedWord` as the only
+  hidden-value representation
+
+#### Phase B — Port the non-round stages first
+
+Goal:
+
+- move the easiest production execution stages onto split state before touching
+  the `SHA-512` round core
+
+Tasks:
+
+- port the add stage to split-state execution helpers
+- port the output projector to split-state execution helpers
+- keep message schedule and round core on the old joined model temporarily if
+  needed, behind an explicitly trusted bridge that is isolated and easy to
+  delete later
+
+Why this order:
+
+- add stage and projector are the smallest places where relayer input secrecy
+  matters
+- they are easier to benchmark and validate than the full round core
+
+Exit criteria:
+
+- production add/projector stages run on role-local state only
+- any remaining joined bridge is limited to schedule / round-core execution
+
+#### Phase C — Port message schedule and round core
+
+Goal:
+
+- eliminate the last production joined-word execution path
+
+Tasks:
+
+- port message-schedule accumulation onto split state
+- port round-state transitions (`sigma`, `Ch`, `Maj`, `temp1`, `temp2`) onto
+  split state
+- redesign multiplication/open helpers as needed so the garbler and evaluator
+  each advance their local side without one side reconstructing both shares
+
+Exit criteria:
+
+- no production hidden-eval stage requires a joined relayer word object
+
+#### Phase D — Delete production joined execution
+
+Goal:
+
+- make joined relayer execution impossible outside trusted paths
+
+Tasks:
+
+- remove production executor entry points that accept joined relayer server
+  inputs
+- keep joined materialization only under trusted simulation / test-only helpers
+- tighten type visibility so evaluator-facing runtime code cannot call joined
+  relayer helpers by accident
+
+Exit criteria:
+
+- joined relayer execution exists only in trusted simulation/tests
+- production evaluator / garbler runtime uses role-local types only
+
+#### Benchmark gate for every phase
+
+For each phase:
+
+- run `cargo test --manifest-path crates/succinct-garbling/Cargo.toml --quiet`
+- rerun native hidden-eval benchmark with `--samples 10`
+- rebuild wasm and rerun browser Phase 3 benchmark
+- compare against the last good baseline before starting the next phase
+
+Rollback rule:
+
+- revert wrapper-only or naming-only changes if they regress
+- tolerate moderate regressions only when a step removes real evaluator-side
+  relayer reconstruction capability
+
+Acceptance criteria:
+
+- evaluator-visible normal execution no longer constructs a generic joined
+  relayer-input object
+- executor entry points for normal delivery consume split state directly
+- trusted simulation and tests still have an explicit, isolated path for joined
+  materialization
+- native and browser benchmarks remain within an acceptable band after each
+  incremental step
+
+TODO list:
+
+- [x] move the normal packet-based evaluator path onto borrowed split-state
+  server-input views instead of materializing a generic joined relayer-input
+  object
+- [ ] replace the remaining normal-delivery executor helpers that still require
+  joined server-input objects with split-state variants
+- [ ] keep the prepared-session benchmark fast path performance-stable while
+  narrowing the normal transport-message path
+- [ ] introduce explicit garbler-local and evaluator-local relayer-input types
+  for production runtime code
+- [ ] restrict any joined relayer-input materialization helper to trusted
+  simulation and test-only paths
+- [ ] remove any production API that can reconstruct a plaintext-capable
+  server-input object on the evaluator side
+- [ ] add negative tests asserting evaluator-visible production paths cannot
+  rejoin relayer inputs into plaintext-capable objects
+- [ ] rerun native and browser benchmarks after each remaining boundary step and
+  revert any version that regresses beyond the acceptable band
+
 Deliverable:
 
 - a delivery path where no evaluator-visible wire message is sufficient to

@@ -218,29 +218,6 @@ impl DdhHiddenEvalServerInputBundle {
             commitment: bundle.commitment,
         }
     }
-
-    pub(crate) fn from_transport_bundles(
-        evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
-        left: &DdhHssTransportBundle,
-        right: &DdhHssTransportBundle,
-    ) -> ProtoResult<Self> {
-        validate_transport_bundle_pair_public(evaluation_key, left, right)?;
-        Ok(Self {
-            owner: left.owner,
-            label: left.label.clone(),
-            words: left
-                .words
-                .iter()
-                .zip(&right.words)
-                .map(|(left_word, right_word)| DdhHiddenEvalServerInputWord {
-                    width_bits: left_word.width_bits,
-                    left: left_word.clone(),
-                    right: right_word.clone(),
-                })
-                .collect(),
-            commitment: left.commitment,
-        })
-    }
 }
 
 impl DdhHiddenEvalServerInputs {
@@ -252,27 +229,6 @@ impl DdhHiddenEvalServerInputs {
             y_relayer_bits: DdhHiddenEvalServerInputBundle::from_joint_bundle(y_relayer_bits),
             tau_relayer_bits: DdhHiddenEvalServerInputBundle::from_joint_bundle(tau_relayer_bits),
         }
-    }
-
-    pub(crate) fn from_transport_bundles(
-        evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
-        y_relayer_left: &DdhHssTransportBundle,
-        y_relayer_right: &DdhHssTransportBundle,
-        tau_relayer_left: &DdhHssTransportBundle,
-        tau_relayer_right: &DdhHssTransportBundle,
-    ) -> ProtoResult<Self> {
-        Ok(Self {
-            y_relayer_bits: DdhHiddenEvalServerInputBundle::from_transport_bundles(
-                evaluation_key,
-                y_relayer_left,
-                y_relayer_right,
-            )?,
-            tau_relayer_bits: DdhHiddenEvalServerInputBundle::from_transport_bundles(
-                evaluation_key,
-                tau_relayer_left,
-                tau_relayer_right,
-            )?,
-        })
     }
 }
 
@@ -354,6 +310,35 @@ pub fn execute_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmetic
             backend,
             constant_pool,
             input_bundles,
+        )?
+        .run,
+    )
+}
+
+pub(crate) fn execute_prime_order_ddh_hidden_eval_program_with_transport_server_inputs_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_left: &DdhHssTransportBundle,
+    y_relayer_right: &DdhHssTransportBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_left: &DdhHssTransportBundle,
+    tau_relayer_right: &DdhHssTransportBundle,
+) -> ProtoResult<DdhHiddenEvalRun> {
+    Ok(
+        execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_inputs(
+            program,
+            backend,
+            constant_pool,
+            y_client_bits,
+            y_relayer_left,
+            y_relayer_right,
+            tau_client_bits,
+            tau_relayer_left,
+            tau_relayer_right,
         )?
         .run,
     )
@@ -760,6 +745,115 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     })
 }
 
+fn execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_inputs<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_left: &DdhHssTransportBundle,
+    y_relayer_right: &DdhHssTransportBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_left: &DdhHssTransportBundle,
+    tau_relayer_right: &DdhHssTransportBundle,
+) -> ProtoResult<ExecutionUntilOutputProjector> {
+    ensure_program_shape(program)?;
+    let total_started_ns = monotonic_now_ns();
+    let input_sharing_started_ns = monotonic_now_ns();
+    validate_input_bit_bundle(y_client_bits, HiddenEvalInputOwner::Client, "y_client_bits")?;
+    validate_server_input_transport_bundle_pair(
+        backend.evaluation_key(),
+        y_relayer_left,
+        y_relayer_right,
+        HiddenEvalInputOwner::Server,
+        "y_relayer_bits",
+    )?;
+    validate_input_bit_bundle(
+        tau_client_bits,
+        HiddenEvalInputOwner::Client,
+        "tau_client_bits",
+    )?;
+    validate_server_input_transport_bundle_pair(
+        backend.evaluation_key(),
+        tau_relayer_left,
+        tau_relayer_right,
+        HiddenEvalInputOwner::Server,
+        "tau_relayer_bits",
+    )?;
+
+    let client_input_commitment = combine_bundle_commitments(
+        backend,
+        HiddenEvalInputOwner::Client,
+        &[y_client_bits, tau_client_bits],
+    );
+    let server_input_commitment =
+        combine_server_input_transport_commitments(backend, y_relayer_left, tau_relayer_left);
+    let y_client_bits = y_client_bits.words.clone();
+    let tau_client_bits = tau_client_bits.words.clone();
+    let input_sharing_duration_ns = elapsed_ns(input_sharing_started_ns);
+
+    let add_started_ns = monotonic_now_ns();
+    let d_bits = execute_add_stage_with_transport_server_inputs(
+        backend,
+        &program.stages[0],
+        &y_client_bits,
+        &y_relayer_left.words,
+        &y_relayer_right.words,
+    )?;
+    let add_stage_duration_ns = elapsed_ns(add_started_ns);
+
+    let schedule_started_ns = monotonic_now_ns();
+    let schedule_output =
+        execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
+    let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
+    let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
+    let schedule = schedule_output.words;
+
+    let round_started_ns = monotonic_now_ns();
+    let round_output =
+        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
+    let round_core_duration_ns = elapsed_ns(round_started_ns);
+    let hash_core = round_output.hash_core;
+    let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
+    let round_ch_duration_ns = round_output.ch_duration_ns;
+    let round_temp1_duration_ns = round_output.temp1_duration_ns;
+    let round_temp2_duration_ns = round_output.temp2_duration_ns;
+
+    let output_started_ns = monotonic_now_ns();
+    let output = execute_output_projector_stage_with_transport_server_inputs(
+        backend,
+        constant_pool,
+        &program.stages[6],
+        &hash_core.final_words,
+        &tau_client_bits,
+        &tau_relayer_left.words,
+        &tau_relayer_right.words,
+    )?;
+    let output_projector_duration_ns = elapsed_ns(output_started_ns);
+
+    Ok(ExecutionUntilOutputProjector {
+        stage_profile: DdhHiddenEvalStageProfile {
+            input_sharing_duration_ns,
+            add_stage_duration_ns,
+            message_schedule_duration_ns,
+            message_schedule_accumulation_duration_ns,
+            round_core_duration_ns,
+            round_sigma1_duration_ns,
+            round_ch_duration_ns,
+            round_temp1_duration_ns,
+            round_temp2_duration_ns,
+            output_projector_duration_ns,
+            total_duration_ns: elapsed_ns(total_started_ns),
+        },
+        run: DdhHiddenEvalRun {
+            client_input_commitment,
+            server_input_commitment,
+            output,
+        },
+    })
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn monotonic_now_ns() -> u128 {
     use std::sync::OnceLock;
@@ -810,6 +904,35 @@ fn execute_add_stage<B: DdhHssArithmeticBackend>(
     }
     let zero = constant_bit(backend, "add_mod_2pow256/carry/zero", false)?;
     add_two_words_bits_right_server_input(backend, "add_mod_2pow256", left_bits, right_bits, &zero)
+}
+
+fn execute_add_stage_with_transport_server_inputs<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    stage: &HiddenEvalStage,
+    left_bits: &[DdhHssSharedWord],
+    right_left_bits: &[DdhHssTransportWord],
+    right_right_bits: &[DdhHssTransportWord],
+) -> ProtoResult<Vec<DdhHssSharedWord>> {
+    if stage.kind != HiddenEvalStageKind::AddMod2Pow256 {
+        return Err(ProtoError::InvalidInput(
+            "unexpected add-stage kind".to_string(),
+        ));
+    }
+    if stage.windows.len() != 32 {
+        return Err(ProtoError::Decode(format!(
+            "add stage must contain 32 byte lanes, got {}",
+            stage.windows.len()
+        )));
+    }
+    let zero = constant_bit(backend, "add_mod_2pow256/carry/zero", false)?;
+    add_two_words_bits_right_transport_bundles(
+        backend,
+        "add_mod_2pow256",
+        left_bits,
+        right_left_bits,
+        right_right_bits,
+        &zero,
+    )
 }
 
 fn execute_message_schedule_stage<B: DdhHssArithmeticBackend>(
@@ -1090,6 +1213,82 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     })
 }
 
+fn execute_output_projector_stage_with_transport_server_inputs<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    stage: &HiddenEvalStage,
+    final_words: &[Vec<DdhHssSharedWord>],
+    tau_client_bits: &[DdhHssSharedWord],
+    tau_relayer_left_bits: &[DdhHssTransportWord],
+    tau_relayer_right_bits: &[DdhHssTransportWord],
+) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+    if stage.kind != HiddenEvalStageKind::OutputProjector {
+        return Err(ProtoError::InvalidInput(
+            "unexpected output-projector stage kind".to_string(),
+        ));
+    }
+
+    let clamped_a_bytes_words = extract_clamped_a_bytes_words(backend, final_words)?;
+    let clamped_a_bits = flatten_shared_words(&clamped_a_bytes_words);
+    let reduced_a_bits = reduce_scalar_bits_mod_l_with_constants(
+        backend,
+        "scalar_a",
+        &clamped_a_bits,
+        &constant_pool.scalar_modulus_bits,
+        &constant_pool.zero_bit,
+        &constant_pool.scalar_one,
+        7,
+    )?;
+    let tau_bits = add_words_bits_mod_l_canonical_inputs_right_transport_bundles(
+        backend,
+        tau_client_bits,
+        tau_relayer_left_bits,
+        tau_relayer_right_bits,
+        &constant_pool.scalar_modulus_bits,
+        &constant_pool.zero_bit,
+        &constant_pool.scalar_one,
+    )?;
+    let x_client_base_bits = add_words_bits_mod_l_canonical_inputs(
+        backend,
+        &reduced_a_bits,
+        &tau_bits,
+        &constant_pool.scalar_modulus_bits,
+        &constant_pool.zero_bit,
+        &constant_pool.scalar_one,
+    )?;
+    let double_tau_bits = add_words_bits_mod_l_canonical_inputs(
+        backend,
+        &tau_bits,
+        &tau_bits,
+        &constant_pool.scalar_modulus_bits,
+        &constant_pool.zero_bit,
+        &constant_pool.scalar_one,
+    )?;
+    let x_relayer_base_bits = add_words_bits_mod_l_canonical_inputs(
+        backend,
+        &reduced_a_bits,
+        &double_tau_bits,
+        &constant_pool.scalar_modulus_bits,
+        &constant_pool.zero_bit,
+        &constant_pool.scalar_one,
+    )?;
+
+    Ok(DdhHiddenEvalOutputBundles {
+        x_client_base: build_hidden_bit_output_bundle(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "x_client_base",
+            &x_client_base_bits,
+        )?,
+        x_relayer_base: build_hidden_bit_output_bundle(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+        )?,
+    })
+}
+
 #[cfg(test)]
 fn reduce_scalar_bits_mod_l(
     backend: &impl DdhHssArithmeticBackend,
@@ -1213,6 +1412,43 @@ fn add_words_bits_mod_l_canonical_inputs_right_server_input<B: DdhHssArithmeticB
         "reduce_mod_l/server_input/sum",
         left,
         right,
+        zero,
+    )?;
+    let mut difference = Vec::with_capacity(sum.len());
+    let borrow = sub_two_words_bits_into(
+        backend,
+        "reduce_mod_l/server_input/sub",
+        &sum,
+        modulus_bits,
+        zero,
+        one,
+        &mut difference,
+    )?;
+    let geq_modulus = backend.eval_add_mod_2_pow_n(&borrow, one)?;
+    select_word_bits(
+        backend,
+        "reduce_mod_l/select",
+        &geq_modulus,
+        &difference,
+        &sum,
+    )
+}
+
+fn add_words_bits_mod_l_canonical_inputs_right_transport_bundles<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    left: &[DdhHssSharedWord],
+    right_left: &[DdhHssTransportWord],
+    right_right: &[DdhHssTransportWord],
+    modulus_bits: &[DdhHssSharedWord],
+    zero: &DdhHssSharedWord,
+    one: &DdhHssSharedWord,
+) -> ProtoResult<Vec<DdhHssSharedWord>> {
+    let sum = add_two_words_bits_right_transport_bundles(
+        backend,
+        "reduce_mod_l/server_input/sum",
+        left,
+        right_left,
+        right_right,
         zero,
     )?;
     let mut difference = Vec::with_capacity(sum.len());
@@ -1364,6 +1600,50 @@ fn validate_server_input_bit_bundle(
             &word.left,
             &word.right,
         )?;
+    }
+    Ok(())
+}
+
+fn validate_server_input_transport_bundle_pair(
+    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    left: &DdhHssTransportBundle,
+    right: &DdhHssTransportBundle,
+    expected_owner: HiddenEvalInputOwner,
+    expected_label: &str,
+) -> ProtoResult<()> {
+    validate_transport_bundle_pair_public(evaluation_key, left, right)?;
+    if left.owner != expected_owner {
+        return Err(ProtoError::InvalidInput(format!(
+            "server input bit bundle owner mismatch for {expected_label}: expected {:?}, got {:?}",
+            expected_owner, left.owner
+        )));
+    }
+    if left.label != expected_label {
+        return Err(ProtoError::InvalidInput(format!(
+            "server input bit bundle label mismatch: expected {expected_label}, got {}",
+            left.label
+        )));
+    }
+    if left.words.len() != 256 {
+        return Err(ProtoError::InvalidInput(format!(
+            "server input bit bundle {expected_label} must contain 256 bits, got {}",
+            left.words.len()
+        )));
+    }
+    if left
+        .words
+        .iter()
+        .zip(&right.words)
+        .any(|(left_word, right_word)| {
+            left_word.width_bits != 1
+                || right_word.width_bits != 1
+                || left_word.share_side != DdhHssShareSide::Left
+                || right_word.share_side != DdhHssShareSide::Right
+        })
+    {
+        return Err(ProtoError::InvalidInput(format!(
+            "server input bit bundle {expected_label} must contain 1-bit words"
+        )));
     }
     Ok(())
 }
@@ -1673,6 +1953,46 @@ fn add_two_words_bits_right_server_input<B: DdhHssArithmeticBackend>(
     Ok(out)
 }
 
+fn add_two_words_bits_right_transport_bundles<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    left: &[DdhHssSharedWord],
+    right_left: &[DdhHssTransportWord],
+    right_right: &[DdhHssTransportWord],
+    zero: &DdhHssSharedWord,
+) -> ProtoResult<Vec<DdhHssSharedWord>> {
+    if left.len() != right_left.len() || right_left.len() != right_right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "word addition requires same-width bit slices, got {}, {}, and {}",
+            left.len(),
+            right_left.len(),
+            right_right.len()
+        )));
+    }
+    let mut carry = zero.clone();
+    let mut out = Vec::with_capacity(left.len());
+    for idx in 0..left.len() {
+        let xor_ab = eval_add_shared_with_transport_pair_public(
+            backend.evaluation_key(),
+            &left[idx],
+            &right_left[idx],
+            &right_right[idx],
+        )?;
+        let sum = backend.eval_add_mod_2_pow_n(&xor_ab, &carry)?;
+        let a_xor_carry = backend.eval_add_mod_2_pow_n(&left[idx], &carry)?;
+        let carry_gate = mul_word_bits(
+            backend,
+            &format!("{label}/carry/{idx}"),
+            &xor_ab,
+            &a_xor_carry,
+        )?;
+        let next_carry = backend.eval_add_mod_2_pow_n(&left[idx], &carry_gate)?;
+        out.push(sum);
+        carry = next_carry;
+    }
+    Ok(out)
+}
+
 fn sub_two_words_bits_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
@@ -1958,6 +2278,25 @@ fn combine_server_input_commitments(
         &server_inputs.y_relayer_bits,
         &server_inputs.tau_relayer_bits,
     ] {
+        hasher.update(bundle.commitment);
+        hasher.update(bundle.label.as_bytes());
+    }
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    out
+}
+
+fn combine_server_input_transport_commitments(
+    backend: &impl DdhHssArithmeticBackend,
+    y_relayer_left: &DdhHssTransportBundle,
+    tau_relayer_left: &DdhHssTransportBundle,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/combined-input-commitment/v0");
+    hasher.update(backend.evaluation_key().key_id);
+    hasher.update(b"server");
+    for bundle in [y_relayer_left, tau_relayer_left] {
         hasher.update(bundle.commitment);
         hasher.update(bundle.label.as_bytes());
     }

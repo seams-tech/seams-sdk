@@ -5,7 +5,7 @@
   "timed_samples": 8,
   "decode_iterations_per_sample": 200,
   "trace_iterations_per_sample": 200,
-  "timestamp_iso": "2026-03-27T15:54:03.420Z",
+  "timestamp_iso": "2026-03-28T07:24:07.498Z",
   "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/146.0.0.0 Safari/537.36",
   "targets": [
     {
@@ -35,18 +35,18 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 2400000,
+        "min_ns": 2500000,
         "median_ns": 2600000,
-        "mean_ns": 2800000,
-        "p95_ns": 3600000,
-        "max_ns": 3600000
+        "mean_ns": 2600000,
+        "p95_ns": 2700000,
+        "max_ns": 2700000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 500000,
         "median_ns": 600000,
-        "mean_ns": 637500,
-        "p95_ns": 900000,
-        "max_ns": 900000
+        "mean_ns": 587500,
+        "p95_ns": 700000,
+        "max_ns": 700000
       },
       "local_file_io_reference": {
         "label": "cached_gc_baseline",
@@ -116,18 +116,18 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 1300000,
-        "median_ns": 1500000,
-        "mean_ns": 1525000,
-        "p95_ns": 1800000,
-        "max_ns": 1800000
+        "min_ns": 1500000,
+        "median_ns": 1700000,
+        "mean_ns": 1762500,
+        "p95_ns": 2100000,
+        "max_ns": 2100000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 100000,
         "median_ns": 200000,
-        "mean_ns": 187500,
-        "p95_ns": 400000,
-        "max_ns": 400000
+        "mean_ns": 175000,
+        "p95_ns": 200000,
+        "max_ns": 200000
       },
       "local_file_io_reference": {
         "label": "prime_order_stub_artifact",
@@ -197,16 +197,16 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 800000,
-        "median_ns": 900000,
-        "mean_ns": 1025000,
+        "min_ns": 1400000,
+        "median_ns": 1600000,
+        "mean_ns": 1550000,
         "p95_ns": 1700000,
         "max_ns": 1700000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 100000,
         "median_ns": 200000,
-        "mean_ns": 175000,
+        "mean_ns": 162500,
         "p95_ns": 300000,
         "max_ns": 300000
       },
@@ -255,18 +255,18 @@
   "structured_execution": {
     "label": "prime_order_structured_artifact",
     "decode_per_iteration_ns": {
-      "min_ns": 6000,
+      "min_ns": 5000,
       "median_ns": 10500,
-      "mean_ns": 12625,
-      "p95_ns": 25500,
-      "max_ns": 25500
-    },
-    "trace_per_iteration_ns": {
-      "min_ns": 9000,
-      "median_ns": 10000,
-      "mean_ns": 12813,
+      "mean_ns": 12000,
       "p95_ns": 24500,
       "max_ns": 24500
+    },
+    "trace_per_iteration_ns": {
+      "min_ns": 8500,
+      "median_ns": 9500,
+      "mean_ns": 12438,
+      "p95_ns": 25500,
+      "max_ns": 25500
     },
     "decode_summary": {
       "artifact_version": 1,
@@ -422,7 +422,7 @@
   "browser_cpu_executor": {
     "available": true,
     "runtime": "wasm_browser_cpu",
-    "wasm_module_url": "http://127.0.0.1:61876/generated/pkg/succinct_garbling.js?cache_bust=1774626840692",
+    "wasm_module_url": "http://127.0.0.1:61876/generated/pkg/succinct_garbling.js?cache_bust=1774682644895",
     "fixture_name": "wraparound-seed",
     "artifact_bytes": 138256,
     "total_steps": 180,
@@ -436,21 +436,21 @@
       "dependency_merges": 448,
       "point_normalizations": 184
     },
-    "prepare_duration_ns": 89400000,
+    "prepare_duration_ns": 88200000,
     "sample_iterations": 10,
     "sample_count": 6,
     "execution_latency_ns": {
-      "min": 3770000.000298023,
-      "median": 3779999.999701977,
-      "mean": 3788333.333283663,
+      "min": 3620000.000298023,
+      "median": 3670000.000298023,
+      "mean": 3691666.6666666665,
       "p95": 3829999.999701977,
       "max": 3829999.999701977
     },
-    "detailed_result_duration_ns": 4200000,
+    "detailed_result_duration_ns": 3800000,
     "latency_ns_per_curve_cost_unit": {
-      "min": 60.08159623092406,
-      "median": 60.24096385067216,
-      "mean": 60.37377021233605,
+      "min": 57.691081792216856,
+      "median": 58.48791993845259,
+      "mean": 58.83321646373855,
       "p95": 61.037801996907895,
       "max": 61.037801996907895
     },
@@ -460,7 +460,7 @@
   "browser_ddh_hidden_eval": {
     "available": true,
     "runtime": "wasm_browser_ddh",
-    "wasm_module_url": "http://127.0.0.1:61876/generated/pkg/succinct_garbling.js?cache_bust=1774626841023",
+    "wasm_module_url": "http://127.0.0.1:61876/generated/pkg/succinct_garbling.js?cache_bust=1774682645218",
     "fixture_name": "wraparound-seed",
     "artifact_bytes": 138256,
     "active_window_records": 180,
@@ -475,127 +475,127 @@
       "dependency_merges": 448,
       "point_normalizations": 184
     },
-    "prepare_duration_ns": 163200000,
+    "prepare_duration_ns": 157900000,
     "sample_iterations": 1,
     "sample_count": 3,
     "execution_latency_ns": {
-      "min": 393200000.00298023,
-      "median": 396299999.99701977,
-      "mean": 396033333.33631355,
-      "p95": 398600000.0089407,
-      "max": 398600000.0089407
+      "min": 374000000,
+      "median": 379600000.0089407,
+      "mean": 378633333.3353202,
+      "p95": 382299999.99701977,
+      "max": 382299999.99701977
     },
     "js_wall_clock_execution_ns": {
-      "min": 393200000.00298023,
-      "median": 396299999.99701977,
-      "mean": 396033333.33631355,
-      "p95": 398600000.0089407,
-      "max": 398600000.0089407
+      "min": 374000000,
+      "median": 379600000.0089407,
+      "mean": 378633333.3353202,
+      "p95": 382299999.99701977,
+      "max": 382299999.99701977
     },
-    "probe_total_hidden_eval_ns": 283599999,
+    "probe_total_hidden_eval_ns": 266200000,
     "estimated_js_wasm_gap_ns": {
-      "min": 109600001.00298023,
-      "median": 112700000.99701977,
-      "mean": 112433334.33631356,
-      "p95": 115000001.0089407,
-      "max": 115000001.0089407
+      "min": 107800000,
+      "median": 113400000.0089407,
+      "mean": 112433333.33532016,
+      "p95": 116099999.99701977,
+      "max": 116099999.99701977
     },
-    "detailed_result_duration_ns": 396400000,
-    "evaluate_duration_ns": 395500000,
-    "ot_open_join_duration_ns": 112800000,
-    "ot_branch_key_derivation_duration_ns": 800004,
-    "ot_branch_decrypt_duration_ns": 1399995,
-    "ot_point_scalar_reconstruction_duration_ns": 25500001,
-    "ot_commitment_verification_duration_ns": 1900002,
-    "server_input_open_duration_ns": 5000000,
-    "server_input_share_duration_ns": 4399999,
+    "detailed_result_duration_ns": 377800000,
+    "evaluate_duration_ns": 377000000,
+    "ot_open_join_duration_ns": 108700000,
+    "ot_branch_key_derivation_duration_ns": 300001,
+    "ot_branch_decrypt_duration_ns": 1000002,
+    "ot_point_scalar_reconstruction_duration_ns": 24200002,
+    "ot_commitment_verification_duration_ns": 3399994,
+    "server_input_open_duration_ns": 4800000,
+    "server_input_share_duration_ns": 4200000,
     "server_input_commitment_duration_ns": 0,
     "server_input_transcript_duration_ns": 0,
-    "server_input_seal_duration_ns": 600001,
-    "output_sealing_finalization_duration_ns": 800001,
-    "result_assembly_duration_ns": 3899999,
-    "output_open_duration_ns": 399999,
+    "server_input_seal_duration_ns": 600000,
+    "output_sealing_finalization_duration_ns": 699999,
+    "result_assembly_duration_ns": 3500000,
+    "output_open_duration_ns": 400001,
     "public_key_duration_ns": 0,
-    "detailed_total_duration_ns": 396000000,
+    "detailed_total_duration_ns": 377400001,
     "latency_ns_per_curve_cost_unit": {
-      "min": 6266.335182045328,
-      "median": 6315.739147016953,
-      "mean": 6311.489343665354,
-      "p95": 6352.393701933778,
-      "max": 6352.393701933778
+      "min": 5960.34933384331,
+      "median": 6049.595206364198,
+      "mean": 6034.189668759485,
+      "p95": 6092.624466070947,
+      "max": 6092.624466070947
     },
     "stage_timings_ns": {
       "input_sharing": {
-        "min": 11699999,
-        "median": 11699999,
-        "mean": 11699999,
-        "p95": 11699999,
-        "max": 11699999
+        "min": 11200001,
+        "median": 11200001,
+        "mean": 11200001,
+        "p95": 11200001,
+        "max": 11200001
       },
       "add_stage": {
-        "min": 2200002,
-        "median": 2200002,
-        "mean": 2200002,
-        "p95": 2200002,
-        "max": 2200002
+        "min": 2199999,
+        "median": 2199999,
+        "mean": 2199999,
+        "p95": 2199999,
+        "max": 2199999
       },
       "message_schedule": {
-        "min": 55700000,
-        "median": 55700000,
-        "mean": 55700000,
-        "p95": 55700000,
-        "max": 55700000
+        "min": 51900000,
+        "median": 51900000,
+        "mean": 51900000,
+        "p95": 51900000,
+        "max": 51900000
       },
       "round_core": {
-        "min": 173999999,
-        "median": 173999999,
-        "mean": 173999999,
-        "p95": 173999999,
-        "max": 173999999
+        "min": 164100000,
+        "median": 164100000,
+        "mean": 164100000,
+        "p95": 164100000,
+        "max": 164100000
       },
       "output_projector": {
-        "min": 39999999,
-        "median": 39999999,
-        "mean": 39999999,
-        "p95": 39999999,
-        "max": 39999999
+        "min": 36800000,
+        "median": 36800000,
+        "mean": 36800000,
+        "p95": 36800000,
+        "max": 36800000
       }
     },
     "substage_timings_ns": {
       "message_schedule_accumulation": {
-        "min": 45399992,
-        "median": 45399992,
-        "mean": 45399992,
-        "p95": 45399992,
-        "max": 45399992
+        "min": 43200000,
+        "median": 43200000,
+        "mean": 43200000,
+        "p95": 43200000,
+        "max": 43200000
       },
       "round_sigma1": {
-        "min": 5100008,
-        "median": 5100008,
-        "mean": 5100008,
-        "p95": 5100008,
-        "max": 5100008
+        "min": 5900007,
+        "median": 5900007,
+        "mean": 5900007,
+        "p95": 5900007,
+        "max": 5900007
       },
       "round_ch": {
-        "min": 12699992,
-        "median": 12699992,
-        "mean": 12699992,
-        "p95": 12699992,
-        "max": 12699992
+        "min": 11699994,
+        "median": 11699994,
+        "mean": 11699994,
+        "p95": 11699994,
+        "max": 11699994
       },
       "round_temp1": {
-        "min": 75500003,
-        "median": 75500003,
-        "mean": 75500003,
-        "p95": 75500003,
-        "max": 75500003
+        "min": 71000008,
+        "median": 71000008,
+        "mean": 71000008,
+        "p95": 71000008,
+        "max": 71000008
       },
       "round_temp2": {
-        "min": 17699998,
-        "median": 17699998,
-        "mean": 17699998,
-        "p95": 17699998,
-        "max": 17699998
+        "min": 17200000,
+        "median": 17200000,
+        "mean": 17200000,
+        "p95": 17200000,
+        "max": 17200000
       }
     },
     "reference_match": true,
@@ -606,7 +606,7 @@
         "stage": "input_sharing",
         "ok": true,
         "completed_stage": "input_sharing",
-        "total_duration_ns": 11699999,
+        "total_duration_ns": 11200001,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -617,7 +617,7 @@
         "stage": "add_stage",
         "ok": true,
         "completed_stage": "add_stage",
-        "total_duration_ns": 13900001,
+        "total_duration_ns": 13400000,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -628,8 +628,8 @@
         "stage": "message_schedule",
         "ok": true,
         "completed_stage": "message_schedule",
-        "total_duration_ns": 69600001,
-        "message_schedule_accumulation_duration_ns": 45399992,
+        "total_duration_ns": 65300000,
+        "message_schedule_accumulation_duration_ns": 43200000,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
         "round_temp1_duration_ns": 0,
@@ -639,23 +639,23 @@
         "stage": "round_core",
         "ok": true,
         "completed_stage": "round_core",
-        "total_duration_ns": 243600000,
-        "message_schedule_accumulation_duration_ns": 44299999,
-        "round_sigma1_duration_ns": 5100008,
-        "round_ch_duration_ns": 12699992,
-        "round_temp1_duration_ns": 75500003,
-        "round_temp2_duration_ns": 17699998
+        "total_duration_ns": 229400000,
+        "message_schedule_accumulation_duration_ns": 41499992,
+        "round_sigma1_duration_ns": 5900007,
+        "round_ch_duration_ns": 11699994,
+        "round_temp1_duration_ns": 71000008,
+        "round_temp2_duration_ns": 17200000
       },
       {
         "stage": "output_projector",
         "ok": true,
         "completed_stage": "output_projector",
-        "total_duration_ns": 283599999,
-        "message_schedule_accumulation_duration_ns": 45699997,
-        "round_sigma1_duration_ns": 5300003,
-        "round_ch_duration_ns": 12699996,
-        "round_temp1_duration_ns": 75599999,
-        "round_temp2_duration_ns": 18499995
+        "total_duration_ns": 266200000,
+        "message_schedule_accumulation_duration_ns": 42499998,
+        "round_sigma1_duration_ns": 5499996,
+        "round_ch_duration_ns": 12199991,
+        "round_temp1_duration_ns": 70300011,
+        "round_temp2_duration_ns": 18200004
       }
     ]
   },
@@ -683,76 +683,76 @@
     "proxy_rounds_per_step": 32,
     "dispatch_repeats": 8,
     "curve_cost_units_reference": 62748,
-    "adapter_request_ns": 3900000,
-    "device_request_ns": 4900000,
-    "pipeline_create_ns": 1400000,
-    "upload_ns": 0,
-    "setup_total_ns": 10200000,
+    "adapter_request_ns": 3400000,
+    "device_request_ns": 200000,
+    "pipeline_create_ns": 1200000,
+    "upload_ns": 100000,
+    "setup_total_ns": 4900000,
     "subkernel_timings_ns": {
       "digit_recode_v0": {
         "min": 37499.99962747097,
-        "median": 37500.00149011612,
-        "mean": 58333.33358168602,
-        "p95": 125000,
-        "max": 125000
-      },
-      "window_bucket_accumulate_v0": {
-        "min": 37499.99962747097,
-        "median": 49999.99888241291,
-        "mean": 54166.66685293118,
-        "p95": 112500.00074505806,
-        "max": 112500.00074505806
-      },
-      "bucket_reduce_v0": {
-        "min": 25000.00037252903,
-        "median": 37500.00149011612,
-        "mean": 50000.000124176346,
+        "median": 37499.99962747097,
+        "mean": 49999.999813735485,
         "p95": 99999.99962747097,
         "max": 99999.99962747097
       },
-      "dependency_merge_normalize_v0": {
-        "min": 24999.99850988388,
+      "window_bucket_accumulate_v0": {
+        "min": 25000.00037252903,
         "median": 37499.99962747097,
-        "mean": 35416.66610787312,
+        "mean": 39583.33283662796,
+        "p95": 49999.99888241291,
+        "max": 49999.99888241291
+      },
+      "bucket_reduce_v0": {
+        "min": 37500.00149011612,
+        "median": 49999.99888241291,
+        "mean": 43750.00080714623,
+        "p95": 50000.00074505806,
+        "max": 50000.00074505806
+      },
+      "dependency_merge_normalize_v0": {
+        "min": 37499.99962747097,
+        "median": 37499.99962747097,
+        "mean": 41666.66635622581,
         "p95": 50000.00074505806,
         "max": 50000.00074505806
       }
     },
     "bucket_pipeline_timings_ns": {
-      "min": 112500.00074505806,
-      "median": 150000.00037252903,
-      "mean": 162500.00055879354,
-      "p95": 250000,
-      "max": 250000
+      "min": 112499.99888241291,
+      "median": 125000,
+      "mean": 133333.33345750967,
+      "p95": 187500,
+      "max": 187500
     },
     "subkernel_mean_share_of_total": {
-      "digit_recode_v0": 0.2947,
-      "window_bucket_accumulate_v0": 0.2737,
-      "bucket_reduce_v0": 0.2526,
-      "dependency_merge_normalize_v0": 0.1789
+      "digit_recode_v0": 0.2857,
+      "window_bucket_accumulate_v0": 0.2262,
+      "bucket_reduce_v0": 0.25,
+      "dependency_merge_normalize_v0": 0.2381
     },
-    "bucket_pipeline_mean_share_of_total": 0.8211,
+    "bucket_pipeline_mean_share_of_total": 0.7619,
     "dominant_subkernel_kind": "digit_recode_v0",
     "execution_latency_ns": {
-      "min": 137499.99925494194,
-      "median": 187500,
-      "mean": 197916.66666666666,
-      "p95": 287499.99962747097,
-      "max": 287499.99962747097
+      "min": 150000.00037252903,
+      "median": 162499.99962747097,
+      "mean": 174999.99981373549,
+      "p95": 237499.9988824129,
+      "max": 237499.9988824129
     },
     "readback_latency_ns": {
       "min_ns": 0,
       "median_ns": 100000,
-      "mean_ns": 66667,
+      "mean_ns": 50000,
       "p95_ns": 100000,
       "max_ns": 100000
     },
     "proxy_latency_ns_per_curve_cost_unit": {
-      "min": 2.191304890274462,
-      "median": 2.9881430483840123,
-      "mean": 3.1541509955164577,
-      "p95": 4.5818193349185785,
-      "max": 4.5818193349185785
+      "min": 2.3905144446441167,
+      "median": 2.589723969329237,
+      "mean": 2.7889335088566245,
+      "p95": 3.7849811768090285,
+      "max": 3.7849811768090285
     },
     "output_checksum_hex": "0000005c27563622"
   }

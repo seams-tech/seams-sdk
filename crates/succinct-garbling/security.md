@@ -55,6 +55,33 @@ If an attacker intercepts the server's transport bundle (the wire message sent d
 
 This is insufficient to recover `y_relayer` (need the other share-side from the Beaver correlation), `y_client` (protected by OT — attacker cannot decrypt without the client's selection), or `a` (requires both root shares plus the full evaluation).
 
+### 5.1 Evaluator-side server-input handling
+
+The normal packet-based evaluator flow has been hardened so it no longer materializes a generic owned `DdhHiddenEvalServerInputs` object after opening the server-input packet.
+
+Instead:
+
+- the evaluator opens the encrypted server-input packet into left/right transport bundles
+- validation still checks the same context binding, bundle pairing, and combined server-input commitment
+- hidden evaluation now consumes borrowed left/right transport-bundle references directly in the add stage and output projector
+
+This is an important boundary improvement because it narrows the normal evaluator path: the runtime no longer promotes opened server input transport into a general-purpose owned hidden-value structure that is easier to pass around or reuse accidentally.
+
+Security-wise, this does **not** change the on-wire cryptography or the commitment semantics:
+
+- the same transport bundle pair validation still runs
+- the same combined server-input commitment is recomputed
+- the same hidden evaluation result is produced
+
+So the change removes an unnecessary in-memory materialization step without weakening any of the existing checks.
+
+Measured impact was acceptable:
+
+- native hidden eval stayed in the same band, roughly `~0.261s -> ~0.268s`
+- browser hidden eval stayed effectively flat to slightly better, roughly `~0.379s -> ~0.359s`
+
+The prepared-session benchmark path remains separate and highly optimized; this hardening specifically improves the normal transport-message evaluator flow.
+
 ### 6. Oblivious Transfer security
 
 The OT implementation uses 1-out-of-2 Elliptic Curve OT on Curve25519 with ChaCha20Poly1305 AEAD:
