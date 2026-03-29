@@ -766,23 +766,25 @@
             probeByStage.output_projector?.total_duration_ns ?? 0;
 
           for (let idx = 0; idx < WASM_DDH_WARMUP; idx += 1) {
-            await wasmModule.execute_prime_order_ddh_hidden_eval_once_fast();
+            await wasmModule.execute_prime_order_ddh_hidden_eval_hidden_run_once_fast();
           }
 
           const wallClockSamplesNs = [];
-          let lastReferenceMatch = true;
 
           for (let sampleIdx = 0; sampleIdx < WASM_DDH_SAMPLES; sampleIdx += 1) {
             const wallClockStart = performance.now();
             for (let iter = 0; iter < WASM_DDH_ITERATIONS; iter += 1) {
-              lastReferenceMatch = await wasmModule.execute_prime_order_ddh_hidden_eval_once_fast();
+              await wasmModule.execute_prime_order_ddh_hidden_eval_hidden_run_once_fast();
             }
             wallClockSamplesNs.push(
               ((performance.now() - wallClockStart) * 1_000_000) / WASM_DDH_ITERATIONS,
             );
           }
           const detailedResultStart = performance.now();
-          const lastRun = await wasmModule.execute_prime_order_ddh_hidden_eval_once();
+          const lastRun =
+            typeof wasmModule.execute_prime_order_ddh_hidden_eval_hidden_run_once === "function"
+              ? await wasmModule.execute_prime_order_ddh_hidden_eval_hidden_run_once()
+              : await wasmModule.execute_prime_order_ddh_hidden_eval_once();
           const detailedResultDurationNs = Math.round(
             (performance.now() - detailedResultStart) * 1_000_000,
           );
@@ -845,6 +847,9 @@
               lastRun?.output_sealing_finalization_duration_ns,
             ),
             result_assembly_duration_ns: wasmNumber(lastRun?.result_assembly_duration_ns),
+            output_materialization_duration_ns: wasmNumber(
+              lastRun?.output_materialization_duration_ns,
+            ),
             output_open_duration_ns: wasmNumber(lastRun?.output_open_duration_ns),
             public_key_duration_ns: wasmNumber(lastRun?.public_key_duration_ns),
             detailed_total_duration_ns: wasmNumber(lastRun?.total_duration_ns),
@@ -865,7 +870,7 @@
               round_temp1: benchmarkStats(repeatedStageSamples(roundTemp1Ns)),
               round_temp2: benchmarkStats(repeatedStageSamples(roundTemp2Ns)),
             },
-            reference_match: Boolean(lastReferenceMatch && lastRun?.reference_match),
+            reference_match: Boolean(lastRun?.reference_match),
             output_public_key_hex: lastRun?.output_public_key_hex ?? null,
             output_x_client_base_hex: lastRun?.output_x_client_base_hex ?? null,
             probe_results: probeResults,

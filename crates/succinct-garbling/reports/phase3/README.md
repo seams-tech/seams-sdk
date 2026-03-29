@@ -10,28 +10,28 @@ Current report:
     [`benchmark_ddh_hidden_eval.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/src/bin/benchmark_ddh_hidden_eval.rs)
   - fixture: `wraparound-seed`
   - artifact: `138,256` bytes
-  - prepare duration: `~111.2 ms`
-  - total hidden eval mean: `~1.28 s`
-  - dominant stage: round core at `~528.3 ms`
-  - message schedule mean: `~169.7 ms`
-  - output projector mean: `~120.3 ms`
-  - substage split: schedule accumulation `~138.8 ms`, `temp1` `~228.1 ms`,
-    `temp2` `~56.8 ms`
+  - prepare duration: `~86.4 ms`
+  - total hidden eval mean: `~0.551 s`
+  - dominant stage: round core at `~307.1 ms`
+  - message schedule mean: `~91.9 ms`
+  - output projector mean: `~87.7 ms`
+  - substage split: schedule accumulation `~79.4 ms`, `temp1` `~132.2 ms`,
+    `temp2` `~32.8 ms`
 - [`browser-ddh-hidden-eval-chrome.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/reports/phase3/browser-ddh-hidden-eval-chrome.json)
   - first browser benchmark report collected through
     [`collect_browser_cache_benchmark.mjs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/succinct-garbling/scripts/collect_browser_cache_benchmark.mjs)
   - current desktop Chrome baseline:
-    - prepare duration: `~222.0 ms`
-    - total hidden eval mean: `~1.70 s`
-    - input sharing mean: `~150.6 ms`
-    - add stage mean: `~31.7 ms`
-    - message schedule mean: `~183.6 ms`
-    - round core mean: `~590.2 ms`
-    - output projector mean: `~139.9 ms`
-    - substage split: schedule accumulation `~153.2 ms`, `temp1` `~256.1 ms`,
-      `temp2` `~62.9 ms`
+    - prepare duration: `~148.5 ms`
+    - total hidden eval mean: `~0.774 s`
+    - input sharing mean: `~10.7 ms`
+    - add stage mean: `~3.7 ms`
+    - message schedule mean: `~122.0 ms`
+    - round core mean: `~406.5 ms`
+    - output projector mean: `~118.4 ms`
+    - substage split: schedule accumulation `~106.1 ms`, `temp1` `~175.8 ms`,
+      `temp2` `~43.5 ms`
   - reference match: `true`
-  - browser/native total ratio on this host: `~1.33x`
+  - browser/native total ratio on this host: `~1.40x`
   - note: browser total now reflects the packetized delivery-path wall clock,
     while stage timings remain hidden-evaluator stage probes
 

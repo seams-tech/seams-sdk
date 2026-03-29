@@ -1,6 +1,6 @@
 # Succinct Garbling Plan
 
-Date updated: March 24, 2026
+Date updated: March 29, 2026
 
 ## Objective
 
@@ -23,6 +23,15 @@ The implementation target is intentionally narrow:
 This is the fixed-function implementation path for hidden Ed25519 seed
 expansion in the stateless shared-root model. The scope remains intentionally
 narrow so the cryptographic surface stays reviewable and productionizable.
+
+Current implementation checkpoint:
+
+- the production hidden-eval arithmetic path now stays split/local through add,
+  message schedule, round core, and output projection
+- joined hidden-value helpers are now confined to trusted simulation/tests and
+  explicit boundary rebuilds
+- the next major work is Phase 6 performance work on the hardened split/local
+  model rather than more joined-value cleanup
 
 Current project decision for this note:
 
@@ -496,12 +505,14 @@ Status:
 ### Phase 1 — Evaluation and hardware profiling
 
 Only after the ideal function is frozen should we measure where the real cost
-is. For this workstream, succinct garbling is the chosen implementation path,
-not a deferred fallback. Mixed-circuit `edaBits` / `mv-edabits` and GC-heavy
-backend improvements are intentionally out of scope for this note so the team
-can drive the succinct-garbling path to completion. The gate structure of
-one-block `SHA-512 + clamp` is already broadly understood. The open question is
-evaluator performance on actual client hardware.
+is. In the broader SSR roadmap, mixed-circuit `edaBits` / `mv-edabits` remain
+the first-line priority, GC-heavy backend improvements remain second, and this
+succinct-garbling track is the bounded third option if communication is still
+the dominant blocker after those earlier paths are evaluated. This note is
+therefore intentionally scoped to the succinct-garbling branch of the design
+space rather than redefining the overall SSR priority order. The gate structure
+of one-block `SHA-512 + clamp` is already broadly understood. The open question
+is evaluator performance on actual client hardware.
 
 Tasks:
 
@@ -1136,9 +1147,22 @@ Current blocker:
     state plus evaluator-owned transport keys
   - transport-aware relayer addition now avoids reconstituting generic shared
     words for the add stage and projector-side canonical `mod l` addition
+  - executor-side server-input storage for the add stage and projector now uses
+    split left/right transport-word vectors rather than joined per-bit relayer
+    word pairs
   - however, once arithmetic is in flight the evaluator still carries derived
-    intermediates as joined shared words, so the execution model is not yet
-    role-local end to end
+    intermediates as joined shared words in message schedule and round-core
+    execution, so the execution model is not yet role-local end to end
+  - the remaining blocker is now structural:
+    - `DdhHssArithmeticBackend` still takes and returns `DdhHssSharedWord`
+      across production arithmetic helpers
+    - message schedule and round-core still advance production state as joined
+      `DdhHssSharedWord` values
+    - final server output is now carried as split transport pairs through the
+      evaluation-result sealing path, but the arithmetic core is still not
+      role-local
+    - smaller constructor-only or wrapper-only refactors do not fix that model
+      and have already been rejected when they regressed benchmarks
 
 Tasks:
 
@@ -1230,7 +1254,7 @@ Implementation order:
 1. move the normal packet-based evaluator path onto borrowed split-state server
    input views without changing the prepared-session benchmark fast path
 2. replace remaining executor helpers that still require joined server-input
-   objects with split-state variants
+   objects with split-state variants for add stage and output projector first
 3. delete dead generic server-input materialization helpers from production
    paths as soon as each split-state caller lands
 4. then tighten the type surface so only trusted simulation paths can still
@@ -1285,7 +1309,8 @@ Why this order:
 
 Exit criteria:
 
-- production add/projector stages run on role-local state only
+- production add/projector stages no longer depend on joined server-input word
+  representations
 - any remaining joined bridge is limited to schedule / round-core execution
 
 #### Phase C — Port message schedule and round core
@@ -1355,8 +1380,10 @@ TODO list:
 - [x] move the normal packet-based evaluator path onto borrowed split-state
   server-input views instead of materializing a generic joined relayer-input
   object
-- [ ] replace the remaining normal-delivery executor helpers that still require
-  joined server-input objects with split-state variants
+- [x] replace add-stage and output-projector normal-delivery executor helpers
+  that required joined server-input words with split-state transport variants
+- [x] remove duplicate transport-only add/projector executor helpers once the
+  shared split-state helpers are in place
 - [ ] keep the prepared-session benchmark fast path performance-stable while
   narrowing the normal transport-message path
 - [ ] introduce explicit garbler-local and evaluator-local relayer-input types
@@ -1369,6 +1396,193 @@ TODO list:
   rejoin relayer inputs into plaintext-capable objects
 - [ ] rerun native and browser benchmarks after each remaining boundary step and
   revert any version that regresses beyond the acceptable band
+
+Phased TODO list:
+
+#### Phase A TODO — Arithmetic value model split
+
+- [x] add production role-local word/share types in
+  `crates/succinct-garbling/src/ddh_hss.rs`
+- [x] revert the wrapper-only role-local type attempt that regressed without
+  removing real evaluator capability
+- [x] mark `DdhHssSharedWord` as trusted-simulation-only in comments and usage
+  sites
+- [x] define the minimum evaluator-local / garbler-local backend primitives
+  needed for production execution:
+  - tested local-share add over shares for width-1 backend bring-up
+  - tested local-share Beaver mul with explicit open points
+  - commitment/provenance carrying on local words
+  - production executor is not using these primitives yet; they are the backend
+    prerequisite for the first true split-state arithmetic slice
+- [ ] remove any new production call site that introduces a joined relayer word
+  just to reuse existing helpers
+- [ ] benchmark after the value-model split lands
+
+#### Phase B TODO — Add stage and projector
+
+- [x] port `execute_add_stage(...)` to a production split-state execution path
+  in `crates/succinct-garbling/src/ddh_hidden_eval_executor.rs`
+- [x] port output-projector helpers to production split-state execution
+  equivalents
+- [x] keep any temporary joined bridge limited to message schedule / round core
+  only
+- [x] delete dead joined add/projector production helpers as soon as the split
+  versions pass tests
+- [x] make normal and prepared-session execution share the same split-state
+  add/projector executor helpers
+- [x] rerun native and browser benchmarks before starting the round-core work
+- [x] reject the constructor-only attempt to move trusted prep / clear-input
+  scaffolding onto transport-pair construction when it regressed without
+  changing the remaining joined arithmetic core
+
+#### Phase C TODO — Message schedule and round core
+
+- [ ] split the arithmetic backend surface so production schedule / round-core
+  work is not forced to use `DdhHssSharedWord` as the only value model
+  - first slice landed: message-schedule accumulation now runs on
+    `DdhHssDerivedWord` and only converts back at the round-core boundary
+  - add-stage output now stays on `DdhHssDerivedWord` into message schedule, and
+    the old shared transport-add helper has been deleted
+  - client input words now move onto the derived path at the executor boundary
+    for add stage and projector work, so production executor stages no longer
+    take generic `DdhHssSharedWord` client inputs directly
+  - round-core final words now also stay on `DdhHssDerivedWord` until the
+    output-projector boundary
+  - output-projector `a` clamp/reduce path now also stays on
+    `DdhHssDerivedWord` until the client/server output-share combination seam
+  - output-share combination now also runs on `DdhHssDerivedWord` until final
+    bundle emission, and the old shared-word compatibility helpers have been
+    deleted
+  - schedule words, SHA-512 IV words, round constants, and projector modulus
+    constants now stay on `DdhHssDerivedWord` end-to-end instead of bouncing
+    through `DdhHssSharedWord` between production stages
+- [x] port message-schedule accumulation to split-state execution
+- [x] port `temp1` / `temp2` accumulation to split-state execution
+- [x] port `Sigma0` and `Sigma1` helpers to split-state execution
+- [x] port `Ch` and `Maj` helpers to split-state execution
+- [ ] redesign multiplication/open helpers where needed so neither side
+  reconstructs both relayer shares during production execution
+  - backend-local width-1 add/open/mul helpers are now landed and tested in
+    `crates/succinct-garbling/src/ddh_hss.rs`
+  - backend-local width-1 mul material is now derived directly from evaluation
+    key plus input commitments/provenance, without going through heavyweight
+    shared `prepare_mul_material(...)`
+  - backend-local width-1 batch bit-mul helper is now tested, so the next
+    production attempt can target one batched hotspot instead of substituting
+    individual gate multiplies
+  - first bounded production batched slice is now landed for `Ch`: evaluator
+    round-core `Ch` multiplication uses the batched local bit-mul helper rather
+    than the older direct joined derived multiply helper
+  - first whole-stage local/split slice is now landed for `Ch`: the executor
+    converts `x`, `y`, and `z` into left/right local bit-slices, computes
+    `y xor z` locally, performs the gated multiply over the slice in batch, and
+    rejoins only at the stage output boundary
+  - that stage-level `Ch` slice required tightening local-slice provenance so
+    joinable outputs derive from side-stable inputs rather than side-local
+    commitments
+  - second bounded production batched slice is now landed for `Maj`: evaluator
+    round-core `Maj` multiplication also uses the batched local bit-mul helper
+    and is being kept despite a noticeable native regression because it removes
+    another real joined round-core seam
+  - second whole-stage local/split slice is now landed for `Maj`: the executor
+    converts `x`, `y`, and `z` into left/right local bit-slices, computes
+    `x xor y` and `x xor z` locally on each side, performs the gated multiply
+    over the slice in batch, and rejoins only at the stage output boundary
+  - the first whole-stage local/split carry slice is now landed for
+    `add_two_words_bits_into_derived(...)`: the evaluator converts both input
+    words into left/right local bit-slices, advances the carry chain as
+    left/right local words, and rejoins only after the full word addition
+  - `add_two_words_bits_right_transport_bundles_derived(...)` now uses that
+    same local/split carry model after validating the relayer transport pair,
+    so the transport-backed add seam no longer falls back to joined per-bit
+    production values either
+  - second production attempt to route `mul_word_bits_derived(...)` through that
+    cheaper local seam was also reverted; per-gate explicit local open/recombine
+    is still too expensive in the round-core hot path
+  - first production attempt to route `mul_word_bits_derived(...)` through the
+    local Beaver-open seam was reverted after a major native regression, so the
+    next slice must avoid per-gate material setup on the hot path
+- [ ] delete any remaining production joined-word executor entry after the last
+  round-core caller is migrated
+- [ ] rerun native and browser benchmarks and compare against the last good
+  pre-round-core baseline
+  - latest stage-level `Ch` benchmark gate:
+    - native total hidden eval: `~0.306 s`
+    - browser total hidden eval: `~0.442 s`
+    - browser `ot_open_join`: `~106.7 ms`
+  - latest stage-level `Ch + Maj` benchmark gate:
+    - native total hidden eval: `~0.318 s`
+    - browser total hidden eval: `~0.462 s`
+    - browser `ot_open_join`: `~107.8 ms`
+  - latest carry-slice benchmark gate:
+    - native total hidden eval: `~0.595 s`
+    - browser total hidden eval: `~0.800 s`
+    - browser `ot_open_join`: `~106.5 ms`
+  - compared with the previous `Ch + Maj` batched-only state:
+    - native improved slightly from `~0.322 s`
+    - browser regressed from `~0.401 s`
+  - compared with the previous whole-stage `Ch + Maj` state:
+    - native regressed from `~0.318 s`
+    - browser regressed from `~0.462 s`
+  - keep rationale: this is the first honest whole-stage local/split execution
+    slices aimed directly at the remaining joined-value issue, and the carry
+    slice is the first time the dominant add/carry seam itself is off joined
+    per-bit production values, so the
+    regression is being tracked as a security-model tradeoff rather than a pure
+    optimization failure
+  - current recommendation: pause the boundary refactor here, consolidate this
+    security-first state, and start a later optimization pass over the new
+    local/split model rather than pushing more stage-boundary rejoins inward in
+    the current sequence
+
+#### Phase D TODO — Trusted-path isolation
+
+- [x] stop `DdhHiddenEvalRun` from materializing joined output bundles in
+  production evaluation paths
+- [ ] move joined relayer materialization behind explicitly trusted-only helper
+  APIs
+- [ ] keep joined relayer decode/materialization available only for:
+  - clear-input simulation
+  - benchmark/profiling scaffolding that is explicitly trusted
+  - tests
+- [ ] ensure production evaluator-facing runtime APIs cannot call joined
+  relayer helpers
+- [ ] tighten visibility so joined relayer helper types are crate-internal or
+  test-only
+- [ ] add negative tests proving production paths cannot reconstruct a
+  plaintext-capable relayer object
+
+#### Phase E TODO — Cleanup and verification
+
+- [ ] remove dead compatibility helpers created during the staged migration
+- [ ] update `crates/succinct-garbling/security.md` with the final execution
+  boundary once production joined execution is gone
+- [ ] update `crates/succinct-garbling/README.md` to describe the final
+  production role split
+- [ ] record the final benchmark deltas against the current optimized baseline
+  in `crates/succinct-garbling/optimization.md`
+- [ ] only mark Phase 3c complete once production execution no longer depends
+  on joined relayer execution
+
+Current sequencing rule:
+
+1. land one phase slice at a time
+2. run tests plus native/browser benchmarks after every slice
+3. keep a regression only if that slice removes real evaluator-side relayer
+   reconstruction capability
+4. revert any wrapper-only or surface-only regression immediately
+
+Current consolidation rule:
+
+1. treat the current local/split boolean plus carry slices as the security-first
+   checkpoint
+2. do not push deeper stage-boundary rejoins inward until there is a dedicated
+   optimization pass for the new local/split model
+3. optimize the hardened model later by targeting:
+   - packed bit-slice storage
+   - stage-kernel fusion
+   - reused local mul material across whole stages
+   - fewer stage-boundary rejoins
 
 Deliverable:
 

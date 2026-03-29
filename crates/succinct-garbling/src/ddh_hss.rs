@@ -45,6 +45,31 @@ pub struct DdhHssSharedWord {
     pub provenance_digest: [u8; 32],
 }
 
+// Production schedule/round-core refactors should prefer narrower executor-local
+// value types over this generic joined-share representation. Keep new usage of
+// DdhHssSharedWord focused on trusted simulation, bundle transport, and the
+// remaining legacy execution slices that are still being ported.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DdhHssDerivedWord {
+    pub width_bits: u16,
+    pub left_word: u64,
+    pub right_word: u64,
+    pub left_commitment: [u8; 32],
+    pub right_commitment: [u8; 32],
+    pub provenance_digest: [u8; 32],
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DdhHssLocalWord {
+    pub width_bits: u16,
+    pub share_side: DdhHssShareSide,
+    pub share_word: u64,
+    pub share_commitment: [u8; 32],
+    pub provenance_digest: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssInputShareBundle {
     pub owner: HiddenEvalInputOwner,
@@ -93,6 +118,17 @@ pub struct DdhHssMulMaterial {
     pub triple_a: DdhHssSharedWord,
     pub triple_b: DdhHssSharedWord,
     pub triple_c: DdhHssSharedWord,
+    pub provenance_digest: [u8; 32],
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DdhHssLocalMulMaterial {
+    pub width_bits: u16,
+    pub share_side: DdhHssShareSide,
+    pub triple_a: DdhHssLocalWord,
+    pub triple_b: DdhHssLocalWord,
+    pub triple_c: DdhHssLocalWord,
     pub provenance_digest: [u8; 32],
 }
 
@@ -166,8 +202,7 @@ pub struct DdhHssOtSelectionBundle {
 pub struct DdhHssOtReceiverStateWord {
     pub width_bits: u16,
     pub selected_branch: u8,
-    pub receiver_scalar: [u8; 32],
-    pub sender_public: [u8; 32],
+    pub shared_point: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -683,18 +718,21 @@ impl DdhHssBackend {
             let mut wide = [0u8; 64];
             OsRng.fill_bytes(&mut wide);
             let receiver_scalar = Scalar::from_bytes_mod_order_wide(&wide);
+            let sender_public_point = CompressedEdwardsY(word_offer.sender_public)
+                .decompress()
+                .ok_or_else(|| {
+                    ProtoError::InvalidInput(format!(
+                        "OT sender public point is invalid at index {}",
+                        bit_idx
+                    ))
+                })?;
+            let shared_point = (sender_public_point * receiver_scalar)
+                .compress()
+                .to_bytes();
             let receiver_public_point = if selected_branch == 0 {
                 ED25519_BASEPOINT_POINT * receiver_scalar
             } else {
-                CompressedEdwardsY(word_offer.sender_public)
-                    .decompress()
-                    .ok_or_else(|| {
-                        ProtoError::InvalidInput(format!(
-                            "OT sender public point is invalid at index {}",
-                            bit_idx
-                        ))
-                    })?
-                    + (ED25519_BASEPOINT_POINT * receiver_scalar)
+                sender_public_point + (ED25519_BASEPOINT_POINT * receiver_scalar)
             };
             request_words.push(DdhHssOtSelectionWord {
                 width_bits: 1,
@@ -703,8 +741,7 @@ impl DdhHssBackend {
             local_state_words.push(DdhHssOtReceiverStateWord {
                 width_bits: 1,
                 selected_branch,
-                receiver_scalar: receiver_scalar.to_bytes(),
-                sender_public: word_offer.sender_public,
+                shared_point,
             });
         }
 
@@ -918,17 +955,6 @@ impl DdhHssBackend {
                     state_word.selected_branch
                 )));
             }
-            let sender_public_point = CompressedEdwardsY(state_word.sender_public)
-                .decompress()
-                .ok_or_else(|| {
-                    ProtoError::InvalidInput(format!(
-                        "client OT sender public point is invalid at bit index {bit_idx}"
-                    ))
-                })?;
-            let receiver_scalar = Scalar::from_bytes_mod_order(state_word.receiver_scalar);
-            let shared_point = (sender_public_point * receiver_scalar)
-                .compress()
-                .to_bytes();
             let selected_branch = if state_word.selected_branch == 0 {
                 &response_word.zero_branch
             } else {
@@ -939,7 +965,7 @@ impl DdhHssBackend {
                 &response.label,
                 bit_idx,
                 state_word.selected_branch,
-                shared_point,
+                state_word.shared_point,
             );
             let payload = DdhHssBackend::open_ot_branch_with_key(
                 key,
@@ -2668,7 +2694,7 @@ fn reduce_word(value: u128, width_bits: u16) -> u64 {
     masked as u64
 }
 
-fn commit_word(
+pub(crate) fn commit_word(
     owner: HiddenEvalInputOwner,
     side_label: &'static [u8],
     word: u64,
@@ -2911,6 +2937,890 @@ fn build_shared_word_for_key(
         right_commitment,
         provenance_digest,
     }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn build_local_word_pair_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    domain: &'static [u8],
+    label: &[u8],
+    width_bits: u16,
+    left_word: u64,
+    right_word: u64,
+    extra_material: &[&[u8]],
+) -> (DdhHssLocalWord, DdhHssLocalWord) {
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        domain,
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        left_word,
+        right_word,
+        extra_material,
+    );
+    (
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Left,
+            share_word: left_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"left",
+                left_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Right,
+            share_word: right_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"right",
+                right_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+    )
+}
+
+#[cfg(test)]
+fn derived_word_from_shared(value: &DdhHssSharedWord) -> DdhHssDerivedWord {
+    DdhHssDerivedWord {
+        width_bits: value.width_bits,
+        left_word: value.left_word,
+        right_word: value.right_word,
+        left_commitment: value.left_commitment,
+        right_commitment: value.right_commitment,
+        provenance_digest: value.provenance_digest,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn local_word_from_shared(
+    value: &DdhHssSharedWord,
+    share_side: DdhHssShareSide,
+) -> DdhHssLocalWord {
+    let (share_word, share_commitment) = match share_side {
+        DdhHssShareSide::Left => (value.left_word, value.left_commitment),
+        DdhHssShareSide::Right => (value.right_word, value.right_commitment),
+    };
+    DdhHssLocalWord {
+        width_bits: value.width_bits,
+        share_side,
+        share_word,
+        share_commitment,
+        provenance_digest: value.provenance_digest,
+    }
+}
+
+#[cfg(test)]
+fn local_word_from_derived_public(
+    value: &DdhHssDerivedWord,
+    share_side: DdhHssShareSide,
+) -> ProtoResult<DdhHssLocalWord> {
+    if value.width_bits == 0 || value.width_bits > 64 {
+        return Err(ProtoError::InvalidInput(format!(
+            "local word requires valid width, got {}",
+            value.width_bits
+        )));
+    }
+    let (share_word, share_commitment) = match share_side {
+        DdhHssShareSide::Left => (value.left_word, value.left_commitment),
+        DdhHssShareSide::Right => (value.right_word, value.right_commitment),
+    };
+    Ok(DdhHssLocalWord {
+        width_bits: value.width_bits,
+        share_side,
+        share_word,
+        share_commitment,
+        provenance_digest: value.provenance_digest,
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn local_word_from_transport_public(
+    value: &DdhHssTransportWord,
+) -> ProtoResult<DdhHssLocalWord> {
+    if value.width_bits == 0 || value.width_bits > 64 {
+        return Err(ProtoError::InvalidInput(format!(
+            "local transport word requires valid width, got {}",
+            value.width_bits
+        )));
+    }
+    Ok(DdhHssLocalWord {
+        width_bits: value.width_bits,
+        share_side: value.share_side,
+        share_word: value.share_word,
+        share_commitment: value.share_commitment,
+        provenance_digest: value.provenance_digest,
+    })
+}
+
+#[cfg(test)]
+fn shared_word_from_derived(value: &DdhHssDerivedWord) -> DdhHssSharedWord {
+    DdhHssSharedWord {
+        width_bits: value.width_bits,
+        left_word: value.left_word,
+        right_word: value.right_word,
+        left_commitment: value.left_commitment,
+        right_commitment: value.right_commitment,
+        provenance_digest: value.provenance_digest,
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn build_local_word_for_key(
+    evaluation_key: &DdhHssEvaluationKey,
+    domain: &'static [u8],
+    label: &[u8],
+    width_bits: u16,
+    share_side: DdhHssShareSide,
+    share_word: u64,
+    extra_material: &[&[u8]],
+) -> DdhHssLocalWord {
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        domain,
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        0,
+        0,
+        extra_material,
+    );
+    let share_commitment = commit_word(
+        HiddenEvalInputOwner::Derived,
+        match share_side {
+            DdhHssShareSide::Left => b"left",
+            DdhHssShareSide::Right => b"right",
+        },
+        share_word,
+        &provenance_digest,
+    );
+
+    DdhHssLocalWord {
+        width_bits,
+        share_side,
+        share_word,
+        share_commitment,
+        provenance_digest,
+    }
+}
+
+#[cfg(test)]
+fn join_local_word_pair_as_derived(
+    left: &DdhHssLocalWord,
+    right: &DdhHssLocalWord,
+) -> ProtoResult<DdhHssDerivedWord> {
+    if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "local join requires left/right share pair".to_string(),
+        ));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local join width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    if left.provenance_digest != right.provenance_digest {
+        return Err(ProtoError::InvalidInput(
+            "local join provenance mismatch".to_string(),
+        ));
+    }
+
+    Ok(DdhHssDerivedWord {
+        width_bits: left.width_bits,
+        left_word: left.share_word,
+        right_word: right.share_word,
+        left_commitment: left.share_commitment,
+        right_commitment: right.share_commitment,
+        provenance_digest: left.provenance_digest,
+    })
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn xor_local_words_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left: &DdhHssLocalWord,
+    right: &DdhHssLocalWord,
+) -> ProtoResult<DdhHssLocalWord> {
+    if left.share_side != right.share_side {
+        return Err(ProtoError::InvalidInput(format!(
+            "local xor requires same share side, got {:?} and {:?}",
+            left.share_side, right.share_side
+        )));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local xor width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    Ok(build_local_word_for_key(
+        evaluation_key,
+        b"eval-xor-local-word",
+        label,
+        left.width_bits,
+        left.share_side,
+        reduce_word(
+            u128::from(left.share_word) + u128::from(right.share_word),
+            left.width_bits,
+        ),
+        &[&left.provenance_digest, &right.provenance_digest],
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn xor_local_word_pairs_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
+    ensure_local_word_pair(left_left, left_right)?;
+    ensure_local_word_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local xor pair width mismatch: {} vs {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+
+    let width_bits = left_left.width_bits;
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        b"eval-xor-local-word",
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        0,
+        0,
+        &[&left_left.provenance_digest, &right_left.provenance_digest],
+    );
+    let left_word = reduce_word(
+        u128::from(left_left.share_word) + u128::from(right_left.share_word),
+        width_bits,
+    );
+    let right_word = reduce_word(
+        u128::from(left_right.share_word) + u128::from(right_right.share_word),
+        width_bits,
+    );
+    Ok((
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Left,
+            share_word: left_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"left",
+                left_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Right,
+            share_word: right_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"right",
+                right_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_add_local_mod_2_pow_n_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left: &DdhHssLocalWord,
+    right: &DdhHssLocalWord,
+) -> ProtoResult<DdhHssLocalWord> {
+    if left.share_side != right.share_side {
+        return Err(ProtoError::InvalidInput(format!(
+            "local add requires same share side, got {:?} and {:?}",
+            left.share_side, right.share_side
+        )));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local add width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    Ok(build_local_word_for_key(
+        evaluation_key,
+        b"eval-add-local",
+        label,
+        left.width_bits,
+        left.share_side,
+        reduce_word(
+            u128::from(left.share_word) + u128::from(right.share_word),
+            left.width_bits,
+        ),
+        &[
+            &left.provenance_digest,
+            &right.provenance_digest,
+            &left.share_commitment,
+            &right.share_commitment,
+        ],
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_add_local_word_pairs_mod_2_pow_n_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
+    ensure_local_word_pair(left_left, left_right)?;
+    ensure_local_word_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local add pair width mismatch: {} vs {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+
+    let width_bits = left_left.width_bits;
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        b"eval-add-local",
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        0,
+        0,
+        &[
+            &left_left.provenance_digest,
+            &right_left.provenance_digest,
+            &left_left.share_commitment,
+            &left_right.share_commitment,
+            &right_left.share_commitment,
+            &right_right.share_commitment,
+        ],
+    );
+    let left_word = reduce_word(
+        u128::from(left_left.share_word) + u128::from(right_left.share_word),
+        width_bits,
+    );
+    let right_word = reduce_word(
+        u128::from(left_right.share_word) + u128::from(right_right.share_word),
+        width_bits,
+    );
+    Ok((
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Left,
+            share_word: left_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"left",
+                left_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+        DdhHssLocalWord {
+            width_bits,
+            share_side: DdhHssShareSide::Right,
+            share_word: right_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Derived,
+                b"right",
+                right_word,
+                &provenance_digest,
+            ),
+            provenance_digest,
+        },
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn open_local_word_pair_public(
+    left: &DdhHssLocalWord,
+    right: &DdhHssLocalWord,
+) -> ProtoResult<u64> {
+    if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "local open requires left/right share pair".to_string(),
+        ));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local open width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    Ok(reduce_word(
+        u128::from(left.share_word) + u128::from(right.share_word),
+        left.width_bits,
+    ))
+}
+
+fn ensure_local_word_pair(left: &DdhHssLocalWord, right: &DdhHssLocalWord) -> ProtoResult<()> {
+    if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "local pair requires left/right share pair".to_string(),
+        ));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local pair width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    if left.provenance_digest != right.provenance_digest {
+        return Err(ProtoError::InvalidInput(
+            "local pair provenance mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn local_bit_mul_material_base_hasher(evaluation_key: &DdhHssEvaluationKey) -> Blake3Hasher {
+    let mut material_hasher = Blake3Hasher::new();
+    material_hasher.update(b"succinct-garbling-proto/ddh-hss/eval-mul-bit/v1");
+    material_hasher.update(&evaluation_key.key_id);
+    material_hasher.update(owner_tag(HiddenEvalInputOwner::Derived));
+    material_hasher.update(&1u16.to_le_bytes());
+    material_hasher
+}
+
+fn finalize_local_bit_mul_material_digest(
+    material_hasher_base: &Blake3Hasher,
+    gate_key: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> [u8; 32] {
+    let mut material_hasher = material_hasher_base.clone();
+    material_hasher.update(gate_key);
+    material_hasher.update(&left_left.provenance_digest);
+    material_hasher.update(&right_left.provenance_digest);
+    material_hasher.update(&left_left.share_commitment);
+    material_hasher.update(&left_right.share_commitment);
+    material_hasher.update(&right_left.share_commitment);
+    material_hasher.update(&right_right.share_commitment);
+    *material_hasher.finalize().as_bytes()
+}
+
+fn local_bit_mul_material_from_digest(
+    evaluation_key: &DdhHssEvaluationKey,
+    left_left: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    material_digest: [u8; 32],
+) -> (DdhHssLocalMulMaterial, DdhHssLocalMulMaterial) {
+    let triple_a_clear = u64::from(material_digest[0] & 1);
+    let triple_b_clear = u64::from(material_digest[1] & 1);
+    let triple_a_left = u64::from(material_digest[2] & 1);
+    let triple_b_left = u64::from(material_digest[3] & 1);
+    let triple_c_left = u64::from(material_digest[4] & 1);
+    let triple_a_right = triple_a_clear ^ triple_a_left;
+    let triple_b_right = triple_b_clear ^ triple_b_left;
+    let triple_c_clear = triple_a_clear & triple_b_clear;
+    let triple_c_right = triple_c_clear ^ triple_c_left;
+
+    let build_side = |share_side: DdhHssShareSide,
+                      triple_a_share: u64,
+                      triple_b_share: u64,
+                      triple_c_share: u64|
+     -> DdhHssLocalMulMaterial {
+        DdhHssLocalMulMaterial {
+            width_bits: 1,
+            share_side,
+            triple_a: build_local_word_for_key(
+                evaluation_key,
+                b"eval-mul-local-material",
+                b"triple-a",
+                1,
+                share_side,
+                triple_a_share,
+                &[
+                    &left_left.provenance_digest,
+                    &right_left.provenance_digest,
+                    &material_digest,
+                ],
+            ),
+            triple_b: build_local_word_for_key(
+                evaluation_key,
+                b"eval-mul-local-material",
+                b"triple-b",
+                1,
+                share_side,
+                triple_b_share,
+                &[
+                    &left_left.provenance_digest,
+                    &right_left.provenance_digest,
+                    &material_digest,
+                ],
+            ),
+            triple_c: build_local_word_for_key(
+                evaluation_key,
+                b"eval-mul-local-material",
+                b"triple-c",
+                1,
+                share_side,
+                triple_c_share,
+                &[
+                    &left_left.provenance_digest,
+                    &right_left.provenance_digest,
+                    &material_digest,
+                ],
+            ),
+            provenance_digest: material_digest,
+        }
+    };
+
+    (
+        build_side(
+            DdhHssShareSide::Left,
+            triple_a_left,
+            triple_b_left,
+            triple_c_left,
+        ),
+        build_side(
+            DdhHssShareSide::Right,
+            triple_a_right,
+            triple_b_right,
+            triple_c_right,
+        ),
+    )
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn prepare_local_bit_mul_material_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    gate_key: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> ProtoResult<(DdhHssLocalMulMaterial, DdhHssLocalMulMaterial)> {
+    ensure_local_word_pair(left_left, left_right)?;
+    ensure_local_word_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "bit multiplication requires same width, got {} and {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+    if left_left.width_bits != 1 {
+        return Err(ProtoError::InvalidInput(format!(
+            "bit multiplication requires width 1, got {}",
+            left_left.width_bits
+        )));
+    }
+
+    let material_digest = finalize_local_bit_mul_material_digest(
+        &local_bit_mul_material_base_hasher(evaluation_key),
+        gate_key,
+        left_left,
+        left_right,
+        right_left,
+        right_right,
+    );
+    Ok(local_bit_mul_material_from_digest(
+        evaluation_key,
+        left_left,
+        right_left,
+        material_digest,
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_mul_local_word_pair_batch_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label_prefix: &str,
+    left_left_words: &[DdhHssLocalWord],
+    left_right_words: &[DdhHssLocalWord],
+    right_left_words: &[DdhHssLocalWord],
+    right_right_words: &[DdhHssLocalWord],
+) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
+    let len = left_left_words.len();
+    if left_right_words.len() != len
+        || right_left_words.len() != len
+        || right_right_words.len() != len
+    {
+        return Err(ProtoError::InvalidInput(
+            "local mul batch lengths are inconsistent".to_string(),
+        ));
+    }
+    let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
+    let mut out_left = Vec::with_capacity(len);
+    let mut out_right = Vec::with_capacity(len);
+    for idx in 0..len {
+        let left_left = &left_left_words[idx];
+        let left_right = &left_right_words[idx];
+        let right_left = &right_left_words[idx];
+        let right_right = &right_right_words[idx];
+        ensure_local_word_pair(left_left, left_right)?;
+        ensure_local_word_pair(right_left, right_right)?;
+        if left_left.width_bits != 1
+            || right_left.width_bits != 1
+            || left_left.width_bits != right_left.width_bits
+        {
+            return Err(ProtoError::InvalidInput(
+                "local mul batch requires width-1 aligned operands".to_string(),
+            ));
+        }
+
+        let gate_label = format!("{label_prefix}/{idx}");
+        let material_digest = finalize_local_bit_mul_material_digest(
+            &material_hasher_base,
+            gate_label.as_bytes(),
+            left_left,
+            left_right,
+            right_left,
+            right_right,
+        );
+        let (material_left, material_right) = local_bit_mul_material_from_digest(
+            evaluation_key,
+            left_left,
+            right_left,
+            material_digest,
+        );
+        let d_label = format!("{gate_label}/d");
+        let (d_left, d_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+            evaluation_key,
+            d_label.as_bytes(),
+            left_left,
+            left_right,
+            &material_left.triple_a,
+            &material_right.triple_a,
+        )?;
+        let e_label = format!("{gate_label}/e");
+        let (e_left, e_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+            evaluation_key,
+            e_label.as_bytes(),
+            right_left,
+            right_right,
+            &material_left.triple_b,
+            &material_right.triple_b,
+        )?;
+        let d_open = open_local_word_pair_public(&d_left, &d_right)?;
+        let e_open = open_local_word_pair_public(&e_left, &e_right)?;
+        out_left.push(eval_mul_local_with_open_public(
+            evaluation_key,
+            gate_label.as_bytes(),
+            left_left,
+            right_left,
+            &material_left,
+            d_open,
+            e_open,
+        )?);
+        out_right.push(eval_mul_local_with_open_public(
+            evaluation_key,
+            gate_label.as_bytes(),
+            left_right,
+            right_right,
+            &material_right,
+            d_open,
+            e_open,
+        )?);
+    }
+    Ok((out_left, out_right))
+}
+
+#[cfg(test)]
+fn eval_mul_bit_derived_local_batch_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label_prefix: &str,
+    left: &[DdhHssDerivedWord],
+    right: &[DdhHssDerivedWord],
+) -> ProtoResult<Vec<DdhHssDerivedWord>> {
+    if left.len() != right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "bit-mul batch requires same-width slices, got {} and {}",
+            left.len(),
+            right.len()
+        )));
+    }
+
+    let mut out = Vec::with_capacity(left.len());
+    for (idx, (left_word, right_word)) in left.iter().zip(right.iter()).enumerate() {
+        let left_left = local_word_from_derived_public(left_word, DdhHssShareSide::Left)?;
+        let left_right = local_word_from_derived_public(left_word, DdhHssShareSide::Right)?;
+        let right_left = local_word_from_derived_public(right_word, DdhHssShareSide::Left)?;
+        let right_right = local_word_from_derived_public(right_word, DdhHssShareSide::Right)?;
+
+        let gate_label = format!("{label_prefix}/{idx}");
+        let (material_left, material_right) = prepare_local_bit_mul_material_public(
+            evaluation_key,
+            gate_label.as_bytes(),
+            &left_left,
+            &left_right,
+            &right_left,
+            &right_right,
+        )?;
+
+        let (d_left, d_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+            evaluation_key,
+            format!("{gate_label}/d").as_bytes(),
+            &left_left,
+            &left_right,
+            &material_left.triple_a,
+            &material_right.triple_a,
+        )?;
+        let (e_left, e_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+            evaluation_key,
+            format!("{gate_label}/e").as_bytes(),
+            &right_left,
+            &right_right,
+            &material_left.triple_b,
+            &material_right.triple_b,
+        )?;
+
+        let d_open = open_local_word_pair_public(&d_left, &d_right)?;
+        let e_open = open_local_word_pair_public(&e_left, &e_right)?;
+
+        let product_left = eval_mul_local_with_open_public(
+            evaluation_key,
+            gate_label.as_bytes(),
+            &left_left,
+            &right_left,
+            &material_left,
+            d_open,
+            e_open,
+        )?;
+        let product_right = eval_mul_local_with_open_public(
+            evaluation_key,
+            gate_label.as_bytes(),
+            &left_right,
+            &right_right,
+            &material_right,
+            d_open,
+            e_open,
+        )?;
+        out.push(join_local_word_pair_as_derived(
+            &product_left,
+            &product_right,
+        )?);
+    }
+
+    Ok(out)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_mul_local_word_pairs_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
+    let (material_left, material_right) = prepare_local_bit_mul_material_public(
+        evaluation_key,
+        label,
+        left_left,
+        left_right,
+        right_left,
+        right_right,
+    )?;
+    let d_label = [label, b"/d"].concat();
+    let (d_left, d_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+        evaluation_key,
+        d_label.as_slice(),
+        left_left,
+        left_right,
+        &material_left.triple_a,
+        &material_right.triple_a,
+    )?;
+    let e_label = [label, b"/e"].concat();
+    let (e_left, e_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
+        evaluation_key,
+        e_label.as_slice(),
+        right_left,
+        right_right,
+        &material_left.triple_b,
+        &material_right.triple_b,
+    )?;
+    let d_open = open_local_word_pair_public(&d_left, &d_right)?;
+    let e_open = open_local_word_pair_public(&e_left, &e_right)?;
+    Ok((
+        eval_mul_local_with_open_public(
+            evaluation_key,
+            label,
+            left_left,
+            right_left,
+            &material_left,
+            d_open,
+            e_open,
+        )?,
+        eval_mul_local_with_open_public(
+            evaluation_key,
+            label,
+            left_right,
+            right_right,
+            &material_right,
+            d_open,
+            e_open,
+        )?,
+    ))
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn eval_mul_local_with_open_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left: &DdhHssLocalWord,
+    right: &DdhHssLocalWord,
+    material: &DdhHssLocalMulMaterial,
+    d_open: u64,
+    e_open: u64,
+) -> ProtoResult<DdhHssLocalWord> {
+    if left.share_side != right.share_side || left.share_side != material.share_side {
+        return Err(ProtoError::InvalidInput(
+            "local mul requires same-side operands and material".to_string(),
+        ));
+    }
+    if left.width_bits != 1 || right.width_bits != 1 || material.width_bits != 1 {
+        return Err(ProtoError::InvalidInput(
+            "local bit mul requires width-1 operands and material".to_string(),
+        ));
+    }
+    let public_term = match left.share_side {
+        DdhHssShareSide::Left => reduce_word(u128::from(d_open) * u128::from(e_open), 1),
+        DdhHssShareSide::Right => 0,
+    };
+    Ok(build_local_word_for_key(
+        evaluation_key,
+        b"eval-mul-local",
+        label,
+        1,
+        left.share_side,
+        reduce_word(
+            u128::from(material.triple_c.share_word)
+                + (u128::from(d_open) * u128::from(material.triple_b.share_word))
+                + (u128::from(e_open) * u128::from(material.triple_a.share_word))
+                + u128::from(public_term),
+            1,
+        ),
+        &[
+            &left.provenance_digest,
+            &right.provenance_digest,
+            &material.provenance_digest,
+            &d_open.to_le_bytes(),
+            &e_open.to_le_bytes(),
+        ],
+    ))
 }
 
 fn eval_add_bit_for_key(
@@ -3167,18 +4077,21 @@ fn prepare_client_input_ot_request_public(
                 .try_into()
                 .expect("random OT scalar slice has fixed width"),
         );
+        let sender_public_point = CompressedEdwardsY(word_offer.sender_public)
+            .decompress()
+            .ok_or_else(|| {
+                ProtoError::InvalidInput(format!(
+                    "OT sender public point is invalid at index {}",
+                    bit_idx
+                ))
+            })?;
+        let shared_point = (sender_public_point * receiver_scalar)
+            .compress()
+            .to_bytes();
         let receiver_public_point = if selected_branch == 0 {
             ED25519_BASEPOINT_POINT * receiver_scalar
         } else {
-            CompressedEdwardsY(word_offer.sender_public)
-                .decompress()
-                .ok_or_else(|| {
-                    ProtoError::InvalidInput(format!(
-                        "OT sender public point is invalid at index {}",
-                        bit_idx
-                    ))
-                })?
-                + (ED25519_BASEPOINT_POINT * receiver_scalar)
+            sender_public_point + (ED25519_BASEPOINT_POINT * receiver_scalar)
         };
         request_words.push(DdhHssOtSelectionWord {
             width_bits: 1,
@@ -3187,8 +4100,7 @@ fn prepare_client_input_ot_request_public(
         local_state_words.push(DdhHssOtReceiverStateWord {
             width_bits: 1,
             selected_branch,
-            receiver_scalar: receiver_scalar.to_bytes(),
-            sender_public: word_offer.sender_public,
+            shared_point,
         });
     }
 
@@ -3358,17 +4270,6 @@ fn open_client_input_ot_bundle_public(
                 state_word.selected_branch
             )));
         }
-        let sender_public_point = CompressedEdwardsY(state_word.sender_public)
-            .decompress()
-            .ok_or_else(|| {
-                ProtoError::InvalidInput(format!(
-                    "client OT sender public point is invalid at bit index {bit_idx}"
-                ))
-            })?;
-        let receiver_scalar = Scalar::from_bytes_mod_order(state_word.receiver_scalar);
-        let shared_point = (sender_public_point * receiver_scalar)
-            .compress()
-            .to_bytes();
         let selected_branch = if state_word.selected_branch == 0 {
             &response_word.zero_branch
         } else {
@@ -3380,7 +4281,7 @@ fn open_client_input_ot_bundle_public(
             &response.label,
             bit_idx,
             state_word.selected_branch,
-            shared_point,
+            state_word.shared_point,
         );
         let payload = DdhHssBackend::open_ot_branch_with_key(
             key,
@@ -3657,21 +4558,6 @@ fn reconstruct_client_ot_bundle_timed_public(
                 state_word.selected_branch
             )));
         }
-        let point_reconstruct_started = monotonic_now_ns();
-        let sender_public_point = CompressedEdwardsY(state_word.sender_public)
-            .decompress()
-            .ok_or_else(|| {
-                ProtoError::InvalidInput(format!(
-                    "client OT sender public point is invalid at bit index {bit_idx}"
-                ))
-            })?;
-        let receiver_scalar = Scalar::from_bytes_mod_order(state_word.receiver_scalar);
-        let shared_point = (sender_public_point * receiver_scalar)
-            .compress()
-            .to_bytes();
-        timing.point_scalar_reconstruction_duration_ns = timing
-            .point_scalar_reconstruction_duration_ns
-            .saturating_add(elapsed_ns_u64(point_reconstruct_started));
         let selected_branch = if state_word.selected_branch == 0 {
             &response_word.zero_branch
         } else {
@@ -3684,7 +4570,7 @@ fn reconstruct_client_ot_bundle_timed_public(
             &response.label,
             bit_idx,
             state_word.selected_branch,
-            shared_point,
+            state_word.shared_point,
         );
         timing.branch_key_derivation_duration_ns = timing
             .branch_key_derivation_duration_ns
@@ -3914,51 +4800,6 @@ pub(crate) fn validate_transport_bundle_pair_public(
     Ok(())
 }
 
-pub(crate) fn eval_add_shared_with_transport_pair_public(
-    evaluation_key: &DdhHssEvaluationKey,
-    left: &DdhHssSharedWord,
-    right_left: &DdhHssTransportWord,
-    right_right: &DdhHssTransportWord,
-) -> ProtoResult<DdhHssSharedWord> {
-    validate_transport_word_pair_public(
-        HiddenEvalInputOwner::Server,
-        HiddenEvalInputOwner::Server,
-        right_left,
-        right_right,
-    )?;
-    if left.width_bits != right_left.width_bits {
-        return Err(ProtoError::InvalidInput(format!(
-            "shared/transport add width mismatch: {} vs {}",
-            left.width_bits, right_left.width_bits
-        )));
-    }
-
-    let width_bits = left.width_bits;
-    let left_word = reduce_word(
-        u128::from(left.left_word) + u128::from(right_left.share_word),
-        width_bits,
-    );
-    let right_word = reduce_word(
-        u128::from(left.right_word) + u128::from(right_right.share_word),
-        width_bits,
-    );
-    Ok(build_shared_word_for_key(
-        evaluation_key,
-        b"eval-add-public",
-        HiddenEvalInputOwner::Derived,
-        b"add",
-        width_bits,
-        left_word,
-        right_word,
-        &[
-            &left.provenance_digest,
-            &right_left.provenance_digest,
-            &left.left_commitment,
-            &right_left.share_commitment,
-        ],
-    ))
-}
-
 fn seal_transport_message_with_key(
     transport_key: &DdhHssTransportKey,
     purpose: &str,
@@ -4180,8 +5021,7 @@ fn ot_receiver_state_bundle_commitment(
     for word in words {
         transcript.append_message(b"width_bits", &word.width_bits.to_le_bytes());
         transcript.append_message(b"selected_branch", &[word.selected_branch]);
-        transcript.append_message(b"receiver_scalar", &word.receiver_scalar);
-        transcript.append_message(b"sender_public", &word.sender_public);
+        transcript.append_message(b"shared_point", &word.shared_point);
     }
     let mut out = [0u8; 32];
     transcript.challenge_bytes(b"ot_receiver_state_bundle_commitment", &mut out);
@@ -4260,4 +5100,242 @@ fn ot_remote_release_transcript_binding(
     let mut out = [0u8; 32];
     transcript.challenge_bytes(b"ot_remote_release_binding", &mut out);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        build_fixed_hidden_core_candidate, compile_prime_order_hidden_eval_program,
+        decode_prime_order_size_optimized_artifact, deterministic_fixture_corpus,
+        materialize_prime_order_size_optimized_bytes,
+    };
+
+    fn test_backend() -> DdhHssBackend {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("at least one fixture");
+        let candidate =
+            build_fixed_hidden_core_candidate(&fixture.input.context).expect("candidate build");
+        let bytes =
+            materialize_prime_order_size_optimized_bytes(&candidate).expect("prime-order bytes");
+        let decoded =
+            decode_prime_order_size_optimized_artifact(&bytes).expect("decode structured artifact");
+        let program = compile_prime_order_hidden_eval_program(&decoded).expect("hidden-eval IR");
+        keygen_prime_order_ddh_hss_backend(
+            candidate.context_binding,
+            candidate.template.candidate_digest,
+            &program,
+        )
+        .expect("DDH keygen")
+    }
+
+    #[test]
+    fn local_share_mul_with_open_recombines_to_shared_bit_product() {
+        let backend = test_backend();
+
+        for (idx, (left_value, right_value)) in [(0u64, 0u64), (0, 1), (1, 0), (1, 1)]
+            .into_iter()
+            .enumerate()
+        {
+            let left = backend
+                .share_word(
+                    HiddenEvalInputOwner::Client,
+                    &format!("local/left/{idx}"),
+                    left_value,
+                    1,
+                )
+                .expect("share left");
+            let right = backend
+                .share_word(
+                    HiddenEvalInputOwner::Server,
+                    &format!("local/right/{idx}"),
+                    right_value,
+                    1,
+                )
+                .expect("share right");
+            let left_local_left = local_word_from_shared(&left, DdhHssShareSide::Left);
+            let left_local_right = local_word_from_shared(&left, DdhHssShareSide::Right);
+            let right_local_left = local_word_from_shared(&right, DdhHssShareSide::Left);
+            let right_local_right = local_word_from_shared(&right, DdhHssShareSide::Right);
+            let left_derived = derived_word_from_shared(&left);
+            let right_derived = derived_word_from_shared(&right);
+            let (material_left, material_right) = prepare_local_bit_mul_material_public(
+                backend.evaluation_key(),
+                format!("local/{idx}/mul").as_bytes(),
+                &left_local_left,
+                &left_local_right,
+                &right_local_left,
+                &right_local_right,
+            )
+            .expect("prepare local mul material");
+
+            assert_eq!(
+                join_local_word_pair_as_derived(&left_local_left, &left_local_right)
+                    .expect("join left input"),
+                left_derived
+            );
+            assert_eq!(
+                join_local_word_pair_as_derived(&right_local_left, &right_local_right)
+                    .expect("join right input"),
+                right_derived
+            );
+
+            let d_label = format!("local/{idx}/d");
+            let d_left = eval_add_local_mod_2_pow_n_public(
+                backend.evaluation_key(),
+                d_label.as_bytes(),
+                &left_local_left,
+                &material_left.triple_a,
+            )
+            .expect("left d");
+            let d_right = eval_add_local_mod_2_pow_n_public(
+                backend.evaluation_key(),
+                d_label.as_bytes(),
+                &left_local_right,
+                &material_right.triple_a,
+            )
+            .expect("right d");
+            let e_label = format!("local/{idx}/e");
+            let e_left = eval_add_local_mod_2_pow_n_public(
+                backend.evaluation_key(),
+                e_label.as_bytes(),
+                &right_local_left,
+                &material_left.triple_b,
+            )
+            .expect("left e");
+            let e_right = eval_add_local_mod_2_pow_n_public(
+                backend.evaluation_key(),
+                e_label.as_bytes(),
+                &right_local_right,
+                &material_right.triple_b,
+            )
+            .expect("right e");
+
+            let d_open = open_local_word_pair_public(&d_left, &d_right).expect("open d");
+            let e_open = open_local_word_pair_public(&e_left, &e_right).expect("open e");
+
+            let mul_label = format!("local/{idx}/mul");
+            let product_left = eval_mul_local_with_open_public(
+                backend.evaluation_key(),
+                mul_label.as_bytes(),
+                &left_local_left,
+                &right_local_left,
+                &material_left,
+                d_open,
+                e_open,
+            )
+            .expect("left mul");
+            let product_right = eval_mul_local_with_open_public(
+                backend.evaluation_key(),
+                mul_label.as_bytes(),
+                &left_local_right,
+                &right_local_right,
+                &material_right,
+                d_open,
+                e_open,
+            )
+            .expect("right mul");
+
+            let local_product = join_local_word_pair_as_derived(&product_left, &product_right)
+                .expect("join local product");
+            let expected_product = backend
+                .eval_mul_bit(&format!("shared/{idx}/mul"), &left, &right)
+                .expect("shared mul");
+
+            assert_eq!(
+                backend.decode_word(&shared_word_from_derived(&local_product)),
+                left_value & right_value
+            );
+            assert_eq!(
+                backend.decode_word(&shared_word_from_derived(&local_product)),
+                backend.decode_word(&expected_product)
+            );
+            assert_eq!(
+                local_product.left_commitment,
+                commit_word(
+                    HiddenEvalInputOwner::Derived,
+                    b"left",
+                    local_product.left_word,
+                    &local_product.provenance_digest,
+                )
+            );
+            assert_eq!(
+                local_product.right_commitment,
+                commit_word(
+                    HiddenEvalInputOwner::Derived,
+                    b"right",
+                    local_product.right_word,
+                    &local_product.provenance_digest,
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn local_bit_mul_batch_matches_shared_bit_mul_batch() {
+        let backend = test_backend();
+        let left_words: Vec<_> = [0u64, 1, 1, 0, 1, 0, 0, 1]
+            .into_iter()
+            .enumerate()
+            .map(|(idx, value)| {
+                backend
+                    .share_word(
+                        HiddenEvalInputOwner::Client,
+                        &format!("batch/left/{idx}"),
+                        value,
+                        1,
+                    )
+                    .expect("share left")
+            })
+            .collect();
+        let right_words: Vec<_> = [1u64, 1, 0, 0, 1, 1, 0, 0]
+            .into_iter()
+            .enumerate()
+            .map(|(idx, value)| {
+                backend
+                    .share_word(
+                        HiddenEvalInputOwner::Server,
+                        &format!("batch/right/{idx}"),
+                        value,
+                        1,
+                    )
+                    .expect("share right")
+            })
+            .collect();
+        let left_derived: Vec<_> = left_words.iter().map(derived_word_from_shared).collect();
+        let right_derived: Vec<_> = right_words.iter().map(derived_word_from_shared).collect();
+
+        let local_batch = eval_mul_bit_derived_local_batch_public(
+            backend.evaluation_key(),
+            "batch/mul",
+            &left_derived,
+            &right_derived,
+        )
+        .expect("local batch mul");
+
+        let shared_batch: Vec<_> = left_words
+            .iter()
+            .zip(right_words.iter())
+            .enumerate()
+            .map(|(idx, (left, right))| {
+                backend
+                    .eval_mul_bit(&format!("batch/shared/{idx}"), left, right)
+                    .expect("shared mul")
+            })
+            .collect();
+
+        let local_decoded: Vec<_> = local_batch
+            .iter()
+            .map(|word| backend.decode_word(&shared_word_from_derived(word)))
+            .collect();
+        let shared_decoded: Vec<_> = shared_batch
+            .iter()
+            .map(|word| backend.decode_word(word))
+            .collect();
+        assert_eq!(local_decoded, shared_decoded);
+        assert_eq!(local_decoded, vec![0, 1, 0, 0, 1, 0, 0, 0]);
+    }
 }

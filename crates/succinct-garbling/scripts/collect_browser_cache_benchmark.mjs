@@ -140,6 +140,8 @@ async function main() {
         browserDdhHiddenEval?.output_sealing_finalization_duration_ns ?? null,
       browser_ddh_result_assembly_duration_ns:
         browserDdhHiddenEval?.result_assembly_duration_ns ?? null,
+      browser_ddh_output_materialization_duration_ns:
+        browserDdhHiddenEval?.output_materialization_duration_ns ?? null,
       browser_ddh_output_open_duration_ns:
         browserDdhHiddenEval?.output_open_duration_ns ?? null,
       browser_ddh_public_key_duration_ns:

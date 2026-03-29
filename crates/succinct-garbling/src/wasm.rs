@@ -35,9 +35,7 @@ struct WasmPrimeOrderCpuExecutorRun {
     final_point_compressed_hex: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 struct WasmDdhHiddenEvalPreparedState {
-    fixture_name: String,
     input: FExpandInput,
     expected_output: FExpandOutput,
     session: PrimeOrderSuccinctHssPreparedSession,
@@ -71,6 +69,7 @@ struct WasmDdhHiddenEvalRun {
     server_input_seal_duration_ns: u64,
     output_sealing_finalization_duration_ns: u64,
     result_assembly_duration_ns: u64,
+    output_materialization_duration_ns: u64,
     output_open_duration_ns: u64,
     public_key_duration_ns: u64,
     total_duration_ns: u64,
@@ -166,7 +165,6 @@ pub fn prepare_prime_order_ddh_hidden_eval() -> Result<JsValue, JsValue> {
     };
     WASM_DDH_HIDDEN_EVAL_STATE.with(|slot| {
         *slot.borrow_mut() = Some(WasmDdhHiddenEvalPreparedState {
-            fixture_name: fixture.name,
             input: fixture.input,
             expected_output: fixture.output,
             session,
@@ -237,6 +235,8 @@ pub fn execute_prime_order_ddh_hidden_eval_once() -> Result<JsValue, JsValue> {
             output_sealing_finalization_duration_ns: evaluate_timing
                 .output_sealing_finalization_duration_ns,
             result_assembly_duration_ns: evaluate_timing.result_assembly_duration_ns,
+            output_materialization_duration_ns: (output_open_duration_ns + public_key_duration_ns)
+                as u64,
             output_open_duration_ns: output_open_duration_ns as u64,
             public_key_duration_ns: public_key_duration_ns as u64,
             total_duration_ns: elapsed_ns(started_ns) as u64,
@@ -258,23 +258,102 @@ pub fn execute_prime_order_ddh_hidden_eval_once_fast() -> Result<bool, JsValue> 
         let state = borrowed
             .as_ref()
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
-        let report = state.session.evaluate(&state.input).map_err(js_error)?;
-        let output_openers = state.session.output_openers();
-        let x_client_base = output_openers
-            .client
-            .open(&report.output_delivery.client)
+        let run = state
+            .session
+            .evaluate_hidden_run(&state.input)
             .map_err(js_error)?;
-        let x_relayer_base = output_openers
-            .server
-            .open(&report.output_delivery.server)
+        let (x_client_base, _x_relayer_base, public_key) = state
+            .session
+            .materialize_hidden_outputs_for_debug(&run.output)
             .map_err(js_error)?;
-        let public_key =
-            public_key_from_base_shares(x_client_base, x_relayer_base).map_err(js_error)?;
         Ok::<_, JsValue>(
             x_client_base == state.expected_output.x_client_base
                 && public_key == state.expected_output.public_key,
         )
     })
+}
+
+#[wasm_bindgen]
+pub fn execute_prime_order_ddh_hidden_eval_hidden_run_once_fast() -> Result<(), JsValue> {
+    init_wasm_runtime();
+    WASM_DDH_HIDDEN_EVAL_STATE.with(|slot| {
+        let borrowed = slot.borrow();
+        let state = borrowed
+            .as_ref()
+            .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
+        state
+            .session
+            .evaluate_hidden_run(&state.input)
+            .map(|_| ())
+            .map_err(js_error)
+    })
+}
+
+#[wasm_bindgen]
+pub fn execute_prime_order_ddh_hidden_eval_hidden_run_once() -> Result<JsValue, JsValue> {
+    init_wasm_runtime();
+    let run = WASM_DDH_HIDDEN_EVAL_STATE.with(|slot| {
+        let borrowed = slot.borrow();
+        let state = borrowed
+            .as_ref()
+            .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
+        let started_ns = monotonic_now_ns();
+        let evaluate_started_ns = started_ns;
+        let (hidden_run, evaluate_timing) = state
+            .session
+            .evaluate_hidden_run_with_timing(&state.input)
+            .map_err(js_error)?;
+        let evaluate_duration_ns = elapsed_ns(evaluate_started_ns);
+        let output_materialization_started_ns = monotonic_now_ns();
+        let (x_client_base, _x_relayer_base, public_key) = state
+            .session
+            .materialize_hidden_outputs_for_debug(&hidden_run.output)
+            .map_err(js_error)?;
+        let output_materialization_duration_ns =
+            elapsed_ns(output_materialization_started_ns) as u64;
+        Ok::<_, JsValue>(WasmDdhHiddenEvalRun {
+            total_steps: state.session.execution_program().trace.total_steps,
+            curve_cost_units: state
+                .session
+                .execution_program()
+                .trace
+                .estimated_curve_cost_units,
+            evaluator_ops: state
+                .session
+                .execution_program()
+                .trace
+                .evaluator_ops
+                .clone(),
+            evaluate_duration_ns: evaluate_duration_ns as u64,
+            ot_open_join_duration_ns: evaluate_timing.ot_open_join_duration_ns,
+            ot_branch_key_derivation_duration_ns: evaluate_timing
+                .ot_branch_key_derivation_duration_ns,
+            ot_branch_decrypt_duration_ns: evaluate_timing.ot_branch_decrypt_duration_ns,
+            ot_point_scalar_reconstruction_duration_ns: evaluate_timing
+                .ot_point_scalar_reconstruction_duration_ns,
+            ot_commitment_verification_duration_ns: evaluate_timing
+                .ot_commitment_verification_duration_ns,
+            server_input_open_duration_ns: evaluate_timing.server_input_open_duration_ns,
+            server_input_share_duration_ns: evaluate_timing.server_input_share_duration_ns,
+            server_input_commitment_duration_ns: evaluate_timing
+                .server_input_commitment_duration_ns,
+            server_input_transcript_duration_ns: evaluate_timing
+                .server_input_transcript_duration_ns,
+            server_input_seal_duration_ns: evaluate_timing.server_input_seal_duration_ns,
+            output_sealing_finalization_duration_ns: 0,
+            result_assembly_duration_ns: 0,
+            output_materialization_duration_ns,
+            output_open_duration_ns: 0,
+            public_key_duration_ns: 0,
+            total_duration_ns: elapsed_ns(started_ns) as u64,
+            output_public_key_hex: hex::encode(public_key),
+            output_x_client_base_hex: hex::encode(x_client_base),
+            reference_match: x_client_base == state.expected_output.x_client_base
+                && public_key == state.expected_output.public_key,
+        })
+    })?;
+
+    serialize_js_value(&run)
 }
 
 #[wasm_bindgen]

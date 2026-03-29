@@ -82,6 +82,43 @@ Measured impact was acceptable:
 
 The prepared-session benchmark path remains separate and highly optimized; this hardening specifically improves the normal transport-message evaluator flow.
 
+### 5.2 Arithmetic execution boundary status
+
+The remaining security boundary work is no longer in packet opening or the
+production hidden-eval hot path. It is now mostly in trusted simulation/test
+helpers and in the internal storage shape of the split/local arithmetic model.
+
+Progress so far:
+
+- the normal evaluator path no longer materializes a generic joined relayer-input object after opening server-input transport
+- add-stage and output-projector server-input handling now consume split left/right transport words directly
+- production output delivery now carries split relayer output transport longer, instead of eagerly rebuilding a joined server-owned output bundle
+- production constant-pool material now enters the executor as split/local words instead of joined hidden words
+- client ingress now converts shared input bundles to split/local stage state once at stage entry
+- production message schedule, round core, and output-projector arithmetic now stay split/local through the full hot path
+- final output bundle construction now rebuilds client and relayer output bundles directly from split/local words at the explicit boundary
+- joined-derived conversion helpers are now test-only and are not callable from production code
+
+Why this matters:
+
+- production execution no longer advances through a joined hidden-value type across the add stage, message schedule, round core, or output projector
+- that removes the main evaluator-visible runtime surface where both share halves were previously carried together during the hot arithmetic path
+- the remaining joined helpers are confined to trusted simulation/tests and explicit boundary rebuild points
+
+What is still not solved:
+
+- joined hidden value types still exist for trusted simulation/tests and a few explicit boundary helpers
+- the split/local production representation is still implemented with helper-composed `DdhHssLocalBitSlice` values rather than a denser executor-local storage model
+- Phase 6 performance work is still needed before we can say the hardened split/local model is also the optimized one
+
+Current direction:
+
+- backend-local width-1 add/open/mul helpers are now landed and tested
+- backend-local width-1 batched local-mul helpers are now landed and tested
+- the stage-local `Ch`, `Maj`, carry/add, schedule, round-core, and output-projector rewrites are landed
+- the executor now stays split/local end-to-end through the production arithmetic path
+- the next meaningful security/performance step is therefore not more joined-value cleanup; it is Phase 6 work on denser storage, fused local kernels, and amortized local Beaver material inside the hardened split/local model
+
 ### 6. Oblivious Transfer security
 
 The OT implementation uses 1-out-of-2 Elliptic Curve OT on Curve25519 with ChaCha20Poly1305 AEAD:
