@@ -42,7 +42,7 @@ That means:
 ## Current Measured Speeds
 
 These numbers summarize the current published post-hardening checkpoint and the
-optimization campaign state as of `2026-03-29`.
+optimization campaign state as of `2026-03-30`.
 
 ### Native release hidden eval
 
@@ -54,15 +54,15 @@ cargo run --release --manifest-path crates/succinct-garbling/Cargo.toml --bin be
 
 Measured means:
 
-- prepare: about `109.6ms`
-- total hidden eval: about `0.321s`
+- prepare: about `115.1ms`
+- total hidden eval: about `0.323s`
 - input sharing: about `2.0ms`
-- add stage: about `2.5ms`
-- message schedule: about `48.0ms`
-- round core: about `168.1ms`
-- output projector: about `44.7ms`
-- message schedule accumulation: about `35.3ms`
-- round `temp1`: about `4.3ms`
+- add stage: about `2.6ms`
+- message schedule: about `48.6ms`
+- round core: about `170.2ms`
+- output projector: about `44.8ms`
+- message schedule accumulation: about `36.0ms`
+- round `temp1`: about `4.4ms`
 - round `temp2`: about `1.7ms`
 - reference match: `true`
 
@@ -84,24 +84,24 @@ node crates/succinct-garbling/scripts/collect_browser_cache_benchmark.mjs --debu
 
 Measured means:
 
-- total hidden eval: about `0.474s`
-- `session.evaluate`: about `0.476s`
-- detailed result total: about `0.481s`
-- hidden-eval probe total: about `0.373s`
-- input sharing: about `10.8ms`
-- add stage: about `14.8ms`
-- message schedule: about `70.3ms`
-- round core: about `230.8ms`
-- output projector: about `54.6ms`
-- message schedule accumulation: about `53.5ms`
-- round `temp1`: about `5.4ms`
-- round `temp2`: about `2.2ms`
-- OT open/join: about `103.2ms`
+- total hidden eval: about `0.475s`
+- `session.evaluate`: about `0.475s`
+- detailed result total: about `0.480s`
+- hidden-eval probe total: about `0.375s`
+- input sharing: about `10.9ms`
+- add stage: about `14.7ms`
+- message schedule: about `70.1ms`
+- round core: about `235.0ms`
+- output projector: about `55.3ms`
+- message schedule accumulation: about `53.8ms`
+- round `temp1`: about `5.8ms`
+- round `temp2`: about `2.3ms`
+- OT open/join: about `103.1ms`
 - OT point-scalar reconstruction: `0`
-- server input open: about `3.9ms`
+- server input open: about `4.1ms`
 - server input seal: `0`
 - result assembly: `0`
-- output materialization: about `4.4ms`
+- output materialization: about `4.5ms`
 - reference match: `true`
 
 Source:
@@ -117,10 +117,10 @@ Checkpoint summary:
 
 | Component | Before | After | Reduction |
 | --- | ---: | ---: | ---: |
-| Native total | `0.524s` | `0.312s` | `40%` |
-| Browser total | `0.844s` | `0.472s` | `44%` |
+| Native total | `0.524s` | `0.323s` | `38%` |
+| Browser total | `0.844s` | `0.475s` | `44%` |
 | Native `round_temp1` | `~62ms` | `~4.3ms` | `93%` |
-| Native message-schedule accumulation | `~83ms` | `~34.5ms` | `58%` |
+| Native message-schedule accumulation | `~83ms` | `~36.3ms` | `56%` |
 
 Why these changes worked:
 
@@ -161,6 +161,29 @@ Why these changes worked:
   - browser round core `230.8ms -> 228.7ms`
   - native round `sigma1` settled at about `7.6ms`
   - browser round `sigma1` settled at about `9.6ms`
+- [x] Phase 7 reusable Boolean scratch for the shared round-core kernel
+  `(landed)`
+  - reused executor-owned `SplitLocalBitWord` and batch-input scratch across
+    all 80 rounds for `Sigma0`, `Sigma1`, `Ch`, and `Maj`
+  - native total hidden eval improved from about `0.339s` to about `0.329s`
+  - browser total hidden eval improved from about `0.509s` to about `0.482s`
+  - browser `session.evaluate` improved from about `0.507s` to about `0.480s`
+  - native `round_core` improved from about `179.9ms` to about `173.5ms`
+  - browser hidden-eval probe total improved from about `0.402s` to about
+    `0.380s`
+  - browser `round_ch` improved from about `40.0ms` to about `39.0ms`
+- [x] Phase 7 direct `Ch`/`Maj` batch-input word vectors from xor operands
+  `(landed)`
+  - deleted the temporary xor-result split-word round-trip before batch
+    multiply in the Boolean-heavy round path
+  - native total hidden eval improved from about `0.329s` to about `0.323s`
+  - browser total hidden eval improved from about `0.482s` to about `0.475s`
+  - browser `session.evaluate` improved from about `0.480s` to about `0.475s`
+  - native `round_core` improved from about `173.5ms` to about `170.2ms`
+  - browser `round_core` improved from about `246.5ms` to about `235.0ms`
+  - browser hidden-eval probe total improved from about `0.380s` to about
+    `0.375s`
+  - browser `round_ch` improved from about `39.0ms` to about `38.0ms`
 - [x] Phase A executor-local arithmetic path for message-schedule accumulation
   `(landed)`
   - native total hidden eval improved from about `0.524s` to about `0.504s`
@@ -207,31 +230,31 @@ the current hardened checkpoint is still slower overall, but the gap is much
 smaller now:
 
 - old native checkpoint: about `0.270s`
-- current native checkpoint: about `0.312s`
+- current native checkpoint: about `0.323s`
 - old browser checkpoint: about `0.380s`
-- current browser checkpoint: about `0.472s`
+- current browser checkpoint: about `0.475s`
 
 The remaining cost is still concentrated in `round_core`, but it is no longer
 overwhelmingly dominated by `temp1`:
 
-- native `round_core`: about `164.1ms`
-- browser `round_core`: about `228.7ms`
-- native `round_temp1`: about `4.2ms`
-- browser `round_temp1`: about `6.2ms`
-- native `message_schedule_accumulation`: about `34.5ms`
-- browser `message_schedule_accumulation`: about `53.3ms`
+- native `round_core`: about `170.2ms`
+- browser `round_core`: about `235.0ms`
+- native `round_temp1`: about `4.4ms`
+- browser `round_temp1`: about `5.8ms`
+- native `message_schedule_accumulation`: about `36.0ms`
+- browser `message_schedule_accumulation`: about `53.8ms`
 - native `round_temp2`: about `1.7ms`
-- browser `round_temp2`: about `1.8ms`
-- native `round_sigma1`: about `7.6ms`
-- browser `round_sigma1`: about `9.6ms`
-- native `round_ch`: about `28.0ms`
-- browser `round_ch`: about `37.2ms`
+- browser `round_temp2`: about `2.6ms`
+- native `round_sigma1`: about `7.8ms`
+- browser `round_sigma1`: about `9.9ms`
+- native `round_ch`: about `29.0ms`
+- browser `round_ch`: about `38.0ms`
 
 ## Findings So Far
 
 The current v2 result is:
 
-- thirteen bounded optimizations were accepted and are already reflected in the
+- fifteen bounded optimizations were accepted and are already reflected in the
   current checkpoint
 - several later candidates were measured, rejected, and reverted
 - the remaining bottleneck is still structural round-core work, but it is now
@@ -1314,13 +1337,13 @@ Guardrail:
 
 #### Track A: wasm-friendly round-core layout for the shared kernel
 
-- [ ] build one wasm-oriented `round_core` data layout that uses flat
+- [x] build one wasm-oriented `round_core` data layout that uses flat
   linear-memory buffers or fixed arrays instead of repeatedly materializing
   small local-word objects
 - [ ] keep the winning arithmetic carry-through for `temp1`, `temp2`, `new_a`,
   and `new_e`, but feed the remaining Boolean-heavy `Sigma0`, `Sigma1`, `Ch`,
   and `Maj` work from the same shared kernel through a flatter representation
-- [ ] avoid per-round `Vec` growth, per-bit object reconstruction, pointer-
+- [x] avoid per-round `Vec` growth, per-bit object reconstruction, pointer-
   chasing, and helper layering that native tolerates better than wasm
 - [ ] require that any wasm-friendly layout also be acceptable as the default
   native layout if it is flat or better there
@@ -1433,9 +1456,48 @@ Implementation order:
     raw xor helps the sigma seam because it deletes work end-to-end there, but
     the selector lane still pays too much existing batch-multiply and output
     shaping overhead for a surface-level packed-xor rewrite to matter
-- [ ] replace round-local Boolean helper inputs with fixed buffers or
+- [x] land the first executor-owned Boolean scratch arena for the shared kernel
+  - reused fixed `SplitLocalBitWord` scratch plus reusable batch-input vectors
+    across all 80 rounds for `Sigma0`, `Sigma1`, `Ch`, and `Maj`
+  - native total hidden eval improved from about `0.339s` to about `0.329s`
+  - browser total hidden eval improved from about `0.509s` to about `0.482s`
+  - browser `session.evaluate` improved from about `0.507s` to about `0.480s`
+  - browser hidden-eval probe total improved from about `0.402s` to about
+    `0.380s`
+  - native `round_core` improved from about `179.9ms` to about `173.5ms`
+  - takeaway:
+    lower-level reusable Boolean storage can land if it deletes per-round
+    allocation and buffer rebuilds without changing the arithmetic carry-through
+- [x] land direct `Ch`/`Maj` xor-to-word vectors for the batch-multiply seam
+  - built the batch-multiply word vectors directly from xor operands instead of
+    materializing xor outputs as temporary split-word scratch and rebuilding
+    them again
+  - native improved from about `0.329s` to about `0.323s`
+  - browser improved from about `0.482s` to about `0.475s`
+  - native `round_core` improved from about `173.5ms` to about `170.2ms`
+  - browser `round_core` improved from about `246.5ms` to about `235.0ms`
+  - browser hidden-eval probe total improved from about `0.380s` to about
+    `0.375s`
+  - takeaway:
+    deleting the xor-result split-word round-trip before batch multiply is the
+    next real shared-layout win below the current Boolean scratch layer
+- [x] reject the follow-up raw `Ch`/`Maj` output xor path: replacing the final
+  `z xor gated` and `x xor gated` loops with direct raw packed-bit xor
+  derivation regressed both targets
+  - native total hidden eval regressed from about `0.323s` to about `0.331s`
+  - native `round_core` regressed from about `170.2ms` to about `177.1ms`
+  - browser total hidden eval regressed from about `0.475s` to about `0.489s`
+  - browser `session.evaluate` regressed from about `0.475s` to about `0.485s`
+  - browser `round_core` regressed from about `235.0ms` to about `273.9ms`
+  - browser hidden-eval probe total regressed from about `0.375s` to about
+    `0.401s`
+  - takeaway:
+    the surviving `Ch`/`Maj` win is the input-side xor-to-vector deletion; the
+    final output xor still wants the existing local-word form, so pushing raw
+    packed derivation through that last seam adds more overhead than it removes
+- [x] replace round-local Boolean helper inputs with fixed buffers or
   structure-of-arrays views owned by the executor scratch arena
-- [ ] preallocate all round-local scratch needed for `Sigma0`, `Sigma1`, `Ch`,
+- [x] preallocate all round-local scratch needed for `Sigma0`, `Sigma1`, `Ch`,
   and `Maj` so no per-round growth or buffer rebuilding happens in the hot path
 - [ ] move rotate/xor/gating reads onto those flat buffers without changing the
   arithmetic carry-through path
@@ -1468,6 +1530,18 @@ Implementation order:
   views reduce repeated materialization
 - [x] reject worker isolation for this benchmark shape: it tripled browser wall
   time and broke stage attribution
+- [x] reject the wasm-side repeated hidden-run export for benchmark samples
+  `(reverted)`
+  - batched the sample loop into one wasm call per sample instead of repeated
+    JS→wasm calls
+  - native regressed from about `0.329s` to about `0.336s`
+  - browser regressed from about `0.482s` to about `0.508s`
+  - browser `session.evaluate` regressed from about `0.480s` to about `0.507s`
+  - takeaway:
+    the repeated-call boundary itself was not the dominant browser cost here;
+    collapsing the loop into wasm changed the benchmark shape without creating a
+    real win, so the next browser-only attempt should focus on data layout or
+    object shaping instead
 - [ ] only revisit browser orchestration after the shared kernel layout is
   settled and the remaining cost is clearly outside the core kernel
 - [x] confirm the main browser latency metric already bypasses report assembly,
@@ -1512,15 +1586,100 @@ Tradeoff rule for shared wasm-friendly layout changes:
 - [ ] always prefer browser `round_core` and hidden-eval probe improvements over
   small top-line wins caused by measurement noise outside the hot path
 
+### Remaining high-value attempts
+
+These are the only remaining lanes that still look likely to produce a real
+win. Do not reopen the already exhausted helper-level ideas ahead of these.
+
+#### 1. Flat-memory wasm layout for the shared kernel
+
+- [ ] replace the remaining Boolean-heavy round-core scratch with
+  structure-of-arrays style storage over packed bits, commitments, and
+  provenance
+- [ ] preallocate that storage in executor-owned scratch so `Sigma0`,
+  `Sigma1`, `Ch`, and `Maj` stop rebuilding small per-bit and per-word objects
+  each round
+- [ ] keep the existing arithmetic carry-through for `temp1`, `temp2`, `new_a`,
+  and `new_e`; only the Boolean lane storage/layout should change
+- [ ] benchmark browser `round_core` and hidden-eval probe first; reject any
+  layout rewrite that is only noise-flat there
+- [ ] if this lands, delete the older object-heavier shared path rather than
+  carrying both
+
+Success condition:
+
+- [ ] browser `round_core` improves materially
+- [ ] browser hidden-eval probe total improves materially
+- [ ] native is flat or only modestly worse relative to the browser gain
+
+#### 2. Browser binary interface and typed-array cleanup
+
+- [ ] audit `session.evaluate` inputs and outputs in
+  `crates/succinct-garbling/src/wasm.rs` and the browser benchmark page
+- [ ] replace object-heavy browser-facing payloads with contiguous byte buffers
+  or typed-array views where the semantics are unchanged
+- [ ] reduce repeated JS object materialization for OT packets, opened inputs,
+  and output materialization in the measured browser path
+- [ ] measure browser `session.evaluate`, `ot_open_join`, and the estimated
+  JS/wasm gap after each cleanup
+- [ ] keep only changes that move browser wall time, not benchmark-only
+  bookkeeping
+
+Success condition:
+
+- [ ] browser total hidden eval improves alongside browser `session.evaluate`
+- [ ] the gain comes from real browser wall time, not from skipping measured
+  hidden-eval work
+
+#### 3. Deeper raw packed local multiply, but only after the flat layout lands
+
+- [ ] do not retry deeper raw packed local multiply as a standalone patch
+- [ ] if the flat-memory wasm layout lands, re-open the raw packed local-mul
+  path underneath that layout
+- [ ] push the raw path through triple bits, `d/e` setup, open handling, and
+  output derivation so no per-bit local-word reconstruction remains in the hot
+  multiply path
+- [ ] benchmark both browser and native immediately; keep only if the new
+  layout removes the prior browser regression
+
+Success condition:
+
+- [ ] browser no longer regresses the way the earlier raw packed attempts did
+- [ ] native keeps some of the earlier raw-path win without reopening a wasm
+  loss
+
+#### 4. Wasm build/toolchain tuning after code-path changes plateau
+
+- [x] verify whether the current succinct-garbling browser build gets a
+  `wasm-opt` pass in practice
+  - `wasm-pack build --release` already runs a `wasm-opt` pass in the current
+    benchmark environment, so adding an explicit `Cargo.toml` toggle did not
+    create a distinct optimization configuration worth keeping
+  - takeaway:
+    treat `wasm-opt` as already present in the current release-browser lane and
+    only revisit this area if the build pipeline or optimization level changes
+- [ ] if a later build-layout change alters code shape materially, re-test
+  build-tool tuning against that newer browser baseline rather than assuming
+  this environment's current `wasm-opt` behavior is the last word
+- [ ] test `panic=abort` only if it does not break the current runtime and
+  debugging expectations
+- [ ] test `simd128` only if the deployment target can actually use it
+- [ ] treat toolchain changes as additive follow-ons, not replacements for the
+  shared layout work
+
+Success condition:
+
+- [ ] browser improves without changing algorithm behavior or opening a second
+  production path
+
 ### Recommended reopen order
 
-- [ ] Phase 1 round-core work around `temp1`
-- [ ] Phase 4 session-layer browser overhead reductions after `round_core`
-  changes stop landing
-- [ ] Phase 3 helper-level derivation setup reductions only in a proven hot seam
-- [ ] Phase 6 narrow fusion only after a fresh profile shows a tighter seam
-- [ ] Phase 2 compact labels only where a profile proves formatting cost matters
-- [ ] wasm build tuning only after arithmetic and session work flatten out
+- [ ] flat-memory wasm layout for the shared kernel
+- [ ] browser binary interface and typed-array cleanup
+- [ ] deeper raw packed local multiply, but only if the flat layout lands first
+- [ ] wasm build/toolchain tuning after code-path changes plateau
+- [ ] do not reopen helper-level rewrites unless a fresh profile identifies a
+  genuinely new hot seam
 
 ## Benchmark Discipline
 

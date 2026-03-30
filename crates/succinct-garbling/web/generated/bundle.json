@@ -45,18 +45,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 144875,
-          "median_ns": 207875,
-          "mean_ns": 488203,
-          "p95_ns": 1307792,
-          "max_ns": 1307792
+          "min_ns": 107709,
+          "median_ns": 461125,
+          "mean_ns": 889380,
+          "p95_ns": 2861583,
+          "max_ns": 2861583
         },
         "cache_read_ns": {
-          "min_ns": 162125,
-          "median_ns": 181292,
-          "mean_ns": 191484,
-          "p95_ns": 258542,
-          "max_ns": 258542
+          "min_ns": 158500,
+          "median_ns": 242291,
+          "mean_ns": 227536,
+          "p95_ns": 362541,
+          "max_ns": 362541
         }
       },
       {
@@ -85,18 +85,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 43459,
-          "median_ns": 58000,
-          "mean_ns": 57901,
-          "p95_ns": 77625,
-          "max_ns": 77625
+          "min_ns": 38000,
+          "median_ns": 41500,
+          "mean_ns": 43875,
+          "p95_ns": 57333,
+          "max_ns": 57333
         },
         "cache_read_ns": {
-          "min_ns": 28667,
-          "median_ns": 36417,
-          "mean_ns": 36010,
-          "p95_ns": 46417,
-          "max_ns": 46417
+          "min_ns": 30709,
+          "median_ns": 35000,
+          "mean_ns": 34297,
+          "p95_ns": 36042,
+          "max_ns": 36042
         }
       },
       {
@@ -125,18 +125,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 46292,
-          "median_ns": 66750,
-          "mean_ns": 65771,
-          "p95_ns": 81417,
-          "max_ns": 81417
+          "min_ns": 33958,
+          "median_ns": 37875,
+          "mean_ns": 37515,
+          "p95_ns": 41291,
+          "max_ns": 41291
         },
         "cache_read_ns": {
-          "min_ns": 27792,
-          "median_ns": 35834,
-          "mean_ns": 34349,
-          "p95_ns": 42541,
-          "max_ns": 42541
+          "min_ns": 32709,
+          "median_ns": 34208,
+          "mean_ns": 34192,
+          "p95_ns": 36167,
+          "max_ns": 36167
         }
       }
     ]
