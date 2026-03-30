@@ -1526,6 +1526,38 @@ Implementation order:
     even lower-level overwrite-at-index storage inside the current
     `LocalBitWordSide` shape still costs more than it saves; the remaining
     layout win is likely below this representation, not inside it
+- [x] reject direct `share_blocks` packing plus sparse carry-cross iteration in
+  bool-to-arithmetic conversion `(reverted)`
+  - changed `split_local_bits_to_arithmetic_word_pair_naive` to pack local bits
+    directly from `share_blocks[0]` and iterate only set cross-bit carry terms
+    instead of scanning every bit position
+  - native total hidden eval improved from about `0.323s` to about `0.319s`
+  - native `round_core` improved from about `170.2ms` to about `169.6ms`
+  - native `message_schedule` improved from about `49.1ms` to about `47.4ms`
+  - browser total hidden eval regressed from about `0.475s` to about `0.491s`
+  - browser `round_core` regressed from about `235.0ms` to about `239.4ms`
+  - browser hidden-eval probe total regressed from about `0.375s` to about
+    `0.394s`
+  - takeaway:
+    the lower-level bool-to-arith packing path is directionally right for
+    native, but this exact shared formulation is still wasm-hostile, so it does
+    not clear the browser gate
+- [x] reject fixed-buffer SoA round-core scratch plus reusable batch-multiply
+  outputs `(reverted)`
+  - replaced `sigma0`, `sigma1`, `choose`, and `majority` scratch words with
+    fixed packed buffers below `LocalBitWordSide`, fed those buffers directly
+    into bool-to-arith conversion, and reused the `Ch`/`Maj` gated output
+    vectors instead of allocating fresh batch-multiply output `Vec`s each round
+  - native total hidden eval regressed from about `0.323s` to about `0.325s`
+  - native `round_core` regressed from about `170.2ms` to about `171.4ms`
+  - browser total hidden eval regressed from about `0.475s` to about `0.513s`
+  - browser `session.evaluate` regressed from about `0.475s` to about `0.511s`
+  - browser hidden-eval probe total regressed from about `0.375s` to about
+    `0.381s`
+  - takeaway:
+    flattening the scratch representation inside the current shared kernel is
+    still not enough; the browser path remains more sensitive to the surrounding
+    kernel shape and timing than to these local buffer-allocation deletions
 - [x] replace round-local Boolean helper inputs with fixed buffers or
   structure-of-arrays views owned by the executor scratch arena
 - [x] preallocate all round-local scratch needed for `Sigma0`, `Sigma1`, `Ch`,
