@@ -5,8 +5,8 @@
   "timed_samples": 8,
   "decode_iterations_per_sample": 200,
   "trace_iterations_per_sample": 200,
-  "timestamp_iso": "2026-03-29T10:27:35.590Z",
-  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+  "timestamp_iso": "2026-03-30T06:10:00.013Z",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/146.0.0.0 Safari/537.36",
   "targets": [
     {
       "label": "cached_gc_baseline",
@@ -35,18 +35,18 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 2100000,
-        "median_ns": 2300000,
-        "mean_ns": 2275000,
-        "p95_ns": 2600000,
-        "max_ns": 2600000
+        "min_ns": 2200000,
+        "median_ns": 2500000,
+        "mean_ns": 2587500,
+        "p95_ns": 3200000,
+        "max_ns": 3200000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 400000,
         "median_ns": 500000,
-        "mean_ns": 487500,
-        "p95_ns": 600000,
-        "max_ns": 600000
+        "mean_ns": 525000,
+        "p95_ns": 700000,
+        "max_ns": 700000
       },
       "local_file_io_reference": {
         "label": "cached_gc_baseline",
@@ -74,18 +74,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 131125,
-          "median_ns": 155292,
-          "mean_ns": 155099,
-          "p95_ns": 199792,
-          "max_ns": 199792
+          "min_ns": 144875,
+          "median_ns": 207875,
+          "mean_ns": 488203,
+          "p95_ns": 1307792,
+          "max_ns": 1307792
         },
         "cache_read_ns": {
-          "min_ns": 220791,
-          "median_ns": 233042,
-          "mean_ns": 232197,
-          "p95_ns": 249000,
-          "max_ns": 249000
+          "min_ns": 162125,
+          "median_ns": 181292,
+          "mean_ns": 191484,
+          "p95_ns": 258542,
+          "max_ns": 258542
         }
       }
     },
@@ -116,18 +116,18 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 1300000,
-        "median_ns": 1400000,
-        "mean_ns": 1387500,
-        "p95_ns": 1600000,
-        "max_ns": 1600000
+        "min_ns": 800000,
+        "median_ns": 1000000,
+        "mean_ns": 1100000,
+        "p95_ns": 1500000,
+        "max_ns": 1500000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 100000,
         "median_ns": 200000,
-        "mean_ns": 162500,
-        "p95_ns": 200000,
-        "max_ns": 200000
+        "mean_ns": 212500,
+        "p95_ns": 300000,
+        "max_ns": 300000
       },
       "local_file_io_reference": {
         "label": "prime_order_stub_artifact",
@@ -155,18 +155,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 42750,
-          "median_ns": 56291,
-          "mean_ns": 60109,
-          "p95_ns": 89833,
-          "max_ns": 89833
+          "min_ns": 43459,
+          "median_ns": 58000,
+          "mean_ns": 57901,
+          "p95_ns": 77625,
+          "max_ns": 77625
         },
         "cache_read_ns": {
-          "min_ns": 30583,
-          "median_ns": 37542,
-          "mean_ns": 40223,
-          "p95_ns": 64375,
-          "max_ns": 64375
+          "min_ns": 28667,
+          "median_ns": 36417,
+          "mean_ns": 36010,
+          "p95_ns": 46417,
+          "max_ns": 46417
         }
       }
     },
@@ -198,17 +198,17 @@
       ],
       "browser_indexeddb_write_ns": {
         "min_ns": 800000,
-        "median_ns": 1000000,
-        "mean_ns": 1000000,
-        "p95_ns": 1500000,
-        "max_ns": 1500000
+        "median_ns": 900000,
+        "mean_ns": 987500,
+        "p95_ns": 1200000,
+        "max_ns": 1200000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 100000,
         "median_ns": 200000,
-        "mean_ns": 162500,
-        "p95_ns": 200000,
-        "max_ns": 200000
+        "mean_ns": 212500,
+        "p95_ns": 400000,
+        "max_ns": 400000
       },
       "local_file_io_reference": {
         "label": "prime_order_structured_artifact",
@@ -236,18 +236,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 34291,
-          "median_ns": 45625,
-          "mean_ns": 44015,
-          "p95_ns": 53416,
-          "max_ns": 53416
+          "min_ns": 46292,
+          "median_ns": 66750,
+          "mean_ns": 65771,
+          "p95_ns": 81417,
+          "max_ns": 81417
         },
         "cache_read_ns": {
-          "min_ns": 30500,
-          "median_ns": 32208,
-          "mean_ns": 31974,
-          "p95_ns": 33584,
-          "max_ns": 33584
+          "min_ns": 27792,
+          "median_ns": 35834,
+          "mean_ns": 34349,
+          "p95_ns": 42541,
+          "max_ns": 42541
         }
       }
     }
@@ -256,17 +256,17 @@
     "label": "prime_order_structured_artifact",
     "decode_per_iteration_ns": {
       "min_ns": 6000,
-      "median_ns": 11000,
-      "mean_ns": 11813,
-      "p95_ns": 24500,
-      "max_ns": 24500
+      "median_ns": 7500,
+      "mean_ns": 12625,
+      "p95_ns": 26000,
+      "max_ns": 26000
     },
     "trace_per_iteration_ns": {
-      "min_ns": 8000,
-      "median_ns": 10000,
-      "mean_ns": 12688,
-      "p95_ns": 24500,
-      "max_ns": 24500
+      "min_ns": 10500,
+      "median_ns": 11500,
+      "mean_ns": 14125,
+      "p95_ns": 26000,
+      "max_ns": 26000
     },
     "decode_summary": {
       "artifact_version": 1,
@@ -422,7 +422,7 @@
   "browser_cpu_executor": {
     "available": true,
     "runtime": "wasm_browser_cpu",
-    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/succinct_garbling.js?cache_bust=1774780051831",
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/succinct_garbling.js?cache_bust=1774850996622",
     "fixture_name": "wraparound-seed",
     "artifact_bytes": 138256,
     "total_steps": 180,
@@ -436,23 +436,23 @@
       "dependency_merges": 448,
       "point_normalizations": 184
     },
-    "prepare_duration_ns": 85500000,
+    "prepare_duration_ns": 89200000,
     "sample_iterations": 10,
     "sample_count": 6,
     "execution_latency_ns": {
-      "min": 3489999.999990687,
-      "median": 3530000.0000279397,
-      "mean": 3528333.333328677,
-      "p95": 3579999.9999813735,
-      "max": 3579999.9999813735
+      "min": 3650000,
+      "median": 3700000,
+      "mean": 3693333.3333581686,
+      "p95": 3739999.9998509884,
+      "max": 3739999.9998509884
     },
-    "detailed_result_duration_ns": 3500000,
+    "detailed_result_duration_ns": 3800000,
     "latency_ns_per_curve_cost_unit": {
-      "min": 55.61930260710599,
-      "median": 56.25677312468827,
-      "mean": 56.2302118526276,
-      "p95": 57.0536112701819,
-      "max": 57.0536112701819
+      "min": 58.16918467520877,
+      "median": 58.96602282144451,
+      "mean": 58.85977773567553,
+      "p95": 59.603493336058335,
+      "max": 59.603493336058335
     },
     "output_checksum_hex": "b075ca5b7bd494fe",
     "final_point_compressed_hex": "21fb5139b5a491423a70a42ff2725b5991cfb110b8ee529b6c532a52b24bee36"
@@ -460,7 +460,7 @@
   "browser_ddh_hidden_eval": {
     "available": true,
     "runtime": "wasm_browser_ddh",
-    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/succinct_garbling.js?cache_bust=1774780052142",
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/succinct_garbling.js?cache_bust=1774850996944",
     "fixture_name": "wraparound-seed",
     "artifact_bytes": 138256,
     "active_window_records": 180,
@@ -475,128 +475,128 @@
       "dependency_merges": 448,
       "point_normalizations": 184
     },
-    "prepare_duration_ns": 153900000,
+    "prepare_duration_ns": 164000000,
     "sample_iterations": 1,
     "sample_count": 3,
     "execution_latency_ns": {
-      "min": 566600000.0000931,
-      "median": 567600000.0000931,
-      "mean": 567500000,
-      "p95": 568299999.9998138,
-      "max": 568299999.9998138
+      "min": 505799999.99701977,
+      "median": 507900000.00596046,
+      "mean": 509166666.6666667,
+      "p95": 513799999.99701977,
+      "max": 513799999.99701977
     },
     "js_wall_clock_execution_ns": {
-      "min": 566600000.0000931,
-      "median": 567600000.0000931,
-      "mean": 567500000,
-      "p95": 568299999.9998138,
-      "max": 568299999.9998138
+      "min": 505799999.99701977,
+      "median": 507900000.00596046,
+      "mean": 509166666.6666667,
+      "p95": 513799999.99701977,
+      "max": 513799999.99701977
     },
-    "probe_total_hidden_eval_ns": 466700000,
+    "probe_total_hidden_eval_ns": 401500000,
     "estimated_js_wasm_gap_ns": {
-      "min": 99900000.0000931,
-      "median": 100900000.0000931,
-      "mean": 100800000,
-      "p95": 101599999.9998138,
-      "max": 101599999.9998138
+      "min": 104299999.99701977,
+      "median": 106400000.00596046,
+      "mean": 107666666.66666667,
+      "p95": 112299999.99701977,
+      "max": 112299999.99701977
     },
-    "detailed_result_duration_ns": 575500000,
-    "evaluate_duration_ns": 570600000,
-    "ot_open_join_duration_ns": 102500000,
-    "ot_branch_key_derivation_duration_ns": 700000,
-    "ot_branch_decrypt_duration_ns": 700000,
+    "detailed_result_duration_ns": 512200000,
+    "evaluate_duration_ns": 507000000,
+    "ot_open_join_duration_ns": 108500000,
+    "ot_branch_key_derivation_duration_ns": 400000,
+    "ot_branch_decrypt_duration_ns": 1599997,
     "ot_point_scalar_reconstruction_duration_ns": 0,
-    "ot_commitment_verification_duration_ns": 3000000,
-    "server_input_open_duration_ns": 4100000,
-    "server_input_share_duration_ns": 4100000,
+    "ot_commitment_verification_duration_ns": 2700002,
+    "server_input_open_duration_ns": 4000000,
+    "server_input_share_duration_ns": 4000000,
     "server_input_commitment_duration_ns": 0,
     "server_input_transcript_duration_ns": 0,
     "server_input_seal_duration_ns": 0,
     "output_sealing_finalization_duration_ns": 0,
     "result_assembly_duration_ns": 0,
-    "output_materialization_duration_ns": 4600000,
+    "output_materialization_duration_ns": 4900000,
     "output_open_duration_ns": 0,
     "public_key_duration_ns": 0,
-    "detailed_total_duration_ns": 575200000,
+    "detailed_total_duration_ns": 511900000,
     "latency_ns_per_curve_cost_unit": {
-      "min": 9029.76987314485,
-      "median": 9045.706636069566,
-      "mean": 9044.11295977561,
-      "p95": 9056.862370112414,
-      "max": 9056.862370112414
+      "min": 8060.814687273216,
+      "median": 8094.281889557603,
+      "mean": 8114.468455833918,
+      "p95": 8188.308790670934,
+      "max": 8188.308790670934
     },
     "stage_timings_ns": {
       "input_sharing": {
-        "min": 10800000,
-        "median": 10800000,
-        "mean": 10800000,
-        "p95": 10800000,
-        "max": 10800000
+        "min": 12100000,
+        "median": 12100000,
+        "mean": 12100000,
+        "p95": 12100000,
+        "max": 12100000
       },
       "add_stage": {
-        "min": 3900000,
-        "median": 3900000,
-        "mean": 3900000,
-        "p95": 3900000,
-        "max": 3900000
+        "min": 4000000,
+        "median": 4000000,
+        "mean": 4000000,
+        "p95": 4000000,
+        "max": 4000000
       },
       "message_schedule": {
-        "min": 69000000,
-        "median": 69000000,
-        "mean": 69000000,
-        "p95": 69000000,
-        "max": 69000000
+        "min": 74199999,
+        "median": 74199999,
+        "mean": 74199999,
+        "p95": 74199999,
+        "max": 74199999
       },
       "round_core": {
-        "min": 328400000,
-        "median": 328400000,
-        "mean": 328400000,
-        "p95": 328400000,
-        "max": 328400000
+        "min": 249100001,
+        "median": 249100001,
+        "mean": 249100001,
+        "p95": 249100001,
+        "max": 249100001
       },
       "output_projector": {
-        "min": 54600000,
-        "median": 54600000,
-        "mean": 54600000,
-        "p95": 54600000,
-        "max": 54600000
+        "min": 62100000,
+        "median": 62100000,
+        "mean": 62100000,
+        "p95": 62100000,
+        "max": 62100000
       }
     },
     "substage_timings_ns": {
       "message_schedule_accumulation": {
-        "min": 53200000,
-        "median": 53200000,
-        "mean": 53200000,
-        "p95": 53200000,
-        "max": 53200000
+        "min": 57399999,
+        "median": 57399999,
+        "mean": 57399999,
+        "p95": 57399999,
+        "max": 57399999
       },
       "round_sigma1": {
-        "min": 10600000,
-        "median": 10600000,
-        "mean": 10600000,
-        "p95": 10600000,
-        "max": 10600000
+        "min": 10199998,
+        "median": 10199998,
+        "mean": 10199998,
+        "p95": 10199998,
+        "max": 10199998
       },
       "round_ch": {
-        "min": 38000000,
-        "median": 38000000,
-        "mean": 38000000,
-        "p95": 38000000,
-        "max": 38000000
+        "min": 40000003,
+        "median": 40000003,
+        "mean": 40000003,
+        "p95": 40000003,
+        "max": 40000003
       },
       "round_temp1": {
-        "min": 65300000,
-        "median": 65300000,
-        "mean": 65300000,
-        "p95": 65300000,
-        "max": 65300000
+        "min": 6999990,
+        "median": 6999990,
+        "mean": 6999990,
+        "p95": 6999990,
+        "max": 6999990
       },
       "round_temp2": {
-        "min": 53500000,
-        "median": 53500000,
-        "mean": 53500000,
-        "p95": 53500000,
-        "max": 53500000
+        "min": 3000002,
+        "median": 3000002,
+        "mean": 3000002,
+        "p95": 3000002,
+        "max": 3000002
       }
     },
     "reference_match": true,
@@ -607,7 +607,7 @@
         "stage": "input_sharing",
         "ok": true,
         "completed_stage": "input_sharing",
-        "total_duration_ns": 10800000,
+        "total_duration_ns": 12100000,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -618,7 +618,7 @@
         "stage": "add_stage",
         "ok": true,
         "completed_stage": "add_stage",
-        "total_duration_ns": 14700000,
+        "total_duration_ns": 16100000,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -629,8 +629,8 @@
         "stage": "message_schedule",
         "ok": true,
         "completed_stage": "message_schedule",
-        "total_duration_ns": 83700000,
-        "message_schedule_accumulation_duration_ns": 53200000,
+        "total_duration_ns": 90299999,
+        "message_schedule_accumulation_duration_ns": 57399999,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
         "round_temp1_duration_ns": 0,
@@ -640,121 +640,29 @@
         "stage": "round_core",
         "ok": true,
         "completed_stage": "round_core",
-        "total_duration_ns": 412100000,
-        "message_schedule_accumulation_duration_ns": 51900000,
-        "round_sigma1_duration_ns": 10600000,
-        "round_ch_duration_ns": 38000000,
-        "round_temp1_duration_ns": 65300000,
-        "round_temp2_duration_ns": 53500000
+        "total_duration_ns": 339400000,
+        "message_schedule_accumulation_duration_ns": 55399995,
+        "round_sigma1_duration_ns": 10199998,
+        "round_ch_duration_ns": 40000003,
+        "round_temp1_duration_ns": 6999990,
+        "round_temp2_duration_ns": 3000002
       },
       {
         "stage": "output_projector",
         "ok": true,
         "completed_stage": "output_projector",
-        "total_duration_ns": 466700000,
-        "message_schedule_accumulation_duration_ns": 50500000,
-        "round_sigma1_duration_ns": 9800000,
-        "round_ch_duration_ns": 38700000,
-        "round_temp1_duration_ns": 64700000,
-        "round_temp2_duration_ns": 53200000
+        "total_duration_ns": 401500000,
+        "message_schedule_accumulation_duration_ns": 55800007,
+        "round_sigma1_duration_ns": 9800010,
+        "round_ch_duration_ns": 40699991,
+        "round_temp1_duration_ns": 6200006,
+        "round_temp2_duration_ns": 3100001
       }
     ]
   },
   "browser_webgpu_probe": {
-    "available": true,
+    "available": false,
     "runtime": "browser_webgpu_probe",
-    "adapter_info": {
-      "vendor": "apple",
-      "architecture": "metal-3",
-      "device": "",
-      "description": ""
-    },
-    "artifact_bytes": 138256,
-    "step_count": 180,
-    "words_per_step": 13,
-    "workgroup_size": 64,
-    "workgroup_count": 3,
-    "proxy_kernel_kind": "digit_recode_v0 + window_bucket_accumulate_v0 + bucket_reduce_v0 + dependency_merge_normalize_v0",
-    "proxy_subkernels": [
-      "digit_recode_v0",
-      "window_bucket_accumulate_v0",
-      "bucket_reduce_v0",
-      "dependency_merge_normalize_v0"
-    ],
-    "proxy_rounds_per_step": 32,
-    "dispatch_repeats": 8,
-    "curve_cost_units_reference": 62748,
-    "adapter_request_ns": 1700000,
-    "device_request_ns": 8100000,
-    "pipeline_create_ns": 2100000,
-    "upload_ns": 0,
-    "setup_total_ns": 11900000,
-    "subkernel_timings_ns": {
-      "digit_recode_v0": {
-        "min": 37499.999976716936,
-        "median": 49999.99998835847,
-        "mean": 66666.6666608459,
-        "p95": 174999.99998835847,
-        "max": 174999.99998835847
-      },
-      "window_bucket_accumulate_v0": {
-        "min": 25000.000023283064,
-        "median": 37499.999976716936,
-        "mean": 35416.6666608459,
-        "p95": 49999.99998835847,
-        "max": 49999.99998835847
-      },
-      "bucket_reduce_v0": {
-        "min": 37499.999976716936,
-        "median": 49999.99998835847,
-        "mean": 60416.666664726414,
-        "p95": 149999.9999650754,
-        "max": 149999.9999650754
-      },
-      "dependency_merge_normalize_v0": {
-        "min": 37499.999976716936,
-        "median": 37500.0000349246,
-        "mean": 39583.33334109435,
-        "p95": 50000.00004656613,
-        "max": 50000.00004656613
-      }
-    },
-    "bucket_pipeline_timings_ns": {
-      "min": 125000,
-      "median": 137499.99995343387,
-      "mean": 162499.9999864182,
-      "p95": 250000,
-      "max": 250000
-    },
-    "subkernel_mean_share_of_total": {
-      "digit_recode_v0": 0.3299,
-      "window_bucket_accumulate_v0": 0.1753,
-      "bucket_reduce_v0": 0.299,
-      "dependency_merge_normalize_v0": 0.1959
-    },
-    "bucket_pipeline_mean_share_of_total": 0.8041,
-    "dominant_subkernel_kind": "digit_recode_v0",
-    "execution_latency_ns": {
-      "min": 162499.99997671694,
-      "median": 175000.00004656613,
-      "mean": 202083.33332751258,
-      "p95": 287499.99997671694,
-      "max": 287499.99997671694
-    },
-    "readback_latency_ns": {
-      "min_ns": 0,
-      "median_ns": 0,
-      "mean_ns": 16667,
-      "p95_ns": 100000,
-      "max_ns": 100000
-    },
-    "proxy_latency_ns_per_curve_cost_unit": {
-      "min": 2.589723974895087,
-      "median": 2.7889335125671915,
-      "mean": 3.2205541742766712,
-      "p95": 4.5818193404844285,
-      "max": 4.5818193404844285
-    },
-    "output_checksum_hex": "0000005c27563622"
+    "error": "requestAdapter returned null"
   }
 }

@@ -3143,37 +3143,24 @@ fn join_local_word_pair_as_derived(
     })
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn xor_local_words_public(
+pub(crate) fn xor_local_bit_from_raw_public(
     evaluation_key: &DdhHssEvaluationKey,
     label: &[u8],
-    left: &DdhHssLocalWord,
-    right: &DdhHssLocalWord,
-) -> ProtoResult<DdhHssLocalWord> {
-    if left.share_side != right.share_side {
-        return Err(ProtoError::InvalidInput(format!(
-            "local xor requires same share side, got {:?} and {:?}",
-            left.share_side, right.share_side
-        )));
-    }
-    if left.width_bits != right.width_bits {
-        return Err(ProtoError::InvalidInput(format!(
-            "local xor width mismatch: {} vs {}",
-            left.width_bits, right.width_bits
-        )));
-    }
-    Ok(build_local_word_for_key(
+    share_side: DdhHssShareSide,
+    left_bit: u8,
+    left_provenance_digest: &[u8; 32],
+    right_bit: u8,
+    right_provenance_digest: &[u8; 32],
+) -> DdhHssLocalWord {
+    build_local_word_for_key(
         evaluation_key,
         b"eval-xor-local-word",
         label,
-        left.width_bits,
-        left.share_side,
-        reduce_word(
-            u128::from(left.share_word) + u128::from(right.share_word),
-            left.width_bits,
-        ),
-        &[&left.provenance_digest, &right.provenance_digest],
-    ))
+        1,
+        share_side,
+        reduce_word(u128::from(left_bit & 1) + u128::from(right_bit & 1), 1),
+        &[left_provenance_digest, right_provenance_digest],
+    )
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

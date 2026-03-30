@@ -6,7 +6,7 @@ use crate::ddh_hss::{
     eval_mul_local_word_pair_batch_public, eval_mul_local_word_pairs_public,
     local_word_from_shared, local_word_from_transport_public,
     validate_transport_bundle_pair_public, validate_transport_word_pair_public,
-    xor_local_word_pairs_public, xor_local_words_public, DdhHssArithmeticBackend,
+    xor_local_bit_from_raw_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
     DdhHssInputShareBundle, DdhHssLocalWord, DdhHssShareSide, DdhHssSharedWord,
     DdhHssTransportBundle, DdhHssTransportWord,
 };
@@ -808,7 +808,6 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
-    let schedule = schedule_output.words;
     if stop_after == DdhHiddenEvalCheckpoint::MessageSchedule {
         return Ok(DdhHiddenEvalProbe {
             completed_stage: DdhHiddenEvalCheckpoint::MessageSchedule,
@@ -840,14 +839,18 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
             },
-            schedule_word_count: Some(schedule.len()),
+            schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
         });
     }
 
     let round_started_ns = monotonic_now_ns();
-    let round_output =
-        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
+    let round_output = execute_round_stages(
+        backend,
+        constant_pool,
+        &program.stages[2..6],
+        &schedule_output.words,
+    )?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
     let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
@@ -886,7 +889,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
             },
-            schedule_word_count: Some(schedule.len()),
+            schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
         });
     }
@@ -933,7 +936,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
             output_projector_duration_ns,
             total_duration_ns: elapsed_ns(total_started_ns),
         },
-        schedule_word_count: Some(schedule.len()),
+        schedule_word_count: Some(schedule_output.words.len()),
         hash_prefix_hex: None,
     })
 }
@@ -1004,11 +1007,14 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
-    let schedule = schedule_output.words;
 
     let round_started_ns = monotonic_now_ns();
-    let round_output =
-        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
+    let round_output = execute_round_stages(
+        backend,
+        constant_pool,
+        &program.stages[2..6],
+        &schedule_output.words,
+    )?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
     let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
@@ -1150,12 +1156,15 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
-    let schedule = schedule_output.words;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
 
     let round_started_ns = monotonic_now_ns();
-    let round_output =
-        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
+    let round_output = execute_round_stages(
+        backend,
+        constant_pool,
+        &program.stages[2..6],
+        &schedule_output.words,
+    )?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
     let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
@@ -1280,12 +1289,15 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_in
         execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
-    let schedule = schedule_output.words;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
 
     let round_started_ns = monotonic_now_ns();
-    let round_output =
-        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule)?;
+    let round_output = execute_round_stages(
+        backend,
+        constant_pool,
+        &program.stages[2..6],
+        &schedule_output.words,
+    )?;
     let round_core_duration_ns = elapsed_ns(round_started_ns);
     let hash_core = round_output.hash_core;
     let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
@@ -1520,7 +1532,7 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             )?;
             ch_duration_ns += elapsed_ns(ch_started_ns);
             let temp1_started_ns = monotonic_now_ns();
-            let (temp1, add_timing) = add_five_local_bit_words_via_arithmetic_naive(
+            let (temp1_arith, add_timing) = add_five_local_bit_words_to_arithmetic_naive(
                 backend,
                 &format!("round_core/{round}/temp1"),
                 &state[7],
@@ -1528,8 +1540,6 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
                 &choose,
                 &round_constants[round],
                 &schedule[round],
-                &constant_pool.zero_left,
-                &constant_pool.zero_right,
             )?;
             temp1_duration_ns += elapsed_ns(temp1_started_ns);
             temp1_add_timing.add_assign(&add_timing);
@@ -1543,30 +1553,43 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
                 &state[2],
             )?;
             let temp2_started_ns = monotonic_now_ns();
-            let temp2 = add_two_local_bit_words(
+            let (temp2_arith, _) = add_two_local_bit_words_to_arithmetic_naive(
                 backend,
                 &format!("round_core/{round}/temp2"),
                 &sigma0,
                 &majority,
-                &constant_pool.zero_left,
-                &constant_pool.zero_right,
             )?;
             temp2_duration_ns += elapsed_ns(temp2_started_ns);
 
-            let new_a = add_two_local_bit_words(
-                backend,
+            let new_a_arith = add_local_arithmetic_word_pairs(
+                backend.evaluation_key(),
                 &format!("round_core/{round}/new_a"),
-                &temp1,
-                &temp2,
+                &temp1_arith,
+                &temp2_arith,
+            )?;
+            let new_a = arithmetic_word_pair_to_split_local_bits_naive(
+                backend,
+                &format!("round_core/{round}/new_a_bits"),
+                &new_a_arith,
                 &constant_pool.zero_left,
                 &constant_pool.zero_right,
             )?;
 
-            let new_e = add_two_local_bit_words(
+            let state3_arith = split_local_bits_to_arithmetic_word_pair_naive(
                 backend,
-                &format!("round_core/{round}/new_e"),
+                &format!("round_core/{round}/state3"),
                 &state[3],
-                &temp1,
+            )?;
+            let new_e_arith = add_local_arithmetic_word_pairs(
+                backend.evaluation_key(),
+                &format!("round_core/{round}/new_e"),
+                &state3_arith,
+                &temp1_arith,
+            )?;
+            let new_e = arithmetic_word_pair_to_split_local_bits_naive(
+                backend,
+                &format!("round_core/{round}/new_e_bits"),
+                &new_e_arith,
                 &constant_pool.zero_left,
                 &constant_pool.zero_right,
             )?;
@@ -2382,13 +2405,19 @@ struct LocalBitTransformSpec<'a> {
     zero: Option<&'a DdhHssLocalWord>,
 }
 
-fn transformed_local_word(
+fn transformed_local_bit_parts(
     source: &LocalBitWordSide,
     idx: usize,
     spec: LocalBitTransformSpec<'_>,
-) -> ProtoResult<DdhHssLocalWord> {
+) -> ProtoResult<(u8, [u8; 32])> {
     match spec.transform {
-        LocalBitTransform::Rotate(offset) => source.local_word((idx + offset) % source.len()),
+        LocalBitTransform::Rotate(offset) => {
+            let transformed_idx = (idx + offset) % source.len();
+            Ok((
+                source.share_bit(transformed_idx),
+                source.provenance_digests[transformed_idx],
+            ))
+        }
         LocalBitTransform::Shift(shift) => {
             let zero = spec.zero.ok_or_else(|| {
                 ProtoError::InvalidInput(
@@ -2402,9 +2431,12 @@ fn transformed_local_word(
                 ));
             }
             if idx + shift < source.len() {
-                source.local_word(idx + shift)
+                Ok((
+                    source.share_bit(idx + shift),
+                    source.provenance_digests[idx + shift],
+                ))
             } else {
-                Ok(zero.clone())
+                Ok(((zero.share_word as u8) & 1, zero.provenance_digest))
             }
         }
     }
@@ -2419,33 +2451,31 @@ fn xor_transformed_local_bit_word_side(
     source.ensure_shape()?;
     let mut out = empty_local_bit_slice(source.share_side, source.len());
     for idx in 0..source.len() {
-        let first = transformed_local_word(source, idx, transforms[0])?;
-        let second = transformed_local_word(source, idx, transforms[1])?;
-        let third = transformed_local_word(source, idx, transforms[2])?;
-        let xor01 = xor_local_words_public(
+        let (first_bit, first_provenance) =
+            transformed_local_bit_parts(source, idx, transforms[0])?;
+        let (second_bit, second_provenance) =
+            transformed_local_bit_parts(source, idx, transforms[1])?;
+        let (third_bit, third_provenance) =
+            transformed_local_bit_parts(source, idx, transforms[2])?;
+        let xor01 = xor_local_bit_from_raw_public(
             evaluation_key,
             format!("{label}/xor01/{idx}").as_bytes(),
-            &first,
-            &second,
-        )?;
-        let xor012 = xor_local_words_public(
+            source.share_side,
+            first_bit,
+            &first_provenance,
+            second_bit,
+            &second_provenance,
+        );
+        let xor012 = xor_local_bit_from_raw_public(
             evaluation_key,
             format!("{label}/xor012/{idx}").as_bytes(),
-            &xor01,
-            &third,
-        )?;
+            source.share_side,
+            (xor01.share_word as u8) & 1,
+            &xor01.provenance_digest,
+            third_bit,
+            &third_provenance,
+        );
         out.push_local_word(&xor012)?;
-    }
-    Ok(out)
-}
-
-fn local_bit_word_side_to_local_words(
-    source: &LocalBitWordSide,
-) -> ProtoResult<Vec<DdhHssLocalWord>> {
-    source.ensure_shape()?;
-    let mut out = Vec::with_capacity(source.len());
-    for idx in 0..source.len() {
-        out.push(source.local_word(idx)?);
     }
     Ok(out)
 }
@@ -2668,32 +2698,7 @@ fn add_four_local_bit_words_via_arithmetic_naive<B: DdhHssArithmeticBackend>(
     zero_left: &DdhHssLocalWord,
     zero_right: &DdhHssLocalWord,
 ) -> ProtoResult<(SplitLocalBitWord, LocalBitWordAddTiming)> {
-    let a_arith =
-        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/a"), a)?;
-    let b_arith =
-        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/b"), b)?;
-    let c_arith =
-        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/c"), c)?;
-    let d_arith =
-        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/d"), d)?;
-    let ab = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/ab"),
-        &a_arith,
-        &b_arith,
-    )?;
-    let abc = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/abc"),
-        &ab,
-        &c_arith,
-    )?;
-    let abcd = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/abcd"),
-        &abc,
-        &d_arith,
-    )?;
+    let (abcd, timing) = add_four_local_bit_words_to_arithmetic_naive(backend, label, a, b, c, d)?;
     Ok((
         arithmetic_word_pair_to_split_local_bits_naive(
             backend,
@@ -2702,21 +2707,34 @@ fn add_four_local_bit_words_via_arithmetic_naive<B: DdhHssArithmeticBackend>(
             zero_left,
             zero_right,
         )?,
+        timing,
+    ))
+}
+
+fn add_two_local_bit_words_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    a: &SplitLocalBitWord,
+    b: &SplitLocalBitWord,
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
+    let a_arith =
+        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/a"), a)?;
+    let b_arith =
+        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/b"), b)?;
+    Ok((
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), label, &a_arith, &b_arith)?,
         LocalBitWordAddTiming::default(),
     ))
 }
 
-fn add_five_local_bit_words_via_arithmetic_naive<B: DdhHssArithmeticBackend>(
+fn add_four_local_bit_words_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     a: &SplitLocalBitWord,
     b: &SplitLocalBitWord,
     c: &SplitLocalBitWord,
     d: &SplitLocalBitWord,
-    e: &SplitLocalBitWord,
-    zero_left: &DdhHssLocalWord,
-    zero_right: &DdhHssLocalWord,
-) -> ProtoResult<(SplitLocalBitWord, LocalBitWordAddTiming)> {
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
     let a_arith =
         split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/a"), a)?;
     let b_arith =
@@ -2725,8 +2743,6 @@ fn add_five_local_bit_words_via_arithmetic_naive<B: DdhHssArithmeticBackend>(
         split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/c"), c)?;
     let d_arith =
         split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/d"), d)?;
-    let e_arith =
-        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/e"), e)?;
     let ab = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
         &format!("{label}/ab"),
@@ -2745,22 +2761,39 @@ fn add_five_local_bit_words_via_arithmetic_naive<B: DdhHssArithmeticBackend>(
         &abc,
         &d_arith,
     )?;
+    Ok((abcd, LocalBitWordAddTiming::default()))
+}
+
+fn add_five_local_bit_words_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    a: &SplitLocalBitWord,
+    b: &SplitLocalBitWord,
+    c: &SplitLocalBitWord,
+    d: &SplitLocalBitWord,
+    e: &SplitLocalBitWord,
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
+    let (abcd, timing) = add_four_local_bit_words_to_arithmetic_naive(backend, label, a, b, c, d)?;
+    let e_arith =
+        split_local_bits_to_arithmetic_word_pair_naive(backend, &format!("{label}/e"), e)?;
     let abcde = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
         &format!("{label}/abcde"),
         &abcd,
         &e_arith,
     )?;
-    Ok((
-        arithmetic_word_pair_to_split_local_bits_naive(
-            backend,
-            &format!("{label}/out"),
-            &abcde,
-            zero_left,
-            zero_right,
-        )?,
-        LocalBitWordAddTiming::default(),
-    ))
+    Ok((abcde, timing))
+}
+
+fn local_bit_word_side_to_local_words(
+    source: &LocalBitWordSide,
+) -> ProtoResult<Vec<DdhHssLocalWord>> {
+    source.ensure_shape()?;
+    let mut out = Vec::with_capacity(source.len());
+    for idx in 0..source.len() {
+        out.push(source.local_word(idx)?);
+    }
+    Ok(out)
 }
 
 fn mul_local_bit_words_batched(
@@ -3731,7 +3764,7 @@ fn combine_server_input_transport_commitments(
 #[cfg(test)]
 mod tests {
     use super::{
-        add_five_local_bit_words_via_arithmetic_naive, add_words_bits_mod_l,
+        add_five_local_bit_words_to_arithmetic_naive, add_words_bits_mod_l,
         arithmetic_word_pair_to_split_local_bits_naive, decode_bits_to_fixed_bytes,
         prepare_ddh_hidden_eval_constant_pool, reduce_scalar_bits_mod_l,
         reduce_scalar_bits_mod_l_with_constants_local, share_input_bits,
@@ -3859,7 +3892,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let (sum, _) = add_five_local_bit_words_via_arithmetic_naive(
+        let (sum_arith, _) = add_five_local_bit_words_to_arithmetic_naive(
             backend,
             "test_phase_a_five_word_sum",
             &words[0],
@@ -3867,10 +3900,16 @@ mod tests {
             &words[2],
             &words[3],
             &words[4],
+        )
+        .expect("arithmetic five-word sum");
+        let sum = arithmetic_word_pair_to_split_local_bits_naive(
+            backend,
+            "test_phase_a_five_word_sum/bits",
+            &sum_arith,
             &constant_pool.zero_left,
             &constant_pool.zero_right,
         )
-        .expect("arithmetic five-word sum");
+        .expect("arithmetic five-word sum bits");
         let decoded = u64::from_le_bytes(
             decode_bits_to_fixed_bytes::<8>(
                 backend,
