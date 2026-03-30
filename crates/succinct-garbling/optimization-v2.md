@@ -1443,6 +1443,16 @@ Implementation order:
     public-style OT verification is not the dominant browser cost anymore; the
     remaining browser gap is in the shared evaluator/transport shape, not this
     trusted revalidation layer
+- [x] reject prepared-session OT sender decode caching in the trusted garbler
+  session: caching sender scalars and decompressed sender public points once per
+  prepared session still regressed the shared path
+  - native total hidden eval regressed from about `0.323s` to about `0.330s`
+  - native `round_core` regressed from about `170.2ms` to about `174.9ms`
+  - native `round_ch` regressed from about `29.0ms` to about `30.3ms`
+  - takeaway:
+    repeated OT sender decoding is not the dominant trusted open/join cost
+    anymore; adding and carrying the cached runtime shape costs more than the
+    saved scalar/point decoding on the current shared path
 - [x] reject the select/projector raw aligned-xor helper pass: rebuilding the
   selector path around packed local-bit xor plus the existing batch multiply
   still lost clearly in both native and browser
@@ -1495,6 +1505,27 @@ Implementation order:
     the surviving `Ch`/`Maj` win is the input-side xor-to-vector deletion; the
     final output xor still wants the existing local-word form, so pushing raw
     packed derivation through that last seam adds more overhead than it removes
+- [x] reject the packed-side direct fill/append rewrite: flattening packed-side
+  reads into preallocated `DdhHssLocalWord` vectors and flattening packed-side
+  writes back into `LocalBitWordSide` regressed native before the browser gate
+  - native total hidden eval regressed from about `0.323s` to about `0.334s`
+  - native `round_core` regressed from about `170.2ms` to about `176.1ms`
+  - takeaway:
+    deleting accessor and append overhead at the current packed-side boundary is
+    too small by itself; the remaining cost is deeper than `local_word()` /
+    `push_local_word()` shape, so this seam should stay closed unless a later
+    storage rewrite changes the underlying data flow too
+- [x] reject pre-sized overwrite for sigma/choose/majority scratch buffers
+  `(reverted)`
+  - rewrote `LocalBitWordSide` output paths to pre-size the scratch storage and
+    overwrite bits, commitments, and provenance in place instead of rebuilding
+    those outputs with repeated `push_local_word` growth
+  - native total hidden eval regressed from about `0.323s` to about `0.333s`
+  - native `round_core` regressed from about `170.2ms` to about `175.1ms`
+  - takeaway:
+    even lower-level overwrite-at-index storage inside the current
+    `LocalBitWordSide` shape still costs more than it saves; the remaining
+    layout win is likely below this representation, not inside it
 - [x] replace round-local Boolean helper inputs with fixed buffers or
   structure-of-arrays views owned by the executor scratch arena
 - [x] preallocate all round-local scratch needed for `Sigma0`, `Sigma1`, `Ch`,
@@ -1549,6 +1580,22 @@ Implementation order:
   - current fast-path browser measurement already runs through the hidden-run
     export, so browser-only cleanup is now mostly a probe/detailed-path concern
     unless it deletes real `session.evaluate` or OT/open-join wall time
+- [x] reject JSON-byte browser payload shaping for DDH benchmark exports
+  `(reverted)`
+  - returned the same detailed-result and probe payloads as JSON bytes from wasm
+    and decoded them in the benchmark page instead of materializing JS objects
+    directly through `serde_wasm_bindgen`
+  - browser total hidden eval regressed from about `0.475s` to about `0.504s`
+  - browser `session.evaluate` regressed from about `0.475s` to about `0.505s`
+  - browser hidden-eval probe total regressed from about `0.375s` to about
+    `0.402s`
+  - browser detailed result duration regressed from about `0.489s` to about
+    `0.510s`
+  - takeaway:
+    the measured browser hot path is not dominated by JS object shaping on these
+    exports; JSON-byte decoding adds more work than it removes, so future
+    browser payload cleanup should stay closer to the fast hidden-run path and
+    avoid adding decode work in the page
 
 Success threshold:
 
