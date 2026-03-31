@@ -2,39 +2,39 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::artifact::{
+    build_prime_order_size_optimized_artifact, decode_prime_order_size_optimized_artifact,
+    materialize_prime_order_size_optimized_bytes, PrimeOrderEncodedArtifact,
+    PrimeOrderEvaluatorOps,
+};
 use crate::candidate::{CandidateBackendFamily, FixedHiddenCoreCandidate};
 use crate::context::CanonicalContext;
-use crate::ddh_hidden_eval_executor::{
+use crate::ddh::ddh_hss::{
+    prepare_client_ot_sender_state_words_public, role_views_for_backend,
+    DdhHssPreparedOtSenderStateWord,
+};
+use crate::ddh::hidden_eval_executor::{
     execute_prime_order_ddh_hidden_eval_program_for_clear_input_profiled_with_pool,
     execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool,
     execute_prime_order_ddh_hidden_eval_program_with_transport_server_inputs_with_pool,
     prepare_ddh_hidden_eval_constant_pool, probe_prime_order_ddh_hidden_eval_program_with_pool,
-    DdhHiddenEvalCheckpoint, DdhHiddenEvalConstantPool, DdhHiddenEvalOutputBundles,
-    DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalServerInputs,
+    DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputs,
 };
-use crate::ddh_hss::{
-    keygen_prime_order_ddh_hss_backend, prepare_client_ot_sender_state_words_public,
-    role_views_for_backend, DdhHssBackend, DdhHssEvaluationKey, DdhHssEvaluator, DdhHssGarbler,
+use crate::ddh::{
+    compile_prime_order_hidden_eval_program, keygen_prime_order_ddh_hss_backend,
+    DdhHiddenEvalCheckpoint, DdhHiddenEvalOutputBundles, DdhHiddenEvalProbe, DdhHiddenEvalProfile,
+    DdhHiddenEvalRun, DdhHssBackend, DdhHssEvaluationKey, DdhHssEvaluator, DdhHssGarbler,
     DdhHssInputShareBundle, DdhHssOtInputBundleOffer, DdhHssOtReceiverStateBundle,
     DdhHssOtReconstructTiming, DdhHssOtReleasedRemoteBundle, DdhHssOtRemoteBundle,
-    DdhHssOtResponseBundle, DdhHssOtSelectionBundle, DdhHssOtSenderStateBundle,
-    DdhHssPreparedOtSenderStateWord, DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle,
-    DdhHssTransportPurpose,
+    DdhHssOtResponseBundle, DdhHssOtSelectionBundle, DdhHssOtSenderStateBundle, DdhHssShareSide,
+    DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportPurpose, HiddenEvalInputOwner,
+    HiddenEvalProgram,
 };
-use crate::hidden_eval::{
-    compile_prime_order_hidden_eval_program, HiddenEvalInputOwner, HiddenEvalProgram,
-};
-use crate::prime_order_cpu_executor::{
+use crate::reference::{public_key_from_base_shares, FExpandInput};
+use crate::runtime::{
     compile_prime_order_cpu_execution_program, execute_prime_order_cpu_execution_program,
     PrimeOrderCpuExecutionProgram, PrimeOrderCpuExecutionResult,
 };
-use crate::prime_order_decoder::decode_prime_order_size_optimized_artifact;
-use crate::prime_order_encoder::{
-    build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
-    PrimeOrderEncodedArtifact,
-};
-use crate::prime_order_trace::PrimeOrderEvaluatorOps;
-use crate::reference::{public_key_from_base_shares, FExpandInput};
 use crate::{build_fixed_hidden_core_candidate, ProtoError, ProtoResult};
 
 pub const PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION: &str = "prime_order_succinct_hss_v0";
@@ -924,10 +924,7 @@ impl PrimeOrderSuccinctHssPreparedSession {
             .0)
     }
 
-    pub fn evaluate_hidden_run(
-        &self,
-        input: &FExpandInput,
-    ) -> ProtoResult<crate::ddh_hidden_eval_executor::DdhHiddenEvalRun> {
+    pub fn evaluate_hidden_run(&self, input: &FExpandInput) -> ProtoResult<DdhHiddenEvalRun> {
         self.ensure_input_context(input)?;
         let runtime = &self.shared_runtime_cached;
         let garbler_session = &self.garbler_session_cached;
@@ -1006,10 +1003,7 @@ impl PrimeOrderSuccinctHssPreparedSession {
     pub fn evaluate_hidden_run_with_timing(
         &self,
         input: &FExpandInput,
-    ) -> ProtoResult<(
-        crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
-        PrimeOrderSuccinctHssEvaluateTiming,
-    )> {
+    ) -> ProtoResult<(DdhHiddenEvalRun, PrimeOrderSuccinctHssEvaluateTiming)> {
         self.ensure_input_context(input)?;
         let runtime = &self.shared_runtime_cached;
         let garbler_session = &self.garbler_session_cached;
@@ -1588,8 +1582,8 @@ impl PrimeOrderSuccinctHssGarblerSession {
                     .to_string(),
             ));
         }
-        if packet.y_client_remote_release.share_side != crate::ddh_hss::DdhHssShareSide::Right
-            || packet.tau_client_remote_release.share_side != crate::ddh_hss::DdhHssShareSide::Right
+        if packet.y_client_remote_release.share_side != DdhHssShareSide::Right
+            || packet.tau_client_remote_release.share_side != DdhHssShareSide::Right
         {
             return Err(ProtoError::InvalidInput(
                 "server delivery packet client OT remote-share releases must carry right-side shares"
@@ -2032,7 +2026,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         client_packet: &PrimeOrderSuccinctHssClientPacket,
         evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
         server_packet: &PrimeOrderSuccinctHssServerPacket,
-    ) -> ProtoResult<crate::ddh_hidden_eval_executor::DdhHiddenEvalRun> {
+    ) -> ProtoResult<DdhHiddenEvalRun> {
         let (y_client_bundle, tau_client_bundle) = self.reconstruct_client_input_bundles(
             client_packet,
             evaluator_ot_state,
@@ -2075,10 +2069,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         hidden_eval_constants: &DdhHiddenEvalConstantPool,
         evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
         trusted_server_eval: &PrimeOrderSuccinctHssTrustedServerEval,
-    ) -> ProtoResult<(
-        crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
-        PrimeOrderSuccinctHssEvaluateTiming,
-    )> {
+    ) -> ProtoResult<(DdhHiddenEvalRun, PrimeOrderSuccinctHssEvaluateTiming)> {
         let mut timing = PrimeOrderSuccinctHssEvaluateTiming::default();
         let ot_open_join_started = monotonic_now_ns();
         let (y_client_bundle, tau_client_bundle, ot_timing) = self
@@ -2137,7 +2128,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
     fn build_evaluation_result_from_hidden_run(
         &self,
         runtime: &PrimeOrderSuccinctHssSharedRuntime,
-        ddh_run: crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
+        ddh_run: DdhHiddenEvalRun,
     ) -> ProtoResult<(PrimeOrderSuccinctHssEvaluationResult, u64, u64)> {
         let result_assembly_started = monotonic_now_ns();
         let run_binding = self.ddh_evaluator.run_binding(
@@ -2207,7 +2198,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         &self,
         runtime: &PrimeOrderSuccinctHssSharedRuntime,
         garbler_session: &PrimeOrderSuccinctHssGarblerSession,
-        ddh_run: crate::ddh_hidden_eval_executor::DdhHiddenEvalRun,
+        ddh_run: DdhHiddenEvalRun,
     ) -> ProtoResult<(PrimeOrderSuccinctHssEvaluationReport, u64, u64)> {
         let result_assembly_started = monotonic_now_ns();
         let run_binding = self.ddh_evaluator.run_binding(

@@ -216,10 +216,10 @@ Move:
 
 Tasks:
 
-- [ ] create `src/benchmark/mod.rs`
-- [ ] update `lib.rs` module declarations
-- [ ] update all internal imports
-- [ ] keep re-exported benchmark APIs stable where still useful
+- [x] create `src/benchmark/mod.rs`
+- [x] update `lib.rs` module declarations
+- [x] update all internal imports
+- [x] keep re-exported benchmark APIs stable where still useful
 - [ ] move benchmark bins to the new names
 - [ ] delete old benchmark bin files instead of leaving wrappers
 
@@ -238,8 +238,8 @@ Move:
 
 Tasks:
 
-- [ ] create `src/artifact/mod.rs`
-- [ ] update all imports across runtime, protocol, and tests
+- [x] create `src/artifact/mod.rs`
+- [x] update all imports across runtime, protocol, and tests
 - [ ] keep artifact-specific helper visibility as narrow as possible
 - [ ] remove stale comments that still imply a flat layout
 
@@ -258,8 +258,8 @@ Move:
 
 Tasks:
 
-- [ ] create `src/ddh/mod.rs`
-- [ ] update all imports in protocol, wasm, benchmark, and tests
+- [x] create `src/ddh/mod.rs`
+- [x] update all imports in protocol, wasm, benchmark, and tests
 - [ ] keep the secure hot path exactly behavior-preserving during the move
 - [ ] delete obsolete top-level references immediately
 
@@ -280,7 +280,7 @@ Add:
 
 Tasks:
 
-- [ ] create `src/protocol/mod.rs`
+- [x] create `src/protocol/mod.rs`
 - [ ] move driver-facing orchestration helpers out of the bin and into
   `protocol::driver`
 - [ ] turn the process driver bin into a thin CLI wrapper
@@ -300,9 +300,9 @@ Move:
 
 Tasks:
 
-- [ ] create `src/runtime/mod.rs`
-- [ ] update cfg-gated module declarations cleanly
-- [ ] keep wasm-only exports working
+- [x] create `src/runtime/mod.rs`
+- [x] update cfg-gated module declarations cleanly
+- [x] keep wasm-only exports working
 
 Acceptance:
 

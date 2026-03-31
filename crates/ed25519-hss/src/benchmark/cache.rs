@@ -5,15 +5,15 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::artifact::{
+    build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
+};
 use crate::artifact_stub::{
     build_candidate_artifact_stub, materialize_candidate_artifact_stub_bytes,
 };
 use crate::candidate::{build_fixed_hidden_core_candidate, CandidateBackendFamily};
 use crate::error::{ProtoError, ProtoResult};
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::prime_order_encoder::{
-    build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
-};
 
 pub const CACHE_BENCHMARK_REPORT_VERSION: &str = "cache_benchmark_report_v0";
 pub const DEFAULT_CACHED_GC_BASELINE_BYTES: u64 = 1_200_000;

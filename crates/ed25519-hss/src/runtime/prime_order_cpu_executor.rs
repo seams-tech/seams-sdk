@@ -9,16 +9,13 @@ use curve25519_dalek::traits::Identity;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
+use crate::artifact::{
+    build_prime_order_execution_trace, decode_prime_order_size_optimized_artifact,
+    materialize_prime_order_size_optimized_bytes, PrimeOrderDecodedArtifact,
+    PrimeOrderEvaluatorOps, PrimeOrderExecutionStep, PrimeOrderWindowRecordClass,
+};
 use crate::candidate::build_fixed_hidden_core_candidate;
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::prime_order_decoder::{
-    decode_prime_order_size_optimized_artifact, PrimeOrderDecodedArtifact,
-    PrimeOrderWindowRecordClass,
-};
-use crate::prime_order_encoder::materialize_prime_order_size_optimized_bytes;
-use crate::prime_order_trace::{
-    build_prime_order_execution_trace, PrimeOrderEvaluatorOps, PrimeOrderExecutionStep,
-};
 use crate::{ProtoError, ProtoResult};
 
 pub const PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION: &str =

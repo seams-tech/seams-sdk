@@ -1,14 +1,46 @@
 # Ed25519 HSS
 
+This crate is an implementation-focused fixed-function protocol built based on  directions found in:
+
+- [A Unified Framework for Succinct Garbling from Homomorphic Secret Sharing (ePrint 2025/442)](https://eprint.iacr.org/2025/442)
+
+The paper outlines a general HSS-based succinct-garbling framework.
+
+This crate implements one narrow prime-order/DDH version targeting a fixed Ed25519 hidden-conversion function, not a generic garbling system.
+
+Specifically, this crate homomorphically derives Ed25519 signing-share material from a hidden canonical seed path using OT + HSS, so that threshold signing shares and standard-compatible private-key export can be supported without the server observing the plaintext seed.
+
+
+For a more detailed paper-to-code mapping, see
+
 Research crate for the fixed-function Ed25519 HSS track in
 [`succinct-garbling-spec.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md).
 
-Scope note:
+[`homomorphic-secret-sharing.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/homomorphic-secret-sharing.md).
 
-- this crate now keeps only the prime-order backend family in active code
-  paths
-- the earlier Paillier and lattice candidate families were removed because
+
+Scope note:
+- earlier Paillier and lattice candidate families were removed because
   their public evaluator payloads were prohibitively large for this track
+
+## Intended Properties
+
+At the design level, this protocol is meant to preserve the following
+properties:
+
+- client signing-share reconstruction can be stateless:
+  - the client re-derives `y_client` and `tau_client` from passkey PRF output
+    plus canonical context, then re-enters the OT + HSS flow
+- server signing-share reconstruction can likewise be stateless:
+  - the server re-derives `y_relayer` and `tau_relayer` from server-held root
+    material plus the same canonical context
+- the client must never receive enough material to recover plaintext server
+  roots, server signing shares, or hidden server inputs
+- the server must never receive enough material to recover plaintext client
+  roots, client signing shares, or hidden client inputs
+- the hidden conversion preserves one canonical lifecycle:
+  - `y_client + y_relayer -> d -> a -> (x_client_base, x_relayer_base)`
+
 
 ## OT-HSS Protocol Overview
 

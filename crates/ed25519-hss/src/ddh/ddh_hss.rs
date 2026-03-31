@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-use crate::hidden_eval::{
+use crate::ddh::hidden_eval::{
     FixedFunctionHssBackend, HiddenEvalInputOwner, HiddenEvalProgram, HssPrimitiveKind,
 };
 use crate::{ProtoError, ProtoResult};

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::{ProtoError, ProtoResult};
-use crate::prime_order_decoder::{
+use crate::artifact::prime_order_decoder::{
     PrimeOrderDecodedArtifact, PrimeOrderWindowRecord, PrimeOrderWindowRecordClass,
 };
-use crate::prime_order_encoder::PrimeOrderSectionKind;
+use crate::artifact::prime_order_encoder::PrimeOrderSectionKind;
+use crate::error::{ProtoError, ProtoResult};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeOrderEvaluatorOps {

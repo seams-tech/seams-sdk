@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::ddh_hss::{
+use crate::ddh::ddh_hss::{
     build_local_word_pair_public, eval_add_cross_share_local_arithmetic_word_bits_secure_public,
     eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public,
     eval_mul_local_bit_pair_batch_raw_xor_base_public, eval_mul_local_word_pair_batch_public,
@@ -11,12 +11,12 @@ use crate::ddh_hss::{
     DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide,
     DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
 };
-use crate::hidden_eval::{
+use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
 };
-use crate::reference::FExpandInput;
 #[cfg(test)]
-use crate::DdhHssBackend;
+use crate::ddh::DdhHssBackend;
+use crate::reference::FExpandInput;
 use crate::{ProtoError, ProtoResult};
 
 const SHA512_IV: [u64; 8] = [
@@ -2318,7 +2318,7 @@ fn validate_server_input_bit_bundle(
 }
 
 fn validate_server_input_transport_bundle_pair(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     left: &DdhHssTransportBundle,
     right: &DdhHssTransportBundle,
     expected_owner: HiddenEvalInputOwner,
@@ -2439,13 +2439,13 @@ fn canonicalize_hidden_bit_output_words(
             width_bits: bit.width_bits,
             left_word: bit.left_word,
             right_word: bit.right_word,
-            left_commitment: crate::ddh_hss::commit_word(
+            left_commitment: crate::ddh::ddh_hss::commit_word(
                 owner,
                 b"left",
                 bit.left_word,
                 &bit.provenance_digest,
             ),
-            right_commitment: crate::ddh_hss::commit_word(
+            right_commitment: crate::ddh::ddh_hss::commit_word(
                 owner,
                 b"right",
                 bit.right_word,
@@ -2709,7 +2709,7 @@ fn transformed_local_bit_parts(
 }
 
 fn xor_transformed_local_bit_word_side(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     source: &LocalBitWordSide,
     transforms: [LocalBitTransformSpec<'_>; 3],
@@ -2720,7 +2720,7 @@ fn xor_transformed_local_bit_word_side(
 }
 
 fn xor_transformed_local_bit_word_side_into(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     source: &LocalBitWordSide,
     transforms: [LocalBitTransformSpec<'_>; 3],
@@ -2759,7 +2759,7 @@ fn xor_transformed_local_bit_word_side_into(
 }
 
 fn xor_split_local_bit_words_into(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     left: LocalBitWordPairRef<'_>,
     right: LocalBitWordPairRef<'_>,
@@ -2859,7 +2859,7 @@ fn pack_local_side_share_bits(source: &LocalBitWordSide) -> ProtoResult<u64> {
 }
 
 fn add_local_arithmetic_word_pairs(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     left: &LocalArithmeticWordPair,
     right: &LocalArithmeticWordPair,
@@ -3551,7 +3551,7 @@ fn big_sigma1_local_bits_into<B: DdhHssArithmeticBackend>(
 }
 
 fn xor_three_rotates_local_bit_word_side_into<const R0: usize, const R1: usize, const R2: usize>(
-    evaluation_key: &crate::ddh_hss::DdhHssEvaluationKey,
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     source: &LocalBitWordSide,
     out: &mut LocalBitWordSide,
@@ -3914,8 +3914,8 @@ mod tests {
         split_local_bit_pair_to_arithmetic_word_pair_naive, SplitLocalBitWord,
     };
     use crate::fixtures::deterministic_fixture_corpus;
+    use crate::protocol::prepare_prime_order_succinct_hss;
     use crate::reference::{derive_output_shares, reduce_scalar_mod_l};
-    use crate::succinct_hss::prepare_prime_order_succinct_hss;
     use crate::HiddenEvalInputOwner;
 
     #[test]

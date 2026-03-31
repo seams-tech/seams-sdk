@@ -1,5 +1,5 @@
+use crate::artifact::prime_order_encoder::{prime_order_section_layout, PrimeOrderSectionKind};
 use crate::error::{ProtoError, ProtoResult};
-use crate::prime_order_encoder::{prime_order_section_layout, PrimeOrderSectionKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimeOrderDecodedArtifact {

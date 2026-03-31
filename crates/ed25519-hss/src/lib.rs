@@ -1,26 +1,25 @@
+pub mod artifact;
 pub mod artifact_stub;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benchmark;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod cache_benchmark;
 pub mod candidate;
 pub mod context;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod ddh_hidden_eval_benchmark;
-pub mod ddh_hidden_eval_executor;
-pub mod ddh_hss;
+pub mod ddh;
 pub mod error;
 pub mod fixtures;
-pub mod hidden_eval;
-pub mod prime_order_cpu_executor;
-pub mod prime_order_decoder;
-pub mod prime_order_encoder;
-pub mod prime_order_trace;
+pub mod protocol;
 pub mod reference;
-pub mod succinct_hss;
-#[cfg(target_arch = "wasm32")]
-mod wasm;
+pub mod runtime;
 
+pub use artifact::{
+    build_prime_order_execution_trace, build_prime_order_size_optimized_artifact,
+    decode_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
+    PrimeOrderArtifactSection, PrimeOrderDecodedArtifact, PrimeOrderDecodedHeader,
+    PrimeOrderEncodedArtifact, PrimeOrderEvaluatorOps, PrimeOrderExecutionStage,
+    PrimeOrderExecutionStageKind, PrimeOrderExecutionStep, PrimeOrderExecutionStepKind,
+    PrimeOrderExecutionTrace, PrimeOrderGroupedWindowsSection, PrimeOrderSectionKind,
+    PrimeOrderWindowRecord, PrimeOrderWindowRecordClass, PRIME_ORDER_ENCODER_VERSION,
+};
 pub use artifact_stub::{
     build_candidate_artifact_stub, build_candidate_artifact_stub_with_chunk_size,
     materialize_candidate_artifact_stub_bytes, CandidateArtifactStub, CandidateArtifactStubChunk,
@@ -28,18 +27,18 @@ pub use artifact_stub::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use benchmark::{
+    default_cache_benchmark_config, default_ddh_hidden_eval_benchmark_config,
     default_phase1_config, default_thread_counts, default_thread_counts_for,
-    generate_phase1_benchmark_report, BenchmarkMetadata, ComponentTimingReport, FixtureSetMetadata,
-    OutputWidthReport, ParallelScalingBenchmark, ParallelScalingPoint, Phase1BenchmarkConfig,
-    Phase1BenchmarkConfigRecord, Phase1BenchmarkReport, SetupOverheadReport, ThroughputStats,
+    generate_cache_benchmark_report, generate_ddh_hidden_eval_benchmark_report,
+    generate_phase1_benchmark_report, materialize_cache_benchmark_targets, BandwidthEstimate,
+    BenchmarkMetadata, CacheBenchmarkConfig, CacheBenchmarkReport,
+    CacheBenchmarkTargetMaterialized, CacheBenchmarkTargetReport, CacheTimingStats,
+    ComponentTimingReport, DdhHiddenEvalBenchmarkConfig, DdhHiddenEvalBenchmarkConfigRecord,
+    DdhHiddenEvalBenchmarkReport, FixtureSetMetadata, OutputWidthReport, ParallelScalingBenchmark,
+    ParallelScalingPoint, Phase1BenchmarkConfig, Phase1BenchmarkConfigRecord,
+    Phase1BenchmarkReport, SetupOverheadReport, ThroughputStats, CACHE_BENCHMARK_REPORT_VERSION,
+    DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION, DEFAULT_CACHED_GC_BASELINE_BYTES,
     PHASE1_REPORT_VERSION,
-};
-#[cfg(not(target_arch = "wasm32"))]
-pub use cache_benchmark::{
-    default_cache_benchmark_config, generate_cache_benchmark_report,
-    materialize_cache_benchmark_targets, BandwidthEstimate, CacheBenchmarkConfig,
-    CacheBenchmarkReport, CacheBenchmarkTargetMaterialized, CacheBenchmarkTargetReport,
-    CacheTimingStats, CACHE_BENCHMARK_REPORT_VERSION, DEFAULT_CACHED_GC_BASELINE_BYTES,
 };
 pub use candidate::{
     build_fixed_hidden_core_candidate, build_fixed_hidden_core_candidate_for_backend,
@@ -51,27 +50,21 @@ pub use candidate::{
     FixedHiddenCoreCandidate, FIXED_HIDDEN_CORE_CANDIDATE_VERSION, FIXED_HIDDEN_CORE_FUNCTION_ID,
 };
 pub use context::CanonicalContext;
-#[cfg(not(target_arch = "wasm32"))]
-pub use ddh_hidden_eval_benchmark::{
-    default_ddh_hidden_eval_benchmark_config, generate_ddh_hidden_eval_benchmark_report,
-    DdhHiddenEvalBenchmarkConfig, DdhHiddenEvalBenchmarkConfigRecord, DdhHiddenEvalBenchmarkReport,
-    DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION,
-};
-pub use ddh_hidden_eval_executor::{
-    execute_prime_order_ddh_hidden_eval_program,
+pub use ddh::{
+    compile_prime_order_hidden_eval_program, execute_prime_order_ddh_hidden_eval_program,
     execute_prime_order_ddh_hidden_eval_program_for_clear_input,
     execute_prime_order_ddh_hidden_eval_program_for_clear_input_profiled,
-    execute_prime_order_ddh_hidden_eval_program_profiled,
-    probe_prime_order_ddh_hidden_eval_program, DdhHiddenEvalCheckpoint, DdhHiddenEvalInputBundles,
-    DdhHiddenEvalOutputBundles, DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalRun,
-    DdhHiddenEvalStageProfile,
-};
-pub use ddh_hss::{
-    keygen_prime_order_ddh_hss_backend, keygen_prime_order_ddh_hss_roles, DdhHssBackend,
-    DdhHssEvaluationKey, DdhHssEvaluator, DdhHssGarbler, DdhHssInputShareBundle, DdhHssMulMaterial,
-    DdhHssOtInputBundleOffer, DdhHssOtRemoteBundle, DdhHssOtRemoteWord, DdhHssOtWordOffer,
-    DdhHssParams, DdhHssRoleSet, DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle,
-    DdhHssTransportPurpose, DdhHssTransportWord, DDH_HSS_BACKEND_VERSION,
+    execute_prime_order_ddh_hidden_eval_program_profiled, keygen_prime_order_ddh_hss_backend,
+    keygen_prime_order_ddh_hss_roles, probe_prime_order_ddh_hidden_eval_program,
+    DdhHiddenEvalCheckpoint, DdhHiddenEvalInputBundles, DdhHiddenEvalOutputBundles,
+    DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalRun, DdhHiddenEvalStageProfile,
+    DdhHssBackend, DdhHssEvaluationKey, DdhHssEvaluator, DdhHssGarbler, DdhHssInputShareBundle,
+    DdhHssMulMaterial, DdhHssOtInputBundleOffer, DdhHssOtRemoteBundle, DdhHssOtRemoteWord,
+    DdhHssOtWordOffer, DdhHssParams, DdhHssRoleSet, DdhHssShareSide, DdhHssSharedWord,
+    DdhHssTransportBundle, DdhHssTransportPurpose, DdhHssTransportWord, FixedFunctionHssBackend,
+    HiddenEvalInputOwner, HiddenEvalOp, HiddenEvalOpInventory, HiddenEvalProgram, HiddenEvalStage,
+    HiddenEvalStageKind, HiddenEvalWindow, HiddenEvalWindowKind, HssPrimitiveKind,
+    DDH_HSS_BACKEND_VERSION, HIDDEN_EVAL_PROGRAM_VERSION,
 };
 pub use error::{ProtoError, ProtoResult};
 pub use fixtures::{
@@ -79,39 +72,7 @@ pub use fixtures::{
     serialized_fixture_corpus, FExpandFixture, FixtureCorpusFile, COMMITTED_FIXTURE_CORPUS_JSON,
     FIXTURE_FORMAT_VERSION,
 };
-pub use hidden_eval::{
-    compile_prime_order_hidden_eval_program, FixedFunctionHssBackend, HiddenEvalInputOwner,
-    HiddenEvalOp, HiddenEvalOpInventory, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
-    HiddenEvalWindow, HiddenEvalWindowKind, HssPrimitiveKind, HIDDEN_EVAL_PROGRAM_VERSION,
-};
-pub use prime_order_cpu_executor::{
-    compile_default_prime_order_cpu_execution_program, compile_prime_order_cpu_execution_program,
-    default_prime_order_cpu_executor_benchmark_config, execute_prime_order_cpu_execution_program,
-    generate_prime_order_cpu_executor_benchmark_report, PrimeOrderCpuExecutionProgram,
-    PrimeOrderCpuExecutionResult, PrimeOrderCpuExecutionStep, PrimeOrderCpuExecutorBenchmarkConfig,
-    PrimeOrderCpuExecutorBenchmarkReport, PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION,
-};
-pub use prime_order_decoder::{
-    decode_prime_order_size_optimized_artifact, PrimeOrderDecodedArtifact, PrimeOrderDecodedHeader,
-    PrimeOrderGroupedWindowsSection, PrimeOrderWindowRecord, PrimeOrderWindowRecordClass,
-};
-pub use prime_order_encoder::{
-    build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
-    PrimeOrderArtifactSection, PrimeOrderEncodedArtifact, PrimeOrderSectionKind,
-    PRIME_ORDER_ENCODER_VERSION,
-};
-pub use prime_order_trace::{
-    build_prime_order_execution_trace, PrimeOrderEvaluatorOps, PrimeOrderExecutionStage,
-    PrimeOrderExecutionStageKind, PrimeOrderExecutionStep, PrimeOrderExecutionStepKind,
-    PrimeOrderExecutionTrace,
-};
-pub use reference::{
-    add_le_bytes_mod_2_256, clamp_rfc8032, derive_output_shares, eval_f_expand,
-    eval_nonlinear_expansion, extract_a_bytes_from_hash, public_key_from_scalar_bytes,
-    recover_a_from_base_shares, reduce_scalar_mod_l, sha512_one_block, FExpandInput, FExpandOutput,
-    NonlinearExpansionOutput, OutputShareDerivationOutput,
-};
-pub use succinct_hss::{
+pub use protocol::{
     evaluate_prime_order_succinct_hss, prepare_prime_order_succinct_hss, HiddenCoreMaterialization,
     PrimeOrderSuccinctHssArtifactSummary, PrimeOrderSuccinctHssClientOutputOpener,
     PrimeOrderSuccinctHssDeliveryMaterial, PrimeOrderSuccinctHssEvaluationReport,
@@ -126,16 +87,35 @@ pub use succinct_hss::{
     PrimeOrderSuccinctHssSharedRuntimeState, PrimeOrderSuccinctHssWireMessage,
     PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
+pub use reference::{
+    add_le_bytes_mod_2_256, clamp_rfc8032, derive_output_shares, eval_f_expand,
+    eval_nonlinear_expansion, extract_a_bytes_from_hash, public_key_from_scalar_bytes,
+    recover_a_from_base_shares, reduce_scalar_mod_l, sha512_one_block, FExpandInput, FExpandOutput,
+    NonlinearExpansionOutput, OutputShareDerivationOutput,
+};
+pub use runtime::{
+    compile_default_prime_order_cpu_execution_program, compile_prime_order_cpu_execution_program,
+    default_prime_order_cpu_executor_benchmark_config, execute_prime_order_cpu_execution_program,
+    generate_prime_order_cpu_executor_benchmark_report, PrimeOrderCpuExecutionProgram,
+    PrimeOrderCpuExecutionResult, PrimeOrderCpuExecutionStep, PrimeOrderCpuExecutorBenchmarkConfig,
+    PrimeOrderCpuExecutorBenchmarkReport, PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION,
+};
 
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::SigningKey;
 
+    use crate::artifact::build_prime_order_execution_trace;
+    use crate::artifact::{
+        build_prime_order_size_optimized_artifact, decode_prime_order_size_optimized_artifact,
+        materialize_prime_order_size_optimized_bytes, PrimeOrderSectionKind,
+        PrimeOrderWindowRecordClass,
+    };
     use crate::artifact_stub::{
         build_candidate_artifact_stub, materialize_candidate_artifact_stub_bytes,
         DEFAULT_ARTIFACT_STUB_CHUNK_SIZE_BYTES,
     };
-    use crate::cache_benchmark::{
+    use crate::benchmark::{
         default_cache_benchmark_config, generate_cache_benchmark_report,
         materialize_cache_benchmark_targets, DEFAULT_CACHED_GC_BASELINE_BYTES,
     };
@@ -144,37 +124,29 @@ mod tests {
         simulate_fixed_hidden_core_candidate, ArtifactScope, CandidateBackendFamily,
     };
     use crate::context::CanonicalContext;
-    use crate::ddh_hss::keygen_prime_order_ddh_hss_backend;
+    use crate::ddh::keygen_prime_order_ddh_hss_backend;
+    use crate::ddh::{
+        compile_prime_order_hidden_eval_program, FixedFunctionHssBackend, HiddenEvalInputOwner,
+        HssPrimitiveKind,
+    };
     use crate::fixtures::{
         committed_fixture_corpus, deterministic_fixture_corpus, serialized_fixture_corpus,
         COMMITTED_FIXTURE_CORPUS_JSON,
     };
-    use crate::hidden_eval::{
-        compile_prime_order_hidden_eval_program, FixedFunctionHssBackend, HiddenEvalInputOwner,
-        HssPrimitiveKind,
+    use crate::protocol::{prepare_prime_order_succinct_hss, HiddenCoreMaterialization};
+    use crate::reference::{
+        add_le_bytes_mod_2_256, clamp_rfc8032, eval_f_expand, public_key_from_base_shares,
+        public_key_from_scalar_bytes, recover_a_from_base_shares,
     };
-    use crate::prime_order_cpu_executor::{
+    use crate::runtime::{
         compile_prime_order_cpu_execution_program,
         default_prime_order_cpu_executor_benchmark_config,
         execute_prime_order_cpu_execution_program,
         generate_prime_order_cpu_executor_benchmark_report,
     };
-    use crate::prime_order_decoder::{
-        decode_prime_order_size_optimized_artifact, PrimeOrderWindowRecordClass,
-    };
-    use crate::prime_order_encoder::{
-        build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
-        PrimeOrderSectionKind,
-    };
-    use crate::prime_order_trace::build_prime_order_execution_trace;
-    use crate::reference::{
-        add_le_bytes_mod_2_256, clamp_rfc8032, eval_f_expand, public_key_from_base_shares,
-        public_key_from_scalar_bytes, recover_a_from_base_shares,
-    };
-    use crate::succinct_hss::{prepare_prime_order_succinct_hss, HiddenCoreMaterialization};
 
     fn section_bytes<'a>(
-        artifact: &crate::prime_order_encoder::PrimeOrderEncodedArtifact,
+        artifact: &crate::artifact::PrimeOrderEncodedArtifact,
         bytes: &'a [u8],
         kind: PrimeOrderSectionKind,
     ) -> &'a [u8] {

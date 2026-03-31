@@ -2,15 +2,15 @@ use serde::Serialize;
 use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
-use crate::ddh_hidden_eval_executor::{DdhHiddenEvalCheckpoint, DdhHiddenEvalProbe};
+use crate::artifact::PrimeOrderEvaluatorOps;
+use crate::ddh::{DdhHiddenEvalCheckpoint, DdhHiddenEvalProbe};
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::prime_order_cpu_executor::{
+use crate::protocol::{prepare_prime_order_succinct_hss, PrimeOrderSuccinctHssPreparedSession};
+use crate::reference::{public_key_from_base_shares, FExpandInput, FExpandOutput};
+use crate::runtime::{
     compile_default_prime_order_cpu_execution_program, execute_prime_order_cpu_execution_program,
     PrimeOrderCpuExecutionProgram,
 };
-use crate::prime_order_trace::PrimeOrderEvaluatorOps;
-use crate::reference::{public_key_from_base_shares, FExpandInput, FExpandOutput};
-use crate::succinct_hss::{prepare_prime_order_succinct_hss, PrimeOrderSuccinctHssPreparedSession};
 
 thread_local! {
     static WASM_EXECUTOR_PROGRAM: RefCell<Option<PrimeOrderCpuExecutionProgram>> = const { RefCell::new(None) };

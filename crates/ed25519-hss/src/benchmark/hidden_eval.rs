@@ -3,12 +3,12 @@ use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 
+use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::benchmark::{ComponentTimingReport, LatencyStats};
+use crate::ddh::HiddenEvalInputOwner;
 use crate::fixtures::{deterministic_fixture_corpus, FExpandFixture};
-use crate::hidden_eval::HiddenEvalInputOwner;
-use crate::prime_order_trace::PrimeOrderEvaluatorOps;
+use crate::protocol::prepare_prime_order_succinct_hss;
 use crate::reference::public_key_from_base_shares;
-use crate::succinct_hss::prepare_prime_order_succinct_hss;
 use crate::{ProtoError, ProtoResult};
 
 pub const DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION: &str = "ddh_hidden_eval_benchmark_v0";

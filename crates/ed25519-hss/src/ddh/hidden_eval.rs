@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::candidate::CandidateBackendFamily;
-use crate::prime_order_decoder::{
-    PrimeOrderDecodedArtifact, PrimeOrderWindowRecord, PrimeOrderWindowRecordClass,
+use crate::artifact::{
+    PrimeOrderDecodedArtifact, PrimeOrderSectionKind, PrimeOrderWindowRecord,
+    PrimeOrderWindowRecordClass,
 };
-use crate::prime_order_encoder::PrimeOrderSectionKind;
+use crate::candidate::CandidateBackendFamily;
 use crate::{ProtoError, ProtoResult};
 
 pub const HIDDEN_EVAL_PROGRAM_VERSION: &str = "hidden_eval_program_v0";
