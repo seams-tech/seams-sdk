@@ -128,6 +128,7 @@ enum PrimeOrderSuccinctHssTransportKind {
     ServerPacket,
     EvaluationResult,
     ClientOutput,
+    SeedOutput,
     ServerOutput,
 }
 
@@ -271,6 +272,15 @@ pub struct PrimeOrderSuccinctHssClientOutputPacket {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrimeOrderSuccinctHssSeedOutputPacket {
+    pub context_binding: [u8; 32],
+    pub run_binding: [u8; 32],
+    pub evaluation_digest: [u8; 32],
+    pub nonce: [u8; 12],
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeOrderSuccinctHssServerOutputPacket {
     pub context_binding: [u8; 32],
     pub run_binding: [u8; 32],
@@ -282,6 +292,7 @@ pub struct PrimeOrderSuccinctHssServerOutputPacket {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrimeOrderSuccinctHssOutputDelivery {
     pub client: PrimeOrderSuccinctHssWireMessage,
+    pub seed: PrimeOrderSuccinctHssWireMessage,
     pub server: PrimeOrderSuccinctHssWireMessage,
 }
 
@@ -301,12 +312,20 @@ pub struct PrimeOrderSuccinctHssEvaluationResult {
     pub evaluator_witness: PrimeOrderSuccinctHssEvaluatorWitness,
     pub client_output: PrimeOrderSuccinctHssWireMessage,
     pub client_output_binding: [u8; 32],
+    pub seed_output: PrimeOrderSuccinctHssWireMessage,
+    pub seed_output_binding: [u8; 32],
     pub server_output_payload_binding: [u8; 32],
     pub server_output_payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimeOrderSuccinctHssClientOutputOpener {
+    evaluator: DdhHssEvaluator,
+    context_binding: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrimeOrderSuccinctHssSeedOutputOpener {
     evaluator: DdhHssEvaluator,
     context_binding: [u8; 32],
 }
@@ -320,6 +339,7 @@ pub struct PrimeOrderSuccinctHssServerOutputOpener {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimeOrderSuccinctHssOutputOpeners {
     pub client: PrimeOrderSuccinctHssClientOutputOpener,
+    pub seed: PrimeOrderSuccinctHssSeedOutputOpener,
     pub server: PrimeOrderSuccinctHssServerOutputOpener,
 }
 
@@ -794,90 +814,6 @@ impl PrimeOrderSuccinctHssPreparedSession {
             .finalize_report_from_evaluation_result_message(&runtime, &evaluation_result_message)
     }
 
-    #[cfg(test)]
-    pub(crate) fn decode_client_input_delivery(
-        &self,
-        client_request_message: &PrimeOrderSuccinctHssWireMessage,
-        evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
-        server_message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<([u8; 32], [u8; 32])> {
-        let (_runtime, _garbler_session, evaluator_session) = self.split_runtime();
-        let client_packet: PrimeOrderSuccinctHssClientPacket = decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ClientOtRequest,
-            client_request_message,
-        )?;
-        let server_packet: PrimeOrderSuccinctHssServerPacket = decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ServerPacket,
-            server_message,
-        )?;
-        let (y_client_bundle, tau_client_bundle) = evaluator_session
-            .reconstruct_client_input_bundles(&client_packet, evaluator_ot_state, &server_packet)?;
-        Ok((
-            self.decode_input_bit_bundle_array(
-                &y_client_bundle,
-                HiddenEvalInputOwner::Client,
-                "y_client_bits",
-            )?,
-            self.decode_input_bit_bundle_array(
-                &tau_client_bundle,
-                HiddenEvalInputOwner::Client,
-                "tau_client_bits",
-            )?,
-        ))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_server_input_delivery(
-        &self,
-        server_message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<([u8; 32], [u8; 32])> {
-        let server_packet = self.decode_server_message(server_message)?;
-        let (_runtime, _garbler_session, evaluator_session) = self.split_runtime();
-        let opened_server_inputs =
-            evaluator_session.open_server_inputs_packet(&server_packet.server_inputs)?;
-        Ok((
-            self.decode_server_input_bit_bundle_array(
-                &opened_server_inputs.y_relayer_left,
-                &opened_server_inputs.y_relayer_right,
-                HiddenEvalInputOwner::Server,
-                "y_relayer_bits",
-            )?,
-            self.decode_server_input_bit_bundle_array(
-                &opened_server_inputs.tau_relayer_left,
-                &opened_server_inputs.tau_relayer_right,
-                HiddenEvalInputOwner::Server,
-                "tau_relayer_bits",
-            )?,
-        ))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_server_input_payload_json(
-        &self,
-        server_message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<String> {
-        let server_packet = self.decode_server_message(server_message)?;
-        let aad = server_input_packet_aad(
-            server_packet.server_inputs.context_binding,
-            server_packet.server_inputs.server_input_commitment,
-        );
-        let plaintext = self.ddh_garbler.open_message(
-            DdhHssTransportPurpose::ServerInput,
-            &aad,
-            server_packet.server_inputs.nonce,
-            &server_packet.server_inputs.ciphertext,
-        )?;
-        let payload: PrimeOrderSuccinctHssEncodedServerInputsPayload =
-            deserialize_transport_payload_with_label("server_input", &plaintext)?;
-        serde_json::to_string(&payload).map_err(|err| {
-            ProtoError::Decode(format!(
-                "failed to serialize decoded server input payload json: {err}"
-            ))
-        })
-    }
-
     pub fn deliver_output_from_transport_messages(
         &self,
         client_request_message: &PrimeOrderSuccinctHssWireMessage,
@@ -1068,122 +1004,6 @@ impl PrimeOrderSuccinctHssPreparedSession {
         )?;
         Ok(())
     }
-
-    #[cfg(test)]
-    fn decode_input_bit_bundle_array(
-        &self,
-        bundle: &DdhHssInputShareBundle,
-        expected_owner: HiddenEvalInputOwner,
-        expected_label: &str,
-    ) -> ProtoResult<[u8; 32]> {
-        decode_input_bit_bundle_array_with_backend(
-            &self.ddh_backend,
-            bundle,
-            expected_owner,
-            expected_label,
-        )
-    }
-
-    #[cfg(test)]
-    fn decode_server_input_bit_bundle_array(
-        &self,
-        left: &DdhHssTransportBundle,
-        right: &DdhHssTransportBundle,
-        expected_owner: HiddenEvalInputOwner,
-        expected_label: &str,
-    ) -> ProtoResult<[u8; 32]> {
-        decode_server_input_bit_bundle_array_with_backend(
-            &self.ddh_backend,
-            left,
-            right,
-            expected_owner,
-            expected_label,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_client_ot_offer_message(
-        &self,
-        message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<PrimeOrderSuccinctHssClientOtOffer> {
-        decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ClientOtOffer,
-            message,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_client_request_message(
-        &self,
-        message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<PrimeOrderSuccinctHssClientPacket> {
-        decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ClientOtRequest,
-            message,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_server_message(
-        &self,
-        message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<PrimeOrderSuccinctHssServerPacket> {
-        decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ServerPacket,
-            message,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn encode_server_message(
-        &self,
-        packet: &PrimeOrderSuccinctHssServerPacket,
-    ) -> ProtoResult<PrimeOrderSuccinctHssWireMessage> {
-        encode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ServerPacket,
-            packet,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_client_output_message(
-        &self,
-        message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<PrimeOrderSuccinctHssClientOutputPacket> {
-        decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::ClientOutput,
-            message,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn decode_evaluation_result_message(
-        &self,
-        message: &PrimeOrderSuccinctHssWireMessage,
-    ) -> ProtoResult<PrimeOrderSuccinctHssEvaluationResult> {
-        decode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::EvaluationResult,
-            message,
-        )
-    }
-
-    #[cfg(test)]
-    pub(crate) fn encode_evaluation_result_message(
-        &self,
-        evaluation_result: &PrimeOrderSuccinctHssEvaluationResult,
-    ) -> ProtoResult<PrimeOrderSuccinctHssWireMessage> {
-        encode_transport_message(
-            self.candidate.context_binding,
-            PrimeOrderSuccinctHssTransportKind::EvaluationResult,
-            evaluation_result,
-        )
-    }
 }
 
 impl PrimeOrderSuccinctHssSharedRuntimeState {
@@ -1271,6 +1091,13 @@ impl PrimeOrderSuccinctHssGarblerSession {
     pub fn server_output_opener(&self) -> PrimeOrderSuccinctHssServerOutputOpener {
         PrimeOrderSuccinctHssServerOutputOpener {
             garbler: self.ddh_garbler.clone(),
+            context_binding: self.context_binding,
+        }
+    }
+
+    pub fn seed_output_opener(&self) -> PrimeOrderSuccinctHssSeedOutputOpener {
+        PrimeOrderSuccinctHssSeedOutputOpener {
+            evaluator: self.ddh_evaluator.clone(),
             context_binding: self.context_binding,
         }
     }
@@ -1731,6 +1558,13 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         }
     }
 
+    pub fn seed_output_opener(&self) -> PrimeOrderSuccinctHssSeedOutputOpener {
+        PrimeOrderSuccinctHssSeedOutputOpener {
+            evaluator: self.ddh_evaluator.clone(),
+            context_binding: self.context_binding,
+        }
+    }
+
     pub fn prepare_client_ot_request_from_offer_message(
         &self,
         offer_message: &PrimeOrderSuccinctHssWireMessage,
@@ -2156,6 +1990,18 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             b"client_output_message",
             &client_output.bytes,
         );
+        let seed_output = self.seal_seed_output_packet_message(
+            run_binding,
+            evaluation_digest,
+            &ddh_run.output.canonical_seed,
+        )?;
+        let seed_output_binding = nested_output_message_binding(
+            self.context_binding,
+            run_binding,
+            evaluation_digest,
+            b"seed_output_message",
+            &seed_output.bytes,
+        );
         let server_output_payload = serialize_transport_pair_payload(
             "server_output_bundle",
             &ddh_run.output.x_relayer_base_left,
@@ -2186,6 +2032,8 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
                 },
                 client_output,
                 client_output_binding,
+                seed_output,
+                seed_output_binding,
                 server_output_payload_binding,
                 server_output_payload,
             },
@@ -2219,6 +2067,11 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
             evaluation_digest,
             &ddh_run.output.x_client_base,
         )?;
+        let seed_output = self.seal_seed_output_packet_message(
+            run_binding,
+            evaluation_digest,
+            &ddh_run.output.canonical_seed,
+        )?;
         let server_output = seal_server_output_packet_message(
             self.context_binding,
             &garbler_session.ddh_garbler,
@@ -2250,6 +2103,7 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
                 },
                 output_delivery: PrimeOrderSuccinctHssOutputDelivery {
                     client: client_output,
+                    seed: seed_output,
                     server: server_output,
                 },
                 notes: vec![
@@ -2329,6 +2183,38 @@ impl PrimeOrderSuccinctHssEvaluatorSession {
         )
     }
 
+    pub fn seal_seed_output_packet_message(
+        &self,
+        run_binding: [u8; 32],
+        evaluation_digest: [u8; 32],
+        bundle: &DdhHssInputShareBundle,
+    ) -> ProtoResult<PrimeOrderSuccinctHssWireMessage> {
+        let aad = output_packet_aad(
+            b"seed_output",
+            self.context_binding,
+            run_binding,
+            evaluation_digest,
+        );
+        let plaintext = serialize_encoded_bundle_payload(bundle)?;
+        let (nonce, ciphertext) = self.ddh_evaluator.seal_message(
+            DdhHssTransportPurpose::ClientOutput,
+            &aad,
+            &plaintext,
+        )?;
+        let packet = PrimeOrderSuccinctHssSeedOutputPacket {
+            context_binding: self.context_binding,
+            run_binding,
+            evaluation_digest,
+            nonce,
+            ciphertext,
+        };
+        encode_transport_message(
+            self.context_binding,
+            PrimeOrderSuccinctHssTransportKind::SeedOutput,
+            &packet,
+        )
+    }
+
     fn open_server_inputs_packet(
         &self,
         packet: &PrimeOrderSuccinctHssServerInputsPacket,
@@ -2369,11 +2255,24 @@ impl PrimeOrderSuccinctHssSharedRuntime {
             PrimeOrderSuccinctHssTransportKind::ClientOutput,
             &evaluation_result.client_output,
         )?;
+        let seed_packet: PrimeOrderSuccinctHssSeedOutputPacket = decode_transport_message(
+            self.candidate.context_binding,
+            PrimeOrderSuccinctHssTransportKind::SeedOutput,
+            &evaluation_result.seed_output,
+        )?;
         if client_packet.run_binding != evaluation_result.bindings.run_binding
             || client_packet.evaluation_digest != evaluation_result.bindings.evaluation_digest
         {
             return Err(ProtoError::InvalidInput(
                 "evaluation result client output packet is not bound to the reported run"
+                    .to_string(),
+            ));
+        }
+        if seed_packet.run_binding != evaluation_result.bindings.run_binding
+            || seed_packet.evaluation_digest != evaluation_result.bindings.evaluation_digest
+        {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result seed output packet is not bound to the reported run"
                     .to_string(),
             ));
         }
@@ -2395,6 +2294,18 @@ impl PrimeOrderSuccinctHssSharedRuntime {
         if evaluation_result.client_output_binding != expected_client_output_binding {
             return Err(ProtoError::InvalidInput(
                 "evaluation result client output binding is invalid".to_string(),
+            ));
+        }
+        let expected_seed_output_binding = nested_output_message_binding(
+            evaluation_result.context_binding,
+            evaluation_result.bindings.run_binding,
+            evaluation_result.bindings.evaluation_digest,
+            b"seed_output_message",
+            &evaluation_result.seed_output.bytes,
+        );
+        if evaluation_result.seed_output_binding != expected_seed_output_binding {
+            return Err(ProtoError::InvalidInput(
+                "evaluation result seed output binding is invalid".to_string(),
             ));
         }
         let expected_server_output_payload_binding = server_output_payload_binding(
@@ -2434,6 +2345,7 @@ impl PrimeOrderSuccinctHssSharedRuntime {
         )?;
         let output_delivery = PrimeOrderSuccinctHssOutputDelivery {
             client: evaluation_result.client_output.clone(),
+            seed: evaluation_result.seed_output.clone(),
             server: server_output,
         };
 
@@ -2465,6 +2377,7 @@ fn runtime_output_openers(
 ) -> PrimeOrderSuccinctHssOutputOpeners {
     PrimeOrderSuccinctHssOutputOpeners {
         client: evaluator_session.client_output_opener(),
+        seed: evaluator_session.seed_output_opener(),
         server: garbler_session.server_output_opener(),
     }
 }
@@ -2503,7 +2416,25 @@ impl PrimeOrderSuccinctHssClientOutputOpener {
             &self.evaluator,
             self.context_binding,
             &packet,
+            b"client_output",
             "x_client_base",
+        )
+    }
+}
+
+impl PrimeOrderSuccinctHssSeedOutputOpener {
+    pub fn open(&self, message: &PrimeOrderSuccinctHssWireMessage) -> ProtoResult<[u8; 32]> {
+        let packet: PrimeOrderSuccinctHssSeedOutputPacket = decode_transport_message(
+            self.context_binding,
+            PrimeOrderSuccinctHssTransportKind::SeedOutput,
+            message,
+        )?;
+        decode_output_packet_with_evaluator(
+            &self.evaluator,
+            self.context_binding,
+            &packet,
+            b"seed_output",
+            "canonical_seed",
         )
     }
 }
@@ -2533,6 +2464,28 @@ trait OutputPacketView {
 }
 
 impl OutputPacketView for PrimeOrderSuccinctHssClientOutputPacket {
+    fn context_binding(&self) -> [u8; 32] {
+        self.context_binding
+    }
+
+    fn run_binding(&self) -> [u8; 32] {
+        self.run_binding
+    }
+
+    fn evaluation_digest(&self) -> [u8; 32] {
+        self.evaluation_digest
+    }
+
+    fn nonce(&self) -> [u8; 12] {
+        self.nonce
+    }
+
+    fn ciphertext(&self) -> &[u8] {
+        &self.ciphertext
+    }
+}
+
+impl OutputPacketView for PrimeOrderSuccinctHssSeedOutputPacket {
     fn context_binding(&self) -> [u8; 32] {
         self.context_binding
     }
@@ -2983,6 +2936,7 @@ fn open_output_packet_payload_with_evaluator<T: OutputPacketView>(
     evaluator: &DdhHssEvaluator,
     expected_context_binding: [u8; 32],
     packet: &T,
+    purpose_tag: &[u8],
 ) -> ProtoResult<DdhHssInputShareBundle> {
     if packet.context_binding() != expected_context_binding {
         return Err(ProtoError::InvalidInput(
@@ -2990,7 +2944,7 @@ fn open_output_packet_payload_with_evaluator<T: OutputPacketView>(
         ));
     }
     let aad = output_packet_aad(
-        b"client_output",
+        purpose_tag,
         packet.context_binding(),
         packet.run_binding(),
         packet.evaluation_digest(),
@@ -3029,104 +2983,6 @@ fn open_output_packet_payload_with_garbler<T: OutputPacketView>(
     deserialize_transport_pair_payload(DdhHssTransportPurpose::ServerOutput, &plaintext)
 }
 
-#[cfg(test)]
-fn decode_input_bit_bundle_array_with_backend(
-    backend: &DdhHssBackend,
-    bundle: &DdhHssInputShareBundle,
-    expected_owner: HiddenEvalInputOwner,
-    expected_label: &str,
-) -> ProtoResult<[u8; 32]> {
-    if bundle.owner != expected_owner {
-        return Err(ProtoError::InvalidInput(format!(
-            "input bundle owner mismatch for {expected_label}: expected {:?}, got {:?}",
-            expected_owner, bundle.owner
-        )));
-    }
-    if bundle.label != expected_label {
-        return Err(ProtoError::InvalidInput(format!(
-            "input bundle label mismatch: expected {expected_label}, got {}",
-            bundle.label
-        )));
-    }
-    if bundle.words.len() != 256 {
-        return Err(ProtoError::Decode(format!(
-            "decoded input bit bundle {expected_label} must be exactly 256 bits, got {}",
-            bundle.words.len()
-        )));
-    }
-    let mut out = [0u8; 32];
-    for byte_idx in 0..32 {
-        let mut value = 0u8;
-        for bit_idx in 0..8 {
-            let bit = backend.decode_word(&bundle.words[byte_idx * 8 + bit_idx]);
-            value |= ((bit & 1) as u8) << bit_idx;
-        }
-        out[byte_idx] = value;
-    }
-    Ok(out)
-}
-
-#[cfg(test)]
-fn decode_server_input_bit_bundle_array_with_backend(
-    backend: &DdhHssBackend,
-    left: &DdhHssTransportBundle,
-    right: &DdhHssTransportBundle,
-    expected_owner: HiddenEvalInputOwner,
-    expected_label: &str,
-) -> ProtoResult<[u8; 32]> {
-    if left.owner != expected_owner {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bundle owner mismatch for {expected_label}: expected {:?}, got {:?}",
-            expected_owner, left.owner
-        )));
-    }
-    if left.label != expected_label {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bundle label mismatch: expected {expected_label}, got {}",
-            left.label
-        )));
-    }
-    if left.words.len() != 256 || right.words.len() != 256 {
-        return Err(ProtoError::Decode(format!(
-            "decoded server input bit bundle {expected_label} must be exactly 256 bits, got {} and {}",
-            left.words.len(),
-            right.words.len()
-        )));
-    }
-    let joint_words = left
-        .words
-        .iter()
-        .zip(&right.words)
-        .map(|(left_word, right_word)| DdhHssSharedWord {
-            width_bits: left_word.width_bits,
-            left_word: left_word.share_word,
-            right_word: right_word.share_word,
-            left_commitment: left_word.share_commitment,
-            right_commitment: right_word.share_commitment,
-            provenance_digest: left_word.provenance_digest,
-        })
-        .collect::<Vec<_>>();
-    let expected_commitment =
-        backend.input_commitment(expected_owner, expected_label, &joint_words);
-    if expected_commitment != left.commitment || expected_commitment != right.commitment {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bundle commitment mismatch for {expected_label}"
-        )));
-    }
-    let mut out = [0u8; 32];
-    for byte_idx in 0..32 {
-        let mut value = 0u8;
-        for bit_idx in 0..8 {
-            let left_word = &left.words[byte_idx * 8 + bit_idx];
-            let right_word = &right.words[byte_idx * 8 + bit_idx];
-            let bit = (left_word.share_word + right_word.share_word) & 1;
-            value |= (bit as u8) << bit_idx;
-        }
-        out[byte_idx] = value;
-    }
-    Ok(out)
-}
-
 fn decode_bundle_array_from_words(
     decoded: Vec<u8>,
     bundle: &DdhHssInputShareBundle,
@@ -3157,10 +3013,15 @@ fn decode_output_packet_with_evaluator<T: OutputPacketView>(
     evaluator: &DdhHssEvaluator,
     expected_context_binding: [u8; 32],
     packet: &T,
+    purpose_tag: &[u8],
     expected_label: &str,
 ) -> ProtoResult<[u8; 32]> {
-    let payload =
-        open_output_packet_payload_with_evaluator(evaluator, expected_context_binding, packet)?;
+    let payload = open_output_packet_payload_with_evaluator(
+        evaluator,
+        expected_context_binding,
+        packet,
+        purpose_tag,
+    )?;
     if payload.words.len() == 256 && payload.words.iter().all(|word| word.width_bits == 1) {
         if payload.owner != HiddenEvalInputOwner::Client || payload.label != expected_label {
             return Err(ProtoError::InvalidInput(format!(
@@ -3240,8 +3101,9 @@ impl PrimeOrderSuccinctHssEvaluationReport {
                 hex::encode(self.evaluator_witness.final_point_compressed),
             ),
             format!(
-                "output_packets: client={}B server={}B",
+                "output_packets: client={}B seed={}B server={}B",
                 self.output_delivery.client.bytes.len(),
+                self.output_delivery.seed.bytes.len(),
                 self.output_delivery.server.bytes.len(),
             ),
         ]
@@ -3286,6 +3148,7 @@ fn compute_evaluation_digest(
     hasher.update(run_binding);
     hasher.update(executor_result.output_checksum.to_le_bytes());
     hasher.update(executor_result.final_point_compressed);
+    hasher.update(output.canonical_seed.commitment);
     hasher.update(output.x_client_base.commitment);
     hasher.update(output.x_relayer_base_left.commitment);
     let digest = hasher.finalize();
