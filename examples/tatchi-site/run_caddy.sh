@@ -93,11 +93,11 @@ pkill -f "caddy run" 2>/dev/null || true
 APP_DATA_DIR="$(get_caddy_app_data_dir || true)"
 cleanup_mismatched_certs "${APP_DATA_DIR:-}"
 
-# Validate config and print environment
+# Validate config
 echo "Validating Caddyfile..."
 caddy validate --config Caddyfile || { echo "Caddyfile validation failed" >&2; exit 1; }
 
-echo "Starting Caddy (debug enabled via global options)"
+echo "Starting Caddy"
 
 CADDY_PID=""
 cleanup() {
@@ -108,7 +108,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-caddy run --config Caddyfile --adapter caddyfile --environ &
+caddy run --config Caddyfile --adapter caddyfile &
 CADDY_PID="$!"
 
 # Trust Caddy's local CA (best-effort) so tls internal works without browser warnings.

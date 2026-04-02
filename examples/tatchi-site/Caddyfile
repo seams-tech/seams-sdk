@@ -25,10 +25,6 @@ localhost:8443 {
 localhost:9444 {
 	tls internal
 	encode gzip
-	log {
-		output stdout
-		format console
-	}
 	@relay_allowed_origin header_regexp relay_origin Origin ^https://localhost(:8443)?$
 	@relay_preflight {
 		method OPTIONS
@@ -53,10 +49,6 @@ localhost:9444 {
 localhost:8445 {
 	tls internal
 	encode gzip
-	log {
-		output stdout
-		format console
-	}
 	reverse_proxy 127.0.0.1:3001
 }
 
@@ -64,9 +56,5 @@ localhost:8445 {
 localhost:8446 {
 	tls internal
 	encode gzip
-	log {
-		output stdout
-		format console
-	}
 	reverse_proxy 127.0.0.1:3002
 }
