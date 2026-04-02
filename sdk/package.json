@@ -139,6 +139,7 @@
   "scripts": {
     "build": "./scripts/build/build-dev.sh",
     "build:prod": "./scripts/build/build-prod.sh",
+    "build:prepare": "bash ./scripts/build/prepare-dev-build.sh",
     "build:rolldown": "rolldown -c rolldown.config.ts",
     "dev": "rolldown -c rolldown.config.ts -w",
     "test": "pnpm -C ../tests test",

@@ -12,12 +12,12 @@ pnpm -C sdk build
 Run examples from the repo root:
 
 ```bash
-pnpm examples:vite
+pnpm run site
 pnpm run server
 ```
 
 - Run the commands above in separate terminals.
-- `pnpm examples:vite` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
+- `pnpm run site` is the canonical local UI entrypoint. It starts Caddy + site + docs for local HTTPS (`brew install caddy`; first run may prompt for trust via `caddy trust`).
 - `pnpm run server` starts the relay server.
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.

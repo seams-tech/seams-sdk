@@ -95,12 +95,19 @@ cleanup_mismatched_certs "${APP_DATA_DIR:-}"
 
 # Validate config
 echo "Validating Caddyfile..."
-caddy validate --config Caddyfile || { echo "Caddyfile validation failed" >&2; exit 1; }
+if ! validation_output="$(caddy validate --config Caddyfile 2>&1)"; then
+  printf '%s\n' "$validation_output" >&2
+  echo "Caddyfile validation failed" >&2
+  exit 1
+fi
 
 echo "Starting Caddy"
 
 CADDY_PID=""
+CADDY_LOG_FILE="$SCRIPT_DIR/.caddy.log"
+SHUTTING_DOWN=0
 cleanup() {
+  SHUTTING_DOWN=1
   if [[ -n "${CADDY_PID:-}" ]]; then
     kill "$CADDY_PID" 2>/dev/null || true
     wait "$CADDY_PID" 2>/dev/null || true
@@ -108,7 +115,8 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-caddy run --config Caddyfile --adapter caddyfile &
+: >"$CADDY_LOG_FILE"
+caddy run --config Caddyfile --adapter caddyfile >"$CADDY_LOG_FILE" 2>&1 &
 CADDY_PID="$!"
 
 # Trust Caddy's local CA (best-effort) so tls internal works without browser warnings.
@@ -118,9 +126,22 @@ if command -v curl >/dev/null 2>&1; then
     if curl -fsS "http://localhost:2019/config/" >/dev/null 2>&1; then
       break
     fi
+    if ! kill -0 "$CADDY_PID" 2>/dev/null; then
+      if [[ -s "$CADDY_LOG_FILE" ]]; then
+        cat "$CADDY_LOG_FILE" >&2
+      fi
+      echo "Caddy exited before the admin endpoint became ready" >&2
+      exit 1
+    fi
     sleep 0.1
   done
 fi
-caddy trust --config Caddyfile --adapter caddyfile || true
+caddy trust --config Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
 
-wait "$CADDY_PID"
+if ! wait "$CADDY_PID"; then
+  caddy_status=$?
+  if [[ "$SHUTTING_DOWN" != 1 && "$caddy_status" -ne 130 && "$caddy_status" -ne 143 && -s "$CADDY_LOG_FILE" ]]; then
+    cat "$CADDY_LOG_FILE" >&2
+  fi
+  exit "$caddy_status"
+fi

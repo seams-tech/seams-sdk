@@ -21,7 +21,7 @@ pnpm -C examples/vite-secure dev
 ```
 
 - This command runs `docs:build` before starting Vite so the `/docs` route always serves the latest static output.
-- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm examples:vite`), it starts Caddy for you; run `pnpm run server` separately so the relay origin `https://localhost:9444` is available.
+- Ensure Caddy is running so localhost TLS endpoints are available. If you are running the main example app (`pnpm run site`), it starts Caddy for you; run `pnpm run server` separately so the relay origin `https://localhost:9444` is available.
 
 Open:
 
