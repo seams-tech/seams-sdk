@@ -2,7 +2,6 @@ import { expect, test } from '@playwright/test';
 import { createAccountAndRegisterWithRelayServer } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
 import type { PasskeyManagerContext } from '@/core/TatchiPasskey';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
-import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 
 function buildSerializedCredential(): WebAuthnRegistrationCredential {
   return {
@@ -87,7 +86,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           registrationBootstrapUrl: 'https://app.example.test/api/registration/bootstrap',
         }),
         'alice.w3a-relayer.testnet',
-        undefined,
         buildSerializedCredential(),
         'wallet.example.test',
       );
@@ -123,7 +121,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           relayUrl: 'https://relay.example.test',
         }),
         'alice.w3a-relayer.testnet',
-        undefined,
         buildSerializedCredential(),
         'wallet.example.test',
       );
@@ -161,6 +158,8 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
             grant: {
               token: 'tbt_v1_issued_token',
               expiresAt: '2030-01-01T00:00:00.000Z',
+              orgId: 'org_prod',
+              projectId: 'proj_prod',
               environmentId: 'env_prod',
               origin: 'https://app.example.test',
               mode: 'free',
@@ -194,7 +193,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           },
         }),
         'alice.w3a-relayer.testnet',
-        undefined,
         buildSerializedCredential(),
         'wallet.example.test',
       );
@@ -206,9 +204,8 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
       expect(calls[0]?.body.environmentId).toBe('env_prod');
       expect(calls[0]?.body.newAccountId).toBe('alice.w3a-relayer.testnet');
       expect(calls[0]?.body.rpId).toBe('wallet.example.test');
-      expect(calls[0]?.body.requestHashSha256).toBe(
-        await computeRegistrationBootstrapRequestHashSha256(calls[1]?.body || {}),
-      );
+      expect(calls[0]?.body.flow).toBe('registration_v1');
+      expect(calls[0]?.body.requestHashSha256).toBeUndefined();
       expect(calls[1]?.url).toBe('https://relay.example.test/registration/bootstrap');
       expect(calls[1]?.authorization).toBe('Bearer tbt_v1_issued_token');
       expect(calls[1]?.body.new_account_id).toBe('alice.w3a-relayer.testnet');
@@ -244,7 +241,6 @@ test.describe('createAccountAndRegisterWithRelayServer registration bootstrap tr
           },
         }),
         'alice.w3a-relayer.testnet',
-        undefined,
         buildSerializedCredential(),
         'wallet.example.test',
       );

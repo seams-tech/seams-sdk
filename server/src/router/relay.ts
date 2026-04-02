@@ -256,8 +256,7 @@ export interface RelayBootstrapGrantIssueRequest {
   environmentId: string;
   newAccountId: string;
   rpId: string;
-  requestHashSha256: string;
-  path?: string;
+  flow: 'registration_v1';
   clientContext?: RelayBootstrapGrantClientContext;
 }
 
@@ -297,10 +296,15 @@ export interface RelayBootstrapTokenRecord {
   orgId: string;
   projectId: string;
   environmentId: string;
+  newAccountId: string;
+  rpId: string;
   origin: string;
   method: string;
   path: string;
-  requestHashSha256: string;
+  allowedPaths: string[];
+  requestHashSha256: string | null;
+  maxUses: number;
+  usedCount: number;
   status: 'issued' | 'redeemed' | 'expired';
   riskDecision: string;
   paymentReference: string | null;

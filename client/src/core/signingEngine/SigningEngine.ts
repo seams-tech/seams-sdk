@@ -20,6 +20,10 @@ import type {
   TouchConfirmRuntimeBridgePort,
   ThresholdPrfFirstCacheClearAllPort,
 } from './touchConfirm/types';
+import {
+  UserConfirmationType,
+  type ExportPrivateKeyDisplayEntry,
+} from './touchConfirm/shared/confirmTypes';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -102,6 +106,7 @@ import {
   exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue,
 } from './api/recovery/privateKeyExportRecovery';
 import { getLastLoggedInDeviceNumber } from './signers/webauthn/device/getDeviceNumber';
+import { removeExportViewerHostIfPresent } from './touchConfirm/ui/export-viewer-host';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
@@ -146,6 +151,14 @@ function hasThresholdPrfFirstCacheClearAllPort(
     typeof (value as { clearAllPrfFirstForThresholdSessions?: unknown })
       ?.clearAllPrfFirstForThresholdSessions === 'function'
   );
+}
+
+function createExportUiRequestId(prefix: string): string {
+  const randomPart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${randomPart}`;
 }
 
 /**
@@ -508,6 +521,136 @@ export class SigningEngine {
     );
   }
 
+  private async requestNearEd25519ExportAuthorization(args: {
+    nearAccountId: AccountId;
+    expectedPublicKey: string;
+  }): Promise<void> {
+    const decision = await this.touchConfirm.requestUserConfirmation({
+      requestId: createExportUiRequestId('export-near-ed25519-auth'),
+      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+      summary: {
+        operation: 'Export Private Key',
+        accountId: args.nearAccountId,
+        publicKey: args.expectedPublicKey,
+        warning: 'Confirm to reveal your NEAR private key export.',
+      },
+      payload: {
+        nearAccountId: args.nearAccountId,
+        publicKey: args.expectedPublicKey,
+      },
+      intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
+    });
+    if (!decision.confirmed) {
+      throw new Error(decision.error || 'User cancelled export request');
+    }
+  }
+
+  private async showNearEd25519ExportViewer(args: {
+    nearAccountId: AccountId;
+    expectedPublicKey: string;
+    privateKey?: string;
+    variant?: 'drawer' | 'modal';
+    theme?: 'dark' | 'light';
+    loading?: boolean;
+  }): Promise<void> {
+    const keys: ExportPrivateKeyDisplayEntry[] = [
+      {
+        scheme: 'ed25519',
+        label: 'NEAR private key',
+        publicKey: args.expectedPublicKey,
+        privateKey: String(args.privateKey || '').trim(),
+      },
+    ];
+    await this.touchConfirm.requestUserConfirmation({
+      requestId: createExportUiRequestId('export-near-ed25519-view'),
+      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+      summary: {
+        operation: 'Export Private Key',
+        accountId: args.nearAccountId,
+        publicKey: args.expectedPublicKey,
+        warning: 'Anyone with your private key can fully control your account. Never share it.',
+      },
+      payload: {
+        nearAccountId: args.nearAccountId,
+        publicKey: args.expectedPublicKey,
+        keys,
+        variant: args.variant,
+        theme: args.theme ?? this.theme ?? 'dark',
+        loading: args.loading === true,
+      },
+      intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
+    });
+  }
+
+  private async runNearEd25519OptionAHssExport(args: {
+    orgId: string;
+    nearAccountId: AccountId;
+    keyVersion: string;
+    participantIds: number[];
+    thresholdSessionId: string;
+    thresholdSessionJwt: string;
+    relayerUrl: string;
+    relayerKeyId: string;
+  }): Promise<{
+    preparedSession: Parameters<
+      typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue
+    >[0]['preparedSession'];
+    finalizedReport: Parameters<
+      typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue
+    >[0]['finalizedReport'];
+  }> {
+    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
+      sessionId: args.thresholdSessionId,
+    });
+    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
+      throw new Error('Missing warm PRF material for Option A Ed25519 export');
+    }
+
+    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
+      context: {
+        orgId: args.orgId,
+        nearAccountId: args.nearAccountId,
+        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+        keyVersion: args.keyVersion,
+        participantIds: args.participantIds,
+        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      },
+    });
+
+    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
+      sessionId: `${args.thresholdSessionId}:hss-export-client-inputs`,
+      orgId: args.orgId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion: args.keyVersion,
+      participantIds: preparedSession.participantIds,
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
+
+    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+      preparedSession,
+      clientInputs,
+    });
+
+    const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
+      relayerUrl: args.relayerUrl,
+      thresholdSessionJwt: args.thresholdSessionJwt,
+      relayerKeyId: args.relayerKeyId,
+      preparedSession,
+      clientRequest,
+    });
+    if (!completed.success || !completed.finalizedReport) {
+      throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
+    }
+
+    return {
+      preparedSession,
+      finalizedReport: completed.finalizedReport,
+    };
+  }
+
   async exportThresholdEd25519SeedFromHssReport(args: {
     nearAccountId: AccountId;
     preparedSession: Parameters<
@@ -627,63 +770,69 @@ export class SigningEngine {
       return null;
     }
 
-    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
-      sessionId: thresholdSessionId,
-    });
-    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
-      requireOptionAExportPrerequisite(
-        false,
-        'Missing warm PRF material for Option A Ed25519 export',
-      );
-      return null;
-    }
-
-    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
-      context: {
-        orgId,
-        nearAccountId,
-        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-        keyVersion,
-        participantIds,
-        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      },
-    });
-
-    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
-      sessionId: `${thresholdSessionId}:hss-export-client-inputs`,
+    const hssTask = this.runNearEd25519OptionAHssExport({
       orgId,
       nearAccountId,
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion,
-      participantIds: preparedSession.participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    });
-
-    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
-      preparedSession,
-      clientInputs,
-    });
-
-    const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
-      relayerUrl,
+      participantIds,
+      thresholdSessionId,
       thresholdSessionJwt,
+      relayerUrl,
       relayerKeyId,
-      preparedSession,
-      clientRequest,
     });
-    if (!completed.success || !completed.finalizedReport) {
-      throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
-    }
+    let hssSettled = false;
+    const trackedHssTask = hssTask.finally(() => {
+      hssSettled = true;
+    });
+    void trackedHssTask.catch(() => undefined);
 
-    return await this.exportThresholdEd25519SeedFromHssReport({
-      nearAccountId,
-      preparedSession,
-      finalizedReport: completed.finalizedReport,
-      expectedPublicKey,
-      options: args.options,
-    });
+    try {
+      await this.requestNearEd25519ExportAuthorization({
+        nearAccountId,
+        expectedPublicKey,
+      });
+
+      if (!hssSettled) {
+        await this.showNearEd25519ExportViewer({
+          nearAccountId,
+          expectedPublicKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+          loading: true,
+        });
+      }
+
+      const { preparedSession, finalizedReport } = await trackedHssTask;
+      const artifactResult = await buildThresholdEd25519SeedExportArtifactFromHssReportValue({
+        preparedSession,
+        finalizedReport,
+        expectedPublicKey,
+      });
+      if (!artifactResult.success || !artifactResult.artifact) {
+        throw new Error(
+          artifactResult.error || 'Failed to build Option A Ed25519 seed export artifact',
+        );
+      }
+
+      await this.showNearEd25519ExportViewer({
+        nearAccountId,
+        expectedPublicKey: artifactResult.artifact.publicKey,
+        privateKey: artifactResult.artifact.privateKey,
+        variant: args.options.variant,
+        theme: args.options.theme,
+      });
+
+      return {
+        accountId: nearAccountId,
+        exportedSchemes: ['ed25519'],
+      };
+    } catch (error: unknown) {
+      if (!hssSettled) {
+        void trackedHssTask.catch(() => undefined);
+      }
+      removeExportViewerHostIfPresent();
+      throw error;
+    }
   }
 
   signTransactionWithKeyPair(args: {

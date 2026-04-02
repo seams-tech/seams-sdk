@@ -196,7 +196,7 @@ The transaction confirmation modal runs inside a cross-origin isolated iframe co
 
 Users should clearly see when they're approving sensitive actions like:
 
-- Registering a passkey
+- Creating a passkey-backed wallet
 - Signing a blockchain transaction
 - Authorizing a fund transfer
 

@@ -109,7 +109,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         waiting={controller.waiting}
         waitingText={
           controller.mode === AuthMenuMode.Register
-            ? 'Registering passkey…'
+            ? 'Creating passkey wallet…'
             : controller.mode === AuthMenuMode.Sync
               ? 'Syncing account…'
               : 'Waiting for Passkey…'

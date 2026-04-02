@@ -25,9 +25,9 @@ import {
 import type { PasskeyManagerContext } from './index';
 import {
   type CreateAccountAndRegisterThresholdEd25519Response,
+  createManagedRegistrationFlowGrant,
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
-  resolveManagedRegistrationRuntimeScope,
   type CreateAccountAndRegisterThresholdEd25519Input,
   type ThresholdEd25519RegistrationHssFinalizeResult,
 } from './faucets/createAccountRelayServer';
@@ -64,6 +64,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
 export type PreparedThresholdEd25519RegistrationWithHss = {
   hssFinalize: ThresholdEd25519RegistrationHssFinalizeResult;
   registrationInput: CreateAccountAndRegisterThresholdEd25519Input;
+  managedRegistrationBootstrapToken: string;
 };
 
 export type CompletedThresholdEd25519Registration = {
@@ -142,13 +143,12 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   onProgress?: (message: string) => void;
 }): Promise<PreparedThresholdEd25519RegistrationWithHss> {
   args.onProgress?.('Resolving registration scope...');
-  const runtimeSnapshotScope = await resolveManagedRegistrationRuntimeScope({
+  const managedRegistrationFlow = await createManagedRegistrationFlowGrant({
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
-    credential: args.credential,
-    authenticatorOptions: args.authenticatorOptions,
   });
+  const runtimeSnapshotScope = managedRegistrationFlow.runtimeSnapshotScope;
   const requestedPolicy = createThresholdWarmSessionPolicyDraft(args.context);
   if (!requestedPolicy) {
     throw new Error('Threshold warm-session defaults are disabled for registration');
@@ -176,6 +176,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
+    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     hssContext: {
       orgId: runtimeSnapshotScope.orgId,
       nearAccountId: String(args.nearAccountId),
@@ -199,6 +200,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
+    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     hssContext: {
       orgId: runtimeSnapshotScope.orgId,
       nearAccountId: String(args.nearAccountId),
@@ -216,6 +218,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
 
   return {
     hssFinalize,
+    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     registrationInput: {
       keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
       recoveryExportCapable: true,

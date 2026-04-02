@@ -16,8 +16,6 @@ import {
 } from '../../types/authenticatorOptions';
 import type {
   CreateAccountAndRegisterResult,
-  CreateAccountAndRegisterSmartAccountDeployment,
-  CreateAccountAndRegisterSmartAccountTarget,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -27,14 +25,10 @@ import type {
   ThresholdEd25519HssEvaluationResultEnvelope,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
 } from '@server/core/types';
-import type {
-  EcdsaSessionPolicy,
-  Ed25519SessionPolicy,
-} from '../../signingEngine/threshold/session/sessionPolicy';
+import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/session/sessionPolicy';
 import type { ThresholdRuntimeSnapshotScope } from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
-import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 import type { RegistrationErrorCode } from '../../types/tatchi';
 
 function isSerializedRegistrationCredential(
@@ -281,7 +275,7 @@ function buildManagedClientContext(): { sdk: string; userAgentHint?: string } {
   };
 }
 
-type ManagedRegistrationBootstrapGrant = {
+type ManagedRegistrationFlowGrant = {
   token: string;
   expiresAt: string;
   runtimeSnapshotScope: ThresholdRuntimeSnapshotScope;
@@ -289,20 +283,18 @@ type ManagedRegistrationBootstrapGrant = {
   mode?: string;
 };
 
-async function requestManagedRegistrationBootstrapGrant(args: {
+async function requestManagedRegistrationFlowGrant(args: {
   relayerUrl: string;
   publishableKey: string;
   environmentId: string;
   nearAccountId: string;
   rpId: string;
-  requestHashSha256: string;
-  path?: string;
-}): Promise<ManagedRegistrationBootstrapGrant> {
+}): Promise<ManagedRegistrationFlowGrant> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const bootstrapGrantUrl = joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
   const brokerResponse = await fetchWithRegistrationTimeout({
     url: bootstrapGrantUrl,
-    operation: 'Managed registration bootstrap grant',
+    operation: 'Managed registration flow grant',
     init: {
       method: 'POST',
       headers: {
@@ -313,8 +305,7 @@ async function requestManagedRegistrationBootstrapGrant(args: {
         environmentId: args.environmentId,
         newAccountId: args.nearAccountId,
         rpId: args.rpId,
-        requestHashSha256: args.requestHashSha256,
-        ...(String(args.path || '').trim() ? { path: String(args.path || '').trim() } : {}),
+        flow: 'registration_v1',
         clientContext: buildManagedClientContext(),
       }),
     },
@@ -376,91 +367,36 @@ async function readJsonObject(response: Response): Promise<Record<string, unknow
     return {};
   }
 }
-
-async function issueManagedRegistrationBootstrapTokenForRequest(args: {
-  registrationTransport: Extract<ResolvedRegistrationTransport, { mode: 'managed' }>;
-  nearAccountId: string;
-  rpId: string;
-  path: string;
-  requestBody: unknown;
-}): Promise<string> {
-  const requestHashStartedAt = performance.now();
-  const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(args.requestBody);
-  console.debug('[Registration] bootstrap request hash computed', {
-    path: args.path,
-    durationMs: Math.round(performance.now() - requestHashStartedAt),
-  });
-  const grantStartedAt = performance.now();
-  const grant = await requestManagedRegistrationBootstrapGrant({
-    relayerUrl: args.registrationTransport.relayerUrl,
-    publishableKey: args.registrationTransport.publishableKey,
-    environmentId: args.registrationTransport.environmentId,
-    nearAccountId: args.nearAccountId,
-    rpId: args.rpId,
-    requestHashSha256,
-    path: args.path,
-  });
-  console.debug('[Registration] bootstrap grant issued', {
-    path: args.path,
-    durationMs: Math.round(performance.now() - grantStartedAt),
-  });
-  return grant.token;
-}
-
-export async function resolveManagedRegistrationRuntimeScope(args: {
+export async function createManagedRegistrationFlowGrant(args: {
   context: PasskeyManagerContext;
   nearAccountId: string;
   rpId: string;
-  credential: WebAuthnRegistrationCredential | PublicKeyCredential;
-  authenticatorOptions?: AuthenticatorOptions;
-}): Promise<ThresholdRuntimeSnapshotScope> {
+}): Promise<ManagedRegistrationFlowGrant> {
   const registrationTransport = resolveRegistrationTransport(args.context);
   if (registrationTransport.mode !== 'managed') {
     throw new Error(
       'Threshold Ed25519 Option A registration currently requires managed registration transport',
     );
   }
-
-  const isSerialized = isSerializedRegistrationCredential(args.credential);
-  const serialized: WebAuthnRegistrationCredential = isSerialized
-    ? normalizeRegistrationCredential(args.credential)
-    : serializeRegistrationCredential(args.credential as PublicKeyCredential);
-  const serializedCredential =
-    redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(serialized);
-  if (!Array.isArray(serializedCredential?.response?.transports)) {
-    serializedCredential.response.transports = [];
-  }
-
-  const requestBody = {
-    new_account_id: String(args.nearAccountId || '').trim(),
-    device_number: 1,
-    rp_id: String(args.rpId || '').trim(),
-    webauthn_registration: serializedCredential,
-    authenticator_options: cloneAuthenticatorOptions(
-      args.authenticatorOptions ?? args.context.configs.webauthn.authenticatorOptions,
-    ),
-  } satisfies Pick<
-    CreateAccountAndRegisterUserRequest,
-    'new_account_id' | 'device_number' | 'rp_id' | 'webauthn_registration' | 'authenticator_options'
-  >;
-
-  const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestBody);
-  const grant = await requestManagedRegistrationBootstrapGrant({
+  const grantStartedAt = performance.now();
+  const grant = await requestManagedRegistrationFlowGrant({
     relayerUrl: registrationTransport.relayerUrl,
     publishableKey: registrationTransport.publishableKey,
     environmentId: registrationTransport.environmentId,
-    nearAccountId: requestBody.new_account_id,
-    rpId: requestBody.rp_id,
-    requestHashSha256,
-    path: '/registration/bootstrap',
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    rpId: String(args.rpId || '').trim(),
   });
-  return grant.runtimeSnapshotScope;
+  console.debug('[Registration] managed registration flow grant issued', {
+    durationMs: Math.round(performance.now() - grantStartedAt),
+  });
+  return grant;
 }
 
 export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
   context: PasskeyManagerContext;
   nearAccountId: string;
   rpId: string;
+  managedRegistrationBootstrapToken?: string;
   hssContext: ThresholdEd25519HssCanonicalContext;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
@@ -477,13 +413,17 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
   let response: Response;
 
   if (registrationTransport.mode === 'managed') {
-    const token = await issueManagedRegistrationBootstrapTokenForRequest({
-      registrationTransport,
-      nearAccountId: requestBody.new_account_id,
-      rpId: requestBody.rp_id,
-      path: '/registration/threshold-ed25519/hss/prepare',
-      requestBody,
-    });
+    const token =
+      String(args.managedRegistrationBootstrapToken || '').trim() ||
+      (
+        await requestManagedRegistrationFlowGrant({
+          relayerUrl: registrationTransport.relayerUrl,
+          publishableKey: registrationTransport.publishableKey,
+          environmentId: registrationTransport.environmentId,
+          nearAccountId: requestBody.new_account_id,
+          rpId: requestBody.rp_id,
+        })
+      ).token;
     const prepareUrl = joinUrlPath(
       registrationTransport.relayerUrl,
       '/registration/threshold-ed25519/hss/prepare',
@@ -539,6 +479,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   context: PasskeyManagerContext;
   nearAccountId: string;
   rpId: string;
+  managedRegistrationBootstrapToken?: string;
   hssContext: ThresholdEd25519HssCanonicalContext;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
@@ -556,13 +497,17 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   let response: Response;
 
   if (registrationTransport.mode === 'managed') {
-    const token = await issueManagedRegistrationBootstrapTokenForRequest({
-      registrationTransport,
-      nearAccountId: requestBody.new_account_id,
-      rpId: requestBody.rp_id,
-      path: '/registration/threshold-ed25519/hss/finalize',
-      requestBody,
-    });
+    const token =
+      String(args.managedRegistrationBootstrapToken || '').trim() ||
+      (
+        await requestManagedRegistrationFlowGrant({
+          relayerUrl: registrationTransport.relayerUrl,
+          publishableKey: registrationTransport.publishableKey,
+          environmentId: registrationTransport.environmentId,
+          nearAccountId: requestBody.new_account_id,
+          rpId: requestBody.rp_id,
+        })
+      ).token;
     const finalizeUrl = joinUrlPath(
       registrationTransport.relayerUrl,
       '/registration/threshold-ed25519/hss/finalize',
@@ -626,9 +571,6 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
  * HTTP Request body for the relay server's /registration/bootstrap endpoint
  */
 type ThresholdEd25519RegistrationSessionPolicy = Omit<Ed25519SessionPolicy, 'relayerKeyId'> & {
-  relayerKeyId?: string;
-};
-type ThresholdEcdsaRegistrationSessionPolicy = Omit<EcdsaSessionPolicy, 'relayerKeyId'> & {
   relayerKeyId?: string;
 };
 
@@ -731,12 +673,6 @@ export interface CreateAccountAndRegisterUserRequest {
     session_policy: ThresholdEd25519RegistrationSessionPolicy;
     session_kind: 'jwt' | 'cookie';
   };
-  threshold_ecdsa?: {
-    client_verifying_share_b64u: string;
-    session_policy: ThresholdEcdsaRegistrationSessionPolicy;
-    session_kind: 'jwt' | 'cookie';
-    smart_account_targets?: CreateAccountAndRegisterSmartAccountTarget[];
-  };
   rp_id: string;
   webauthn_registration: WebAuthnRegistrationCredential;
   authenticator_options?: AuthenticatorOptions;
@@ -755,35 +691,12 @@ export async function createAccountAndRegisterWithRelayServer(
   onEvent?: (event: RegistrationSSEEvent) => void,
   opts?: {
     thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Input;
-    thresholdEcdsa?: {
-      clientVerifyingShareB64u: string;
-      sessionPolicy: ThresholdEcdsaRegistrationSessionPolicy;
-      sessionKind: 'jwt' | 'cookie';
-      smartAccountTargets?: CreateAccountAndRegisterSmartAccountTarget[];
-    };
+    managedRegistrationBootstrapToken?: string;
   },
 ): Promise<{
   success: boolean;
   transactionId?: string;
   thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Response;
-  thresholdEcdsa?: {
-    relayerKeyId: string;
-    groupPublicKeyB64u: string;
-    ethereumAddress: string;
-    relayerVerifyingShareB64u: string;
-    participantIds?: number[];
-    session?: {
-      sessionKind: 'jwt' | 'cookie';
-      sessionId: string;
-      expiresAtMs: number;
-      expiresAt?: string;
-      participantIds?: number[];
-      remainingUses?: number;
-      runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
-      jwt?: string;
-    };
-  };
-  smartAccountDeployments?: CreateAccountAndRegisterSmartAccountDeployment[];
   error?: string;
   errorCode?: RegistrationErrorCode;
 }> {
@@ -826,19 +739,6 @@ export async function createAccountAndRegisterWithRelayServer(
       new_account_id: nearAccountId,
       device_number: 1, // First device gets device number 1 (1-indexed)
       ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
-      ...(opts?.thresholdEcdsa?.clientVerifyingShareB64u
-        ? {
-            threshold_ecdsa: {
-              client_verifying_share_b64u: opts.thresholdEcdsa.clientVerifyingShareB64u,
-              session_policy: opts.thresholdEcdsa.sessionPolicy,
-              session_kind: opts.thresholdEcdsa.sessionKind,
-              ...(Array.isArray(opts.thresholdEcdsa.smartAccountTargets) &&
-              opts.thresholdEcdsa.smartAccountTargets.length > 0
-                ? { smart_account_targets: opts.thresholdEcdsa.smartAccountTargets }
-                : {}),
-            },
-          }
-        : {}),
       rp_id: String(rpId || '').trim(),
       webauthn_registration: serializedCredential,
       authenticator_options: cloneAuthenticatorOptions(
@@ -850,7 +750,7 @@ export async function createAccountAndRegisterWithRelayServer(
       step: 5,
       phase: RegistrationPhase.STEP_5_CONTRACT_REGISTRATION,
       status: RegistrationStatus.PROGRESS,
-      message: 'Registering user with relay...',
+      message: 'Creating account and finalizing registration...',
     });
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -859,15 +759,17 @@ export async function createAccountAndRegisterWithRelayServer(
     let result: CreateAccountAndRegisterResult;
 
     if (registrationTransport.mode === 'managed') {
-      const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestData);
-      const managedGrant = await requestManagedRegistrationBootstrapGrant({
-        relayerUrl: registrationTransport.relayerUrl,
-        publishableKey: registrationTransport.publishableKey,
-        environmentId: registrationTransport.environmentId,
-        nearAccountId,
-        rpId: requestData.rp_id,
-        requestHashSha256,
-      });
+      const managedToken =
+        String(opts?.managedRegistrationBootstrapToken || '').trim() ||
+        (
+          await requestManagedRegistrationFlowGrant({
+            relayerUrl: registrationTransport.relayerUrl,
+            publishableKey: registrationTransport.publishableKey,
+            environmentId: registrationTransport.environmentId,
+            nearAccountId,
+            rpId: requestData.rp_id,
+          })
+        ).token;
       const registrationBootstrapUrl = joinUrlPath(
         configs.network.relayer.url,
         '/registration/bootstrap',
@@ -882,7 +784,7 @@ export async function createAccountAndRegisterWithRelayServer(
           method: 'POST',
           headers: {
             ...headers,
-            Authorization: `Bearer ${managedGrant.token}`,
+            Authorization: `Bearer ${managedToken}`,
           },
           body: JSON.stringify(requestData),
         },
@@ -951,29 +853,6 @@ export async function createAccountAndRegisterWithRelayServer(
       success: true,
       transactionId: result.transactionHash,
       thresholdEd25519: normalizedThresholdEd25519,
-      thresholdEcdsa: result.thresholdEcdsa
-        ? {
-            relayerKeyId: result.thresholdEcdsa.relayerKeyId,
-            groupPublicKeyB64u: result.thresholdEcdsa.groupPublicKeyB64u,
-            ethereumAddress: result.thresholdEcdsa.ethereumAddress,
-            relayerVerifyingShareB64u: result.thresholdEcdsa.relayerVerifyingShareB64u,
-            participantIds: result.thresholdEcdsa.participantIds,
-            session: result.thresholdEcdsa.session
-              ? {
-                  sessionKind: result.thresholdEcdsa.session.sessionKind,
-                  sessionId: result.thresholdEcdsa.session.sessionId,
-                  expiresAtMs: result.thresholdEcdsa.session.expiresAtMs,
-                  expiresAt: result.thresholdEcdsa.session.expiresAt,
-                  participantIds: result.thresholdEcdsa.session.participantIds,
-                  remainingUses: result.thresholdEcdsa.session.remainingUses,
-                  jwt: result.thresholdEcdsa.session.jwt,
-                }
-              : undefined,
-          }
-        : undefined,
-      smartAccountDeployments: Array.isArray(result.smartAccountDeployments)
-        ? result.smartAccountDeployments
-        : undefined,
     };
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);

@@ -233,6 +233,7 @@ export interface ShowSecurePrivateKeyUiPayload {
   guidance?: ExportGuidance;
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
+  loading?: boolean;
 }
 
 export interface SignNep413Payload {

@@ -8,16 +8,17 @@ import {
   type ExportPrivateKeyDisplayEntry,
 } from '../../shared/confirmTypes';
 import type { UserConfirmSecurityContext } from '@/core/types';
-import { addLitCancelListener } from '../../ui/lit-events';
-import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from '../../ui/registry';
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
-import type { ExportViewerIframeElement } from '../../ui/lit-components/ExportPrivateKey/iframe-host';
 import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '../../shared/confirmCommon';
 import { getNearAccountId, getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
 import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import {
+  upsertExportViewerHost,
+  type UpsertExportViewerHostArgs,
+} from '../../ui/export-viewer-host';
 
 function createRandomChallengeB64u(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -53,35 +54,18 @@ async function mountExportViewer(
   confirmationConfig: ConfirmationConfig,
   theme: ThemeName,
 ): Promise<void> {
-  await ensureDefined(
-    W3A_EXPORT_VIEWER_IFRAME_ID,
-    () => import('../../ui/lit-components/ExportPrivateKey/iframe-host'),
-  );
-  const host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement;
-  host.theme = payload.theme || theme || 'dark';
-  host.variant = payload.variant || (confirmationConfig.uiMode === 'drawer' ? 'drawer' : 'modal');
-  host.accountId = payload.nearAccountId;
-  host.publicKey = payload.publicKey;
-  host.privateKey = payload.privateKey;
-  host.keys = Array.isArray(payload.keys)
-    ? (payload.keys as ExportPrivateKeyDisplayEntry[])
-    : undefined;
-  host.guidance = payload.guidance;
-  host.tokens = sanitizeThemeTokens(ctx.getAppearanceTokens?.());
-  host.loading = false;
-
-  window.parent?.postMessage({ type: 'WALLET_UI_OPENED' }, '*');
-  document.body.appendChild(host);
-
-  const removeCancelListener = addLitCancelListener(
-    host,
-    () => {
-      window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
-      removeCancelListener?.();
-      host.remove();
-    },
-    { once: true },
-  );
+  const hostArgs: UpsertExportViewerHostArgs = {
+    theme: payload.theme || theme || 'dark',
+    variant: payload.variant || (confirmationConfig.uiMode === 'drawer' ? 'drawer' : 'modal'),
+    accountId: payload.nearAccountId,
+    publicKey: payload.publicKey,
+    privateKey: payload.privateKey,
+    keys: Array.isArray(payload.keys) ? payload.keys : undefined,
+    guidance: payload.guidance,
+    tokens: sanitizeThemeTokens(ctx.getAppearanceTokens?.()),
+    loading: payload.loading === true,
+  };
+  await upsertExportViewerHost(hostArgs);
 }
 
 export async function handleLocalOnlyFlow(

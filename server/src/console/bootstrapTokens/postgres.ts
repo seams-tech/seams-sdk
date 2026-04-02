@@ -50,19 +50,56 @@ function normalizeOrigin(origin: string): string {
   return normalizeCorsOrigin(origin) || '';
 }
 
+function normalizeAllowedPaths(paths: string[] | undefined, fallbackPath: string): string[] {
+  const normalized = Array.isArray(paths)
+    ? Array.from(
+        new Set(
+          paths
+            .map((entry) => normalizePath(entry))
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  if (normalized.length > 0) return normalized;
+  return [normalizePath(fallbackPath)];
+}
+
+function parseAllowedPathsJson(input: unknown, fallbackPath: string): string[] {
+  if (typeof input === 'string' && input.trim()) {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return normalizeAllowedPaths(
+          parsed.map((entry) => String(entry || '').trim()),
+          fallbackPath,
+        );
+      }
+    } catch {
+      // ignore and fall through to fallback
+    }
+  }
+  return normalizeAllowedPaths(undefined, fallbackPath);
+}
+
 function parseRow(row: PgRow): ConsoleBootstrapTokenRecord {
+  const path = String(row.path || '/registration/bootstrap');
   return {
     id: String(row.id || ''),
     orgId: String(row.org_id || ''),
     projectId: String(row.project_id || ''),
     environmentId: String(row.environment_id || ''),
     publishableKeyId: String(row.publishable_key_id || ''),
+    newAccountId: String(row.new_account_id || ''),
+    rpId: String(row.rp_id || ''),
     tokenPrefix: String(row.token_prefix || ''),
     tokenHash: String(row.token_hash || ''),
     method: String(row.method || 'POST'),
-    path: String(row.path || '/registration/bootstrap'),
+    path,
+    allowedPaths: parseAllowedPathsJson(row.allowed_paths_json, path),
     origin: String(row.origin || ''),
-    requestHashSha256: String(row.request_hash_sha256 || ''),
+    requestHashSha256: String(row.request_hash_sha256 || '').trim() || null,
+    maxUses: Math.max(1, toNumber(row.max_uses) || 1),
+    usedCount: Math.max(0, toNumber(row.used_count) || 0),
     status: String(row.status || 'issued') as ConsoleBootstrapTokenRecord['status'],
     riskDecision: String(row.risk_decision || ''),
     paymentReference:
@@ -103,12 +140,17 @@ export async function ensureConsoleBootstrapTokensPostgresSchema(
         project_id TEXT NOT NULL,
         environment_id TEXT NOT NULL,
         publishable_key_id TEXT NOT NULL,
+        new_account_id TEXT NOT NULL DEFAULT '',
+        rp_id TEXT NOT NULL DEFAULT '',
         token_hash TEXT NOT NULL,
         token_prefix TEXT NOT NULL,
         method TEXT NOT NULL,
         path TEXT NOT NULL,
+        allowed_paths_json TEXT NOT NULL DEFAULT '[]',
         origin TEXT NOT NULL,
-        request_hash_sha256 TEXT NOT NULL,
+        request_hash_sha256 TEXT NOT NULL DEFAULT '',
+        max_uses INTEGER NOT NULL DEFAULT 1,
+        used_count INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
         risk_decision TEXT NOT NULL,
         payment_reference TEXT,
@@ -122,6 +164,24 @@ export async function ensureConsoleBootstrapTokensPostgresSchema(
         CHECK (status IN ('issued', 'redeemed', 'expired', 'canceled'))
       )
     `);
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ADD COLUMN IF NOT EXISTS new_account_id TEXT NOT NULL DEFAULT ''`,
+    );
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ADD COLUMN IF NOT EXISTS rp_id TEXT NOT NULL DEFAULT ''`,
+    );
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ADD COLUMN IF NOT EXISTS allowed_paths_json TEXT NOT NULL DEFAULT '[]'`,
+    );
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ADD COLUMN IF NOT EXISTS max_uses INTEGER NOT NULL DEFAULT 1`,
+    );
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ADD COLUMN IF NOT EXISTS used_count INTEGER NOT NULL DEFAULT 0`,
+    );
+    await pool.query(
+      `ALTER TABLE console_bootstrap_tokens ALTER COLUMN request_hash_sha256 SET DEFAULT ''`,
+    );
     await pool.query(`
       CREATE INDEX IF NOT EXISTS console_bootstrap_tokens_org_publishable_idx
       ON console_bootstrap_tokens (namespace, org_id, publishable_key_id, issued_at_ms DESC)
@@ -199,12 +259,17 @@ export async function createPostgresConsoleBootstrapTokenService(
              project_id,
              environment_id,
              publishable_key_id,
+             new_account_id,
+             rp_id,
              token_hash,
              token_prefix,
              method,
              path,
+             allowed_paths_json,
              origin,
              request_hash_sha256,
+             max_uses,
+             used_count,
              status,
              risk_decision,
              payment_reference,
@@ -217,7 +282,7 @@ export async function createPostgresConsoleBootstrapTokenService(
            )
            VALUES (
              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-             $11, $12, 'issued', $13, $14, $15, $16, $17, NULL, $16, $16
+             $11, $12, $13, $14, $15, 0, 'issued', $16, $17, $18, $19, $20, NULL, $19, $19
            )
            RETURNING *`,
           [
@@ -227,12 +292,16 @@ export async function createPostgresConsoleBootstrapTokenService(
             String(request.projectId || '').trim(),
             String(request.environmentId || '').trim(),
             String(request.publishableKeyId || '').trim(),
+            String(request.newAccountId || '').trim(),
+            String(request.rpId || '').trim(),
             await hashBootstrapToken(token),
             makeBootstrapTokenLookupPrefix(token),
             normalizeMethod(request.method),
             normalizePath(request.path),
+            JSON.stringify(normalizeAllowedPaths(request.allowedPaths, request.path)),
             normalizeOrigin(request.origin),
             String(request.requestHashSha256 || '').trim(),
+            Math.max(1, Math.floor(Number(request.maxUses) || 1)),
             String(request.riskDecision || '').trim() || 'allow',
             request.paymentReference == null ? null : String(request.paymentReference || '').trim(),
             request.replacementForTokenId == null
@@ -269,6 +338,34 @@ export async function createPostgresConsoleBootstrapTokenService(
         );
         return Number((row as { count?: unknown } | null)?.count || 0);
       });
+    },
+
+    async peekTokenRecord(token): Promise<ConsoleBootstrapTokenRecord | null> {
+      const parsed = parseBootstrapToken(token);
+      if (!parsed) return null;
+      return await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: parsed.orgId },
+        async (q) => {
+          const row = await queryOne(
+            q,
+            `SELECT *
+               FROM console_bootstrap_tokens
+              WHERE namespace = $1
+                AND id = $2`,
+            [namespace, parsed.tokenId],
+          );
+          if (!row) return null;
+          const record = parseRow(row);
+          if (
+            record.tokenPrefix !== makeBootstrapTokenLookupPrefix(token) ||
+            record.tokenHash !== (await hashBootstrapToken(token))
+          ) {
+            return null;
+          }
+          return record;
+        },
+      );
     },
 
     async redeemToken(request): Promise<RedeemConsoleBootstrapTokenResult> {
@@ -318,7 +415,7 @@ export async function createPostgresConsoleBootstrapTokenService(
 
           const currentNow = now();
           const currentNowMs = nowMs(currentNow);
-          if (record.status === 'redeemed') {
+          if (record.status === 'redeemed' || record.usedCount >= record.maxUses) {
             return {
               ok: false,
               status: 409,
@@ -355,8 +452,9 @@ export async function createPostgresConsoleBootstrapTokenService(
           }
           if (
             record.method !== normalizeMethod(request.method) ||
-            record.path !== normalizePath(request.path) ||
-            record.requestHashSha256 !== String(request.requestHashSha256 || '').trim()
+            !record.allowedPaths.includes(normalizePath(request.path)) ||
+            (record.requestHashSha256 &&
+              record.requestHashSha256 !== String(request.requestHashSha256 || '').trim())
           ) {
             return {
               ok: false,
@@ -370,12 +468,17 @@ export async function createPostgresConsoleBootstrapTokenService(
           const redeemedRow = await queryOne(
             q,
             `UPDATE console_bootstrap_tokens
-                SET status = 'redeemed',
+                SET used_count = used_count + 1,
+                    status = CASE
+                      WHEN used_count + 1 >= max_uses THEN 'redeemed'
+                      ELSE 'issued'
+                    END,
                     redeemed_at_ms = $3,
                     updated_at_ms = $3
               WHERE namespace = $1
                 AND id = $2
                 AND status = 'issued'
+                AND used_count < max_uses
             RETURNING *`,
             [namespace, record.id, redeemedAtMs],
           );
@@ -396,4 +499,3 @@ export async function createPostgresConsoleBootstrapTokenService(
     },
   };
 }
-

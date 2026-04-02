@@ -63,10 +63,6 @@ function readRequiredString(source: Record<string, unknown>, key: string): strin
   return value;
 }
 
-function isBase64UrlNoPadding(value: string): boolean {
-  return /^[A-Za-z0-9_-]+$/.test(value);
-}
-
 function normalizeOrigin(input: string): string {
   return normalizeCorsOrigin(input) || '';
 }
@@ -88,22 +84,22 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
   };
 }
 
-const REGISTRATION_BOOTSTRAP_GRANT_ALLOWED_PATHS = new Set<string>([
+const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
   '/registration/bootstrap',
   '/registration/threshold-ed25519/hss/prepare',
   '/registration/threshold-ed25519/hss/finalize',
-]);
+] as const;
 
-function normalizeRegistrationBootstrapGrantPath(raw: unknown): string {
-  const path = String(raw || '').trim() || '/registration/bootstrap';
-  if (!REGISTRATION_BOOTSTRAP_GRANT_ALLOWED_PATHS.has(path)) {
+function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1' {
+  const flow = String(raw || '').trim();
+  if (flow !== 'registration_v1') {
     throw new RelayBootstrapGrantError({
       code: 'invalid_body',
       status: 400,
-      message: `Field path is not allowed for bootstrap grants: ${path}`,
+      message: 'Field flow must be "registration_v1"',
     });
   }
-  return path;
+  return 'registration_v1';
 }
 
 function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolean {
@@ -133,22 +129,13 @@ export function parseRelayBootstrapGrantIssueBody(
   const environmentId = readRequiredString(body, 'environmentId');
   const newAccountId = readRequiredString(body, 'newAccountId');
   const rpId = readRequiredString(body, 'rpId');
-  const requestHashSha256 = readRequiredString(body, 'requestHashSha256');
-  const path = normalizeRegistrationBootstrapGrantPath(body.path);
-  if (!isBase64UrlNoPadding(requestHashSha256)) {
-    throw new RelayBootstrapGrantError({
-      code: 'invalid_body',
-      status: 400,
-      message: 'Field requestHashSha256 must be base64url without padding',
-    });
-  }
+  const flow = normalizeRegistrationBootstrapGrantFlow(body.flow);
   const clientContext = normalizeClientContext(body.clientContext);
   return {
     environmentId,
     newAccountId,
     rpId,
-    requestHashSha256,
-    path,
+    flow,
     ...(clientContext ? { clientContext } : {}),
   };
 }
@@ -199,8 +186,7 @@ export function createRelayBootstrapGrantBroker(
     environmentId: string;
     newAccountId: string;
     rpId: string;
-    requestHashSha256: string;
-    path?: string;
+    flow: 'registration_v1';
     clientContext?: RelayBootstrapGrantClientContext;
   }): Promise<RelayBootstrapGrantIssueResult> {
     const origin = normalizeOrigin(input.origin);
@@ -316,10 +302,14 @@ export function createRelayBootstrapGrantBroker(
       publishableKeyId: authenticatedApiKey.id,
       projectId: environment.projectId,
       environmentId: environment.id,
+      newAccountId: input.newAccountId,
+      rpId: input.rpId,
       origin,
       method: 'POST',
-      path: normalizeRegistrationBootstrapGrantPath(input.path),
-      requestHashSha256: input.requestHashSha256,
+      path: '/registration/bootstrap',
+      allowedPaths: [...REGISTRATION_FLOW_GRANT_ALLOWED_PATHS],
+      requestHashSha256: null,
+      maxUses: 3,
       ttlMs: tokenTtlMs,
       riskDecision: 'allow',
     });

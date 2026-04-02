@@ -6,12 +6,17 @@ export interface ConsoleBootstrapTokenRecord {
   projectId: string;
   environmentId: string;
   publishableKeyId: string;
+  newAccountId: string;
+  rpId: string;
   tokenPrefix: string;
   tokenHash: string;
   method: string;
   path: string;
+  allowedPaths: string[];
   origin: string;
-  requestHashSha256: string;
+  requestHashSha256: string | null;
+  maxUses: number;
+  usedCount: number;
   status: ConsoleBootstrapTokenStatus;
   riskDecision: string;
   paymentReference: string | null;
@@ -27,10 +32,14 @@ export interface CreateConsoleBootstrapTokenRequest {
   publishableKeyId: string;
   projectId: string;
   environmentId: string;
+  newAccountId: string;
+  rpId: string;
   origin: string;
   method: string;
   path: string;
-  requestHashSha256: string;
+  allowedPaths?: string[];
+  requestHashSha256?: string | null;
+  maxUses?: number;
   ttlMs: number;
   riskDecision?: string;
   paymentReference?: string | null;
@@ -60,7 +69,7 @@ export interface RedeemConsoleBootstrapTokenRequest {
   origin: string;
   method: string;
   path: string;
-  requestHashSha256: string;
+  requestHashSha256?: string;
 }
 
 export type RedeemConsoleBootstrapTokenResult =
@@ -74,4 +83,3 @@ export type RedeemConsoleBootstrapTokenResult =
       code: RedeemConsoleBootstrapTokenFailureCode;
       message: string;
     };
-

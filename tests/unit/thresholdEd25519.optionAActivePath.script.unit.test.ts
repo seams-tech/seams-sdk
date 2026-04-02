@@ -483,6 +483,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     const { restore } = installMemorySessionStorage();
     const originalFetch = globalThis.fetch;
     const exportWorkerCalls: Array<Record<string, unknown>> = [];
+    const userConfirmationCalls: Array<Record<string, any>> = [];
 
     clearAllStoredThresholdEd25519SessionRecords();
     seedThresholdEd25519Session();
@@ -652,6 +653,13 @@ test.describe('threshold Ed25519 Option A active path', () => {
           remainingUses: 4,
           expiresAtMs: Date.now() + 60_000,
         }),
+        requestUserConfirmation: async (request: Record<string, any>) => {
+          userConfirmationCalls.push(request);
+          return {
+            requestId: String(request.requestId || ''),
+            confirmed: true,
+          };
+        },
       };
 
       const result = await engine.exportKeypairWithUI(NEAR_ACCOUNT_ID as any, {
@@ -663,26 +671,37 @@ test.describe('threshold Ed25519 Option A active path', () => {
         accountId: NEAR_ACCOUNT_ID,
         exportedSchemes: ['ed25519'],
       });
-      expect(exportWorkerCalls).toHaveLength(1);
-      expect(exportWorkerCalls[0]).toMatchObject({
-        nearAccountId: NEAR_ACCOUNT_ID,
-        deviceNumber: 1,
-        chain: 'near',
-        artifactKind: 'near-ed25519-seed-v1',
-        expectedPublicKey,
-        variant: 'drawer',
-        theme: 'dark',
+      expect(exportWorkerCalls).toHaveLength(0);
+      expect(userConfirmationCalls.map((entry) => entry.type)).toEqual([
+        'decryptPrivateKeyWithPrf',
+        'showSecurePrivateKeyUi',
+        'showSecurePrivateKeyUi',
+      ]);
+      expect(userConfirmationCalls[0]).toMatchObject({
+        summary: {
+          accountId: NEAR_ACCOUNT_ID,
+          publicKey: expectedPublicKey,
+        },
       });
-      expect(String(exportWorkerCalls[0]?.seedB64u || '')).not.toBe('');
-      expect(
-        Object.prototype.hasOwnProperty.call(exportWorkerCalls[0] || {}, 'recoveryPublicKey'),
-      ).toBe(false);
-      expect(
-        Object.prototype.hasOwnProperty.call(exportWorkerCalls[0] || {}, 'recoveryExportCapable'),
-      ).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(exportWorkerCalls[0] || {}, 'keyVersion')).toBe(
-        false,
-      );
+      expect(userConfirmationCalls[1]).toMatchObject({
+        payload: {
+          nearAccountId: NEAR_ACCOUNT_ID,
+          publicKey: expectedPublicKey,
+          loading: true,
+          variant: 'drawer',
+          theme: 'dark',
+        },
+      });
+      expect(userConfirmationCalls[2]).toMatchObject({
+        payload: {
+          nearAccountId: NEAR_ACCOUNT_ID,
+          publicKey: expectedPublicKey,
+          loading: false,
+          variant: 'drawer',
+          theme: 'dark',
+        },
+      });
+      expect(String(userConfirmationCalls[2]?.payload?.keys?.[0]?.privateKey || '')).not.toBe('');
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();
@@ -772,6 +791,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     const { restore } = installMemorySessionStorage();
     const originalFetch = globalThis.fetch;
     const exportWorkerCalls: Array<Record<string, unknown>> = [];
+    const userConfirmationCalls: Array<Record<string, any>> = [];
     let thresholdPublicKey = 'ed25519:placeholder';
     let lastServerOutputB64u = '';
     let lastContextBinding = '';
@@ -994,6 +1014,13 @@ test.describe('threshold Ed25519 Option A active path', () => {
           remainingUses: 4,
           expiresAtMs: Date.now() + 60_000,
         }),
+        requestUserConfirmation: async (request: Record<string, any>) => {
+          userConfirmationCalls.push(request);
+          return {
+            requestId: String(request.requestId || ''),
+            confirmed: true,
+          };
+        },
       };
 
       const exportResult = await engine.exportKeypairWithUI(NEAR_ACCOUNT_ID as any, {
@@ -1005,13 +1032,37 @@ test.describe('threshold Ed25519 Option A active path', () => {
         accountId: NEAR_ACCOUNT_ID,
         exportedSchemes: ['ed25519'],
       });
-      expect(exportWorkerCalls).toHaveLength(1);
-      expect(exportWorkerCalls[0]).toMatchObject({
-        nearAccountId: NEAR_ACCOUNT_ID,
-        artifactKind: 'near-ed25519-seed-v1',
-        expectedPublicKey: thresholdPublicKey,
+      expect(exportWorkerCalls).toHaveLength(0);
+      expect(userConfirmationCalls.map((entry) => entry.type)).toEqual([
+        'decryptPrivateKeyWithPrf',
+        'showSecurePrivateKeyUi',
+        'showSecurePrivateKeyUi',
+      ]);
+      expect(userConfirmationCalls[0]).toMatchObject({
+        summary: {
+          accountId: NEAR_ACCOUNT_ID,
+          publicKey: thresholdPublicKey,
+        },
       });
-      expect(String(exportWorkerCalls[0]?.seedB64u || '')).not.toBe('');
+      expect(userConfirmationCalls[1]).toMatchObject({
+        payload: {
+          nearAccountId: NEAR_ACCOUNT_ID,
+          publicKey: thresholdPublicKey,
+          loading: true,
+          variant: 'drawer',
+          theme: 'dark',
+        },
+      });
+      expect(userConfirmationCalls[2]).toMatchObject({
+        payload: {
+          nearAccountId: NEAR_ACCOUNT_ID,
+          publicKey: thresholdPublicKey,
+          loading: false,
+          variant: 'drawer',
+          theme: 'dark',
+        },
+      });
+      expect(String(userConfirmationCalls[2]?.payload?.keys?.[0]?.privateKey || '')).not.toBe('');
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();

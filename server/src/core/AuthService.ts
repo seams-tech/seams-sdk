@@ -137,14 +137,23 @@ import { buildRecoveryExecutionRecord } from './recoveryExecutionRecords';
 import { syncCanonicalSmartAccountDeploymentManifest } from '../router/smartAccountDeploymentManifest';
 
 const ACCOUNT_CREATE_BROADCAST_WAIT_UNTIL: TxExecutionStatus = 'EXECUTED_OPTIMISTIC';
-const ACCOUNT_CREATE_KEY_VISIBILITY_CHECK = {
-  attempts: 12,
-  delayMs: 500,
+const ACCOUNT_CREATE_FAST_KEY_VISIBILITY_CHECK = {
+  attempts: 2,
+  delayMs: 100,
+  finality: 'optimistic' as const,
+};
+const ACCOUNT_CREATE_BACKGROUND_KEY_VISIBILITY_AUDIT = {
+  attempts: 8,
+  delayMs: 250,
   finality: 'final' as const,
 };
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function logDuration(timings: Record<string, number>, key: string, startedAtMs: number): void {
+  timings[key] = Date.now() - startedAtMs;
 }
 
 function decodeBase64UrlOrBase64(input: string, fieldName: string): Uint8Array {
@@ -1736,7 +1745,7 @@ export class AuthService {
         const keysVerified = await this.verifyAccountAccessKeysPresent(
           request.accountId,
           expectedPublicKeys,
-          ACCOUNT_CREATE_KEY_VISIBILITY_CHECK,
+          ACCOUNT_CREATE_FAST_KEY_VISIBILITY_CHECK,
         );
         this.logger.info(
           `Account creation for ${request.accountId} key visibility verified=${keysVerified} in ${
@@ -1744,11 +1753,16 @@ export class AuthService {
           }ms`,
         );
         if (!keysVerified) {
-          throw new Error(
+          this.logger.warn(
             recoveryPublicKey
-              ? 'Bootstrap committed but operational and recovery access keys were not both visible on-chain'
-              : 'Bootstrap committed but the operational access key was not visible on-chain',
+              ? 'Bootstrap committed before both access keys were visible on final state; scheduling background audit'
+              : 'Bootstrap committed before the operational access key was visible on final state; scheduling background audit',
           );
+          this.scheduleAccountAccessKeyVisibilityAudit({
+            accountId: request.accountId,
+            expectedPublicKeys,
+            contextLabel: `Account creation for ${request.accountId}`,
+          });
         }
 
         this.logger.info(`Account creation completed: ${result.transaction.hash}`);
@@ -1785,6 +1799,8 @@ export class AuthService {
 
     return this.queueTransaction(async () => {
       try {
+        const registrationStartedAt = Date.now();
+        const registrationTimings: Record<string, number> = {};
         const accountId = String(request?.new_account_id || '').trim();
         if (!isValidAccountId(accountId))
           throw new Error(`Invalid account ID format: ${accountId}`);
@@ -1883,6 +1899,7 @@ export class AuthService {
         }
 
         if (thresholdEd25519Registration.relayerKeyId) {
+          const thresholdEd25519KeygenStartedAt = Date.now();
           const schemeAny = thresholdService!.getSchemeModule(
             THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
           );
@@ -1903,9 +1920,15 @@ export class AuthService {
             throw new Error(out.message || 'threshold-ed25519 registration keygen failed');
           }
           thresholdKeygen = out;
+          logDuration(
+            registrationTimings,
+            'thresholdEd25519RegistrationMaterialMs',
+            thresholdEd25519KeygenStartedAt,
+          );
         }
 
         if (thresholdEcdsaClientVerifyingShareB64u) {
+          const thresholdEcdsaKeygenStartedAt = Date.now();
           const out = await thresholdService!.ecdsaRegistrationKeygenFromClientVerifyingShare({
             userId: accountId,
             rpId,
@@ -1934,6 +1957,11 @@ export class AuthService {
             relayerVerifyingShareB64u,
             ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
           };
+          logDuration(
+            registrationTimings,
+            'thresholdEcdsaRegistrationMaterialMs',
+            thresholdEcdsaKeygenStartedAt,
+          );
         }
 
         const { publicKey: newPublicKey, expectedPublicKeys } = normalizeBootstrapPublicKeys({
@@ -2046,21 +2074,36 @@ export class AuthService {
             Date.now() - atomicRegistrationBroadcastStartedAt
           }ms`,
         );
+        logDuration(
+          registrationTimings,
+          'nearAccountCreateBroadcastMs',
+          atomicRegistrationBroadcastStartedAt,
+        );
         const atomicRegistrationKeyCheckStartedAt = Date.now();
         const bootstrapKeysVerified = await this.verifyAccountAccessKeysPresent(
           accountId,
           expectedPublicKeys,
-          ACCOUNT_CREATE_KEY_VISIBILITY_CHECK,
+          ACCOUNT_CREATE_FAST_KEY_VISIBILITY_CHECK,
         );
         this.logger.info(
           `Atomic registration account creation for ${accountId} key visibility verified=${bootstrapKeysVerified} in ${
             Date.now() - atomicRegistrationKeyCheckStartedAt
           }ms`,
         );
+        logDuration(
+          registrationTimings,
+          'nearAccessKeyVisibilityMs',
+          atomicRegistrationKeyCheckStartedAt,
+        );
         if (!bootstrapKeysVerified) {
-          throw new Error(
-            'Atomic registration committed but the operational access key was not visible on-chain',
+          this.logger.warn(
+            `Atomic registration committed for ${accountId} before the operational access key was visible on final state; scheduling background audit`,
           );
+          this.scheduleAccountAccessKeyVisibilityAudit({
+            accountId,
+            expectedPublicKeys,
+            contextLabel: `Atomic registration account creation for ${accountId}`,
+          });
         }
 
         // 3) Persist the authenticator privately on the relay.
@@ -2080,6 +2123,7 @@ export class AuthService {
 
         const store = this.getWebAuthnAuthenticatorStore();
         const now = Date.now();
+        const authenticatorStoreStartedAt = Date.now();
         await store.put(accountId, {
           version: 'webauthn_authenticator_v1',
           credentialIdB64u,
@@ -2088,6 +2132,7 @@ export class AuthService {
           createdAtMs: now,
           updatedAtMs: now,
         });
+        logDuration(registrationTimings, 'authenticatorStoreMs', authenticatorStoreStartedAt);
 
         // 4) Persist passkey→account binding for sync/link/recovery flows.
         // This is relay-private storage (no on-chain authenticator registry dependence).
@@ -2123,9 +2168,12 @@ export class AuthService {
           createdAtMs: now,
           updatedAtMs: now,
         };
+        const bindingStoreStartedAt = Date.now();
         await bindingStore.put(binding);
+        logDuration(registrationTimings, 'credentialBindingStoreMs', bindingStoreStartedAt);
 
         if (thresholdKeygen && thresholdEd25519SessionPolicy) {
+          const thresholdEd25519SessionStartedAt = Date.now();
           const requestedThresholdEd25519PolicyRelayerKeyId = String(
             (thresholdEd25519SessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
           ).trim();
@@ -2167,9 +2215,15 @@ export class AuthService {
               ? { runtimeSnapshotScope: session.runtimeSnapshotScope }
               : {}),
           };
+          logDuration(
+            registrationTimings,
+            'thresholdEd25519SessionMintMs',
+            thresholdEd25519SessionStartedAt,
+          );
         }
 
         if (thresholdEcdsaKeygen && thresholdEcdsaSessionPolicy) {
+          const thresholdEcdsaSessionStartedAt = Date.now();
           const requestedThresholdEcdsaPolicyRelayerKeyId = String(
             (thresholdEcdsaSessionPolicy as Record<string, unknown>)?.relayerKeyId || '',
           ).trim();
@@ -2209,30 +2263,48 @@ export class AuthService {
               ? { remainingUses: Number(session.remainingUses) }
               : {}),
           };
+          logDuration(
+            registrationTimings,
+            'thresholdEcdsaSessionMintMs',
+            thresholdEcdsaSessionStartedAt,
+          );
         }
 
         // Best-effort: persist NEAR public key metadata for UI surfaces.
-        // This provides (key kind + timestamp) for access key listings.
-        try {
-          const pkStore = this.getNearPublicKeyStore();
-          const thresholdPk = newPublicKey;
-          if (thresholdPk) {
-            const thresholdRecord: NearPublicKeyRecord = {
-              version: 'near_public_key_v1',
-              userId: accountId,
-              publicKey: thresholdPk,
-              kind: 'threshold',
-              deviceNumber,
-              rpId,
-              credentialIdB64u,
-              createdAtMs: now,
-              updatedAtMs: now,
-            };
-            await pkStore.put(thresholdRecord);
+        // This is not required for account correctness, so keep it off the blocking path.
+        void (async () => {
+          try {
+            const nearPublicKeyMetadataStartedAt = Date.now();
+            const pkStore = this.getNearPublicKeyStore();
+            const thresholdPk = newPublicKey;
+            if (thresholdPk) {
+              const thresholdRecord: NearPublicKeyRecord = {
+                version: 'near_public_key_v1',
+                userId: accountId,
+                publicKey: thresholdPk,
+                kind: 'threshold',
+                deviceNumber,
+                rpId,
+                credentialIdB64u,
+                createdAtMs: now,
+                updatedAtMs: now,
+              };
+              await pkStore.put(thresholdRecord);
+            }
+            this.logger.info('[AuthService] atomic registration async persistence', {
+              nearAccountId: accountId,
+              nearPublicKeyMetadataMs: Date.now() - nearPublicKeyMetadataStartedAt,
+            });
+          } catch (error: unknown) {
+            this.logger.warn(
+              `[AuthService] failed to persist NEAR public key metadata after registration for ${accountId}`,
+              error,
+            );
           }
-        } catch {}
+        })();
 
         if (thresholdEcdsaKeygen) {
+          const smartAccountPersistenceStartedAt = Date.now();
           await this.persistRegistrationSmartAccountRecords({
             userId: accountId,
             nearAccountId: accountId,
@@ -2243,9 +2315,19 @@ export class AuthService {
             smartAccountTargets: (request as any)?.threshold_ecdsa?.smart_account_targets,
             nowMs: now,
           });
+          logDuration(
+            registrationTimings,
+            'thresholdEcdsaSmartAccountPersistenceMs',
+            smartAccountPersistenceStartedAt,
+          );
         }
 
         this.logger.info(`Registration completed: ${result.transaction.hash}`);
+        this.logger.info('[AuthService] atomic registration timings', {
+          nearAccountId: accountId,
+          ...registrationTimings,
+          totalMs: Date.now() - registrationStartedAt,
+        });
         return {
           success: true,
           transactionHash: result.transaction.hash,
@@ -5351,6 +5433,34 @@ export class AuthService {
     }
 
     return false;
+  }
+
+  private scheduleAccountAccessKeyVisibilityAudit(input: {
+    accountId: string;
+    expectedPublicKeys: string[];
+    contextLabel: string;
+  }): void {
+    void (async () => {
+      const startedAt = Date.now();
+      const verified = await this.verifyAccountAccessKeysPresent(
+        input.accountId,
+        input.expectedPublicKeys,
+        ACCOUNT_CREATE_BACKGROUND_KEY_VISIBILITY_AUDIT,
+      );
+      if (verified) {
+        this.logger.info(
+          `${input.contextLabel} final key visibility verified=true in ${Date.now() - startedAt}ms`,
+        );
+        return;
+      }
+      this.logger.warn(
+        `${input.contextLabel} final key visibility is still pending after ${
+          Date.now() - startedAt
+        }ms`,
+      );
+    })().catch((error: unknown) => {
+      this.logger.warn(`${input.contextLabel} final key visibility audit failed`, error);
+    });
   }
 
   private async fetchTxContext(

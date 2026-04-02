@@ -30,6 +30,7 @@ export interface ConsoleBootstrapTokenService {
     ctx: ConsoleBootstrapTokensContext,
     request: CountConsoleBootstrapTokensRequest,
   ): Promise<number>;
+  peekTokenRecord(token: string): Promise<ConsoleBootstrapTokenRecord | null>;
   redeemToken(request: RedeemConsoleBootstrapTokenRequest): Promise<RedeemConsoleBootstrapTokenResult>;
 }
 
@@ -50,8 +51,25 @@ function normalizeOrigin(origin: string): string {
   return normalizeCorsOrigin(origin) || '';
 }
 
+function normalizeAllowedPaths(paths: string[] | undefined, fallbackPath: string): string[] {
+  const normalized = Array.isArray(paths)
+    ? Array.from(
+        new Set(
+          paths
+            .map((entry) => normalizePath(entry))
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  if (normalized.length > 0) return normalized;
+  return [normalizePath(fallbackPath)];
+}
+
 function cloneRecord(record: ConsoleBootstrapTokenRecord): ConsoleBootstrapTokenRecord {
-  return { ...record };
+  return {
+    ...record,
+    allowedPaths: [...record.allowedPaths],
+  };
 }
 
 export function createInMemoryConsoleBootstrapTokenService(
@@ -75,12 +93,17 @@ export function createInMemoryConsoleBootstrapTokenService(
         projectId: String(request.projectId || '').trim(),
         environmentId: String(request.environmentId || '').trim(),
         publishableKeyId: String(request.publishableKeyId || '').trim(),
+        newAccountId: String(request.newAccountId || '').trim(),
+        rpId: String(request.rpId || '').trim(),
         tokenPrefix: makeBootstrapTokenLookupPrefix(token),
         tokenHash: await hashBootstrapToken(token),
         method: normalizeMethod(request.method),
         path: normalizePath(request.path),
+        allowedPaths: normalizeAllowedPaths(request.allowedPaths, request.path),
         origin: normalizeOrigin(request.origin),
-        requestHashSha256: String(request.requestHashSha256 || '').trim(),
+        requestHashSha256: String(request.requestHashSha256 || '').trim() || null,
+        maxUses: Math.max(1, Math.floor(Number(request.maxUses) || 1)),
+        usedCount: 0,
         status: 'issued',
         riskDecision: String(request.riskDecision || '').trim() || 'allow',
         paymentReference:
@@ -114,6 +137,15 @@ export function createInMemoryConsoleBootstrapTokenService(
       return count;
     },
 
+    async peekTokenRecord(token): Promise<ConsoleBootstrapTokenRecord | null> {
+      const parsed = parseBootstrapToken(token);
+      if (!parsed) return null;
+      const record = records.get(parsed.tokenId);
+      if (!record || record.orgId !== parsed.orgId) return null;
+      if (record.tokenHash !== (await hashBootstrapToken(token))) return null;
+      return cloneRecord(record);
+    },
+
     async redeemToken(request): Promise<RedeemConsoleBootstrapTokenResult> {
       const parsed = parseBootstrapToken(request.token);
       if (!parsed) {
@@ -144,7 +176,7 @@ export function createInMemoryConsoleBootstrapTokenService(
       }
 
       const currentNow = now();
-      if (record.status === 'redeemed') {
+      if (record.status === 'redeemed' || record.usedCount >= record.maxUses) {
         return {
           ok: false,
           status: 409,
@@ -176,8 +208,9 @@ export function createInMemoryConsoleBootstrapTokenService(
       }
       if (
         record.method !== normalizeMethod(request.method) ||
-        record.path !== normalizePath(request.path) ||
-        record.requestHashSha256 !== String(request.requestHashSha256 || '').trim()
+        !record.allowedPaths.includes(normalizePath(request.path)) ||
+        (record.requestHashSha256 &&
+          record.requestHashSha256 !== String(request.requestHashSha256 || '').trim())
       ) {
         return {
           ok: false,
@@ -187,9 +220,10 @@ export function createInMemoryConsoleBootstrapTokenService(
         };
       }
 
-      record.status = 'redeemed';
+      record.usedCount += 1;
       record.redeemedAt = currentNow.toISOString();
       record.updatedAt = record.redeemedAt;
+      record.status = record.usedCount >= record.maxUses ? 'redeemed' : 'issued';
       return {
         ok: true,
         record: cloneRecord(record),
@@ -197,4 +231,3 @@ export function createInMemoryConsoleBootstrapTokenService(
     },
   };
 }
-

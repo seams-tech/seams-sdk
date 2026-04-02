@@ -68,7 +68,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
             toast.loading('Creating account...', { id: 'registration' });
             break;
           case RegistrationPhase.STEP_5_CONTRACT_REGISTRATION:
-            toast.loading('Registering with Web3Authn contract...', { id: 'registration' });
+            toast.loading(event.message || 'Creating account and finalizing registration...', {
+              id: 'registration',
+            });
             break;
           case RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION:
             toast.loading(event.message, { id: 'registration' });
@@ -225,7 +227,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         toast.loading('Device key detected on-chain…', { id: toastId });
         break;
       case DeviceLinkingPhase.STEP_6_REGISTRATION:
-        toast.loading('Registering authenticator for this device…', { id: toastId });
+        toast.loading('Creating a passkey on this device…', { id: toastId });
         break;
       case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
         toast.success('Device linked successfully!', { id: toastId });
@@ -269,7 +271,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         toast.loading(event.message || 'Preparing email recovery…', { id: toastId });
         return;
       case EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION:
-        toast.loading(event.message || 'Registering this device (Touch ID / Passkey)…', {
+        toast.loading(event.message || 'Creating a passkey on this device…', {
           id: toastId,
         });
         return;

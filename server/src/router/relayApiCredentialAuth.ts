@@ -230,9 +230,22 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         message: 'bootstrap_token_invalid: Invalid bootstrap token',
       };
     }
-    const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(
-      input.body && typeof input.body === 'object' && !Array.isArray(input.body) ? input.body : {},
-    );
+    const tokenRecord = await bootstrapTokenStore.peekTokenRecord(credential);
+    if (!tokenRecord) {
+      return {
+        ok: false,
+        status: 401,
+        code: 'unauthorized',
+        message: 'bootstrap_token_invalid: Invalid bootstrap token',
+      };
+    }
+    const requestHashSha256 = tokenRecord.requestHashSha256
+      ? await computeRegistrationBootstrapRequestHashSha256(
+          input.body && typeof input.body === 'object' && !Array.isArray(input.body)
+            ? input.body
+            : {},
+        )
+      : undefined;
     const redeemResult = await bootstrapTokenStore.redeemToken({
       token: credential,
       origin: String(input.origin || '').trim(),
@@ -246,6 +259,24 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         status: redeemResult.status,
         code: redeemResult.status === 403 ? 'forbidden' : 'unauthorized',
         message: `${redeemResult.code}: ${redeemResult.message}`,
+      };
+    }
+    const bodyRecord =
+      input.body && typeof input.body === 'object' && !Array.isArray(input.body)
+        ? (input.body as Record<string, unknown>)
+        : {};
+    const requestedAccountId = String(bodyRecord.new_account_id || '').trim();
+    const requestedRpId = String(bodyRecord.rp_id || '').trim();
+    if (
+      (redeemResult.record.newAccountId &&
+        redeemResult.record.newAccountId !== requestedAccountId) ||
+      (redeemResult.record.rpId && redeemResult.record.rpId !== requestedRpId)
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'unauthorized',
+        message: 'bootstrap_token_request_mismatch: Bootstrap token is not valid for this request payload',
       };
     }
     return {

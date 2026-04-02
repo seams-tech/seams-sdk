@@ -28,9 +28,7 @@ import {
   updatePrfSessionSealedRecordPolicy,
   writePrfSessionSealedRecord,
 } from '../api/session/prfSessionSealedStore';
-import {
-  resolveThresholdSessionSealTransportByThresholdSessionId,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
+import { resolveThresholdSessionSealTransportByThresholdSessionId } from '../api/thresholdLifecycle/thresholdSessionStore';
 import {
   UserConfirmMessageType,
   type UserConfirmDecision,
@@ -267,6 +265,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       thresholdSessionId,
     });
     if (!resolved) return null;
+    if (resolved.curve !== 'ecdsa') return null;
     const relayerUrl = String(resolved.relayerUrl || '').trim();
     if (!relayerUrl) return null;
     const thresholdSessionJwt = String(resolved.thresholdSessionJwt || '').trim();
