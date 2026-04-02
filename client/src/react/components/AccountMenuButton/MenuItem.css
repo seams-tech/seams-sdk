@@ -70,6 +70,24 @@
   color: var(--w3a-colors-textSecondary);
 }
 
+.w3a-menu-spinner-icon {
+  animation: w3a-menu-spinner-rotate 850ms linear infinite;
+}
+
+.w3a-menu-spinner-icon-track,
+.w3a-menu-spinner-icon-head {
+  stroke: currentColor;
+  stroke-width: 2.25;
+}
+
+.w3a-menu-spinner-icon-track {
+  opacity: 0.22;
+}
+
+.w3a-menu-spinner-icon-head {
+  opacity: 0.95;
+}
+
 .w3a-dropdown-menu-item-content {
   flex: 1;
   min-width: 0;
@@ -146,5 +164,14 @@
   to {
     opacity: 0;
     transform: translateX(-1rem);
+  }
+}
+
+@keyframes w3a-menu-spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }

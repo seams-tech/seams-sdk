@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { KeyIcon } from './icons/KeyIcon';
+import { SpinnerIcon } from './icons/SpinnerIcon';
 import { ScanIcon } from './icons/ScanIcon';
 import { LinkIcon } from './icons/LinkIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
@@ -95,6 +96,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
+  const [exportKeysLoading, setExportKeysLoading] = useState(false);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -178,11 +180,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     const items: MenuItem[] = [
       {
         id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
-        icon: <KeyIcon />,
+        icon: exportKeysLoading ? <SpinnerIcon /> : <KeyIcon />,
         label: 'Export Keys',
         description: 'View your private keys',
-        disabled: !loginState.isLoggedIn,
+        disabled: !loginState.isLoggedIn || exportKeysLoading,
         onClick: async () => {
+          setExportKeysLoading(true);
           try {
             await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
           } catch (error: any) {
@@ -192,6 +195,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
               : msg;
             alert(`Key export failed: ${friendly}`);
+          } finally {
+            setExportKeysLoading(false);
           }
         },
         keepOpenOnClick: true,
@@ -238,7 +243,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [tatchi, nearAccountId, loginState.isLoggedIn, theme, handleToggleTheme]);
+  }, [tatchi, nearAccountId, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
