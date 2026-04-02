@@ -50,10 +50,19 @@ get_mtime() {
     stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo "0"
 }
 
-# Get modification time for the build artifacts.
-# Note: directory mtimes are not reliably updated when files are rewritten in-place,
-# so prefer mtimes from key build outputs.
-DIST_TIME=$(get_mtime "$BUILD_ROOT")
+find_newer_sources() {
+    local path="$1"
+    if [ -d "$path" ]; then
+        find "$path" -type f \( -name "*.ts" -o -name "*.js" -o -name "*.json" -o -name "*.rs" -o -name "*.toml" \) -newer "$LATEST_BUILD_PATH" -print
+    elif [ -f "$path" ] && [ "$path" -nt "$LATEST_BUILD_PATH" ]; then
+        printf '%s\n' "$path"
+    fi
+}
+
+# Track the newest build artifact path directly so freshness checks can use
+# `find -newer` instead of a bash loop that stats every source file.
+LATEST_BUILD_PATH="$BUILD_ROOT"
+LATEST_BUILD_TIME=$(get_mtime "$LATEST_BUILD_PATH")
 for built in \
     "$BUILD_WORKERS/$WORKER_SIGNER" \
     "$BUILD_WORKERS/$WORKER_TOUCH_CONFIRM" \
@@ -73,8 +82,9 @@ for built in \
     "$BUILD_TYPES/client/src/index.d.ts"; do
     if [ -f "$built" ]; then
         FILE_TIME=$(get_mtime "$built")
-        if [ "$FILE_TIME" -gt "$DIST_TIME" ]; then
-            DIST_TIME="$FILE_TIME"
+        if [ "$FILE_TIME" -gt "$LATEST_BUILD_TIME" ]; then
+            LATEST_BUILD_TIME="$FILE_TIME"
+            LATEST_BUILD_PATH="$built"
         fi
     fi
 done
@@ -85,28 +95,20 @@ STALE_FILES=()
 
 # Check critical directories
 for dir in "${CRITICAL_DIRS[@]}"; do
-    if [ -d "$dir" ]; then
-        while IFS= read -r -d '' file; do
-            if [ -f "$file" ]; then
-                FILE_TIME=$(get_mtime "$file")
-                if [ "$FILE_TIME" -gt "$DIST_TIME" ]; then
-                    STALE_BUILD=true
-                    STALE_FILES+=("$file")
-                fi
-            fi
-        done < <(find "$dir" -type f \( -name "*.ts" -o -name "*.js" -o -name "*.json" -o -name "*.rs" -o -name "*.toml" \) -print0)
-    fi
+    while IFS= read -r file; do
+        [ -n "$file" ] || continue
+        STALE_BUILD=true
+        STALE_FILES+=("$file")
+    done < <(find_newer_sources "$dir")
 done
 
 # Check critical files
 for file in "${CRITICAL_FILES[@]}"; do
-    if [ -f "$file" ]; then
-        FILE_TIME=$(get_mtime "$file")
-        if [ "$FILE_TIME" -gt "$DIST_TIME" ]; then
-            STALE_BUILD=true
-            STALE_FILES+=("$file")
-        fi
-    fi
+    while IFS= read -r stale; do
+        [ -n "$stale" ] || continue
+        STALE_BUILD=true
+        STALE_FILES+=("$stale")
+    done < <(find_newer_sources "$file")
 done
 
 # Report results
