@@ -178,7 +178,7 @@ Purpose:
 Tasks:
 
 - [x] introduce dedicated production local vector types in
-  `crates/succinct-garbling/src/ddh_hss.rs`
+  `crates/ed25519-hss/src/ddh_hss.rs`
 - [x] make the representation explicit and executor-oriented:
   - one side’s shares
   - one side’s commitments
@@ -347,10 +347,10 @@ Rules:
 Benchmark gate for every step:
 
 - run correctness tests first:
-  - `cargo test --manifest-path crates/succinct-garbling/Cargo.toml --lib -- --nocapture`
-  - `cargo test --manifest-path crates/succinct-garbling/Cargo.toml --lib prime_order_succinct_hss_matches_reference_fixture_smoke -- --ignored --nocapture`
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --lib -- --nocapture`
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --lib prime_order_succinct_hss_matches_reference_fixture_smoke -- --ignored --nocapture`
 - run the benchmark suite and record the result in
-  `crates/succinct-garbling/optimization.md`
+  [optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization-v3.md)
 - compare against the most recent accepted baseline before keeping the change
 
 Phases:
@@ -361,7 +361,8 @@ Tasks:
 
 - [x] rerun native release hidden-eval benchmarks on the hardened split/local path
 - [x] rerun browser hidden-eval benchmarks on the hardened split/local path
-- [x] record the new baseline in `crates/succinct-garbling/optimization.md`
+- [x] record the new baseline in
+  [optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization-v3.md)
 - [x] identify the hottest remaining split/local kernels from measured output,
   not guesswork
 
@@ -421,7 +422,8 @@ Extended future todo list if the optional campaign is reopened:
    seam rather than a slice-wide wrapper pass.
 5. Defer output bundle reconstruction work until a profile shows it materially
    contributes to end-to-end time.
-6. After every accepted step, update `crates/succinct-garbling/optimization.md`
+6. After every accepted step, update
+   [optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization-v3.md)
    before starting the next candidate.
 
 Measured next hotspot after the published post-hardening checkpoint:
@@ -440,7 +442,7 @@ Tasks:
 
 - [x] stop when the next bounded candidate fails to improve the current baseline
 - [x] publish the accepted optimization checkpoint in
-  `crates/succinct-garbling/optimization.md`
+  [optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization-v3.md)
 - [x] summarize which candidates were kept, reverted, or deferred
 
 Status:

@@ -4,7 +4,12 @@ import {
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
-import { buildEd25519SessionPolicy, type Ed25519SessionPolicy } from './sessionPolicy';
+import {
+  buildEd25519SessionPolicy,
+  parseThresholdRuntimeSnapshotScopeFromJwt,
+  type Ed25519SessionPolicy,
+  type ThresholdRuntimeSnapshotScope,
+} from './sessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { redactCredentialExtensionOutputs } from '../webauthn';
@@ -95,6 +100,7 @@ export async function buildAndCacheEd25519AuthSession(args: {
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   participantIds?: number[];
   sessionKind?: Ed25519SessionKind;
   sessionId: string;
@@ -127,11 +133,17 @@ export async function buildAndCacheEd25519AuthSession(args: {
     return remainingUses;
   })();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds) || undefined;
+  const runtimeSnapshotScope =
+    args.runtimeSnapshotScope ||
+    parseThresholdRuntimeSnapshotScopeFromJwt(String(args.jwt || '').trim());
+  const existingRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
+  const existingXClientBaseB64u = String(existingRecord?.xClientBaseB64u || '').trim();
 
   const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: String(args.nearAccountId || '').trim(),
     rpId: String(args.rpId || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     participantIds,
     sessionId,
     ttlMs: policyTtlMs,
@@ -160,10 +172,14 @@ export async function buildAndCacheEd25519AuthSession(args: {
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     participantIds: participantIds || [],
+    ...(existingXClientBaseB64u ? { xClientBaseB64u: existingXClientBaseB64u } : {}),
     thresholdSessionKind: entry.sessionKind,
     thresholdSessionId: sessionId,
-    ...(String(entry.jwt || '').trim() ? { thresholdSessionJwt: String(entry.jwt || '').trim() } : {}),
+    ...(String(entry.jwt || '').trim()
+      ? { thresholdSessionJwt: String(entry.jwt || '').trim() }
+      : {}),
     expiresAtMs,
     remainingUses,
     source: args.source || 'manual-connect',
@@ -260,16 +276,14 @@ export async function resolveEd25519AuthSessionBySessionId(
   }
 
   const rehydratedTtlMs = Math.max(1, Math.floor(record.expiresAtMs - Date.now()));
-  const rehydratedRemainingUses = Math.max(
-    1,
-    normalizePositiveInteger(record.remainingUses) || 1,
-  );
+  const rehydratedRemainingUses = Math.max(1, normalizePositiveInteger(record.remainingUses) || 1);
   try {
     await buildAndCacheEd25519AuthSession({
       nearAccountId: String(record.nearAccountId || '').trim(),
       rpId: String(record.rpId || '').trim(),
       relayerUrl: String(record.relayerUrl || '').trim(),
       relayerKeyId: String(record.relayerKeyId || '').trim(),
+      ...(record.runtimeSnapshotScope ? { runtimeSnapshotScope: record.runtimeSnapshotScope } : {}),
       participantIds: record.participantIds,
       sessionKind: recordSessionKind,
       sessionId: String(record.thresholdSessionId || '').trim(),
@@ -311,14 +325,16 @@ export async function mintEd25519AuthSession(args: {
   relayerUrl: string;
   sessionKind: Ed25519SessionKind;
   relayerKeyId: string;
-  clientVerifyingShareB64u: string;
   sessionPolicy: Ed25519SessionPolicy;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
+  runtimeEnvironmentId?: string;
+  publishableKey?: string;
 }): Promise<{
   ok: boolean;
   sessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   jwt?: string;
   code?: string;
   message?: string;
@@ -348,6 +364,7 @@ export async function mintEd25519AuthSession(args: {
     sessionId: string;
     expiresAt: string;
     remainingUses: number;
+    runtimeSnapshotScope: ThresholdRuntimeSnapshotScope;
     jwt: string;
     code: string;
     message: string;
@@ -355,15 +372,20 @@ export async function mintEd25519AuthSession(args: {
 
   try {
     const url = `${relayerUrl}/threshold-ed25519/session`;
+    const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim() || undefined;
+    const publishableKey = String(args.publishableKey || '').trim() || undefined;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(publishableKey ? { Authorization: `Bearer ${publishableKey}` } : {}),
+      },
       credentials: args.sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,
-        clientVerifyingShareB64u: args.clientVerifyingShareB64u,
         sessionPolicy: args.sessionPolicy,
+        ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
         webauthn_authentication,
       }),
     });
@@ -389,6 +411,7 @@ export async function mintEd25519AuthSession(args: {
       sessionId: data.sessionId,
       expiresAtMs,
       remainingUses: data.remainingUses,
+      ...(data.runtimeSnapshotScope ? { runtimeSnapshotScope: data.runtimeSnapshotScope } : {}),
       jwt: data.jwt,
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),

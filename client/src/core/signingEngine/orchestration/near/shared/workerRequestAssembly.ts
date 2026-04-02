@@ -1,4 +1,4 @@
-import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import type {
   ThresholdSignerConfig,
   WasmSignTransactionsWithActionsRequest,
@@ -6,7 +6,8 @@ import type {
 
 type NearThresholdSignerConfigInput = {
   relayerUrl: string;
-  thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
+  thresholdKeyMaterial: ThresholdEd25519_V1Material;
+  xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionJwt?: string;
 };
@@ -16,15 +17,14 @@ export function buildNearThresholdSignerConfig(
 ): ThresholdSignerConfig {
   const thresholdSessionKind = args.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
   const thresholdSessionJwt =
-    thresholdSessionKind === 'jwt' ? String(args.thresholdSessionJwt || '').trim() || undefined : undefined;
-  const clientVerifyingShareB64u = args.thresholdKeyMaterial.participants.find(
-    (p) => p.role === 'client',
-  )?.verifyingShareB64u;
+    thresholdSessionKind === 'jwt'
+      ? String(args.thresholdSessionJwt || '').trim() || undefined
+      : undefined;
+  const xClientBaseB64u = String(args.xClientBaseB64u || '').trim() || undefined;
   return {
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-    keyVersion: args.thresholdKeyMaterial.keyVersion,
-    ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
+    ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     clientParticipantId: args.thresholdKeyMaterial.participants.find((p) => p.role === 'client')
       ?.id,
     relayerParticipantId: args.thresholdKeyMaterial.participants.find((p) => p.role === 'relayer')
@@ -36,13 +36,9 @@ export function buildNearThresholdSignerConfig(
 }
 
 export function buildNearWorkerSigningEnvelope(args: {
-  prfFirstB64u?: string;
-  wrapKeySalt: string;
   threshold: NearThresholdSignerConfigInput;
-}): Pick<WasmSignTransactionsWithActionsRequest, 'prfFirstB64u' | 'wrapKeySalt' | 'threshold'> {
+}): Pick<WasmSignTransactionsWithActionsRequest, 'threshold'> {
   return {
-    prfFirstB64u: args.prfFirstB64u,
-    wrapKeySalt: args.wrapKeySalt,
     threshold: buildNearThresholdSignerConfig(args.threshold),
   };
 }

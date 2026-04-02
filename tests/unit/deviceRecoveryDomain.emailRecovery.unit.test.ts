@@ -93,16 +93,6 @@ function createLocalDomain(options?: {
         },
         intentDigest: 'threshold:email-recovery:7',
       }),
-      deriveThresholdEd25519BootstrapPackageFromCredential: async () => ({
-        success: true,
-        clientVerifyingShareB64u: 'client-verifying-share',
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-        publicKey: 'ed25519:threshold-public-key',
-        recoveryPublicKey: 'ed25519:recovery-public-key',
-        relayerSigningShareB64u: 'relayer-signing-share',
-        relayerVerifyingShareB64u: 'relayer-verifying-share',
-      }),
       deriveThresholdEcdsaClientVerifyingShareFromCredential: async () => ({
         success: true,
         clientVerifyingShareB64u: 'client-ecdsa-verifying-share',
@@ -185,12 +175,9 @@ test.describe('EmailRecoveryDomain', () => {
           JSON.stringify({
             ok: true,
             thresholdEd25519: {
-              keyVersion: 'option-b-v1',
-              recoveryExportCapable: true,
+              keyVersion: 'threshold-ed25519-hss-v1',
               publicKey: 'ed25519:threshold-public-key',
-              recoveryPublicKey: 'ed25519:recovery-public-key',
               relayerKeyId: 'relayer-key-1',
-              relayerVerifyingShareB64u: 'relayer-share',
               clientParticipantId: 1,
               relayerParticipantId: 2,
               participantIds: [1, 2],
@@ -254,7 +241,10 @@ test.describe('EmailRecoveryDomain', () => {
       expect(storeAuthenticatorCalls).toHaveLength(1);
       expect(thresholdMaterialWrites).toHaveLength(1);
       expect(thresholdMaterialWrites[0]?.publicKey).toBe('ed25519:threshold-public-key');
-      expect(thresholdMaterialWrites[0]?.recoveryPublicKey).toBe('ed25519:recovery-public-key');
+      expect(thresholdMaterialWrites[0]?.relayerKeyId).toBe('relayer-key-1');
+      expect(
+        Object.prototype.hasOwnProperty.call(thresholdMaterialWrites[0] || {}, 'recoveryPublicKey'),
+      ).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
       (IndexedDBManager as any).storeNearThresholdKeyMaterial = originalStoreThreshold;

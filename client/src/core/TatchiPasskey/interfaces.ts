@@ -36,6 +36,10 @@ import type {
   ConfirmationConfig,
   WasmSignedDelegate,
 } from '../types/signer-worker';
+import type {
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+} from '../signingEngine/signers/wasm/nearSignerHssWasm';
 import type { AccountId } from '../types/accountIds';
 import type { ActionArgs, TransactionInput } from '../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../types/delegate';
@@ -169,10 +173,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 };
 
 export interface AuthCapability {
-  unlock(
-    nearAccountId: string,
-    options?: LoginHooksOptions,
-  ): Promise<LoginAndCreateSessionResult>;
+  unlock(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
   getWalletSession(nearAccountId?: string): Promise<WalletSession>;
   getRecentUnlocks(): Promise<GetRecentUnlocksResult>;
@@ -320,6 +321,10 @@ export interface RecoveryCapability {
 }
 
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
+export type ThresholdEd25519SeedExportUiOptions = {
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+};
 
 export interface KeyExportCapability {
   exportKeypairWithUI(
@@ -330,6 +335,13 @@ export interface KeyExportCapability {
       theme?: 'dark' | 'light';
     },
   ): Promise<void>;
+  exportThresholdEd25519SeedFromHssReport(args: {
+    nearAccountId: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+    expectedPublicKey: string;
+    options: ThresholdEd25519SeedExportUiOptions;
+  }): Promise<void>;
 }
 
 export interface PreferencesCapability {

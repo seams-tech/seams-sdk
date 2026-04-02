@@ -11,8 +11,6 @@ import type { PasskeyManagerContext } from '../index';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
-import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
-import { IndexedDBManager } from '../../indexedDB';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
@@ -20,10 +18,12 @@ import { isObject } from '@shared/utils/validation';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import {
-  buildThresholdWarmSessionBootstrapPayload,
-  DUAL_KEY_ED25519_KEY_VERSION_V1,
+  buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
+  requireThresholdEd25519WarmSessionKeyVersion,
+  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  storeThresholdEd25519KeyMaterial,
 } from '../thresholdWarmSessionBootstrap';
 
 /**
@@ -258,10 +258,15 @@ export class EmailRecoveryDomain {
         return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
       })();
 
-      const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context);
-      if (!thresholdWarmPolicyDraft) {
+      const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(context);
+      if (!thresholdWarmPolicy) {
         throw new Error('Threshold warm-session defaults are disabled for email recovery');
       }
+      const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
+        nearAccountId: String(nearAccountId),
+        rpId,
+        requestedPolicy: thresholdWarmPolicy,
+      });
       const derivedEcdsa =
         await context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
           credential,
@@ -272,20 +277,6 @@ export class EmailRecoveryDomain {
           derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
         );
       }
-
-      const derived =
-        await context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
-          credential,
-          nearAccountId,
-          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
-        });
-      if (!derived.success) {
-        throw new Error(derived.error || 'Failed to derive Ed25519 Option B bootstrap package');
-      }
-      if (!derived.clientVerifyingShareB64u) {
-        throw new Error('Failed to derive Ed25519 Option B bootstrap package');
-      }
-
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
       );
@@ -296,18 +287,7 @@ export class EmailRecoveryDomain {
           account_id: String(nearAccountId),
           request_id: requestId,
           device_number: deviceNumber,
-          threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
-            clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-            keyVersion: derived.keyVersion,
-            recoveryExportCapable: derived.recoveryExportCapable,
-            publicKey: derived.publicKey,
-            recoveryPublicKey: derived.recoveryPublicKey,
-            relayerSigningShareB64u: derived.relayerSigningShareB64u,
-            relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
-            nearAccountId: String(nearAccountId),
-            rpId,
-            policy: thresholdWarmPolicyDraft,
-          }),
+          threshold_ed25519: thresholdWarmSessionRequest,
           threshold_ecdsa: {
             client_verifying_share_b64u: derivedEcdsa.clientVerifyingShareB64u,
           },
@@ -331,21 +311,24 @@ export class EmailRecoveryDomain {
       const thresholdSection = isObject(prepareObj.thresholdEd25519)
         ? prepareObj.thresholdEd25519
         : {};
-      const thresholdEcdsaSection = isObject(prepareObj.thresholdEcdsa) ? prepareObj.thresholdEcdsa : {};
-      const recoverySessionSection = isObject(prepareObj.recoverySession) ? prepareObj.recoverySession : {};
-      const recoveryEmailSection = isObject(prepareObj.recoveryEmail) ? prepareObj.recoveryEmail : {};
+      const thresholdEcdsaSection = isObject(prepareObj.thresholdEcdsa)
+        ? prepareObj.thresholdEcdsa
+        : {};
+      const recoverySessionSection = isObject(prepareObj.recoverySession)
+        ? prepareObj.recoverySession
+        : {};
+      const recoveryEmailSection = isObject(prepareObj.recoveryEmail)
+        ? prepareObj.recoveryEmail
+        : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
-      const relayerVerifyingShareB64u = String(
-        thresholdSection.relayerVerifyingShareB64u || '',
-      ).trim();
       const newEvmOwnerAddress = String(thresholdEcdsaSection.ethereumAddress || '').trim();
       const recoverySessionId = String(recoverySessionSection.sessionId || requestId).trim();
       const recoveryDeadlineEpochSeconds = Number(recoveryEmailSection.deadlineEpochSeconds);
       const recoveryEmailPayloadHash = String(recoveryEmailSection.payloadHash || '').trim();
       const recoveryEmailSubject = String(recoveryEmailSection.subject || '').trim();
       const recoveryEmailBody = String(recoveryEmailSection.body || '').trim();
-      if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
+      if (!thresholdPublicKey || !relayerKeyId) {
         throw new Error('email-recovery/prepare returned incomplete threshold key material');
       }
       if (
@@ -397,43 +380,23 @@ export class EmailRecoveryDomain {
         deviceNumber,
       });
 
-      const thresholdKeyVersion = String(thresholdSection.keyVersion || '').trim();
-      const thresholdRecoveryExportCapable =
-        typeof thresholdSection.recoveryExportCapable === 'boolean'
-          ? Boolean(thresholdSection.recoveryExportCapable)
-          : undefined;
-      const thresholdRecoveryPublicKey = String(thresholdSection.recoveryPublicKey || '').trim();
-      if (
-        thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
-        thresholdRecoveryExportCapable !== true ||
-        !thresholdRecoveryPublicKey
-      ) {
-        throw new Error('email-recovery bootstrap returned incomplete Option B recovery metadata');
-      }
-      await IndexedDBManager.storeNearThresholdKeyMaterial({
+      const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+        thresholdSection,
+        'email-recovery bootstrap',
+      );
+      await storeThresholdEd25519KeyMaterial({
         nearAccountId,
         deviceNumber,
         publicKey: thresholdPublicKey,
         relayerKeyId,
-        recoveryPublicKey: thresholdRecoveryPublicKey,
-        artifactKind: 'near-ed25519-option-b-v1',
         keyVersion: thresholdKeyVersion,
-        recoveryExportCapable: true,
-        clientShareDerivation: 'prf_first_v1',
-        clientExportShareDerivation: 'prf_first_v1',
-        participants: buildThresholdEd25519Participants2pV1({
-          clientParticipantId: Number.isFinite(clientParticipantId)
-            ? Math.floor(clientParticipantId)
-            : null,
-          relayerParticipantId: Number.isFinite(relayerParticipantId)
-            ? Math.floor(relayerParticipantId)
-            : null,
-          relayerKeyId,
-          relayerUrl,
-          clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-          relayerVerifyingShareB64u,
-          clientShareDerivation: 'prf_first_v1',
-        }),
+        clientParticipantId: Number.isFinite(clientParticipantId)
+          ? Math.floor(clientParticipantId)
+          : null,
+        relayerParticipantId: Number.isFinite(relayerParticipantId)
+          ? Math.floor(relayerParticipantId)
+          : null,
+        relayerUrl,
         timestamp: Date.now(),
       });
       await hydrateThresholdWarmSessionFromRelay({
@@ -443,12 +406,24 @@ export class EmailRecoveryDomain {
         rpId,
         relayerKeyId,
         credential,
-        requestedPolicy: thresholdWarmPolicyDraft,
+        requestedPolicy: thresholdWarmPolicy,
         session: thresholdSession,
         participantIdsHint: Array.isArray(thresholdSection.participantIds)
           ? thresholdSection.participantIds
           : undefined,
         setActiveSigningSessionId: true,
+      });
+      await reconstructThresholdEd25519ClientBaseFromWarmSession({
+        context,
+        credential,
+        nearAccountId,
+        relayerUrl,
+        relayerKeyId,
+        session: thresholdSession,
+        keyVersion: thresholdKeyVersion,
+        participantIdsHint: Array.isArray(thresholdSection.participantIds)
+          ? thresholdSection.participantIds
+          : undefined,
       });
 
       this.pendingEmailRecovery = {

@@ -2,7 +2,7 @@
  * Threshold Ed25519 (2-party) — delegate action signing (NEP-461).
  *
  * Validates that the relayer-assisted 2-round signing flow produces a signature that verifies under
- * the threshold group public key (and not the local key).
+ * the threshold public key and not under an unrelated Ed25519 key.
  */
 
 import { test, expect } from '@playwright/test';
@@ -14,9 +14,9 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_delegate_signing_digest } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -47,16 +47,12 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 
@@ -71,7 +67,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             ok: true;
             accountId: string;
             operationalPublicKey: string;
-            recoveryPublicKey: string;
             signingPayload: unknown;
             signature: number[];
           }
@@ -82,7 +77,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -120,13 +114,8 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
 
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
-            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
-              accountId,
-              1,
-            );
 
             const operationalPublicKey = String(reg.operationalPublicKey || '');
-            const recoveryPublicKey = String(thresholdKeyMaterial?.recoveryPublicKey || '');
 
             const actions = [{ type: ActionType.Transfer, amount: '1' }];
             const wasmActions = actions.map(toActionArgsWasm);
@@ -170,7 +159,6 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
               ok: true,
               accountId,
               operationalPublicKey,
-              recoveryPublicKey,
               signingPayload: {
                 kind: 'nep461_delegate',
                 delegate: {
@@ -199,6 +187,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
         const raw = pk.includes(':') ? pk.split(':')[1] : pk;
         return bs58.decode(raw);
       };
+      const wrongPublicKey = `ed25519:${bs58.encode(ed25519.getPublicKey(new Uint8Array(32).fill(41)))}`;
 
       const digestUnknown: unknown = threshold_ed25519_compute_delegate_signing_digest(
         result.signingPayload,
@@ -214,9 +203,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
       expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.operationalPublicKey)))).toBe(
         true,
       );
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.recoveryPublicKey)))).toBe(
-        false,
-      );
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(wrongPublicKey))).toBe(false);
     } finally {
       await srv.close().catch(() => undefined);
     }

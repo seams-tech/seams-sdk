@@ -1,4 +1,4 @@
-import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
@@ -11,7 +11,6 @@ import {
   getLastLoggedInDeviceNumber,
   parseDeviceNumber,
 } from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
-import { assertThresholdSigningAvailable } from '@/core/signingEngine/threshold/session/ed25519RelayerHealth';
 
 export const PRF_MISSING_ERROR =
   'Missing PRF.first output from credential (requires a PRF-enabled passkey)';
@@ -39,8 +38,7 @@ export function requirePrfFirstFromCredential(
 export type ResolvedNearSigningMaterials = {
   nearAccountId: AccountId;
   resolvedDeviceNumber: number;
-  thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
-  thresholdWrapKeySalt: string;
+  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
   warnings: string[];
 };
 
@@ -68,24 +66,13 @@ export async function resolveNearSigningMaterials(args: {
     resolvedDeviceNumber,
   );
   if (!thresholdKeyMaterial) {
-    throw new Error(
-      '[SigningEngine] threshold key material is unavailable',
-    );
-  }
-
-  await assertThresholdSigningAvailable({
-    relayerUrl,
-  });
-  const thresholdWrapKeySalt = String(thresholdKeyMaterial?.wrapKeySalt || '').trim();
-  if (!thresholdWrapKeySalt) {
-    throw new Error(`Missing threshold wrapKeySalt for account: ${nearAccountId}`);
+    throw new Error('[SigningEngine] threshold key material is unavailable');
   }
 
   return {
     nearAccountId,
     resolvedDeviceNumber,
     thresholdKeyMaterial,
-    thresholdWrapKeySalt,
     warnings,
   };
 }

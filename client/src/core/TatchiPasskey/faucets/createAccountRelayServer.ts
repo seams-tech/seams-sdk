@@ -18,12 +18,20 @@ import type {
   CreateAccountAndRegisterResult,
   CreateAccountAndRegisterSmartAccountDeployment,
   CreateAccountAndRegisterSmartAccountTarget,
-  ThresholdEd25519BootstrapRecoveryShareResponse,
+  ThresholdEd25519HssCanonicalContext,
+  ThresholdEd25519HssClientRequestEnvelope,
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPrepareForRegistrationResponse,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssServerMessageEnvelope,
+  ThresholdEd25519HssEvaluationResultEnvelope,
+  ThresholdEd25519HssFinalizeForRegistrationResponse,
 } from '@server/core/types';
 import type {
   EcdsaSessionPolicy,
   Ed25519SessionPolicy,
 } from '../../signingEngine/threshold/session/sessionPolicy';
+import type { ThresholdRuntimeSnapshotScope } from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
@@ -113,12 +121,60 @@ export class RelayRegistrationError extends Error {
   }
 }
 
+const REGISTRATION_NETWORK_TIMEOUT_MS = 30_000;
+
+function createRegistrationTimeoutError(args: {
+  operation: string;
+  url: string;
+  timeoutMs: number;
+}): Error {
+  const url = String(args.url || '').trim();
+  const suffix = url ? ` (${url})` : '';
+  return new Error(`${args.operation} timed out after ${args.timeoutMs}ms${suffix}`);
+}
+
+async function fetchWithRegistrationTimeout(args: {
+  url: string;
+  init: RequestInit;
+  operation: string;
+  timeoutMs?: number;
+}): Promise<Response> {
+  const timeoutMs = Math.max(
+    1_000,
+    Math.floor(Number(args.timeoutMs ?? REGISTRATION_NETWORK_TIMEOUT_MS) || 0),
+  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(args.url, {
+      ...args.init,
+      signal: controller.signal,
+    });
+  } catch (error: unknown) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof DOMException && error.name === 'AbortError')
+    ) {
+      throw createRegistrationTimeoutError({
+        operation: args.operation,
+        url: args.url,
+        timeoutMs,
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function isRelayRegistrationError(error: unknown): error is RelayRegistrationError {
   return error instanceof RelayRegistrationError;
 }
 
 function joinUrlPath(baseUrl: string, path: string): string {
-  const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+  const base = String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
   const suffix = String(path || '').trim();
   if (!base) return '';
   if (!suffix) return base;
@@ -158,7 +214,9 @@ type ResolvedRegistrationTransport =
       paymentMode?: string;
     };
 
-function resolveRegistrationTransport(context: PasskeyManagerContext): ResolvedRegistrationTransport {
+function resolveRegistrationTransport(
+  context: PasskeyManagerContext,
+): ResolvedRegistrationTransport {
   const configs = context.configs as PasskeyManagerContext['configs'] & {
     registration?: unknown;
   };
@@ -173,9 +231,12 @@ function resolveRegistrationTransport(context: PasskeyManagerContext): ResolvedR
       const publishableKey = String(
         (registration as { publishableKey?: unknown }).publishableKey || '',
       ).trim();
-      const paymentMode = String((registration as { paymentMode?: unknown }).paymentMode || '').trim();
+      const paymentMode = String(
+        (registration as { paymentMode?: unknown }).paymentMode || '',
+      ).trim();
       if (!relayerUrl) throw new Error('Managed registration requires relayer.url');
-      if (!environmentId) throw new Error('Managed registration requires registration.environmentId');
+      if (!environmentId)
+        throw new Error('Managed registration requires registration.environmentId');
       if (!publishableKey) {
         throw new Error('Managed registration requires registration.publishableKey');
       }
@@ -220,6 +281,91 @@ function buildManagedClientContext(): { sdk: string; userAgentHint?: string } {
   };
 }
 
+type ManagedRegistrationBootstrapGrant = {
+  token: string;
+  expiresAt: string;
+  runtimeSnapshotScope: ThresholdRuntimeSnapshotScope;
+  origin?: string;
+  mode?: string;
+};
+
+async function requestManagedRegistrationBootstrapGrant(args: {
+  relayerUrl: string;
+  publishableKey: string;
+  environmentId: string;
+  nearAccountId: string;
+  rpId: string;
+  requestHashSha256: string;
+  path?: string;
+}): Promise<ManagedRegistrationBootstrapGrant> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const bootstrapGrantUrl = joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants');
+  const brokerResponse = await fetchWithRegistrationTimeout({
+    url: bootstrapGrantUrl,
+    operation: 'Managed registration bootstrap grant',
+    init: {
+      method: 'POST',
+      headers: {
+        ...headers,
+        Authorization: `Bearer ${args.publishableKey}`,
+      },
+      body: JSON.stringify({
+        environmentId: args.environmentId,
+        newAccountId: args.nearAccountId,
+        rpId: args.rpId,
+        requestHashSha256: args.requestHashSha256,
+        ...(String(args.path || '').trim() ? { path: String(args.path || '').trim() } : {}),
+        clientContext: buildManagedClientContext(),
+      }),
+    },
+  });
+  const brokerResult = await readJsonObject(brokerResponse);
+  const brokerCode = String(brokerResult.code || '').trim();
+  const brokerMessage =
+    String(brokerResult.message || '').trim() ||
+    `HTTP ${brokerResponse.status}: ${brokerResponse.statusText}`;
+  if (!brokerResponse.ok || brokerResult.ok === false) {
+    if (isRegistrationErrorCode(brokerCode)) {
+      throw new RelayRegistrationError({
+        code: brokerCode,
+        status: brokerResponse.status,
+        message: brokerMessage,
+      });
+    }
+    throw new Error(brokerMessage || 'Managed bootstrap grant failed');
+  }
+
+  const grant = isObject(brokerResult.grant)
+    ? (brokerResult.grant as Record<string, unknown>)
+    : null;
+  const token = String((grant?.token as string) || '').trim();
+  const orgId = String((grant?.orgId as string) || '').trim();
+  const environmentId = String((grant?.environmentId as string) || '').trim();
+  const projectId = String((grant?.projectId as string) || '').trim();
+  if (!token) {
+    throw new Error('Managed bootstrap grant response did not include a bootstrap token');
+  }
+  if (!orgId || !environmentId) {
+    throw new Error('Managed bootstrap grant response did not include canonical runtime scope');
+  }
+
+  return {
+    token,
+    expiresAt: String((grant?.expiresAt as string) || '').trim(),
+    runtimeSnapshotScope: {
+      orgId,
+      environmentId,
+      ...(projectId ? { projectId } : {}),
+    },
+    ...(String((grant?.origin as string) || '').trim()
+      ? { origin: String((grant?.origin as string) || '').trim() }
+      : {}),
+    ...(String((grant?.mode as string) || '').trim()
+      ? { mode: String((grant?.mode as string) || '').trim() }
+      : {}),
+  };
+}
+
 async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (!text) return {};
@@ -231,75 +377,248 @@ async function readJsonObject(response: Response): Promise<Record<string, unknow
   }
 }
 
-export async function prepareThresholdEd25519BootstrapRecoveryShareWithRelayServer(
-  context: PasskeyManagerContext,
-  nearAccountId: string,
-  rpId: string,
-  keyVersion: string,
-): Promise<{ recoveryServerShareB64u: string; keyVersion: string }> {
+async function issueManagedRegistrationBootstrapTokenForRequest(args: {
+  registrationTransport: Extract<ResolvedRegistrationTransport, { mode: 'managed' }>;
+  nearAccountId: string;
+  rpId: string;
+  path: string;
+  requestBody: unknown;
+}): Promise<string> {
+  const requestHashStartedAt = performance.now();
+  const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(args.requestBody);
+  console.debug('[Registration] bootstrap request hash computed', {
+    path: args.path,
+    durationMs: Math.round(performance.now() - requestHashStartedAt),
+  });
+  const grantStartedAt = performance.now();
+  const grant = await requestManagedRegistrationBootstrapGrant({
+    relayerUrl: args.registrationTransport.relayerUrl,
+    publishableKey: args.registrationTransport.publishableKey,
+    environmentId: args.registrationTransport.environmentId,
+    nearAccountId: args.nearAccountId,
+    rpId: args.rpId,
+    requestHashSha256,
+    path: args.path,
+  });
+  console.debug('[Registration] bootstrap grant issued', {
+    path: args.path,
+    durationMs: Math.round(performance.now() - grantStartedAt),
+  });
+  return grant.token;
+}
+
+export async function resolveManagedRegistrationRuntimeScope(args: {
+  context: PasskeyManagerContext;
+  nearAccountId: string;
+  rpId: string;
+  credential: WebAuthnRegistrationCredential | PublicKeyCredential;
+  authenticatorOptions?: AuthenticatorOptions;
+}): Promise<ThresholdRuntimeSnapshotScope> {
+  const registrationTransport = resolveRegistrationTransport(args.context);
+  if (registrationTransport.mode !== 'managed') {
+    throw new Error(
+      'Threshold Ed25519 Option A registration currently requires managed registration transport',
+    );
+  }
+
+  const isSerialized = isSerializedRegistrationCredential(args.credential);
+  const serialized: WebAuthnRegistrationCredential = isSerialized
+    ? normalizeRegistrationCredential(args.credential)
+    : serializeRegistrationCredential(args.credential as PublicKeyCredential);
+  const serializedCredential =
+    redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(serialized);
+  if (!Array.isArray(serializedCredential?.response?.transports)) {
+    serializedCredential.response.transports = [];
+  }
+
+  const requestBody = {
+    new_account_id: String(args.nearAccountId || '').trim(),
+    device_number: 1,
+    rp_id: String(args.rpId || '').trim(),
+    webauthn_registration: serializedCredential,
+    authenticator_options: cloneAuthenticatorOptions(
+      args.authenticatorOptions ?? args.context.configs.webauthn.authenticatorOptions,
+    ),
+  } satisfies Pick<
+    CreateAccountAndRegisterUserRequest,
+    'new_account_id' | 'device_number' | 'rp_id' | 'webauthn_registration' | 'authenticator_options'
+  >;
+
+  const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestBody);
+  const grant = await requestManagedRegistrationBootstrapGrant({
+    relayerUrl: registrationTransport.relayerUrl,
+    publishableKey: registrationTransport.publishableKey,
+    environmentId: registrationTransport.environmentId,
+    nearAccountId: requestBody.new_account_id,
+    rpId: requestBody.rp_id,
+    requestHashSha256,
+    path: '/registration/bootstrap',
+  });
+  return grant.runtimeSnapshotScope;
+}
+
+export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
+  context: PasskeyManagerContext;
+  nearAccountId: string;
+  rpId: string;
+  hssContext: ThresholdEd25519HssCanonicalContext;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}): Promise<ThresholdEd25519HssServerMessageEnvelope> {
+  const registrationTransport = resolveRegistrationTransport(args.context);
+  const requestBody = {
+    new_account_id: String(args.nearAccountId || '').trim(),
+    rp_id: String(args.rpId || '').trim(),
+    context: args.hssContext,
+    preparedSession: args.preparedSession,
+    clientRequest: args.clientRequest,
+  };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const registrationTransport = resolveRegistrationTransport(context);
   let response: Response;
-  let result: ThresholdEd25519BootstrapRecoveryShareResponse;
 
   if (registrationTransport.mode === 'managed') {
-    response = await fetch(
-      joinUrlPath(registrationTransport.relayerUrl, '/v1/registration/recovery-share'),
-      {
+    const token = await issueManagedRegistrationBootstrapTokenForRequest({
+      registrationTransport,
+      nearAccountId: requestBody.new_account_id,
+      rpId: requestBody.rp_id,
+      path: '/registration/threshold-ed25519/hss/prepare',
+      requestBody,
+    });
+    const prepareUrl = joinUrlPath(
+      registrationTransport.relayerUrl,
+      '/registration/threshold-ed25519/hss/prepare',
+    );
+    response = await fetchWithRegistrationTimeout({
+      url: prepareUrl,
+      operation: 'Threshold Ed25519 HSS registration prepare',
+      init: {
         method: 'POST',
         headers: {
           ...headers,
-          Authorization: `Bearer ${registrationTransport.publishableKey}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          nearAccountId,
-          rpId,
-          keyVersion,
-          environmentId: registrationTransport.environmentId,
-        }),
+        body: JSON.stringify(requestBody),
       },
-    );
+    });
   } else {
-    if (!registrationTransport.recoveryShareUrl) {
-      throw new Error('Registration recovery share URL is required for passkey registration');
-    }
-    response = await fetch(registrationTransport.recoveryShareUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        nearAccountId,
-        rpId,
-        keyVersion,
-      }),
+    const prepareUrl =
+      replaceUrlPathSuffix(
+        registrationTransport.bootstrapUrl,
+        '/registration/bootstrap',
+        '/registration/threshold-ed25519/hss/prepare',
+      ) ||
+      joinUrlPath(
+        registrationTransport.bootstrapUrl,
+        '/registration/threshold-ed25519/hss/prepare',
+      );
+    response = await fetchWithRegistrationTimeout({
+      url: prepareUrl,
+      operation: 'Threshold Ed25519 HSS registration prepare',
+      init: {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      },
     });
   }
 
-  result = (await readJsonObject(response)) as unknown as ThresholdEd25519BootstrapRecoveryShareResponse;
-
-  const responseCode = String(result.code || '').trim();
-  const responseMessage =
-    String(result.message || '').trim() || `HTTP ${response.status}: ${response.statusText}`;
-  if (!response.ok || result.ok === false) {
-    if (isRegistrationErrorCode(responseCode)) {
-      throw new RelayRegistrationError({
-        code: responseCode,
-        status: response.status,
-        message: responseMessage,
-      });
-    }
-    throw new Error(responseMessage || 'Threshold Ed25519 recovery-share preparation failed');
+  const result = (await readJsonObject(
+    response,
+  )) as unknown as ThresholdEd25519HssPrepareForRegistrationResponse;
+  if (!response.ok || result.ok !== true || !result.serverMessage) {
+    const failure = result as Extract<
+      ThresholdEd25519HssPrepareForRegistrationResponse,
+      { ok: false }
+    >;
+    throw new Error(String(failure.message || failure.code || `HTTP ${response.status}`).trim());
   }
+  return result.serverMessage;
+}
 
-  const recoveryServerShareB64u = String(result.recoveryServerShareB64u || '').trim();
-  if (!recoveryServerShareB64u) {
-    throw new Error(
-      'Threshold Ed25519 recovery-share preparation did not return recoveryServerShareB64u',
+export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
+  context: PasskeyManagerContext;
+  nearAccountId: string;
+  rpId: string;
+  hssContext: ThresholdEd25519HssCanonicalContext;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
+}): Promise<ThresholdEd25519RegistrationHssFinalizeResult> {
+  const finalizeStartedAt = performance.now();
+  const registrationTransport = resolveRegistrationTransport(args.context);
+  const requestBody = {
+    new_account_id: String(args.nearAccountId || '').trim(),
+    rp_id: String(args.rpId || '').trim(),
+    context: args.hssContext,
+    preparedSession: args.preparedSession,
+    evaluationResult: args.evaluationResult,
+  };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  let response: Response;
+
+  if (registrationTransport.mode === 'managed') {
+    const token = await issueManagedRegistrationBootstrapTokenForRequest({
+      registrationTransport,
+      nearAccountId: requestBody.new_account_id,
+      rpId: requestBody.rp_id,
+      path: '/registration/threshold-ed25519/hss/finalize',
+      requestBody,
+    });
+    const finalizeUrl = joinUrlPath(
+      registrationTransport.relayerUrl,
+      '/registration/threshold-ed25519/hss/finalize',
     );
+    response = await fetchWithRegistrationTimeout({
+      url: finalizeUrl,
+      operation: 'Threshold Ed25519 HSS registration finalize',
+      init: {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      },
+    });
+  } else {
+    const finalizeUrl =
+      replaceUrlPathSuffix(
+        registrationTransport.bootstrapUrl,
+        '/registration/bootstrap',
+        '/registration/threshold-ed25519/hss/finalize',
+      ) ||
+      joinUrlPath(
+        registrationTransport.bootstrapUrl,
+        '/registration/threshold-ed25519/hss/finalize',
+      );
+    response = await fetchWithRegistrationTimeout({
+      url: finalizeUrl,
+      operation: 'Threshold Ed25519 HSS registration finalize',
+      init: {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      },
+    });
   }
 
+  const result = (await readJsonObject(
+    response,
+  )) as unknown as ThresholdEd25519HssFinalizeForRegistrationResponse;
+  console.debug('[Registration] threshold-ed25519 HSS finalize response received', {
+    durationMs: Math.round(performance.now() - finalizeStartedAt),
+    status: response.status,
+  });
+  if (!response.ok || result.ok !== true || !result.finalizedReport) {
+    const failure = result as Extract<
+      ThresholdEd25519HssFinalizeForRegistrationResponse,
+      { ok: false }
+    >;
+    throw new Error(String(failure.message || failure.code || `HTTP ${response.status}`).trim());
+  }
   return {
-    recoveryServerShareB64u,
-    keyVersion: String(result.keyVersion || '').trim() || keyVersion,
+    finalizedReport: result.finalizedReport,
+    publicKey: String(result.publicKey || '').trim(),
+    relayerKeyId: String(result.relayerKeyId || '').trim(),
   };
 }
 
@@ -313,6 +632,94 @@ type ThresholdEcdsaRegistrationSessionPolicy = Omit<EcdsaSessionPolicy, 'relayer
   relayerKeyId?: string;
 };
 
+export interface CreateAccountAndRegisterThresholdEd25519Input {
+  keyVersion: string;
+  recoveryExportCapable: true;
+  publicKey: string;
+  relayerKeyId: string;
+  sessionPolicy: ThresholdEd25519RegistrationSessionPolicy;
+  sessionKind: 'jwt' | 'cookie';
+}
+
+export type CreateAccountAndRegisterThresholdEd25519Response = {
+  keyVersion: string;
+  recoveryExportCapable: true;
+  publicKey: string;
+  relayerKeyId: string;
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  participantIds?: number[];
+  session?: {
+    sessionKind: 'jwt' | 'cookie';
+    sessionId: string;
+    expiresAtMs: number;
+    expiresAt?: string;
+    participantIds?: number[];
+    remainingUses?: number;
+    runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+    jwt?: string;
+  };
+};
+
+export type ThresholdEd25519RegistrationHssFinalizeResult = {
+  finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+  publicKey: string;
+  relayerKeyId: string;
+};
+
+function buildThresholdEd25519RegistrationRequest(
+  input?: CreateAccountAndRegisterThresholdEd25519Input,
+): CreateAccountAndRegisterUserRequest['threshold_ed25519'] | undefined {
+  const thresholdEd25519 = input;
+  if (!thresholdEd25519?.relayerKeyId) return undefined;
+  return {
+    key_version: thresholdEd25519.keyVersion,
+    recovery_export_capable: thresholdEd25519.recoveryExportCapable,
+    public_key: thresholdEd25519.publicKey,
+    relayer_key_id: thresholdEd25519.relayerKeyId,
+    session_policy: thresholdEd25519.sessionPolicy,
+    session_kind: thresholdEd25519.sessionKind,
+  };
+}
+
+function normalizeThresholdEd25519RegistrationResult(
+  thresholdEd25519: CreateAccountAndRegisterResult['thresholdEd25519'],
+): CreateAccountAndRegisterThresholdEd25519Response | undefined {
+  if (!thresholdEd25519) return undefined;
+  const keyVersion = String(thresholdEd25519.keyVersion || '').trim();
+  const publicKey = String(thresholdEd25519.publicKey || '').trim();
+  const relayerKeyId = String(thresholdEd25519.relayerKeyId || '').trim();
+  if (
+    !keyVersion ||
+    thresholdEd25519.recoveryExportCapable !== true ||
+    !publicKey ||
+    !relayerKeyId
+  ) {
+    throw new Error('Atomic registration returned incomplete threshold-ed25519 key material');
+  }
+  return {
+    keyVersion,
+    recoveryExportCapable: true,
+    publicKey,
+    relayerKeyId,
+    clientParticipantId: thresholdEd25519.clientParticipantId,
+    relayerParticipantId: thresholdEd25519.relayerParticipantId,
+    participantIds: thresholdEd25519.participantIds,
+    session: thresholdEd25519.session
+      ? {
+          sessionKind: thresholdEd25519.session.sessionKind,
+          sessionId: thresholdEd25519.session.sessionId,
+          expiresAtMs: thresholdEd25519.session.expiresAtMs,
+          expiresAt: thresholdEd25519.session.expiresAt,
+          participantIds: thresholdEd25519.session.participantIds,
+          remainingUses: thresholdEd25519.session.remainingUses,
+          runtimeSnapshotScope: thresholdEd25519.session.runtimeSnapshotScope,
+          jwt: thresholdEd25519.session.jwt,
+        }
+      : undefined,
+  };
+}
+
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
   device_number: number;
@@ -320,10 +727,7 @@ export interface CreateAccountAndRegisterUserRequest {
     key_version: string;
     recovery_export_capable: boolean;
     public_key: string;
-    recovery_public_key: string;
-    client_verifying_share_b64u: string;
-    relayer_signing_share_b64u: string;
-    relayer_verifying_share_b64u: string;
+    relayer_key_id: string;
     session_policy: ThresholdEd25519RegistrationSessionPolicy;
     session_kind: 'jwt' | 'cookie';
   };
@@ -350,17 +754,7 @@ export async function createAccountAndRegisterWithRelayServer(
   authenticatorOptions?: AuthenticatorOptions,
   onEvent?: (event: RegistrationSSEEvent) => void,
   opts?: {
-    thresholdEd25519?: {
-      keyVersion: string;
-      recoveryExportCapable: true;
-      publicKey: string;
-      recoveryPublicKey: string;
-      clientVerifyingShareB64u: string;
-      relayerSigningShareB64u: string;
-      relayerVerifyingShareB64u: string;
-      sessionPolicy: ThresholdEd25519RegistrationSessionPolicy;
-      sessionKind: 'jwt' | 'cookie';
-    };
+    thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Input;
     thresholdEcdsa?: {
       clientVerifyingShareB64u: string;
       sessionPolicy: ThresholdEcdsaRegistrationSessionPolicy;
@@ -371,26 +765,7 @@ export async function createAccountAndRegisterWithRelayServer(
 ): Promise<{
   success: boolean;
   transactionId?: string;
-  thresholdEd25519?: {
-    keyVersion: string;
-    recoveryExportCapable: true;
-    publicKey: string;
-    recoveryPublicKey: string;
-    relayerKeyId: string;
-    relayerVerifyingShareB64u: string;
-    clientParticipantId?: number;
-    relayerParticipantId?: number;
-    participantIds?: number[];
-    session?: {
-      sessionKind: 'jwt' | 'cookie';
-      sessionId: string;
-      expiresAtMs: number;
-      expiresAt?: string;
-      participantIds?: number[];
-      remainingUses?: number;
-      jwt?: string;
-    };
-  };
+  thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Response;
   thresholdEcdsa?: {
     relayerKeyId: string;
     groupPublicKeyB64u: string;
@@ -404,6 +779,7 @@ export async function createAccountAndRegisterWithRelayServer(
       expiresAt?: string;
       participantIds?: number[];
       remainingUses?: number;
+      runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
       jwt?: string;
     };
   };
@@ -442,24 +818,14 @@ export async function createAccountAndRegisterWithRelayServer(
       serializedCredential.response.transports = [];
     }
 
+    const thresholdEd25519Request = buildThresholdEd25519RegistrationRequest(
+      opts?.thresholdEd25519,
+    );
+
     const requestData: CreateAccountAndRegisterUserRequest = {
       new_account_id: nearAccountId,
       device_number: 1, // First device gets device number 1 (1-indexed)
-      ...(opts?.thresholdEd25519?.clientVerifyingShareB64u
-        ? {
-            threshold_ed25519: {
-              key_version: opts.thresholdEd25519.keyVersion,
-              recovery_export_capable: opts.thresholdEd25519.recoveryExportCapable,
-              public_key: opts.thresholdEd25519.publicKey,
-              recovery_public_key: opts.thresholdEd25519.recoveryPublicKey,
-              client_verifying_share_b64u: opts.thresholdEd25519.clientVerifyingShareB64u,
-              relayer_signing_share_b64u: opts.thresholdEd25519.relayerSigningShareB64u,
-              relayer_verifying_share_b64u: opts.thresholdEd25519.relayerVerifyingShareB64u,
-              session_policy: opts.thresholdEd25519.sessionPolicy,
-              session_kind: opts.thresholdEd25519.sessionKind,
-            },
-          }
-        : {}),
+      ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
       ...(opts?.thresholdEcdsa?.clientVerifyingShareB64u
         ? {
             threshold_ecdsa: {
@@ -494,66 +860,46 @@ export async function createAccountAndRegisterWithRelayServer(
 
     if (registrationTransport.mode === 'managed') {
       const requestHashSha256 = await computeRegistrationBootstrapRequestHashSha256(requestData);
-      const bootstrapGrantUrl = joinUrlPath(
-        registrationTransport.relayerUrl,
-        '/v1/registration/bootstrap-grants',
-      );
-      const brokerResponse = await fetch(bootstrapGrantUrl, {
-        method: 'POST',
-        headers: {
-          ...headers,
-          Authorization: `Bearer ${registrationTransport.publishableKey}`,
-        },
-        body: JSON.stringify({
-          environmentId: registrationTransport.environmentId,
-          newAccountId: nearAccountId,
-          rpId: requestData.rp_id,
-          requestHashSha256,
-          clientContext: buildManagedClientContext(),
-        }),
+      const managedGrant = await requestManagedRegistrationBootstrapGrant({
+        relayerUrl: registrationTransport.relayerUrl,
+        publishableKey: registrationTransport.publishableKey,
+        environmentId: registrationTransport.environmentId,
+        nearAccountId,
+        rpId: requestData.rp_id,
+        requestHashSha256,
       });
-      const brokerResult = await readJsonObject(brokerResponse);
-      const brokerCode = String(brokerResult.code || '').trim();
-      const brokerMessage =
-        String(brokerResult.message || '').trim() ||
-        `HTTP ${brokerResponse.status}: ${brokerResponse.statusText}`;
-      if (!brokerResponse.ok || brokerResult.ok === false) {
-        if (isRegistrationErrorCode(brokerCode)) {
-          throw new RelayRegistrationError({
-            code: brokerCode,
-            status: brokerResponse.status,
-            message: brokerMessage,
-          });
-        }
-        throw new Error(brokerMessage || 'Managed bootstrap grant failed');
-      }
-      const bootstrapToken = String(
-        (isObject(brokerResult.grant) ? brokerResult.grant.token : '') || '',
-      ).trim();
-      if (!bootstrapToken) {
-        throw new Error('Managed bootstrap grant response did not include a bootstrap token');
-      }
-      const registrationBootstrapUrl = joinUrlPath(configs.network.relayer.url, '/registration/bootstrap');
+      const registrationBootstrapUrl = joinUrlPath(
+        configs.network.relayer.url,
+        '/registration/bootstrap',
+      );
       if (!registrationBootstrapUrl) {
         throw new Error('Relay server URL is required for managed passkey registration');
       }
-      response = await fetch(registrationBootstrapUrl, {
-        method: 'POST',
-        headers: {
-          ...headers,
-          Authorization: `Bearer ${bootstrapToken}`,
+      response = await fetchWithRegistrationTimeout({
+        url: registrationBootstrapUrl,
+        operation: 'Managed passkey registration bootstrap',
+        init: {
+          method: 'POST',
+          headers: {
+            ...headers,
+            Authorization: `Bearer ${managedGrant.token}`,
+          },
+          body: JSON.stringify(requestData),
         },
-        body: JSON.stringify(requestData),
       });
       result = (await readJsonObject(response)) as unknown as CreateAccountAndRegisterResult;
     } else {
       if (!registrationTransport.bootstrapUrl) {
         throw new Error('Registration bootstrap URL is required for passkey registration');
       }
-      response = await fetch(registrationTransport.bootstrapUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestData),
+      response = await fetchWithRegistrationTimeout({
+        url: registrationTransport.bootstrapUrl,
+        operation: 'Passkey registration bootstrap',
+        init: {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestData),
+        },
       });
       result = (await readJsonObject(response)) as unknown as CreateAccountAndRegisterResult;
     }
@@ -590,16 +936,9 @@ export async function createAccountAndRegisterWithRelayServer(
       throw new Error(responseMessage || 'Atomic registration failed');
     }
 
-    if (result.thresholdEd25519) {
-      const thresholdKeyVersion = String(result.thresholdEd25519.keyVersion || '').trim();
-      const thresholdRecoveryPublicKey = String(result.thresholdEd25519.recoveryPublicKey || '').trim();
-      const thresholdRelayerVerifyingShare = String(
-        result.thresholdEd25519.relayerVerifyingShareB64u || '',
-      ).trim();
-      if (!thresholdKeyVersion || result.thresholdEd25519.recoveryExportCapable !== true || !thresholdRecoveryPublicKey || !thresholdRelayerVerifyingShare) {
-        throw new Error('Atomic registration returned an incomplete threshold-ed25519 Option B package');
-      }
-    }
+    const normalizedThresholdEd25519 = normalizeThresholdEd25519RegistrationResult(
+      result.thresholdEd25519,
+    );
 
     onEvent?.({
       step: 5,
@@ -611,30 +950,7 @@ export async function createAccountAndRegisterWithRelayServer(
     return {
       success: true,
       transactionId: result.transactionHash,
-      thresholdEd25519: result.thresholdEd25519
-        ? {
-            keyVersion: result.thresholdEd25519.keyVersion,
-            recoveryExportCapable: true,
-            publicKey: result.thresholdEd25519.publicKey,
-            recoveryPublicKey: result.thresholdEd25519.recoveryPublicKey,
-            relayerKeyId: result.thresholdEd25519.relayerKeyId,
-            relayerVerifyingShareB64u: result.thresholdEd25519.relayerVerifyingShareB64u,
-            clientParticipantId: result.thresholdEd25519.clientParticipantId,
-            relayerParticipantId: result.thresholdEd25519.relayerParticipantId,
-            participantIds: result.thresholdEd25519.participantIds,
-            session: result.thresholdEd25519.session
-              ? {
-                  sessionKind: result.thresholdEd25519.session.sessionKind,
-                  sessionId: result.thresholdEd25519.session.sessionId,
-                  expiresAtMs: result.thresholdEd25519.session.expiresAtMs,
-                  expiresAt: result.thresholdEd25519.session.expiresAt,
-                  participantIds: result.thresholdEd25519.session.participantIds,
-                  remainingUses: result.thresholdEd25519.session.remainingUses,
-                  jwt: result.thresholdEd25519.session.jwt,
-                }
-              : undefined,
-          }
-        : undefined,
+      thresholdEd25519: normalizedThresholdEd25519,
       thresholdEcdsa: result.thresholdEcdsa
         ? {
             relayerKeyId: result.thresholdEcdsa.relayerKeyId,

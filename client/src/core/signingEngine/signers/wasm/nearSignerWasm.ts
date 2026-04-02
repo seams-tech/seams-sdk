@@ -6,13 +6,15 @@ import {
   WorkerResponseType,
   type WasmTransactionSignResult,
   type WasmDeriveThresholdEd25519ClientVerifyingShareResult,
-  type WasmDeriveThresholdEd25519BootstrapPackageResult,
+  type WasmDeriveThresholdEd25519HssClientInputsResult,
 } from '@/core/types/signer-worker';
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
+
+const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
   sessionId: string;
@@ -38,6 +40,7 @@ export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
     request: {
       sessionId,
       type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
         nearAccountId,
         prfFirstB64u,
@@ -62,92 +65,95 @@ export async function deriveThresholdEd25519ClientVerifyingShareWasm(args: {
   };
 }
 
-export async function deriveThresholdEd25519BootstrapPackageWasm(args: {
+export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   sessionId: string;
+  orgId: string;
   nearAccountId: string;
-  rpId?: string;
+  keyPurpose: string;
   keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
   prfFirstB64u: string;
-  recoveryServerShareB64u?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<{
+  orgId: string;
   nearAccountId: string;
+  keyPurpose: string;
   keyVersion: string;
-  recoveryExportCapable: true;
-  clientParticipantId: number;
-  relayerParticipantId: number;
-  publicKey: string;
-  recoveryPublicKey: string;
-  clientVerifyingShareB64u: string;
-  relayerSigningShareB64u: string;
-  relayerVerifyingShareB64u: string;
+  participantIds: number[];
+  derivationVersion: number;
+  contextBindingB64u: string;
+  yClientB64u: string;
+  tauClientB64u: string;
 }> {
   const sessionId = String(args.sessionId || '').trim();
+  const orgId = String(args.orgId || '').trim();
   const nearAccountId = String(args.nearAccountId || '').trim();
-  const rpId = String(args.rpId || '').trim();
+  const keyPurpose = String(args.keyPurpose || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
   const prfFirstB64u = String(args.prfFirstB64u || '').trim();
-  const recoveryServerShareB64u = String(args.recoveryServerShareB64u || '').trim();
+  const participantIds = Array.isArray(args.participantIds)
+    ? args.participantIds.map((value) => Number(value))
+    : [];
+  const derivationVersion = Number(args.derivationVersion);
 
   if (!sessionId) throw new Error('Missing sessionId');
+  if (!orgId) throw new Error('Missing orgId');
   if (!nearAccountId) throw new Error('Missing nearAccountId');
+  if (!keyPurpose) throw new Error('Missing keyPurpose');
   if (!keyVersion) throw new Error('Missing keyVersion');
   if (!prfFirstB64u) throw new Error('Missing prfFirstB64u');
+  if (!Number.isInteger(derivationVersion) || derivationVersion < 0) {
+    throw new Error('Invalid derivationVersion');
+  }
 
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: 'nearSigner',
     request: {
       sessionId,
-      type: WorkerRequestType.DeriveThresholdEd25519BootstrapPackage,
+      type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
+        orgId,
         nearAccountId,
-        ...(rpId ? { rpId } : {}),
+        keyPurpose,
         keyVersion,
+        participantIds,
+        derivationVersion,
         prfFirstB64u,
-        ...(recoveryServerShareB64u ? { recoveryServerShareB64u } : {}),
       },
     },
   });
 
-  if (response.type !== WorkerResponseType.DeriveThresholdEd25519BootstrapPackageSuccess) {
-    throw new Error('DeriveThresholdEd25519BootstrapPackage failed');
+  if (response.type !== WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess) {
+    throw new Error('DeriveThresholdEd25519HssClientInputs failed');
   }
 
-  const wasmResult = response.payload as WasmDeriveThresholdEd25519BootstrapPackageResult;
-  const normalizedKeyVersion = String(wasmResult?.keyVersion || '').trim();
-  const recoveryExportCapable =
-    Boolean((wasmResult as { recoveryExportCapable?: unknown })?.recoveryExportCapable) === true;
-  const publicKey = ensureEd25519Prefix(String(wasmResult?.publicKey || '').trim());
-  const recoveryPublicKey = ensureEd25519Prefix(
-    String((wasmResult as { recoveryPublicKey?: unknown })?.recoveryPublicKey || '').trim(),
-  );
-  const clientVerifyingShareB64u = String(wasmResult?.clientVerifyingShareB64u || '').trim();
-  const relayerSigningShareB64u = String(wasmResult?.relayerSigningShareB64u || '').trim();
-  const relayerVerifyingShareB64u = String(wasmResult?.relayerVerifyingShareB64u || '').trim();
-  if (!normalizedKeyVersion) {
-    throw new Error('Missing keyVersion in threshold Ed25519 bootstrap package');
+  const wasmResult = response.payload as WasmDeriveThresholdEd25519HssClientInputsResult;
+  const contextBindingB64u = String(wasmResult?.contextBindingB64u || '').trim();
+  const yClientB64u = String(wasmResult?.yClientB64u || '').trim();
+  const tauClientB64u = String(wasmResult?.tauClientB64u || '').trim();
+  const participantIdsValue = wasmResult?.participantIds;
+  const normalizedParticipantIds =
+    Array.isArray(participantIdsValue) || ArrayBuffer.isView(participantIdsValue)
+      ? Array.from(participantIdsValue, (value) => Number(value))
+      : [];
+
+  if (!contextBindingB64u || !yClientB64u || !tauClientB64u) {
+    throw new Error('Threshold Ed25519 HSS client input derivation returned incomplete data');
   }
-  if (!recoveryExportCapable) {
-    throw new Error('Threshold Ed25519 bootstrap package must set recoveryExportCapable=true');
-  }
-  if (!publicKey || !recoveryPublicKey) {
-    throw new Error('Threshold Ed25519 bootstrap package missing public keys');
-  }
-  if (!clientVerifyingShareB64u || !relayerSigningShareB64u || !relayerVerifyingShareB64u) {
-    throw new Error('Threshold Ed25519 bootstrap package missing share material');
-  }
+
   return {
-    nearAccountId,
-    keyVersion: normalizedKeyVersion,
-    recoveryExportCapable: true,
-    clientParticipantId: Number(wasmResult?.clientParticipantId),
-    relayerParticipantId: Number(wasmResult?.relayerParticipantId),
-    publicKey,
-    recoveryPublicKey,
-    clientVerifyingShareB64u,
-    relayerSigningShareB64u,
-    relayerVerifyingShareB64u,
+    orgId: String(wasmResult?.orgId || orgId).trim(),
+    nearAccountId: String(wasmResult?.nearAccountId || nearAccountId).trim(),
+    keyPurpose: String(wasmResult?.keyPurpose || keyPurpose).trim(),
+    keyVersion: String(wasmResult?.keyVersion || keyVersion).trim(),
+    participantIds: normalizedParticipantIds,
+    derivationVersion: Number(wasmResult?.derivationVersion ?? derivationVersion),
+    contextBindingB64u,
+    yClientB64u,
+    tauClientB64u,
   };
 }
 

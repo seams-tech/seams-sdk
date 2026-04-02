@@ -76,7 +76,7 @@ export type ThresholdPrfFirstCacheRehydrateResult =
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
-export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-option-b-v1';
+export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
   nearAccountId: string;
@@ -88,13 +88,9 @@ type ExportPrivateKeysWithUiWorkerPayloadBase = {
 export type ExportPrivateKeysWithUiWorkerPayload =
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       chain: 'near';
-      artifactKind: ThresholdEd25519ExportArtifactKind;
-      keyVersion: string;
-      recoveryExportCapable: true;
-      relayerUrl: string;
-      relayerKeyId: string;
-      rpId: string;
-      recoveryPublicKey: string;
+      artifactKind: 'near-ed25519-seed-v1';
+      expectedPublicKey: string;
+      seedB64u: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       chain: 'evm' | 'tempo';

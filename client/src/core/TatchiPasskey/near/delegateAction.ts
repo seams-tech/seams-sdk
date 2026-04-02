@@ -15,6 +15,16 @@ import type { WasmSignedDelegate } from '../../types/signer-worker';
 import { isObject } from '@shared/utils/validation';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
+async function yieldForUiPaint(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+    return;
+  }
+  await Promise.resolve();
+}
+
 export interface RelayDelegateRequest {
   hash: string;
   signedDelegate: SignedDelegate | WasmSignedDelegate;
@@ -52,6 +62,7 @@ export async function signDelegateAction(args: {
     status: ActionStatus.PROGRESS,
     message: 'Requesting delegate action confirmation…',
   });
+  await yieldForUiPaint();
 
   try {
     const coreResult = await context.signingEngine.signNear({

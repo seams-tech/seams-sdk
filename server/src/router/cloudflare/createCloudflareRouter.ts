@@ -11,7 +11,7 @@ import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
 import { handleLinkDevice } from './routes/linkDevice';
 import { handleRecoverEmail } from './routes/recoverEmail';
-import { handleRegistrationRecoveryShare } from './routes/registrationRecoveryShare';
+import { handleRegistrationThresholdEd25519Hss } from './routes/registrationThresholdEd25519Hss';
 import { handleSmartAccountDeployment } from './routes/smartAccountDeployment';
 import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
@@ -77,7 +77,7 @@ export function createCloudflareRouter(
   const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleBootstrapGrant,
-    handleRegistrationRecoveryShare,
+    handleRegistrationThresholdEd25519Hss,
     handleCreateAccountAndRegisterUser,
     handleApiWallets,
     handleSponsoredEvmCall,

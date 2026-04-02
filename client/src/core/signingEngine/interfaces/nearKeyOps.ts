@@ -20,34 +20,28 @@ export type NearSigningKeyOps = {
     clientVerifyingShareB64u: string;
     error?: string;
   }>;
-  deriveThresholdEd25519BootstrapPackage(args: {
+  deriveThresholdEd25519HssClientInputs(args: {
     sessionId: string;
+    orgId: string;
     nearAccountId: AccountId;
-    rpId?: string;
+    keyPurpose: string;
     keyVersion: string;
+    participantIds: number[];
+    derivationVersion: number;
     prfFirstB64u: string;
-    recoveryServerShareB64u?: string;
-  }): Promise<
-    | {
-        success: true;
-        nearAccountId: string;
-        keyVersion: string;
-        recoveryExportCapable: true;
-        clientParticipantId: number;
-        relayerParticipantId: number;
-        publicKey: string;
-        recoveryPublicKey: string;
-        clientVerifyingShareB64u: string;
-        relayerSigningShareB64u: string;
-        relayerVerifyingShareB64u: string;
-      }
-    | {
-        success: false;
-        nearAccountId: string;
-        keyVersion: string;
-        error?: string;
-      }
-  >;
+  }): Promise<{
+    success: boolean;
+    orgId: string;
+    nearAccountId: string;
+    keyPurpose: string;
+    keyVersion: string;
+    participantIds: number[];
+    derivationVersion: number;
+    contextBindingB64u: string;
+    yClientB64u: string;
+    tauClientB64u: string;
+    error?: string;
+  }>;
   extractCosePublicKey(attestationObjectBase64url: string): Promise<Uint8Array>;
   signTransactionWithKeyPair(args: {
     nearPrivateKey: string;

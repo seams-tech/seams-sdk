@@ -1,7 +1,36 @@
 import { test, expect } from '@playwright/test';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { callCf, fetchJson, makeCfCtx, makeFakeAuthService, makeSessionAdapter, startExpressRouter } from './helpers';
+import {
+  callCf,
+  fetchJson,
+  makeCfCtx,
+  makeFakeAuthService,
+  makeSessionAdapter,
+  startExpressRouter,
+} from './helpers';
+
+const THRESHOLD_ED25519_TEST_KEY_VERSION = 'threshold-ed25519-v1';
+
+function makeThresholdEd25519PrepareRequest() {
+  return {
+    key_version: THRESHOLD_ED25519_TEST_KEY_VERSION,
+    recovery_export_capable: true,
+    public_key: 'ed25519:recovery-key',
+    relayer_key_id: 'rk-near',
+    session_kind: 'jwt',
+    session_policy: {
+      version: 'threshold_session_v1',
+      nearAccountId: 'alice.testnet',
+      rpId: 'wallet.example.test',
+      relayerKeyId: 'rk-near',
+      sessionId: 'near-session-1',
+      participantIds: [1, 2],
+      ttlMs: 60_000,
+      remainingUses: 5,
+    },
+  };
+}
 
 function makePreparedRecoveryService() {
   return makeFakeAuthService({
@@ -14,7 +43,8 @@ function makePreparedRecoveryService() {
       thresholdEd25519: {
         relayerKeyId: 'rk-near',
         publicKey: 'ed25519:recovery-key',
-        relayerVerifyingShareB64u: 'near-share',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
+        recoveryExportCapable: true,
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt',
@@ -66,7 +96,7 @@ test.describe('email-recovery prepare routing', () => {
           request_id: 'ABC123',
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
-          threshold_ed25519: { client_verifying_share_b64u: 'near-share' },
+          threshold_ed25519: makeThresholdEd25519PrepareRequest(),
           threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
         }),
       });
@@ -100,7 +130,7 @@ test.describe('email-recovery prepare routing', () => {
         request_id: 'ABC123',
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
-        threshold_ed25519: { client_verifying_share_b64u: 'near-share' },
+        threshold_ed25519: makeThresholdEd25519PrepareRequest(),
         threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
       },
     });

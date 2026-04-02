@@ -6,7 +6,27 @@ import {
   THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
 } from '@server/core/ThresholdService/schemes/schemeIds';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
-import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
+import {
+  createThresholdSigningServiceForUnitTests,
+  deriveThresholdEd25519VerifyingShareForUnitTests,
+} from '../helpers/thresholdEd25519TestUtils';
+
+const THRESHOLD_ED25519_TEST_KEY_VERSION = 'threshold-ed25519-v1';
+
+function makeRecoveryExportKeyRecord() {
+  const relayerSigningShareB64u = Buffer.alloc(32, 7).toString('base64url');
+  return {
+    nearAccountId: 'alice.testnet',
+    rpId: 'wallet.example.test',
+    publicKey: 'ed25519:operational-key',
+    relayerSigningShareB64u,
+    relayerVerifyingShareB64u: deriveThresholdEd25519VerifyingShareForUnitTests({
+      signingShareB64u: relayerSigningShareB64u,
+    }),
+    keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
+    recoveryExportCapable: true as const,
+  };
+}
 
 function makeThresholdAdapter(module: unknown) {
   const requestedSchemeIds: string[] = [];
@@ -131,16 +151,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('express: export/init fails closed when webauthn_authentication is missing', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        recoveryPublicKey: 'ed25519:recovery-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async (request) => {
         if (!request.webauthn_authentication) {
           return {
@@ -162,7 +173,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           relayerKeyId: 'ed25519:operational-key',
-          keyVersion: 'option-b-v1',
+          keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
         }),
       });
       expect(res.status).toBe(400);
@@ -176,16 +187,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('express: export/init fails closed when step-up verification is denied', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        recoveryPublicKey: 'ed25519:recovery-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async () => ({
         success: false,
         verified: false,
@@ -202,7 +204,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           relayerKeyId: 'ed25519:operational-key',
-          keyVersion: 'option-b-v1',
+          keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
           webauthn_authentication: {
             id: 'cred-1',
             rawId: 'cred-1',
@@ -226,16 +228,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('cloudflare: export/init fails closed when webauthn_authentication is missing', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        recoveryPublicKey: 'ed25519:recovery-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async (request) => {
         if (!request.webauthn_authentication) {
           return {
@@ -256,7 +249,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
       path: '/threshold-ed25519/export/init',
       body: {
         relayerKeyId: 'ed25519:operational-key',
-        keyVersion: 'option-b-v1',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
       },
     });
 
@@ -268,16 +261,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('cloudflare: export/init fails closed when step-up verification is denied', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        recoveryPublicKey: 'ed25519:recovery-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async () => ({
         success: false,
         verified: false,
@@ -293,7 +277,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
       path: '/threshold-ed25519/export/init',
       body: {
         relayerKeyId: 'ed25519:operational-key',
-        keyVersion: 'option-b-v1',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
         webauthn_authentication: {
           id: 'cred-1',
           rawId: 'cred-1',
@@ -315,15 +299,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('express: export/init fails closed when persisted recovery metadata is missing', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async () => ({
         success: true,
         verified: true,
@@ -338,7 +314,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           relayerKeyId: 'ed25519:operational-key',
-          keyVersion: 'option-b-v1',
+          keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
           webauthn_authentication: {
             id: 'cred-1',
             rawId: 'cred-1',
@@ -362,15 +338,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
 
   test('cloudflare: export/init fails closed when persisted recovery metadata is missing', async () => {
     const { svc: threshold } = createThresholdSigningServiceForUnitTests({
-      keyRecord: {
-        nearAccountId: 'alice.testnet',
-        rpId: 'wallet.example.test',
-        publicKey: 'ed25519:operational-key',
-        relayerSigningShareB64u: Buffer.alloc(32, 7).toString('base64url'),
-        relayerVerifyingShareB64u: Buffer.alloc(32, 9).toString('base64url'),
-        keyVersion: 'option-b-v1',
-        recoveryExportCapable: true,
-      },
+      keyRecord: makeRecoveryExportKeyRecord(),
       verifyWebAuthnAuthenticationLite: async () => ({
         success: true,
         verified: true,
@@ -384,7 +352,7 @@ test.describe('threshold-ed25519 scheme registry + dispatch coverage', () => {
       path: '/threshold-ed25519/export/init',
       body: {
         relayerKeyId: 'ed25519:operational-key',
-        keyVersion: 'option-b-v1',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
         webauthn_authentication: {
           id: 'cred-1',
           rawId: 'cred-1',

@@ -244,6 +244,12 @@ jobs:
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
 
+      - name: Run threshold Ed25519 active-path suites
+        run: pnpm test:threshold-ed25519:active-path
+
+      - name: Run threshold Ed25519 load smoke
+        run: pnpm benchmark:threshold-load:ci
+
       - name: Run console Postgres isolation suites
         run: pnpm -C tests test:relayer:console-postgres
 

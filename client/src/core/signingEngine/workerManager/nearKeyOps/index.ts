@@ -2,7 +2,7 @@ import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyO
 import type { SignerWorkerManagerContext } from '..';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
-  deriveThresholdEd25519BootstrapPackageWasm,
+  deriveThresholdEd25519HssClientInputsWasm,
   extractCosePublicKeyWasm,
   generateEphemeralNearKeypairWasm,
   signTransactionWithKeyPairWasm,
@@ -35,38 +35,48 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
         };
       }
     },
-    async deriveThresholdEd25519BootstrapPackage(args) {
+    async deriveThresholdEd25519HssClientInputs(args) {
+      const orgId = String(args.orgId || '').trim();
       const nearAccountId = String(args.nearAccountId);
+      const keyPurpose = String(args.keyPurpose || '').trim();
       const keyVersion = String(args.keyVersion || '').trim();
       try {
-        const derived = await deriveThresholdEd25519BootstrapPackageWasm({
+        const derived = await deriveThresholdEd25519HssClientInputsWasm({
           sessionId: args.sessionId,
+          orgId,
           nearAccountId,
-          rpId: args.rpId,
+          keyPurpose,
           keyVersion,
+          participantIds: args.participantIds,
+          derivationVersion: args.derivationVersion,
           prfFirstB64u: args.prfFirstB64u,
-          recoveryServerShareB64u: args.recoveryServerShareB64u,
           workerCtx: getContext(),
         });
         return {
           success: true,
+          orgId: derived.orgId,
           nearAccountId: derived.nearAccountId,
+          keyPurpose: derived.keyPurpose,
           keyVersion: derived.keyVersion,
-          recoveryExportCapable: derived.recoveryExportCapable,
-          clientParticipantId: derived.clientParticipantId,
-          relayerParticipantId: derived.relayerParticipantId,
-          publicKey: derived.publicKey,
-          recoveryPublicKey: derived.recoveryPublicKey,
-          clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-          relayerSigningShareB64u: derived.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
+          participantIds: derived.participantIds,
+          derivationVersion: derived.derivationVersion,
+          contextBindingB64u: derived.contextBindingB64u,
+          yClientB64u: derived.yClientB64u,
+          tauClientB64u: derived.tauClientB64u,
         };
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           success: false,
+          orgId,
           nearAccountId,
+          keyPurpose,
           keyVersion,
+          participantIds: args.participantIds,
+          derivationVersion: args.derivationVersion,
+          contextBindingB64u: '',
+          yClientB64u: '',
+          tauClientB64u: '',
           error: message,
         };
       }

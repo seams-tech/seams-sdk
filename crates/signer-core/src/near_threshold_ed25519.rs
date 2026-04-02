@@ -137,32 +137,40 @@ pub fn derive_client_key_package_from_wrap_key_seed_b64u(
             wrap_key_seed_b64u,
             near_account_id,
         )?;
-    let signing_share = frost_ed25519::keys::SigningShare::deserialize(&signing_share_bytes)
+    key_package_from_signing_share_bytes(&signing_share_bytes, near_public_key_bytes, client_identifier)
+}
+
+pub fn verifying_share_bytes_from_signing_share_bytes(
+    signing_share_bytes: &[u8; 32],
+) -> [u8; 32] {
+    let scalar = CurveScalar::from_bytes_mod_order(*signing_share_bytes);
+    (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes()
+}
+
+pub fn key_package_from_signing_share_bytes(
+    signing_share_bytes: &[u8; 32],
+    near_public_key_bytes: &[u8; 32],
+    identifier: frost_ed25519::Identifier,
+) -> CoreResult<frost_ed25519::keys::KeyPackage> {
+    let signing_share = frost_ed25519::keys::SigningShare::deserialize(signing_share_bytes)
         .map_err(|e| {
             SignerCoreError::decode_error(format!(
-                "threshold-signer: invalid derived signing share: {e}"
+                "threshold-signer: invalid signing share: {e}"
             ))
         })?;
-
-    let verifying_share_bytes =
-        derive_threshold_client_verifying_share_bytes_v1_from_wrap_key_seed_b64u(
-            wrap_key_seed_b64u,
-            near_account_id,
-        )?;
+    let verifying_share_bytes = verifying_share_bytes_from_signing_share_bytes(signing_share_bytes);
     let verifying_share = frost_ed25519::keys::VerifyingShare::deserialize(&verifying_share_bytes)
         .map_err(|e| {
             SignerCoreError::decode_error(format!("threshold-signer: invalid verifying share: {e}"))
         })?;
-
     let verifying_key =
         frost_ed25519::VerifyingKey::deserialize(near_public_key_bytes).map_err(|e| {
             SignerCoreError::decode_error(format!(
                 "threshold-signer: invalid group public key: {e}"
             ))
         })?;
-
     Ok(frost_ed25519::keys::KeyPackage::new(
-        client_identifier,
+        identifier,
         signing_share,
         verifying_share,
         verifying_key,
@@ -509,6 +517,54 @@ mod tests {
             err.message.contains("expected 32 bytes"),
             "unexpected error: {}",
             err.message
+        );
+    }
+
+    #[test]
+    fn key_package_from_signing_share_bytes_matches_wrap_key_derivation() {
+        let wrap_key_seed_b64u = b64u(&[7u8; 32]);
+        let near_account_id = "alice.near";
+        let client_identifier: frost_ed25519::Identifier = 1.try_into().expect("identifier");
+        let signing_share_bytes =
+            derive_threshold_client_signing_share_bytes_v1_from_wrap_key_seed_b64u(
+                &wrap_key_seed_b64u,
+                near_account_id,
+            )
+            .expect("signing share should derive");
+        let verifying_key_bytes = (ED25519_BASEPOINT_POINT
+            * CurveScalar::from_bytes_mod_order(signing_share_bytes))
+        .compress()
+        .to_bytes();
+
+        let generic = key_package_from_signing_share_bytes(
+            &signing_share_bytes,
+            &verifying_key_bytes,
+            client_identifier,
+        )
+        .expect("generic key package");
+        let derived = derive_client_key_package_from_wrap_key_seed_b64u(
+            &wrap_key_seed_b64u,
+            near_account_id,
+            &verifying_key_bytes,
+            client_identifier,
+        )
+        .expect("derived key package");
+
+        assert_eq!(generic.identifier(), derived.identifier());
+        assert_eq!(generic.signing_share().serialize(), derived.signing_share().serialize());
+        assert_eq!(
+            generic.verifying_share().serialize().expect("serialize verifying share"),
+            derived
+                .verifying_share()
+                .serialize()
+                .expect("serialize verifying share")
+        );
+        assert_eq!(
+            generic.verifying_key().serialize().expect("serialize verifying key"),
+            derived
+                .verifying_key()
+                .serialize()
+                .expect("serialize verifying key")
         );
     }
 

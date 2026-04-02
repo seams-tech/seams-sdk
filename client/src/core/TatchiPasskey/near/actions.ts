@@ -21,6 +21,16 @@ import {
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 
+async function yieldForUiPaint(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+    return;
+  }
+  await Promise.resolve();
+}
+
 /**
  * executeAction signs a single transaction (with actions[]) to a single receiver.
  * If you want to sign multiple transactions to different receivers,
@@ -434,6 +444,7 @@ export async function signTransactionsWithActionsInternal({
       status: ActionStatus.PROGRESS,
       message: 'Requesting user confirmation...',
     });
+    await yieldForUiPaint();
 
     // Convert all actions to ActionArgsWasm format for batched transaction
     const transactionInputsWasm: TransactionInputWasm[] = transactionInputs.map((tx) => {

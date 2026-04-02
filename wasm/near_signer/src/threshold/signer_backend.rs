@@ -2,7 +2,6 @@ use crate::threshold::participant_ids::{
     normalize_participant_ids, validate_threshold_ed25519_participant_ids_2p,
 };
 use crate::types::ThresholdSignerConfig;
-use crate::WrapKey;
 #[cfg(target_arch = "wasm32")]
 use js_sys::Date;
 #[cfg(target_arch = "wasm32")]
@@ -116,7 +115,6 @@ fn clear_cached_threshold_auth_session(cfg: &ThresholdSignerConfig, near_account
 async fn authorize_mpc_session_id_with_cached_threshold_auth_session_strict(
     transport: &impl super::transport::ThresholdEd25519Transport,
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     near_account_id: &str,
     purpose: &str,
     signing_digest_32: &[u8],
@@ -138,7 +136,6 @@ async fn authorize_mpc_session_id_with_cached_threshold_auth_session_strict(
     match transport
         .authorize_mpc_session_id_with_threshold_session(
             cfg,
-            client_verifying_share_b64u,
             purpose,
             signing_digest_32,
             signing_payload_json,
@@ -158,7 +155,6 @@ async fn authorize_mpc_session_id_with_cached_threshold_auth_session_strict(
 async fn try_authorize_mpc_session_id_with_cached_threshold_auth_session(
     transport: &impl super::transport::ThresholdEd25519Transport,
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     near_account_id: &str,
     purpose: &str,
     signing_digest_32: &[u8],
@@ -178,7 +174,6 @@ async fn try_authorize_mpc_session_id_with_cached_threshold_auth_session(
     match transport
         .authorize_mpc_session_id_with_threshold_session(
             cfg,
-            client_verifying_share_b64u,
             purpose,
             signing_digest_32,
             signing_payload_json,
@@ -198,7 +193,6 @@ async fn try_authorize_mpc_session_id_with_cached_threshold_auth_session(
 async fn resolve_mpc_session_id(
     transport: &impl super::transport::ThresholdEd25519Transport,
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     near_account_id: &str,
     purpose: &str,
     signing_digest_32: &[u8],
@@ -216,7 +210,6 @@ async fn resolve_mpc_session_id(
         return transport
             .authorize_mpc_session_id_with_threshold_session(
                 cfg,
-                client_verifying_share_b64u,
                 purpose,
                 signing_digest_32,
                 signing_payload_json,
@@ -230,7 +223,6 @@ async fn resolve_mpc_session_id(
         return authorize_mpc_session_id_with_cached_threshold_auth_session_strict(
             transport,
             cfg,
-            client_verifying_share_b64u,
             near_account_id,
             purpose,
             signing_digest_32,
@@ -255,14 +247,7 @@ async fn resolve_mpc_session_id(
     };
 
     if let Ok(sess) = transport
-        .mint_threshold_session(
-            cfg,
-            client_verifying_share_b64u,
-            near_account_id,
-            credential_json,
-            policy_json,
-            kind_str,
-        )
+        .mint_threshold_session(cfg, near_account_id, credential_json, policy_json, kind_str)
         .await
     {
         let expires_at_ms = sess
@@ -286,7 +271,6 @@ async fn resolve_mpc_session_id(
     if let Some(id) = try_authorize_mpc_session_id_with_cached_threshold_auth_session(
         transport,
         cfg,
-        client_verifying_share_b64u,
         near_account_id,
         purpose,
         signing_digest_32,
@@ -304,8 +288,6 @@ pub struct Ed25519SignerBackend(ThresholdEd25519RelayerSigner);
 
 impl Ed25519SignerBackend {
     pub fn from_threshold_signer_config(
-        wrap_key: &WrapKey,
-        prf_first_b64u: Option<&str>,
         near_account_id: &str,
         near_public_key_str: &str,
         purpose: &str,
@@ -313,9 +295,7 @@ impl Ed25519SignerBackend {
         authorize_signing_payload_json: Option<String>,
         cfg: &ThresholdSignerConfig,
     ) -> Result<Self, String> {
-        let _ = wrap_key;
         Ok(Self(ThresholdEd25519RelayerSigner::new(
-            prf_first_b64u,
             near_account_id,
             near_public_key_str,
             purpose,
@@ -338,7 +318,6 @@ pub struct ThresholdEd25519RelayerSigner {
     cfg: ThresholdSignerConfig,
     near_account_id: String,
     near_public_key_bytes: [u8; 32],
-    client_verifying_share_b64u: String,
     client_key_package: frost_ed25519::keys::KeyPackage,
     client_identifier: frost_ed25519::Identifier,
     relayer_identifier: frost_ed25519::Identifier,
@@ -353,7 +332,6 @@ impl ThresholdEd25519RelayerSigner {
     }
 
     pub fn new(
-        prf_first_b64u: Option<&str>,
         near_account_id: &str,
         near_public_key_str: &str,
         purpose: &str,
@@ -363,22 +341,11 @@ impl ThresholdEd25519RelayerSigner {
     ) -> Result<Self, String> {
         let relayer_url = cfg.relayer_url.trim();
         let relayer_key_id = cfg.relayer_key_id.trim();
-        let key_version = cfg
-            .key_version
+        let x_client_base_b64u = cfg
+            .x_client_base_b64u
             .as_ref()
             .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| "threshold-signer: missing keyVersion".to_string())?;
-        let persisted_client_verifying_share_b64u = cfg
-            .client_verifying_share_b64u
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| "threshold-signer: missing clientVerifyingShareB64u".to_string())?;
-        let prf_first_b64u = prf_first_b64u
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| "threshold-signer: missing prfFirstB64u".to_string())?;
+            .filter(|s| !s.is_empty());
         if relayer_url.is_empty() {
             return Err("threshold-signer: missing relayerUrl".to_string());
         }
@@ -434,23 +401,12 @@ impl ThresholdEd25519RelayerSigner {
             .try_into()
             .map_err(|_| "threshold-signer: invalid relayer identifier".to_string())?;
 
-        let client_verifying_share_b64u =
-            crate::threshold::threshold_client_share::derive_option_b_client_verifying_share_b64u_v1(
-                &prf_first_b64u,
-                near_account_id,
-                &key_version,
-            )?;
-        if client_verifying_share_b64u != persisted_client_verifying_share_b64u {
-            return Err(
-                "threshold-signer: Option B clientVerifyingShareB64u does not match persisted key material"
-                    .to_string(),
-            );
-        }
+        let x_client_base_b64u = x_client_base_b64u.ok_or_else(|| {
+            "threshold-signer: missing xClientBaseB64u; Ed25519 threshold signing now requires Option A base-share reconstruction".to_string()
+        })?;
         let key_package =
-            crate::threshold::threshold_client_share::derive_option_b_client_key_package_v1(
-                &prf_first_b64u,
-                near_account_id,
-                &key_version,
+            crate::threshold::threshold_client_share::key_package_from_client_base_b64u(
+                &x_client_base_b64u,
                 &near_public_key_bytes,
                 client_identifier,
             )?;
@@ -462,7 +418,6 @@ impl ThresholdEd25519RelayerSigner {
             cfg: cfg_norm,
             near_account_id: near_account_id.to_string(),
             near_public_key_bytes,
-            client_verifying_share_b64u,
             client_key_package: key_package,
             client_identifier,
             relayer_identifier,
@@ -493,7 +448,6 @@ impl ThresholdEd25519RelayerSigner {
         {
             let _ = cfg;
             let _ = near_account_id;
-            let _ = self.client_verifying_share_b64u.as_str();
             let _ = purpose;
             let _ = client_key_package;
             let _ = client_identifier;
@@ -509,7 +463,6 @@ impl ThresholdEd25519RelayerSigner {
             use super::coordinator;
             use super::transport::HttpThresholdEd25519Transport;
 
-            let client_verifying_share_b64u = self.client_verifying_share_b64u.as_str();
             let transport = HttpThresholdEd25519Transport;
 
             // Prefer a provided mpcSessionId; otherwise authorize via session/cached WebAuthn.
@@ -517,7 +470,6 @@ impl ThresholdEd25519RelayerSigner {
             let mpc_session_id = resolve_mpc_session_id(
                 &transport,
                 cfg,
-                client_verifying_share_b64u,
                 near_account_id,
                 purpose,
                 message,

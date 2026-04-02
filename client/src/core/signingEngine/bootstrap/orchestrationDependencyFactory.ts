@@ -255,7 +255,6 @@ export function createOrchestrationDependencyBundle(
     thresholdSessionActivationDeps: {
       indexedDB: IndexedDBManager,
       touchIdPrompt: args.touchIdPrompt,
-      signingKeyOps: args.signerWorkerManager.nearKeyOps,
       touchConfirm: args.touchConfirm,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getOrCreateActiveThresholdEd25519SessionId,

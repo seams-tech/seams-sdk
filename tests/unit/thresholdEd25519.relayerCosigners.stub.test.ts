@@ -3,6 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { signThresholdEd25519CosignerGrantV1 } from '../../server/src/core/ThresholdService/coordinatorGrant';
 import {
   createThresholdSigningServiceForUnitTests,
+  deriveThresholdEd25519VerifyingShareForUnitTests,
   verifyThresholdEd25519CoordinatorGrantHmac,
 } from '../helpers/thresholdEd25519TestUtils';
 
@@ -107,7 +108,9 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
 
   const groupPublicKey = 'ed25519:test-key';
   const relayerSigningShareB64u = Buffer.alloc(32, 11).toString('base64url');
-  const relayerVerifyingShareB64u = Buffer.alloc(32, 12).toString('base64url');
+  const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
+    signingShareB64u: relayerSigningShareB64u,
+  });
 
   const { svc, sessionStore } = createThresholdSigningServiceForUnitTests({
     config: {
@@ -299,7 +302,9 @@ test('threshold-ed25519 relayer-fleet cosigning (2-of-3 stub) aggregates cosigne
 test('threshold-ed25519 cosign finalize rejects coordinatorGrant reused across a different mpc session', async () => {
   const secretB64u = Buffer.alloc(32, 9).toString('base64url');
   const relayerSigningShareB64u = Buffer.alloc(32, 13).toString('base64url');
-  const relayerVerifyingShareB64u = Buffer.alloc(32, 14).toString('base64url');
+  const relayerVerifyingShareB64u = deriveThresholdEd25519VerifyingShareForUnitTests({
+    signingShareB64u: relayerSigningShareB64u,
+  });
   const relayerKeyId = 'ed25519:dummy';
   const signingDigestA = Buffer.alloc(32, 21).toString('base64url');
   const signingDigestB = Buffer.alloc(32, 22).toString('base64url');

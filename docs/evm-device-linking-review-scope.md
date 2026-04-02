@@ -161,9 +161,7 @@ These files are modified or untracked in the worktree, but they are not part of 
 - [formal-verification.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/formal-verification.md)
 - [homomorphic-key-export.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export.md)
 - [homomorphic-key-export-ECDSA.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ECDSA.md)
-- [homomorphic-key-export-ED25519.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ED25519.md)
 - [load-testing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/load-testing.md)
-- [remove-local-ed25519-signer.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/remove-local-ed25519-signer.md)
 
 ### Example site
 

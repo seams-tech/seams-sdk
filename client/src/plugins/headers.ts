@@ -20,12 +20,14 @@ export function buildPermissionsPolicy(walletOrigin?: string): string {
  * Build a wallet-friendly Content Security Policy string.
  *
  * mode:
- *  - 'strict' (default): no inline styles, injects "style-src-attr 'none'", and forbids 'unsafe-eval'.
+ *  - 'strict' (default): no inline styles, injects "style-src-attr 'none'", and forbids JS 'unsafe-eval'.
  *  - 'compatible': allows inline styles/scripts via 'unsafe-inline' for friendlier dev/local setups.
  *
  * allowUnsafeEval:
  *  - false by default. Set to true only for development servers that require eval (e.g., Next.js Fast Refresh).
- *  - Tatchi SDK does not require 'unsafe-eval' in production.
+ *  - Wallet pages always include 'wasm-unsafe-eval' because browser-side signer initialization uses
+ *    WebAssembly compilation.
+ *  - Tatchi SDK does not require JS 'unsafe-eval' in production.
  *
  * Typical usage: apply strict CSP only to wallet HTML routes
  * (/wallet-service, /export-viewer); do not attach CSP to host app routes.
@@ -43,12 +45,13 @@ export function buildWalletCsp(
   const scriptAllow = (opts.scriptSrcAllowlist || [])
     .map((s) => toOriginOrUndefined(s) || s)
     .filter(Boolean) as string[];
+  const scriptWasmUnsafeEval = " 'wasm-unsafe-eval'";
   const scriptUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : '';
   const styleUnsafeInline = mode === 'compatible' ? " 'unsafe-inline'" : '';
   const scriptUnsafeEval = opts.allowUnsafeEval ? " 'unsafe-eval'" : '';
   const base: string[] = [
     "default-src 'self'",
-    `script-src 'self'${scriptUnsafeInline}${scriptUnsafeEval}${scriptAllow.length ? ' ' + scriptAllow.join(' ') : ''}`,
+    `script-src 'self'${scriptWasmUnsafeEval}${scriptUnsafeInline}${scriptUnsafeEval}${scriptAllow.length ? ' ' + scriptAllow.join(' ') : ''}`,
     `style-src 'self'${styleUnsafeInline}`,
     "img-src 'self' data:",
     "font-src 'self'",

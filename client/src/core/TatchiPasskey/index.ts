@@ -21,10 +21,7 @@ import type {
   LoginHooksOptions,
   RegistrationHooksOptions,
 } from '../types/sdkSentEvents';
-import {
-  ConfirmationConfig,
-  type ConfirmationBehavior,
-} from '../types/signer-worker';
+import { ConfirmationConfig, type ConfirmationBehavior } from '../types/signer-worker';
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { configureIndexedDB } from '../indexedDB';
@@ -56,6 +53,10 @@ import type {
   RecoveryCapability,
   TempoSignerCapability,
 } from './interfaces';
+import type {
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+} from '../signingEngine/signers/wasm/nearSignerHssWasm';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,
@@ -191,6 +192,8 @@ export class TatchiPasskey {
     this.keys = {
       exportKeypairWithUI: async (nearAccountId, options) =>
         await this.exportKeypairWithUIDomain(nearAccountId, options),
+      exportThresholdEd25519SeedFromHssReport: async (args) =>
+        await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
     const signerDeps = {
       getContext: () => this.getContext(),
@@ -560,6 +563,42 @@ export class TatchiPasskey {
     }
 
     await this.signingEngine.exportKeypairWithUI(toAccountId(nearAccountId), resolvedOptions);
+  }
+
+  private async exportThresholdEd25519SeedFromHssReportDomain(args: {
+    nearAccountId: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<void> {
+    const resolvedOptions = {
+      ...args.options,
+      theme: args.options.theme ?? this.theme,
+    };
+
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      await router.exportThresholdEd25519SeedFromHssReport({
+        nearAccountId: args.nearAccountId,
+        preparedSession: args.preparedSession,
+        finalizedReport: args.finalizedReport,
+        expectedPublicKey: args.expectedPublicKey,
+        options: resolvedOptions,
+      });
+      return;
+    }
+
+    await this.signingEngine.exportThresholdEd25519SeedFromHssReport({
+      nearAccountId: toAccountId(args.nearAccountId),
+      preparedSession: args.preparedSession,
+      finalizedReport: args.finalizedReport,
+      expectedPublicKey: args.expectedPublicKey,
+      options: resolvedOptions,
+    });
   }
 
   /**

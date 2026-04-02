@@ -1095,13 +1095,6 @@ impl PrimeOrderSuccinctHssGarblerSession {
         }
     }
 
-    pub fn seed_output_opener(&self) -> PrimeOrderSuccinctHssSeedOutputOpener {
-        PrimeOrderSuccinctHssSeedOutputOpener {
-            evaluator: self.ddh_evaluator.clone(),
-            context_binding: self.context_binding,
-        }
-    }
-
     pub fn run_binding(
         &self,
         artifact_digest: [u8; 32],
@@ -2272,8 +2265,7 @@ impl PrimeOrderSuccinctHssSharedRuntime {
             || seed_packet.evaluation_digest != evaluation_result.bindings.evaluation_digest
         {
             return Err(ProtoError::InvalidInput(
-                "evaluation result seed output packet is not bound to the reported run"
-                    .to_string(),
+                "evaluation result seed output packet is not bound to the reported run".to_string(),
             ));
         }
         debug_assert_eq!(

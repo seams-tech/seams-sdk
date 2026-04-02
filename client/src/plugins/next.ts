@@ -4,7 +4,8 @@
 // CSP policy note:
 // - We RELAX CSP ONLY FOR NEXT DEV to accommodate the framework's dev runtime (Fast Refresh/overlay),
 //   which requires 'unsafe-eval' and inline styles. This relaxation is not required by the Tatchi SDK itself.
-// - In PRODUCTION you should keep a strict CSP (no 'unsafe-eval', no inline styles, and include "style-src-attr 'none'").
+// - In PRODUCTION you should keep a strict CSP: no JS 'unsafe-eval', no inline styles, include
+//   "style-src-attr 'none'", and allow only 'wasm-unsafe-eval' for wallet WASM compilation.
 
 import { buildPermissionsPolicy, buildWalletCsp, type CspMode } from './headers';
 import { sanitizeOrigins } from './plugin-utils';

@@ -20,6 +20,8 @@ Takeaways:
     - `clipboard-write=(self "<wallet>")`
   - `buildWalletCsp({ mode, allowUnsafeEval, frameSrc, scriptSrcAllowlist })`:
     - `mode: 'strict' | 'compatible'` (default strict). Strict adds `style-src-attr 'none'` and forbids inline.
+    - Wallet CSP always includes `'wasm-unsafe-eval'` because browser-side signer initialization compiles WASM.
+    - `allowUnsafeEval` is only for JS eval in dev runtimes like Next Fast Refresh.
     - Typical use: apply strict CSP to wallet HTML only, not app pages.
 
 - `vite.ts`
@@ -152,7 +154,7 @@ export default tatchiNextWallet({
 Notes
 
 - `emitHeaders` has no effect for Next.js; headers are added via `headers()` in `next.config.js`.
-- In production, keep CSP strict on wallet HTML (no inline styles/scripts; include `style-src-attr 'none'`).
+- In production, keep CSP strict on wallet HTML (no inline styles/scripts; include `style-src-attr 'none'` and allow only `'wasm-unsafe-eval'` for script compilation).
 
 ## Advanced: granular/server-level composition
 

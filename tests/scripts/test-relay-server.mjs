@@ -98,20 +98,6 @@ async function main() {
     res.end(JSON.stringify(body));
   };
 
-  const thresholdStatus = (result) => {
-    if (result?.ok) return 200;
-    switch (result?.code) {
-      case 'threshold_disabled':
-        return 503;
-      case 'internal':
-        return 500;
-      case 'unauthorized':
-        return 401;
-      default:
-        return 400;
-    }
-  };
-
   const server = createServer(async (req, res) => {
     setCors(req, res);
     if (req.method === 'OPTIONS') {
@@ -165,19 +151,6 @@ async function main() {
         }
 
         return sendJson(res, 200, { ok: true, verified: true });
-      }
-      if (req.method === 'POST' && url.pathname === '/threshold-ed25519/keygen') {
-        const body = await readJson(req);
-        const scheme = threshold.getSchemeModule('threshold-ed25519-frost-2p-v1');
-        if (!scheme || scheme.schemeId !== 'threshold-ed25519-frost-2p-v1') {
-          return sendJson(res, 404, {
-            ok: false,
-            code: 'not_found',
-            message: 'threshold-ed25519 scheme is not enabled on this server',
-          });
-        }
-        const out = await scheme.keygen(body);
-        return sendJson(res, thresholdStatus(out), out);
       }
       if (req.method === 'POST' && url.pathname === '/registration/bootstrap') {
         const body = await readJson(req);

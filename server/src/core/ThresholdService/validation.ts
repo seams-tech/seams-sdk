@@ -84,7 +84,6 @@ export type ParsedThresholdEd25519KeyRecord = {
   nearAccountId: string;
   rpId: string;
   publicKey: string;
-  recoveryPublicKey: string;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
   keyVersion: string;
@@ -98,7 +97,6 @@ export function parseThresholdEd25519KeyRecord(
   const nearAccountId = toOptionalString(raw.nearAccountId);
   const rpId = toOptionalString(raw.rpId);
   const publicKey = toOptionalString(raw.publicKey);
-  const recoveryPublicKey = toOptionalString(raw.recoveryPublicKey);
   const relayerSigningShareB64u = toOptionalString(raw.relayerSigningShareB64u);
   const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
   const keyVersion = toOptionalString(raw.keyVersion);
@@ -107,7 +105,6 @@ export function parseThresholdEd25519KeyRecord(
     !nearAccountId ||
     !rpId ||
     !publicKey ||
-    !recoveryPublicKey ||
     !relayerSigningShareB64u ||
     !relayerVerifyingShareB64u ||
     !keyVersion ||
@@ -118,7 +115,6 @@ export function parseThresholdEd25519KeyRecord(
     nearAccountId,
     rpId,
     publicKey,
-    recoveryPublicKey,
     relayerSigningShareB64u,
     relayerVerifyingShareB64u,
     keyVersion,
@@ -186,14 +182,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   if (!isValidNumber(expiresAtMs)) return null;
-  if (
-    !relayerKeyId ||
-    !purpose ||
-    !intentDigestB64u ||
-    !signingDigestB64u ||
-    !userId ||
-    !rpId
-  )
+  if (!relayerKeyId || !purpose || !intentDigestB64u || !signingDigestB64u || !userId || !rpId)
     return null;
   return {
     expiresAtMs,
@@ -277,46 +266,6 @@ export function parseThresholdEd25519StringById(
     out[key] = value;
   }
   return Object.keys(out).length ? out : null;
-}
-
-export type ParsedThresholdEd25519ExportSessionRecord = {
-  expiresAtMs: number;
-  relayerKeyId: string;
-  nearAccountId: string;
-  rpId: string;
-  recoveryPublicKey: string;
-  keyVersion: string;
-  artifactKind: 'near-ed25519-option-b-v1';
-  participantIds: number[];
-};
-
-export function parseThresholdEd25519ExportSessionRecord(
-  raw: unknown,
-): ParsedThresholdEd25519ExportSessionRecord | null {
-  if (!isObject(raw)) return null;
-  const expiresAtMs = raw.expiresAtMs;
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const nearAccountId = toOptionalString(raw.nearAccountId);
-  const rpId = toOptionalString(raw.rpId);
-  const recoveryPublicKey = toOptionalString(raw.recoveryPublicKey);
-  const keyVersion = toOptionalString(raw.keyVersion);
-  const artifactKind = toOptionalString(raw.artifactKind);
-  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
-    ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-  ];
-  if (!isValidNumber(expiresAtMs)) return null;
-  if (!relayerKeyId || !nearAccountId || !rpId || !recoveryPublicKey || !keyVersion) return null;
-  if (artifactKind !== 'near-ed25519-option-b-v1') return null;
-  return {
-    expiresAtMs,
-    relayerKeyId,
-    nearAccountId,
-    rpId,
-    recoveryPublicKey,
-    keyVersion,
-    artifactKind: 'near-ed25519-option-b-v1',
-    participantIds,
-  };
 }
 
 export type ParsedThresholdEd25519CoordinatorSigningSessionRecord = {

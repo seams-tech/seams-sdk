@@ -17,7 +17,6 @@ pub(super) trait ThresholdEd25519Transport {
     async fn authorize_mpc_session_id_with_threshold_session(
         &self,
         cfg: &ThresholdSignerConfig,
-        client_verifying_share_b64u: &str,
         purpose: &str,
         signing_digest_32: &[u8],
         signing_payload_json: Option<&str>,
@@ -27,7 +26,6 @@ pub(super) trait ThresholdEd25519Transport {
     async fn mint_threshold_session(
         &self,
         cfg: &ThresholdSignerConfig,
-        client_verifying_share_b64u: &str,
         near_account_id: &str,
         credential_json: &str,
         session_policy_json: &str,
@@ -57,7 +55,6 @@ impl ThresholdEd25519Transport for HttpThresholdEd25519Transport {
     async fn authorize_mpc_session_id_with_threshold_session(
         &self,
         cfg: &ThresholdSignerConfig,
-        client_verifying_share_b64u: &str,
         purpose: &str,
         signing_digest_32: &[u8],
         signing_payload_json: Option<&str>,
@@ -65,7 +62,6 @@ impl ThresholdEd25519Transport for HttpThresholdEd25519Transport {
     ) -> Result<String, String> {
         super::relayer_http::authorize_mpc_session_id_with_threshold_session(
             cfg,
-            client_verifying_share_b64u,
             purpose,
             signing_digest_32,
             signing_payload_json,
@@ -77,7 +73,6 @@ impl ThresholdEd25519Transport for HttpThresholdEd25519Transport {
     async fn mint_threshold_session(
         &self,
         cfg: &ThresholdSignerConfig,
-        client_verifying_share_b64u: &str,
         near_account_id: &str,
         credential_json: &str,
         session_policy_json: &str,
@@ -85,7 +80,6 @@ impl ThresholdEd25519Transport for HttpThresholdEd25519Transport {
     ) -> Result<ThresholdEd25519SessionMintOk, String> {
         let out = super::relayer_http::mint_threshold_session(
             cfg,
-            client_verifying_share_b64u,
             near_account_id,
             credential_json,
             session_policy_json,

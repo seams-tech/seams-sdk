@@ -10,16 +10,11 @@ import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDe
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
 
-type ExportRecoveryErrorCode =
-  | 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED'
-  | 'SIGNER_EXPORT_RECOVERY_NOT_PROVISIONED';
+type ExportRecoveryErrorCode = 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
 type ExportRecoveryError = Error & { code: ExportRecoveryErrorCode };
 
 const EXPORT_WORKER_BOUNDARY_REQUIRED_CODE: ExportRecoveryErrorCode =
   'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
-const EXPORT_RECOVERY_NOT_PROVISIONED_CODE: ExportRecoveryErrorCode =
-  'SIGNER_EXPORT_RECOVERY_NOT_PROVISIONED';
-
 function createExportRecoveryError(args: {
   message: string;
   code: ExportRecoveryErrorCode;
@@ -46,6 +41,10 @@ function emitExportRecoveryTelemetry(args: {
   });
 }
 
+function isEvmOrTempoChain(chain: ExportKeypairChain): chain is 'evm' | 'tempo' {
+  return chain === 'evm' || chain === 'tempo';
+}
+
 function throwExportWorkerBoundaryRequired(args: {
   nearAccountId: string;
   deviceNumber?: number;
@@ -60,23 +59,6 @@ function throwExportWorkerBoundaryRequired(args: {
   throw createExportRecoveryError({
     code: EXPORT_WORKER_BOUNDARY_REQUIRED_CODE,
     message: `Export requires the worker-owned recovery export operation (${EXPORT_WORKER_BOUNDARY_REQUIRED_CODE})`,
-  });
-}
-
-function throwRecoveryExportNotProvisioned(args: {
-  nearAccountId: string;
-  deviceNumber?: number;
-  reason: string;
-}): never {
-  emitExportRecoveryTelemetry({
-    event: 'signer.export.recovery_not_provisioned',
-    nearAccountId: args.nearAccountId,
-    deviceNumber: args.deviceNumber,
-    reason: args.reason,
-  });
-  throw createExportRecoveryError({
-    code: EXPORT_RECOVERY_NOT_PROVISIONED_CODE,
-    message: `Threshold Ed25519 recovery export is not provisioned (${EXPORT_RECOVERY_NOT_PROVISIONED_CODE})`,
   });
 }
 
@@ -102,6 +84,9 @@ async function runExportWorkerOperation(
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
+  if (args.options.chain === 'near') {
+    throw new Error('NEAR Ed25519 export must use the canonical Option A seed export lane');
+  }
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
       nearAccountId: accountId,
@@ -109,15 +94,6 @@ async function runExportWorkerOperation(
     });
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
-  const relayerUrl = String(deps.relayerUrl || '').trim();
-  if (!relayerUrl) {
-    throw new Error('Missing relayerUrl for export recovery');
-  }
-  const rpId = String(deps.getRpId?.() || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for export recovery');
-  }
-
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
   const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
     () => null as number | null,
@@ -126,58 +102,15 @@ async function runExportWorkerOperation(
     throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
   }
 
-  const thresholdKeyMaterial = await deps.indexedDB
-    .getNearThresholdKeyMaterial(accountId, deviceNumber)
-    .catch(() => null);
-
-  if (!thresholdKeyMaterial) {
-    throwRecoveryExportNotProvisioned({
-      nearAccountId: accountId,
-      deviceNumber,
-      reason: 'missing_threshold_key_material',
-    });
-  }
-  if (
-    thresholdKeyMaterial.artifactKind !== 'near-ed25519-option-b-v1' ||
-    thresholdKeyMaterial.recoveryExportCapable !== true ||
-    !String(thresholdKeyMaterial.recoveryPublicKey || '').trim()
-  ) {
-    throwRecoveryExportNotProvisioned({
-      nearAccountId: accountId,
-      deviceNumber,
-      reason: 'threshold_ed25519_recovery_export_not_provisioned',
-    });
-  }
-  const relayerKeyId = String(thresholdKeyMaterial.relayerKeyId || '').trim();
-  if (!relayerKeyId) {
-    throwRecoveryExportNotProvisioned({
-      nearAccountId: accountId,
-      deviceNumber,
-      reason: 'missing_relayer_key_id',
-    });
-  }
-  const recoveryPublicKey = String(thresholdKeyMaterial.recoveryPublicKey || '').trim();
-  if (!recoveryPublicKey) {
-    throwRecoveryExportNotProvisioned({
-      nearAccountId: accountId,
-      deviceNumber,
-      reason: 'missing_recovery_public_key',
-    });
-  }
-
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
+      if (!isEvmOrTempoChain(args.options.chain)) {
+        throw new Error('NEAR Ed25519 export must use the canonical Option A seed export lane');
+      }
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
         deviceNumber,
         chain: args.options.chain,
-        artifactKind: thresholdKeyMaterial.artifactKind,
-        keyVersion: thresholdKeyMaterial.keyVersion,
-        recoveryExportCapable: thresholdKeyMaterial.recoveryExportCapable,
-        relayerUrl,
-        relayerKeyId,
-        rpId,
-        recoveryPublicKey,
         variant: args.options.variant,
         theme: resolvedTheme,
       });
@@ -215,6 +148,76 @@ export async function exportKeypairWithUIWorkerDriven(
   return runExportWorkerOperation(deps, args);
 }
 
+export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
+  deps: PrivateKeyExportRecoveryDeps,
+  args: {
+    nearAccountId: AccountId;
+    seedB64u: string;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  },
+): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  const accountId = toAccountId(args.nearAccountId);
+  if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
+    throwExportWorkerBoundaryRequired({
+      nearAccountId: accountId,
+      reason: 'missing_export_worker_operation',
+    });
+  }
+  const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
+  const expectedPublicKey = String(args.expectedPublicKey || '').trim();
+  const seedB64u = String(args.seedB64u || '').trim();
+  if (!expectedPublicKey) {
+    throw new Error('Missing expectedPublicKey for Option A seed export');
+  }
+  if (!seedB64u) {
+    throw new Error('Missing seedB64u for Option A seed export');
+  }
+
+  const resolvedTheme = args.options?.theme ?? deps.getTheme();
+  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+    () => null as number | null,
+  );
+  if (deviceNumber == null) {
+    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  }
+
+  const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
+    try {
+      return await requestExportPrivateKeysWithUi({
+        nearAccountId: accountId,
+        deviceNumber,
+        chain: 'near',
+        artifactKind: 'near-ed25519-seed-v1',
+        expectedPublicKey,
+        seedB64u,
+        variant: args.options.variant,
+        theme: resolvedTheme,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (
+        message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
+      ) {
+        throwExportWorkerBoundaryRequired({
+          nearAccountId: accountId,
+          deviceNumber,
+          reason: 'worker_missing_export_operation',
+        });
+      }
+      throw error;
+    }
+  })();
+
+  if (!result.ok) {
+    throw new Error(result.error || 'Export private keys request failed');
+  }
+  return result;
+}
+
 export async function exportKeypairWithUI(
   deps: PrivateKeyExportRecoveryDeps,
   args: {
@@ -227,6 +230,25 @@ export async function exportKeypairWithUI(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
   const result = await exportKeypairWithUIWorkerDriven(deps, args);
+  return {
+    accountId: result.accountId,
+    exportedSchemes: result.exportedSchemes,
+  };
+}
+
+export async function exportNearEd25519SeedArtifactWithUI(
+  deps: PrivateKeyExportRecoveryDeps,
+  args: {
+    nearAccountId: AccountId;
+    seedB64u: string;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  },
+): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
+  const result = await exportNearEd25519SeedArtifactWithUIWorkerDriven(deps, args);
   return {
     accountId: result.accountId,
     exportedSchemes: result.exportedSchemes,

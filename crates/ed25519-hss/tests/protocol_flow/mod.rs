@@ -307,6 +307,13 @@ fn prime_order_succinct_hss_delivery_packets_round_trip_end_to_end() {
     );
     assert_eq!(
         output_openers
+            .seed
+            .open(&evaluated.output_delivery.seed)
+            .expect("open seed output"),
+        fixture.output.d
+    );
+    assert_eq!(
+        output_openers
             .server
             .open(&evaluated.output_delivery.server)
             .expect("open server output"),
@@ -329,10 +336,15 @@ fn prime_order_succinct_hss_matches_reference_fixture_smoke() {
         .client
         .open(&report.output_delivery.client)
         .expect("open client output");
+    let canonical_seed = output_openers
+        .seed
+        .open(&report.output_delivery.seed)
+        .expect("open seed output");
     let x_relayer_base = output_openers
         .server
         .open(&report.output_delivery.server)
         .expect("open server output");
+    assert_eq!(canonical_seed, fixture.output.d);
     assert_eq!(x_client_base, fixture.output.x_client_base);
     assert_eq!(x_relayer_base, fixture.output.x_relayer_base);
     assert_eq!(

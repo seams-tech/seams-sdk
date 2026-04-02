@@ -2,7 +2,6 @@ import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager';
-import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type { ThresholdPrfFirstCachePort } from '../../threshold/webauthn';
 import { connectEd25519Session } from '../../threshold/workflows/connectEd25519Session';
 import {
@@ -14,10 +13,16 @@ import {
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
 import type { ThresholdEcdsaSessionStoreSource } from './thresholdSessionStore';
+import type { ThresholdRuntimeSnapshotScope } from '../../threshold/session/sessionPolicy';
 
 export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   relayerUrl?: string;
@@ -47,7 +52,6 @@ export type ThresholdSessionActivationDeps = {
     TouchIdPrompt,
     'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'
   >;
-  signingKeyOps: Pick<NearSigningKeyOps, 'deriveThresholdEd25519ClientVerifyingShare'>;
   touchConfirm: ThresholdPrfFirstCachePort;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   getOrCreateActiveThresholdEd25519SessionId: (nearAccountId: AccountId) => string;
@@ -107,10 +111,11 @@ export async function connectEd25519SessionValue(
   const connected = await connectEd25519Session({
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
-    signingKeyOps: deps.signingKeyOps,
     prfFirstCache: deps.touchConfirm,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,
+    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
+    ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     nearAccountId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
@@ -145,8 +150,7 @@ export async function bootstrapEcdsaSessionValue(
     getOrCreateActiveThresholdEcdsaSessionId: (
       accountId: AccountId,
       activationChain: ThresholdEcdsaActivationChain,
-    ) =>
-      deps.getOrCreateActiveThresholdEcdsaSessionId(accountId, activationChain),
+    ) => deps.getOrCreateActiveThresholdEcdsaSessionId(accountId, activationChain),
   };
 
   const bootstrap = await activateThresholdKeyForChain({
@@ -184,7 +188,10 @@ export async function bootstrapEcdsaSessionValue(
       toSessionId: canonicalThresholdSessionId,
     });
 
-    if (!transferred.ok && typeof deps.touchConfirm.peekPrfFirstForThresholdSession === 'function') {
+    if (
+      !transferred.ok &&
+      typeof deps.touchConfirm.peekPrfFirstForThresholdSession === 'function'
+    ) {
       const canonicalPeek = await deps.touchConfirm.peekPrfFirstForThresholdSession({
         sessionId: canonicalThresholdSessionId,
       });
@@ -223,9 +230,7 @@ export async function bootstrapEcdsaSessionValue(
     const persisted = await deps.touchConfirm.persistPrfFirstSealForThresholdSession({
       sessionId: canonicalThresholdSessionId,
       transport: {
-        relayerUrl: String(
-          bootstrap.thresholdEcdsaKeyRef?.relayerUrl || relayerUrl || '',
-        ).trim(),
+        relayerUrl: String(bootstrap.thresholdEcdsaKeyRef?.relayerUrl || relayerUrl || '').trim(),
         thresholdSessionJwt: String(
           bootstrap.thresholdEcdsaKeyRef?.thresholdSessionJwt || bootstrap.session?.jwt || '',
         ).trim(),

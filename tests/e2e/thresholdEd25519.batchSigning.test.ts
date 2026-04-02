@@ -14,9 +14,9 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -75,18 +75,12 @@ test.describe('threshold-ed25519 batch signing', () => {
         await route.fallback();
       });
 
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
-        await route.fallback();
-      });
-
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 
@@ -113,7 +107,6 @@ test.describe('threshold-ed25519 batch signing', () => {
             ok: true;
             accountId: string;
             operationalPublicKey: string;
-            recoveryPublicKey: string;
             txInput: { receiverId: string; wasmActions: unknown[] };
             signedTxs: ExtractedSignedTx[];
           }
@@ -124,7 +117,6 @@ test.describe('threshold-ed25519 batch signing', () => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
-            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -163,10 +155,6 @@ test.describe('threshold-ed25519 batch signing', () => {
 
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
-            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
-              accountId,
-              1,
-            );
 
             const receiverId = 'w3a-v1.testnet';
             const actions = [{ type: ActionType.Transfer, amount: '1' }];
@@ -212,7 +200,6 @@ test.describe('threshold-ed25519 batch signing', () => {
               ok: true,
               accountId,
               operationalPublicKey: String(reg.operationalPublicKey || ''),
-              recoveryPublicKey: String(thresholdKeyMaterial?.recoveryPublicKey || ''),
               txInput: { receiverId, wasmActions },
               signedTxs: [extractSigned(signed[0]), extractSigned(signed[1])],
             };
@@ -236,12 +223,11 @@ test.describe('threshold-ed25519 batch signing', () => {
       expect(relayerCounts.finalize).toBe(2);
 
       const operationalPkStr = String(result.operationalPublicKey);
-      const recoveryPkStr = String(result.recoveryPublicKey);
-
       const toPkBytes = (pk: string): Uint8Array => {
         const raw = pk.includes(':') ? pk.split(':')[1] : pk;
         return bs58.decode(raw);
       };
+      const wrongPublicKey = `ed25519:${bs58.encode(ed25519.getPublicKey(new Uint8Array(32).fill(43)))}`;
 
       const computeDigest = (signed: { nonce: string; blockHash: number[] }): Uint8Array => {
         const signingPayload = {
@@ -278,7 +264,7 @@ test.describe('threshold-ed25519 batch signing', () => {
         const sigBytes = Uint8Array.from(signed.signature);
         expect(sigBytes.length).toBe(64);
         expect(ed25519.verify(sigBytes, digest, toPkBytes(operationalPkStr))).toBe(true);
-        expect(ed25519.verify(sigBytes, digest, toPkBytes(recoveryPkStr))).toBe(false);
+        expect(ed25519.verify(sigBytes, digest, toPkBytes(wrongPublicKey))).toBe(false);
       }
     } finally {
       await srv.close().catch(() => undefined);

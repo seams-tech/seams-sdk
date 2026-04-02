@@ -12,9 +12,9 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 
@@ -47,12 +47,6 @@ test.describe('threshold-ed25519 on-chain scope', () => {
     const relayerCounts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') relayerCounts.keygen += 1;
-        await route.fallback();
-      });
-
       await page.route(`${srv.baseUrl}/threshold-ed25519/session`, async (route) => {
         const req = route.request();
         if (req.method().toUpperCase() === 'POST') relayerCounts.session += 1;
@@ -75,12 +69,12 @@ test.describe('threshold-ed25519 on-chain scope', () => {
         await route.fallback();
       });
 
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain: keysOnChainClient,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 

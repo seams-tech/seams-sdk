@@ -11,6 +11,11 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
+import {
+  normalizeThresholdRuntimeSnapshotScope,
+  parseThresholdRuntimeSnapshotScopeFromJwt,
+  type ThresholdRuntimeSnapshotScope,
+} from '../../threshold/session/sessionPolicy';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
@@ -23,6 +28,7 @@ export type ThresholdEcdsaSessionRecord = {
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   participantIds: number[];
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   thresholdSessionJwt?: string;
@@ -46,6 +52,8 @@ export type ThresholdEd25519SessionRecord = {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  xClientBaseB64u?: string;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   thresholdSessionJwt?: string;
@@ -98,6 +106,8 @@ const ECDSA_STORAGE_MIGRATION_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:migrated-from-v
 const ED25519_STORAGE_KEY_PREFIX = 'tatchi:threshold-ed25519-session:v1';
 const ED25519_STORAGE_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:index`;
 const ED25519_STORAGE_SESSION_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:session-index`;
+const inMemoryEd25519RecordsByAccount = new Map<string, ThresholdEd25519SessionRecord>();
+const inMemoryEd25519AccountBySessionId = new Map<string, string>();
 
 function getSessionStorageSafe(probeKey: string): SessionStoragePort | null {
   const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
@@ -355,6 +365,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
+  const runtimeSnapshotScope =
+    normalizeThresholdRuntimeSnapshotScope(obj.runtimeSnapshotScope) ||
+    parseThresholdRuntimeSnapshotScopeFromJwt(thresholdSessionJwt);
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
     sourceRaw === 'login' || sourceRaw === 'registration' || sourceRaw === 'manual-bootstrap'
@@ -387,6 +400,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     relayerKeyId,
     clientVerifyingShareB64u,
     participantIds,
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -406,6 +420,8 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
+  const runtimeSnapshotScope = normalizeThresholdRuntimeSnapshotScope(obj.runtimeSnapshotScope);
+  const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
     .trim()
     .toLowerCase();
@@ -444,6 +460,8 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     relayerUrl,
     relayerKeyId,
     participantIds,
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -452,6 +470,61 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     updatedAtMs,
     source,
   };
+}
+
+function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionRecord): void {
+  const accountKey = String(record.nearAccountId || '').trim();
+  const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+  if (!accountKey || !thresholdSessionId) return;
+
+  const previous = inMemoryEd25519RecordsByAccount.get(accountKey);
+  const previousSessionId = String(previous?.thresholdSessionId || '').trim();
+  if (previousSessionId && previousSessionId !== thresholdSessionId) {
+    inMemoryEd25519AccountBySessionId.delete(previousSessionId);
+  }
+
+  inMemoryEd25519RecordsByAccount.set(accountKey, record);
+  inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
+}
+
+function getInMemoryThresholdEd25519SessionRecordForAccount(
+  nearAccountIdRaw: AccountId | string,
+): ThresholdEd25519SessionRecord | null {
+  try {
+    const accountKey = String(toAccountId(nearAccountIdRaw)).trim();
+    return inMemoryEd25519RecordsByAccount.get(accountKey) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
+  thresholdSessionIdRaw: string,
+): ThresholdEd25519SessionRecord | null {
+  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+  if (!thresholdSessionId) return null;
+
+  const indexedAccountKey = String(
+    inMemoryEd25519AccountBySessionId.get(thresholdSessionId) || '',
+  ).trim();
+  if (indexedAccountKey) {
+    const indexedRecord = inMemoryEd25519RecordsByAccount.get(indexedAccountKey) || null;
+    if (
+      indexedRecord &&
+      String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      return indexedRecord;
+    }
+    inMemoryEd25519AccountBySessionId.delete(thresholdSessionId);
+  }
+
+  for (const [accountKey, record] of inMemoryEd25519RecordsByAccount.entries()) {
+    if (String(record.thresholdSessionId || '').trim() !== thresholdSessionId) continue;
+    inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
+    return record;
+  }
+
+  return null;
 }
 
 export type ThresholdEcdsaSessionLane = {
@@ -1086,6 +1159,8 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
   thresholdSessionJwt?: string;
@@ -1094,14 +1169,16 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   updatedAtMs?: number;
   source?: ThresholdEd25519SessionStoreSource;
 }): ThresholdEd25519SessionRecord | null {
-  const storage = getEd25519SessionStorageSafe();
-  if (!storage) return null;
   const record = normalizeThresholdEd25519SessionRecord({
     nearAccountId: toAccountId(args.nearAccountId),
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds: args.participantIds,
+    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
+    ...(String(args.xClientBaseB64u || '').trim()
+      ? { xClientBaseB64u: String(args.xClientBaseB64u || '').trim() }
+      : {}),
     thresholdSessionKind: String(args.thresholdSessionKind || 'jwt')
       .trim()
       .toLowerCase(),
@@ -1114,6 +1191,9 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source: args.source || 'manual-connect',
   });
+  rememberInMemoryThresholdEd25519Record(record);
+  const storage = getEd25519SessionStorageSafe();
+  if (!storage) return record;
   writeStoredRecord({
     storage,
     storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
@@ -1126,19 +1206,53 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   return record;
 }
 
+export function persistStoredThresholdEd25519SessionClientBase(args: {
+  thresholdSessionId: string;
+  xClientBaseB64u: string;
+  updatedAtMs?: number;
+}): ThresholdEd25519SessionRecord | null {
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  const xClientBaseB64u = String(args.xClientBaseB64u || '').trim();
+  if (!thresholdSessionId || !xClientBaseB64u) return null;
+  const existing = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  if (!existing) return null;
+  return upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: existing.nearAccountId,
+    rpId: existing.rpId,
+    relayerUrl: existing.relayerUrl,
+    relayerKeyId: existing.relayerKeyId,
+    participantIds: existing.participantIds,
+    ...(existing.runtimeSnapshotScope
+      ? { runtimeSnapshotScope: existing.runtimeSnapshotScope }
+      : {}),
+    xClientBaseB64u,
+    thresholdSessionKind: existing.thresholdSessionKind,
+    thresholdSessionId: existing.thresholdSessionId,
+    thresholdSessionJwt: existing.thresholdSessionJwt,
+    expiresAtMs: existing.expiresAtMs,
+    remainingUses: existing.remainingUses,
+    updatedAtMs: args.updatedAtMs ?? Date.now(),
+    source: existing.source,
+  });
+}
+
 export function getStoredThresholdEd25519SessionRecordForAccount(
   nearAccountIdRaw: AccountId | string,
 ): ThresholdEd25519SessionRecord | null {
+  const inMemory = getInMemoryThresholdEd25519SessionRecordForAccount(nearAccountIdRaw);
+  if (inMemory) return inMemory;
   const storage = getEd25519SessionStorageSafe();
   if (!storage) return null;
   try {
     const nearAccountId = toAccountId(nearAccountIdRaw);
-    return readStoredRecord({
+    const stored = readStoredRecord({
       storage,
       storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
       recordKey: String(nearAccountId),
       normalize: normalizeThresholdEd25519SessionRecord,
     });
+    if (stored) rememberInMemoryThresholdEd25519Record(stored);
+    return stored;
   } catch {
     return null;
   }
@@ -1149,6 +1263,8 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
 ): ThresholdEd25519SessionRecord | null {
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
+  const inMemory = getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+  if (inMemory) return inMemory;
   const storage = getEd25519SessionStorageSafe();
   if (!storage) return null;
   const sessionIndex = readStorageSessionIndex(storage, ED25519_STORAGE_SESSION_INDEX_KEY);
@@ -1166,6 +1282,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
         indexedRecord &&
         String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId
       ) {
+        rememberInMemoryThresholdEd25519Record(indexedRecord);
         return indexedRecord;
       }
       removeStorageSessionIndexEntry({
@@ -1193,6 +1310,7 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
       });
       if (!record) continue;
       if (String(record.thresholdSessionId || '').trim() === thresholdSessionId) {
+        rememberInMemoryThresholdEd25519Record(record);
         setStorageSessionIndexEntry({
           storage,
           storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
@@ -1209,6 +1327,15 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
 export function clearStoredThresholdEd25519SessionRecordForAccount(
   nearAccountIdRaw: AccountId | string,
 ): void {
+  const inMemory = getInMemoryThresholdEd25519SessionRecordForAccount(nearAccountIdRaw);
+  const inMemorySessionId = String(inMemory?.thresholdSessionId || '').trim();
+  if (inMemorySessionId) {
+    inMemoryEd25519AccountBySessionId.delete(inMemorySessionId);
+  }
+  try {
+    const nearAccountId = toAccountId(nearAccountIdRaw);
+    inMemoryEd25519RecordsByAccount.delete(String(nearAccountId));
+  } catch {}
   const storage = getEd25519SessionStorageSafe();
   if (!storage) return;
   try {
@@ -1224,6 +1351,8 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
 }
 
 export function clearAllStoredThresholdEd25519SessionRecords(): void {
+  inMemoryEd25519RecordsByAccount.clear();
+  inMemoryEd25519AccountBySessionId.clear();
   const storage = getEd25519SessionStorageSafe();
   if (!storage) return;
   clearAllStoredRecords({

@@ -364,7 +364,9 @@ That applies to:
 
 - `/threshold-*/sign/*`
 - `/threshold-*/internal/cosign/*`
-- `/threshold-ed25519/keygen`
+- `/threshold-ed25519/session`
+- `/threshold-ed25519/hss/*`
+- `/registration/threshold-ed25519/hss/*`
 - `/session/exchange`
 - `/wallet/unlock/*`
 
@@ -452,22 +454,23 @@ Rule:
 
 ### Current route access matrix
 
-| Route family | Representative routes | Auth plane | Gate | Metering | Current stance |
-| --- | --- | --- | --- | --- | --- |
-| Relay diagnostics and discovery | `GET /healthz`, `GET /readyz`, `GET /.well-known/webauthn`, threshold health probes | `public` | intentionally open | none | correct |
-| Public proof bootstrap routes | `POST /auth/:provider/:action`, `POST /session/exchange`, `POST /wallet/unlock/*`, `POST /sync-account/*`, `POST /threshold-ed25519/keygen`, `POST /threshold-ed25519/session`, `POST /threshold-ecdsa/bootstrap` | `public` | cryptographic proof, challenge, or attestation inside the flow | none | correct; revisit only if they become billable |
-| Public operational ingress | `GET/POST /link-device/session*`, `POST /link-device/prepare`, `POST /recover-email` | `public` | intentionally auth-free for now | none | acceptable for now; later review if they start consuming gas or privileged resources |
-| End-user session routes | `/auth/identities`, `/auth/link`, `/auth/unlink`, `/near/public-keys`, `/webauthn/authenticators`, `/session/revoke`, `/session/refresh`, `/wallet/state`, `/wallet/lock` | `user_session` | authenticated end-user app session | none | correct |
-| Threshold-session routes | `/threshold-ed25519/authorize`, `/threshold-ecdsa/authorize`, `/threshold-ecdsa/presign/*` | `threshold_session` | threshold session claims | none | correct |
-| Low-level threshold continuation routes | `/threshold-*/sign/*`, `/threshold-*/internal/cosign/*` | `public` | protocol state, client-share possession, passkey/assertion proofs, transcript binding | none | intentionally auth-free; keep proof-gated, not route-auth-gated |
-| Registration bootstrap | `POST /registration/bootstrap` | `api_credentials` | `secret_key` with `accounts.create`, or `bootstrap_token` | event | correct |
-| Publishable bootstrap grants | `POST /v1/registration/bootstrap-grants` | `api_credentials` | `publishable_key` plus origin and environment binding | none | correct |
-| API wallet reads | `GET /v1/wallets`, `GET /v1/wallets/search`, `GET /v1/wallets/:id` | `api_credentials` | `secret_key` with `wallets.read` | none | correct |
-| Relay execution spending routes | `POST /sponsorships/evm/call`, `POST <signedDelegatePath>` | `api_credentials` | `publishable_key` plus origin and environment binding | gas | correct |
-| Console public exceptions | `/console/healthz`, `/console/readyz`, `/console/billing/stripe/webhook` | `public` | explicit exception | none | correct |
-| Console context and account routes | `/console/session`, `/console/account/*`, `/console/org`, `/console/projects`, `/console/environments` | `console` | console session | none | correct |
-| Console reads with role gates | ops cockpit, audit, wallets, observability, billing reads | `console` | console session plus role requirements | none | correct |
-| Console mutations with role gates | onboarding create, project/environment mutation, members, approvals, policies, webhooks, API keys, runtime snapshots, smart-wallet config, key exports, billing writes and adjustments | `console` | console session plus role requirements | none | correct |
+| Route family                            | Representative routes                                                                                                                                                                  | Auth plane          | Gate                                                                                  | Metering | Current stance                                                                       |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
+| Relay diagnostics and discovery         | `GET /healthz`, `GET /readyz`, `GET /.well-known/webauthn`, threshold health probes                                                                                                    | `public`            | intentionally open                                                                    | none     | correct                                                                              |
+| Public proof bootstrap routes           | `POST /auth/:provider/:action`, `POST /session/exchange`, `POST /wallet/unlock/*`, `POST /sync-account/*`, `POST /threshold-ed25519/session`, `POST /threshold-ecdsa/bootstrap`        | `public`            | cryptographic proof, challenge, or attestation inside the flow                        | none     | correct                                                                              |
+| Public operational ingress              | `GET/POST /link-device/session*`, `POST /link-device/prepare`, `POST /recover-email`                                                                                                   | `public`            | intentionally auth-free for now                                                       | none     | acceptable for now; later review if they start consuming gas or privileged resources |
+| End-user session routes                 | `/auth/identities`, `/auth/link`, `/auth/unlink`, `/near/public-keys`, `/webauthn/authenticators`, `/session/revoke`, `/session/refresh`, `/wallet/state`, `/wallet/lock`              | `user_session`      | authenticated end-user app session                                                    | none     | correct                                                                              |
+| Threshold-session routes                | `/threshold-ed25519/authorize`, `/threshold-ed25519/hss/*`, `/threshold-ecdsa/authorize`, `/threshold-ecdsa/presign/*`                                                                 | `threshold_session` | threshold session claims                                                              | none     | correct                                                                              |
+| Low-level threshold continuation routes | `/threshold-*/sign/*`, `/threshold-*/internal/cosign/*`                                                                                                                                | `public`            | protocol state, client-share possession, passkey/assertion proofs, transcript binding | none     | intentionally auth-free; keep proof-gated, not route-auth-gated                      |
+| Registration bootstrap                  | `POST /registration/bootstrap`                                                                                                                                                         | `api_credentials`   | `secret_key` with `accounts.create`, or `bootstrap_token`                             | event    | correct                                                                              |
+| Registration bootstrap HSS sidecars     | `POST /registration/threshold-ed25519/hss/*`                                                                                                                                           | `api_credentials`   | `secret_key` with `accounts.create`, or `bootstrap_token`                             | none     | correct                                                                              |
+| Publishable bootstrap grants            | `POST /v1/registration/bootstrap-grants`                                                                                                                                               | `api_credentials`   | `publishable_key` plus origin and environment binding                                 | none     | correct                                                                              |
+| API wallet reads                        | `GET /v1/wallets`, `GET /v1/wallets/search`, `GET /v1/wallets/:id`                                                                                                                     | `api_credentials`   | `secret_key` with `wallets.read`                                                      | none     | correct                                                                              |
+| Relay execution spending routes         | `POST /sponsorships/evm/call`, `POST <signedDelegatePath>`                                                                                                                             | `api_credentials`   | `publishable_key` plus origin and environment binding                                 | gas      | correct                                                                              |
+| Console public exceptions               | `/console/healthz`, `/console/readyz`, `/console/billing/stripe/webhook`                                                                                                               | `public`            | explicit exception                                                                    | none     | correct                                                                              |
+| Console context and account routes      | `/console/session`, `/console/account/*`, `/console/org`, `/console/projects`, `/console/environments`                                                                                 | `console`           | console session                                                                       | none     | correct                                                                              |
+| Console reads with role gates           | ops cockpit, audit, wallets, observability, billing reads                                                                                                                              | `console`           | console session plus role requirements                                                | none     | correct                                                                              |
+| Console mutations with role gates       | onboarding create, project/environment mutation, members, approvals, policies, webhooks, API keys, runtime snapshots, smart-wallet config, key exports, billing writes and adjustments | `console`           | console session plus role requirements                                                | none     | correct                                                                              |
 
 ### Console routes
 
@@ -486,29 +489,29 @@ The canonical source of route auth and metering policy is [routeDefinitions.ts](
 
 #### Target console RBAC matrix
 
-| Route family | Target gate | Notes |
-| --- | --- | --- |
-| Account/session/profile/org context reads | Console session only | Human dashboard context reads |
-| Onboarding telemetry reads | `admin` or `ops` | Already modeled |
-| Ops cockpit reads | `owner`, `admin`, `security_admin`, or `ops` | Already modeled; onboarding telemetry stays partial for `owner` / `security_admin` viewers |
-| Audit reads | `owner`, `admin`, `security_admin`, or `ops` | Already modeled |
-| Wallet reads | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled |
-| Billing reads | `owner`, `admin`, `billing_admin`, or `ops` | Already modeled |
-| Org/project/environment mutation | `owner` or `admin` | Already modeled |
-| Team member and RBAC mutation | `owner` or `admin` | Already modeled |
-| Approval queue mutation | `owner`, `admin`, or `security_admin` | Already modeled |
-| Policy mutation | `owner`, `admin`, or `security_admin` | Already modeled |
-| API key mutation | `owner`, `admin`, or `security_admin` | Already modeled |
-| Smart-wallet config mutation | `owner`, `admin`, or `security_admin` | Already modeled |
-| Runtime snapshot publish | `owner`, `admin`, or `security_admin` | Already modeled |
-| Webhook endpoint mutation and replay | `owner`, `admin`, or `security_admin` | Already modeled |
-| Observability reads | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled |
-| Invoice generation | `admin` or `ops` | Already modeled |
-| Billing adjustments | `platform_admin` | Already modeled |
-| Billing usage event writes | `admin` or `ops` | Already modeled |
-| Enterprise isolation actions | `owner` or `admin` | Already modeled |
-| Key export approval | `admin` | Already modeled |
-| Key export request creation | `owner`, `admin`, or `security_admin` | Already modeled |
+| Route family                              | Target gate                                             | Notes                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Account/session/profile/org context reads | Console session only                                    | Human dashboard context reads                                                              |
+| Onboarding telemetry reads                | `admin` or `ops`                                        | Already modeled                                                                            |
+| Ops cockpit reads                         | `owner`, `admin`, `security_admin`, or `ops`            | Already modeled; onboarding telemetry stays partial for `owner` / `security_admin` viewers |
+| Audit reads                               | `owner`, `admin`, `security_admin`, or `ops`            | Already modeled                                                                            |
+| Wallet reads                              | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled                                                                            |
+| Billing reads                             | `owner`, `admin`, `billing_admin`, or `ops`             | Already modeled                                                                            |
+| Org/project/environment mutation          | `owner` or `admin`                                      | Already modeled                                                                            |
+| Team member and RBAC mutation             | `owner` or `admin`                                      | Already modeled                                                                            |
+| Approval queue mutation                   | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| Policy mutation                           | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| API key mutation                          | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| Smart-wallet config mutation              | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| Runtime snapshot publish                  | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| Webhook endpoint mutation and replay      | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
+| Observability reads                       | `owner`, `admin`, `security_admin`, `ops`, or `support` | Already modeled                                                                            |
+| Invoice generation                        | `admin` or `ops`                                        | Already modeled                                                                            |
+| Billing adjustments                       | `platform_admin`                                        | Already modeled                                                                            |
+| Billing usage event writes                | `admin` or `ops`                                        | Already modeled                                                                            |
+| Enterprise isolation actions              | `owner` or `admin`                                      | Already modeled                                                                            |
+| Key export approval                       | `admin`                                                 | Already modeled                                                                            |
+| Key export request creation               | `owner`, `admin`, or `security_admin`                   | Already modeled                                                                            |
 
 ### API credential routes
 
@@ -516,22 +519,23 @@ These are the routes that should use API-key auth or bootstrap credentials.
 
 #### Current real API credential routes
 
-| Route | Target auth | Target scope | Notes |
-| --- | --- | --- | --- |
-| `POST /registration/bootstrap` | secret key or bootstrap token | `accounts.create` | Existing scoped secret-key route |
-| `POST /v1/registration/bootstrap-grants` | publishable key | none | Capability is controlled by publishable key, origin, environment, quota, and payment policy |
-| `GET /v1/wallets` / `GET /v1/wallets/search` / `GET /v1/wallets/:id` | secret key | `wallets.read` | Machine wallet read surface; environment scope comes from the authenticated key and does not reuse `/console/wallets*` |
-| `POST /sponsorships/evm/call` | publishable key | none | Capability is controlled by publishable key, origin, environment, and active sponsorship policy |
-| `POST <signedDelegatePath>` | publishable key | none | When configured, treat as an auth-gated relay execution route and meter based on exact gas used or equivalent relayer spend |
+| Route                                                                | Target auth                   | Target scope      | Notes                                                                                                                       |
+| -------------------------------------------------------------------- | ----------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `POST /registration/bootstrap`                                       | secret key or bootstrap token | `accounts.create` | Existing scoped secret-key route                                                                                            |
+| `POST /registration/threshold-ed25519/hss/*`                         | secret key or bootstrap token | `accounts.create` | Registration-only Option A HSS prepare/finalize sidecars used before atomic account creation                                |
+| `POST /v1/registration/bootstrap-grants`                             | publishable key               | none              | Capability is controlled by publishable key, origin, environment, quota, and payment policy                                 |
+| `GET /v1/wallets` / `GET /v1/wallets/search` / `GET /v1/wallets/:id` | secret key                    | `wallets.read`    | Machine wallet read surface; environment scope comes from the authenticated key and does not reuse `/console/wallets*`      |
+| `POST /sponsorships/evm/call`                                        | publishable key               | none              | Capability is controlled by publishable key, origin, environment, and active sponsorship policy                             |
+| `POST <signedDelegatePath>`                                          | publishable key               | none              | When configured, treat as an auth-gated relay execution route and meter based on exact gas used or equivalent relayer spend |
 
 #### Possible future machine routes if product scope expands
 
 These do not exist today. The point is to create explicit machine endpoints instead of abusing console routes or low-level protocol routes.
 
-| Proposed route family | Target auth | Target scope | Notes |
-| --- | --- | --- | --- |
-| `POST /v1/accounts/sync` | secret key | `accounts.sync` | New machine route; do not map this scope to current `/sync-account/*` WebAuthn routes |
-| `GET /v1/billing/*` | secret key | `billing.read` | Only if non-console machine billing reads are actually needed |
+| Proposed route family    | Target auth | Target scope    | Notes                                                                                 |
+| ------------------------ | ----------- | --------------- | ------------------------------------------------------------------------------------- |
+| `POST /v1/accounts/sync` | secret key  | `accounts.sync` | New machine route; do not map this scope to current `/sync-account/*` WebAuthn routes |
+| `GET /v1/billing/*`      | secret key  | `billing.read`  | Only if non-console machine billing reads are actually needed                         |
 
 Current decision:
 
@@ -571,7 +575,8 @@ These can remain public only because they validate a challenge, attestation, or 
 - `/wallet/unlock/verify`
 - `/sync-account/options`
 - `/sync-account/verify`
-- `/threshold-ed25519/keygen`
+- `/registration/threshold-ed25519/hss/prepare`
+- `/registration/threshold-ed25519/hss/finalize`
 - `/threshold-ed25519/session`
 - `/threshold-ecdsa/bootstrap`
 
@@ -599,6 +604,8 @@ Required rule:
 Use threshold session JWTs:
 
 - `/threshold-ed25519/authorize`
+- `/threshold-ed25519/hss/prepare`
+- `/threshold-ed25519/hss/finalize`
 - `/threshold-ecdsa/authorize`
 - `/threshold-ecdsa/presign/init`
 - `/threshold-ecdsa/presign/step`

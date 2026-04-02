@@ -206,7 +206,6 @@ fn resolve_relayer_participant_id(cfg: &ThresholdSignerConfig) -> Result<u16, St
 
 fn build_authorize_body(
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     purpose: &str,
     signing_digest_32: &[u8],
     signing_payload_json: Option<&str>,
@@ -218,14 +217,6 @@ fn build_authorize_body(
         &JsValue::from_str(cfg.relayer_key_id.trim()),
     )
     .map_err(|_| "threshold-signer: failed to set authorize.relayerKeyId".to_string())?;
-    Reflect::set(
-        &auth_obj,
-        &JsValue::from_str("clientVerifyingShareB64u"),
-        &JsValue::from_str(client_verifying_share_b64u.trim()),
-    )
-    .map_err(|_| {
-        "threshold-signer: failed to set authorize.clientVerifyingShareB64u".to_string()
-    })?;
     Reflect::set(
         &auth_obj,
         &JsValue::from_str("purpose"),
@@ -261,7 +252,6 @@ fn build_authorize_body(
 
 pub(super) async fn authorize_mpc_session_id_with_threshold_session(
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     purpose: &str,
     signing_digest_32: &[u8],
     signing_payload_json: Option<&str>,
@@ -280,13 +270,7 @@ pub(super) async fn authorize_mpc_session_id_with_threshold_session(
         "omit"
     };
 
-    let auth_body = build_authorize_body(
-        cfg,
-        client_verifying_share_b64u,
-        purpose,
-        signing_digest_32,
-        signing_payload_json,
-    )?;
+    let auth_body = build_authorize_body(cfg, purpose, signing_digest_32, signing_payload_json)?;
     let auth_json = post_json(
         cfg,
         "/threshold-ed25519/authorize",
@@ -318,7 +302,6 @@ pub(super) async fn authorize_mpc_session_id_with_threshold_session(
 
 pub(super) async fn mint_threshold_session(
     cfg: &ThresholdSignerConfig,
-    client_verifying_share_b64u: &str,
     near_account_id: &str,
     credential_json: &str,
     session_policy_json: &str,
@@ -353,12 +336,6 @@ pub(super) async fn mint_threshold_session(
         &JsValue::from_str(cfg.relayer_key_id.trim()),
     )
     .map_err(|_| "threshold-signer: failed to set session.relayerKeyId".to_string())?;
-    Reflect::set(
-        &body_obj,
-        &JsValue::from_str("clientVerifyingShareB64u"),
-        &JsValue::from_str(client_verifying_share_b64u.trim()),
-    )
-    .map_err(|_| "threshold-signer: failed to set session.clientVerifyingShareB64u".to_string())?;
     Reflect::set(&body_obj, &JsValue::from_str("sessionPolicy"), &policy_val)
         .map_err(|_| "threshold-signer: failed to set session.sessionPolicy".to_string())?;
     Reflect::set(

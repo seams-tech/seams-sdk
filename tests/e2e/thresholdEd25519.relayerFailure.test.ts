@@ -13,9 +13,9 @@ import {
   corsHeadersForRoute,
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 
@@ -45,10 +45,6 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
       await page.route(`${srv.baseUrl}/threshold-ed25519/authorize`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
@@ -72,12 +68,12 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
         });
       });
 
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 
@@ -176,10 +172,6 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/finalize`, async (route) => {
         const req = route.request();
         const method = req.method().toUpperCase();
@@ -203,12 +195,12 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
         });
       });
 
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 

@@ -10,14 +10,14 @@ import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
-import { IndexedDBManager } from '../indexedDB';
-import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { restoreLocalLoginState } from './restoreLocalLoginState';
 import {
-  buildThresholdWarmSessionBootstrapPayload,
-  DUAL_KEY_ED25519_KEY_VERSION_V1,
+  buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
+  requireThresholdEd25519WarmSessionKeyVersion,
+  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  storeThresholdEd25519KeyMaterial,
 } from './thresholdWarmSessionBootstrap';
 
 export interface SyncAccountResult {
@@ -139,40 +139,20 @@ export async function syncAccount(
       allowCredentials,
       includeSecondPrfOutput: false,
     });
-    const thresholdWarmPolicyDraft = normalizedRequestedAccountId
-      ? createThresholdWarmSessionPolicyDraft(context)
-      : null;
-    let thresholdEd25519BootstrapPayload:
-      | ReturnType<typeof buildThresholdWarmSessionBootstrapPayload>
-      | null = null;
-    if (thresholdWarmPolicyDraft && normalizedRequestedAccountId) {
-      const thresholdDerivedForBootstrap =
-        await context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
-          credential,
-          nearAccountId: normalizedRequestedAccountId,
-          keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
-        });
-      if (!thresholdDerivedForBootstrap.success) {
-        throw new Error(
-          thresholdDerivedForBootstrap.error ||
-            'Failed to derive Ed25519 Option B bootstrap package for sync bootstrap',
-        );
+    let thresholdWarmPolicyDraft: ReturnType<typeof createThresholdWarmSessionPolicyDraft> = null;
+    let thresholdEd25519SessionRequest: ReturnType<
+      typeof buildThresholdWarmSessionRequestEnvelope
+    > | null = null;
+    if (normalizedRequestedAccountId) {
+      thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(context);
+      if (!thresholdWarmPolicyDraft) {
+        throw new Error('Threshold warm-session defaults are disabled for sync bootstrap');
       }
-      thresholdEd25519BootstrapPayload = buildThresholdWarmSessionBootstrapPayload({
-        clientVerifyingShareB64u: thresholdDerivedForBootstrap.clientVerifyingShareB64u,
-        keyVersion: thresholdDerivedForBootstrap.keyVersion,
-        recoveryExportCapable: thresholdDerivedForBootstrap.recoveryExportCapable,
-        publicKey: thresholdDerivedForBootstrap.publicKey,
-        recoveryPublicKey: thresholdDerivedForBootstrap.recoveryPublicKey,
-        relayerSigningShareB64u: thresholdDerivedForBootstrap.relayerSigningShareB64u,
-        relayerVerifyingShareB64u: thresholdDerivedForBootstrap.relayerVerifyingShareB64u,
+      thresholdEd25519SessionRequest = buildThresholdWarmSessionRequestEnvelope({
         nearAccountId: String(normalizedRequestedAccountId),
         rpId,
-        policy: thresholdWarmPolicyDraft,
+        requestedPolicy: thresholdWarmPolicyDraft,
       });
-      if (!thresholdEd25519BootstrapPayload.client_verifying_share_b64u) {
-        throw new Error('Derived Ed25519 Option B bootstrap package is incomplete');
-      }
     }
 
     const credentialForRelay =
@@ -181,8 +161,8 @@ export async function syncAccount(
       challengeId,
       webauthn_authentication: credentialForRelay,
     };
-    if (thresholdEd25519BootstrapPayload) {
-      verifyRequestBody.threshold_ed25519 = thresholdEd25519BootstrapPayload;
+    if (thresholdEd25519SessionRequest) {
+      verifyRequestBody.threshold_ed25519 = thresholdEd25519SessionRequest;
     }
 
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
@@ -266,68 +246,29 @@ export async function syncAccount(
       (thresholdEd25519.relayerKeyId ?? verifyJson.relayerKeyId ?? '') || '',
     ).trim();
     if (relayerKeyId) {
-      const relayerVerifyingShareB64u = String(
-        thresholdEd25519.relayerVerifyingShareB64u || '',
-      ).trim();
-      const thresholdKeyVersion = String(thresholdEd25519.keyVersion || '').trim();
-      const thresholdRecoveryExportCapable =
-        typeof thresholdEd25519.recoveryExportCapable === 'boolean'
-          ? Boolean(thresholdEd25519.recoveryExportCapable)
-          : undefined;
-      const thresholdRecoveryPublicKey = String(thresholdEd25519.recoveryPublicKey || '').trim();
-      if (
-        thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
-        thresholdRecoveryExportCapable !== true ||
-        !thresholdRecoveryPublicKey
-      ) {
-        throw new Error('sync-account/verify returned incomplete Option B recovery metadata');
-      }
-      const clientVerifyingShareB64u =
-        normalizedRequestedAccountId &&
-        String(normalizedRequestedAccountId) === String(normalizedAccountId) &&
-        thresholdEd25519BootstrapPayload?.client_verifying_share_b64u
-          ? String(thresholdEd25519BootstrapPayload.client_verifying_share_b64u || '').trim()
-          : await (async () => {
-              const derived =
-                await context.signingEngine.deriveThresholdEd25519ClientVerifyingShareFromCredential(
-                  {
-                    credential,
-                    nearAccountId: normalizedAccountId,
-                  },
-                );
-              return derived.success ? String(derived.clientVerifyingShareB64u || '').trim() : '';
-            })();
+      const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+        thresholdEd25519,
+        'sync-account/verify',
+      );
 
-      await IndexedDBManager.storeNearThresholdKeyMaterial({
+      await storeThresholdEd25519KeyMaterial({
         nearAccountId: normalizedAccountId,
         deviceNumber,
         publicKey,
         relayerKeyId,
-        recoveryPublicKey: thresholdRecoveryPublicKey,
-        artifactKind: 'near-ed25519-option-b-v1',
         keyVersion: thresholdKeyVersion,
-        recoveryExportCapable: true,
-        clientShareDerivation: 'prf_first_v1',
-        clientExportShareDerivation: 'prf_first_v1',
-        participants: buildThresholdEd25519Participants2pV1({
-          clientParticipantId: Number.isFinite(Number(thresholdEd25519.clientParticipantId))
-            ? Math.floor(Number(thresholdEd25519.clientParticipantId))
-            : null,
-          relayerParticipantId: Number.isFinite(Number(thresholdEd25519.relayerParticipantId))
-            ? Math.floor(Number(thresholdEd25519.relayerParticipantId))
-            : null,
-          relayerKeyId,
-          relayerUrl: context.configs?.network.relayer?.url,
-          clientVerifyingShareB64u,
-          relayerVerifyingShareB64u,
-          clientShareDerivation: 'prf_first_v1',
-        }),
+        clientParticipantId: Number.isFinite(Number(thresholdEd25519.clientParticipantId))
+          ? Math.floor(Number(thresholdEd25519.clientParticipantId))
+          : null,
+        relayerParticipantId: Number.isFinite(Number(thresholdEd25519.relayerParticipantId))
+          ? Math.floor(Number(thresholdEd25519.relayerParticipantId))
+          : null,
+        relayerUrl: context.configs?.network.relayer?.url,
         timestamp: Date.now(),
       });
 
       if (
         thresholdWarmPolicyDraft &&
-        thresholdEd25519BootstrapPayload?.client_verifying_share_b64u &&
         normalizedRequestedAccountId &&
         String(normalizedRequestedAccountId) === String(normalizedAccountId)
       ) {
@@ -350,6 +291,18 @@ export async function syncAccount(
             ? thresholdEd25519.participantIds
             : undefined,
           setActiveSigningSessionId: true,
+        });
+        await reconstructThresholdEd25519ClientBaseFromWarmSession({
+          context,
+          credential,
+          nearAccountId: normalizedAccountId,
+          relayerUrl,
+          relayerKeyId,
+          session: thresholdSession,
+          keyVersion: thresholdKeyVersion,
+          participantIdsHint: Array.isArray(thresholdEd25519.participantIds)
+            ? thresholdEd25519.participantIds
+            : undefined,
         });
       }
     }

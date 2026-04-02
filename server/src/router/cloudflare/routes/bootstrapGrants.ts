@@ -15,7 +15,9 @@ export async function handleBootstrapGrant(ctx: CloudflareRelayContext): Promise
     body: await readJson(ctx.request),
     headers: Object.fromEntries(ctx.request.headers.entries()),
     logger: ctx.logger,
-    origin: String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() || undefined,
+    origin:
+      String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() ||
+      undefined,
     route,
     services: {
       bootstrapGrantBroker: ctx.opts.bootstrapGrantBroker,

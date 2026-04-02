@@ -4,7 +4,7 @@ import type {
   ClientShareDerivation,
   PasskeyChainIdKeyKind,
   PasskeyChainIdKeyMaterial,
-  ThresholdEd25519_2p_V1Material,
+  ThresholdEd25519_V1Material,
 } from '../passkeyNearKeysDB.types';
 import {
   buildEnvelopeAAD,
@@ -23,7 +23,7 @@ export type {
   PasskeyChainIdKeyPayloadEnvelopeAAD,
   PasskeyNearKeyMaterial,
   PasskeyNearKeyMaterialKind,
-  ThresholdEd25519_2p_V1Material,
+  ThresholdEd25519_V1Material,
 } from '../passkeyNearKeysDB.types';
 
 export class PasskeyNearKeysDBManager {

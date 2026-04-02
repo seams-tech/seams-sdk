@@ -259,9 +259,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
-    PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (
-      req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>,
-    ) => {
+    PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, signedResult, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
@@ -279,9 +277,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOk(req.requestId);
     },
 
-    PM_REPORT_TEMPO_BROADCAST_REJECTED: async (
-      req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>,
-    ) => {
+    PM_REPORT_TEMPO_BROADCAST_REJECTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, signedResult, error } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
@@ -365,6 +361,36 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       } catch (err: unknown) {
         if (isTouchIdCancellationError(err)) {
           postToParent?.({ type: 'EXPORT_KEYPAIR_CANCELLED', nearAccountId, chain });
+          postToParent?.({ type: 'WALLET_UI_CLOSED' });
+          if (respondIfCancelled(req.requestId)) return;
+          respondOk(req.requestId);
+          return;
+        }
+        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
+        throw err;
+      }
+      if (respondIfCancelled(req.requestId)) return;
+      respondOk(req.requestId);
+    },
+
+    PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI: async (
+      req: Req<'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, preparedSession, finalizedReport, expectedPublicKey, variant, theme } =
+        req.payload!;
+      if (respondIfCancelled(req.requestId)) return;
+      try {
+        await pm.keys.exportThresholdEd25519SeedFromHssReport({
+          nearAccountId,
+          preparedSession,
+          finalizedReport,
+          expectedPublicKey,
+          options: { variant, theme },
+        });
+      } catch (err: unknown) {
+        if (isTouchIdCancellationError(err)) {
+          postToParent?.({ type: 'EXPORT_KEYPAIR_CANCELLED', nearAccountId, chain: 'near' });
           postToParent?.({ type: 'WALLET_UI_CLOSED' });
           if (respondIfCancelled(req.requestId)) return;
           respondOk(req.requestId);

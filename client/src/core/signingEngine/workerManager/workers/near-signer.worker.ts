@@ -137,7 +137,12 @@ async function initializeWasm(): Promise<void> {
   if (wasmInitPromise) return wasmInitPromise;
   wasmInitPromise = (async () => {
     try {
+      const startedAt = Date.now();
       await init({ module_or_path: wasmUrl });
+      console.info('[signer-worker]: WASM initialized', {
+        durationMs: Date.now() - startedAt,
+        wasmUrl: String(wasmUrl),
+      });
     } catch (error: unknown) {
       // Allow retry if init fails (e.g., transient path/config issues during dev).
       wasmInitPromise = null;
@@ -166,6 +171,8 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
   activeRequestId = requestId;
 
   try {
+    const startedAt = Date.now();
+    const requestType = Number((event.data as { type?: unknown })?.type);
     // Guardrail: raw PRF fields must never traverse into signer payloads
     assertNoPrfSecretsInSignerPayload(event.data);
     // Initialize WASM
@@ -177,6 +184,11 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
       id: requestId,
       ok: true,
       result: response,
+    });
+    console.info('[signer-worker]: request complete', {
+      requestId,
+      requestType,
+      durationMs: Date.now() - startedAt,
     });
   } catch (error: unknown) {
     console.error('[signer-worker]: Message processing failed:', error);

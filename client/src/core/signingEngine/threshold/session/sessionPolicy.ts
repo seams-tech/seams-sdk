@@ -4,12 +4,69 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 
 export const THRESHOLD_SESSION_POLICY_VERSION = 'threshold_session_v1' as const;
 
+export type ThresholdRuntimeSnapshotScope = {
+  orgId: string;
+  environmentId: string;
+  projectId?: string;
+};
+
+function decodeBase64UrlUtf8(input: string): string | null {
+  const normalized = String(input || '')
+    .trim()
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  if (!normalized) return null;
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4 || 4)) % 4);
+  try {
+    if (typeof atob === 'function') {
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    }
+  } catch {}
+  return null;
+}
+
+export function normalizeThresholdRuntimeSnapshotScope(
+  value: unknown,
+): ThresholdRuntimeSnapshotScope | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const scope = value as Record<string, unknown>;
+  const orgId = String(scope.orgId || '').trim();
+  const environmentId = String(scope.environmentId || '').trim();
+  const projectId = String(scope.projectId || '').trim();
+  if (!orgId || !environmentId) return undefined;
+  return {
+    orgId,
+    environmentId,
+    ...(projectId ? { projectId } : {}),
+  };
+}
+
+export function parseThresholdRuntimeSnapshotScopeFromJwt(
+  jwtRaw: string | undefined,
+): ThresholdRuntimeSnapshotScope | undefined {
+  const jwt = String(jwtRaw || '').trim();
+  if (!jwt) return undefined;
+  const parts = jwt.split('.');
+  if (parts.length < 2) return undefined;
+  const payloadJson = decodeBase64UrlUtf8(parts[1] || '');
+  if (!payloadJson) return undefined;
+  try {
+    const payload = JSON.parse(payloadJson) as { runtimeSnapshotScope?: unknown };
+    return normalizeThresholdRuntimeSnapshotScope(payload.runtimeSnapshotScope);
+  } catch {
+    return undefined;
+  }
+}
+
 export type Ed25519SessionPolicy = {
   version: typeof THRESHOLD_SESSION_POLICY_VERSION;
   nearAccountId: string;
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   /**
    * Optional signer set binding (participant ids).
    *
@@ -93,6 +150,7 @@ export async function buildEd25519SessionPolicy(params: {
   nearAccountId: string;
   rpId: string;
   relayerKeyId: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   participantIds?: number[];
   sessionId?: string;
   ttlMs?: number;
@@ -108,12 +166,14 @@ export async function buildEd25519SessionPolicy(params: {
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
+  const runtimeSnapshotScope = normalizeThresholdRuntimeSnapshotScope(params.runtimeSnapshotScope);
   const policy: Ed25519SessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     nearAccountId: params.nearAccountId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,
@@ -176,7 +236,6 @@ export function isThresholdSignerMissingKeyError(err: unknown): boolean {
   return (
     msg.includes('"code":"missing_key"') ||
     msg.includes('missing_key') ||
-    msg.includes('unknown relayerkeyid') ||
-    msg.includes('call /threshold-ed25519/keygen')
+    msg.includes('unknown relayerkeyid')
   );
 }

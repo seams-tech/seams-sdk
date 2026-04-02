@@ -1,5 +1,6 @@
 import type {
   ThresholdEd25519AuthorizeWithSessionRequest,
+  ThresholdRuntimeSnapshotScope,
   ThresholdEcdsaAuthorizeWithSessionRequest,
 } from '../core/types';
 import {
@@ -7,6 +8,8 @@ import {
   parseThresholdEcdsaSessionClaims,
 } from '../core/ThresholdService/validation';
 import type { SessionAdapter } from './relay';
+import type { RelayPublishableKeyAuthAdapter } from './relay';
+import { extractBearerCredential } from './relayApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 type PlainObject = Record<string, unknown>;
@@ -58,6 +61,46 @@ export async function validateThresholdEd25519AuthorizeInputs(input: {
     claims,
     request: requestBody as unknown as ThresholdEd25519AuthorizeWithSessionRequest,
   };
+}
+
+export type ThresholdEd25519SessionTokenInputs =
+  | {
+      ok: true;
+      claims: NonNullable<ReturnType<typeof parseThresholdEd25519SessionClaims>>;
+      body: PlainObject;
+    }
+  | AuthorizeErr;
+
+export async function validateThresholdEd25519SessionTokenInputs(input: {
+  body: unknown;
+  headers: Record<string, string | string[] | undefined>;
+  session: SessionAdapter | null | undefined;
+}): Promise<ThresholdEd25519SessionTokenInputs> {
+  const session = input.session;
+  if (!session) {
+    return {
+      ok: false,
+      code: 'sessions_disabled',
+      message: 'Sessions are not configured on this server',
+    };
+  }
+
+  const parsed = await session.parse(input.headers);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Missing or invalid threshold session token',
+    };
+  }
+
+  const claims = parseThresholdEd25519SessionClaims(parsed.claims);
+  if (!claims) {
+    return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
+  }
+
+  const body = isPlainObject(input.body) ? input.body : {};
+  return { ok: true, claims, body };
 }
 
 export type ThresholdEcdsaAuthorizeInputs =
@@ -172,6 +215,7 @@ export async function signThresholdSessionJwt(args: {
     sessionId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
+    runtimeSnapshotScope?: unknown;
   };
   fallbackParticipantIds?: unknown;
   requireJwtErrorMessage: string;
@@ -208,6 +252,19 @@ export async function signThresholdSessionJwt(args: {
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.fallbackParticipantIds);
+  const runtimeSnapshotScope = (() => {
+    const raw = args.sessionInfo?.runtimeSnapshotScope;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+    const orgId = String((raw as { orgId?: unknown }).orgId || '').trim();
+    const environmentId = String((raw as { environmentId?: unknown }).environmentId || '').trim();
+    const projectId = String((raw as { projectId?: unknown }).projectId || '').trim();
+    if (!orgId || !environmentId) return undefined;
+    return {
+      orgId,
+      environmentId,
+      ...(projectId ? { projectId } : {}),
+    };
+  })();
 
   if (
     !userId ||
@@ -236,6 +293,7 @@ export async function signThresholdSessionJwt(args: {
     rpId,
     participantIds,
     thresholdExpiresAtMs,
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     iat: nowSec,
     exp: expSec,
   });
@@ -245,5 +303,93 @@ export async function signThresholdSessionJwt(args: {
     sessionId,
     thresholdExpiresAtMs,
     participantIds,
+  };
+}
+
+export type ThresholdRuntimeSnapshotScopeResolution =
+  | { ok: true; scope?: ThresholdRuntimeSnapshotScope }
+  | {
+      ok: false;
+      status: 401 | 403 | 500;
+      code: 'route_auth_not_configured' | 'unauthorized' | 'forbidden';
+      message: string;
+    };
+
+export async function resolveThresholdRuntimeSnapshotScope(input: {
+  explicitScopeRaw: unknown;
+  runtimeEnvironmentIdRaw?: unknown;
+  headers: Headers | Record<string, string | string[] | undefined>;
+  origin?: string | null;
+  publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
+}): Promise<ThresholdRuntimeSnapshotScopeResolution> {
+  if (isPlainObject(input.explicitScopeRaw)) {
+    const orgId = String(input.explicitScopeRaw.orgId || '').trim();
+    const environmentId = String(input.explicitScopeRaw.environmentId || '').trim();
+    const projectId = String(input.explicitScopeRaw.projectId || '').trim();
+    if (orgId && environmentId) {
+      return {
+        ok: true,
+        scope: {
+          orgId,
+          environmentId,
+          ...(projectId ? { projectId } : {}),
+        },
+      };
+    }
+  }
+
+  const runtimeEnvironmentId = String(input.runtimeEnvironmentIdRaw || '').trim();
+  if (!runtimeEnvironmentId) return { ok: true };
+
+  const publishableKeyAuth = input.publishableKeyAuth || null;
+  if (!publishableKeyAuth) {
+    return {
+      ok: false,
+      status: 500,
+      code: 'route_auth_not_configured',
+      message: 'Runtime scope bootstrap requires publishable key auth on this server',
+    };
+  }
+
+  const publishableKey = extractBearerCredential(input.headers);
+  if (!publishableKey) {
+    return {
+      ok: false,
+      status: 401,
+      code: 'unauthorized',
+      message: 'Managed runtime scope bootstrap requires a publishable key',
+    };
+  }
+
+  const origin = String(input.origin || '').trim();
+  if (!origin) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'forbidden',
+      message: 'Managed runtime scope bootstrap requires an Origin header',
+    };
+  }
+
+  const authResult = await publishableKeyAuth.authenticate({
+    secret: publishableKey,
+    origin,
+    environmentId: runtimeEnvironmentId,
+  });
+  if (!authResult.ok) {
+    return {
+      ok: false,
+      status: authResult.status,
+      code: authResult.status === 403 ? 'forbidden' : 'unauthorized',
+      message: authResult.message,
+    };
+  }
+
+  return {
+    ok: true,
+    scope: {
+      orgId: authResult.principal.orgId,
+      environmentId: authResult.principal.environmentId,
+    },
   };
 }

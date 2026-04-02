@@ -39,11 +39,7 @@ export class RelayBootstrapGrantError extends Error {
   readonly code: RelayBootstrapGrantFailureCode;
   readonly status: 400 | 409;
 
-  constructor(input: {
-    code: RelayBootstrapGrantFailureCode;
-    status: 400 | 409;
-    message: string;
-  }) {
+  constructor(input: { code: RelayBootstrapGrantFailureCode; status: 400 | 409; message: string }) {
     super(input.message);
     this.name = 'RelayBootstrapGrantError';
     this.code = input.code;
@@ -92,9 +88,29 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
   };
 }
 
+const REGISTRATION_BOOTSTRAP_GRANT_ALLOWED_PATHS = new Set<string>([
+  '/registration/bootstrap',
+  '/registration/threshold-ed25519/hss/prepare',
+  '/registration/threshold-ed25519/hss/finalize',
+]);
+
+function normalizeRegistrationBootstrapGrantPath(raw: unknown): string {
+  const path = String(raw || '').trim() || '/registration/bootstrap';
+  if (!REGISTRATION_BOOTSTRAP_GRANT_ALLOWED_PATHS.has(path)) {
+    throw new RelayBootstrapGrantError({
+      code: 'invalid_body',
+      status: 400,
+      message: `Field path is not allowed for bootstrap grants: ${path}`,
+    });
+  }
+  return path;
+}
+
 function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolean {
   const origin = normalizeOrigin(input.origin);
-  const rpId = String(input.rpId || '').trim().toLowerCase();
+  const rpId = String(input.rpId || '')
+    .trim()
+    .toLowerCase();
   if (!origin || !rpId) return false;
   try {
     const host = new URL(origin).hostname.toLowerCase();
@@ -118,6 +134,7 @@ export function parseRelayBootstrapGrantIssueBody(
   const newAccountId = readRequiredString(body, 'newAccountId');
   const rpId = readRequiredString(body, 'rpId');
   const requestHashSha256 = readRequiredString(body, 'requestHashSha256');
+  const path = normalizeRegistrationBootstrapGrantPath(body.path);
   if (!isBase64UrlNoPadding(requestHashSha256)) {
     throw new RelayBootstrapGrantError({
       code: 'invalid_body',
@@ -131,6 +148,7 @@ export function parseRelayBootstrapGrantIssueBody(
     newAccountId,
     rpId,
     requestHashSha256,
+    path,
     ...(clientContext ? { clientContext } : {}),
   };
 }
@@ -182,6 +200,7 @@ export function createRelayBootstrapGrantBroker(
     newAccountId: string;
     rpId: string;
     requestHashSha256: string;
+    path?: string;
     clientContext?: RelayBootstrapGrantClientContext;
   }): Promise<RelayBootstrapGrantIssueResult> {
     const origin = normalizeOrigin(input.origin);
@@ -202,7 +221,10 @@ export function createRelayBootstrapGrantBroker(
         message: 'Invalid publishable key',
       };
     }
-    if (String(authenticatedApiKey.environmentId || '').trim() !== String(input.environmentId || '').trim()) {
+    if (
+      String(authenticatedApiKey.environmentId || '').trim() !==
+      String(input.environmentId || '').trim()
+    ) {
       return {
         ok: false,
         status: 403,
@@ -225,7 +247,9 @@ export function createRelayBootstrapGrantBroker(
       roles: ['system'],
     };
     const environments = await options.orgProjectEnv.listEnvironments(orgScope);
-    const environment = environments.find((entry) => entry.id === authenticatedApiKey.environmentId);
+    const environment = environments.find(
+      (entry) => entry.id === authenticatedApiKey.environmentId,
+    );
     if (!environment) {
       return {
         ok: false,
@@ -256,7 +280,10 @@ export function createRelayBootstrapGrantBroker(
 
     const currentNow = now();
     const currentNowMs = currentNow.getTime();
-    const rateLimitBucket = normalizeBucketKey(authenticatedApiKey.rateLimitBucket || '', 'default');
+    const rateLimitBucket = normalizeBucketKey(
+      authenticatedApiKey.rateLimitBucket || '',
+      'default',
+    );
     const quotaBucket = normalizeBucketKey(authenticatedApiKey.quotaBucket || '', 'default');
     const rateLimit = options.rateLimitsByBucket?.[rateLimitBucket] || defaultRateLimit;
     const quota = options.quotasByBucket?.[quotaBucket] || defaultQuota;
@@ -291,7 +318,7 @@ export function createRelayBootstrapGrantBroker(
       environmentId: environment.id,
       origin,
       method: 'POST',
-      path: '/registration/bootstrap',
+      path: normalizeRegistrationBootstrapGrantPath(input.path),
       requestHashSha256: input.requestHashSha256,
       ttlMs: tokenTtlMs,
       riskDecision: 'allow',
@@ -302,6 +329,8 @@ export function createRelayBootstrapGrantBroker(
       grant: {
         token: issued.token,
         expiresAt: issued.record.expiresAt,
+        orgId: authenticatedApiKey.orgId,
+        projectId: environment.projectId,
         environmentId: environment.id,
         origin,
         mode: 'free',

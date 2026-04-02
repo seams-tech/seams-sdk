@@ -27,7 +27,7 @@ test.describe('plugins/headers builders', () => {
     const csp = buildWalletCsp();
     expect(csp).toBe(
       "default-src 'self'; " +
-        "script-src 'self'; " +
+        "script-src 'self' 'wasm-unsafe-eval'; " +
         "style-src-attr 'none'; " +
         "style-src 'self'; " +
         "img-src 'self' data:; " +
@@ -45,7 +45,7 @@ test.describe('plugins/headers builders', () => {
     const csp = buildWalletCsp({ mode: 'compatible' as CspMode });
     expect(csp).toBe(
       "default-src 'self'; " +
-        "script-src 'self' 'unsafe-inline'; " +
+        "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; " +
         "font-src 'self'; " +
@@ -62,7 +62,7 @@ test.describe('plugins/headers builders', () => {
     const csp = buildWalletCsp({ allowUnsafeEval: true });
     expect(csp).toBe(
       "default-src 'self'; " +
-        "script-src 'self' 'unsafe-eval'; " +
+        "script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; " +
         "style-src-attr 'none'; " +
         "style-src 'self'; " +
         "img-src 'self' data:; " +
@@ -81,7 +81,7 @@ test.describe('plugins/headers builders', () => {
     const csp = buildWalletCsp({ frameSrc: [walletOrigin] });
     expect(csp).toBe(
       "default-src 'self'; " +
-        "script-src 'self'; " +
+        "script-src 'self' 'wasm-unsafe-eval'; " +
         "style-src-attr 'none'; " +
         "style-src 'self'; " +
         "img-src 'self' data:; " +

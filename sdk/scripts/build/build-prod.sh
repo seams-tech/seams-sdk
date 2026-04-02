@@ -51,6 +51,13 @@ else
   print_error "WASM signer build failed"
   exit 1
 fi
+print_step "Building WASM signer worker for server HSS hot path (release)..."
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release; then
+  print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+else
+  print_error "Server HSS WASM signer build failed"
+  exit 1
+fi
 popd >/dev/null
 
 print_step "Building WASM eth signer (release)..."
@@ -134,5 +141,14 @@ if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
+
+print_step "Copying server HSS WASM binary into dist/esm..."
+SERVER_HSS_WASM_DIR="$BUILD_ESM/server/wasm/near_signer/pkg-server"
+mkdir -p "$SERVER_HSS_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker_bg.wasm" "$SERVER_HSS_WASM_DIR/" 2>/dev/null; then
+  print_success "Server HSS WASM copied"
+else
+  print_warning "Server HSS WASM not found"
+fi
 
 print_success "Production build completed successfully!"

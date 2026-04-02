@@ -3,9 +3,7 @@
 // *                        HANDLER 9: SIGN NEP-413 MESSAGE                    *
 // *                                                                            *
 // ******************************************************************************
-use crate::{
-    encoders::base64_standard_encode, threshold::signer_backend::Ed25519SignerBackend, WrapKey,
-};
+use crate::{encoders::base64_standard_encode, threshold::signer_backend::Ed25519SignerBackend};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -21,10 +19,6 @@ pub struct SignNep413Request {
     pub near_public_key: String, // NEAR ed25519 public key (ed25519:<base58>)
     pub threshold: crate::types::ThresholdSignerConfig,
     pub session_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prf_first_b64u: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wrap_key_salt: Option<String>,
     /// Serialized WebAuthn authentication credential JSON (used only for relayer authorization in threshold mode).
     pub credential: Option<String>,
 }
@@ -73,7 +67,6 @@ impl SignNep413Result {
 /// * `SignNep413Result` - Contains signed message with account ID, public key, signature, and optional state
 pub async fn handle_sign_nep413_message(
     request: SignNep413Request,
-    wrap_key: WrapKey,
 ) -> Result<SignNep413Result, String> {
     debug!("RUST: Starting NEP-413 message signing");
 
@@ -117,8 +110,6 @@ pub async fn handle_sign_nep413_message(
     };
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
-        &wrap_key,
-        request.prf_first_b64u.as_deref(),
         &request.account_id,
         &request.near_public_key,
         "nep413",

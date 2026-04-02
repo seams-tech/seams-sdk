@@ -1,0 +1,483 @@
+{
+  "reportVersion": "threshold_load_run_v1",
+  "runId": "20260402-005332Z",
+  "generatedAtIso": "2026-04-02T00:53:35.615Z",
+  "results": [
+    {
+      "id": "ed25519_local_steady_smoke",
+      "status": "ok",
+      "command": "pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_steady --wallets 6 --signs-per-wallet 2 --max-concurrency 3 --profile steady",
+      "logPath": "/Users/pta/Dev/rust/simple-threshold-signer/benchmarks/threshold-load/out/20260402-005332Z/ed25519_local_steady_smoke.log",
+      "summary": {
+        "reportVersion": "threshold_load_scenario_v1",
+        "curve": "ed25519",
+        "topology": "local_2p",
+        "mode": "warm_touchless",
+        "scenarioId": "ed25519_local_steady",
+        "profile": "steady",
+        "wallets": 6,
+        "signsPerWallet": 2,
+        "maxConcurrency": 3,
+        "bootstrap": {
+          "durationMs": 39.84,
+          "sessionMintMs": {
+            "count": 6,
+            "min": 1.67,
+            "max": 18.12,
+            "mean": 9.45,
+            "p50": 3.3,
+            "p95": 18.12,
+            "p99": 18.12
+          },
+          "routeDurations": {
+            "/threshold-ed25519/session": {
+              "count": 6,
+              "min": 1.67,
+              "max": 18.12,
+              "mean": 9.45,
+              "p50": 3.3,
+              "p95": 18.12,
+              "p99": 18.12
+            }
+          }
+        },
+        "signing": {
+          "durationMs": 47.46,
+          "totalAttempts": 12,
+          "totalSuccess": 12,
+          "totalFailure": 0,
+          "successRate": 1,
+          "throughputSignsPerSec": 252.8445,
+          "endToEndMs": {
+            "count": 12,
+            "min": 9.16,
+            "max": 17.62,
+            "mean": 11.18,
+            "p50": 9.42,
+            "p95": 17.62,
+            "p99": 17.62
+          },
+          "routeDurations": {
+            "/threshold-ed25519/authorize": {
+              "count": 12,
+              "min": 3.05,
+              "max": 9.04,
+              "mean": 4.34,
+              "p50": 3.5,
+              "p95": 9.04,
+              "p99": 9.04
+            },
+            "/threshold-ed25519/sign/init": {
+              "count": 12,
+              "min": 1.14,
+              "max": 5.14,
+              "mean": 2.61,
+              "p50": 2.15,
+              "p95": 5.14,
+              "p99": 5.14
+            },
+            "/threshold-ed25519/sign/finalize": {
+              "count": 12,
+              "min": 1.18,
+              "max": 4.64,
+              "mean": 2.91,
+              "p50": 2.8,
+              "p95": 4.64,
+              "p99": 4.64
+            }
+          }
+        },
+        "system": {
+          "sampleIntervalMs": 200,
+          "durationMs": 47,
+          "cpuUserMsTotal": 71.17,
+          "cpuSystemMsTotal": 3.23,
+          "rssMb": {
+            "count": 1,
+            "min": 196.33,
+            "max": 196.33,
+            "mean": 196.33,
+            "p50": 196.33,
+            "p95": 196.33,
+            "p99": 196.33
+          },
+          "heapUsedMb": {
+            "count": 1,
+            "min": 36.11,
+            "max": 36.11,
+            "mean": 36.11,
+            "p50": 36.11,
+            "p95": 36.11,
+            "p99": 36.11
+          },
+          "eventLoopDelayMs": {
+            "count": 1,
+            "min": 20.15,
+            "max": 20.15,
+            "mean": 20.15,
+            "p50": 20.15,
+            "p95": 20.15,
+            "p99": 20.15
+          }
+        }
+      }
+    },
+    {
+      "id": "ed25519_local_burst_smoke",
+      "status": "ok",
+      "command": "pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_burst --wallets 8 --signs-per-wallet 1 --max-concurrency 8 --profile burst",
+      "logPath": "/Users/pta/Dev/rust/simple-threshold-signer/benchmarks/threshold-load/out/20260402-005332Z/ed25519_local_burst_smoke.log",
+      "summary": {
+        "reportVersion": "threshold_load_scenario_v1",
+        "curve": "ed25519",
+        "topology": "local_2p",
+        "mode": "warm_touchless",
+        "scenarioId": "ed25519_local_burst",
+        "profile": "burst",
+        "wallets": 8,
+        "signsPerWallet": 1,
+        "maxConcurrency": 8,
+        "bootstrap": {
+          "durationMs": 50.73,
+          "sessionMintMs": {
+            "count": 8,
+            "min": 20.42,
+            "max": 24.74,
+            "mean": 22.28,
+            "p50": 21.7,
+            "p95": 24.74,
+            "p99": 24.74
+          },
+          "routeDurations": {
+            "/threshold-ed25519/session": {
+              "count": 8,
+              "min": 20.42,
+              "max": 24.74,
+              "mean": 22.28,
+              "p50": 21.7,
+              "p95": 24.74,
+              "p99": 24.74
+            }
+          }
+        },
+        "signing": {
+          "durationMs": 34.55,
+          "totalAttempts": 8,
+          "totalSuccess": 8,
+          "totalFailure": 0,
+          "successRate": 1,
+          "throughputSignsPerSec": 231.5485,
+          "endToEndMs": {
+            "count": 8,
+            "min": 20.36,
+            "max": 31.86,
+            "mean": 26.19,
+            "p50": 25.29,
+            "p95": 31.86,
+            "p99": 31.86
+          },
+          "routeDurations": {
+            "/threshold-ed25519/authorize": {
+              "count": 8,
+              "min": 7.22,
+              "max": 10.82,
+              "mean": 8.53,
+              "p50": 8.23,
+              "p95": 10.82,
+              "p99": 10.82
+            },
+            "/threshold-ed25519/sign/init": {
+              "count": 8,
+              "min": 4.65,
+              "max": 20.5,
+              "mean": 12.26,
+              "p50": 11.44,
+              "p95": 20.5,
+              "p99": 20.5
+            },
+            "/threshold-ed25519/sign/finalize": {
+              "count": 8,
+              "min": 1.23,
+              "max": 6.22,
+              "mean": 3.95,
+              "p50": 4.04,
+              "p95": 6.22,
+              "p99": 6.22
+            }
+          }
+        },
+        "system": {
+          "sampleIntervalMs": 200,
+          "durationMs": 34,
+          "cpuUserMsTotal": 56.95,
+          "cpuSystemMsTotal": 2.05,
+          "rssMb": {
+            "count": 1,
+            "min": 209.08,
+            "max": 209.08,
+            "mean": 209.08,
+            "p50": 209.08,
+            "p95": 209.08,
+            "p99": 209.08
+          },
+          "heapUsedMb": {
+            "count": 1,
+            "min": 35.18,
+            "max": 35.18,
+            "mean": 35.18,
+            "p50": 35.18,
+            "p95": 35.18,
+            "p99": 35.18
+          },
+          "eventLoopDelayMs": {
+            "count": 1,
+            "min": 0,
+            "max": 0,
+            "mean": 0,
+            "p50": 0,
+            "p95": 0,
+            "p99": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "ed25519_local_steady_50",
+      "status": "ok",
+      "command": "pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_steady --wallets 50 --signs-per-wallet 2 --max-concurrency 12 --profile steady",
+      "logPath": "/Users/pta/Dev/rust/simple-threshold-signer/benchmarks/threshold-load/out/20260402-005332Z/ed25519_local_steady_50.log",
+      "summary": {
+        "reportVersion": "threshold_load_scenario_v1",
+        "curve": "ed25519",
+        "topology": "local_2p",
+        "mode": "warm_touchless",
+        "scenarioId": "ed25519_local_steady",
+        "profile": "steady",
+        "wallets": 50,
+        "signsPerWallet": 2,
+        "maxConcurrency": 12,
+        "bootstrap": {
+          "durationMs": 89.93,
+          "sessionMintMs": {
+            "count": 50,
+            "min": 1.75,
+            "max": 40.6,
+            "mean": 13.13,
+            "p50": 7.35,
+            "p95": 38.93,
+            "p99": 40.6
+          },
+          "routeDurations": {
+            "/threshold-ed25519/session": {
+              "count": 50,
+              "min": 1.75,
+              "max": 40.6,
+              "mean": 13.13,
+              "p50": 7.35,
+              "p95": 38.93,
+              "p99": 40.6
+            }
+          }
+        },
+        "signing": {
+          "durationMs": 287.34,
+          "totalAttempts": 100,
+          "totalSuccess": 100,
+          "totalFailure": 0,
+          "successRate": 1,
+          "throughputSignsPerSec": 348.0198,
+          "endToEndMs": {
+            "count": 100,
+            "min": 20.48,
+            "max": 57.23,
+            "mean": 33.41,
+            "p50": 33.62,
+            "p95": 37.61,
+            "p99": 50.89
+          },
+          "routeDurations": {
+            "/threshold-ed25519/authorize": {
+              "count": 100,
+              "min": 4.48,
+              "max": 14.42,
+              "mean": 9.73,
+              "p50": 9.64,
+              "p95": 13.09,
+              "p99": 13.68
+            },
+            "/threshold-ed25519/sign/init": {
+              "count": 100,
+              "min": 5.23,
+              "max": 37.52,
+              "mean": 11.34,
+              "p50": 10.58,
+              "p95": 16.66,
+              "p99": 31.02
+            },
+            "/threshold-ed25519/sign/finalize": {
+              "count": 100,
+              "min": 4.92,
+              "max": 15.44,
+              "mean": 11.29,
+              "p50": 11.66,
+              "p95": 14.35,
+              "p99": 14.71
+            }
+          }
+        },
+        "system": {
+          "sampleIntervalMs": 200,
+          "durationMs": 287,
+          "cpuUserMsTotal": 326.47,
+          "cpuSystemMsTotal": 10.2,
+          "rssMb": {
+            "count": 2,
+            "min": 224.78,
+            "max": 227.53,
+            "mean": 226.16,
+            "p50": 224.78,
+            "p95": 227.53,
+            "p99": 227.53
+          },
+          "heapUsedMb": {
+            "count": 2,
+            "min": 45.56,
+            "max": 49.2,
+            "mean": 47.38,
+            "p50": 45.56,
+            "p95": 49.2,
+            "p99": 49.2
+          },
+          "eventLoopDelayMs": {
+            "count": 2,
+            "min": 22.33,
+            "max": 24.92,
+            "mean": 23.63,
+            "p50": 22.33,
+            "p95": 24.92,
+            "p99": 24.92
+          }
+        }
+      }
+    },
+    {
+      "id": "ed25519_local_burst_50",
+      "status": "ok",
+      "command": "pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_burst --wallets 50 --signs-per-wallet 1 --max-concurrency 25 --profile burst",
+      "logPath": "/Users/pta/Dev/rust/simple-threshold-signer/benchmarks/threshold-load/out/20260402-005332Z/ed25519_local_burst_50.log",
+      "summary": {
+        "reportVersion": "threshold_load_scenario_v1",
+        "curve": "ed25519",
+        "topology": "local_2p",
+        "mode": "warm_touchless",
+        "scenarioId": "ed25519_local_burst",
+        "profile": "burst",
+        "wallets": 50,
+        "signsPerWallet": 1,
+        "maxConcurrency": 25,
+        "bootstrap": {
+          "durationMs": 95.57,
+          "sessionMintMs": {
+            "count": 50,
+            "min": 2.45,
+            "max": 60.5,
+            "mean": 28.04,
+            "p50": 16.87,
+            "p95": 57.59,
+            "p99": 60.5
+          },
+          "routeDurations": {
+            "/threshold-ed25519/session": {
+              "count": 50,
+              "min": 2.45,
+              "max": 60.5,
+              "mean": 28.04,
+              "p50": 16.87,
+              "p95": 57.59,
+              "p99": 60.5
+            }
+          }
+        },
+        "signing": {
+          "durationMs": 152.08,
+          "totalAttempts": 50,
+          "totalSuccess": 50,
+          "totalFailure": 0,
+          "successRate": 1,
+          "throughputSignsPerSec": 328.7743,
+          "endToEndMs": {
+            "count": 50,
+            "min": 32.37,
+            "max": 148.78,
+            "mean": 93.84,
+            "p50": 95.34,
+            "p95": 147.8,
+            "p99": 148.78
+          },
+          "routeDurations": {
+            "/threshold-ed25519/authorize": {
+              "count": 50,
+              "min": 11.47,
+              "max": 92.65,
+              "mean": 36.76,
+              "p50": 20.05,
+              "p95": 87.02,
+              "p99": 92.65
+            },
+            "/threshold-ed25519/sign/init": {
+              "count": 50,
+              "min": 5.85,
+              "max": 128.55,
+              "mean": 49.81,
+              "p50": 7.52,
+              "p95": 125.01,
+              "p99": 128.55
+            },
+            "/threshold-ed25519/sign/finalize": {
+              "count": 50,
+              "min": 2.16,
+              "max": 8.59,
+              "mean": 6.19,
+              "p50": 6.53,
+              "p95": 8.24,
+              "p99": 8.59
+            }
+          }
+        },
+        "system": {
+          "sampleIntervalMs": 200,
+          "durationMs": 152,
+          "cpuUserMsTotal": 180.47,
+          "cpuSystemMsTotal": 6.01,
+          "rssMb": {
+            "count": 1,
+            "min": 226.19,
+            "max": 226.19,
+            "mean": 226.19,
+            "p50": 226.19,
+            "p95": 226.19,
+            "p99": 226.19
+          },
+          "heapUsedMb": {
+            "count": 1,
+            "min": 44,
+            "max": 44,
+            "mean": 44,
+            "p50": 44,
+            "p95": 44,
+            "p99": 44
+          },
+          "eventLoopDelayMs": {
+            "count": 1,
+            "min": 22.2,
+            "max": 22.2,
+            "mean": 22.2,
+            "p50": 22.2,
+            "p95": 22.2,
+            "p99": 22.2
+          }
+        }
+      }
+    }
+  ]
+}

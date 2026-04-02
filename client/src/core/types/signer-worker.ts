@@ -38,10 +38,8 @@ export interface ThresholdSignerConfig {
   relayerUrl: string;
   /** Identifies which relayer-held key share to use */
   relayerKeyId: string;
-  /** Frozen Option B bootstrap key version. */
-  keyVersion?: string;
-  /** Persisted client verifying share from the Option B bootstrap package. */
-  clientVerifyingShareB64u?: string;
+  /** Option A client base share reconstructed from the ed25519-hss ceremony. */
+  xClientBaseB64u?: string;
   /** FROST participant identifier used for the client share (2P only, optional). */
   clientParticipantId?: number;
   /** FROST participant identifier used for the relayer share (2P only, optional). */
@@ -97,13 +95,15 @@ type DirectPrfFields = {
 
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
-export interface WasmDeriveThresholdEd25519BootstrapPackageRequest {
+export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
+  orgId: string;
   nearAccountId: string;
-  rpId?: string;
+  keyPurpose: string;
   keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
   sessionId: string;
   prfFirstB64u?: string;
-  recoveryServerShareB64u?: string;
 }
 export interface WasmSignTransactionsWithActionsRequest {
   rpcCall: RpcCallPayload;
@@ -114,8 +114,6 @@ export interface WasmSignTransactionsWithActionsRequest {
   intentDigest?: string;
   transactionContext?: TransactionContext;
   credential?: string;
-  prfFirstB64u?: string;
-  wrapKeySalt?: string;
 }
 
 export type WasmGenerateEphemeralNearKeypairRequest = Record<string, never>;
@@ -134,8 +132,6 @@ export interface WasmSignDelegateActionRequest {
   intentDigest?: string;
   transactionContext?: TransactionContext;
   credential?: string;
-  prfFirstB64u?: string;
-  wrapKeySalt?: string;
 }
 export interface DelegatePayload {
   senderId: string;
@@ -156,8 +152,6 @@ export interface WasmSignNep413MessageRequest {
   nonce: string;
   state?: string;
   credential?: string;
-  prfFirstB64u?: string;
-  wrapKeySalt?: string;
 }
 export interface WasmSignTransactionWithKeyPairRequest {
   nearPrivateKey: string;
@@ -170,7 +164,7 @@ export interface WasmSignTransactionWithKeyPairRequest {
 
 export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
-  | WasmDeriveThresholdEd25519BootstrapPackageRequest
+  | WasmDeriveThresholdEd25519HssClientInputsRequest
   | WasmSignTransactionsWithActionsRequest
   | WasmGenerateEphemeralNearKeypairRequest
   | WasmSignDelegateActionRequest
@@ -188,8 +182,8 @@ export type WasmDelegateSignResult = wasmModule.DelegateSignResult;
 // `InstanceType<typeof Class>`. Use the class name directly for the instance type.
 export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
   wasmModule.DeriveThresholdEd25519ClientVerifyingShareResult;
-export type WasmDeriveThresholdEd25519BootstrapPackageResult =
-  wasmModule.DeriveThresholdEd25519BootstrapPackageResult;
+export type WasmDeriveThresholdEd25519HssClientInputsResult =
+  wasmModule.DeriveThresholdEd25519HssClientInputsResult;
 
 // === WORKER REQUEST TYPE MAPPING ===
 // Define the complete type mapping for each worker request
@@ -199,10 +193,10 @@ export interface WorkerRequestTypeMap {
     request: WasmDeriveThresholdEd25519ClientVerifyingShareRequest;
     result: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
   };
-  [WorkerRequestType.DeriveThresholdEd25519BootstrapPackage]: {
-    type: WorkerRequestType.DeriveThresholdEd25519BootstrapPackage;
-    request: WasmDeriveThresholdEd25519BootstrapPackageRequest;
-    result: WasmDeriveThresholdEd25519BootstrapPackageResult;
+  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: {
+    type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs;
+    request: WasmDeriveThresholdEd25519HssClientInputsRequest;
+    result: WasmDeriveThresholdEd25519HssClientInputsResult;
   };
   [WorkerRequestType.SignTransactionsWithActions]: {
     type: WorkerRequestType.SignTransactionsWithActions;
@@ -401,7 +395,7 @@ export interface BaseWorkerResponse<TPayload = unknown> {
 // Map request types to their expected success response payloads (WASM types)
 export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
-  [WorkerRequestType.DeriveThresholdEd25519BootstrapPackage]: WasmDeriveThresholdEd25519BootstrapPackageResult;
+  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: WasmDeriveThresholdEd25519HssClientInputsResult;
   [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
   [WorkerRequestType.GenerateEphemeralNearKeypair]: WasmGenerateEphemeralNearKeypairResult;
   [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
@@ -488,7 +482,7 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
     response.type === WorkerResponseType.SignNep413MessageSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519BootstrapPackageSuccess ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess
   );
 }
@@ -503,7 +497,7 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
     response.type === WorkerResponseType.SignNep413MessageFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
-    response.type === WorkerResponseType.DeriveThresholdEd25519BootstrapPackageFailure ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsFailure ||
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure
   );
 }

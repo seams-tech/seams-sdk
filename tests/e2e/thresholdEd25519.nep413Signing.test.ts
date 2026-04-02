@@ -2,7 +2,7 @@
  * Threshold Ed25519 (2-party) — NEP-413 message signing.
  *
  * Validates that the relayer-assisted signing flow produces a NEP-413 signature that verifies under
- * the threshold group public key.
+ * the threshold public key and not under an unrelated Ed25519 key.
  */
 
 import { test, expect } from '@playwright/test';
@@ -14,9 +14,9 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_nep413_signing_digest } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -45,16 +45,12 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 
@@ -68,7 +64,6 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
         async ({ relayerUrl }) => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
@@ -106,13 +101,8 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
 
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
-            const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
-              accountId,
-              1,
-            );
 
             const operationalPublicKey = String(reg.operationalPublicKey || '');
-            const recoveryPublicKey = String(thresholdKeyMaterial?.recoveryPublicKey || '');
             const message = 'hello threshold nep413';
             const recipient = 'example.localhost';
             const state = 'test-state';
@@ -133,7 +123,6 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
               state,
               nonce: String((signed as any)?.nonce || ''),
               operationalPublicKey,
-              recoveryPublicKey,
               signerPublicKey: String(signed.publicKey || ''),
               signature: String(signed.signature || ''),
             };
@@ -149,13 +138,13 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
       }
 
       expect(String(result.operationalPublicKey)).toMatch(/^ed25519:/);
-      expect(String(result.recoveryPublicKey)).toMatch(/^ed25519:/);
       expect(String(result.signerPublicKey)).toBe(String(result.operationalPublicKey));
 
       const toPkBytes = (pk: string): Uint8Array => {
         const raw = pk.includes(':') ? pk.split(':')[1] : pk;
         return bs58.decode(raw);
       };
+      const wrongPublicKey = `ed25519:${bs58.encode(ed25519.getPublicKey(new Uint8Array(32).fill(44)))}`;
       const sigStr = String(result.signature || '');
       const sigBytes = Uint8Array.from(
         Buffer.from(sigStr, sigStr.includes('-') || sigStr.includes('_') ? 'base64url' : 'base64'),
@@ -181,9 +170,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
       expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.operationalPublicKey)))).toBe(
         true,
       );
-      expect(ed25519.verify(sigBytes, digest, toPkBytes(String(result.recoveryPublicKey)))).toBe(
-        false,
-      );
+      expect(ed25519.verify(sigBytes, digest, toPkBytes(wrongPublicKey))).toBe(false);
     } finally {
       await srv.close().catch(() => undefined);
     }

@@ -3,16 +3,19 @@ import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignInitRequest,
-  ThresholdEd25519ExportCombineRequest,
-  ThresholdEd25519ExportInitRequest,
-  ThresholdEd25519KeygenRequest,
+  ThresholdEd25519HssFinalizeWithSessionRequest,
+  ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignInitRequest,
   ThresholdEd25519SessionRequest,
 } from '../../../core/types';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
-import { validateThresholdEd25519AuthorizeInputs } from '../../commonRouterUtils';
+import {
+  resolveThresholdRuntimeSnapshotScope,
+  validateThresholdEd25519AuthorizeInputs,
+  validateThresholdEd25519SessionTokenInputs,
+} from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 
@@ -30,6 +33,7 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
   requestMeta: Record<string, unknown>,
   fn: () => Promise<T>,
 ): Promise<void> {
+  const startedAt = Date.now();
   try {
     ctx.logger.info('[threshold-ed25519] request', {
       route,
@@ -42,6 +46,7 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
       route,
       status,
       ok: result.ok,
+      durationMs: Date.now() - startedAt,
       ...(result.code ? { code: result.code } : {}),
       ...(!result.ok && result.message ? { message: result.message } : {}),
     });
@@ -50,6 +55,7 @@ async function handle<T extends { ok: boolean; code?: string; message?: string }
     ctx.logger.error('[threshold-ed25519] error', {
       route,
       message: errMessage(e),
+      durationMs: Date.now() - startedAt,
       ...(requestMeta || {}),
     });
     res.status(500).json({ ok: false, code: 'internal', message: errMessage(e) });
@@ -82,47 +88,6 @@ export function registerThresholdEd25519Routes(
     });
   });
 
-  router.post('/threshold-ed25519/keygen', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519KeygenRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/keygen',
-      {
-        nearAccountId: typeof body.nearAccountId === 'string' ? body.nearAccountId : undefined,
-        keyVersion: body.keyVersion,
-        recoveryExportCapable: body.recoveryExportCapable,
-        clientVerifyingShareB64u_len:
-          typeof body.clientVerifyingShareB64u === 'string'
-            ? body.clientVerifyingShareB64u.length
-            : undefined,
-        publicKey: body.publicKey,
-        relayerSigningShareB64u_len:
-          typeof body.relayerSigningShareB64u === 'string'
-            ? body.relayerSigningShareB64u.length
-            : undefined,
-        relayerVerifyingShareB64u_len:
-          typeof body.relayerVerifyingShareB64u === 'string'
-            ? body.relayerVerifyingShareB64u.length
-            : undefined,
-        rpId: (body as unknown as { rpId?: unknown }).rpId,
-        keygenSessionId: (body as unknown as { keygenSessionId?: unknown }).keygenSessionId,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.keygen(body);
-      },
-    );
-  });
-
   router.post('/threshold-ed25519/session', async (req: Request, res: Response) => {
     const body = (req.body || {}) as ThresholdEd25519SessionRequest;
     await handle(
@@ -132,10 +97,6 @@ export function registerThresholdEd25519Routes(
       '/threshold-ed25519/session',
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof body.clientVerifyingShareB64u === 'string'
-            ? body.clientVerifyingShareB64u.length
-            : undefined,
         sessionPolicy: body.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
       },
       async () => {
@@ -156,6 +117,23 @@ export function registerThresholdEd25519Routes(
             message: 'Sessions are not configured on this server',
           };
         }
+
+        const runtimeSnapshotScopeResolution = await resolveThresholdRuntimeSnapshotScope({
+          explicitScopeRaw: body.sessionPolicy?.runtimeSnapshotScope,
+          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
+            .runtimeEnvironmentId,
+          headers: req.headers || {},
+          origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
+          publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+        });
+        if (!runtimeSnapshotScopeResolution.ok) {
+          return {
+            ok: false,
+            code: runtimeSnapshotScopeResolution.code,
+            message: runtimeSnapshotScopeResolution.message,
+          };
+        }
+        const runtimeSnapshotScope = runtimeSnapshotScopeResolution.scope;
 
         const result = await resolved.scheme.session(body);
         if (!result.ok) return result;
@@ -197,26 +175,6 @@ export function registerThresholdEd25519Routes(
             message: 'threshold session missing participantIds',
           };
         }
-        const runtimeSnapshotScope = (() => {
-          const scope =
-            body.sessionPolicy &&
-            typeof body.sessionPolicy === 'object' &&
-            !Array.isArray(body.sessionPolicy)
-              ? ((body.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
-                  | Record<string, unknown>
-                  | undefined)
-              : undefined;
-          if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
-          const orgId = String(scope.orgId || '').trim();
-          const environmentId = String(scope.environmentId || '').trim();
-          const projectId = String(scope.projectId || '').trim();
-          if (!orgId || !environmentId) return undefined;
-          return {
-            orgId,
-            environmentId,
-            ...(projectId ? { projectId } : {}),
-          };
-        })();
         const nowSec = Math.floor(Date.now() / 1000);
         const expSec = Math.floor(thresholdExpiresAtMs / 1000);
         const token = await session.signJwt(userId, {
@@ -235,64 +193,10 @@ export function registerThresholdEd25519Routes(
         if (sessionKind === 'cookie') {
           res.set('Set-Cookie', session.buildSetCookie(token));
           const { jwt: _omit, ...rest } = result;
-          return { ...rest, ok: true };
+          return { ...rest, ok: true, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}) };
         }
 
-        return { ...result, jwt: token };
-      },
-    );
-  });
-
-  router.post('/threshold-ed25519/export/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519ExportInitRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/export/init',
-      {
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        keyVersion: typeof body.keyVersion === 'string' ? body.keyVersion : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.export.init(body);
-      },
-    );
-  });
-
-  router.post('/threshold-ed25519/export/combine', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519ExportCombineRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/export/combine',
-      {
-        exportId: typeof body.exportId === 'string' ? body.exportId : undefined,
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        keyVersion: typeof body.keyVersion === 'string' ? body.keyVersion : undefined,
-        artifactKind: typeof body.artifactKind === 'string' ? body.artifactKind : undefined,
-        clientCiphertextB64u_len:
-          typeof body.clientCiphertextB64u === 'string' ? body.clientCiphertextB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.export.combine(body);
+        return { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: token };
       },
     );
   });
@@ -307,10 +211,6 @@ export function registerThresholdEd25519Routes(
       '/threshold-ed25519/authorize',
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof body.clientVerifyingShareB64u === 'string'
-            ? body.clientVerifyingShareB64u.length
-            : undefined,
         purpose: typeof body.purpose === 'string' ? body.purpose : undefined,
         signing_digest_32_len: Array.isArray(body.signing_digest_32)
           ? body.signing_digest_32.length
@@ -349,6 +249,90 @@ export function registerThresholdEd25519Routes(
         if (!resolved.ok) return resolved;
 
         return resolved.scheme.authorize({ claims: validated.claims, request: validated.request });
+      },
+    );
+  });
+
+  router.post('/threshold-ed25519/hss/prepare', async (req: Request, res: Response) => {
+    const bodyUnknown = (req.body || {}) as unknown;
+    const body = (bodyUnknown || {}) as Record<string, unknown>;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ed25519/hss/prepare',
+      {
+        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
+        keyPurpose:
+          body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+            ? (body.context as Record<string, unknown>).keyPurpose
+            : undefined,
+        keyVersion:
+          body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+            ? (body.context as Record<string, unknown>).keyVersion
+            : undefined,
+      },
+      async () => {
+        const threshold = ctx.opts.threshold;
+        if (!threshold || !threshold.ed25519Hss) {
+          return {
+            ok: false,
+            code: 'threshold_disabled',
+            message: 'Threshold Ed25519 HSS is not configured on this server',
+          };
+        }
+        const validated = await validateThresholdEd25519SessionTokenInputs({
+          body: bodyUnknown,
+          headers: req.headers || {},
+          session: ctx.opts.session,
+        });
+        if (!validated.ok) return validated;
+        return threshold.ed25519Hss.prepareWithSession({
+          claims: validated.claims,
+          request: validated.body as unknown as ThresholdEd25519HssPrepareWithSessionRequest,
+        });
+      },
+    );
+  });
+
+  router.post('/threshold-ed25519/hss/finalize', async (req: Request, res: Response) => {
+    const bodyUnknown = (req.body || {}) as unknown;
+    const body = (bodyUnknown || {}) as Record<string, unknown>;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ed25519/hss/finalize',
+      {
+        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
+        keyPurpose:
+          body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+            ? (body.context as Record<string, unknown>).keyPurpose
+            : undefined,
+        keyVersion:
+          body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+            ? (body.context as Record<string, unknown>).keyVersion
+            : undefined,
+      },
+      async () => {
+        const threshold = ctx.opts.threshold;
+        if (!threshold || !threshold.ed25519Hss) {
+          return {
+            ok: false,
+            code: 'threshold_disabled',
+            message: 'Threshold Ed25519 HSS is not configured on this server',
+          };
+        }
+        const validated = await validateThresholdEd25519SessionTokenInputs({
+          body: bodyUnknown,
+          headers: req.headers || {},
+          session: ctx.opts.session,
+        });
+        if (!validated.ok) return validated;
+        return threshold.ed25519Hss.finalizeWithSession({
+          claims: validated.claims,
+          request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+        });
       },
     );
   });

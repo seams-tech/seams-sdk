@@ -5,15 +5,18 @@ import type {
   ThresholdEd25519AuthorizeResponse,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignInitRequest,
-  ThresholdEd25519ExportCombineRequest,
-  ThresholdEd25519ExportInitRequest,
-  ThresholdEd25519KeygenRequest,
+  ThresholdEd25519HssFinalizeWithSessionRequest,
+  ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignInitRequest,
   ThresholdEd25519SessionRequest,
 } from '../../../core/types';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
-import { validateThresholdEd25519AuthorizeInputs } from '../../commonRouterUtils';
+import {
+  resolveThresholdRuntimeSnapshotScope,
+  validateThresholdEd25519AuthorizeInputs,
+  validateThresholdEd25519SessionTokenInputs,
+} from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import {
   normalizeThresholdEd25519ParticipantIds,
@@ -43,11 +46,10 @@ export async function handleThresholdEd25519(
 
   const pathname = ctx.pathname;
   if (
-    pathname !== '/threshold-ed25519/keygen' &&
     pathname !== '/threshold-ed25519/session' &&
-    pathname !== '/threshold-ed25519/export/init' &&
-    pathname !== '/threshold-ed25519/export/combine' &&
     pathname !== '/threshold-ed25519/authorize' &&
+    pathname !== '/threshold-ed25519/hss/prepare' &&
+    pathname !== '/threshold-ed25519/hss/finalize' &&
     pathname !== '/threshold-ed25519/sign/init' &&
     pathname !== '/threshold-ed25519/sign/finalize' &&
     pathname !== '/threshold-ed25519/internal/cosign/init' &&
@@ -70,37 +72,6 @@ export async function handleThresholdEd25519(
   const ed25519 = resolved.scheme;
 
   switch (pathname) {
-    case '/threshold-ed25519/keygen': {
-      const b = (body || {}) as ThresholdEd25519KeygenRequest;
-      ctx.logger.info('[threshold-ed25519] request', {
-        route: pathname,
-        method: ctx.method,
-        nearAccountId: typeof b.nearAccountId === 'string' ? b.nearAccountId : undefined,
-        keyVersion: b.keyVersion,
-        recoveryExportCapable: b.recoveryExportCapable,
-        clientVerifyingShareB64u_len:
-          typeof b.clientVerifyingShareB64u === 'string'
-            ? b.clientVerifyingShareB64u.length
-            : undefined,
-        publicKey: b.publicKey,
-        relayerSigningShareB64u_len:
-          typeof b.relayerSigningShareB64u === 'string'
-            ? b.relayerSigningShareB64u.length
-            : undefined,
-        relayerVerifyingShareB64u_len:
-          typeof b.relayerVerifyingShareB64u === 'string'
-            ? b.relayerVerifyingShareB64u.length
-            : undefined,
-      });
-      const result = await ed25519.keygen(b);
-      ctx.logger.info('[threshold-ed25519] response', {
-        route: pathname,
-        status: thresholdEd25519StatusCode(result),
-        ok: result.ok,
-        ...(result.code ? { code: result.code } : {}),
-      });
-      return json(result, { status: thresholdEd25519StatusCode(result) });
-    }
     case '/threshold-ed25519/session': {
       const session = ctx.opts.session;
       if (!session) {
@@ -124,12 +95,27 @@ export async function handleThresholdEd25519(
         route: pathname,
         method: ctx.method,
         relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof b.clientVerifyingShareB64u === 'string'
-            ? b.clientVerifyingShareB64u.length
-            : undefined,
         sessionPolicy: b.sessionPolicy ? { version: b.sessionPolicy.version } : undefined,
       });
+
+      const runtimeSnapshotScopeResolution = await resolveThresholdRuntimeSnapshotScope({
+        explicitScopeRaw: b.sessionPolicy?.runtimeSnapshotScope,
+        runtimeEnvironmentIdRaw: (b as { runtimeEnvironmentId?: unknown }).runtimeEnvironmentId,
+        headers: ctx.request.headers,
+        origin: ctx.request.headers.get('origin'),
+        publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+      });
+      if (!runtimeSnapshotScopeResolution.ok) {
+        return json(
+          {
+            ok: false,
+            code: runtimeSnapshotScopeResolution.code,
+            message: runtimeSnapshotScopeResolution.message,
+          },
+          { status: runtimeSnapshotScopeResolution.status },
+        );
+      }
+      const runtimeSnapshotScope = runtimeSnapshotScopeResolution.scope;
 
       const result = await ed25519.session(b);
       const status = thresholdEd25519StatusCode(result);
@@ -193,26 +179,6 @@ export async function handleThresholdEd25519(
       const participantIds = normalizeThresholdEd25519ParticipantIds(
         b.sessionPolicy?.participantIds,
       ) || [...THRESHOLD_ED25519_2P_PARTICIPANT_IDS];
-      const runtimeSnapshotScope = (() => {
-        const scope =
-          b.sessionPolicy &&
-          typeof b.sessionPolicy === 'object' &&
-          !Array.isArray(b.sessionPolicy)
-            ? ((b.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
-                | Record<string, unknown>
-                | undefined)
-            : undefined;
-        if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
-        const orgId = String(scope.orgId || '').trim();
-        const environmentId = String(scope.environmentId || '').trim();
-        const projectId = String(scope.projectId || '').trim();
-        if (!orgId || !environmentId) return undefined;
-        return {
-          orgId,
-          environmentId,
-          ...(projectId ? { projectId } : {}),
-        };
-      })();
       const token = await session.signJwt(userId, {
         kind: 'threshold_ed25519_session_v1',
         sessionId,
@@ -227,7 +193,9 @@ export async function handleThresholdEd25519(
       const sessionKind = parseSessionKind(b);
 
       const res = json(
-        sessionKind === 'cookie' ? { ...result, jwt: undefined } : { ...result, jwt: token },
+        sessionKind === 'cookie'
+          ? { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: undefined }
+          : { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: token },
         { status: 200 },
       );
       if (sessionKind === 'cookie') {
@@ -235,54 +203,12 @@ export async function handleThresholdEd25519(
       }
       return res;
     }
-    case '/threshold-ed25519/export/init': {
-      const b = (body || {}) as ThresholdEd25519ExportInitRequest;
-      ctx.logger.info('[threshold-ed25519] request', {
-        route: pathname,
-        method: ctx.method,
-        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
-        keyVersion: typeof b.keyVersion === 'string' ? b.keyVersion : undefined,
-      });
-      const result = await ed25519.export.init(b);
-      ctx.logger.info('[threshold-ed25519] response', {
-        route: pathname,
-        status: thresholdEd25519StatusCode(result),
-        ok: result.ok,
-        ...(result.code ? { code: result.code } : {}),
-      });
-      return json(result, { status: thresholdEd25519StatusCode(result) });
-    }
-    case '/threshold-ed25519/export/combine': {
-      const b = (body || {}) as ThresholdEd25519ExportCombineRequest;
-      ctx.logger.info('[threshold-ed25519] request', {
-        route: pathname,
-        method: ctx.method,
-        exportId: typeof b.exportId === 'string' ? b.exportId : undefined,
-        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
-        keyVersion: typeof b.keyVersion === 'string' ? b.keyVersion : undefined,
-        artifactKind: typeof b.artifactKind === 'string' ? b.artifactKind : undefined,
-        clientCiphertextB64u_len:
-          typeof b.clientCiphertextB64u === 'string' ? b.clientCiphertextB64u.length : undefined,
-      });
-      const result = await ed25519.export.combine(b);
-      ctx.logger.info('[threshold-ed25519] response', {
-        route: pathname,
-        status: thresholdEd25519StatusCode(result),
-        ok: result.ok,
-        ...(result.code ? { code: result.code } : {}),
-      });
-      return json(result, { status: thresholdEd25519StatusCode(result) });
-    }
     case '/threshold-ed25519/authorize': {
       const b = (body || {}) as Record<string, unknown>;
       ctx.logger.info('[threshold-ed25519] request', {
         route: pathname,
         method: ctx.method,
         relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof b.clientVerifyingShareB64u === 'string'
-            ? b.clientVerifyingShareB64u.length
-            : undefined,
         purpose: typeof b.purpose === 'string' ? b.purpose : undefined,
         signing_digest_32_len: Array.isArray(b.signing_digest_32)
           ? b.signing_digest_32.length
@@ -317,6 +243,94 @@ export async function handleThresholdEd25519(
         request: validated.request,
       });
       return respond(result);
+    }
+    case '/threshold-ed25519/hss/prepare': {
+      const startedAt = Date.now();
+      const b = (body || {}) as Record<string, unknown>;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        keyPurpose:
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? (b.context as Record<string, unknown>).keyPurpose
+            : undefined,
+        keyVersion:
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? (b.context as Record<string, unknown>).keyVersion
+            : undefined,
+      });
+      const threshold = ctx.opts.threshold;
+      if (!threshold || !threshold.ed25519Hss) {
+        const result = {
+          ok: false,
+          code: 'threshold_disabled',
+          message: 'Threshold Ed25519 HSS is not configured on this server',
+        };
+        return json(result, { status: 501 });
+      }
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const result = await threshold.ed25519Hss.prepareWithSession({
+        claims: validated.claims,
+        request: validated.body as unknown as ThresholdEd25519HssPrepareWithSessionRequest,
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        durationMs: Date.now() - startedAt,
+        ...('code' in result && result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case '/threshold-ed25519/hss/finalize': {
+      const startedAt = Date.now();
+      const b = (body || {}) as Record<string, unknown>;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        keyPurpose:
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? (b.context as Record<string, unknown>).keyPurpose
+            : undefined,
+        keyVersion:
+          b.context && typeof b.context === 'object' && !Array.isArray(b.context)
+            ? (b.context as Record<string, unknown>).keyVersion
+            : undefined,
+      });
+      const threshold = ctx.opts.threshold;
+      if (!threshold || !threshold.ed25519Hss) {
+        const result = {
+          ok: false,
+          code: 'threshold_disabled',
+          message: 'Threshold Ed25519 HSS is not configured on this server',
+        };
+        return json(result, { status: 501 });
+      }
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const result = await threshold.ed25519Hss.finalizeWithSession({
+        claims: validated.claims,
+        request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        durationMs: Date.now() - startedAt,
+        ...('code' in result && result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
     }
     case '/threshold-ed25519/sign/init': {
       const b = (body || {}) as ThresholdEd25519SignInitRequest;

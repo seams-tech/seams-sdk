@@ -19,7 +19,6 @@ import {
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
-  createThresholdSigningService,
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
@@ -913,12 +912,11 @@ async function main() {
   console.log('[relay-server] initializing storage');
   await authService.initStorage();
 
+  console.log('[relay-server] warming registration runtime');
+  await authService.warmRegistrationRuntime();
+
   console.log('[relay-server] initializing threshold services');
-  const threshold = createThresholdSigningService({
-    authService,
-    thresholdEd25519KeyStore,
-    logger: console,
-  });
+  const threshold = authService.getThresholdSigningService();
 
   const prfSessionSealEnabled = parseBooleanFlag(env.PRF_SESSION_SEAL_ENABLED);
   const prfSessionSeal = (() => {
@@ -1159,12 +1157,14 @@ async function main() {
       logger: console as any,
       ensureSchema: true,
     });
-    consoleBillingPrepaidReservations = await createPostgresConsoleBillingPrepaidReservationService({
-      postgresUrl: consolePostgresUrl,
-      namespace: consoleCoreNamespace,
-      logger: console as any,
-      ensureSchema: true,
-    });
+    consoleBillingPrepaidReservations = await createPostgresConsoleBillingPrepaidReservationService(
+      {
+        postgresUrl: consolePostgresUrl,
+        namespace: consoleCoreNamespace,
+        logger: console as any,
+        ensureSchema: true,
+      },
+    );
     consoleSponsorshipSpendCaps = await createPostgresConsoleSponsorshipSpendCapService({
       postgresUrl: consolePostgresUrl,
       namespace: consoleCoreNamespace,
@@ -1378,17 +1378,17 @@ async function main() {
     const hasAllRuntimes = Boolean(billingRuntime && prepaidRuntime && sponsoredRuntime);
     const samePool = Boolean(
       billingRuntime &&
-        prepaidRuntime &&
-        sponsoredRuntime &&
-        billingRuntime.pool === prepaidRuntime.pool &&
-        billingRuntime.pool === sponsoredRuntime.pool,
+      prepaidRuntime &&
+      sponsoredRuntime &&
+      billingRuntime.pool === prepaidRuntime.pool &&
+      billingRuntime.pool === sponsoredRuntime.pool,
     );
     const sameNamespace = Boolean(
       billingRuntime &&
-        prepaidRuntime &&
-        sponsoredRuntime &&
-        billingRuntime.namespace === prepaidRuntime.namespace &&
-        billingRuntime.namespace === sponsoredRuntime.namespace,
+      prepaidRuntime &&
+      sponsoredRuntime &&
+      billingRuntime.namespace === prepaidRuntime.namespace &&
+      billingRuntime.namespace === sponsoredRuntime.namespace,
     );
     if (!hasAllRuntimes || !samePool || !sameNamespace) {
       const diagnostics = {

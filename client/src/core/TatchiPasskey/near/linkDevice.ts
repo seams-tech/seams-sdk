@@ -21,15 +21,16 @@ import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } fro
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
-import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
 import {
-  buildThresholdWarmSessionBootstrapPayload,
-  DUAL_KEY_ED25519_KEY_VERSION_V1,
+  buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
   hydrateThresholdWarmSessionFromRelay,
+  requireThresholdEd25519WarmSessionKeyVersion,
+  reconstructThresholdEd25519ClientBaseFromWarmSession,
+  storeThresholdEd25519KeyMaterial,
 } from '../thresholdWarmSessionBootstrap';
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
@@ -75,8 +76,12 @@ function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAcco
   const out: PreparedLinkDeviceLinkedAccount[] = [];
   for (const value of raw) {
     if (!isObject(value)) continue;
-    const chain = String(value.chain || '').trim().toLowerCase();
-    const chainIdKey = String(value.chainIdKey || '').trim().toLowerCase();
+    const chain = String(value.chain || '')
+      .trim()
+      .toLowerCase();
+    const chainIdKey = String(value.chainIdKey || '')
+      .trim()
+      .toLowerCase();
     const accountAddress = String(value.accountAddress || '').trim();
     const accountModel = String(value.accountModel || '').trim();
     const chainId = Number(value.chainId);
@@ -170,12 +175,17 @@ export class LinkDeviceFlow {
   private async fetchClaimedSessionFromRelay(
     sessionId: string,
   ): Promise<{ accountId: string; deviceNumber?: number } | null> {
-    const relayerUrl = stripTrailingSlashes(String(this.context?.configs?.network.relayer?.url || '').trim());
+    const relayerUrl = stripTrailingSlashes(
+      String(this.context?.configs?.network.relayer?.url || '').trim(),
+    );
     if (!relayerUrl) {
       console.debug('[LinkDeviceFlow] relay polling skipped (missing relayer url)', { sessionId });
       return null;
     }
-    const url = joinNormalizedUrl(relayerUrl, `/link-device/session/${encodeURIComponent(sessionId)}`);
+    const url = joinNormalizedUrl(
+      relayerUrl,
+      `/link-device/session/${encodeURIComponent(sessionId)}`,
+    );
     const resp = await fetch(url, { method: 'GET' });
     if (!resp.ok) {
       console.debug('[LinkDeviceFlow] relay poll response not ok', {
@@ -229,7 +239,9 @@ export class LinkDeviceFlow {
     device2PublicKey: string,
     expiresAtMs: number,
   ): Promise<void> {
-    const relayerUrl = stripTrailingSlashes(String(this.context?.configs?.network.relayer?.url || '').trim());
+    const relayerUrl = stripTrailingSlashes(
+      String(this.context?.configs?.network.relayer?.url || '').trim(),
+    );
     if (!relayerUrl) return;
     try {
       const resp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/session'), {
@@ -384,38 +396,29 @@ export class LinkDeviceFlow {
       deviceNumberHint,
     );
 
-    const derived =
-      await this.context.signingEngine.deriveThresholdEd25519BootstrapPackageFromCredential({
-        credential,
-        nearAccountId,
-        keyVersion: DUAL_KEY_ED25519_KEY_VERSION_V1,
-      });
-    if (!derived.success) {
-      throw new Error(derived.error || 'Failed to derive Ed25519 Option B bootstrap package');
-    }
-    if (!derived.clientVerifyingShareB64u) {
-      throw new Error('Failed to derive Ed25519 Option B bootstrap package');
-    }
-    const thresholdWarmPolicyDraft = createThresholdWarmSessionPolicyDraft(this.context);
-    if (!thresholdWarmPolicyDraft) {
+    const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(this.context);
+    if (!thresholdWarmPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for link-device');
     }
+    const thresholdWarmSessionRequest = buildThresholdWarmSessionRequestEnvelope({
+      nearAccountId: String(nearAccountId),
+      rpId,
+      requestedPolicy: thresholdWarmPolicy,
+    });
     const thresholdEcdsaProvisionTargets = listThresholdEcdsaProvisionTargets(
       this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
     );
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
     let thresholdEcdsaClientVerifyingShareB64u: string | null = null;
-    let thresholdEcdsaSessionPolicy:
-      | {
-          version: 'threshold_session_v1';
-          userId: string;
-          rpId: string;
-          sessionId: string;
-          participantIds?: number[];
-          ttlMs: number;
-          remainingUses: number;
-        }
-      | null = null;
+    let thresholdEcdsaSessionPolicy: {
+      version: 'threshold_session_v1';
+      userId: string;
+      rpId: string;
+      sessionId: string;
+      participantIds?: number[];
+      ttlMs: number;
+      remainingUses: number;
+    } | null = null;
     if (thresholdEcdsaPrimaryProvisionTarget) {
       const derivedEcdsa =
         await this.context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
@@ -458,18 +461,7 @@ export class LinkDeviceFlow {
         account_id: String(nearAccountId),
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         device_number: resolvedDeviceNumber,
-        threshold_ed25519: buildThresholdWarmSessionBootstrapPayload({
-          clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-          keyVersion: derived.keyVersion,
-          recoveryExportCapable: derived.recoveryExportCapable,
-          publicKey: derived.publicKey,
-          recoveryPublicKey: derived.recoveryPublicKey,
-          relayerSigningShareB64u: derived.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: derived.relayerVerifyingShareB64u,
-          nearAccountId: String(nearAccountId),
-          rpId,
-          policy: thresholdWarmPolicyDraft,
-        }),
+        threshold_ed25519: thresholdWarmSessionRequest,
         ...(thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaSessionPolicy
           ? {
               threshold_ecdsa: {
@@ -499,10 +491,7 @@ export class LinkDeviceFlow {
       : {};
     const thresholdPublicKey = ensureEd25519Prefix(String(thresholdSection.publicKey || '').trim());
     const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
-    const relayerVerifyingShareB64u = String(
-      thresholdSection.relayerVerifyingShareB64u || '',
-    ).trim();
-    if (!thresholdPublicKey || !relayerKeyId || !relayerVerifyingShareB64u) {
+    if (!thresholdPublicKey || !relayerKeyId) {
       throw new Error('link-device/prepare returned incomplete threshold key material');
     }
     const thresholdSession = isObject(thresholdSection.session) ? thresholdSection.session : null;
@@ -525,7 +514,10 @@ export class LinkDeviceFlow {
             ? { participantIds: prepareObj.thresholdEcdsa.participantIds as number[] }
             : {}),
           ...(isObject(prepareObj.thresholdEcdsa.session)
-            ? { session: prepareObj.thresholdEcdsa.session as PreparedLinkDeviceThresholdEcdsa['session'] }
+            ? {
+                session: prepareObj.thresholdEcdsa
+                  .session as PreparedLinkDeviceThresholdEcdsa['session'],
+              }
             : {}),
         }
       : null;
@@ -589,43 +581,23 @@ export class LinkDeviceFlow {
     // Store authenticator + user data first to ensure profile/account mapping exists.
     await this.storeDeviceAuthenticator({ nearPublicKey: thresholdPublicKey, credential });
 
-    const thresholdKeyVersion = String(thresholdSection.keyVersion || '').trim();
-    const thresholdRecoveryExportCapable =
-      typeof thresholdSection.recoveryExportCapable === 'boolean'
-        ? Boolean(thresholdSection.recoveryExportCapable)
-        : undefined;
-    const thresholdRecoveryPublicKey = String(thresholdSection.recoveryPublicKey || '').trim();
-    if (
-      thresholdKeyVersion !== DUAL_KEY_ED25519_KEY_VERSION_V1 ||
-      thresholdRecoveryExportCapable !== true ||
-      !thresholdRecoveryPublicKey
-    ) {
-      throw new Error('link-device/prepare returned incomplete Option B recovery metadata');
-    }
-    await IndexedDBManager.storeNearThresholdKeyMaterial({
+    const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
+      thresholdSection,
+      'link-device/prepare',
+    );
+    await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       deviceNumber: resolvedDeviceNumber,
       publicKey: thresholdPublicKey,
       relayerKeyId,
-      recoveryPublicKey: thresholdRecoveryPublicKey,
-      artifactKind: 'near-ed25519-option-b-v1',
       keyVersion: thresholdKeyVersion,
-      recoveryExportCapable: true,
-      clientShareDerivation: 'prf_first_v1',
-      clientExportShareDerivation: 'prf_first_v1',
-      participants: buildThresholdEd25519Participants2pV1({
-        clientParticipantId: Number.isFinite(Number(thresholdSection.clientParticipantId))
-          ? Math.floor(Number(thresholdSection.clientParticipantId))
-          : null,
-        relayerParticipantId: Number.isFinite(Number(thresholdSection.relayerParticipantId))
-          ? Math.floor(Number(thresholdSection.relayerParticipantId))
-          : null,
-        relayerKeyId,
-        relayerUrl,
-        clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-        relayerVerifyingShareB64u,
-        clientShareDerivation: 'prf_first_v1',
-      }),
+      clientParticipantId: Number.isFinite(Number(thresholdSection.clientParticipantId))
+        ? Math.floor(Number(thresholdSection.clientParticipantId))
+        : null,
+      relayerParticipantId: Number.isFinite(Number(thresholdSection.relayerParticipantId))
+        ? Math.floor(Number(thresholdSection.relayerParticipantId))
+        : null,
+      relayerUrl,
       timestamp: Date.now(),
     });
     await hydrateThresholdWarmSessionFromRelay({
@@ -635,12 +607,24 @@ export class LinkDeviceFlow {
       rpId,
       relayerKeyId,
       credential,
-      requestedPolicy: thresholdWarmPolicyDraft,
+      requestedPolicy: thresholdWarmPolicy,
       session: thresholdSession,
       participantIdsHint: Array.isArray(thresholdSection.participantIds)
         ? thresholdSection.participantIds
         : undefined,
       setActiveSigningSessionId: true,
+    });
+    await reconstructThresholdEd25519ClientBaseFromWarmSession({
+      context: this.context,
+      credential,
+      nearAccountId,
+      relayerUrl,
+      relayerKeyId,
+      session: thresholdSession,
+      keyVersion: thresholdKeyVersion,
+      participantIdsHint: Array.isArray(thresholdSection.participantIds)
+        ? thresholdSection.participantIds
+        : undefined,
     });
     if (
       thresholdEcdsaSection &&

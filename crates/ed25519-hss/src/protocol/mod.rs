@@ -11,7 +11,7 @@ pub use succinct_hss::{
     PrimeOrderSuccinctHssGarblerSession, PrimeOrderSuccinctHssGarblerSessionState,
     PrimeOrderSuccinctHssOutputDelivery, PrimeOrderSuccinctHssOutputOpeners,
     PrimeOrderSuccinctHssPreparedSession, PrimeOrderSuccinctHssRunBindings,
-    PrimeOrderSuccinctHssServerOutputOpener, PrimeOrderSuccinctHssSharedRuntime,
-    PrimeOrderSuccinctHssSharedRuntimeState, PrimeOrderSuccinctHssWireMessage,
-    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
+    PrimeOrderSuccinctHssSeedOutputOpener, PrimeOrderSuccinctHssServerOutputOpener,
+    PrimeOrderSuccinctHssSharedRuntime, PrimeOrderSuccinctHssSharedRuntimeState,
+    PrimeOrderSuccinctHssWireMessage, PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };

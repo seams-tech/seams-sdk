@@ -12,7 +12,6 @@ import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/post
 import {
   toThresholdEcdsaPrefixFromBase,
   toThresholdEcdsaSessionPrefix,
-  parseThresholdEd25519ExportSessionRecord,
   toThresholdEd25519SessionPrefix,
   toThresholdEd25519PrefixFromBase,
   parseThresholdEd25519MpcSessionRecord,
@@ -75,17 +74,6 @@ export type ThresholdEd25519CoordinatorSigningSessionRecord = {
   relayerVerifyingSharesById: Record<string, string>;
 };
 
-export type ThresholdEd25519ExportSessionRecord = {
-  expiresAtMs: number;
-  relayerKeyId: string;
-  nearAccountId: string;
-  rpId: string;
-  recoveryPublicKey: string;
-  keyVersion: string;
-  artifactKind: 'near-ed25519-option-b-v1';
-  participantIds: number[];
-};
-
 export interface ThresholdEd25519SessionStore {
   putMpcSession(id: string, record: ThresholdEd25519MpcSessionRecord, ttlMs: number): Promise<void>;
   takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null>;
@@ -103,24 +91,16 @@ export interface ThresholdEd25519SessionStore {
   takeCoordinatorSigningSession(
     id: string,
   ): Promise<ThresholdEd25519CoordinatorSigningSessionRecord | null>;
-  putExportSession(
-    id: string,
-    record: ThresholdEd25519ExportSessionRecord,
-    ttlMs: number,
-  ): Promise<void>;
-  takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null>;
 }
 
 class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
   private readonly map = new Map<string, { value: unknown; expiresAtMs: number }>();
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly exportPrefix: string;
 
   constructor(input: { keyPrefix?: string }) {
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.exportPrefix = `${this.keyPrefix}export:`;
   }
 
   private key(id: string): string {
@@ -129,10 +109,6 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
-  }
-
-  private exportKey(id: string): string {
-    return `${this.exportPrefix}${id}`;
   }
 
   private getRaw(key: string): unknown | null {
@@ -197,30 +173,12 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     this.map.delete(key);
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
-
-  async putExportSession(
-    id: string,
-    record: ThresholdEd25519ExportSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const key = this.exportKey(id);
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    this.map.set(key, { value: record, expiresAtMs });
-  }
-
-  async takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null> {
-    const key = this.exportKey(id);
-    const raw = this.getRaw(key);
-    this.map.delete(key);
-    return parseThresholdEd25519ExportSessionRecord(raw);
-  }
 }
 
 class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly exportPrefix: string;
 
   constructor(input: { url: string; token: string; keyPrefix?: string }) {
     const url = toOptionalTrimmedString(input.url);
@@ -230,7 +188,6 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     this.client = new UpstashRedisRestClient({ url, token });
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.exportPrefix = `${this.keyPrefix}export:`;
   }
 
   private key(id: string): string {
@@ -239,10 +196,6 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
-  }
-
-  private exportKey(id: string): string {
-    return `${this.exportPrefix}${id}`;
   }
 
   async putMpcSession(
@@ -297,30 +250,12 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     const raw = await this.client.getdelJson(this.coordKey(k));
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
-
-  async putExportSession(
-    id: string,
-    record: ThresholdEd25519ExportSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing exportSessionId');
-    await this.client.setJson(this.exportKey(k), record, ttlMs);
-  }
-
-  async takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const raw = await this.client.getdelJson(this.exportKey(k));
-    return parseThresholdEd25519ExportSessionRecord(raw);
-  }
 }
 
 class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
   private readonly client: RedisTcpClient;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
-  private readonly exportPrefix: string;
 
   constructor(input: { redisUrl: string; keyPrefix?: string }) {
     const url = toOptionalTrimmedString(input.redisUrl);
@@ -328,7 +263,6 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     this.client = new RedisTcpClient(url);
     this.keyPrefix = toThresholdEd25519SessionPrefix(input.keyPrefix);
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
-    this.exportPrefix = `${this.keyPrefix}export:`;
   }
 
   private key(id: string): string {
@@ -337,10 +271,6 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
-  }
-
-  private exportKey(id: string): string {
-    return `${this.exportPrefix}${id}`;
   }
 
   async putMpcSession(
@@ -395,23 +325,6 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const raw = await redisGetdelJson(this.client, this.coordKey(k));
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
   }
-
-  async putExportSession(
-    id: string,
-    record: ThresholdEd25519ExportSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing exportSessionId');
-    await redisSetJson(this.client, this.exportKey(k), record, ttlMs);
-  }
-
-  async takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const raw = await redisGetdelJson(this.client, this.exportKey(k));
-    return parseThresholdEd25519ExportSessionRecord(raw);
-  }
 }
 
 class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionStore {
@@ -424,7 +337,7 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
   }
 
   private async insertOrUpdate(input: {
-    kind: 'mpc' | 'signing' | 'coordinator' | 'export';
+    kind: 'mpc' | 'signing' | 'coordinator';
     sessionId: string;
     record: unknown;
     expiresAtMs: number;
@@ -454,22 +367,6 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
         RETURNING record_json
       `,
       [this.namespace, kind, sessionId, nowMs],
-    );
-    return rows[0]?.record_json ?? null;
-  }
-
-  private async takeRowExport(
-    sessionId: string,
-  ): Promise<unknown | null> {
-    const pool = await this.poolPromise;
-    const nowMs = Date.now();
-    const { rows } = await pool.query(
-      `
-        DELETE FROM threshold_ed25519_sessions
-        WHERE namespace = $1 AND kind = 'export' AND session_id = $2 AND expires_at_ms > $3
-        RETURNING record_json
-      `,
-      [this.namespace, sessionId, nowMs],
     );
     return rows[0]?.record_json ?? null;
   }
@@ -536,25 +433,6 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     if (!k) return null;
     const raw = await this.takeRow('coordinator', k);
     return parseThresholdEd25519CoordinatorSigningSessionRecord(raw);
-  }
-
-  async putExportSession(
-    id: string,
-    record: ThresholdEd25519ExportSessionRecord,
-    ttlMs: number,
-  ): Promise<void> {
-    const k = id;
-    if (!k) throw new Error('Missing exportSessionId');
-    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
-    const storedRecord = { ...record, expiresAtMs };
-    await this.insertOrUpdate({ kind: 'export', sessionId: k, record: storedRecord, expiresAtMs });
-  }
-
-  async takeExportSession(id: string): Promise<ThresholdEd25519ExportSessionRecord | null> {
-    const k = id;
-    if (!k) return null;
-    const raw = await this.takeRowExport(k);
-    return parseThresholdEd25519ExportSessionRecord(raw);
   }
 }
 

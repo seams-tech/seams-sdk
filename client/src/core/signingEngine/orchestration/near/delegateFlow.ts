@@ -15,7 +15,7 @@ import {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -35,6 +35,7 @@ import {
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
+import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -44,6 +45,8 @@ import {
 import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
+import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
+import { ActionPhase, ActionStatus } from '@/core/types/sdkSentEvents';
 
 export async function signDelegateAction({
   ctx,
@@ -99,12 +102,23 @@ export async function signDelegateAction({
     throw new Error('TouchConfirm bridge not available for delegate signing');
   }
 
-  const { thresholdKeyMaterial, thresholdWrapKeySalt } = await resolveNearSigningMaterials({
+  const signingStartedAt = performance.now();
+  onEvent?.({
+    step: 2,
+    phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+    status: ActionStatus.PROGRESS,
+    message: 'Loading threshold signing state...',
+  });
+  const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
     deviceNumber,
     operationLabel: 'delegate signing',
     warnings,
+  });
+  console.debug('[SigningEngine][near][delegate] signing materials resolved', {
+    nearAccountId,
+    durationMs: Math.round(performance.now() - signingStartedAt),
   });
   const signingContext = validateAndPrepareDelegateSigningContext({
     nearAccountId,
@@ -134,6 +148,12 @@ export async function signDelegateAction({
         operationLabel: 'delegate signing',
       })
     : null;
+  onEvent?.({
+    step: 2,
+    phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+    status: ActionStatus.PROGRESS,
+    message: 'Opening confirmation prompt...',
+  });
   const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
 
   const confirmation = await touchConfirm.orchestrateSigningConfirmation({
@@ -219,16 +239,51 @@ export async function signDelegateAction({
       '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
     );
   }
+  const canonicalThresholdSessionId =
+    String(
+      getCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey)?.policy
+        .sessionId || sessionId,
+    ).trim() || sessionId;
+  const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
+    ...(onEvent
+      ? {
+          onProgress: (message: string) => {
+            onEvent({
+              step: 4,
+              phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+              status: ActionStatus.PROGRESS,
+              message,
+            });
+          },
+        }
+      : {}),
+    ctx,
+    thresholdSessionId: canonicalThresholdSessionId,
+    thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+    relayerUrl: signingContext.threshold.relayerUrl,
+    relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+    nearAccountId,
+    keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
+    participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map((p) => p.id),
+    prfFirstB64u,
+  });
+  console.debug('[SigningEngine][near][delegate] threshold client base ready', {
+    nearAccountId,
+    thresholdSessionId: canonicalThresholdSessionId,
+    durationMs: Math.round(performance.now() - signingStartedAt),
+  });
 
   const requestPayload: Omit<WasmSignDelegateActionRequest, 'sessionId'> = {
     rpcCall: resolvedRpcCall,
     createdAt: Date.now(),
     ...buildNearWorkerSigningEnvelope({
-      prfFirstB64u,
-      wrapKeySalt: thresholdWrapKeySalt,
       threshold: {
         relayerUrl: signingContext.threshold.relayerUrl,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        xClientBaseB64u:
+          xClientBaseB64u ||
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(canonicalThresholdSessionId)
+            ?.xClientBaseB64u,
         thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
         thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
       },
@@ -290,7 +345,7 @@ type ThresholdDelegateSigningContext = {
   delegatePublicKeyStr: string;
   threshold: {
     relayerUrl: string;
-    thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
+    thresholdKeyMaterial: ThresholdEd25519_V1Material;
     thresholdSessionCacheKey: string;
     thresholdSessionKind: 'jwt' | 'cookie';
     thresholdSessionJwt: string | undefined;
@@ -301,7 +356,7 @@ function validateAndPrepareDelegateSigningContext(args: {
   nearAccountId: string;
   relayerUrl: string;
   rpId: string | null;
-  thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
+  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
   providedDelegatePublicKey: DelegateActionInput['publicKey'];
   warnings: string[];
 }): ThresholdDelegateSigningContext {

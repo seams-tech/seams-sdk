@@ -2,6 +2,7 @@ import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   ThresholdEd25519KeyStoreConfigInput,
+  ThresholdRuntimeSnapshotScope,
 } from './types';
 import {
   THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
@@ -32,7 +33,7 @@ export type WebAuthnCredentialBindingRecord = {
   clientParticipantId?: number;
   relayerParticipantId?: number;
   participantIds?: number[];
-  relayerVerifyingShareB64u?: string;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -101,9 +102,6 @@ function parseWebAuthnCredentialBindingRecord(
     typeof (raw as { recoveryExportCapable?: unknown }).recoveryExportCapable === 'boolean'
       ? Boolean((raw as { recoveryExportCapable?: unknown }).recoveryExportCapable)
       : undefined;
-  const relayerVerifyingShareB64u = toOptionalTrimmedString(
-    (raw as { relayerVerifyingShareB64u?: unknown }).relayerVerifyingShareB64u,
-  );
   const clientParticipantIdRaw = (raw as { clientParticipantId?: unknown }).clientParticipantId;
   const relayerParticipantIdRaw = (raw as { relayerParticipantId?: unknown }).relayerParticipantId;
   const clientParticipantId =
@@ -120,6 +118,26 @@ function parseWebAuthnCredentialBindingRecord(
         .map((v) => (typeof v === 'number' ? v : Number(v)))
         .filter((n) => Number.isFinite(n) && n >= 1)
         .map((n) => Math.floor(n))
+    : null;
+  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
+  const runtimeSnapshotScope = isObject(runtimeSnapshotScopeRaw)
+    ? (() => {
+        const orgId = toOptionalTrimmedString(
+          (runtimeSnapshotScopeRaw as { orgId?: unknown }).orgId,
+        );
+        const environmentId = toOptionalTrimmedString(
+          (runtimeSnapshotScopeRaw as { environmentId?: unknown }).environmentId,
+        );
+        if (!orgId || !environmentId) return null;
+        const projectId = toOptionalTrimmedString(
+          (runtimeSnapshotScopeRaw as { projectId?: unknown }).projectId,
+        );
+        return {
+          orgId,
+          environmentId,
+          ...(projectId ? { projectId } : {}),
+        } satisfies ThresholdRuntimeSnapshotScope;
+      })()
     : null;
 
   return {
@@ -139,7 +157,7 @@ function parseWebAuthnCredentialBindingRecord(
       ? { relayerParticipantId: Math.floor(relayerParticipantId) }
       : {}),
     ...(participantIds && participantIds.length ? { participantIds } : {}),
-    ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
+    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };

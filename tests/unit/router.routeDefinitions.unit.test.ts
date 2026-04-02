@@ -38,7 +38,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'link_device_prepare',
   'email_recovery_prepare',
   'threshold_ed25519_healthz',
-  'threshold_ed25519_keygen',
   'threshold_ed25519_session',
   'threshold_ed25519_sign_init',
   'threshold_ed25519_sign_finalize',
@@ -161,7 +160,9 @@ test.describe('route definition scaffolding', () => {
     }
 
     const continuationRoutes = routes.filter((route) =>
-      THRESHOLD_CONTINUATION_ROUTE_IDS.includes(route.id as (typeof THRESHOLD_CONTINUATION_ROUTE_IDS)[number]),
+      THRESHOLD_CONTINUATION_ROUTE_IDS.includes(
+        route.id as (typeof THRESHOLD_CONTINUATION_ROUTE_IDS)[number],
+      ),
     );
     expect(continuationRoutes.map((route) => route.id).sort()).toEqual(
       [...THRESHOLD_CONTINUATION_ROUTE_IDS].sort(),
@@ -190,9 +191,10 @@ test.describe('route definition scaffolding', () => {
 
     for (const route of routes) {
       if (route.auth.plane === 'api_credentials') continue;
-      expect('scopes' in route.auth, `non-api_credentials route references scopes: ${route.id}`).toBe(
-        false,
-      );
+      expect(
+        'scopes' in route.auth,
+        `non-api_credentials route references scopes: ${route.id}`,
+      ).toBe(false);
     }
 
     const declaredServices = new Set(ROUTE_SERVICE_KEYS);
@@ -362,9 +364,7 @@ test.describe('route definition scaffolding', () => {
       roles: ['admin', 'ops'],
     });
 
-    const billingOverview = routes.find(
-      (route) => route.id === 'console_billing_overview_get',
-    );
+    const billingOverview = routes.find((route) => route.id === 'console_billing_overview_get');
     expect(billingOverview?.auth).toMatchObject({
       plane: 'console',
       roles: ['owner', 'admin', 'billing_admin', 'ops'],

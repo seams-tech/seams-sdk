@@ -7,7 +7,10 @@ import {
   clearAllCachedEd25519AuthSessions,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 
-class MemorySessionStorage implements Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'> {
+class MemorySessionStorage implements Pick<
+  Storage,
+  'getItem' | 'setItem' | 'removeItem' | 'clear'
+> {
   private readonly store = new Map<string, string>();
 
   getItem(key: string): string | null {
@@ -32,8 +35,11 @@ test.describe('near signing session selection', () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
     const sessionStorage = new MemorySessionStorage();
-    (globalThis as { sessionStorage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'> }).sessionStorage =
-      sessionStorage;
+    (
+      globalThis as {
+        sessionStorage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'>;
+      }
+    ).sessionStorage = sessionStorage;
 
     let seenSessionId = '';
     let seenThresholdSessionJwt = '';
@@ -78,26 +84,18 @@ test.describe('near signing session selection', () => {
                 getNearThresholdKeyMaterial: async () => ({
                   nearAccountId: 'alice.testnet',
                   deviceNumber: 1,
-                  kind: 'threshold_ed25519_2p_v1' as const,
+                  kind: 'threshold_ed25519_v1' as const,
                   publicKey: 'ed25519:threshold-public-key',
-                  recoveryPublicKey: 'ed25519:recovery-public-key',
-                  artifactKind: 'near-ed25519-option-b-v1' as const,
                   relayerKeyId: 'ed25519:relayer-key-id',
-                  keyVersion: 'option-b-v1',
-                  recoveryExportCapable: true as const,
-                  clientShareDerivation: 'prf_first_v1' as const,
-                  clientExportShareDerivation: 'prf_first_v1' as const,
-                  wrapKeySalt: 'wrap-key-salt-b64u',
+                  keyVersion: 'threshold-ed25519-hss-v1',
                   timestamp: Date.now(),
                   participants: [
-                    { id: 1, role: 'client', shareDerivation: 'prf_first_v1' as const },
+                    { id: 1, role: 'client' },
                     {
                       id: 2,
                       role: 'relayer',
                       relayerUrl: 'https://relay.example.test',
                       relayerKeyId: 'ed25519:relayer-key-id',
-                      verifyingShareB64u: 'relayer-verifying-share-b64u',
-                      shareDerivation: 'derived_master_secret_v1' as const,
                     },
                   ],
                 }),

@@ -1,4 +1,3 @@
-import { toAccountId } from '@/core/types/accountIds';
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -7,22 +6,20 @@ import {
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
   type ThresholdPrfFirstCachePort,
-  type ThresholdSigningKeyOpsPort,
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
+import type { ThresholdRuntimeSnapshotScope } from '../session/sessionPolicy';
 import {
   buildAndCacheEd25519AuthSession,
   mintEd25519AuthSession,
 } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519AuthSession';
-import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../ed25519WrapKeySalt';
 
 /**
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
  * - collect a WebAuthn assertion with challenge = `sessionPolicyDigest32`
- * - extract `PRF.first` (base64url) and derive `clientVerifyingShareB64u` via the signer worker
  * - mint a relay threshold session token via `POST /threshold-ed25519/session` (lite)
  *
  * Notes:
@@ -32,12 +29,16 @@ import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../ed25519WrapKeySalt';
 export async function connectEd25519Session(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  signingKeyOps: ThresholdSigningKeyOpsPort;
   prfFirstCache?: ThresholdPrfFirstCachePort;
   relayerUrl: string;
   relayerKeyId: string;
   nearAccountId: string;
   participantIds?: number[];
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   sessionKind?: Ed25519SessionKind;
   sessionId?: string;
   ttlMs?: number;
@@ -49,7 +50,6 @@ export async function connectEd25519Session(args: {
   expiresAtMs?: number;
   remainingUses?: number;
   jwt?: string;
-  clientVerifyingShareB64u?: string;
   ecdsaClientVerifyingShareB64u?: string;
   code?: string;
   message?: string;
@@ -64,6 +64,7 @@ export async function connectEd25519Session(args: {
     nearAccountId: args.nearAccountId,
     rpId,
     relayerKeyId: args.relayerKeyId,
+    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
     ttlMs: args.ttlMs,
@@ -86,55 +87,6 @@ export async function connectEd25519Session(args: {
       message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
     };
   }
-
-  const storedClientVerifyingShareB64u = await (async (): Promise<string> => {
-    const getNearThresholdKeyMaterial = (
-      args.indexedDB as ThresholdIndexedDbPort & {
-        getNearThresholdKeyMaterial?: (nearAccountId: string) => Promise<{
-          participants?: Array<{ role?: string; verifyingShareB64u?: string }>;
-        } | null>;
-      }
-    ).getNearThresholdKeyMaterial;
-    if (typeof getNearThresholdKeyMaterial !== 'function') return '';
-    try {
-      const material = await getNearThresholdKeyMaterial(args.nearAccountId);
-      const participants = Array.isArray(material?.participants) ? material.participants : [];
-      for (const participant of participants) {
-        if (String(participant?.role || '').trim() !== 'client') continue;
-        const verifyingShareB64u = String(participant?.verifyingShareB64u || '').trim();
-        if (verifyingShareB64u) return verifyingShareB64u;
-      }
-    } catch {}
-    return '';
-  })();
-
-  // 2) Resolve the client verifying share. Option B accounts persist the bootstraped client share
-  // directly, so login/session reconnect must reuse it instead of deriving a mismatched share.
-  const sessionId = policy.sessionId;
-  let clientVerifyingShareB64u = storedClientVerifyingShareB64u;
-  if (!clientVerifyingShareB64u) {
-    const derive = await args.signingKeyOps.deriveThresholdEd25519ClientVerifyingShare({
-      sessionId,
-      nearAccountId: toAccountId(args.nearAccountId),
-      prfFirstB64u,
-      wrapKeySalt: THRESHOLD_ED25519_WRAP_KEY_SALT_B64U,
-    });
-    if (!derive.success) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: derive.error || 'Failed to derive client verifying share',
-      };
-    }
-    clientVerifyingShareB64u = derive.clientVerifyingShareB64u;
-  }
-  if (!clientVerifyingShareB64u) {
-    return {
-      ok: false,
-      code: 'internal',
-      message: 'Failed to resolve client verifying share',
-    };
-  }
   let ecdsaClientVerifyingShareB64u: string | undefined;
   if (args.workerCtx) {
     try {
@@ -155,14 +107,17 @@ export async function connectEd25519Session(args: {
     relayerUrl: args.relayerUrl,
     sessionKind,
     relayerKeyId: args.relayerKeyId,
-    clientVerifyingShareB64u,
     sessionPolicy: policy,
     webauthnAuthentication: credential,
+    runtimeEnvironmentId: args.runtimeScopeBootstrap?.environmentId,
+    publishableKey: args.runtimeScopeBootstrap?.publishableKey,
   });
   if (!minted.ok) {
     return minted;
   }
-  const resolvedSessionId = String(minted.sessionId || sessionId).trim() || sessionId;
+  const requestedSessionId = String(policy.sessionId || '').trim();
+  const resolvedSessionId =
+    String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
 
   // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
   // dispense the client share seed without prompting again (wallet-origin only).
@@ -184,6 +139,7 @@ export async function connectEd25519Session(args: {
     rpId,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.relayerKeyId,
+    ...(minted.runtimeSnapshotScope ? { runtimeSnapshotScope: minted.runtimeSnapshotScope } : {}),
     participantIds: args.participantIds,
     sessionKind,
     sessionId: resolvedSessionId,
@@ -201,7 +157,6 @@ export async function connectEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,
-    clientVerifyingShareB64u,
     ecdsaClientVerifyingShareB64u,
   };
 }

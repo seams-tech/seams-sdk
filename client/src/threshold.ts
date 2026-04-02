@@ -1,5 +1,4 @@
 // Stable threshold/lite session APIs.
-export { keygenEd25519 } from './core/signingEngine/threshold/workflows/keygenEd25519';
 export { keygenEcdsa } from './core/signingEngine/threshold/workflows/keygenEcdsa';
 export { connectEd25519Session } from './core/signingEngine/threshold/workflows/connectEd25519Session';
 export { connectEcdsaSession } from './core/signingEngine/threshold/workflows/connectEcdsaSession';
@@ -20,5 +19,4 @@ export {
   type EcdsaSessionPolicy,
 } from './core/signingEngine/threshold/session/sessionPolicy';
 export { PRF_FIRST_SALT_V1, PRF_SECOND_SALT_V1 } from './core/signingEngine/threshold/prfSalts';
-export { computeThresholdEd25519KeygenIntentDigest } from './utils/intentDigest';
 export { computeThresholdEcdsaKeygenIntentDigest } from './utils/intentDigest';

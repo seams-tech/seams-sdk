@@ -33,8 +33,13 @@ import {
   bootstrapEcdsaSessionValue,
 } from './api/thresholdLifecycle/thresholdSessionActivation';
 import {
+  buildThresholdEd25519SeedExportArtifactFromHssReport as buildThresholdEd25519SeedExportArtifactFromHssReportValue,
+  completeThresholdEd25519HssClientCeremony as completeThresholdEd25519HssClientCeremonyValue,
   deriveThresholdEd25519ClientVerifyingShareFromCredential as deriveThresholdEd25519ClientVerifyingShareFromCredentialValue,
-  deriveThresholdEd25519BootstrapPackageFromCredential as deriveThresholdEd25519BootstrapPackageFromCredentialValue,
+  deriveThresholdEd25519HssClientInputsFromCredential as deriveThresholdEd25519HssClientInputsFromCredentialValue,
+  openThresholdEd25519HssSeedOutput as openThresholdEd25519HssSeedOutputValue,
+  prepareThresholdEd25519HssClientCeremonyFromCredential as prepareThresholdEd25519HssClientCeremonyFromCredentialValue,
+  runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
 } from './api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   persistThresholdEcdsaBootstrapChainAccount as persistThresholdEcdsaBootstrapChainAccountValue,
@@ -45,6 +50,7 @@ import {
   clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountValue,
   getThresholdEcdsaKeyRefForSigning as getThresholdEcdsaKeyRefForSigningValue,
   getThresholdEcdsaSessionRecordForSigning as getThresholdEcdsaSessionRecordForSigningValue,
+  getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreSource,
@@ -91,7 +97,11 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEd25519CommitQueue';
-import { exportKeypairWithUI as exportKeypairWithUIValue } from './api/recovery/privateKeyExportRecovery';
+import {
+  exportKeypairWithUI as exportKeypairWithUIValue,
+  exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue,
+} from './api/recovery/privateKeyExportRecovery';
+import { getLastLoggedInDeviceNumber } from './signers/webauthn/device/getDeviceNumber';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
@@ -108,6 +118,15 @@ import {
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
+import { deriveThresholdEd25519HssClientInputsWasm } from './signers/wasm/nearSignerWasm';
+import {
+  prepareThresholdEd25519HssClientRequestWasm,
+  prepareThresholdEd25519HssSessionWasm,
+} from './signers/wasm/nearSignerHssWasm';
+import {
+  THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+  THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+} from './orchestration/near/shared/ensureThresholdEd25519HssClientBase';
 import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
@@ -442,9 +461,228 @@ export class SigningEngine {
       theme?: 'dark' | 'light';
     },
   ): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    return exportKeypairWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
+    return this.exportKeypairWithUIInternal({
       nearAccountId,
       options,
+    });
+  }
+
+  private async exportKeypairWithUIInternal(args: {
+    nearAccountId: AccountId;
+    options: {
+      chain: 'near' | 'evm' | 'tempo';
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
+    if (args.options.chain === 'near') {
+      const optionAResult = await this.tryExportNearEd25519OptionAFromWarmSession({
+        nearAccountId: args.nearAccountId,
+        options: {
+          variant: args.options.variant,
+          theme: args.options.theme,
+        },
+      });
+      if (optionAResult) return optionAResult;
+      throw new Error('NEAR Ed25519 export now requires the canonical Option A HSS export path');
+    }
+
+    return exportKeypairWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
+      nearAccountId: args.nearAccountId,
+      options: args.options,
+    });
+  }
+
+  exportNearEd25519SeedArtifactWithUI(args: {
+    nearAccountId: AccountId;
+    seedB64u: string;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
+    return exportNearEd25519SeedArtifactWithUIValue(
+      this.orchestrationDeps.privateKeyExportRecoveryDeps,
+      args,
+    );
+  }
+
+  async exportThresholdEd25519SeedFromHssReport(args: {
+    nearAccountId: AccountId;
+    preparedSession: Parameters<
+      typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue
+    >[0]['preparedSession'];
+    finalizedReport: Parameters<
+      typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue
+    >[0]['finalizedReport'];
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
+    const artifactResult = await buildThresholdEd25519SeedExportArtifactFromHssReportValue({
+      preparedSession: args.preparedSession,
+      finalizedReport: args.finalizedReport,
+      expectedPublicKey: args.expectedPublicKey,
+    });
+    if (!artifactResult.success || !artifactResult.artifact) {
+      throw new Error(
+        artifactResult.error || 'Failed to build Option A Ed25519 seed export artifact',
+      );
+    }
+    return exportNearEd25519SeedArtifactWithUIValue(
+      this.orchestrationDeps.privateKeyExportRecoveryDeps,
+      {
+        nearAccountId: args.nearAccountId,
+        seedB64u: artifactResult.artifact.seedB64u,
+        expectedPublicKey: artifactResult.artifact.publicKey,
+        options: args.options,
+      },
+    );
+  }
+
+  private async tryExportNearEd25519OptionAFromWarmSession(args: {
+    nearAccountId: AccountId;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> } | null> {
+    const nearAccountId = toAccountId(args.nearAccountId);
+    const sessionRecord = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
+    const orgId = String(sessionRecord?.runtimeSnapshotScope?.orgId || '').trim();
+    const environmentId = String(sessionRecord?.runtimeSnapshotScope?.environmentId || '').trim();
+    const thresholdSessionId = String(sessionRecord?.thresholdSessionId || '').trim();
+    const thresholdSessionJwt = String(sessionRecord?.thresholdSessionJwt || '').trim();
+    const relayerUrl = String(sessionRecord?.relayerUrl || '').trim();
+    const relayerKeyId = String(sessionRecord?.relayerKeyId || '').trim();
+    const participantIds = Array.isArray(sessionRecord?.participantIds)
+      ? sessionRecord.participantIds.map((value) => Number(value))
+      : [];
+    const hasCanonicalRuntimeScope = Boolean(orgId && environmentId);
+
+    const requireOptionAExportPrerequisite = (condition: boolean, message: string): void => {
+      if (condition) return;
+      if (hasCanonicalRuntimeScope) {
+        throw new Error(message);
+      }
+    };
+
+    if (
+      !orgId ||
+      !environmentId ||
+      !thresholdSessionId ||
+      !thresholdSessionJwt ||
+      !relayerUrl ||
+      !relayerKeyId ||
+      participantIds.length === 0
+    ) {
+      requireOptionAExportPrerequisite(
+        false,
+        'Missing canonical Option A Ed25519 export session prerequisites',
+      );
+      return null;
+    }
+
+    const warmStatus = await getWarmSigningSessionStatusForKindValue(
+      this.orchestrationDeps.signingSessionStateDeps,
+      {
+        nearAccountId,
+        signerKind: 'threshold-ed25519',
+      },
+    );
+    if (
+      !warmStatus ||
+      warmStatus.status !== 'active' ||
+      String(warmStatus.sessionId || '').trim() !== thresholdSessionId
+    ) {
+      requireOptionAExportPrerequisite(
+        false,
+        'Missing active warm threshold session for Option A Ed25519 export',
+      );
+      return null;
+    }
+
+    const deviceNumber = await getLastLoggedInDeviceNumber(
+      nearAccountId,
+      this.orchestrationDeps.indexedDB.clientDB,
+    ).catch(() => null as number | null);
+    if (deviceNumber == null) {
+      requireOptionAExportPrerequisite(false, 'Missing device number for Option A Ed25519 export');
+      return null;
+    }
+
+    const thresholdKeyMaterial = await this.orchestrationDeps.indexedDB
+      .getNearThresholdKeyMaterial(nearAccountId, deviceNumber)
+      .catch(() => null);
+    const keyVersion = String(thresholdKeyMaterial?.keyVersion || '').trim();
+    const expectedPublicKey = String(thresholdKeyMaterial?.publicKey || '').trim();
+    if (!keyVersion || !expectedPublicKey) {
+      requireOptionAExportPrerequisite(
+        false,
+        'Missing canonical public key material for Option A Ed25519 export',
+      );
+      return null;
+    }
+
+    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
+      sessionId: thresholdSessionId,
+    });
+    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
+      requireOptionAExportPrerequisite(
+        false,
+        'Missing warm PRF material for Option A Ed25519 export',
+      );
+      return null;
+    }
+
+    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
+      context: {
+        orgId,
+        nearAccountId,
+        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+        keyVersion,
+        participantIds,
+        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      },
+    });
+
+    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
+      sessionId: `${thresholdSessionId}:hss-export-client-inputs`,
+      orgId,
+      nearAccountId,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion,
+      participantIds: preparedSession.participantIds,
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
+
+    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+      preparedSession,
+      clientInputs,
+    });
+
+    const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
+      relayerUrl,
+      thresholdSessionJwt,
+      relayerKeyId,
+      preparedSession,
+      clientRequest,
+    });
+    if (!completed.success || !completed.finalizedReport) {
+      throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
+    }
+
+    return await this.exportThresholdEd25519SeedFromHssReport({
+      nearAccountId,
+      preparedSession,
+      finalizedReport: completed.finalizedReport,
+      expectedPublicKey,
+      options: args.options,
     });
   }
 
@@ -728,13 +966,46 @@ export class SigningEngine {
     );
   }
 
-  deriveThresholdEd25519BootstrapPackageFromCredential(
-    args: Parameters<typeof deriveThresholdEd25519BootstrapPackageFromCredentialValue>[1],
-  ): ReturnType<typeof deriveThresholdEd25519BootstrapPackageFromCredentialValue> {
-    return deriveThresholdEd25519BootstrapPackageFromCredentialValue(
+  deriveThresholdEd25519HssClientInputsFromCredential(
+    args: Parameters<typeof deriveThresholdEd25519HssClientInputsFromCredentialValue>[1],
+  ): ReturnType<typeof deriveThresholdEd25519HssClientInputsFromCredentialValue> {
+    return deriveThresholdEd25519HssClientInputsFromCredentialValue(
       this.orchestrationDeps.thresholdEd25519LifecycleDeps,
       args,
     );
+  }
+
+  prepareThresholdEd25519HssClientCeremonyFromCredential(
+    args: Parameters<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialValue>[1],
+  ): ReturnType<typeof prepareThresholdEd25519HssClientCeremonyFromCredentialValue> {
+    return prepareThresholdEd25519HssClientCeremonyFromCredentialValue(
+      this.orchestrationDeps.thresholdEd25519LifecycleDeps,
+      args,
+    );
+  }
+
+  completeThresholdEd25519HssClientCeremony(
+    args: Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0],
+  ): ReturnType<typeof completeThresholdEd25519HssClientCeremonyValue> {
+    return completeThresholdEd25519HssClientCeremonyValue(args);
+  }
+
+  runThresholdEd25519HssCeremonyWithSession(
+    args: Parameters<typeof runThresholdEd25519HssCeremonyWithSessionValue>[0],
+  ): ReturnType<typeof runThresholdEd25519HssCeremonyWithSessionValue> {
+    return runThresholdEd25519HssCeremonyWithSessionValue(args);
+  }
+
+  openThresholdEd25519HssSeedOutput(
+    args: Parameters<typeof openThresholdEd25519HssSeedOutputValue>[0],
+  ): ReturnType<typeof openThresholdEd25519HssSeedOutputValue> {
+    return openThresholdEd25519HssSeedOutputValue(args);
+  }
+
+  buildThresholdEd25519SeedExportArtifactFromHssReport(
+    args: Parameters<typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue>[0],
+  ): ReturnType<typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue> {
+    return buildThresholdEd25519SeedExportArtifactFromHssReportValue(args);
   }
 
   async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
@@ -819,6 +1090,8 @@ export type SigningEnginePublic = Pick<
   | 'getAuthenticationCredentialsSerialized'
   | 'extractCosePublicKey'
   | 'exportKeypairWithUI'
+  | 'exportNearEd25519SeedArtifactWithUI'
+  | 'exportThresholdEd25519SeedFromHssReport'
   | 'signTransactionWithKeyPair'
   | 'generateEphemeralNearKeypair'
   | 'connectEd25519Session'
@@ -836,6 +1109,11 @@ export type SigningEnginePublic = Pick<
   | 'clearWarmSigningSessions'
   | 'clearThresholdEcdsaCommitQueue'
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
-  | 'deriveThresholdEd25519BootstrapPackageFromCredential'
+  | 'deriveThresholdEd25519HssClientInputsFromCredential'
+  | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
+  | 'completeThresholdEd25519HssClientCeremony'
+  | 'runThresholdEd25519HssCeremonyWithSession'
+  | 'openThresholdEd25519HssSeedOutput'
+  | 'buildThresholdEd25519SeedExportArtifactFromHssReport'
   | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'
 >;

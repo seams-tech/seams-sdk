@@ -25,7 +25,7 @@ SecureConfirm challenges bind fresh blockchain data to prevent replay attacks. T
 
 The challenge input is `sha256(domain_separator || user_id || rp_id_lower || block_height_le || block_hash || intent_digest_32? || session_policy_digest_32?)`. `rp_id` is lowercased to match on-chain derivation and `block_height` is encoded as little-endian bytes.
 
-**Intent digest binding:** when present, `intent_digest_32` is the canonical digest of the signing payload (tx/delegate/NEP-413) or threshold keygen intent. For threshold signing, the relayer recomputes this digest from the `signingPayload` and rejects any `signing_digest_32` that does not match the SecureConfirm‑bound intent.
+**Intent digest binding:** when present, `intent_digest_32` is the canonical digest of the signing payload (tx/delegate/NEP-413) or another flow-specific auth intent. For threshold signing, the relayer recomputes this digest from the `signingPayload` and rejects any `signing_digest_32` that does not match the SecureConfirm‑bound intent.
 
 **SecureConfirm security properties:**
 

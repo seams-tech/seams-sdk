@@ -22,6 +22,21 @@ export {
   secp256k1PublicKey33ToEthereumAddress,
 } from './core/ThresholdService/ethSignerWasm';
 export type { ServerEip1559UnsignedTx } from './core/ThresholdService/ethSignerWasm';
+export {
+  ensureThresholdEd25519HssWasm,
+  deriveThresholdEd25519HssServerInputs,
+  deriveThresholdEd25519HssPublicKey,
+  finalizeThresholdEd25519HssServerCeremony,
+  openThresholdEd25519HssClientOutput,
+  openThresholdEd25519HssSeedOutput,
+  openThresholdEd25519HssServerOutput,
+  prepareThresholdEd25519HssServerCeremony,
+  prepareThresholdEd25519HssSession,
+  prepareThresholdEd25519HssClientRequest,
+  prepareThresholdEd25519HssServerMessage,
+  evaluateThresholdEd25519HssResult,
+  finalizeThresholdEd25519HssReport,
+} from './core/ThresholdService/ed25519HssWasm';
 export type {
   ThresholdEd25519KeyStore,
   ThresholdEd25519KeyRecord,
@@ -88,9 +103,7 @@ export {
   type RecoveryAuthorityTargetMode,
   type RecoveryAuthorityTargetResolution,
 } from './core/recoveryAuthority';
-export {
-  RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID,
-} from './core/recoveryAuthoritySponsorship';
+export { RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID } from './core/recoveryAuthoritySponsorship';
 export {
   buildRecoveryAuthorityAuthorizationDigest,
   deriveRecoveryAuthorityAuthorizationNonce,

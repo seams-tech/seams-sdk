@@ -10,7 +10,6 @@ use crate::types::{
     wasm_to_json::WasmSignedDelegate,
     AccountId, DelegateAction, PublicKey, Signature, SignedDelegate, ThresholdSignerConfig,
 };
-use crate::WrapKey;
 use bs58;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -33,10 +32,6 @@ pub struct SignDelegateActionRequest {
     pub rpc_call: RpcCallPayload,
     pub session_id: String,
     pub created_at: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prf_first_b64u: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wrap_key_salt: Option<String>,
     pub threshold: ThresholdSignerConfig,
     pub delegate: DelegatePayload,
     pub confirmation_config: Option<ConfirmationConfig>,
@@ -87,7 +82,6 @@ impl DelegateSignResult {
 /// Handles session-based delegate action signing (NEP-461).
 pub async fn handle_sign_delegate_action(
     request: SignDelegateActionRequest,
-    wrap_key: WrapKey,
 ) -> Result<DelegateSignResult, String> {
     let mut logs: Vec<String> = Vec::new();
 
@@ -277,8 +271,6 @@ pub async fn handle_sign_delegate_action(
     };
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
-        &wrap_key,
-        request.prf_first_b64u.as_deref(),
         &request.rpc_call.near_account_id,
         &transaction_context.near_public_key_str,
         "nep461_delegate",

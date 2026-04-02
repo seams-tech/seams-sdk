@@ -116,11 +116,15 @@ async function withMockedMostRecentProjection<T>(
         }
       : { chainAccounts: [] };
   nearDb.getNearThresholdKeyMaterial = async () => ({
-    kind: 'threshold_ed25519_2p_v1',
+    kind: 'threshold_ed25519_v1',
     publicKey: 'ed25519:threshold',
     relayerKeyId: 'rk-1',
-    participants: [{ id: 1 }, { id: 2 }],
-    wrapKeySalt: 'AQ',
+    keyVersion: 'threshold-ed25519-hss-v1',
+    timestamp: Date.now(),
+    participants: [
+      { id: 1, role: 'client' },
+      { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
+    ],
   });
   try {
     return await fn();
@@ -411,9 +415,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
-      expect(String(capturedConnectArgs?.['sessionId'] || '')).not.toBe(
-        'stored-ed25519-session-1',
-      );
+      expect(String(capturedConnectArgs?.['sessionId'] || '')).not.toBe('stored-ed25519-session-1');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
     }

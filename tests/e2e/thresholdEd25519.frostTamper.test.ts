@@ -14,9 +14,9 @@ import { startExpressRouter } from '../relayer/helpers';
 import {
   createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
-  installThresholdEd25519OptionBBootstrapMocks,
+  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519OptionBBootstrap,
+  persistThresholdEd25519RegistrationMaterial,
   proxyPostJsonAndMutate,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
@@ -53,10 +53,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/init`, async (route) => {
         await proxyPostJsonAndMutate(route, (json) => {
           const commitmentsById = json?.commitmentsById;
@@ -79,12 +75,12 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
         });
       });
 
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 
@@ -180,10 +176,6 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/keygen`, async (route) => {
-        await route.fallback();
-      });
-
       await page.route(`${srv.baseUrl}/threshold-ed25519/sign/finalize`, async (route) => {
         await proxyPostJsonAndMutate(route, (json) => {
           const sharesById = json?.relayerSignatureSharesById;
@@ -197,12 +189,12 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
         });
       });
 
-      await installThresholdEd25519OptionBBootstrapMocks(page, {
+      await installThresholdEd25519RegistrationMocks(page, {
         relayerBaseUrl: srv.baseUrl,
         keysOnChain,
         nonceByPublicKey,
         onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519OptionBBootstrap({ threshold, ...bootstrap });
+          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
       });
 

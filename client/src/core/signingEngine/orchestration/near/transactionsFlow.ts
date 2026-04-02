@@ -19,7 +19,7 @@ import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { TransactionContext } from '@/core/types/rpc';
-import type { ThresholdEd25519_2p_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -33,6 +33,7 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
+import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -42,6 +43,8 @@ import {
 import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
+import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
+import { ActionPhase, ActionStatus } from '@/core/types/sdkSentEvents';
 
 function normalizeTransactionSigningRequest(args: {
   nearAccountId: string;
@@ -106,12 +109,23 @@ export async function signTransactionsWithActions({
   const relayerUrl = ctx.relayerUrl;
 
   const warnings: string[] = [];
-  const { thresholdKeyMaterial, thresholdWrapKeySalt } = await resolveNearSigningMaterials({
+  const signingStartedAt = performance.now();
+  onEvent?.({
+    step: 2,
+    phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+    status: ActionStatus.PROGRESS,
+    message: 'Loading threshold signing state...',
+  });
+  const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
     deviceNumber,
     operationLabel: 'signing',
     warnings,
+  });
+  console.debug('[SigningEngine][near][transactions] signing materials resolved', {
+    nearAccountId,
+    durationMs: Math.round(performance.now() - signingStartedAt),
   });
   console.debug('[signTransactionsWithActions] threshold signing', {
     nearAccountId,
@@ -173,6 +187,12 @@ export async function signTransactionsWithActions({
         operationLabel: 'transaction signing',
       })
     : null;
+  onEvent?.({
+    step: 2,
+    phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+    status: ActionStatus.PROGRESS,
+    message: 'Opening confirmation prompt...',
+  });
   const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
   const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
     ctx: { touchConfirm },
@@ -242,15 +262,50 @@ export async function signTransactionsWithActions({
       '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
     );
   }
+  const canonicalThresholdSessionId =
+    String(
+      getCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey)?.policy
+        .sessionId || sessionId,
+    ).trim() || sessionId;
+  const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
+    ...(onEvent
+      ? {
+          onProgress: (message: string) => {
+            onEvent({
+              step: 4,
+              phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+              status: ActionStatus.PROGRESS,
+              message,
+            });
+          },
+        }
+      : {}),
+    ctx,
+    thresholdSessionId: canonicalThresholdSessionId,
+    thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+    relayerUrl: signingContext.threshold.relayerUrl,
+    relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+    nearAccountId,
+    keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
+    participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map((p) => p.id),
+    prfFirstB64u,
+  });
+  console.debug('[SigningEngine][near][transactions] threshold client base ready', {
+    nearAccountId,
+    thresholdSessionId: canonicalThresholdSessionId,
+    durationMs: Math.round(performance.now() - signingStartedAt),
+  });
   const requestPayload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> = {
     rpcCall: resolvedRpcCall,
     createdAt: Date.now(),
     ...buildNearWorkerSigningEnvelope({
-      prfFirstB64u,
-      wrapKeySalt: thresholdWrapKeySalt,
       threshold: {
         relayerUrl: signingContext.threshold.relayerUrl,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        xClientBaseB64u:
+          xClientBaseB64u ||
+          getStoredThresholdEd25519SessionRecordByThresholdSessionId(canonicalThresholdSessionId)
+            ?.xClientBaseB64u,
         thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
         thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
       },
@@ -342,7 +397,7 @@ type ThresholdSigningContext = {
   signingNearPublicKeyStr: string;
   threshold: {
     relayerUrl: string;
-    thresholdKeyMaterial: ThresholdEd25519_2p_V1Material;
+    thresholdKeyMaterial: ThresholdEd25519_V1Material;
     thresholdSessionCacheKey: string;
     thresholdSessionKind: 'jwt' | 'cookie';
     thresholdSessionJwt: string | undefined;
@@ -353,7 +408,7 @@ function validateAndPrepareSigningContext(args: {
   nearAccountId: string;
   relayerUrl: string;
   rpId: string | null;
-  thresholdKeyMaterial: ThresholdEd25519_2p_V1Material | null;
+  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
 }): ThresholdSigningContext {
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
   if (!thresholdKeyMaterial) {

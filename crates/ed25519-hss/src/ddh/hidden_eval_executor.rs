@@ -142,6 +142,7 @@ pub struct DdhHiddenEvalInputBundles {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHiddenEvalOutputBundles {
+    pub canonical_seed: DdhHssInputShareBundle,
     pub x_client_base: DdhHssInputShareBundle,
     pub x_relayer_base_left: DdhHssTransportBundle,
     pub x_relayer_base_right: DdhHssTransportBundle,
@@ -1088,6 +1089,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
         backend,
         constant_pool,
         &program.stages[6],
+        &d_bits,
         &hash_core.final_words,
         &tau_client_bits_local,
         &input_bundles.server_inputs.tau_relayer_bits.left_words,
@@ -1227,6 +1229,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         backend,
         constant_pool,
         &program.stages[6],
+        &d_bits,
         &hash_core.final_words,
         &tau_client_bits_local,
         &input_bundles.server_inputs.tau_relayer_bits.left_words,
@@ -1387,6 +1390,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         backend,
         constant_pool,
         &program.stages[6],
+        &d_bits,
         &hash_core.final_words,
         &tau_client_bits_local,
         &tau_relayer_bits.left_words,
@@ -1530,6 +1534,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_in
         backend,
         constant_pool,
         &program.stages[6],
+        &d_bits,
         &hash_core.final_words,
         &tau_client_bits_local,
         &tau_relayer_left.words,
@@ -1875,6 +1880,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     backend: &B,
     constant_pool: &DdhHiddenEvalConstantPool,
     stage: &HiddenEvalStage,
+    d_bits: &SplitLocalBitWord,
     final_words: &[SplitLocalBitWord],
     tau_client_bits: &SplitLocalBitWord,
     tau_relayer_left_bits: &[DdhHssTransportWord],
@@ -1942,6 +1948,12 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     )?;
 
     Ok(DdhHiddenEvalOutputBundles {
+        canonical_seed: build_hidden_bit_output_bundle(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "canonical_seed",
+            d_bits,
+        )?,
         x_client_base: build_hidden_bit_output_bundle(
             backend,
             HiddenEvalInputOwner::Client,

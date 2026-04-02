@@ -1,12 +1,6 @@
 import type {
   ThresholdEd25519AuthorizeResponse,
   ThresholdEd25519AuthorizeWithSessionRequest,
-  ThresholdEd25519ExportCombineRequest,
-  ThresholdEd25519ExportCombineResponse,
-  ThresholdEd25519ExportInitRequest,
-  ThresholdEd25519ExportInitResponse,
-  ThresholdEd25519KeygenRequest,
-  ThresholdEd25519KeygenResponse,
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
 } from '../../types';
@@ -20,12 +14,7 @@ import type {
 
 export type ThresholdEd25519Frost2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;
-  keygen(request: ThresholdEd25519KeygenRequest): Promise<ThresholdEd25519KeygenResponse>;
-  exportInit(request: ThresholdEd25519ExportInitRequest): Promise<ThresholdEd25519ExportInitResponse>;
-  exportCombine(
-    request: ThresholdEd25519ExportCombineRequest,
-  ): Promise<ThresholdEd25519ExportCombineResponse>;
-  registrationKeygenFromBootstrapPackage(
+  registrationKeygenFromRegistrationMaterial(
     request: ThresholdEd25519RegistrationKeygenRequest,
   ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse>;
@@ -42,13 +31,8 @@ export function createThresholdEd25519Frost2pSchemeModule(
   return {
     schemeId: THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
     healthz: deps.healthz || (async () => ({ ok: true })),
-    keygen: deps.keygen,
-    export: {
-      init: deps.exportInit,
-      combine: deps.exportCombine,
-    },
     registration: {
-      keygenFromBootstrapPackage: deps.registrationKeygenFromBootstrapPackage,
+      keygenFromRegistrationMaterial: deps.registrationKeygenFromRegistrationMaterial,
     },
     session: deps.session,
     authorize: deps.authorize,

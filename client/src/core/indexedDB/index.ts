@@ -38,8 +38,7 @@ export type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 
 export type {
   PasskeyNearKeyMaterial,
-  ThresholdEd25519_2p_V1Material,
-  ThresholdEd25519ArtifactKind,
+  ThresholdEd25519_V1Material,
   PasskeyNearKeyMaterialKind,
   ClientShareDerivation,
   PasskeyChainIdKeyMaterial,

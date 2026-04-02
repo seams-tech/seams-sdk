@@ -8,6 +8,10 @@ import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type {
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+} from '../../signingEngine/signers/wasm/nearSignerHssWasm';
 import type { TatchiConfigsInput } from '../../types/tatchi';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -37,6 +41,7 @@ export type ParentToChildType =
   | 'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'
   | 'PM_RECONCILE_TEMPO_NONCE_LANE'
   | 'PM_EXPORT_KEYPAIR_UI'
+  | 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
   | 'PM_GET_RECENT_UNLOCKS'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'
@@ -243,6 +248,15 @@ export interface PMExportKeypairUiPayload {
   theme?: 'dark' | 'light';
 }
 
+export interface PMExportThresholdEd25519SeedFromHssReportUiPayload {
+  nearAccountId: string;
+  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+  expectedPublicKey: string;
+  variant?: 'modal' | 'drawer';
+  theme?: 'dark' | 'light';
+}
+
 export interface PMSetConfirmBehaviorPayload {
   behavior: 'requireClick' | 'skipClick';
   nearAccountId?: string;
@@ -364,6 +378,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED', PMReportTempoDroppedOrReplacedPayload>
   | RpcEnvelope<'PM_RECONCILE_TEMPO_NONCE_LANE', PMReconcileTempoNonceLanePayload>
   | RpcEnvelope<'PM_EXPORT_KEYPAIR_UI', PMExportKeypairUiPayload>
+  | RpcEnvelope<
+      'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
+      PMExportThresholdEd25519SeedFromHssReportUiPayload
+    >
   | RpcEnvelope<'PM_GET_RECENT_UNLOCKS'>
   | RpcEnvelope<'PM_PREFETCH_BLOCKHEIGHT'>
   | RpcEnvelope<

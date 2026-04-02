@@ -1,9 +1,8 @@
 import { type ThresholdEd25519ParticipantV1 } from '@shared/threshold/participants';
 
 export type ClientShareDerivation = 'prf_first_v1';
-export type ThresholdEd25519ArtifactKind = 'near-ed25519-option-b-v1';
 
-export type PasskeyNearKeyMaterialKind = 'threshold_ed25519_2p_v1';
+export type PasskeyNearKeyMaterialKind = 'threshold_ed25519_v1';
 
 export interface BasePasskeyNearKeyMaterial {
   nearAccountId: string;
@@ -11,20 +10,13 @@ export interface BasePasskeyNearKeyMaterial {
   kind: PasskeyNearKeyMaterialKind;
   /** NEAR ed25519 public key (e.g. `ed25519:...`) */
   publicKey: string;
-  wrapKeySalt?: string;
   timestamp: number;
 }
 
-export interface ThresholdEd25519_2p_V1Material extends BasePasskeyNearKeyMaterial {
-  kind: 'threshold_ed25519_2p_v1';
-  wrapKeySalt: string;
+export interface ThresholdEd25519_V1Material extends BasePasskeyNearKeyMaterial {
+  kind: 'threshold_ed25519_v1';
   relayerKeyId: string;
-  recoveryPublicKey: string;
-  artifactKind: ThresholdEd25519ArtifactKind;
   keyVersion: string;
-  recoveryExportCapable: true;
-  clientShareDerivation: ClientShareDerivation;
-  clientExportShareDerivation: ClientShareDerivation;
   /**
    * Versioned participant list for future n-party support.
    * In 2P, participants are `{id:1, role:'client'}` and `{id:2, role:'relayer', ...}`.
@@ -32,7 +24,7 @@ export interface ThresholdEd25519_2p_V1Material extends BasePasskeyNearKeyMateri
   participants: ThresholdEd25519ParticipantV1[];
 }
 
-export type PasskeyNearKeyMaterial = ThresholdEd25519_2p_V1Material;
+export type PasskeyNearKeyMaterial = ThresholdEd25519_V1Material;
 
 export type PasskeyChainIdKeyAlgorithm = 'ed25519' | 'secp256k1' | 'webauthn-p256' | string;
 

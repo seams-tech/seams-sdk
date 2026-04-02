@@ -24,6 +24,10 @@ import type {
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
+import type {
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+} from '../signingEngine/signers/wasm/nearSignerHssWasm';
 import type { SignedTransaction, AccessKeyList } from '../rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
@@ -167,9 +171,7 @@ export class TatchiPasskeyIframe {
       ...(signingSessionSeal ? { signingSessionSeal } : {}),
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
-      authenticatorOptions: cloneAuthenticatorOptions(
-        this.configs.webauthn.authenticatorOptions,
-      ),
+      authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),
     });
 
     this.near = {
@@ -204,8 +206,7 @@ export class TatchiPasskeyIframe {
       reportBroadcastAccepted: async (args) => await this.reportTempoBroadcastAcceptedDomain(args),
       reportBroadcastRejected: async (args) => await this.reportTempoBroadcastRejectedDomain(args),
       reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
-      reportDroppedOrReplaced: async (args) =>
-        await this.reportTempoDroppedOrReplacedDomain(args),
+      reportDroppedOrReplaced: async (args) => await this.reportTempoDroppedOrReplacedDomain(args),
       reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
@@ -291,6 +292,8 @@ export class TatchiPasskeyIframe {
     this.keys = {
       exportKeypairWithUI: async (nearAccountId, options) =>
         await this.exportKeypairWithUIDomain(nearAccountId, options),
+      exportThresholdEd25519SeedFromHssReport: async (args) =>
+        await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
   }
 
@@ -660,7 +663,8 @@ export class TatchiPasskeyIframe {
         reportFinalized: async (innerArgs) => await this.reportTempoFinalizedDomain(innerArgs),
         reportDroppedOrReplaced: async (innerArgs) =>
           await this.reportTempoDroppedOrReplacedDomain(innerArgs),
-        reconcileNonceLane: async (innerArgs) => await this.reconcileTempoNonceLaneDomain(innerArgs),
+        reconcileNonceLane: async (innerArgs) =>
+          await this.reconcileTempoNonceLaneDomain(innerArgs),
       },
       chains: this.configs.network.chains,
       input: args,
@@ -926,6 +930,20 @@ export class TatchiPasskeyIframe {
   ): Promise<void> {
     await this.requireRouterReady();
     return this.router.exportKeypairWithUI(nearAccountId, options);
+  }
+
+  private async exportThresholdEd25519SeedFromHssReportDomain(args: {
+    nearAccountId: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<void> {
+    await this.requireRouterReady();
+    return this.router.exportThresholdEd25519SeedFromHssReport(args);
   }
 
   // Utility: sign and send in one call via wallet iframe (single before/after)

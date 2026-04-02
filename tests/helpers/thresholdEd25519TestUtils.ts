@@ -7,8 +7,12 @@ import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
 import type { WebAuthnAuthenticationCredential } from '@server/core/types';
+import { normalizeLogger, type Logger } from '@server/core/logger';
 import { readFileSync } from 'node:fs';
-import { initSync as initWasmSignerSync } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  initSync as initWasmSignerSync,
+  threshold_ed25519_hss_verifying_share_from_signing_share,
+} from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 let signerWasmInitializedForTests = false;
 
@@ -25,36 +29,46 @@ export function silentLogger() {
   return { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 }
 
+export function deriveThresholdEd25519VerifyingShareForUnitTests(input: {
+  signingShareB64u: string;
+}): string {
+  ensureSignerWasmForUnitTests();
+  const result = threshold_ed25519_hss_verifying_share_from_signing_share({
+    signingShareB64u: input.signingShareB64u,
+  }) as { verifyingShareB64u?: string };
+  const verifyingShareB64u = String(result?.verifyingShareB64u || '').trim();
+  if (!verifyingShareB64u) {
+    throw new Error('Failed to derive threshold-ed25519 verifying share for unit tests');
+  }
+  return verifyingShareB64u;
+}
+
 export function createThresholdSigningServiceForUnitTests(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
-  logger?: {
-    debug?: (...args: unknown[]) => void;
-    info?: (...args: unknown[]) => void;
-    warn?: (...args: unknown[]) => void;
-    error?: (...args: unknown[]) => void;
-  } | null;
+  logger?: Logger | null;
   keyRecord?: {
     nearAccountId?: string;
     rpId?: string;
     publicKey: string;
-    recoveryPublicKey?: string;
     relayerSigningShareB64u: string;
-    relayerVerifyingShareB64u: string;
+    relayerVerifyingShareB64u?: string;
     keyVersion?: string;
     recoveryExportCapable?: boolean;
   } | null;
   accessKeysOnChain?: string[] | null;
-  verifyWebAuthnAuthenticationLite?: ((request: {
-    nearAccountId: string;
-    rpId: string;
-    expectedChallenge: string;
-    webauthn_authentication: WebAuthnAuthenticationCredential;
-  }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>) | null;
+  verifyWebAuthnAuthenticationLite?:
+    | ((request: {
+        nearAccountId: string;
+        rpId: string;
+        expectedChallenge: string;
+        webauthn_authentication: WebAuthnAuthenticationCredential;
+      }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>)
+    | null;
 }): {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
 } {
-  const logger = input.logger || silentLogger();
+  const logger = normalizeLogger(input.logger || silentLogger());
   const sessionStore = createThresholdEd25519SessionStore({
     config: { kind: 'in-memory' },
     logger,
@@ -92,9 +106,12 @@ export function createThresholdSigningServiceForUnitTests(input: {
           nearAccountId: keyRecord.nearAccountId || 'alice.testnet',
           rpId: keyRecord.rpId || 'wallet.example.test',
           publicKey: keyRecord.publicKey,
-          ...(keyRecord.recoveryPublicKey ? { recoveryPublicKey: keyRecord.recoveryPublicKey } : {}),
           relayerSigningShareB64u: keyRecord.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: keyRecord.relayerVerifyingShareB64u,
+          relayerVerifyingShareB64u:
+            keyRecord.relayerVerifyingShareB64u ||
+            deriveThresholdEd25519VerifyingShareForUnitTests({
+              signingShareB64u: keyRecord.relayerSigningShareB64u,
+            }),
           ...(keyRecord.keyVersion ? { keyVersion: keyRecord.keyVersion } : {}),
           ...(typeof keyRecord.recoveryExportCapable === 'boolean'
             ? { recoveryExportCapable: keyRecord.recoveryExportCapable }
@@ -104,8 +121,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
   );
   const accessKeysOnChain = input.accessKeysOnChain ?? null;
   const verifyWebAuthnAuthenticationLite =
-    input.verifyWebAuthnAuthenticationLite ||
-    (async () => ({ success: true, verified: true }));
+    input.verifyWebAuthnAuthenticationLite || (async () => ({ success: true, verified: true }));
 
   const svc = new ThresholdSigningService({
     logger,

@@ -10,6 +10,28 @@ import {
   startExpressRouter,
 } from './helpers';
 
+const THRESHOLD_ED25519_TEST_KEY_VERSION = 'threshold-ed25519-v1';
+
+function makeThresholdEd25519PrepareRequest() {
+  return {
+    key_version: THRESHOLD_ED25519_TEST_KEY_VERSION,
+    recovery_export_capable: true,
+    public_key: 'ed25519:linked-key',
+    relayer_key_id: 'rk-near',
+    session_kind: 'jwt',
+    session_policy: {
+      version: 'threshold_session_v1',
+      nearAccountId: 'alice.testnet',
+      rpId: 'wallet.example.test',
+      relayerKeyId: 'rk-near',
+      sessionId: 'near-session-1',
+      participantIds: [1, 2],
+      ttlMs: 60_000,
+      remainingUses: 5,
+    },
+  };
+}
+
 function makePreparedLinkDeviceService() {
   return makeFakeAuthService({
     prepareLinkDevice: async () => ({
@@ -20,7 +42,8 @@ function makePreparedLinkDeviceService() {
       thresholdEd25519: {
         relayerKeyId: 'rk-near',
         publicKey: 'ed25519:linked-key',
-        relayerVerifyingShareB64u: 'near-share',
+        keyVersion: THRESHOLD_ED25519_TEST_KEY_VERSION,
+        recoveryExportCapable: true,
         participantIds: [1, 2],
         session: {
           sessionKind: 'jwt',
@@ -80,7 +103,7 @@ test.describe('link-device prepare routing', () => {
           device_number: 7,
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
-          threshold_ed25519: { client_verifying_share_b64u: 'near-share' },
+          threshold_ed25519: makeThresholdEd25519PrepareRequest(),
           threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
         }),
       });
@@ -112,7 +135,7 @@ test.describe('link-device prepare routing', () => {
         device_number: 7,
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
-        threshold_ed25519: { client_verifying_share_b64u: 'near-share' },
+        threshold_ed25519: makeThresholdEd25519PrepareRequest(),
         threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
       },
     });

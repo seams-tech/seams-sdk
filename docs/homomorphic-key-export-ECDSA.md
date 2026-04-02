@@ -28,7 +28,10 @@ Out of scope:
 - making export non-custodial risk-free (export is still a privileged de-threshold event),
 - using this as XSS defense.
 
-Ed25519 is tracked separately in `docs/homomorphic-key-export-ED25519.md`.
+Ed25519 is tracked separately in:
+
+- [homomorphic-key-export-ED25519-OPTION-A.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ED25519-OPTION-A.md)
+- [homomorphic-key-export-ED25519-OPTION-B.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ED25519-OPTION-B.md)
 
 ## Core Construction
 

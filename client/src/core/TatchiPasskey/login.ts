@@ -19,7 +19,9 @@ import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/r
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
 import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdRuntimeSnapshotScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
+import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 
 /**
  * Core login function (passkey identity + relay-issued sessions).
@@ -37,6 +39,7 @@ export async function unlock(
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
+  let loginCredential: import('../types').WebAuthnAuthenticationCredential | undefined;
 
   onEvent?.({
     step: 1,
@@ -176,6 +179,7 @@ export async function unlock(
       const preferredEd25519SessionId = signersToWarm.includes('ecdsa')
         ? undefined
         : createThresholdLoginWarmSessionId('ed25519-login');
+      const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
       await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
       await primeThresholdLoginWarmSigners({
         signingEngine,
@@ -186,6 +190,7 @@ export async function unlock(
         ttlMs: signingSessionPolicy.ttlMs,
         remainingUses: signingSessionPolicy.remainingUses,
         canonicalEcdsaContext,
+        ...(managedRuntimeScopeBootstrap ? { managedRuntimeScopeBootstrap } : {}),
         signersToWarm,
         preferredEd25519SessionId,
       });
@@ -313,6 +318,7 @@ export async function unlock(
               includeSecondPrfOutput: false,
             },
           );
+          loginCredential = webauthnAuthentication;
           const expectedOrigin = String(
             exchange.expectedOrigin ??
               exchange.expected_origin ??
@@ -341,6 +347,14 @@ export async function unlock(
           await maybeWarmThresholdSigningSessions(baseDeviceNumber);
         }
         await persistSuccessfulLoginState(baseDeviceNumber);
+        if (loginCredential) {
+          void prewarmThresholdEd25519ClientBaseFromCredential({
+            context,
+            credential: loginCredential,
+            nearAccountId,
+            deviceNumber: baseDeviceNumber,
+          }).catch(() => undefined);
+        }
 
         onEvent?.({
           step: 3,
@@ -396,6 +410,14 @@ export async function unlock(
     }
 
     await persistSuccessfulLoginState(baseDeviceNumber);
+    if (loginCredential) {
+      void prewarmThresholdEd25519ClientBaseFromCredential({
+        context,
+        credential: loginCredential,
+        nearAccountId,
+        deviceNumber: baseDeviceNumber,
+      }).catch(() => undefined);
+    }
 
     const loginResult: LoginAndCreateSessionResult = requireThresholdWarmup
       ? {
@@ -490,6 +512,12 @@ async function finalizeLoginError(args: {
 type CanonicalThresholdEcdsaWarmSessionContext = {
   thresholdSessionId: string | null;
   clientVerifyingShareB64u: string | null;
+  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+};
+
+type ManagedThresholdRuntimeScopeBootstrap = {
+  environmentId: string;
+  publishableKey: string;
 };
 
 type ThresholdLoginWarmSigner = 'ed25519' | 'ecdsa';
@@ -555,6 +583,7 @@ async function primeThresholdLoginWarmSigners(args: {
   ttlMs: number;
   remainingUses: number;
   canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
+  managedRuntimeScopeBootstrap?: ManagedThresholdRuntimeScopeBootstrap;
   signersToWarm?: ThresholdLoginWarmSigner[];
   preferredEd25519SessionId?: string;
 }): Promise<void> {
@@ -579,6 +608,12 @@ async function primeThresholdLoginWarmSigners(args: {
           nearAccountId: args.nearAccountId,
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
+          ...(args.canonicalEcdsaContext.runtimeSnapshotScope
+            ? { runtimeSnapshotScope: args.canonicalEcdsaContext.runtimeSnapshotScope }
+            : {}),
+          ...(args.managedRuntimeScopeBootstrap
+            ? { runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap }
+            : {}),
           participantIds: args.participantIds,
           sessionKind: 'jwt',
           ttlMs: args.ttlMs,
@@ -759,7 +794,11 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
       getThresholdEcdsaSessionRecordForSigning?: (args: {
         nearAccountId: AccountId | string;
         chain: 'evm' | 'tempo';
-      }) => { thresholdSessionId?: string; clientVerifyingShareB64u?: string };
+      }) => {
+        thresholdSessionId?: string;
+        clientVerifyingShareB64u?: string;
+        runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+      };
     }
   )?.getThresholdEcdsaSessionRecordForSigning;
   if (typeof getRecord !== 'function') {
@@ -774,10 +813,13 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
       const record = getRecord({ nearAccountId, chain });
       const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
       const clientVerifyingShareB64u = String(record?.clientVerifyingShareB64u || '').trim();
-      if (thresholdSessionId || clientVerifyingShareB64u) {
+      if (thresholdSessionId || clientVerifyingShareB64u || record?.runtimeSnapshotScope) {
         return {
           thresholdSessionId: thresholdSessionId || null,
           clientVerifyingShareB64u: clientVerifyingShareB64u || null,
+          ...(record?.runtimeSnapshotScope
+            ? { runtimeSnapshotScope: record.runtimeSnapshotScope }
+            : {}),
         };
       }
     } catch {}
@@ -786,6 +828,17 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
     thresholdSessionId: null,
     clientVerifyingShareB64u: null,
   };
+}
+
+function resolveManagedThresholdRuntimeScopeBootstrap(
+  context: PasskeyManagerContext,
+): ManagedThresholdRuntimeScopeBootstrap | undefined {
+  const registration = context.configs?.registration;
+  if (!registration || registration.mode !== 'managed') return undefined;
+  const environmentId = String(registration.environmentId || '').trim();
+  const publishableKey = String(registration.publishableKey || '').trim();
+  if (!environmentId || !publishableKey) return undefined;
+  return { environmentId, publishableKey };
 }
 
 function resolveThresholdEcdsaGroupPublicKeyB64u(

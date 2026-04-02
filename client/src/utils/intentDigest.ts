@@ -21,17 +21,6 @@ export async function computeUiIntentDigestFromNep413(args: {
   return sha256Base64UrlUtf8(json);
 }
 
-export async function computeThresholdEd25519KeygenIntentDigest(args: {
-  nearAccountId: string;
-  rpId: string;
-  keygenSessionId: string;
-}): Promise<string> {
-  // WebAuthn-only keygen challenge policy (v1). This digest is used as the raw WebAuthn
-  // challenge bytes (32 bytes) during `/threshold-ed25519/keygen`.
-  const json = alphabetizeStringify({ version: 'threshold_keygen_v1', ...args });
-  return sha256Base64UrlUtf8(json);
-}
-
 export async function computeThresholdEcdsaKeygenIntentDigest(args: {
   userId: string;
   rpId: string;

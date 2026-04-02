@@ -31,8 +31,6 @@ export interface ThresholdEd25519ParticipantV1 {
   relayerUrl?: string;
   /** Key/share identifier understood by this participant (e.g. relayerKeyId). */
   relayerKeyId?: string;
-  /** Base64url-encoded 32-byte verifying share (compressed EdwardsY). */
-  verifyingShareB64u?: string;
   shareDerivation?: ThresholdEd25519ShareDerivation;
 }
 
@@ -102,9 +100,6 @@ export function parseThresholdEd25519ParticipantsV1(
     const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
     if (relayerKeyId) participant.relayerKeyId = relayerKeyId;
 
-    const verifyingShareB64u = toOptionalTrimmedString(rec.verifyingShareB64u);
-    if (verifyingShareB64u) participant.verifyingShareB64u = verifyingShareB64u;
-
     const shareDerivation = toOptionalTrimmedString(rec.shareDerivation);
     if (
       shareDerivation === 'prf_first_v1' ||
@@ -126,15 +121,11 @@ export function buildThresholdEd25519Participants2pV1(input: {
   relayerParticipantId?: number | null;
   relayerKeyId: string;
   relayerUrl?: string | null;
-  clientVerifyingShareB64u?: string | null;
-  relayerVerifyingShareB64u?: string | null;
   clientShareDerivation?: ThresholdEd25519ShareDerivation | null;
   relayerShareDerivation?: ThresholdEd25519ShareDerivation | null;
 }): ThresholdEd25519ParticipantV1[] {
   const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
   const relayerUrl = toOptionalTrimmedString(input.relayerUrl);
-  const clientVerifyingShareB64u = toOptionalTrimmedString(input.clientVerifyingShareB64u);
-  const relayerVerifyingShareB64u = toOptionalTrimmedString(input.relayerVerifyingShareB64u);
   const clientParticipantId =
     normalizeThresholdEd25519ParticipantId(input.clientParticipantId) ??
     THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID;
@@ -145,7 +136,6 @@ export function buildThresholdEd25519Participants2pV1(input: {
   const client: ThresholdEd25519ParticipantV1 = {
     id: clientParticipantId,
     role: 'client',
-    ...(clientVerifyingShareB64u ? { verifyingShareB64u: clientVerifyingShareB64u } : {}),
     shareDerivation: input.clientShareDerivation || 'prf_first_v1',
   };
 
@@ -154,7 +144,6 @@ export function buildThresholdEd25519Participants2pV1(input: {
     role: 'relayer',
     ...(relayerUrl ? { relayerUrl } : {}),
     ...(relayerKeyId ? { relayerKeyId } : {}),
-    ...(relayerVerifyingShareB64u ? { verifyingShareB64u: relayerVerifyingShareB64u } : {}),
     ...(input.relayerShareDerivation ? { shareDerivation: input.relayerShareDerivation } : {}),
   };
 

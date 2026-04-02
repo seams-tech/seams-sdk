@@ -19,7 +19,7 @@ import type { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
 import {
   type PasskeyChainIdKeyKind,
   type PasskeyChainIdKeyMaterial,
-  type ThresholdEd25519_2p_V1Material,
+  type ThresholdEd25519_V1Material,
 } from './passkeyNearKeysDB.types';
 import {
   getNearThresholdKeyMaterial as getNearThresholdKeyMaterialValue,
@@ -116,7 +116,7 @@ export class UnifiedIndexedDBManager {
   async getNearThresholdKeyMaterial(
     nearAccountId: AccountId,
     deviceNumber: number,
-  ): Promise<ThresholdEd25519_2p_V1Material | null> {
+  ): Promise<ThresholdEd25519_V1Material | null> {
     return getNearThresholdKeyMaterialValue(
       this.getNearKeyMaterialDeps(),
       nearAccountId,

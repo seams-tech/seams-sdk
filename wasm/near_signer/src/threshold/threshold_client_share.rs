@@ -4,7 +4,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 #[cfg(test)]
 use curve25519_dalek::scalar::Scalar as CurveScalar;
-use frost_ed25519::keys::{KeyPackage, SigningShare, VerifyingShare};
+use frost_ed25519::keys::KeyPackage;
 
 #[cfg(test)]
 pub(crate) fn derive_threshold_client_signing_share_bytes_v1(
@@ -29,61 +29,25 @@ pub(crate) fn derive_threshold_client_verifying_share_b64u_v1(
     .map_err(|e| e.to_string())
 }
 
-pub(crate) fn derive_option_b_client_signing_share_bytes_v1(
-    prf_first_b64u: &str,
-    near_account_id: &str,
-    key_version: &str,
-) -> Result<[u8; 32], String> {
-    let prf_first =
-        Base64UrlUnpadded::decode_vec(prf_first_b64u).map_err(|e| format!("Invalid prfFirstB64u: {e}"))?;
-    signer_platform_web::near_ed25519_recovery::derive_bootstrap_client_signing_share_v2(
-        prf_first.as_slice(),
-        near_account_id,
-        key_version,
-    )
-    .map_err(|e| e.to_string())
-}
-
-pub(crate) fn derive_option_b_client_verifying_share_b64u_v1(
-    prf_first_b64u: &str,
-    near_account_id: &str,
-    key_version: &str,
-) -> Result<String, String> {
-    let signing_share =
-        derive_option_b_client_signing_share_bytes_v1(prf_first_b64u, near_account_id, key_version)?;
-    Ok(Base64UrlUnpadded::encode_string(
-        &signer_platform_web::near_ed25519_recovery::derive_bootstrap_verifying_share_2p_v1(
-            signing_share,
-        ),
-    ))
-}
-
-pub(crate) fn derive_option_b_client_key_package_v1(
-    prf_first_b64u: &str,
-    near_account_id: &str,
-    key_version: &str,
+pub(crate) fn key_package_from_client_base_b64u(
+    x_client_base_b64u: &str,
     near_public_key_bytes: &[u8; 32],
     client_identifier: frost_ed25519::Identifier,
 ) -> Result<KeyPackage, String> {
-    let signing_share_bytes =
-        derive_option_b_client_signing_share_bytes_v1(prf_first_b64u, near_account_id, key_version)?;
-    let signing_share = SigningShare::deserialize(&signing_share_bytes)
-        .map_err(|e| format!("threshold-signer: invalid Option B signing share: {e}"))?;
-    let verifying_share_bytes =
-        signer_platform_web::near_ed25519_recovery::derive_bootstrap_verifying_share_2p_v1(
-            signing_share_bytes,
-        );
-    let verifying_share = VerifyingShare::deserialize(&verifying_share_bytes)
-        .map_err(|e| format!("threshold-signer: invalid Option B verifying share: {e}"))?;
-    let verifying_key = frost_ed25519::VerifyingKey::deserialize(near_public_key_bytes)
-        .map_err(|e| format!("threshold-signer: invalid group public key: {e}"))?;
-    Ok(KeyPackage::new(
+    let decoded = Base64UrlUnpadded::decode_vec(x_client_base_b64u)
+        .map_err(|e| format!("Invalid xClientBaseB64u: {e}"))?;
+    let signing_share_bytes: [u8; 32] = decoded.as_slice().try_into().map_err(|_| {
+        format!(
+            "xClientBaseB64u must decode to 32 bytes, got {}",
+            decoded.len()
+        )
+    })?;
+    signer_platform_web::near_threshold_ed25519::key_package_from_signing_share_bytes(
+        &signing_share_bytes,
+        near_public_key_bytes,
         client_identifier,
-        signing_share,
-        verifying_share,
-        verifying_key,
-        2,
-    ))
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -130,5 +94,34 @@ mod tests {
         let err =
             derive_threshold_client_signing_share_bytes_v1(&wrap_key, "alice.near").unwrap_err();
         assert!(err.contains("expected 32 bytes"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn key_package_from_client_base_matches_generic_constructor() {
+        let signing_share_bytes = [7u8; 32];
+        let near_public_key_bytes = (ED25519_BASEPOINT_POINT * CurveScalar::from(11u64))
+            .compress()
+            .to_bytes();
+        let client_identifier: frost_ed25519::Identifier =
+            1u16.try_into().expect("valid identifier");
+
+        let from_b64u = key_package_from_client_base_b64u(
+            &base64_url_encode(&signing_share_bytes),
+            &near_public_key_bytes,
+            client_identifier,
+        )
+        .expect("client base should decode");
+        let direct =
+            signer_platform_web::near_threshold_ed25519::key_package_from_signing_share_bytes(
+                &signing_share_bytes,
+                &near_public_key_bytes,
+                client_identifier,
+            )
+            .expect("generic constructor should succeed");
+
+        assert_eq!(from_b64u.identifier(), direct.identifier());
+        assert_eq!(from_b64u.signing_share(), direct.signing_share());
+        assert_eq!(from_b64u.verifying_share(), direct.verifying_share());
+        assert_eq!(from_b64u.verifying_key(), direct.verifying_key());
     }
 }

@@ -85,8 +85,7 @@ pub use protocol::{
     PrimeOrderSuccinctHssPreparedSession, PrimeOrderSuccinctHssRunBindings,
     PrimeOrderSuccinctHssSeedOutputOpener, PrimeOrderSuccinctHssServerOutputOpener,
     PrimeOrderSuccinctHssSharedRuntime, PrimeOrderSuccinctHssSharedRuntimeState,
-    PrimeOrderSuccinctHssWireMessage,
-    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
+    PrimeOrderSuccinctHssWireMessage, PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 pub use reference::{
     add_le_bytes_mod_2_256, clamp_rfc8032, derive_output_shares, eval_f_expand,

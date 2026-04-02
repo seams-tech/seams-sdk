@@ -34,7 +34,13 @@ interface RelayRegistrationBootstrapServices {
   apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   session?: SessionAdapter | null;
-  smartAccountDeploy?: ((request: import('./relay').SmartAccountDeployRequest) => Promise<import('./relay').SmartAccountDeployResult> | import('./relay').SmartAccountDeployResult) | null;
+  smartAccountDeploy?:
+    | ((
+        request: import('./relay').SmartAccountDeployRequest,
+      ) =>
+        | Promise<import('./relay').SmartAccountDeployResult>
+        | import('./relay').SmartAccountDeployResult)
+    | null;
 }
 
 export interface RelayRegistrationBootstrapInput {
@@ -72,7 +78,9 @@ function normalizeOptionalString(value: unknown): string | undefined {
 
 function normalizeRegistrationSmartAccountTargets(
   raw: unknown,
-): { ok: true; targets: CreateAccountAndRegisterSmartAccountTarget[] } | { ok: false; message: string } {
+):
+  | { ok: true; targets: CreateAccountAndRegisterSmartAccountTarget[] }
+  | { ok: false; message: string } {
   if (raw == null) return { ok: true, targets: [] };
   if (!Array.isArray(raw)) {
     return { ok: false, message: 'threshold_ecdsa.smart_account_targets must be an array' };
@@ -113,7 +121,9 @@ function normalizeRegistrationSmartAccountTargets(
     targets.push({
       chain,
       chain_id: chainId,
-      ...(normalizeOptionalString(entry.factory) ? { factory: normalizeOptionalString(entry.factory) } : {}),
+      ...(normalizeOptionalString(entry.factory)
+        ? { factory: normalizeOptionalString(entry.factory) }
+        : {}),
       ...(normalizeOptionalString(entry.entry_point)
         ? { entry_point: normalizeOptionalString(entry.entry_point) }
         : {}),
@@ -214,7 +224,9 @@ async function deployRegistrationSmartAccounts(input: {
       ...(normalizeOptionalString(result.deploymentTxHash)
         ? { deploymentTxHash: normalizeOptionalString(result.deploymentTxHash) }
         : {}),
-      ...(normalizeOptionalString(result.code) ? { code: normalizeOptionalString(result.code) } : {}),
+      ...(normalizeOptionalString(result.code)
+        ? { code: normalizeOptionalString(result.code) }
+        : {}),
       ...(normalizeOptionalString(result.message)
         ? { message: normalizeOptionalString(result.message) }
         : {}),
@@ -233,14 +245,17 @@ async function deployRegistrationSmartAccounts(input: {
       continue;
     }
 
-    input.logger.warn('[relay][registration] smart-account deployment did not complete during registration', {
-      nearAccountId: input.nearAccountId,
-      chain: target.chain,
-      chainId: target.chain_id,
-      accountAddress,
-      ...(deployment.code ? { code: deployment.code } : {}),
-      ...(deployment.message ? { message: deployment.message } : {}),
-    });
+    input.logger.warn(
+      '[relay][registration] smart-account deployment did not complete during registration',
+      {
+        nearAccountId: input.nearAccountId,
+        chain: target.chain,
+        chainId: target.chain_id,
+        accountAddress,
+        ...(deployment.code ? { code: deployment.code } : {}),
+        ...(deployment.message ? { message: deployment.message } : {}),
+      },
+    );
   }
 
   return deployments;
@@ -302,7 +317,9 @@ async function meterRegistrationBootstrap(input: {
 
 export async function handleRelayRegistrationBootstrap(
   input: RelayRegistrationBootstrapInput,
-): Promise<RouteResponse<CreateAccountAndRegisterResult | Record<string, unknown> | RouteErrorBody>> {
+): Promise<
+  RouteResponse<CreateAccountAndRegisterResult | Record<string, unknown> | RouteErrorBody>
+> {
   if (!isObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
@@ -313,7 +330,9 @@ export async function handleRelayRegistrationBootstrap(
   const threshold_ed25519 = body.threshold_ed25519;
   const threshold_ecdsa = body.threshold_ecdsa;
   const rp_id = typeof body.rp_id === 'string' ? String(body.rp_id || '').trim() : '';
-  const webauthn_registration = isObject(body.webauthn_registration) ? body.webauthn_registration : null;
+  const webauthn_registration = isObject(body.webauthn_registration)
+    ? body.webauthn_registration
+    : null;
   const authenticator_options = body.authenticator_options;
 
   if (!new_account_id) {
@@ -353,7 +372,10 @@ export async function handleRelayRegistrationBootstrap(
     },
   });
   if (!resolved.ok) {
-    if (resolved.body.code === 'route_auth_not_configured' || resolved.body.code === 'service_not_configured') {
+    if (
+      resolved.body.code === 'route_auth_not_configured' ||
+      resolved.body.code === 'service_not_configured'
+    ) {
       return routeJson(resolved.status, resolved.body);
     }
     const parsed = parsePolicyFailureMessage(resolved.body.message);
@@ -372,11 +394,40 @@ export async function handleRelayRegistrationBootstrap(
     });
   }
 
+  const runtimeSnapshotScope = {
+    orgId: routePrincipal.principal.orgId,
+    environmentId: routePrincipal.principal.environmentId,
+  };
+  const thresholdEd25519Request =
+    threshold_ed25519 && isObject(threshold_ed25519)
+      ? {
+          ...threshold_ed25519,
+          session_policy: isObject(threshold_ed25519.session_policy)
+            ? {
+                ...threshold_ed25519.session_policy,
+                runtimeSnapshotScope,
+              }
+            : threshold_ed25519.session_policy,
+        }
+      : threshold_ed25519;
+  const thresholdEcdsaRequest =
+    threshold_ecdsa && isObject(threshold_ecdsa)
+      ? {
+          ...threshold_ecdsa,
+          session_policy: isObject(threshold_ecdsa.session_policy)
+            ? {
+                ...threshold_ecdsa.session_policy,
+                runtimeSnapshotScope,
+              }
+            : threshold_ecdsa.session_policy,
+        }
+      : threshold_ecdsa;
+
   const result = await input.services.authService.createAccountAndRegisterUser({
     new_account_id,
     device_number,
-    ...(threshold_ed25519 ? { threshold_ed25519 } : {}),
-    ...(threshold_ecdsa ? { threshold_ecdsa } : {}),
+    ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
+    ...(thresholdEcdsaRequest ? { threshold_ecdsa: thresholdEcdsaRequest } : {}),
     rp_id,
     webauthn_registration,
     expected_origin: String(input.origin || '').trim() || undefined,

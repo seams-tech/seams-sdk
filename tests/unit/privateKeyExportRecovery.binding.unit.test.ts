@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { exportKeypairWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
+import { exportNearEd25519SeedArtifactWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
-  test('invokes requestExportPrivateKeysWithUi with expected payload', async () => {
+  test('invokes requestExportPrivateKeysWithUi with Option A seed export payload', async () => {
     const requestExportState = {
       callCount: 0,
       lastPayload: null as Record<string, unknown> | null,
@@ -18,21 +18,13 @@ test.describe('privateKeyExportRecovery method binding', () => {
       };
     };
 
-    const result = await exportKeypairWithUI(
+    const result = await exportNearEd25519SeedArtifactWithUI(
       {
         indexedDB: {
           clientDB: {
             resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
             getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
           },
-          getNearThresholdKeyMaterial: async () => ({
-            publicKey: 'ed25519:operational-pub',
-            recoveryPublicKey: 'ed25519:recovery-pub',
-            relayerKeyId: 'ed25519:operational-pub',
-            artifactKind: 'near-ed25519-option-b-v1',
-            keyVersion: 'option-b-v1',
-            recoveryExportCapable: true,
-          }),
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
         getTheme: () => 'dark',
@@ -41,7 +33,9 @@ test.describe('privateKeyExportRecovery method binding', () => {
       },
       {
         nearAccountId: 'alice.testnet' as any,
-        options: { chain: 'near', variant: 'drawer' },
+        seedB64u: Buffer.alloc(32, 7).toString('base64url'),
+        expectedPublicKey: 'ed25519:operational-pub',
+        options: { variant: 'drawer' },
       },
     );
 
@@ -55,10 +49,9 @@ test.describe('privateKeyExportRecovery method binding', () => {
       deviceNumber: 9,
       chain: 'near',
       variant: 'drawer',
-      relayerUrl: 'https://relay.example.test',
-      relayerKeyId: 'ed25519:operational-pub',
-      rpId: 'wallet.example.test',
-      recoveryPublicKey: 'ed25519:recovery-pub',
+      artifactKind: 'near-ed25519-seed-v1',
+      expectedPublicKey: 'ed25519:operational-pub',
+      seedB64u: Buffer.alloc(32, 7).toString('base64url'),
       theme: 'dark',
     });
   });

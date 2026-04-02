@@ -1,6 +1,6 @@
 # Threshold Signing Load Testing Plan
 
-Date updated: March 16, 2026
+Date updated: April 2, 2026
 
 ## Goal
 
@@ -12,13 +12,54 @@ Build a repeatable load-testing program for threshold signing that can answer, w
 4. How many coordinator nodes are required for realistic `500 wallet` traffic profiles.
 5. Which operational limits and failure modes must drive autoscaling, alerting, and topology choices.
 
+## Current Implementation Status
+
+- The actor-based multi-wallet harness now exists in
+  [benchmarks/threshold-load](/Users/pta/Dev/rust/simple-threshold-signer/benchmarks/threshold-load).
+- The kept threshold-ed25519 scenarios now include:
+  - `ed25519_local_steady_smoke`
+  - `ed25519_local_burst_smoke`
+  - `ed25519_local_steady_50`
+  - `ed25519_local_burst_50`
+- Named scale profiles are now checked in for:
+  - `100 wallets`
+  - `250 wallets`
+  - `500 wallets`
+- Those scenarios measure the active warm threshold-ed25519 path by:
+  - provisioning canonical single-key registration material
+  - minting real `/threshold-ed25519/session` JWTs
+  - driving `/threshold-ed25519/authorize`, `/threshold-ed25519/sign/init`, and
+    `/threshold-ed25519/sign/finalize`
+  - keeping `xClientBaseB64u` local for touchless signing
+- The latest synced run report lives at
+  [docs/benchmarks/threshold-load.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-load.md).
+- Latest single-node checkpoint:
+  - run id `20260402-005332Z`
+  - `ed25519_local_steady_smoke`: `6 wallets`, `12/12` success, `252.8 signs/sec`, sign p95 `17.62ms`
+  - `ed25519_local_burst_smoke`: `8 wallets`, `8/8` success, `231.6 signs/sec`, sign p95 `31.86ms`
+  - `ed25519_local_steady_50`: `50 wallets`, `100/100` success, `348.0 signs/sec`, sign p95 `37.61ms`
+  - `ed25519_local_burst_50`: `50 wallets`, `50/50` success, `328.8 signs/sec`, sign p95 `147.80ms`
+- CI now runs:
+  - `pnpm test:threshold-ed25519:active-path`
+  - `pnpm benchmark:threshold-load:ci`
+- Still missing from the harness:
+  - executed `100/250/500 wallet` runs
+  - threshold ECDSA actors
+  - multi-node routing comparisons
+  - Ed25519 relayer-cosigner topology
+  - backend comparison and failure injection
+
 ## Why This Work Is Needed
 
 Current evidence is useful but incomplete:
 
 - Single-user concurrency is healthy, but that mostly validates per-session client behavior, not cross-wallet server pressure.
 - Threshold ECDSA already has a benchmark harness and recent numbers, but it is not a true multi-wallet load test.
-- Threshold Ed25519 has no equivalent benchmark harness yet.
+- Threshold Ed25519 no longer uses the deleted dual-key microbenchmark harness.
+- The active single-key threshold-ed25519 reference is now
+  [threshold-ed25519-option-a.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-option-a.md),
+  and the first real actor-based multi-wallet run now exists for the active
+  path, but only for the local single-node warm-session topology.
 - Threshold ECDSA live presign sessions are process-local, so multi-instance behavior depends on routing and peer-forwarding correctness, not just shared storage.
 
 Current threshold ECDSA benchmark data from the March 15, 2026 run shows:
@@ -166,18 +207,18 @@ The harness should support named traffic profiles instead of only raw wallet cou
 
 ## Scenario Matrix
 
-| Scenario ID | Curve | Topology | Wallets | Traffic Profile | Purpose |
-| --- | --- | --- | ---: | --- | --- |
-| `ed25519_local_steady` | Ed25519 | 1 coordinator | 50/100/250/500 | A, B | establish Ed25519 baseline |
-| `ed25519_local_burst` | Ed25519 | 1 coordinator | 50/100/250/500 | C | burst collapse point |
-| `ed25519_cosigner_steady` | Ed25519 | 1 coordinator + cosigners | 50/100/250/500 | A, B | internal fanout cost |
-| `ecdsa_warm_pool_steady` | ECDSA | 1 coordinator | 50/100/250/500 | A, B | best-case warm-path capacity |
-| `ecdsa_cold_start_burst` | ECDSA | 1 coordinator | 50/100/250/500 | C, D | worst-case first-sign behavior |
-| `ecdsa_refill_contention` | ECDSA | 1 coordinator | 50/100/250/500 | B, C | refill debt and tail amplification |
-| `ecdsa_multi_runtime` | ECDSA | 1 coordinator | 50/100/250/500 | E | duplicate-runtime overhead |
-| `ecdsa_multinode_sticky` | ECDSA | 2/4/8 coordinators | 100/250/500 | A, B, C | horizontal scale with correct routing |
-| `ecdsa_multinode_forwarded` | ECDSA | 2/4/8 coordinators | 100/250/500 | A, B, C | peer-forward behavior under load |
-| `ecdsa_backend_compare` | ECDSA | 1/2 coordinators | 100/250 | B | Redis/Upstash vs Postgres |
+| Scenario ID                 | Curve   | Topology                  |        Wallets | Traffic Profile | Purpose                               |
+| --------------------------- | ------- | ------------------------- | -------------: | --------------- | ------------------------------------- |
+| `ed25519_local_steady`      | Ed25519 | 1 coordinator             | 50/100/250/500 | A, B            | establish Ed25519 baseline            |
+| `ed25519_local_burst`       | Ed25519 | 1 coordinator             | 50/100/250/500 | C               | burst collapse point                  |
+| `ed25519_cosigner_steady`   | Ed25519 | 1 coordinator + cosigners | 50/100/250/500 | A, B            | internal fanout cost                  |
+| `ecdsa_warm_pool_steady`    | ECDSA   | 1 coordinator             | 50/100/250/500 | A, B            | best-case warm-path capacity          |
+| `ecdsa_cold_start_burst`    | ECDSA   | 1 coordinator             | 50/100/250/500 | C, D            | worst-case first-sign behavior        |
+| `ecdsa_refill_contention`   | ECDSA   | 1 coordinator             | 50/100/250/500 | B, C            | refill debt and tail amplification    |
+| `ecdsa_multi_runtime`       | ECDSA   | 1 coordinator             | 50/100/250/500 | E               | duplicate-runtime overhead            |
+| `ecdsa_multinode_sticky`    | ECDSA   | 2/4/8 coordinators        |    100/250/500 | A, B, C         | horizontal scale with correct routing |
+| `ecdsa_multinode_forwarded` | ECDSA   | 2/4/8 coordinators        |    100/250/500 | A, B, C         | peer-forward behavior under load      |
+| `ecdsa_backend_compare`     | ECDSA   | 1/2 coordinators          |        100/250 | B               | Redis/Upstash vs Postgres             |
 
 ## Execution Backlog
 
@@ -305,7 +346,9 @@ The full `500 wallet` suite should not be part of the normal PR path.
 
 ### CI Smoke
 
-- one reduced Ed25519 scenario
+- one reduced Ed25519 steady scenario
+- one reduced Ed25519 burst scenario
+- active-path relayer and script keep-gates
 - one reduced ECDSA warm-path scenario
 - one reduced ECDSA cold-path scenario
 - small wallet counts only

@@ -99,7 +99,10 @@ const API_CREDENTIAL_ROUTE_SCOPE_SET = new Set<string>(API_CREDENTIAL_ROUTE_SCOP
 const PUBLIC_PROOF_TYPE_SET = new Set<string>(PUBLIC_PROOF_TYPES);
 const ROUTE_SERVICE_KEY_SET = new Set<string>(ROUTE_SERVICE_KEYS);
 
-function normalizeAliases(path: string, aliases: readonly string[] | undefined): readonly string[] | undefined {
+function normalizeAliases(
+  path: string,
+  aliases: readonly string[] | undefined,
+): readonly string[] | undefined {
   if (!aliases || aliases.length === 0) return undefined;
   const seen = new Set<string>();
   const next: string[] = [];
@@ -125,7 +128,9 @@ function normalizeRequiredServices(
       throw new Error(`route definition requiredServices must contain non-empty values for ${id}`);
     }
     if (!ROUTE_SERVICE_KEY_SET.has(value)) {
-      throw new Error(`route definition requiredServices contains unknown service ${value} for ${id}`);
+      throw new Error(
+        `route definition requiredServices contains unknown service ${value} for ${id}`,
+      );
     }
     if (seen.has(value)) continue;
     seen.add(value);
@@ -194,7 +199,9 @@ function normalizeAuthPolicy(id: string, auth: RouteAuthPolicy): RouteAuthPolicy
       return {
         ...auth,
         rationale,
-        ...(proof ? { proof: proof as Extract<RouteAuthPolicy, { plane: 'public' }>['proof'] } : {}),
+        ...(proof
+          ? { proof: proof as Extract<RouteAuthPolicy, { plane: 'public' }>['proof'] }
+          : {}),
       };
     }
     default:
@@ -259,7 +266,9 @@ export function matchesRouteDefinitionRequest(
   method: string,
   pathname: string,
 ): boolean {
-  const normalizedMethod = String(method || '').trim().toUpperCase();
+  const normalizedMethod = String(method || '')
+    .trim()
+    .toUpperCase();
   if (route.method !== normalizedMethod) return false;
   if (matchesPathPattern(route.path, pathname)) return true;
   for (const alias of route.aliases || []) {
@@ -396,9 +405,15 @@ function consoleRoute(
 export function createConsoleRouteDefinitions(): RouteDefinition[] {
   return [
     consoleRoute('console_session_get', 'GET', '/console/session', 'Read console session'),
-    consoleRoute('console_account_profile_get', 'GET', '/console/account/profile', 'Read account profile', {
-      requiredServices: ['account'],
-    }),
+    consoleRoute(
+      'console_account_profile_get',
+      'GET',
+      '/console/account/profile',
+      'Read account profile',
+      {
+        requiredServices: ['account'],
+      },
+    ),
     consoleRoute(
       'console_account_profile_patch',
       'PATCH',
@@ -462,9 +477,15 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['account', 'session'],
       },
     ),
-    consoleRoute('console_onboarding_state_get', 'GET', '/console/onboarding/state', 'Read onboarding state', {
-      requiredServices: ['onboarding'],
-    }),
+    consoleRoute(
+      'console_onboarding_state_get',
+      'GET',
+      '/console/onboarding/state',
+      'Read onboarding state',
+      {
+        requiredServices: ['onboarding'],
+      },
+    ),
     consoleRoute(
       'console_onboarding_telemetry_get',
       'GET',
@@ -520,11 +541,17 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['audit'],
       },
     ),
-    consoleRoute('console_audit_exports_list', 'GET', '/console/audit/exports', 'List audit exports', {
-      roles: CONSOLE_AUDIT_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
-      requiredServices: ['auditExports'],
-    }),
+    consoleRoute(
+      'console_audit_exports_list',
+      'GET',
+      '/console/audit/exports',
+      'List audit exports',
+      {
+        roles: CONSOLE_AUDIT_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, security_admin, or ops can view audit exports',
+        requiredServices: ['auditExports'],
+      },
+    ),
     consoleRoute(
       'console_audit_exports_get',
       'GET',
@@ -545,28 +572,16 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['enterpriseIsolation'],
       },
     ),
-    consoleRoute(
-      'console_wallets_list',
-      'GET',
-      '/console/wallets',
-      'List wallets',
-      {
-        roles: CONSOLE_WALLET_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
-        requiredServices: ['wallets'],
-      },
-    ),
-    consoleRoute(
-      'console_wallets_search',
-      'GET',
-      '/console/wallets/search',
-      'Search wallets',
-      {
-        roles: CONSOLE_WALLET_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
-        requiredServices: ['wallets'],
-      },
-    ),
+    consoleRoute('console_wallets_list', 'GET', '/console/wallets', 'List wallets', {
+      roles: CONSOLE_WALLET_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
+      requiredServices: ['wallets'],
+    }),
+    consoleRoute('console_wallets_search', 'GET', '/console/wallets/search', 'Search wallets', {
+      roles: CONSOLE_WALLET_READ_ROLES,
+      forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
+      requiredServices: ['wallets'],
+    }),
     consoleRoute('console_wallets_get', 'GET', '/console/wallets/:id', 'Get wallet', {
       roles: CONSOLE_WALLET_READ_ROLES,
       forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view wallets',
@@ -609,7 +624,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       'Read observability summary',
       {
         roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view observability',
+        forbiddenMessage:
+          'Only owner, admin, security_admin, ops, or support can view observability',
         requiredServices: ['observability'],
       },
     ),
@@ -620,7 +636,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       'List observability events',
       {
         roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view observability',
+        forbiddenMessage:
+          'Only owner, admin, security_admin, ops, or support can view observability',
         requiredServices: ['observability'],
       },
     ),
@@ -631,7 +648,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       'Read observability timeseries',
       {
         roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view observability',
+        forbiddenMessage:
+          'Only owner, admin, security_admin, ops, or support can view observability',
         requiredServices: ['observability'],
       },
     ),
@@ -642,7 +660,8 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
       'List observability services',
       {
         roles: CONSOLE_OBSERVABILITY_READ_ROLES,
-        forbiddenMessage: 'Only owner, admin, security_admin, ops, or support can view observability',
+        forbiddenMessage:
+          'Only owner, admin, security_admin, ops, or support can view observability',
         requiredServices: ['observability'],
       },
     ),
@@ -667,11 +686,17 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['keyExports'],
       },
     ),
-    consoleRoute('console_billing_overview_get', 'GET', '/console/billing/overview', 'Read billing overview', {
-      roles: CONSOLE_BILLING_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-      requiredServices: ['billing'],
-    }),
+    consoleRoute(
+      'console_billing_overview_get',
+      'GET',
+      '/console/billing/overview',
+      'Read billing overview',
+      {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
+        requiredServices: ['billing'],
+      },
+    ),
     consoleRoute(
       'console_billing_account_activity_get',
       'GET',
@@ -727,11 +752,17 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['billing', 'orgProjectEnv'],
       },
     ),
-    consoleRoute('console_billing_invoices_list', 'GET', '/console/billing/invoices', 'List billing invoices', {
-      roles: CONSOLE_BILLING_READ_ROLES,
-      forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
-      requiredServices: ['billing'],
-    }),
+    consoleRoute(
+      'console_billing_invoices_list',
+      'GET',
+      '/console/billing/invoices',
+      'List billing invoices',
+      {
+        roles: CONSOLE_BILLING_READ_ROLES,
+        forbiddenMessage: 'Only owner, admin, billing_admin, or ops can view billing',
+        requiredServices: ['billing'],
+      },
+    ),
     consoleRoute(
       'console_billing_invoices_get',
       'GET',
@@ -892,17 +923,11 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['teamRbac'],
       },
     ),
-    consoleRoute(
-      'console_members_remove',
-      'DELETE',
-      '/console/members/:id',
-      'Remove team member',
-      {
-        roles: CONSOLE_TEAM_RBAC_MUTATION_ROLES,
-        forbiddenMessage: 'Only admin or owner can mutate org member roles',
-        requiredServices: ['teamRbac'],
-      },
-    ),
+    consoleRoute('console_members_remove', 'DELETE', '/console/members/:id', 'Remove team member', {
+      roles: CONSOLE_TEAM_RBAC_MUTATION_ROLES,
+      forbiddenMessage: 'Only admin or owner can mutate org member roles',
+      requiredServices: ['teamRbac'],
+    }),
     consoleRoute(
       'console_approvals_create',
       'POST',
@@ -1009,11 +1034,17 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
     consoleRoute('console_webhooks_list', 'GET', '/console/webhooks', 'List webhook endpoints', {
       requiredServices: ['webhooks'],
     }),
-    consoleRoute('console_webhooks_create', 'POST', '/console/webhooks', 'Create webhook endpoint', {
-      roles: CONSOLE_CONFIG_MUTATION_ROLES,
-      forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
-      requiredServices: ['webhooks'],
-    }),
+    consoleRoute(
+      'console_webhooks_create',
+      'POST',
+      '/console/webhooks',
+      'Create webhook endpoint',
+      {
+        roles: CONSOLE_CONFIG_MUTATION_ROLES,
+        forbiddenMessage: 'Only owner, admin, or security_admin can mutate console configuration',
+        requiredServices: ['webhooks'],
+      },
+    ),
     consoleRoute(
       'console_webhooks_update',
       'PATCH',
@@ -1182,9 +1213,15 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['keyExports'],
       },
     ),
-    consoleRoute('console_smart_wallets_list', 'GET', '/console/smart-wallets', 'List smart-wallet configurations', {
-      requiredServices: ['smartWallets'],
-    }),
+    consoleRoute(
+      'console_smart_wallets_list',
+      'GET',
+      '/console/smart-wallets',
+      'List smart-wallet configurations',
+      {
+        requiredServices: ['smartWallets'],
+      },
+    ),
     consoleRoute(
       'console_smart_wallets_create',
       'POST',
@@ -1250,28 +1287,16 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
     consoleRoute('console_api_keys_list', 'GET', '/console/api-keys', 'List API keys', {
       requiredServices: ['apiKeys'],
     }),
-    consoleRoute(
-      'console_api_keys_create',
-      'POST',
-      '/console/api-keys',
-      'Create API key',
-      {
-        roles: CONSOLE_API_KEY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-        requiredServices: ['apiKeys'],
-      },
-    ),
-    consoleRoute(
-      'console_api_keys_revoke',
-      'DELETE',
-      '/console/api-keys/:id',
-      'Revoke API key',
-      {
-        roles: CONSOLE_API_KEY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-        requiredServices: ['apiKeys'],
-      },
-    ),
+    consoleRoute('console_api_keys_create', 'POST', '/console/api-keys', 'Create API key', {
+      roles: CONSOLE_API_KEY_MUTATION_ROLES,
+      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
+      requiredServices: ['apiKeys'],
+    }),
+    consoleRoute('console_api_keys_revoke', 'DELETE', '/console/api-keys/:id', 'Revoke API key', {
+      roles: CONSOLE_API_KEY_MUTATION_ROLES,
+      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
+      requiredServices: ['apiKeys'],
+    }),
     consoleRoute(
       'console_api_keys_purge',
       'DELETE',
@@ -1283,17 +1308,11 @@ export function createConsoleRouteDefinitions(): RouteDefinition[] {
         requiredServices: ['apiKeys'],
       },
     ),
-    consoleRoute(
-      'console_api_keys_update',
-      'PATCH',
-      '/console/api-keys/:id',
-      'Update API key',
-      {
-        roles: CONSOLE_API_KEY_MUTATION_ROLES,
-        forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
-        requiredServices: ['apiKeys'],
-      },
-    ),
+    consoleRoute('console_api_keys_update', 'PATCH', '/console/api-keys/:id', 'Update API key', {
+      roles: CONSOLE_API_KEY_MUTATION_ROLES,
+      forbiddenMessage: 'Only owner, admin, or security_admin can mutate API keys',
+      requiredServices: ['apiKeys'],
+    }),
     consoleRoute(
       'console_api_keys_rotate',
       'POST',
@@ -1312,7 +1331,8 @@ export function createRelayRouteDefinitions(
   options: RelayRouteDefinitionOptions = {},
 ): RouteDefinition[] {
   const sessionStatePath = String(options.sessionStatePath || '').trim() || '/session/state';
-  const sessionStateAliases = sessionStatePath === '/session/state' ? undefined : ['/session/state'];
+  const sessionStateAliases =
+    sessionStatePath === '/session/state' ? undefined : ['/session/state'];
   const signedDelegatePath = String(options.signedDelegatePath || '').trim();
   const sponsoredEvmCallPath =
     String(options.sponsoredEvmCallPath || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
@@ -1383,31 +1403,33 @@ export function createRelayRouteDefinitions(
       { kind: 'event', action: 'wallet_created' },
       ['authService'],
     ),
-    publicRoute(
-      'registration_recovery_share',
-      'POST',
-      '/registration/recovery-share',
-      'Prepare threshold-ed25519 bootstrap recovery share for backend-proxy registration',
-      {
-        plane: 'public',
-        rationale: 'Backend-proxy registration preflight is delegated to the app backend or local relay.',
-      },
-      ['authService'],
-      { kind: 'none' },
-    ),
     apiCredentialRoute(
-      'registration_recovery_share_managed',
+      'registration_threshold_ed25519_hss_prepare',
       'POST',
-      '/v1/registration/recovery-share',
-      'Prepare threshold-ed25519 bootstrap recovery share for managed browser registration',
+      '/registration/threshold-ed25519/hss/prepare',
+      'Prepare threshold Ed25519 HSS server ceremony during registration bootstrap',
       {
         plane: 'api_credentials',
-        credentials: ['publishable_key'],
+        credentials: ['secret_key', 'bootstrap_token'],
+        scopes: ['accounts.create'],
         environmentBinding: 'required',
-        originBinding: 'required',
       },
       { kind: 'none' },
-      ['authService', 'publishableKeyAuth'],
+      ['authService'],
+    ),
+    apiCredentialRoute(
+      'registration_threshold_ed25519_hss_finalize',
+      'POST',
+      '/registration/threshold-ed25519/hss/finalize',
+      'Finalize threshold Ed25519 HSS server ceremony during registration bootstrap',
+      {
+        plane: 'api_credentials',
+        credentials: ['secret_key', 'bootstrap_token'],
+        scopes: ['accounts.create'],
+        environmentBinding: 'required',
+      },
+      { kind: 'none' },
+      ['authService'],
     ),
     apiCredentialRoute(
       'api_wallets_list',
@@ -1469,7 +1491,8 @@ export function createRelayRouteDefinitions(
       {
         plane: 'public',
         proof: 'webauthn',
-        rationale: 'Sync-account flows are public because they are challenge-driven WebAuthn entrypoints.',
+        rationale:
+          'Sync-account flows are public because they are challenge-driven WebAuthn entrypoints.',
       },
       ['authService'],
     ),
@@ -1574,19 +1597,9 @@ export function createRelayRouteDefinitions(
       'GET',
       '/threshold-ed25519/healthz',
       'Threshold Ed25519 health probe',
-      { plane: 'public', rationale: 'Threshold health probes are intentionally public diagnostics.' },
-      ['threshold'],
-    ),
-    publicRoute(
-      'threshold_ed25519_keygen',
-      'POST',
-      '/threshold-ed25519/keygen',
-      'Run threshold Ed25519 key generation bootstrap',
       {
         plane: 'public',
-        proof: 'webauthn',
-        rationale:
-          'Ed25519 keygen is intentionally public because WebAuthn challenge verification is the gate.',
+        rationale: 'Threshold health probes are intentionally public diagnostics.',
       },
       ['threshold'],
     ),
@@ -1603,37 +1616,27 @@ export function createRelayRouteDefinitions(
       },
       ['threshold', 'session'],
     ),
-    publicRoute(
-      'threshold_ed25519_export_init',
-      'POST',
-      '/threshold-ed25519/export/init',
-      'Load threshold Ed25519 seed-export metadata',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Export init only loads scoped export metadata for a relayer key id and returns no secret share material.',
-      },
-      ['threshold'],
-    ),
-    publicRoute(
-      'threshold_ed25519_export_combine',
-      'POST',
-      '/threshold-ed25519/export/combine',
-      'Homomorphically combine threshold Ed25519 export shares',
-      {
-        plane: 'public',
-        proof: 'threshold_protocol_state',
-        rationale:
-          'Export combine is a low-level threshold continuation that will operate on client-supplied ciphertext and relayer-held share material.',
-      },
-      ['threshold'],
-    ),
     thresholdSessionRoute(
       'threshold_ed25519_authorize',
       'POST',
       '/threshold-ed25519/authorize',
       'Authorize threshold Ed25519 signing session',
+      'ed25519',
+      ['threshold', 'session'],
+    ),
+    thresholdSessionRoute(
+      'threshold_ed25519_hss_prepare',
+      'POST',
+      '/threshold-ed25519/hss/prepare',
+      'Prepare threshold Ed25519 HSS server ceremony step',
+      'ed25519',
+      ['threshold', 'session'],
+    ),
+    thresholdSessionRoute(
+      'threshold_ed25519_hss_finalize',
+      'POST',
+      '/threshold-ed25519/hss/finalize',
+      'Finalize threshold Ed25519 HSS server ceremony step',
       'ed25519',
       ['threshold', 'session'],
     ),
@@ -1694,7 +1697,10 @@ export function createRelayRouteDefinitions(
       'GET',
       '/threshold-ecdsa/healthz',
       'Threshold ECDSA health probe',
-      { plane: 'public', rationale: 'Threshold health probes are intentionally public diagnostics.' },
+      {
+        plane: 'public',
+        rationale: 'Threshold health probes are intentionally public diagnostics.',
+      },
       ['threshold'],
     ),
     publicRoute(
@@ -1821,20 +1827,14 @@ export function createRelayRouteDefinitions(
       },
       ['authService', 'session'],
     ),
-    userSessionRoute(
-      'session_revoke',
-      'POST',
-      '/session/revoke',
-      'Revoke current app session',
-      ['authService', 'session'],
-    ),
-    userSessionRoute(
-      'session_refresh',
-      'POST',
-      '/session/refresh',
-      'Refresh current app session',
-      ['authService', 'session'],
-    ),
+    userSessionRoute('session_revoke', 'POST', '/session/revoke', 'Revoke current app session', [
+      'authService',
+      'session',
+    ]),
+    userSessionRoute('session_refresh', 'POST', '/session/refresh', 'Refresh current app session', [
+      'authService',
+      'session',
+    ]),
     publicRoute(
       'wallet_unlock_challenge',
       'POST',
@@ -1855,12 +1855,19 @@ export function createRelayRouteDefinitions(
       {
         plane: 'public',
         proof: 'challenge_exchange',
-        rationale: 'Wallet unlock verification is intentionally public because the challenge proof is the gate.',
+        rationale:
+          'Wallet unlock verification is intentionally public because the challenge proof is the gate.',
       },
       ['authService'],
     ),
-    userSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', ['authService', 'session']),
-    userSessionRoute('wallet_lock', 'POST', '/wallet/lock', 'Lock wallet', ['authService', 'session']),
+    userSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', [
+      'authService',
+      'session',
+    ]),
+    userSessionRoute('wallet_lock', 'POST', '/wallet/lock', 'Lock wallet', [
+      'authService',
+      'session',
+    ]),
     publicRoute(
       'recover_email',
       'POST',

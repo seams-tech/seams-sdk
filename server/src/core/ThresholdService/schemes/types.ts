@@ -5,10 +5,6 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
-  ThresholdEd25519ExportCombineRequest,
-  ThresholdEd25519ExportCombineResponse,
-  ThresholdEd25519ExportInitRequest,
-  ThresholdEd25519ExportInitResponse,
   ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaBootstrapResponse,
   ThresholdEcdsaKeygenRequest,
@@ -29,8 +25,6 @@ import type {
   ThresholdEcdsaSignFinalizeResponse,
   ThresholdEcdsaSignInitRequest,
   ThresholdEcdsaSignInitResponse,
-  ThresholdEd25519KeygenRequest,
-  ThresholdEd25519KeygenResponse,
   ThresholdEd25519SessionRequest,
   ThresholdEd25519SessionResponse,
   ThresholdEd25519SignFinalizeRequest,
@@ -100,10 +94,7 @@ export type ThresholdEd25519RegistrationKeygenRequest = {
   keyVersion: string;
   recoveryExportCapable: true;
   publicKey: string;
-  recoveryPublicKey: string;
-  clientVerifyingShareB64u: string;
-  relayerSigningShareB64u: string;
-  relayerVerifyingShareB64u: string;
+  relayerKeyId: string;
 };
 
 export type ThresholdEd25519RegistrationKeygenResult =
@@ -114,39 +105,32 @@ export type ThresholdEd25519RegistrationKeygenResult =
       participantIds: number[];
       relayerKeyId: string;
       publicKey: string;
-      recoveryPublicKey: string;
       keyVersion: string;
       recoveryExportCapable: true;
       relayerVerifyingShareB64u: string;
     }
   | { ok: false; code: string; message: string };
 
-export type ThresholdEd25519Frost2pSchemeModule = ThresholdSchemeModule<
-  'threshold-ed25519-frost-2p-v1',
-  ThresholdEd25519KeygenRequest,
-  ThresholdEd25519KeygenResponse,
-  ThresholdEd25519SessionRequest,
-  ThresholdEd25519SessionResponse,
-  ThresholdEd25519SessionClaims,
-  ThresholdEd25519AuthorizeWithSessionRequest,
-  ThresholdEd25519AuthorizeResponse,
-  ThresholdEd25519SignInitRequest,
-  ThresholdEd25519SignInitResponse,
-  ThresholdEd25519SignFinalizeRequest,
-  ThresholdEd25519SignFinalizeResponse,
-  ThresholdEd25519CosignInitRequest,
-  ThresholdEd25519CosignInitResponse,
-  ThresholdEd25519CosignFinalizeRequest,
-  ThresholdEd25519CosignFinalizeResponse
-> & {
-  export: {
-    init(request: ThresholdEd25519ExportInitRequest): Promise<ThresholdEd25519ExportInitResponse>;
-    combine(
-      request: ThresholdEd25519ExportCombineRequest,
-    ): Promise<ThresholdEd25519ExportCombineResponse>;
-  };
+export type ThresholdEd25519Frost2pSchemeModule = {
+  schemeId: 'threshold-ed25519-frost-2p-v1';
+  protocol: ThresholdProtocolDriver<
+    ThresholdEd25519SignInitRequest,
+    ThresholdEd25519SignInitResponse,
+    ThresholdEd25519SignFinalizeRequest,
+    ThresholdEd25519SignFinalizeResponse,
+    ThresholdEd25519CosignInitRequest,
+    ThresholdEd25519CosignInitResponse,
+    ThresholdEd25519CosignFinalizeRequest,
+    ThresholdEd25519CosignFinalizeResponse
+  >;
+  healthz(): Promise<{ ok: boolean; code?: string; message?: string }>;
+  session(request: ThresholdEd25519SessionRequest): Promise<ThresholdEd25519SessionResponse>;
+  authorize(input: {
+    claims: ThresholdEd25519SessionClaims;
+    request: ThresholdEd25519AuthorizeWithSessionRequest;
+  }): Promise<ThresholdEd25519AuthorizeResponse>;
   registration: {
-    keygenFromBootstrapPackage(
+    keygenFromRegistrationMaterial(
       request: ThresholdEd25519RegistrationKeygenRequest,
     ): Promise<ThresholdEd25519RegistrationKeygenResult>;
   };

@@ -18,7 +18,7 @@
  * - Development (cross‑origin: app + wallet on different hosts)
  *   - The app does not construct workers from its own origin to avoid SecurityError.
  *     Workers prewarm inside the wallet iframe (wallet origin) instead.
- *   - Loading WASM via network fallback requires CORS + correct MIME on the wallet origin.
+ *   - Loading WASM from the wallet origin requires CORS + correct MIME on the wallet origin.
  *
  * - CI / Node
  *   - Consumers may set `process.env.WASM_BASE_URL` or a worker‑specific
@@ -28,10 +28,11 @@
  * Path Resolution Strategy summary:
  * - resolveWasmUrl() picks the most explicit hint first (customBaseUrl, env, globals),
  *   then tries bundler‑relative (import.meta.url), and finally falls back to `/sdk/workers/*`.
- * - initializeWasm() prefers the "bundled" module_or_path (fast, reliable), then
- *   falls back to a network fetch + `WebAssembly.compile` (works regardless of MIME),
- *   with a timeout and optional fallback module factory for graceful degradation.
+ * - initializeWasm() passes the resolved module_or_path into the generated wasm-bindgen
+ *   loader, with a timeout and optional fallback module factory for graceful degradation.
  */
+
+import { getEmbeddedBase } from './base';
 
 export interface WasmLoaderOptions {
   workerName: string;
@@ -43,6 +44,20 @@ export interface WasmLoaderOptions {
   testFunction?: () => void | Promise<void>;
 }
 
+function getGlobalSelf(): (typeof globalThis & { location?: Location; WASM_BASE_URL?: string }) | null {
+  return typeof self !== 'undefined'
+    ? ((self as typeof globalThis & { location?: Location; WASM_BASE_URL?: string }) ?? null)
+    : null;
+}
+
+function getGlobalLocationHref(): string | undefined {
+  return getGlobalSelf()?.location?.href;
+}
+
+function getGlobalLocationOrigin(): string | undefined {
+  return getGlobalSelf()?.location?.origin;
+}
+
 /**
  * Resolve a WASM binary URL for a given worker.
  * Priority order:
@@ -50,8 +65,10 @@ export interface WasmLoaderOptions {
  * 2) process.env.WASM_BASE_URL
  * 3) process.env[`${WORKER_NAME}_WASM_BASE_URL`]
  * 4) self.WASM_BASE_URL (when running inside a worker)
- * 5) Bundler‑relative URL via import.meta.url
- * 6) Fallback `/sdk/workers/${wasmFilename}` under the current origin
+ * 5) Embedded wallet SDK base (`${walletOrigin}/sdk/`) + `workers/`
+ * 6) SDK-root-relative URL inferred from import.meta.url for browser bundles
+ * 7) Bundler‑relative URL via import.meta.url
+ * 8) Fallback `/sdk/workers/${wasmFilename}` under the current origin
  *
  * @param wasmFilename - Name of the WASM binary, e.g. `wasm_signer_worker_bg.wasm`.
  * @param workerName - Human‑readable worker name for logs and env var lookup.
@@ -73,9 +90,16 @@ export function resolveWasmUrl(
   if (typeof process !== 'undefined' && (process as any).env?.[workerEnvVar]) {
     return new URL(wasmFilename, (process as any).env[workerEnvVar]);
   }
-  if (typeof self !== 'undefined' && (self as any).WASM_BASE_URL) {
-    return new URL(wasmFilename, (self as any).WASM_BASE_URL);
+  const globalSelf = getGlobalSelf();
+  if (globalSelf?.WASM_BASE_URL) {
+    return new URL(wasmFilename, globalSelf.WASM_BASE_URL);
   }
+  try {
+    const embeddedBase = getEmbeddedBase();
+    if (embeddedBase) {
+      return new URL(`workers/${wasmFilename}`, embeddedBase);
+    }
+  } catch {}
   try {
     let metaUrl: string | null = null;
     try {
@@ -86,10 +110,21 @@ export function resolveWasmUrl(
     } catch {
       metaUrl = null;
     }
-    const baseUrl = metaUrl || (self as any)?.location?.href || '/';
+    if (metaUrl) {
+      const meta = new URL(metaUrl, getGlobalLocationHref());
+      if (meta.protocol === 'http:' || meta.protocol === 'https:') {
+        const sdkSegmentIndex = meta.pathname.indexOf('/sdk/');
+        if (sdkSegmentIndex >= 0) {
+          const sdkBasePath = meta.pathname.slice(0, sdkSegmentIndex + '/sdk/'.length);
+          return new URL(`${sdkBasePath}workers/${wasmFilename}`, meta.origin);
+        }
+      }
+      return new URL(`./${wasmFilename}`, meta);
+    }
+    const baseUrl = getGlobalLocationHref() || '/';
     return new URL(`./${wasmFilename}`, baseUrl);
   } catch {
-    return new URL(`/sdk/workers/${wasmFilename}`, (self as any)?.location?.origin || '/');
+    return new URL(`/sdk/workers/${wasmFilename}`, getGlobalLocationOrigin() || '/');
   }
 }
 
@@ -98,9 +133,6 @@ export function resolveWasmUrl(
  *
  * - PRIMARY: pass a URL (or module) to the WASM `initFunction` so bundlers rewrite
  *   it to the correct asset in production. This is the fastest & most reliable path.
- * - FALLBACK: if the bundled path fails (e.g., due to a bundler quirk), fetch the
- *   WASM over the network and compile via `WebAssembly.compile(ArrayBuffer)`.
- *   This sidesteps MIME issues and works in strict environments.
  * - TIMEOUT: guard initialization with a timeout; optionally create a fallback module
  *   via `createFallbackModule` to keep the worker responsive in degraded conditions.
  *
@@ -132,29 +164,10 @@ export async function initializeWasm(options: WasmLoaderOptions): Promise<any> {
       if (testFunction) await testFunction();
       console.debug(`[${workerName}]: WASM initialized successfully`);
       return true;
-    } catch (bundledError: any) {
-      console.warn(
-        `[${workerName}]: Bundled WASM unavailable, attempting network fallback:`,
-        bundledError?.message,
-      );
-    }
-
-    try {
-      console.debug(`[${workerName}]: Fetching WASM from network:`, wasmUrl.href);
-      const response = await fetch(wasmUrl.href);
-      if (!response.ok)
-        throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
-      const arrayBuffer = await response.arrayBuffer();
-      const wasmModule = await WebAssembly.compile(arrayBuffer);
-      await initFunction({ module_or_path: wasmModule as any });
-      if (validateFunction) await validateFunction();
-      if (testFunction) await testFunction();
-      console.debug(`[${workerName}]: WASM initialized via network fallback`);
-      return true;
-    } catch (networkError: any) {
-      console.error(`[${workerName}]: All WASM initialization methods failed`);
+    } catch (initError: any) {
+      console.error(`[${workerName}]: WASM initialization failed`);
       const helpfulMessage =
-        `\n${workerName.toUpperCase()} WASM initialization failed. This may be due to:\n1. Server MIME type configuration (WASM files should be served with 'application/wasm')\n2. Network connectivity issues\n3. CORS policy restrictions\n4. Missing WASM files in deployment\n5. SDK packaging problems\n\nOriginal error: ${networkError?.message}\n`.trim();
+        `\n${workerName.toUpperCase()} WASM initialization failed. This may be due to:\n1. Server MIME type configuration (WASM files should be served with 'application/wasm')\n2. Network connectivity issues\n3. CORS policy restrictions\n4. Missing WASM files in deployment\n5. SDK packaging problems\n\nOriginal error: ${initError?.message}\n`.trim();
       if (createFallbackModule) {
         console.warn(
           `[${workerName}]: Creating fallback module due to WASM initialization failure`,

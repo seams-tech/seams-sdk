@@ -1,6 +1,12 @@
 import type { RouterLogger } from './logger';
 import type { ThresholdAnySchemeModule } from '../core/ThresholdService/schemes/types';
 import type { ThresholdSchemeId } from '../core/ThresholdService/schemes/schemeIds';
+import type {
+  ThresholdEd25519HssFinalizeWithSessionRequest,
+  ThresholdEd25519HssFinalizeWithSessionResponse,
+  ThresholdEd25519HssPrepareWithSessionRequest,
+  ThresholdEd25519HssPrepareWithSessionResponse,
+} from '../core/types';
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
@@ -93,6 +99,16 @@ export interface SessionAdapter {
 
 export interface ThresholdSigningAdapter {
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null;
+  ed25519Hss?: {
+    prepareWithSession(input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssPrepareWithSessionRequest;
+    }): Promise<ThresholdEd25519HssPrepareWithSessionResponse>;
+    finalizeWithSession(input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssFinalizeWithSessionRequest;
+    }): Promise<ThresholdEd25519HssFinalizeWithSessionResponse>;
+  };
 }
 
 export interface RelayRuntimeSnapshotScope {
@@ -241,12 +257,15 @@ export interface RelayBootstrapGrantIssueRequest {
   newAccountId: string;
   rpId: string;
   requestHashSha256: string;
+  path?: string;
   clientContext?: RelayBootstrapGrantClientContext;
 }
 
 export interface RelayBootstrapGrant {
   token: string;
   expiresAt: string;
+  orgId: string;
+  projectId: string;
   environmentId: string;
   origin: string;
   mode: RelayBootstrapGrantMode;
@@ -299,9 +318,11 @@ export interface RelayBootstrapGrantBroker {
     origin: string;
     environmentId?: string;
   }): Promise<import('../console/apiKeys').AuthenticateConsolePublishableKeyResult>;
-  issueGrantForAuthenticatedKey(input: Omit<RelayBootstrapGrantIssueRequest, 'publishableKey'> & {
-    authenticatedApiKey: import('../console/apiKeys').ConsoleApiKey;
-  }): Promise<RelayBootstrapGrantIssueResult>;
+  issueGrantForAuthenticatedKey(
+    input: Omit<RelayBootstrapGrantIssueRequest, 'publishableKey'> & {
+      authenticatedApiKey: import('../console/apiKeys').ConsoleApiKey;
+    },
+  ): Promise<RelayBootstrapGrantIssueResult>;
 }
 
 export type SmartAccountDeploymentChain = 'evm' | 'tempo';

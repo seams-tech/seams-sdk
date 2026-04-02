@@ -99,6 +99,10 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../signingEngine/SigningEngine';
 import type {
+  ThresholdEd25519HssFinalizedReportEnvelope,
+  ThresholdEd25519HssPreparedSessionEnvelope,
+} from '../../signingEngine/signers/wasm/nearSignerHssWasm';
+import type {
   LinkDeviceResult,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
@@ -1437,6 +1441,44 @@ export class WalletIframeRouter {
     }
   }
 
+  async exportThresholdEd25519SeedFromHssReport(args: {
+    nearAccountId: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+    expectedPublicKey: string;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<void> {
+    this.showFrameForActivation();
+    const walletOrigin = this.walletOriginOrigin;
+    const detachClosed = this.attachExportUiClosedListener(walletOrigin);
+    try {
+      await this.post<void>({
+        type: 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
+        payload: {
+          nearAccountId: args.nearAccountId,
+          preparedSession: args.preparedSession,
+          finalizedReport: args.finalizedReport,
+          expectedPublicKey: args.expectedPublicKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+        },
+        options: { sticky: true },
+      });
+      void detachClosed;
+      return;
+    } catch (e) {
+      try {
+        detachClosed();
+      } catch {}
+      this.overlayState.controller.setSticky(false);
+      this.hideFrameForActivation();
+      throw e;
+    }
+  }
+
   // ===== Control APIs =====
   async cancelRequest(requestId: string): Promise<void> {
     // Best-effort cancel. Host will attempt to close open modals and mark the request as cancelled.
@@ -1677,6 +1719,7 @@ export class WalletIframeRouter {
     switch (type) {
       // Operations that require fullscreen overlay for WebAuthn activation
       case 'PM_EXPORT_KEYPAIR_UI':
+      case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       case 'PM_REGISTER':
       case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TXS':

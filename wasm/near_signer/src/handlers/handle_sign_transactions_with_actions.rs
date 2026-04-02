@@ -4,6 +4,7 @@
 // *                                                                            *
 // ******************************************************************************
 
+use crate::actions::ActionParams;
 use crate::threshold::signer_backend::Ed25519SignerBackend;
 use crate::transaction::{
     build_actions_from_params, build_transaction_with_actions, calculate_transaction_hash,
@@ -18,7 +19,6 @@ use crate::types::{
     wasm_to_json::WasmSignedTransaction,
     SignedTransaction, ThresholdSignerConfig,
 };
-use crate::{actions::ActionParams, WrapKey};
 use bs58;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -29,10 +29,6 @@ pub struct SignTransactionsWithActionsRequest {
     pub rpc_call: RpcCallPayload,
     pub session_id: String,
     pub created_at: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prf_first_b64u: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wrap_key_salt: Option<String>,
     pub threshold: ThresholdSignerConfig,
     pub tx_signing_requests: Vec<TransactionPayload>,
     /// Unified confirmation configuration for controlling the confirmation flow
@@ -147,7 +143,6 @@ impl KeyActionResult {
 /// * `TransactionSignResult` - Contains success status, transaction hashes, signed transactions, and detailed logs
 pub async fn handle_sign_transactions_with_actions(
     tx_batch_request: SignTransactionsWithActionsRequest,
-    wrap_key: WrapKey,
 ) -> Result<TransactionSignResult, String> {
     // Validate input
     if tx_batch_request.tx_signing_requests.is_empty() {
@@ -254,8 +249,6 @@ pub async fn handle_sign_transactions_with_actions(
     };
 
     let signer = Ed25519SignerBackend::from_threshold_signer_config(
-        &wrap_key,
-        tx_batch_request.prf_first_b64u.as_deref(),
         &tx_batch_request.rpc_call.near_account_id,
         &transaction_context.near_public_key_str,
         "near_tx",
