@@ -353,7 +353,7 @@ Recommended domain:
 
 Notes:
 
-- `nearAccountIdHash` keeps the recovered NEAR identity explicit
+- `nearAccountIdHash` keeps the recovered account identifier explicit
 - `newNearKeyHash` makes the exact recovered NEAR key auditable
 - `newOwner` is the new EVM signer being installed
 - `recoverySessionHash` binds the authorization to the verified email recovery session

@@ -2,13 +2,14 @@ import express, { Express } from 'express';
 import { Pool } from 'pg';
 import {
   AuthService,
+  createEd25519AuthSessionStore,
   createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
   createRecoveryAuthorityIntervalRunner,
   createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
-  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
+  createPrfSessionSealPolicyFromThresholdAuthSessionStores,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
@@ -937,6 +938,11 @@ async function main() {
       logger: console,
       isNode: true,
     });
+    const authSessionStore = createEd25519AuthSessionStore({
+      config: thresholdEd25519KeyStore,
+      logger: console,
+      isNode: true,
+    });
 
     const limiterKind = parsePrfSealLimiterKind(env.PRF_SESSION_SEAL_RATE_LIMIT_KIND);
     const rateLimit = resolvePrfSessionSealRateLimitFromEnv({
@@ -979,7 +985,9 @@ async function main() {
       : undefined;
 
     return createPrfSessionSealRoutesOptions({
-      sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+      sessionPolicy: createPrfSessionSealPolicyFromThresholdAuthSessionStores({
+        stores: [authSessionStore, ecdsaAuthSessionStore],
+      }),
       cipher: createPrfSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,
         keys: [

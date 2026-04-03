@@ -1,10 +1,10 @@
 # Formal Verification Plan (Lean 4)
 
-Last updated: 2026-03-18
+Last updated: 2026-04-03
 
 ## Goal
 
-Use Lean 4 to formally verify security-critical cryptographic logic in Rust, focusing on our own composition/orchestration code and deterministic encoding paths in `signer-core`. Use Aeneas for Rust-to-Lean translation and Leanstral for LLM-assisted proof acceleration.
+Use Lean 4 to formally verify security-critical cryptographic logic in Rust, focusing on our own composition/orchestration code and deterministic encoding paths in `signer-core` and on the low-level fixed-function expansion pipeline in `ed25519-hss`. Use Aeneas for Rust-to-Lean translation and Leanstral for LLM-assisted proof acceleration.
 
 ## Constraints
 
@@ -26,6 +26,12 @@ Use Lean 4 to formally verify security-critical cryptographic logic in Rust, foc
 - Ed25519/FROST 2-party algebra and participant-id invariants:
   - `crates/signer-core/src/near_threshold_frost.rs`
   - `crates/signer-core/src/near_threshold_ed25519.rs`
+- `ed25519-hss` fixed-function expansion spec and circuit-equivalence targets:
+  - `crates/ed25519-hss/src/reference.rs`
+  - `crates/ed25519-hss/src/candidate.rs`
+  - `crates/ed25519-hss/src/artifact/prime_order_encoder.rs`
+  - `crates/ed25519-hss/src/ddh/hidden_eval.rs`
+  - `crates/ed25519-hss/src/ddh/hidden_eval_executor.rs`
 
 ### Out of scope (trusted assumptions)
 
@@ -34,6 +40,7 @@ Use Lean 4 to formally verify security-critical cryptographic logic in Rust, foc
   - `curve25519-dalek`
   - `frost-ed25519`
   - `threshold-signatures` (pinned rev)
+  - `sha2`
 - Browser runtime, network transport, and relay durability semantics.
 
 ## What Formal Verification Covers vs Testing
@@ -46,13 +53,16 @@ Use Lean 4 to formally verify security-critical cryptographic logic in Rust, foc
   - network transport behavior, retries, and ordering effects,
   - relay/store durability behavior and operational failure modes,
   - process/runtime wiring across WASM/server/client boundaries.
+- For `ed25519-hss`, this plan proves the fixed-function expansion spec and its encoded hidden-eval realization. It does not attempt to prove end-to-end distributed transport, OT message delivery, or runtime scheduling semantics.
 - Lean-generated vector parity tests are the bridge between model and implementation for in-scope functions: they detect byte-level divergence between proofs and Rust behavior.
 
 ## Specification Sources and Weighting
 
 We use a weighted source hierarchy so proofs follow the exact implementation we run.
 
-## Tier 0 (highest): Pinned implementation spec for `threshold-signatures`
+## Tier 0 (highest): Pinned implementation specs
+
+### `signer-core` threshold behavior
 
 Authoritative for threshold ECDSA behavior because our code is pinned to:
 
@@ -77,6 +87,23 @@ Notes on weighting:
 - For ECDSA proofs, `ot_based_ecdsa` docs are primary.
 - `robust_ecdsa` docs are reference-only unless/until implementation switches.
 - `benches/model` and `confidential_key_derivation` are contextual references, not normative protocol behavior for current signer-core APIs.
+
+### `ed25519-hss` fixed-function behavior
+
+Authoritative for `ed25519-hss` fixed-function expansion behavior is the local Rust implementation and its explicitly encoded circuit pipeline:
+
+- `crates/ed25519-hss/src/reference.rs`
+- `crates/ed25519-hss/src/candidate.rs`
+- `crates/ed25519-hss/src/artifact/prime_order_encoder.rs`
+- `crates/ed25519-hss/src/artifact/prime_order_decoder.rs`
+- `crates/ed25519-hss/src/ddh/hidden_eval.rs`
+- `crates/ed25519-hss/src/ddh/hidden_eval_executor.rs`
+
+Notes on weighting:
+
+- `reference.rs` is the functional spec for `F_expand`.
+- `candidate.rs`, artifact encoding/decoding, and hidden-eval compilation define the circuit shape and context binding.
+- The executor path is proven equivalent to the `reference.rs` spec at the abstraction boundary we actually run.
 
 ## Tier 1: Standards-level references
 
@@ -117,12 +144,19 @@ Useful for rationale and lineage, but lower priority than pinned `near/threshold
 - Deterministic tx digest and signed encoding:
   - EIP-1559 hash preimage correctness and serialization determinism.
   - Tempo sender-hash and signed payload serialization determinism.
+- `ed25519-hss` fixed-function expansion circuit equivalence:
+  - `eval_f_expand` output relation is proven from the clear spec.
+  - artifact materialization and hidden-eval compilation are deterministic and context-bound.
+  - the compiled hidden evaluator computes the same `FExpandOutput` fields as the clear spec for the fixed function.
 
 ## P1
 
 - FROST 2-party group key reconstruction from verifying shares is algebraically correct.
 - Participant-id validation invariants prevent ambiguous signer-set behavior.
 - Non-zero scalar constraints are preserved through deterministic derivation paths.
+- `ed25519-hss` share-recovery and public-key projection relations hold:
+  - `recover_a_from_base_shares(x_client_base, x_relayer_base) = a`
+  - `public_key_from_base_shares(...) = public_key_from_scalar_bytes(a)`
 
 ## P2
 
@@ -156,7 +190,7 @@ Definition of done:
   - `formal-verification/scripts`
   - `formal-verification/docs`
 - [ ] Add Lean 4 build files (`lakefile.lean`, `lean-toolchain`) and deterministic tooling entrypoints.
-- [ ] Set up Aeneas and Charon to translate target `signer-core` modules into Lean 4.
+- [ ] Set up Aeneas and Charon to translate target `signer-core` and `ed25519-hss` modules into Lean 4.
 - [ ] Add `formal-verification/docs/proof-inventory.md` with theorem coverage table.
 
 Definition of done:
@@ -207,7 +241,33 @@ Definition of done:
 
 - Formal model proves the finalize path cannot emit an accepting signature that violates equation checks.
 
-## Phase 5: Verify Threshold Ed25519/FROST 2P Algebra (P1)
+## Phase 5: Verify `ed25519-hss` Fixed-Function Expansion Circuit (P0/P1)
+
+- [ ] Use Aeneas to translate `crates/ed25519-hss/src/reference.rs` into Lean 4, axiomatizing `sha2` and `curve25519-dalek` calls as trusted specs.
+- [ ] Prove the clear `F_expand` spec:
+  - add-mod-`2^256` relation for `m`,
+  - SHA-512/clamp/reduce relation for `a_bytes` and `a`,
+  - output-share projection equations for `tau`, `x_client_base`, and `x_relayer_base`,
+  - public-key derivation relation for `public_key`.
+- [ ] Translate the circuit-shaping modules:
+  - `crates/ed25519-hss/src/candidate.rs`
+  - `crates/ed25519-hss/src/artifact/prime_order_encoder.rs`
+  - `crates/ed25519-hss/src/ddh/hidden_eval.rs`
+- [ ] Prove artifact materialization and hidden-eval compilation are deterministic and context-bound for a fixed canonical context.
+- [ ] Prove the hidden-eval stage inventory and ordering cover the intended fixed function:
+  - add-mod-`2^256`,
+  - SHA-512 schedule/round stages,
+  - clamp/reduce stage,
+  - output projector stage.
+- [ ] Prove the hidden evaluator implements the same output relation as `eval_f_expand` at the `FExpandOutput` boundary.
+- [ ] Export Lean-generated vectors to `formal-verification/vectors/generated/ed25519-hss/*.json`.
+- [ ] Add/extend Rust parity tests in `crates/ed25519-hss/tests/` to fail on any divergence between Lean-generated vectors, the clear reference path, and the compiled hidden-eval path.
+
+Definition of done:
+
+- The fixed-function expansion circuit is proven equivalent to the clear `reference.rs` spec at the output boundary we expose in Rust.
+
+## Phase 6: Verify Threshold Ed25519/FROST 2P Algebra (P1)
 
 - [ ] Use Aeneas to translate `near_threshold_frost.rs` and `near_threshold_ed25519.rs` into Lean 4, axiomatizing `frost-ed25519` and `curve25519-dalek` calls as trusted specs.
 - [ ] Prove group-public-key reconstruction from verifying shares and participant IDs.
@@ -219,7 +279,7 @@ Definition of done:
 
 - Theorems cover core Ed25519 threshold key/share math in current production path.
 
-## Phase 6: CI and Change Management
+## Phase 7: CI and Change Management
 
 - [ ] Add CI job:
   - `lake build` proof build
@@ -243,7 +303,7 @@ Definition of done:
 - `formal-verification/docs/proof-inventory.md`
 - `formal-verification/lean/**` theorem files and Aeneas-generated Lean translations
 - `formal-verification/vectors/generated/*.json`
-- Updated `signer-core` vector fixtures + parity tests
+- Updated `signer-core` and `ed25519-hss` vector fixtures + parity tests
 - CI gate for formal + parity checks
 - Aeneas/Charon configuration for reproducible Rust-to-Lean translation
 
@@ -270,6 +330,7 @@ Applicability to our verification targets:
 | `secp256k1.rs` share mapping | Good | Translate our composition code, axiomatize `k256` calls as trusted specs. Matches our existing trust boundary. |
 | `threshold_ecdsa.rs` finalize | Good | Same pattern: prove orchestration, trust `threshold-signatures` internals. |
 | `near_threshold_frost.rs` FROST algebra | Good | Algebraic properties are well-suited to functional translation. |
+| `ed25519-hss` fixed-function expansion | Good | Best handled as clear-spec plus circuit-equivalence proofs, with `sha2` and `curve25519-dalek` calls trusted. |
 
 Key limitation: cannot cross C FFI boundaries. Our plan already treats `k256`, `curve25519-dalek`, `frost-ed25519`, and `threshold-signatures` as trusted assumptions, so this aligns.
 

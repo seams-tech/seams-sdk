@@ -159,8 +159,7 @@ These files are modified or untracked in the worktree, but they are not part of 
 
 - [auth-gating-routes.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/auth-gating-routes.md)
 - [formal-verification.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/formal-verification.md)
-- [homomorphic-key-export.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export.md)
-- [homomorphic-key-export-ECDSA.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/homomorphic-key-export-ECDSA.md)
+- [hss-export-key.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/hss-export-key.md)
 - [load-testing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/load-testing.md)
 
 ### Example site

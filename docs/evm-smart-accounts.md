@@ -26,7 +26,7 @@ Each user has one smart account per EVM chain.
 The contract stores:
 
 - the active owner set
-- the NEAR identity binding for that account
+- the canonical account-binding hash for that account
 - one global `recoveryAuthority`
 - replay protection for recovery authorizations
 - optional ERC-4337 execution configuration
@@ -248,7 +248,7 @@ RecoverAddOwner(
 
 Notes:
 
-- `nearAccountIdHash` binds the account to the canonical NEAR identity
+- `nearAccountIdHash` binds the account to the canonical account identifier
 - `newNearKeyHash` makes the exact NEAR recovery key auditable
 - `newOwner` is the EVM owner being installed
 - `recoverySessionHash` binds the mutation to one verified recovery session
