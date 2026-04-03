@@ -218,6 +218,7 @@ export function createOrchestrationDependencyBundle(
     thresholdEd25519LifecycleDeps: {
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
       createSessionId: (prefix: string): string => generateSessionIdValue(prefix),
+      getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
     },
     nearSigningDeps: nearSigningDeps,
     tempoSigningDeps: {

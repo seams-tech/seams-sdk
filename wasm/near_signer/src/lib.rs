@@ -14,6 +14,19 @@ mod threshold;
 mod transaction;
 mod types;
 
+use crate::threshold::threshold_frost::{
+    build_threshold_ed25519_seed_export_artifact_from_seed,
+    ThresholdEd25519SeedExportArtifactFromSeedArgs,
+};
+use crate::threshold::threshold_hss::{
+    derive_threshold_ed25519_hss_public_key_from_base_shares,
+    evaluate_threshold_ed25519_hss_result, open_threshold_ed25519_hss_client_output,
+    open_threshold_ed25519_hss_seed_output, prepare_threshold_ed25519_hss_client_request,
+    prepare_threshold_ed25519_hss_session, ThresholdEd25519HssEvaluateResultArgs,
+    ThresholdEd25519HssOpenClientOutputArgs, ThresholdEd25519HssOpenSeedOutputArgs,
+    ThresholdEd25519HssPrepareClientRequestArgs, ThresholdEd25519HssPrepareSessionArgs,
+    ThresholdEd25519HssPublicKeyFromSharesArgs,
+};
 use crate::types::worker_messages::{
     parse_typed_payload, parse_worker_request_envelope, worker_request_type_name,
     worker_response_type_name, SignerWorkerMessage, SignerWorkerResponse, WorkerRequestType,
@@ -252,6 +265,62 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
             serde_wasm_bindgen::to_value(&result)
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
+        WorkerRequestType::PrepareThresholdEd25519HssSession => {
+            let request: ThresholdEd25519HssPrepareSessionArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = prepare_threshold_ed25519_hss_session(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
+            let request: ThresholdEd25519HssPrepareClientRequestArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = prepare_threshold_ed25519_hss_client_request(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::EvaluateThresholdEd25519HssResult => {
+            let request: ThresholdEd25519HssEvaluateResultArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = evaluate_threshold_ed25519_hss_result(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
+            let request: ThresholdEd25519HssOpenClientOutputArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = open_threshold_ed25519_hss_client_output(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
+            let request: ThresholdEd25519HssOpenSeedOutputArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = open_threshold_ed25519_hss_seed_output(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
+            let request: ThresholdEd25519HssPublicKeyFromSharesArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = derive_threshold_ed25519_hss_public_key_from_base_shares(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
+        WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
+            let request: ThresholdEd25519SeedExportArtifactFromSeedArgs =
+                parse_typed_payload(&payload_js, request_type)?;
+            let result = build_threshold_ed25519_seed_export_artifact_from_seed(request)
+                .map_err(|e| JsValue::from_str(&e))?;
+            serde_wasm_bindgen::to_value(&result)
+                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+        }
     };
 
     // At this point, response_payload is the successful JsValue result.
@@ -276,6 +345,27 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::GenerateEphemeralNearKeypair => {
             WorkerResponseType::GenerateEphemeralNearKeypairSuccess
+        }
+        WorkerRequestType::PrepareThresholdEd25519HssSession => {
+            WorkerResponseType::PrepareThresholdEd25519HssSessionSuccess
+        }
+        WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
+            WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess
+        }
+        WorkerRequestType::EvaluateThresholdEd25519HssResult => {
+            WorkerResponseType::EvaluateThresholdEd25519HssResultSuccess
+        }
+        WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
+            WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess
+        }
+        WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
+            WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess
+        }
+        WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
+            WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess
+        }
+        WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
+            WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess
         }
     };
 

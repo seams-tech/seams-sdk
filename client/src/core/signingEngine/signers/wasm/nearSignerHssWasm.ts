@@ -1,15 +1,20 @@
-import initSignerWasm, {
-  init_worker,
-  threshold_ed25519_hss_evaluate_result,
-  threshold_ed25519_hss_open_client_output,
-  threshold_ed25519_hss_open_seed_output,
-  threshold_ed25519_hss_prepare_client_request,
-  threshold_ed25519_hss_prepare_session,
-  threshold_ed25519_hss_public_key_from_base_shares,
-  threshold_ed25519_seed_export_artifact_from_seed,
-} from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import type { InitInput } from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
+import {
+  WorkerRequestType,
+  WorkerResponseType,
+  type WasmBuildThresholdEd25519SeedExportArtifactResult,
+  type WasmDeriveThresholdEd25519HssPublicKeyResult,
+  type WasmEvaluateThresholdEd25519HssResultResult,
+  type WasmOpenThresholdEd25519HssClientOutputResult,
+  type WasmOpenThresholdEd25519HssSeedOutputResult,
+  type WasmPrepareThresholdEd25519HssClientRequestResult,
+  type WasmPrepareThresholdEd25519HssSessionResult,
+} from '@/core/types/signer-worker';
+import {
+  executeWorkerOperation,
+  type WorkerOperationContext,
+} from '../../workerManager/executeWorkerOperation';
+
+const NEAR_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export type ThresholdEd25519HssCanonicalContext = {
   orgId: string;
@@ -83,34 +88,6 @@ export type ThresholdEd25519SeedExportArtifact = {
   privateKey: string;
 };
 
-const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer HSS');
-let thresholdEd25519HssWasmInitPromise: Promise<void> | null = null;
-let thresholdEd25519HssWasmReady = false;
-
-async function initThresholdEd25519HssSignerWasm(input: {
-  module_or_path: InitInput;
-}): Promise<void> {
-  await initSignerWasm(input);
-  init_worker();
-  thresholdEd25519HssWasmReady = true;
-}
-
-export async function ensureThresholdEd25519HssClientWasm(): Promise<void> {
-  if (thresholdEd25519HssWasmInitPromise) return thresholdEd25519HssWasmInitPromise;
-  thresholdEd25519HssWasmInitPromise = initializeWasm({
-    workerName: 'NEAR Signer HSS',
-    wasmUrl,
-    initFunction: initThresholdEd25519HssSignerWasm,
-  }).then(() => undefined);
-  return thresholdEd25519HssWasmInitPromise;
-}
-
-function requireThresholdEd25519HssClientWasmReady(): void {
-  if (!thresholdEd25519HssWasmReady) {
-    throw new Error('[threshold-ed25519-hss] signer WASM is not initialized');
-  }
-}
-
 function normalizeParticipantIds(value: unknown): number[] {
   if (Array.isArray(value) || ArrayBuffer.isView(value)) {
     return Array.from(value as ArrayLike<number>, (entry) => Number(entry));
@@ -120,27 +97,36 @@ function normalizeParticipantIds(value: unknown): number[] {
 
 export async function prepareThresholdEd25519HssSessionWasm(input: {
   context: ThresholdEd25519HssCanonicalContext;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssPreparedSessionEnvelope> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.PrepareThresholdEd25519HssSession,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        orgId: input.context.orgId,
+        nearAccountId: input.context.nearAccountId,
+        keyPurpose: input.context.keyPurpose,
+        keyVersion: input.context.keyVersion,
+        participantIds: input.context.participantIds,
+        derivationVersion: input.context.derivationVersion,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_prepare_session({
-    orgId: input.context.orgId,
-    nearAccountId: input.context.nearAccountId,
-    keyPurpose: input.context.keyPurpose,
-    keyVersion: input.context.keyVersion,
-    participantIds: input.context.participantIds,
-    derivationVersion: input.context.derivationVersion,
-  }) as ThresholdEd25519HssPreparedSessionEnvelope;
+  if (response.type !== WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess) {
+    throw new Error('PrepareThresholdEd25519HssSession failed');
+  }
 
+  const result = response.payload as WasmPrepareThresholdEd25519HssSessionResult;
   return {
     orgId: String(result.orgId || '').trim(),
     nearAccountId: String(result.nearAccountId || '').trim(),
     keyPurpose: String(result.keyPurpose || '').trim(),
     keyVersion: String(result.keyVersion || '').trim(),
-    participantIds: normalizeParticipantIds(
-      (result as { participantIds?: unknown }).participantIds,
-    ),
+    participantIds: normalizeParticipantIds(result.participantIds),
     derivationVersion: Number(result.derivationVersion),
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     garblerDriverStateJson: String(result.garblerDriverStateJson || '').trim(),
@@ -155,17 +141,28 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
     'evaluatorDriverStateJson' | 'clientOtOfferMessageB64u'
   >;
   clientInputs: ThresholdEd25519HssClientInputs;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssClientRequestEnvelope> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        clientOtOfferMessageB64u: input.preparedSession.clientOtOfferMessageB64u,
+        yClientB64u: input.clientInputs.yClientB64u,
+        tauClientB64u: input.clientInputs.tauClientB64u,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_prepare_client_request({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientOtOfferMessageB64u: input.preparedSession.clientOtOfferMessageB64u,
-    yClientB64u: input.clientInputs.yClientB64u,
-    tauClientB64u: input.clientInputs.tauClientB64u,
-  }) as ThresholdEd25519HssClientRequestEnvelope;
+  if (response.type !== WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess) {
+    throw new Error('PrepareThresholdEd25519HssClientRequest failed');
+  }
 
+  const result = response.payload as WasmPrepareThresholdEd25519HssClientRequestResult;
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
@@ -177,17 +174,28 @@ export async function evaluateThresholdEd25519HssResultWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssEvaluationResultEnvelope> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.EvaluateThresholdEd25519HssResult,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
+        evaluatorOtStateJson: input.clientRequest.evaluatorOtStateJson,
+        serverMessageB64u: input.serverMessage.serverMessageB64u,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_evaluate_result({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
-    evaluatorOtStateJson: input.clientRequest.evaluatorOtStateJson,
-    serverMessageB64u: input.serverMessage.serverMessageB64u,
-  }) as ThresholdEd25519HssEvaluationResultEnvelope;
+  if (response.type !== WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess) {
+    throw new Error('EvaluateThresholdEd25519HssResult failed');
+  }
 
+  const result = response.payload as WasmEvaluateThresholdEd25519HssResultResult;
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     evaluationResultMessageB64u: String(result.evaluationResultMessageB64u || '').trim(),
@@ -197,15 +205,26 @@ export async function evaluateThresholdEd25519HssResultWasm(input: {
 export async function openThresholdEd25519HssClientOutputWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'clientOutputMessageB64u'>;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedClientOutput> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.OpenThresholdEd25519HssClientOutput,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_open_client_output({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
-  }) as ThresholdEd25519HssOpenedClientOutput;
+  if (response.type !== WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess) {
+    throw new Error('OpenThresholdEd25519HssClientOutput failed');
+  }
 
+  const result = response.payload as WasmOpenThresholdEd25519HssClientOutputResult;
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     xClientBaseB64u: String(result.xClientBaseB64u || '').trim(),
@@ -215,15 +234,26 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
 export async function openThresholdEd25519HssSeedOutputWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'seedOutputMessageB64u'>;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_open_seed_output({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
-  }) as ThresholdEd25519HssOpenedSeedOutput;
+  if (response.type !== WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess) {
+    throw new Error('OpenThresholdEd25519HssSeedOutput failed');
+  }
 
+  const result = response.payload as WasmOpenThresholdEd25519HssSeedOutputResult;
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     canonicalSeedB64u: String(result.canonicalSeedB64u || '').trim(),
@@ -233,15 +263,26 @@ export async function openThresholdEd25519HssSeedOutputWasm(input: {
 export async function deriveThresholdEd25519HssPublicKeyWasm(input: {
   xClientBaseB64u: string;
   xRelayerBaseB64u: string;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssDerivedPublicKey> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.DeriveThresholdEd25519HssPublicKey,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        xClientBaseB64u: input.xClientBaseB64u,
+        xRelayerBaseB64u: input.xRelayerBaseB64u,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_hss_public_key_from_base_shares({
-    xClientBaseB64u: input.xClientBaseB64u,
-    xRelayerBaseB64u: input.xRelayerBaseB64u,
-  }) as ThresholdEd25519HssDerivedPublicKey;
+  if (response.type !== WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess) {
+    throw new Error('DeriveThresholdEd25519HssPublicKey failed');
+  }
 
+  const result = response.payload as WasmDeriveThresholdEd25519HssPublicKeyResult;
   return {
     publicKeyB64u: String(result.publicKeyB64u || '').trim(),
   };
@@ -250,15 +291,26 @@ export async function deriveThresholdEd25519HssPublicKeyWasm(input: {
 export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
   seedB64u: string;
   expectedPublicKey: string;
+  workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519SeedExportArtifact> {
-  await ensureThresholdEd25519HssClientWasm();
-  requireThresholdEd25519HssClientWasmReady();
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        seedB64u: input.seedB64u,
+        expectedPublicKey: input.expectedPublicKey,
+      },
+    },
+  });
 
-  const result = threshold_ed25519_seed_export_artifact_from_seed({
-    seedB64u: input.seedB64u,
-    expectedPublicKey: input.expectedPublicKey,
-  }) as ThresholdEd25519SeedExportArtifact;
+  if (response.type !== WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess) {
+    throw new Error('BuildThresholdEd25519SeedExportArtifact failed');
+  }
 
+  const result = response.payload as WasmBuildThresholdEd25519SeedExportArtifactResult;
   return {
     artifactKind: String(result.artifactKind || '').trim(),
     seedB64u: String(result.seedB64u || '').trim(),

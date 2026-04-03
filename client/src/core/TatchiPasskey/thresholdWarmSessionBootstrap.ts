@@ -36,7 +36,6 @@ import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '../signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
-import { evaluateThresholdEd25519HssResultWasm } from '../signingEngine/signers/wasm/nearSignerHssWasm';
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
 export const THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
@@ -190,7 +189,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     clientRequest: prepared.clientRequest,
   });
 
-  const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
+  const evaluationResult = await args.context.signingEngine.evaluateThresholdEd25519HssResult({
     preparedSession: prepared.preparedSession,
     clientRequest: prepared.clientRequest,
     serverMessage,

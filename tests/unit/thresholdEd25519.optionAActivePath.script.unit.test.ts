@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import bs58 from 'bs58';
 import { buildAndCacheEd25519AuthSession } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import {
@@ -33,7 +34,10 @@ import {
   finalizeThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssServerCeremony,
 } from '../../server/src/core/ThresholdService/ed25519HssWasm';
-import { handle_signer_message } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  handle_signer_message,
+  initSync as initNearSignerWasmSync,
+} from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
 class MemorySessionStorage implements Pick<
   Storage,
@@ -82,6 +86,7 @@ const NEAR_SIGNER_WASM_URL = new URL(
   '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   import.meta.url,
 );
+let nearSignerWasmInitializedForDirectWorkerTests = false;
 
 function installMemorySessionStorage(): {
   restore: () => void;
@@ -208,6 +213,10 @@ async function invokeNearSignerWorkerDirect(request: {
   type: number;
   payload?: Record<string, unknown>;
 }): Promise<any> {
+  if (!nearSignerWasmInitializedForDirectWorkerTests) {
+    initNearSignerWasmSync({ module: readFileSync(NEAR_SIGNER_WASM_URL) });
+    nearSignerWasmInitializedForDirectWorkerTests = true;
+  }
   return handle_signer_message({
     type: request.type,
     payload: {
@@ -216,6 +225,10 @@ async function invokeNearSignerWorkerDirect(request: {
     },
   });
 }
+
+const TEST_NEAR_SIGNER_WORKER_CTX = {
+  requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+};
 
 test.describe('threshold Ed25519 Option A active path', () => {
   test('preserves xClientBaseB64u when rebuilding the same auth session record', async () => {
@@ -731,6 +744,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           participantIds: [...CONTEXT.participantIds],
           derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
         },
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
         sessionId: `${THRESHOLD_SESSION_ID}:option-a-export-test-inputs`,
@@ -741,14 +755,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
         participantIds: preparedSession.participantIds,
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
         prfFirstB64u: PRF_FIRST_B64U,
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) =>
-            await invokeNearSignerWorkerDirect(request),
-        },
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
         preparedSession,
         clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const prepared = await prepareThresholdEd25519HssServerCeremony({
         context: {
@@ -767,6 +779,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         preparedSession,
         clientRequest,
         serverMessage: prepared.serverMessage,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
         preparedSession,
@@ -775,6 +788,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const clientOutput = await openThresholdEd25519HssClientOutputWasm({
         preparedSession,
         finalizedReport: finalized.finalizedReport,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const derivedPublicKey = await deriveThresholdEd25519HssPublicKey({
         xClientBaseB64u: clientOutput.xClientBaseB64u,
@@ -1457,6 +1471,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           participantIds: [...CONTEXT.participantIds],
           derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
         },
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
         sessionId: `${THRESHOLD_SESSION_ID}:registration-inputs`,
@@ -1467,14 +1482,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
         participantIds: preparedSession.participantIds,
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
         prfFirstB64u: PRF_FIRST_B64U,
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) =>
-            await invokeNearSignerWorkerDirect(request),
-        },
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
         preparedSession,
         clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const hssContext = {
         orgId: CONTEXT.orgId,
@@ -1512,6 +1525,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         preparedSession,
         clientRequest,
         serverMessage,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
       const finalized = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
         context: registrationContext,

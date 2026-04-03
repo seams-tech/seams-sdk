@@ -20,13 +20,24 @@ export type UpsertExportViewerHostArgs = {
   errorMessage?: string;
 };
 
+function postExportViewerMessage(type: 'WALLET_EXPORT_VIEWER_OPENED' | 'WALLET_UI_CLOSED'): void {
+  try {
+    if (typeof window === 'undefined') return;
+    window.parent?.postMessage({ type }, '*');
+  } catch {}
+}
+
 function getMountedExportViewerHost(): ExportViewerIframeElement | null {
+  if (typeof document === 'undefined') return null;
   return document.querySelector(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement | null;
 }
 
 export async function upsertExportViewerHost(
   args: UpsertExportViewerHostArgs,
 ): Promise<ExportViewerIframeElement> {
+  if (typeof document === 'undefined') {
+    throw new Error('Export viewer host requires a DOM environment');
+  }
   await ensureDefined(
     W3A_EXPORT_VIEWER_IFRAME_ID,
     () => import('./lit-components/ExportPrivateKey/iframe-host'),
@@ -36,15 +47,18 @@ export async function upsertExportViewerHost(
   if (!host) {
     host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement;
     window.parent?.postMessage({ type: 'WALLET_UI_OPENED' }, '*');
+    postExportViewerMessage('WALLET_EXPORT_VIEWER_OPENED');
     document.body.appendChild(host);
     addLitCancelListener(
       host,
       () => {
-        window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+        postExportViewerMessage('WALLET_UI_CLOSED');
         host?.remove();
       },
       { once: true },
     );
+  } else {
+    postExportViewerMessage('WALLET_EXPORT_VIEWER_OPENED');
   }
 
   host.theme = args.theme;
@@ -61,8 +75,9 @@ export async function upsertExportViewerHost(
 }
 
 export function removeExportViewerHostIfPresent(): void {
+  if (typeof document === 'undefined') return;
   const host = getMountedExportViewerHost();
   if (!host) return;
   host.remove();
-  window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+  postExportViewerMessage('WALLET_UI_CLOSED');
 }

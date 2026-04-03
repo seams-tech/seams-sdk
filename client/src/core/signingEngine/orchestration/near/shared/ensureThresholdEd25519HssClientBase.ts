@@ -80,6 +80,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
         : [],
       derivationVersion,
     },
+    workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
   });
   const prepareSessionMs = Date.now() - prepareSessionStartedAt;
 
@@ -103,6 +104,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
     preparedSession,
     clientInputs,
+    workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
   });
   const prepareClientRequestMs = Date.now() - prepareClientRequestStartedAt;
 
@@ -114,6 +116,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     preparedSession,
     clientRequest,
+    workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
     persistToThresholdSessionId: thresholdSessionId,
   });
   const relayCeremonyMs = Date.now() - relayCeremonyStartedAt;

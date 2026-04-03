@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssCanonicalContextArgs {
+pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -21,7 +21,7 @@ struct ThresholdEd25519HssCanonicalContextArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPrepareSessionArgs {
+pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -32,7 +32,7 @@ struct ThresholdEd25519HssPrepareSessionArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPrepareSessionOutput {
+pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -47,7 +47,7 @@ struct ThresholdEd25519HssPrepareSessionOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPrepareClientRequestArgs {
+pub(crate) struct ThresholdEd25519HssPrepareClientRequestArgs {
     evaluator_driver_state_json: String,
     client_ot_offer_message_b64u: String,
     y_client_b64u: String,
@@ -56,7 +56,7 @@ struct ThresholdEd25519HssPrepareClientRequestArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPrepareClientRequestOutput {
+pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
     context_binding_b64u: String,
     client_request_message_b64u: String,
     evaluator_ot_state_json: String,
@@ -80,7 +80,7 @@ struct ThresholdEd25519HssPrepareServerMessageOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssEvaluateResultArgs {
+pub(crate) struct ThresholdEd25519HssEvaluateResultArgs {
     evaluator_driver_state_json: String,
     client_request_message_b64u: String,
     evaluator_ot_state_json: String,
@@ -89,7 +89,7 @@ struct ThresholdEd25519HssEvaluateResultArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssEvaluateResultOutput {
+pub(crate) struct ThresholdEd25519HssEvaluateResultOutput {
     context_binding_b64u: String,
     evaluation_result_message_b64u: String,
 }
@@ -113,14 +113,14 @@ struct ThresholdEd25519HssFinalizeReportOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssOpenClientOutputArgs {
+pub(crate) struct ThresholdEd25519HssOpenClientOutputArgs {
     evaluator_driver_state_json: String,
     client_output_message_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssOpenClientOutputOutput {
+pub(crate) struct ThresholdEd25519HssOpenClientOutputOutput {
     context_binding_b64u: String,
     x_client_base_b64u: String,
 }
@@ -141,28 +141,28 @@ struct ThresholdEd25519HssOpenServerOutputOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssOpenSeedOutputArgs {
+pub(crate) struct ThresholdEd25519HssOpenSeedOutputArgs {
     evaluator_driver_state_json: String,
     seed_output_message_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssOpenSeedOutputOutput {
+pub(crate) struct ThresholdEd25519HssOpenSeedOutputOutput {
     context_binding_b64u: String,
     canonical_seed_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPublicKeyFromSharesArgs {
+pub(crate) struct ThresholdEd25519HssPublicKeyFromSharesArgs {
     x_client_base_b64u: String,
     x_relayer_base_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ThresholdEd25519HssPublicKeyFromSharesOutput {
+pub(crate) struct ThresholdEd25519HssPublicKeyFromSharesOutput {
     public_key_b64u: String,
 }
 
@@ -182,70 +182,18 @@ struct ThresholdEd25519HssVerifyingShareFromSigningShareOutput {
 pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareSessionArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
-        org_id: args.org_id,
-        near_account_id: args.near_account_id,
-        key_purpose: args.key_purpose,
-        key_version: args.key_version,
-        participant_ids: args.participant_ids,
-        derivation_version: args.derivation_version,
-    })?;
-    let session = prepare_prime_order_succinct_hss(&context)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let garbler_driver_state = session.garbler_driver_state();
-    let evaluator_driver_state = session.evaluator_driver_state();
-    let client_ot_offer_message = session
-        .prepare_client_ot_offer_message()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssPrepareSessionOutput {
-        org_id: context.org_id,
-        near_account_id: context.account_id,
-        key_purpose: context.key_purpose,
-        key_version: context.key_version,
-        participant_ids: context.participant_ids,
-        derivation_version: context.derivation_version,
-        context_binding_b64u: base64_url_encode(
-            &garbler_driver_state.garbler_session.context_binding,
-        ),
-        garbler_driver_state_json: serde_json::to_string(&garbler_driver_state)
-            .map_err(|e| JsValue::from_str(&format!("Failed to serialize garbler state: {e}")))?,
-        evaluator_driver_state_json: serde_json::to_string(&evaluator_driver_state)
-            .map_err(|e| JsValue::from_str(&format!("Failed to serialize evaluator state: {e}")))?,
-        client_ot_offer_message_b64u: encode_wire_message(&client_ot_offer_message),
-    })
-    .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS session output: {e}")))
+    let output = prepare_threshold_ed25519_hss_session(args).map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS session output: {e}")))
 }
 
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareClientRequestArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
-        &args.evaluator_driver_state_json,
-        "evaluatorDriverStateJson",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let offer_message = decode_wire_message(
-        &args.client_ot_offer_message_b64u,
-        "clientOtOfferMessageB64u",
-    )?;
-    let y_client = decode_fixed_32(&args.y_client_b64u, "yClientB64u")?;
-    let tau_client = decode_fixed_32(&args.tau_client_b64u, "tauClientB64u")?;
-    let (client_request_message, evaluator_ot_state) = evaluator_session
-        .prepare_client_ot_request_from_offer_message(&offer_message, y_client, tau_client)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssPrepareClientRequestOutput {
-        context_binding_b64u: base64_url_encode(&evaluator_ot_state.context_binding),
-        client_request_message_b64u: encode_wire_message(&client_request_message),
-        evaluator_ot_state_json: serde_json::to_string(&evaluator_ot_state).map_err(|e| {
-            JsValue::from_str(&format!("Failed to serialize evaluator OT state: {e}"))
-        })?,
-    })
-    .map_err(|e| {
+    let output =
+        prepare_threshold_ed25519_hss_client_request(args).map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output).map_err(|e| {
         JsValue::from_str(&format!(
             "Failed to serialize HSS client request output: {e}"
         ))
@@ -287,34 +235,9 @@ pub fn threshold_ed25519_hss_prepare_server_message(args: JsValue) -> Result<JsV
 pub fn threshold_ed25519_hss_evaluate_result(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssEvaluateResultArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
-        &args.evaluator_driver_state_json,
-        "evaluatorDriverStateJson",
-    )?;
-    let evaluator_ot_state: PrimeOrderSuccinctHssEvaluatorOtState =
-        parse_json(&args.evaluator_ot_state_json, "evaluatorOtStateJson")?;
-    let (runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let client_request_message = decode_wire_message(
-        &args.client_request_message_b64u,
-        "clientRequestMessageB64u",
-    )?;
-    let server_message = decode_wire_message(&args.server_message_b64u, "serverMessageB64u")?;
-    let evaluation_result_message = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message,
-            &evaluator_ot_state,
-            &server_message,
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssEvaluateResultOutput {
-        context_binding_b64u: base64_url_encode(&evaluator_ot_state.context_binding),
-        evaluation_result_message_b64u: encode_wire_message(&evaluation_result_message),
-    })
-    .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS evaluation output: {e}")))
+    let output = evaluate_threshold_ed25519_hss_result(args).map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS evaluation output: {e}")))
 }
 
 #[wasm_bindgen]
@@ -350,25 +273,9 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
 pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssOpenClientOutputArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
-        &args.evaluator_driver_state_json,
-        "evaluatorDriverStateJson",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let client_output_message =
-        decode_wire_message(&args.client_output_message_b64u, "clientOutputMessageB64u")?;
-    let x_client_base = evaluator_session
-        .client_output_opener()
-        .open(&client_output_message)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssOpenClientOutputOutput {
-        context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
-        x_client_base_b64u: base64_url_encode(&x_client_base),
-    })
-    .map_err(|e| {
+    let output =
+        open_threshold_ed25519_hss_client_output(args).map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output).map_err(|e| {
         JsValue::from_str(&format!(
             "Failed to serialize HSS client output opening: {e}"
         ))
@@ -406,25 +313,10 @@ pub fn threshold_ed25519_hss_open_server_output(args: JsValue) -> Result<JsValue
 pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssOpenSeedOutputArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
-        &args.evaluator_driver_state_json,
-        "evaluatorDriverStateJson",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let seed_output_message =
-        decode_wire_message(&args.seed_output_message_b64u, "seedOutputMessageB64u")?;
-    let canonical_seed = evaluator_session
-        .seed_output_opener()
-        .open(&seed_output_message)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssOpenSeedOutputOutput {
-        context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
-        canonical_seed_b64u: base64_url_encode(&canonical_seed),
+    let output = open_threshold_ed25519_hss_seed_output(args).map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output).map_err(|e| {
+        JsValue::from_str(&format!("Failed to serialize HSS seed output opening: {e}"))
     })
-    .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS seed output opening: {e}")))
 }
 
 #[wasm_bindgen]
@@ -433,15 +325,10 @@ pub fn threshold_ed25519_hss_public_key_from_base_shares(
 ) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPublicKeyFromSharesArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let x_client_base = decode_fixed_32(&args.x_client_base_b64u, "xClientBaseB64u")?;
-    let x_relayer_base = decode_fixed_32(&args.x_relayer_base_b64u, "xRelayerBaseB64u")?;
-    let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    serde_wasm_bindgen::to_value(&ThresholdEd25519HssPublicKeyFromSharesOutput {
-        public_key_b64u: base64_url_encode(&public_key),
-    })
-    .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS public key output: {e}")))
+    let output = derive_threshold_ed25519_hss_public_key_from_base_shares(args)
+        .map_err(|e| JsValue::from_str(&e))?;
+    serde_wasm_bindgen::to_value(&output)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS public key output: {e}")))
 }
 
 #[wasm_bindgen]
@@ -516,4 +403,170 @@ fn decode_wire_message(
 
 fn encode_wire_message(value: &PrimeOrderSuccinctHssWireMessage) -> String {
     base64_url_encode(&value.bytes)
+}
+
+pub(crate) fn prepare_threshold_ed25519_hss_session(
+    args: ThresholdEd25519HssPrepareSessionArgs,
+) -> Result<ThresholdEd25519HssPrepareSessionOutput, String> {
+    let context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
+        org_id: args.org_id,
+        near_account_id: args.near_account_id,
+        key_purpose: args.key_purpose,
+        key_version: args.key_version,
+        participant_ids: args.participant_ids,
+        derivation_version: args.derivation_version,
+    })
+    .map_err(js_value_to_string)?;
+    let session = prepare_prime_order_succinct_hss(&context).map_err(|e| e.to_string())?;
+    let garbler_driver_state = session.garbler_driver_state();
+    let evaluator_driver_state = session.evaluator_driver_state();
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssPrepareSessionOutput {
+        org_id: context.org_id,
+        near_account_id: context.account_id,
+        key_purpose: context.key_purpose,
+        key_version: context.key_version,
+        participant_ids: context.participant_ids,
+        derivation_version: context.derivation_version,
+        context_binding_b64u: base64_url_encode(
+            &garbler_driver_state.garbler_session.context_binding,
+        ),
+        garbler_driver_state_json: serde_json::to_string(&garbler_driver_state)
+            .map_err(|e| format!("Failed to serialize garbler state: {e}"))?,
+        evaluator_driver_state_json: serde_json::to_string(&evaluator_driver_state)
+            .map_err(|e| format!("Failed to serialize evaluator state: {e}"))?,
+        client_ot_offer_message_b64u: encode_wire_message(&client_ot_offer_message),
+    })
+}
+
+pub(crate) fn prepare_threshold_ed25519_hss_client_request(
+    args: ThresholdEd25519HssPrepareClientRequestArgs,
+) -> Result<ThresholdEd25519HssPrepareClientRequestOutput, String> {
+    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+        &args.evaluator_driver_state_json,
+        "evaluatorDriverStateJson",
+    )
+    .map_err(js_value_to_string)?;
+    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
+    let offer_message = decode_wire_message(
+        &args.client_ot_offer_message_b64u,
+        "clientOtOfferMessageB64u",
+    )
+    .map_err(js_value_to_string)?;
+    let y_client =
+        decode_fixed_32(&args.y_client_b64u, "yClientB64u").map_err(js_value_to_string)?;
+    let tau_client =
+        decode_fixed_32(&args.tau_client_b64u, "tauClientB64u").map_err(js_value_to_string)?;
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(&offer_message, y_client, tau_client)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssPrepareClientRequestOutput {
+        context_binding_b64u: base64_url_encode(&evaluator_ot_state.context_binding),
+        client_request_message_b64u: encode_wire_message(&client_request_message),
+        evaluator_ot_state_json: serde_json::to_string(&evaluator_ot_state)
+            .map_err(|e| format!("Failed to serialize evaluator OT state: {e}"))?,
+    })
+}
+
+pub(crate) fn evaluate_threshold_ed25519_hss_result(
+    args: ThresholdEd25519HssEvaluateResultArgs,
+) -> Result<ThresholdEd25519HssEvaluateResultOutput, String> {
+    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+        &args.evaluator_driver_state_json,
+        "evaluatorDriverStateJson",
+    )
+    .map_err(js_value_to_string)?;
+    let evaluator_ot_state: PrimeOrderSuccinctHssEvaluatorOtState =
+        parse_json(&args.evaluator_ot_state_json, "evaluatorOtStateJson")
+            .map_err(js_value_to_string)?;
+    let (runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
+    let client_request_message = decode_wire_message(
+        &args.client_request_message_b64u,
+        "clientRequestMessageB64u",
+    )
+    .map_err(js_value_to_string)?;
+    let server_message = decode_wire_message(&args.server_message_b64u, "serverMessageB64u")
+        .map_err(js_value_to_string)?;
+    let evaluation_result_message = evaluator_session
+        .evaluate_result_message_from_transport_messages(
+            &runtime,
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_message,
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssEvaluateResultOutput {
+        context_binding_b64u: base64_url_encode(&evaluator_ot_state.context_binding),
+        evaluation_result_message_b64u: encode_wire_message(&evaluation_result_message),
+    })
+}
+
+pub(crate) fn open_threshold_ed25519_hss_client_output(
+    args: ThresholdEd25519HssOpenClientOutputArgs,
+) -> Result<ThresholdEd25519HssOpenClientOutputOutput, String> {
+    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+        &args.evaluator_driver_state_json,
+        "evaluatorDriverStateJson",
+    )
+    .map_err(js_value_to_string)?;
+    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
+    let client_output_message =
+        decode_wire_message(&args.client_output_message_b64u, "clientOutputMessageB64u")
+            .map_err(js_value_to_string)?;
+    let x_client_base = evaluator_session
+        .client_output_opener()
+        .open(&client_output_message)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssOpenClientOutputOutput {
+        context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+        x_client_base_b64u: base64_url_encode(&x_client_base),
+    })
+}
+
+pub(crate) fn open_threshold_ed25519_hss_seed_output(
+    args: ThresholdEd25519HssOpenSeedOutputArgs,
+) -> Result<ThresholdEd25519HssOpenSeedOutputOutput, String> {
+    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+        &args.evaluator_driver_state_json,
+        "evaluatorDriverStateJson",
+    )
+    .map_err(js_value_to_string)?;
+    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
+    let seed_output_message =
+        decode_wire_message(&args.seed_output_message_b64u, "seedOutputMessageB64u")
+            .map_err(js_value_to_string)?;
+    let canonical_seed = evaluator_session
+        .seed_output_opener()
+        .open(&seed_output_message)
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssOpenSeedOutputOutput {
+        context_binding_b64u: base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+        canonical_seed_b64u: base64_url_encode(&canonical_seed),
+    })
+}
+
+pub(crate) fn derive_threshold_ed25519_hss_public_key_from_base_shares(
+    args: ThresholdEd25519HssPublicKeyFromSharesArgs,
+) -> Result<ThresholdEd25519HssPublicKeyFromSharesOutput, String> {
+    let x_client_base =
+        decode_fixed_32(&args.x_client_base_b64u, "xClientBaseB64u").map_err(js_value_to_string)?;
+    let x_relayer_base = decode_fixed_32(&args.x_relayer_base_b64u, "xRelayerBaseB64u")
+        .map_err(js_value_to_string)?;
+    let public_key =
+        public_key_from_base_shares(x_client_base, x_relayer_base).map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssPublicKeyFromSharesOutput {
+        public_key_b64u: base64_url_encode(&public_key),
+    })
+}
+
+fn js_value_to_string(value: JsValue) -> String {
+    value.as_string().unwrap_or_else(|| format!("{value:?}"))
 }

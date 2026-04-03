@@ -47,6 +47,11 @@ async function waitForNextPaint(): Promise<void> {
   });
 }
 
+function isExportViewerOpenedMessage(event: MessageEvent): boolean {
+  const data = event.data;
+  return !!data && typeof data === 'object' && (data as { type?: unknown }).type === 'WALLET_EXPORT_VIEWER_OPENED';
+}
+
 /**
  * Account Menu Button Component
  * Provides user settings, account management, and device linking.
@@ -198,10 +203,18 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         description: 'View your private keys',
         disabled: !loginState.isLoggedIn || exportKeysLoading,
         onClick: async () => {
+          let exportViewerOpened = false;
+          const handleExportViewerOpened = (event: MessageEvent) => {
+            if (!isExportViewerOpenedMessage(event)) return;
+            exportViewerOpened = true;
+            setExportKeysLoading(false);
+          };
+
           flushSync(() => {
             setExportKeysLoading(true);
           });
           await waitForNextPaint();
+          window.addEventListener('message', handleExportViewerOpened);
           try {
             await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
           } catch (error: any) {
@@ -212,7 +225,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               : msg;
             alert(`Key export failed: ${friendly}`);
           } finally {
-            setExportKeysLoading(false);
+            window.removeEventListener('message', handleExportViewerOpened);
+            if (!exportViewerOpened) {
+              setExportKeysLoading(false);
+            }
           }
         },
         keepOpenOnClick: true,

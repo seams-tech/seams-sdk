@@ -133,6 +133,7 @@ import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import { deriveThresholdEd25519HssClientInputsWasm } from './signers/wasm/nearSignerWasm';
 import {
+  evaluateThresholdEd25519HssResultWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
 } from './signers/wasm/nearSignerHssWasm';
@@ -689,6 +690,7 @@ export class SigningEngine {
         participantIds: args.participantIds,
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       },
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
 
     const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
@@ -706,6 +708,7 @@ export class SigningEngine {
     const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
       preparedSession,
       clientInputs,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
 
     const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
@@ -714,6 +717,7 @@ export class SigningEngine {
       relayerKeyId: args.relayerKeyId,
       preparedSession,
       clientRequest,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
     if (!completed.success || !completed.finalizedReport) {
       throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
@@ -743,6 +747,7 @@ export class SigningEngine {
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
       expectedPublicKey: args.expectedPublicKey,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
     if (!artifactResult.success || !artifactResult.artifact) {
       throw new Error(
@@ -886,6 +891,7 @@ export class SigningEngine {
         preparedSession,
         finalizedReport,
         expectedPublicKey,
+        workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
       });
       if (!artifactResult.success || !artifactResult.artifact) {
         throw new Error(
@@ -1288,28 +1294,54 @@ export class SigningEngine {
     );
   }
 
+  evaluateThresholdEd25519HssResult(args: {
+    preparedSession: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['preparedSession'];
+    clientRequest: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['clientRequest'];
+    serverMessage: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['serverMessage'];
+  }): ReturnType<typeof evaluateThresholdEd25519HssResultWasm> {
+    return evaluateThresholdEd25519HssResultWasm({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
+  }
+
   completeThresholdEd25519HssClientCeremony(
-    args: Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0],
+    args: Omit<Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0], 'workerCtx'>,
   ): ReturnType<typeof completeThresholdEd25519HssClientCeremonyValue> {
-    return completeThresholdEd25519HssClientCeremonyValue(args);
+    return completeThresholdEd25519HssClientCeremonyValue({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
   }
 
   runThresholdEd25519HssCeremonyWithSession(
-    args: Parameters<typeof runThresholdEd25519HssCeremonyWithSessionValue>[0],
+    args: Omit<Parameters<typeof runThresholdEd25519HssCeremonyWithSessionValue>[0], 'workerCtx'>,
   ): ReturnType<typeof runThresholdEd25519HssCeremonyWithSessionValue> {
-    return runThresholdEd25519HssCeremonyWithSessionValue(args);
+    return runThresholdEd25519HssCeremonyWithSessionValue({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
   }
 
   openThresholdEd25519HssSeedOutput(
-    args: Parameters<typeof openThresholdEd25519HssSeedOutputValue>[0],
+    args: Omit<Parameters<typeof openThresholdEd25519HssSeedOutputValue>[0], 'workerCtx'>,
   ): ReturnType<typeof openThresholdEd25519HssSeedOutputValue> {
-    return openThresholdEd25519HssSeedOutputValue(args);
+    return openThresholdEd25519HssSeedOutputValue({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
   }
 
   buildThresholdEd25519SeedExportArtifactFromHssReport(
-    args: Parameters<typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue>[0],
+    args: Omit<
+      Parameters<typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue>[0],
+      'workerCtx'
+    >,
   ): ReturnType<typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue> {
-    return buildThresholdEd25519SeedExportArtifactFromHssReportValue(args);
+    return buildThresholdEd25519SeedExportArtifactFromHssReportValue({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
   }
 
   async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
@@ -1415,6 +1447,7 @@ export type SigningEnginePublic = Pick<
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEd25519HssClientInputsFromCredential'
   | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
+  | 'evaluateThresholdEd25519HssResult'
   | 'completeThresholdEd25519HssClientCeremony'
   | 'runThresholdEd25519HssCeremonyWithSession'
   | 'openThresholdEd25519HssSeedOutput'

@@ -5,6 +5,7 @@ import type {
 } from '@/core/types/webauthn';
 import { getPrfResultsFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
+import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { persistStoredThresholdEd25519SessionClientBase } from './thresholdSessionStore';
 import {
   buildThresholdEd25519SeedExportArtifactWasm,
@@ -32,6 +33,7 @@ export type ThresholdEd25519LifecycleDeps = {
     'deriveThresholdEd25519ClientVerifyingShare' | 'deriveThresholdEd25519HssClientInputs'
   >;
   createSessionId: (prefix: string) => string;
+  getSignerWorkerContext: () => WorkerOperationContext;
 };
 
 export type DeriveThresholdEd25519ClientVerifyingShareResult = {
@@ -237,6 +239,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   }
 
   try {
+    const workerCtx = deps.getSignerWorkerContext();
     args.onProgress?.('Preparing threshold Ed25519 HSS session...');
     const preparedSession = await prepareThresholdEd25519HssSessionWasm({
       context: {
@@ -247,6 +250,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
         participantIds: derived.participantIds,
         derivationVersion: derived.derivationVersion,
       },
+      workerCtx,
     });
 
     if (preparedSession.contextBindingB64u !== derived.contextBindingB64u) {
@@ -261,6 +265,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
         yClientB64u: derived.yClientB64u,
         tauClientB64u: derived.tauClientB64u,
       },
+      workerCtx,
     });
 
     if (clientRequest.contextBindingB64u !== derived.contextBindingB64u) {
@@ -306,6 +311,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverMessage: ThresholdEd25519HssServerMessageEnvelope;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+  workerCtx: WorkerOperationContext;
   serverOutput?: ThresholdEd25519HssOpenedServerOutput;
   persistToThresholdSessionId?: string;
 }): Promise<CompleteThresholdEd25519HssClientCeremonyResult> {
@@ -315,6 +321,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
       preparedSession: args.preparedSession,
       clientRequest: args.clientRequest,
       serverMessage: args.serverMessage,
+      workerCtx: args.workerCtx,
     });
 
     if (evaluationResult.contextBindingB64u !== contextBindingB64u) {
@@ -328,6 +335,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
     const clientOutput = await openThresholdEd25519HssClientOutputWasm({
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
+      workerCtx: args.workerCtx,
     });
 
     if (clientOutput.contextBindingB64u !== contextBindingB64u) {
@@ -342,6 +350,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
       const publicKey = await deriveThresholdEd25519HssPublicKeyWasm({
         xClientBaseB64u: clientOutput.xClientBaseB64u,
         xRelayerBaseB64u: args.serverOutput.xRelayerBaseB64u,
+        workerCtx: args.workerCtx,
       });
       publicKeyB64u = publicKey.publicKeyB64u;
     }
@@ -560,6 +569,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   relayerKeyId: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  workerCtx: WorkerOperationContext;
   persistToThresholdSessionId?: string;
 }): Promise<CompleteThresholdEd25519HssClientCeremonyResult> {
   const startedAt = Date.now();
@@ -583,6 +593,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     preparedSession: args.preparedSession,
     clientRequest: args.clientRequest,
     serverMessage: prepared.serverMessage,
+    workerCtx: args.workerCtx,
   });
   const evaluateMs = Date.now() - evaluateStartedAt;
   if (
@@ -617,6 +628,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     clientRequest: args.clientRequest,
     serverMessage: prepared.serverMessage,
     finalizedReport: finalized.finalizedReport,
+    workerCtx: args.workerCtx,
     persistToThresholdSessionId: args.persistToThresholdSessionId,
   });
   const completeMs = Date.now() - completeStartedAt;
@@ -635,6 +647,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 export async function openThresholdEd25519HssSeedOutput(args: {
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+  workerCtx: WorkerOperationContext;
 }): Promise<OpenThresholdEd25519HssSeedOutputResult> {
   const contextBindingB64u = String(args.preparedSession.contextBindingB64u || '').trim();
   try {
@@ -645,6 +658,7 @@ export async function openThresholdEd25519HssSeedOutput(args: {
     const seedOutput = await openThresholdEd25519HssSeedOutputWasm({
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
+      workerCtx: args.workerCtx,
     });
 
     if (seedOutput.contextBindingB64u !== contextBindingB64u) {
@@ -670,10 +684,12 @@ export async function buildThresholdEd25519SeedExportArtifactFromHssReport(args:
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   expectedPublicKey: string;
+  workerCtx: WorkerOperationContext;
 }): Promise<BuildThresholdEd25519SeedExportArtifactResult> {
   const seedResult = await openThresholdEd25519HssSeedOutput({
     preparedSession: args.preparedSession,
     finalizedReport: args.finalizedReport,
+    workerCtx: args.workerCtx,
   });
   if (!seedResult.success || !seedResult.seedOutput) {
     return {
@@ -687,6 +703,7 @@ export async function buildThresholdEd25519SeedExportArtifactFromHssReport(args:
     const artifact = await buildThresholdEd25519SeedExportArtifactWasm({
       seedB64u: seedResult.seedOutput.canonicalSeedB64u,
       expectedPublicKey: String(args.expectedPublicKey || '').trim(),
+      workerCtx: args.workerCtx,
     });
     return {
       success: true,
