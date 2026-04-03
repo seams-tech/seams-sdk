@@ -162,7 +162,10 @@ test.describe('EmailRecoveryDomain', () => {
     const thresholdMaterialWrites: any[] = [];
 
     const originalFetch = globalThis.fetch;
-    const originalStoreThreshold = (IndexedDBManager as any).storeNearThresholdKeyMaterial;
+    const clientDb = IndexedDBManager.clientDB as { resolveProfileAccountContext?: unknown };
+    const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as { storeKeyMaterial?: unknown };
+    const originalProfileLookup = clientDb.resolveProfileAccountContext;
+    const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
     try {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
@@ -210,8 +213,20 @@ test.describe('EmailRecoveryDomain', () => {
           { status: 200 },
         );
       }) as any;
-      (IndexedDBManager as any).storeNearThresholdKeyMaterial = async (input: any) => {
-        thresholdMaterialWrites.push(input);
+      clientDb.resolveProfileAccountContext = async (accountRef: {
+        chainIdKey: string;
+        accountAddress: string;
+      }) =>
+        accountRef.chainIdKey === 'near:testnet' &&
+        String(accountRef.accountAddress || '').trim() === 'alice.testnet'
+          ? { profileId: 'legacy-near:alice.testnet', accountRef }
+          : null;
+      accountKeyMaterialDb.storeKeyMaterial = async (input: any) => {
+        thresholdMaterialWrites.push({
+          publicKey: input?.publicKey,
+          relayerKeyId: input?.payload?.relayerKeyId,
+          keyVersion: input?.payload?.keyVersion,
+        });
       };
 
       const { domain, storeUserDataCalls, storeAuthenticatorCalls } = createLocalDomain();
@@ -247,7 +262,8 @@ test.describe('EmailRecoveryDomain', () => {
       ).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
-      (IndexedDBManager as any).storeNearThresholdKeyMaterial = originalStoreThreshold;
+      clientDb.resolveProfileAccountContext = originalProfileLookup;
+      accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
     }
   });
 

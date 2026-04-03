@@ -1,4 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 import {
   normalizeInteger,
   normalizeOptionalNonEmptyString,
@@ -109,11 +110,25 @@ const ED25519_STORAGE_SESSION_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:session
 const inMemoryEd25519RecordsByAccount = new Map<string, ThresholdEd25519SessionRecord>();
 const inMemoryEd25519AccountBySessionId = new Map<string, string>();
 
-function getSessionStorageSafe(probeKey: string): SessionStoragePort | null {
-  const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
-  if (!globalObj?.sessionStorage) return null;
+function getPreferredStorageKindForCurve(curve: 'ecdsa' | 'ed25519'): 'sessionStorage' | 'localStorage' {
+  if (curve === 'ed25519' && __isWalletIframeHostMode()) {
+    return 'localStorage';
+  }
+  return 'sessionStorage';
+}
+
+function getSessionStorageSafe(
+  probeKey: string,
+  curve: 'ecdsa' | 'ed25519',
+): SessionStoragePort | null {
+  const storageKind = getPreferredStorageKindForCurve(curve);
+  const globalObj = globalThis as {
+    sessionStorage?: SessionStoragePort;
+    localStorage?: SessionStoragePort;
+  };
+  const storage = globalObj?.[storageKind];
+  if (!storage) return null;
   try {
-    const storage = globalObj.sessionStorage;
     storage.getItem(probeKey);
     return storage;
   } catch {
@@ -347,11 +362,11 @@ function clearAllStoredRecords(args: {
 }
 
 function getEcdsaSessionStorageSafe(): SessionStoragePort | null {
-  return getSessionStorageSafe('__tatchi_threshold_ecdsa_probe__');
+  return getSessionStorageSafe('__tatchi_threshold_ecdsa_probe__', 'ecdsa');
 }
 
 function getEd25519SessionStorageSafe(): SessionStoragePort | null {
-  return getSessionStorageSafe('__tatchi_threshold_ed25519_session_probe__');
+  return getSessionStorageSafe('__tatchi_threshold_ed25519_session_probe__', 'ed25519');
 }
 
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {

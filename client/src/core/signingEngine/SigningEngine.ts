@@ -1,5 +1,13 @@
-import type { ClientAuthenticatorData, ClientUserData } from '../indexedDB';
-import type { StoreUserDataInput } from '../indexedDB/passkeyClientDB.types';
+import {
+  getLastSelectedNearAccountProjection,
+  getNearAccountProjection,
+  listNearAccountProjections,
+} from '../accountData/near/accountProjection';
+import { buildNearAccountRefs } from '../accountData/near/accountRefs';
+import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
+import type { ClientAuthenticatorData, ClientUserData, StoreUserDataInput } from '../accountData/near/types';
+import { resolveProfileAccountContextFromCandidates } from '../indexedDB/profileAccountProjection';
+import type { ProfileAuthenticatorRecord } from '../indexedDB/passkeyClientDB.types';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type { NonceManager } from '../rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '../types/accountIds';
@@ -159,6 +167,22 @@ function createExportUiRequestId(prefix: string): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `${prefix}-${randomPart}`;
+}
+
+function mapProfileAuthenticatorToClient(
+  profileAuthenticator: ProfileAuthenticatorRecord,
+  nearAccountId: AccountId,
+): ClientAuthenticatorData {
+  return {
+    nearAccountId,
+    deviceNumber: profileAuthenticator.deviceNumber,
+    credentialId: profileAuthenticator.credentialId,
+    credentialPublicKey: profileAuthenticator.credentialPublicKey,
+    transports: profileAuthenticator.transports,
+    name: profileAuthenticator.name,
+    registered: profileAuthenticator.registered,
+    syncedAt: profileAuthenticator.syncedAt,
+  };
 }
 
 /**
@@ -368,33 +392,83 @@ export class SigningEngine {
   }
 
   getAllUsers(): Promise<ClientUserData[]> {
-    return this.orchestrationDeps.indexedDB.clientDB.listNearAccountProjections();
+    return listNearAccountProjections(this.orchestrationDeps.indexedDB.clientDB);
   }
 
   getUserByDevice(nearAccountId: AccountId, deviceNumber: number): Promise<ClientUserData | null> {
-    return this.orchestrationDeps.indexedDB.clientDB.getNearAccountProjection(
+    return getNearAccountProjection(
+      this.orchestrationDeps.indexedDB.clientDB,
       nearAccountId,
       deviceNumber,
     );
   }
 
   getLastUser(): Promise<ClientUserData | null> {
-    return this.orchestrationDeps.indexedDB.clientDB.getLastSelectedNearAccountProjection();
+    return getLastSelectedNearAccountProjection(this.orchestrationDeps.indexedDB.clientDB);
   }
 
   getAuthenticatorsByUser(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    return this.orchestrationDeps.indexedDB.clientDB.listNearAuthenticators(nearAccountId);
+    return (async () => {
+      const accountId = toAccountId(nearAccountId);
+      const context = await resolveProfileAccountContextFromCandidates(
+        this.orchestrationDeps.indexedDB.clientDB,
+        buildNearAccountRefs(accountId),
+      ).catch(() => null);
+      if (!context?.profileId) return [];
+      const rows = await this.orchestrationDeps.indexedDB.clientDB.listProfileAuthenticators(
+        context.profileId,
+      );
+      return rows.map((row) => mapProfileAuthenticatorToClient(row, accountId));
+    })();
   }
 
   updateLastLogin(nearAccountId: AccountId): Promise<void> {
-    return this.orchestrationDeps.indexedDB.clientDB.touchLastLoginForNearAccount(nearAccountId);
+    return (async () => {
+      const accountId = toAccountId(nearAccountId);
+      const context = await resolveProfileAccountContextFromCandidates(
+        this.orchestrationDeps.indexedDB.clientDB,
+        buildNearAccountRefs(accountId),
+      ).catch(() => null);
+      if (!context?.profileId) return;
+      const [lastProfileState, profile] = await Promise.all([
+        this.orchestrationDeps.indexedDB.clientDB.getLastProfileState().catch(() => null),
+        this.orchestrationDeps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
+      ]);
+      const defaultDeviceNumber = Number(profile?.defaultDeviceNumber);
+      const deviceNumber =
+        lastProfileState?.profileId === context.profileId
+          ? lastProfileState.deviceNumber
+          : Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
+            ? defaultDeviceNumber
+            : 1;
+      await this.orchestrationDeps.indexedDB.clientDB.setLastProfileStateForProfile(
+        context.profileId,
+        deviceNumber,
+      );
+    })();
   }
 
   setLastUser(nearAccountId: AccountId, deviceNumber: number = 1): Promise<void> {
-    return this.orchestrationDeps.indexedDB.clientDB.setLastProfileStateForNearAccount(
-      nearAccountId,
-      deviceNumber,
-    );
+    return (async () => {
+      const normalizedDeviceNumber = Number(deviceNumber);
+      if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
+        throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+      }
+      const accountId = toAccountId(nearAccountId);
+      const context = await resolveProfileAccountContextFromCandidates(
+        this.orchestrationDeps.indexedDB.clientDB,
+        buildNearAccountRefs(accountId),
+      ).catch(() => null);
+      if (!context?.profileId) {
+        throw new Error(
+          `PasskeyClientDB: Missing profile/account mapping for NEAR account ${String(accountId)}`,
+        );
+      }
+      await this.orchestrationDeps.indexedDB.clientDB.setLastProfileStateForProfile(
+        context.profileId,
+        normalizedDeviceNumber,
+      );
+    })();
   }
 
   initializeCurrentUser(nearAccountId: AccountId, nearClientArg?: NearClient): Promise<void> {
@@ -757,9 +831,14 @@ export class SigningEngine {
       return null;
     }
 
-    const thresholdKeyMaterial = await this.orchestrationDeps.indexedDB
-      .getNearThresholdKeyMaterial(nearAccountId, deviceNumber)
-      .catch(() => null);
+    const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+      {
+        clientDB: this.orchestrationDeps.indexedDB.clientDB,
+        accountKeyMaterialDB: this.orchestrationDeps.indexedDB.accountKeyMaterialDB,
+      },
+      nearAccountId,
+      deviceNumber,
+    ).catch(() => null);
     const keyVersion = String(thresholdKeyMaterial?.keyVersion || '').trim();
     const expectedPublicKey = String(thresholdKeyMaterial?.publicKey || '').trim();
     if (!keyVersion || !expectedPublicKey) {
@@ -874,12 +953,88 @@ export class SigningEngine {
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
     await this.ensureSealedRefreshStartupParity();
     const nearAccountId = toAccountId(args.nearAccountId);
+    const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
+    const normalizedAuthorizationJwt = String(args.authorizationJwt || '').trim();
+    const normalizedSessionId = String(args.sessionId || '').trim();
+    const normalizedClientVerifyingShareB64u = String(
+      args.clientVerifyingShareB64u || '',
+    ).trim();
+    const normalizedParticipantIds = Array.isArray(args.participantIds)
+      ? args.participantIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+      : [];
+
+    let inferredAuthorizationJwt = normalizedAuthorizationJwt;
+    let inferredSessionId = normalizedSessionId;
+    let inferredClientVerifyingShareB64u = normalizedClientVerifyingShareB64u;
+    let inferredParticipantIds = normalizedParticipantIds;
+
+    const ed25519Record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
+    if (!inferredAuthorizationJwt) {
+      const ed25519Jwt = String(ed25519Record?.thresholdSessionJwt || '').trim();
+      if (ed25519Jwt && ed25519Record?.thresholdSessionKind === 'jwt') {
+        inferredAuthorizationJwt = ed25519Jwt;
+      }
+    }
+    if (!inferredSessionId) {
+      inferredSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
+    }
+    if (inferredParticipantIds.length === 0 && Array.isArray(ed25519Record?.participantIds)) {
+      inferredParticipantIds = ed25519Record.participantIds
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+    }
+
+    const candidateChains: ThresholdEcdsaActivationChain[] =
+      chain === 'tempo' ? ['tempo', 'evm'] : ['evm', 'tempo'];
+    for (const candidateChain of candidateChains) {
+      if (
+        inferredAuthorizationJwt &&
+        inferredSessionId &&
+        inferredClientVerifyingShareB64u &&
+        inferredParticipantIds.length > 0
+      ) {
+        break;
+      }
+      try {
+        const record = getThresholdEcdsaSessionRecordForSigningValue(
+          {
+            recordsByLane: this.thresholdEcdsaSessionByLane,
+          },
+          {
+            nearAccountId,
+            chain: candidateChain,
+          },
+        );
+        if (!inferredAuthorizationJwt && record.thresholdSessionKind === 'jwt') {
+          inferredAuthorizationJwt = String(record.thresholdSessionJwt || '').trim();
+        }
+        if (!inferredSessionId) {
+          inferredSessionId = String(record.thresholdSessionId || '').trim();
+        }
+        if (!inferredClientVerifyingShareB64u) {
+          inferredClientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
+        }
+        if (inferredParticipantIds.length === 0 && Array.isArray(record.participantIds)) {
+          inferredParticipantIds = record.participantIds
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value));
+        }
+      } catch {}
+    }
+
     return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
       return await bootstrapEcdsaSessionValue(
         this.orchestrationDeps.thresholdSessionActivationDeps,
         {
           ...args,
           nearAccountId,
+          chain,
+          ...(inferredAuthorizationJwt ? { authorizationJwt: inferredAuthorizationJwt } : {}),
+          ...(inferredSessionId ? { sessionId: inferredSessionId } : {}),
+          ...(inferredClientVerifyingShareB64u
+            ? { clientVerifyingShareB64u: inferredClientVerifyingShareB64u }
+            : {}),
+          ...(inferredParticipantIds.length > 0 ? { participantIds: inferredParticipantIds } : {}),
         },
       );
     });

@@ -1,4 +1,3 @@
-import type { ClientAuthenticatorData } from '@/core/indexedDB';
 import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { ActionArgsWasm } from '@/core/types/actions';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';

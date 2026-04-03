@@ -119,21 +119,10 @@ export async function connectEd25519Session(args: {
   const resolvedSessionId =
     String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
 
-  // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
-  // dispense the client share seed without prompting again (wallet-origin only).
+  // Persist the canonical session record before sealing PRF cache state.
+  // Sealed-refresh persistence resolves relayer transport from this record.
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
-  const prfFirstCache = args.prfFirstCache;
-  if (prfFirstCache) {
-    await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
-      sessionId: resolvedSessionId,
-      prfFirstB64u,
-      expiresAtMs,
-      remainingUses,
-    });
-  }
-
-  // 4) Cache for on-demand `/threshold-ed25519/authorize` usage.
   await buildAndCacheEd25519AuthSession({
     nearAccountId: args.nearAccountId,
     rpId,
@@ -150,6 +139,18 @@ export async function connectEd25519Session(args: {
     policyRemainingUses: policy.remainingUses,
     source: 'manual-connect',
   });
+
+  // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
+  // dispense the client share seed without prompting again (wallet-origin only).
+  const prfFirstCache = args.prfFirstCache;
+  if (prfFirstCache) {
+    await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
+      sessionId: resolvedSessionId,
+      prfFirstB64u,
+      expiresAtMs,
+      remainingUses,
+    });
+  }
 
   return {
     ok: true,

@@ -7,7 +7,16 @@ import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  handle_signer_message,
+  threshold_ed25519_compute_near_tx_signing_digests,
+} from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
+import {
+  evaluateThresholdEd25519HssResult,
+  prepareThresholdEd25519HssClientRequest,
+  prepareThresholdEd25519HssSession,
+} from '@server/core/ThresholdService/ed25519HssWasm';
 import {
   callCf,
   fetchJson,
@@ -33,8 +42,68 @@ const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9))
 const DEFAULT_ED25519_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
   'base64url',
 );
+const DEFAULT_HSS_PRF_FIRST_B64U = Buffer.from(new Uint8Array(32).fill(13)).toString('base64url');
+const DEFAULT_HSS_ORG_ID = 'org_threshold_scope_test';
+const DEFAULT_HSS_KEY_PURPOSE = 'near-ed25519-signing';
+const DEFAULT_HSS_DERIVATION_VERSION = 1;
+
+type CapturedLogEntry = {
+  level: 'debug' | 'info' | 'warn' | 'error';
+  args: unknown[];
+};
+
+function makeCapturedLogger(): {
+  logger: {
+    debug: (...args: unknown[]) => void;
+    info: (...args: unknown[]) => void;
+    warn: (...args: unknown[]) => void;
+    error: (...args: unknown[]) => void;
+  };
+  entries: CapturedLogEntry[];
+} {
+  const entries: CapturedLogEntry[] = [];
+  return {
+    logger: {
+      debug: (...args: unknown[]) => {
+        entries.push({ level: 'debug', args });
+      },
+      info: (...args: unknown[]) => {
+        entries.push({ level: 'info', args });
+      },
+      warn: (...args: unknown[]) => {
+        entries.push({ level: 'warn', args });
+      },
+      error: (...args: unknown[]) => {
+        entries.push({ level: 'error', args });
+      },
+    },
+    entries,
+  };
+}
 
 function makeAuthServiceForThreshold(): {
+  service: AuthService;
+  threshold: ReturnType<typeof createThresholdSigningService>;
+};
+function makeAuthServiceForThreshold(input: {
+  logger?: {
+    debug?: (...args: unknown[]) => void;
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  } | null;
+}): {
+  service: AuthService;
+  threshold: ReturnType<typeof createThresholdSigningService>;
+};
+function makeAuthServiceForThreshold(input?: {
+  logger?: {
+    debug?: (...args: unknown[]) => void;
+    info?: (...args: unknown[]) => void;
+    warn?: (...args: unknown[]) => void;
+    error?: (...args: unknown[]) => void;
+  } | null;
+}): {
   service: AuthService;
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
@@ -43,6 +112,7 @@ function makeAuthServiceForThreshold(): {
     THRESHOLD_ED25519_MASTER_SECRET_B64U: DEFAULT_ED25519_MASTER_SECRET_B64U,
     THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
   } as const;
+  const logger = input?.logger ?? null;
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
@@ -51,7 +121,7 @@ function makeAuthServiceForThreshold(): {
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
     thresholdEd25519KeyStore: thresholdConfig,
-    logger: null,
+    logger,
   });
 
   // Avoid network calls in threshold session/signing tests.
@@ -79,7 +149,7 @@ function makeAuthServiceForThreshold(): {
   const threshold = createThresholdSigningService({
     authService: svc,
     thresholdEd25519KeyStore: thresholdConfig,
-    logger: null,
+    logger,
   });
 
   return { service: svc, threshold };
@@ -312,6 +382,72 @@ async function buildNearTxAuthorizeBody(input: {
 }
 
 const THRESHOLD_ED25519_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
+
+async function invokeNearSignerWorkerDirect(request: {
+  sessionId?: string;
+  type: number;
+  payload?: Record<string, unknown>;
+}): Promise<any> {
+  return handle_signer_message({
+    type: request.type,
+    payload: {
+      sessionId: String(request.sessionId || '').trim(),
+      ...(request.payload || {}),
+    },
+  });
+}
+
+async function buildThresholdEd25519HssSessionMaterial(input: {
+  thresholdSessionId: string;
+  nearAccountId: string;
+  keyVersion?: string;
+  participantIds?: number[];
+  orgId?: string;
+  prfFirstB64u?: string;
+}): Promise<{
+  context: {
+    orgId: string;
+    nearAccountId: string;
+    keyPurpose: string;
+    keyVersion: string;
+    participantIds: number[];
+    derivationVersion: number;
+  };
+  preparedSession: Awaited<ReturnType<typeof prepareThresholdEd25519HssSession>>;
+  clientRequest: Awaited<ReturnType<typeof prepareThresholdEd25519HssClientRequest>>;
+}> {
+  const participantIds = Array.isArray(input.participantIds)
+    ? input.participantIds.map((value) => Number(value))
+    : [1, 2];
+  const context = {
+    orgId: String(input.orgId || DEFAULT_HSS_ORG_ID).trim(),
+    nearAccountId: String(input.nearAccountId || '').trim(),
+    keyPurpose: DEFAULT_HSS_KEY_PURPOSE,
+    keyVersion: String(input.keyVersion || THRESHOLD_ED25519_KEY_VERSION_V1).trim(),
+    participantIds,
+    derivationVersion: DEFAULT_HSS_DERIVATION_VERSION,
+  };
+  const preparedSession = await prepareThresholdEd25519HssSession({ context });
+  const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
+    sessionId: `${String(input.thresholdSessionId || '').trim()}:hss-client-inputs`,
+    orgId: context.orgId,
+    nearAccountId: context.nearAccountId,
+    keyPurpose: context.keyPurpose,
+    keyVersion: context.keyVersion,
+    participantIds: preparedSession.participantIds,
+    derivationVersion: context.derivationVersion,
+    prfFirstB64u: String(input.prfFirstB64u || DEFAULT_HSS_PRF_FIRST_B64U).trim(),
+    workerCtx: {
+      requestWorkerOperation: async ({ request }: { request: any }) =>
+        await invokeNearSignerWorkerDirect(request),
+    },
+  });
+  const clientRequest = await prepareThresholdEd25519HssClientRequest({
+    preparedSession,
+    clientInputs,
+  });
+  return { context, preparedSession, clientRequest };
+}
 
 async function provisionThresholdEd25519RegistrationMaterial(input: {
   service: AuthService;
@@ -1034,6 +1170,320 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       expect(res.status).toBe(400);
       expect(res.json?.code).toBe('invalid_body');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('hss finalize rejects relayer-share repair on wrong account scope', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId } = await provisionThresholdEd25519RegistrationMaterial({
+        service,
+        threshold,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+      });
+
+      const sessionId = `sess-${Date.now()}`;
+      const sessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 4,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody),
+      });
+      expect(minted.status).toBe(200);
+      expect(minted.json?.ok).toBe(true);
+      const jwt = String(minted.json?.jwt || '');
+
+      const { context, preparedSession, clientRequest } =
+        await buildThresholdEd25519HssSessionMaterial({
+          thresholdSessionId: sessionId,
+          nearAccountId: 'bob.testnet',
+        });
+      await (threshold as any).keyStore.del(relayerKeyId);
+
+      const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context,
+          preparedSession,
+          clientRequest,
+        }),
+      });
+      expect(prepared.status, prepared.text).toBe(200);
+      expect(prepared.json?.ok, prepared.text).toBe(true);
+
+      const evaluationResult = await evaluateThresholdEd25519HssResult({
+        preparedSession,
+        clientRequest,
+        serverMessage: prepared.json?.serverMessage as any,
+      });
+
+      const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context: { ...context, nearAccountId: 'alice.testnet' },
+          preparedSession,
+          evaluationResult,
+        }),
+      });
+      expect(finalized.status, finalized.text).toBe(401);
+      expect(finalized.json?.code, finalized.text).toBe('unauthorized');
+      expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeNull();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('hss finalize rejects relayer-share repair on wrong binding', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId } = await provisionThresholdEd25519RegistrationMaterial({
+        service,
+        threshold,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+      });
+
+      const sessionId = `sess-${Date.now()}`;
+      const sessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 4,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody),
+      });
+      expect(minted.status).toBe(200);
+      expect(minted.json?.ok).toBe(true);
+      const jwt = String(minted.json?.jwt || '');
+
+      const { context, preparedSession, clientRequest } =
+        await buildThresholdEd25519HssSessionMaterial({
+          thresholdSessionId: sessionId,
+          nearAccountId: 'bob.testnet',
+        });
+      await (threshold as any).keyStore.del(relayerKeyId);
+
+      const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context,
+          preparedSession,
+          clientRequest,
+        }),
+      });
+      expect(prepared.status, prepared.text).toBe(200);
+      expect(prepared.json?.ok, prepared.text).toBe(true);
+
+      const evaluationResult = await evaluateThresholdEd25519HssResult({
+        preparedSession,
+        clientRequest,
+        serverMessage: prepared.json?.serverMessage as any,
+      });
+
+      const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context,
+          preparedSession,
+          evaluationResult: {
+            ...evaluationResult,
+            contextBindingB64u: base64UrlEncode(randomBytes32()),
+          },
+        }),
+      });
+      expect(finalized.status, finalized.text).toBe(400);
+      expect(finalized.json?.code, finalized.text).toBe('invalid_body');
+      expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeNull();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('integration: sign-after-relayer-cache-loss repairs relayer share and succeeds on retry', async () => {
+    const captured = makeCapturedLogger();
+    const { service, threshold } = makeAuthServiceForThreshold({ logger: captured.logger });
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId, nearPublicKeyStr } =
+        await provisionThresholdEd25519RegistrationMaterial({
+          service,
+          threshold,
+          nearAccountId: 'bob.testnet',
+          rpId: 'example.localhost',
+        });
+
+      const sessionId = `sess-${Date.now()}`;
+      const sessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 6,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody),
+      });
+      expect(minted.status).toBe(200);
+      expect(minted.json?.ok).toBe(true);
+      const jwt = String(minted.json?.jwt || '');
+
+      await (threshold as any).keyStore.del(relayerKeyId);
+      expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeNull();
+
+      const firstAuthorize = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+      });
+      const firstAuth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(firstAuthorize.body),
+      });
+      expect(firstAuth.status, firstAuth.text).toBe(400);
+      expect(firstAuth.json?.code, firstAuth.text).toBe('missing_key');
+
+      const hssMaterial = await buildThresholdEd25519HssSessionMaterial({
+        thresholdSessionId: sessionId,
+        nearAccountId: 'bob.testnet',
+      });
+      const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context: hssMaterial.context,
+          preparedSession: hssMaterial.preparedSession,
+          clientRequest: hssMaterial.clientRequest,
+        }),
+      });
+      expect(prepared.status, prepared.text).toBe(200);
+      expect(prepared.json?.ok, prepared.text).toBe(true);
+
+      const evaluationResult = await evaluateThresholdEd25519HssResult({
+        preparedSession: hssMaterial.preparedSession,
+        clientRequest: hssMaterial.clientRequest,
+        serverMessage: prepared.json?.serverMessage as any,
+      });
+
+      const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          context: hssMaterial.context,
+          preparedSession: hssMaterial.preparedSession,
+          evaluationResult,
+        }),
+      });
+      expect(finalized.status, finalized.text).toBe(200);
+      expect(finalized.json?.ok, finalized.text).toBe(true);
+
+      const repairedKey = await (threshold as any).keyStore.get(relayerKeyId);
+      expect(repairedKey).not.toBeNull();
+      expect(String(repairedKey?.relayerSigningShareB64u || '')).not.toBe('');
+      expect(String(repairedKey?.relayerVerifyingShareB64u || '')).not.toBe('');
+
+      const secondAuthorize = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+      });
+      const secondAuth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(secondAuthorize.body),
+      });
+      expect(secondAuth.status, secondAuth.text).toBe(200);
+      expect(secondAuth.json?.ok, secondAuth.text).toBe(true);
+
+      const secondInit = await fetchJson(`${srv.baseUrl}/threshold-ed25519/sign/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mpcSessionId: String(secondAuth.json?.mpcSessionId || ''),
+          relayerKeyId,
+          nearAccountId: 'bob.testnet',
+          signingDigestB64u: secondAuthorize.signingDigestB64u,
+          clientCommitments: { hiding: 'a', binding: 'b' },
+        }),
+      });
+      expect(secondInit.status, secondInit.text).toBe(200);
+      expect(secondInit.json?.ok, secondInit.text).toBe(true);
+
+      const cacheMissEntry = captured.entries.find(
+        (entry) =>
+          entry.level === 'warn' &&
+          entry.args[0] === '[threshold-ed25519] relayer share cache miss',
+      );
+      expect(cacheMissEntry).toBeTruthy();
+
+      const repairEntry = captured.entries.find(
+        (entry) =>
+          entry.level === 'warn' && entry.args[0] === '[threshold-ed25519] relayer share self-heal',
+      );
+      expect(repairEntry).toBeTruthy();
+      expect((repairEntry?.args[1] as Record<string, unknown>)?.outcome).toBe('success');
+
+      const finalizeTimingEntry = captured.entries.find(
+        (entry) =>
+          entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss finalize timings',
+      );
+      expect(finalizeTimingEntry).toBeTruthy();
+      expect((finalizeTimingEntry?.args[1] as Record<string, unknown>)?.relayerShareRepaired).toBe(
+        true,
+      );
+      expect(
+        Number(
+          (finalizeTimingEntry?.args[1] as Record<string, unknown>)?.relayerShareRepairMs || 0,
+        ),
+      ).toBeGreaterThanOrEqual(0);
     } finally {
       await srv.close();
     }

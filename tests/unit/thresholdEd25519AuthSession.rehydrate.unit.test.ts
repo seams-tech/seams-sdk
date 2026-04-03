@@ -74,4 +74,54 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
     expect(result.canonicalRecordThresholdSessionId).toBe('tsess-ed25519-rehydrate-1');
     expect(result.legacyAuthStoreIndex).toBeNull();
   });
+
+  test('stores canonical Ed25519 session records in localStorage for wallet host mode', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean }).__W3A_TEST_WALLET_IFRAME_HOST_MODE__ =
+          true;
+        try {
+          const storeMod = await import(paths.thresholdSessionStore);
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId: 'alice.testnet',
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            relayerKeyId: 'rk-ed25519',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: 'tsess-host-mode',
+            thresholdSessionJwt: 'jwt-host-mode',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 3,
+            source: 'login',
+          });
+          return {
+            localRecord: localStorage.getItem('tatchi:threshold-ed25519-session:v1:alice.testnet'),
+            localIndex: localStorage.getItem('tatchi:threshold-ed25519-session:v1:index'),
+            localSessionIndex: localStorage.getItem(
+              'tatchi:threshold-ed25519-session:v1:session-index',
+            ),
+            sessionRecord: sessionStorage.getItem(
+              'tatchi:threshold-ed25519-session:v1:alice.testnet',
+            ),
+          };
+        } finally {
+          delete (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean })
+            .__W3A_TEST_WALLET_IFRAME_HOST_MODE__;
+          localStorage.removeItem('tatchi:threshold-ed25519-session:v1:alice.testnet');
+          localStorage.removeItem('tatchi:threshold-ed25519-session:v1:index');
+          localStorage.removeItem('tatchi:threshold-ed25519-session:v1:session-index');
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.localRecord).not.toBeNull();
+    expect(result.localIndex).toBe(JSON.stringify(['alice.testnet']));
+    expect(result.localSessionIndex).toContain('tsess-host-mode');
+    expect(result.sessionRecord).toBeNull();
+  });
 });

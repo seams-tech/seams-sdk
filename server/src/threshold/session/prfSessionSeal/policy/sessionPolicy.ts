@@ -42,13 +42,45 @@ function normalizeConsumeResult(
   };
 }
 
-export function createPrfSessionSealPolicyFromEcdsaAuthSessionStore(
-  store: Ed25519AuthSessionStore,
-): PrfSessionSealThresholdSessionPolicy {
+function normalizeStoreResult(
+  thresholdSessionId: string,
+  stores: readonly Ed25519AuthSessionStore[],
+): Promise<PrfSessionSealThresholdSessionRecord | null> {
+  return (async () => {
+    for (const store of stores) {
+      const normalized = normalizeSessionRecord(thresholdSessionId, await store.getSession(thresholdSessionId));
+      if (normalized) return normalized;
+    }
+    return null;
+  })();
+}
+
+function normalizeConsumeAcrossStores(
+  thresholdSessionId: string,
+  stores: readonly Ed25519AuthSessionStore[],
+): Promise<PrfSessionSealConsumeUseResult> {
+  return (async () => {
+    for (const store of stores) {
+      const raw = await store.getSession(thresholdSessionId);
+      if (!raw) continue;
+      return normalizeConsumeResult(await store.consumeUseCount(thresholdSessionId));
+    }
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Unknown or expired threshold session',
+    };
+  })();
+}
+
+export function createPrfSessionSealPolicyFromThresholdAuthSessionStores(input: {
+  stores: readonly Ed25519AuthSessionStore[];
+}): PrfSessionSealThresholdSessionPolicy {
+  const stores = input.stores.filter(Boolean);
   return {
     getSession: async (thresholdSessionId: string) =>
-      normalizeSessionRecord(thresholdSessionId, await store.getSession(thresholdSessionId)),
+      await normalizeStoreResult(thresholdSessionId, stores),
     consumeUseCount: async (thresholdSessionId: string) =>
-      normalizeConsumeResult(await store.consumeUseCount(thresholdSessionId)),
+      await normalizeConsumeAcrossStores(thresholdSessionId, stores),
   };
 }

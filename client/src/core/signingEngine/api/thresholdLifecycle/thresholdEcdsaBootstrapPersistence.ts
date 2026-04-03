@@ -2,6 +2,8 @@ import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import {
@@ -30,11 +32,10 @@ export type ThresholdEcdsaSmartAccountDeploymentInput = {
 
 export type ThresholdEcdsaBootstrapIndexedDbPort = {
   clientDB: {
-    resolveNearAccountContext: (nearAccountId: AccountId) => Promise<{
-      profileId: string;
-      sourceChainIdKey: string;
-      sourceAccountAddress: string;
-    } | null>;
+    resolveProfileAccountContext: (args: {
+      chainIdKey: string;
+      accountAddress: string;
+    }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
   };
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
@@ -114,7 +115,10 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   deployment?: ThresholdEcdsaSmartAccountDeploymentInput;
 }): Promise<void> {
   const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
-  const nearContext = await args.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
+  const nearContext = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB as any,
+    buildNearAccountRefs(nearAccountId),
+  );
   if (!nearContext?.profileId) {
     throw new Error(`[SigningEngine] missing profile/account mapping for ${String(nearAccountId)}`);
   }

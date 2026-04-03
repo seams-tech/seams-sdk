@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
 } as const;
 
@@ -19,7 +19,7 @@ test.describe('signer mutation saga pending behavior', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
           const suffix =
@@ -28,22 +28,41 @@ test.describe('signer mutation saga pending behavior', () => {
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-signerSagaUndeployed-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-signerSagaUndeployed-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-signerSagaUndeployed-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: 'alice.testnet',
+          };
+          const profileId = 'profile-near:alice.testnet';
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId: 'alice.testnet',
-            deviceNumber: 2,
-            operationalPublicKey: 'ed25519:device-2',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 2,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
             },
-            version: 2,
           });
-          const context = await clientDB.resolveNearAccountContext('alice.testnet');
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:device-2',
+            signerSlot: 2,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
           if (!context?.profileId) throw new Error('missing near account context');
 
           await clientDB.upsertChainAccount({
@@ -63,7 +82,7 @@ test.describe('signer mutation saga pending behavior', () => {
             signerType: 'threshold',
             status: 'pending',
           });
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
             deviceNumber: 2,
             chainIdKey: 'evm:11155111',
@@ -124,7 +143,7 @@ test.describe('signer mutation saga pending behavior', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
           const suffix =
@@ -133,22 +152,41 @@ test.describe('signer mutation saga pending behavior', () => {
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-signerSagaDeployed-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-signerSagaDeployed-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-signerSagaDeployed-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: 'alice.testnet',
+          };
+          const profileId = 'profile-near:alice.testnet';
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId: 'alice.testnet',
-            deviceNumber: 2,
-            operationalPublicKey: 'ed25519:device-2',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 2,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
             },
-            version: 2,
           });
-          const context = await clientDB.resolveNearAccountContext('alice.testnet');
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:device-2',
+            signerSlot: 2,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
           if (!context?.profileId) throw new Error('missing near account context');
 
           await clientDB.upsertChainAccount({
@@ -168,7 +206,7 @@ test.describe('signer mutation saga pending behavior', () => {
             signerType: 'threshold',
             status: 'pending',
           });
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
             deviceNumber: 2,
             chainIdKey: 'evm:11155111',
@@ -184,7 +222,12 @@ test.describe('signer mutation saga pending behavior', () => {
 
           const before = await clientDB.listSignerOperations();
           const repairNow = Date.now() + 60_000;
-          const summary = await indexedDB.repairSignerMutationSagas({ now: repairNow });
+          const summary = await indexedDB.repairSignerMutationSagasWithRuntime({
+            now: repairNow,
+            runtime: {
+              resolveOwnerAccountId: async () => 'alice.testnet',
+            },
+          });
           const signer = await clientDB.getAccountSigner({
             chainIdKey: 'evm:11155111',
             accountAddress: `0x${'22'.repeat(20)}`,
@@ -233,7 +276,7 @@ test.describe('signer mutation saga pending behavior', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
           const suffix =
@@ -242,22 +285,41 @@ test.describe('signer mutation saga pending behavior', () => {
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-signerSagaExec-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-signerSagaExec-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-signerSagaExec-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: 'alice.testnet',
+          };
+          const profileId = 'profile-near:alice.testnet';
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId: 'alice.testnet',
-            deviceNumber: 1,
-            operationalPublicKey: 'ed25519:device-1',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 1,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
             },
-            version: 2,
           });
-          const context = await clientDB.resolveNearAccountContext('alice.testnet');
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:device-1',
+            signerSlot: 1,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
           if (!context?.profileId) throw new Error('missing near account context');
 
           await clientDB.upsertChainAccount({
@@ -277,7 +339,7 @@ test.describe('signer mutation saga pending behavior', () => {
             signerType: 'threshold',
             status: 'pending',
           });
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
             deviceNumber: 2,
             chainIdKey: 'evm:11155111',
@@ -295,9 +357,10 @@ test.describe('signer mutation saga pending behavior', () => {
           const summary = await indexedDB.repairSignerMutationSagasWithRuntime({
             now: Date.now() + 60_000,
             runtime: {
+              resolveOwnerAccountId: async () => 'alice.testnet',
               executeDeployedAddSigner: async (input: Record<string, unknown>) => {
                 runtimeCalls.push({
-                  nearAccountId: input.nearAccountId,
+                  ownerAccountId: input.ownerAccountId,
                   opType: (input.op as any)?.opType,
                   signerId: (input.signer as any)?.signerId,
                   accountAddress: (input.chainAccount as any)?.accountAddress,
@@ -338,7 +401,7 @@ test.describe('signer mutation saga pending behavior', () => {
     });
     expect(result.runtimeCalls).toEqual([
       {
-        nearAccountId: 'alice.testnet',
+        ownerAccountId: 'alice.testnet',
         opType: 'add-signer',
         signerId: `0x${'cc'.repeat(20)}`,
         accountAddress: `0x${'33'.repeat(20)}`,
@@ -357,7 +420,7 @@ test.describe('signer mutation saga pending behavior', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
           const suffix =
@@ -366,22 +429,41 @@ test.describe('signer mutation saga pending behavior', () => {
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-signerSagaRevoke-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-signerSagaRevoke-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-signerSagaRevoke-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: 'alice.testnet',
+          };
+          const profileId = 'profile-near:alice.testnet';
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId: 'alice.testnet',
-            deviceNumber: 1,
-            operationalPublicKey: 'ed25519:device-1',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 1,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
             },
-            version: 2,
           });
-          const context = await clientDB.resolveNearAccountContext('alice.testnet');
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:device-1',
+            signerSlot: 1,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
           if (!context?.profileId) throw new Error('missing near account context');
 
           await clientDB.upsertChainAccount({
@@ -402,7 +484,7 @@ test.describe('signer mutation saga pending behavior', () => {
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
             deviceNumber: 2,
             chainIdKey: 'evm:11155111',
@@ -427,10 +509,11 @@ test.describe('signer mutation saga pending behavior', () => {
           const summary = await indexedDB.repairSignerMutationSagasWithRuntime({
             now: Date.now() + 60_000,
             runtime: {
+              resolveOwnerAccountId: async () => 'alice.testnet',
               executeDeployedAddSigner: async () => ({ txHash: null }),
               executeDeployedRemoveSigner: async (input: Record<string, unknown>) => {
                 runtimeCalls.push({
-                  nearAccountId: input.nearAccountId,
+                  ownerAccountId: input.ownerAccountId,
                   opType: (input.op as any)?.opType,
                   signerId: (input.signer as any)?.signerId,
                   accountAddress: (input.chainAccount as any)?.accountAddress,
@@ -444,7 +527,7 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: `0x${'44'.repeat(20)}`,
             signerId: `0x${'dd'.repeat(20)}`,
           });
-          const keys = await nearKeysDB.listKeyMaterialByProfileAndDevice(
+          const keys = await accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
             context.profileId,
             2,
             'evm:11155111',
@@ -477,7 +560,7 @@ test.describe('signer mutation saga pending behavior', () => {
     });
     expect(result.runtimeCalls).toEqual([
       {
-        nearAccountId: 'alice.testnet',
+        ownerAccountId: 'alice.testnet',
         opType: 'revoke-signer',
         signerId: `0x${'dd'.repeat(20)}`,
         accountAddress: `0x${'44'.repeat(20)}`,

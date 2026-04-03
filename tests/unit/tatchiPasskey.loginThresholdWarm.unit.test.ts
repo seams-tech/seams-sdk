@@ -100,10 +100,14 @@ async function withMockedMostRecentProjection<T>(
   const continuityClientDb = IndexedDBManager.clientDB as {
     resolveNearAccountProfileContinuity?: unknown;
   };
-  const nearDb = IndexedDBManager as { getNearThresholdKeyMaterial?: unknown };
+  const profileLookupClientDb = IndexedDBManager.clientDB as {
+    resolveProfileAccountContext?: unknown;
+  };
+  const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as { getKeyMaterial?: unknown };
   const original = clientDb.getMostRecentNearAccountProjection;
   const originalContinuity = continuityClientDb.resolveNearAccountProfileContinuity;
-  const originalThreshold = nearDb.getNearThresholdKeyMaterial;
+  const originalProfileLookup = profileLookupClientDb.resolveProfileAccountContext;
+  const originalKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
   clientDb.getMostRecentNearAccountProjection = async () => null;
   continuityClientDb.resolveNearAccountProfileContinuity = async () =>
     options?.includeThresholdEcdsaProfiles
@@ -115,23 +119,39 @@ async function withMockedMostRecentProjection<T>(
           ],
         }
       : { chainAccounts: [] };
-  nearDb.getNearThresholdKeyMaterial = async () => ({
-    kind: 'threshold_ed25519_v1',
+  profileLookupClientDb.resolveProfileAccountContext = async (accountRef: {
+    chainIdKey: string;
+    accountAddress: string;
+  }) =>
+    accountRef.chainIdKey === 'near:testnet' &&
+    String(accountRef.accountAddress || '').trim() === 'alice.testnet'
+      ? { profileId: 'legacy-near:alice.testnet', accountRef }
+      : null;
+  accountKeyMaterialDb.getKeyMaterial = async () => ({
+    profileId: 'legacy-near:alice.testnet',
+    deviceNumber: 1,
+    chainIdKey: 'near:testnet',
+    keyKind: 'threshold_share_v1',
+    algorithm: 'ed25519',
     publicKey: 'ed25519:threshold',
-    relayerKeyId: 'rk-1',
-    keyVersion: 'threshold-ed25519-hss-v1',
+    payload: {
+      relayerKeyId: 'rk-1',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      participants: [
+        { id: 1, role: 'client' },
+        { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
+      ],
+    },
     timestamp: Date.now(),
-    participants: [
-      { id: 1, role: 'client' },
-      { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
-    ],
+    schemaVersion: 1,
   });
   try {
     return await fn();
   } finally {
     clientDb.getMostRecentNearAccountProjection = original;
     continuityClientDb.resolveNearAccountProfileContinuity = originalContinuity;
-    nearDb.getNearThresholdKeyMaterial = originalThreshold;
+    profileLookupClientDb.resolveProfileAccountContext = originalProfileLookup;
+    accountKeyMaterialDb.getKeyMaterial = originalKeyMaterial;
   }
 }
 
@@ -321,7 +341,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(0);
   });
 
-  test('login warm-up reuses canonical ECDSA threshold session id when available', async () => {
+  test('login warm-up mints a fresh shared threshold session id even when canonical ECDSA state exists', async () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
@@ -350,7 +370,9 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(result.success).toBe(true);
     expect(result.signingSession?.status).toBe('active');
     expect(capturedConnectArgs).not.toBeNull();
-    expect(String(capturedConnectArgs?.['sessionId'] || '')).toBe('canonical-ecdsa-session-1');
+    const requestedSessionId = String(capturedConnectArgs?.['sessionId'] || '').trim();
+    expect(requestedSessionId).not.toBe('');
+    expect(requestedSessionId).not.toBe('canonical-ecdsa-session-1');
   });
 
   test('NEAR-only threshold warm-up does not bootstrap ECDSA sessions', async () => {

@@ -106,7 +106,34 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
   rpId: string;
   publicKey: string;
   keyVersion: string;
+  relayerKeyId?: string;
 }): Promise<void> {
+  const relayerKeyId = String(input.relayerKeyId || input.publicKey).trim();
+  const existing = await (
+    input.threshold as unknown as {
+      keyStore?: {
+        get: (
+          relayerKeyId: string,
+        ) => Promise<{
+          nearAccountId: string;
+          rpId: string;
+          publicKey: string;
+          keyVersion: string;
+          recoveryExportCapable: true;
+        } | null>;
+      };
+    }
+  ).keyStore?.get(relayerKeyId);
+  if (
+    existing?.nearAccountId === input.nearAccountId &&
+    existing?.rpId === input.rpId &&
+    existing?.publicKey === input.publicKey &&
+    existing?.keyVersion === input.keyVersion &&
+    existing?.recoveryExportCapable === true
+  ) {
+    return;
+  }
+
   const schemeAny = input.threshold.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
   if (!schemeAny || schemeAny.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
     throw new Error(
@@ -119,7 +146,7 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
     keyVersion: input.keyVersion,
     recoveryExportCapable: true,
     publicKey: input.publicKey,
-    relayerKeyId: input.publicKey,
+    relayerKeyId,
   });
   if (!keygen.ok) {
     throw new Error(keygen.message || 'threshold-ed25519 registration material keygen failed');

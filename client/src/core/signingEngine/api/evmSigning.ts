@@ -1,5 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { normalizeIndexedDbAccountModel } from '@/core/indexedDB/normalization';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
@@ -654,7 +656,10 @@ async function resolveManagedNonceSender(args: {
   request: EvmSigningRequest | TempoSigningRequest;
 }): Promise<`0x${string}`> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const context = await args.deps.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
+  const context = await resolveProfileAccountContextFromCandidates(
+    args.deps.indexedDB.clientDB,
+    buildNearAccountRefs(nearAccountId),
+  );
   if (!context?.profileId) {
     throw new Error(
       `[SigningEngine] unable to resolve profile mapping for managed ${args.request.chain.toUpperCase()} nonce (${String(nearAccountId)})`,
@@ -691,7 +696,7 @@ async function resolveManagedNonceSender(args: {
     }
   }
 
-  const contextMappedSender = toOptionalEvmAddress(context.sourceAccountAddress);
+  const contextMappedSender = toOptionalEvmAddress(context.accountRef.accountAddress);
   if (contextMappedSender) return contextMappedSender;
 
   throw new Error(

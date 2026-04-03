@@ -1,9 +1,17 @@
-import type { ClientUserData, UnifiedIndexedDBManager } from '@/core/indexedDB';
-import type { StoreUserDataInput } from '@/core/indexedDB/passkeyClientDB.types';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnRegistrationCredential } from '@/core/types';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import type { ClientUserData, StoreUserDataInput } from '@/core/accountData/near/types';
+import {
+  resolveProfileAccountContextFromCandidates,
+  resolveProfileAccountProjection,
+} from '@/core/indexedDB/profileAccountProjection';
+import { normalizeIndexedDbAccountAddress } from '@/core/indexedDB/normalization';
+import { inferNearChainIdKey } from '@/core/accountData/near/accountRefs';
+import { buildNearProfileId } from '@/core/accountData/near/profileId';
 import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
 import type { UserPreferencesManager } from '../userPreferences';
 import type { IDBPDatabase } from 'idb';
@@ -26,14 +34,111 @@ export type StoreAuthenticatorInput = {
   deviceNumber?: number;
 };
 
+async function resolveNearProfileContext(
+  deps: RegistrationAccountLifecycleDeps,
+  nearAccountId: AccountId,
+): Promise<{ profileId: string; chainIdKey: string; accountAddress: string } | null> {
+  const accountId = toAccountId(nearAccountId);
+  const context = await resolveProfileAccountContextFromCandidates(
+    deps.indexedDB.clientDB,
+    buildNearAccountRefs(accountId),
+  ).catch(() => null);
+  if (!context?.profileId) return null;
+  return {
+    profileId: context.profileId,
+    chainIdKey: context.accountRef.chainIdKey,
+    accountAddress: context.accountRef.accountAddress,
+  };
+}
+
+async function readNearUserData(
+  deps: RegistrationAccountLifecycleDeps,
+  nearAccountId: AccountId,
+  deviceNumber?: number,
+): Promise<ClientUserData | null> {
+  const accountId = toAccountId(nearAccountId);
+  const projection = await resolveProfileAccountProjection(deps.indexedDB.clientDB, {
+    accountRefs: buildNearAccountRefs(accountId),
+    ...(typeof deviceNumber === 'number' ? { deviceNumber } : {}),
+  }).catch(() => null);
+  if (!projection) return null;
+
+  const metadata = projection.selectedSigner.metadata || {};
+  const passkeyCredentialRawId =
+    typeof metadata.passkeyCredentialRawId === 'string'
+      ? metadata.passkeyCredentialRawId
+      : projection.selectedSigner.signerId;
+  const passkeyCredentialId =
+    typeof metadata.passkeyCredentialId === 'string'
+      ? metadata.passkeyCredentialId
+      : projection.profile.passkeyCredential?.id || passkeyCredentialRawId;
+  const operationalPublicKey =
+    typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
+
+  return {
+    nearAccountId: accountId,
+    deviceNumber: projection.selectedSigner.signerSlot,
+    version: 2,
+    registeredAt: projection.profile.createdAt,
+    lastLogin: projection.profile.updatedAt,
+    lastUpdated: projection.profile.updatedAt,
+    operationalPublicKey,
+    passkeyCredential: {
+      id: passkeyCredentialId,
+      rawId: passkeyCredentialRawId,
+    },
+    preferences: projection.profile.preferences,
+  };
+}
+
 export async function storeUserData(
   deps: RegistrationAccountLifecycleDeps,
   userData: StoreUserDataInput,
 ): Promise<void> {
-  await deps.indexedDB.clientDB.upsertNearAccountProjection({
-    ...userData,
-    deviceNumber: userData.deviceNumber ?? 1,
-    version: userData.version || 2,
+  const nearAccountId = toAccountId(userData.nearAccountId);
+  const deviceNumber = Number(userData.deviceNumber);
+  const normalizedDeviceNumber =
+    Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : 1;
+  const profileId = buildNearProfileId(nearAccountId);
+  const chainIdKey = inferNearChainIdKey(nearAccountId, userData.preferences?.useNetwork);
+  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
+  const signerId = String(userData.passkeyCredential?.rawId || '').trim() || `device-${normalizedDeviceNumber}`;
+
+  await deps.indexedDB.clientDB.upsertProfile({
+    profileId,
+    defaultDeviceNumber: normalizedDeviceNumber,
+    passkeyCredential: userData.passkeyCredential,
+    ...(userData.preferences ? { preferences: userData.preferences } : {}),
+  });
+  await deps.indexedDB.clientDB.upsertChainAccount({
+    profileId,
+    chainIdKey,
+    accountAddress,
+    accountModel: 'near-native',
+    isPrimary: true,
+  });
+  const existingSigner = await deps.indexedDB.clientDB
+    .getAccountSigner({
+      chainIdKey,
+      accountAddress,
+      signerId,
+    })
+    .catch(() => null);
+  await deps.indexedDB.clientDB.upsertAccountSigner({
+    profileId,
+    chainIdKey,
+    accountAddress,
+    signerId,
+    signerSlot: normalizedDeviceNumber,
+    signerType: 'passkey',
+    status: 'active',
+    metadata: {
+      ...(existingSigner?.metadata || {}),
+      operationalPublicKey: userData.operationalPublicKey,
+      passkeyCredentialId: userData.passkeyCredential?.id,
+      passkeyCredentialRawId: userData.passkeyCredential?.rawId,
+    },
+    mutation: { routeThroughOutbox: false },
   });
 }
 
@@ -49,9 +154,7 @@ export async function initializeCurrentUser(
     deps.indexedDB.clientDB,
   ).catch(() => null as number | null);
   if (deviceNumberToUse === null) {
-    const context = await deps.indexedDB.clientDB
-      .resolveNearAccountContext(accountId)
-      .catch(() => null);
+    const context = await resolveNearProfileContext(deps, accountId);
     const profile = context?.profileId
       ? await deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null)
       : null;
@@ -59,7 +162,10 @@ export async function initializeCurrentUser(
     deviceNumberToUse =
       Number.isSafeInteger(defaultDevice) && defaultDevice >= 1 ? defaultDevice : 1;
   }
-  await deps.indexedDB.clientDB.setLastProfileStateForNearAccount(accountId, deviceNumberToUse);
+  const context = await resolveNearProfileContext(deps, accountId);
+  if (context?.profileId) {
+    await deps.indexedDB.clientDB.setLastProfileStateForProfile(context.profileId, deviceNumberToUse);
+  }
 
   // Set as current user for immediate use
   deps.userPreferencesManager.setCurrentUser(accountId);
@@ -67,9 +173,7 @@ export async function initializeCurrentUser(
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
   // Initialize NonceManager with the selected operational NEAR key (best-effort)
-  const userData = await deps.indexedDB.clientDB
-    .getNearAccountProjection(accountId, deviceNumberToUse)
-    .catch(() => null);
+  const userData = await readNearUserData(deps, accountId, deviceNumberToUse);
   if (userData && userData.operationalPublicKey) {
     deps.nonceManager.initializeUser(accountId, userData.operationalPublicKey);
   }
@@ -91,7 +195,14 @@ export async function registerUser(
   deps: RegistrationAccountLifecycleDeps,
   storeUserDataInput: StoreUserDataInput,
 ): Promise<ClientUserData> {
-  return await deps.indexedDB.clientDB.upsertNearAccountProjection(storeUserDataInput);
+  await storeUserData(deps, storeUserDataInput);
+  const stored = await readNearUserData(deps, storeUserDataInput.nearAccountId, storeUserDataInput.deviceNumber);
+  if (!stored) {
+    throw new Error(
+      `PasskeyClientDB: Failed to resolve stored NEAR account projection for ${String(storeUserDataInput.nearAccountId || '').trim()}`,
+    );
+  }
+  return stored;
 }
 
 export async function storeAuthenticator(
@@ -106,7 +217,22 @@ export async function storeAuthenticator(
     nearAccountId: toAccountId(authenticatorData.nearAccountId),
     deviceNumber: normalizedDeviceNumber, // Default to device 1 (1-indexed)
   };
-  await deps.indexedDB.clientDB.upsertNearAuthenticator(authData);
+  const context = await resolveNearProfileContext(deps, authData.nearAccountId);
+  if (!context?.profileId) {
+    throw new Error(
+      `PasskeyClientDB: Missing profile/account mapping for NEAR account ${authData.nearAccountId}`,
+    );
+  }
+  await deps.indexedDB.clientDB.upsertProfileAuthenticator({
+    profileId: context.profileId,
+    deviceNumber: authData.deviceNumber,
+    credentialId: authData.credentialId,
+    credentialPublicKey: authData.credentialPublicKey,
+    transports: authData.transports,
+    name: authData.name,
+    registered: authData.registered,
+    syncedAt: authData.syncedAt,
+  });
 }
 
 export function extractUsername(nearAccountId: AccountId): string {
@@ -124,14 +250,23 @@ export async function rollbackUserRegistration(
   deps: RegistrationAccountLifecycleDeps,
   nearAccountId: AccountId,
 ): Promise<void> {
-  await deps.indexedDB.clientDB.rollbackNearAccountRegistration(nearAccountId);
+  const accountId = toAccountId(nearAccountId);
+  const context = await resolveNearProfileContext(deps, accountId);
+  if (!context?.profileId) return;
+  await deps.indexedDB.clientDB.deleteProfileData(context.profileId, { eventAccountId: accountId });
 }
 
 export async function hasPasskeyCredential(
   deps: RegistrationAccountLifecycleDeps,
   nearAccountId: AccountId,
 ): Promise<boolean> {
-  return await deps.indexedDB.clientDB.hasNearPasskeyCredential(nearAccountId);
+  const accountId = toAccountId(nearAccountId);
+  const context = await resolveNearProfileContext(deps, accountId);
+  if (!context?.profileId) return false;
+  const authenticators = await deps.indexedDB.clientDB.listProfileAuthenticators(context.profileId);
+  if (authenticators.length > 0) return !!authenticators[0]?.credentialId;
+  const profile = await deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null);
+  return !!profile?.passkeyCredential?.rawId;
 }
 
 export async function atomicStoreRegistrationData(

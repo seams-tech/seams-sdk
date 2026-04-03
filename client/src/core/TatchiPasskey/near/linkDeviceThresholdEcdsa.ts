@@ -1,5 +1,7 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
+import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
@@ -207,7 +209,10 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
     });
   }
 
-  const nearContext = await args.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
+  const nearContext = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB,
+    buildNearAccountRefs(nearAccountId),
+  );
   if (!nearContext?.profileId) {
     throw new Error(
       `[link-device] missing profile/account mapping for ${String(nearAccountId)}`,

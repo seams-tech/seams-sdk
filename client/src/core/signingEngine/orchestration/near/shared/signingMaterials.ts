@@ -1,4 +1,5 @@
-import type { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
@@ -38,7 +39,7 @@ export function requirePrfFirstFromCredential(
 export type ResolvedNearSigningMaterials = {
   nearAccountId: AccountId;
   resolvedDeviceNumber: number;
-  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
+  thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
   warnings: string[];
 };
 
@@ -61,7 +62,11 @@ export async function resolveNearSigningMaterials(args: {
     parsedDeviceNumber ??
     (await getLastLoggedInDeviceNumber(nearAccountId, args.ctx.indexedDB.clientDB));
 
-  const thresholdKeyMaterial = await args.ctx.indexedDB.getNearThresholdKeyMaterial(
+  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+    {
+      clientDB: args.ctx.indexedDB.clientDB,
+      accountKeyMaterialDB: args.ctx.indexedDB.accountKeyMaterialDB,
+    },
     nearAccountId,
     resolvedDeviceNumber,
   );

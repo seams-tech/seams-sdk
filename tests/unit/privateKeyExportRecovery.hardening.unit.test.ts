@@ -83,7 +83,10 @@ test.describe('private key export recovery hardening', () => {
             {
               indexedDB: {
                 clientDB: {
-                  resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
+                  resolveProfileAccountContext: async () => ({
+                    profileId: 'profile-1',
+                    accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+                  }),
                   getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 7 }),
                 },
               } as any,
@@ -142,7 +145,10 @@ test.describe('private key export recovery hardening', () => {
           {
             indexedDB: {
               clientDB: {
-                resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
+                resolveProfileAccountContext: async () => ({
+                  profileId: 'profile-1',
+                  accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+                }),
                 getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 3 }),
               },
             } as any,

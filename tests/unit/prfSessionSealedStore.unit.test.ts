@@ -122,4 +122,44 @@ test.describe('PRF session sealed store', () => {
     expect(result.after).toEqual([]);
     expect(result.indexAfter).toBeNull();
   });
+
+  test('uses localStorage in wallet iframe host mode for reload continuity', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean }).__W3A_TEST_WALLET_IFRAME_HOST_MODE__ =
+          true;
+        try {
+          const mod = await import(paths.prfSessionSealedStore);
+          const thresholdSessionId = 'sess-host-mode';
+          mod.clearAllPrfSessionSealedRecords();
+          mod.writePrfSessionSealedRecord({
+            thresholdSessionId,
+            sealedPrfFirstB64u: 'sealed-host',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 2,
+            updatedAtMs: Date.now(),
+          });
+          return {
+            localRaw: localStorage.getItem(`tatchi:threshold-prf-sealed:v1:${thresholdSessionId}`),
+            sessionRaw: sessionStorage.getItem(
+              `tatchi:threshold-prf-sealed:v1:${thresholdSessionId}`,
+            ),
+            localIndex: localStorage.getItem('tatchi:threshold-prf-sealed:v1:index'),
+            sessionIndex: sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:index'),
+          };
+        } finally {
+          delete (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean })
+            .__W3A_TEST_WALLET_IFRAME_HOST_MODE__;
+          localStorage.removeItem('tatchi:threshold-prf-sealed:v1:sess-host-mode');
+          localStorage.removeItem('tatchi:threshold-prf-sealed:v1:index');
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.localRaw).not.toBeNull();
+    expect(result.localIndex).toBe(JSON.stringify(['sess-host-mode']));
+    expect(result.sessionRaw).toBeNull();
+    expect(result.sessionIndex).toBeNull();
+  });
 });

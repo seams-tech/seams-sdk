@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
   linkDeviceThresholdEcdsa: '/sdk/esm/core/TatchiPasskey/near/linkDeviceThresholdEcdsa.js',
 } as const;
@@ -17,7 +17,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
     const result = await page.evaluate(async ({ paths }) => {
       try {
         const { PasskeyClientDBManager } = await import(paths.clientDb);
-        const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+        const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
         const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
         const { persistLinkDeviceThresholdEcdsaBootstrap } = await import(
           paths.linkDeviceThresholdEcdsa
@@ -30,20 +30,39 @@ test.describe('link-device threshold-ecdsa persistence', () => {
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const clientDB = new PasskeyClientDBManager();
         clientDB.setDbName(`PasskeyClientDB-linkDeviceEcdsa-${suffix}`);
-        const nearKeysDB = new PasskeyNearKeysDBManager();
-        nearKeysDB.setDbName(`PasskeyNearKeys-linkDeviceEcdsa-${suffix}`);
-        const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+        const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+        accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDeviceEcdsa-${suffix}`);
+        const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+        const nearAccountRef = {
+          chainIdKey: 'near:testnet',
+          accountAddress: nearAccountId,
+        };
+        const profileId = `profile-near:${nearAccountId}`;
 
-        await clientDB.upsertNearAccountProjection({
-          nearAccountId,
-          deviceNumber: 2,
-          operationalPublicKey: 'ed25519:pk-device2',
-          lastUpdated: Date.now(),
+        await clientDB.upsertProfile({
+          profileId,
+          defaultDeviceNumber: 2,
           passkeyCredential: {
             id: 'cred-id',
             rawId: 'cred-b64u',
           },
-          version: 2,
+        });
+        await clientDB.upsertChainAccount({
+          profileId,
+          chainIdKey: nearAccountRef.chainIdKey,
+          accountAddress: nearAccountRef.accountAddress,
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await clientDB.upsertAccountSigner({
+          profileId,
+          chainIdKey: nearAccountRef.chainIdKey,
+          accountAddress: nearAccountRef.accountAddress,
+          signerId: 'ed25519:pk-device2',
+          signerSlot: 2,
+          signerType: 'passkey',
+          status: 'active',
+          mutation: { routeThroughOutbox: false },
         });
 
         const sessionCalls: Array<Record<string, unknown>> = [];
@@ -54,7 +73,7 @@ test.describe('link-device threshold-ecdsa persistence', () => {
           },
           async persistThresholdEcdsaBootstrapChainAccount(args: Record<string, unknown>) {
             chainAccountCalls.push(args);
-            const context = await clientDB.resolveNearAccountContext(nearAccountId);
+            const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
             if (!context?.profileId) throw new Error('missing near account context');
             const chain = String(args.chain || '').trim();
             const smartAccount =

@@ -1,6 +1,8 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import {
   normalizeIndexedDbAccountAddress as normalizeAccountAddress,
   normalizeIndexedDbAccountModel as normalizeAccountModel,
@@ -43,9 +45,10 @@ export type SmartAccountDeploymentReporterInput = SmartAccountDeployerInput & {
 };
 
 export type SmartAccountStatePort = {
-  resolveNearAccountContext: (
-    nearAccountId: AccountId,
-  ) => Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null>;
+  resolveProfileAccountContext: (args: {
+    chainIdKey: string;
+    accountAddress: string;
+  }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
   listChainAccountsByProfile?: (profileId: string) => Promise<ChainAccountRecord[]>;
   listChainAccountsByProfileAndChain: (
     profileId: string,
@@ -335,7 +338,10 @@ export async function ensureSmartAccountDeployed(args: {
   const chainIds = dedupeChainIds(args.chainIdCandidates);
   const chainIdKeys = chainIds.map((chainId) => toChainIdKey(args.chain, chainId));
 
-  const context = await args.clientDB.resolveNearAccountContext(nearAccountId).catch(() => null);
+  const context = await resolveProfileAccountContextFromCandidates(
+    args.clientDB as any,
+    buildNearAccountRefs(nearAccountId),
+  ).catch(() => null);
   if (!context?.profileId) {
     if (enforce) {
       throw new Error(

@@ -15,7 +15,7 @@ import {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -46,6 +46,7 @@ import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
+import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { ActionPhase, ActionStatus } from '@/core/types/sdkSentEvents';
 
 export async function signDelegateAction({
@@ -273,7 +274,9 @@ export async function signDelegateAction({
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
 
-  const requestPayload: Omit<WasmSignDelegateActionRequest, 'sessionId'> = {
+  const buildRequestPayload = (
+    xClientBaseOverride?: string,
+  ): Omit<WasmSignDelegateActionRequest, 'sessionId'> => ({
     rpcCall: resolvedRpcCall,
     createdAt: Date.now(),
     ...buildNearWorkerSigningEnvelope({
@@ -281,7 +284,7 @@ export async function signDelegateAction({
         relayerUrl: signingContext.threshold.relayerUrl,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
         xClientBaseB64u:
-          xClientBaseB64u ||
+          xClientBaseOverride ||
           getStoredThresholdEd25519SessionRecordByThresholdSessionId(canonicalThresholdSessionId)
             ?.xClientBaseB64u,
         thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
@@ -292,32 +295,75 @@ export async function signDelegateAction({
     intentDigest,
     transactionContext,
     credential: credentialForRelayJson,
-  };
+  });
+  let requestPayload = buildRequestPayload(xClientBaseB64u);
 
-  let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction>;
-  try {
+  const executeDelegateRequest = async (
+    payload: Omit<WasmSignDelegateActionRequest, 'sessionId'>,
+  ) => {
     const resp = await executeWorkerOperation({
       ctx,
       kind: 'nearSigner',
       request: {
         sessionId,
         type: WorkerRequestType.SignDelegateAction,
-        payload: requestPayload,
+        payload,
         onEvent,
       },
     });
-    okResponse = requireOkSignDelegateActionResponse(resp);
+    return requireOkSignDelegateActionResponse(resp);
+  };
+
+  let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction>;
+  try {
+    okResponse = await executeDelegateRequest(requestPayload);
   } catch (e: unknown) {
     const err = e instanceof Error ? e : new Error(String(e));
 
     if (isThresholdSignerMissingKeyError(err)) {
-      const msg =
-        '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
-      console.warn(msg);
-      warnings.push(msg);
-      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-      signingContext.threshold.thresholdSessionJwt = undefined;
-      throw new Error(msg);
+      try {
+        const repairedXClientBaseB64u = await repairThresholdEd25519MissingRelayerKey({
+          ctx,
+          operationLabel: 'delegate',
+          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+          relayerUrl: signingContext.threshold.relayerUrl,
+          relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+          nearAccountId,
+          keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
+          participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
+            (p) => p.id,
+          ),
+          prfFirstB64u,
+          ...(onEvent
+            ? {
+                onProgress: (message: string) => {
+                  onEvent({
+                    step: 4,
+                    phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+                    status: ActionStatus.PROGRESS,
+                    message,
+                  });
+                },
+              }
+            : {}),
+        });
+        requestPayload = buildRequestPayload(repairedXClientBaseB64u);
+        okResponse = await executeDelegateRequest(requestPayload);
+      } catch (repairError: unknown) {
+        const repairErr =
+          repairError instanceof Error ? repairError : new Error(String(repairError));
+        if (isThresholdSignerMissingKeyError(repairErr)) {
+          const msg =
+            '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
+          console.warn(msg);
+          warnings.push(msg);
+          clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+          signingContext.threshold.thresholdSessionJwt = undefined;
+          throw new Error(msg);
+        }
+        throw repairErr;
+      }
     }
 
     if (isThresholdSessionAuthUnavailableError(err)) {
@@ -345,7 +391,7 @@ type ThresholdDelegateSigningContext = {
   delegatePublicKeyStr: string;
   threshold: {
     relayerUrl: string;
-    thresholdKeyMaterial: ThresholdEd25519_V1Material;
+    thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
     thresholdSessionCacheKey: string;
     thresholdSessionKind: 'jwt' | 'cookie';
     thresholdSessionJwt: string | undefined;
@@ -356,7 +402,7 @@ function validateAndPrepareDelegateSigningContext(args: {
   nearAccountId: string;
   relayerUrl: string;
   rpId: string | null;
-  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
+  thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
   providedDelegatePublicKey: DelegateActionInput['publicKey'];
   warnings: string[];
 }): ThresholdDelegateSigningContext {

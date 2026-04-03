@@ -1,4 +1,6 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId } from '@/core/types/accountIds';
 import { base64UrlDecode } from '@shared/utils/base64';
 import type { KeyRef } from '../../interfaces/signing';
@@ -10,7 +12,10 @@ export async function resolveWebAuthnP256KeyRefForNearAccount(args: {
   rpId?: string;
 }): Promise<KeyRef & { type: 'webauthnP256' }> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const context = await args.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
+  const context = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB,
+    buildNearAccountRefs(nearAccountId),
+  );
   if (!context?.profileId) {
     throw new Error(`[multichain] no profile/account mapping found for account ${nearAccountId}`);
   }

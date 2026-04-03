@@ -76,7 +76,7 @@ export {
 } from './crypto/cipher';
 export { createPrfSessionSealService } from './service';
 export { createInMemoryPrfSessionSealIdempotencyStore } from './idempotency';
-export { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
+export { createPrfSessionSealPolicyFromThresholdAuthSessionStores } from './policy/sessionPolicy';
 export { createPrfSessionSealAuditLogger } from './observability/audit';
 export { createPrfSessionSealRoutesOptions } from './routesOptions';
 export { createPrfSessionSealOptions } from './options';

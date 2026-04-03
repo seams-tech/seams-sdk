@@ -67,6 +67,7 @@ import {
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
 import {
+  deriveThresholdEd25519VerifyingShareFromSigningShare,
   deriveThresholdEd25519RegistrationMaterialFromHssFinalize,
   finalizeThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssServerCeremony,
@@ -1196,10 +1197,92 @@ export class ThresholdSigningService {
       }
     | { ok: false; code: string; message: string }
   > {
-    return await resolveThresholdEd25519RelayerKeyMaterial({
+    const startedAt = Date.now();
+    const resolved = await resolveThresholdEd25519RelayerKeyMaterial({
       relayerKeyId: input.relayerKeyId,
       keyStore: this.keyStore,
     });
+    const durationMs = Date.now() - startedAt;
+    if (!resolved.ok) {
+      if (resolved.code === 'missing_key') {
+        this.logger?.warn?.('[threshold-ed25519] relayer share cache miss', {
+          relayerKeyId: input.relayerKeyId,
+          durationMs,
+        });
+      } else {
+        this.logger?.error?.('[threshold-ed25519] relayer share cache lookup failed', {
+          relayerKeyId: input.relayerKeyId,
+          durationMs,
+          code: resolved.code,
+          message: resolved.message,
+        });
+      }
+      return resolved;
+    }
+    this.logger?.debug?.('[threshold-ed25519] relayer share cache hit', {
+      relayerKeyId: input.relayerKeyId,
+      durationMs,
+    });
+    return resolved;
+  }
+
+  private async maybeRepairRelayerKeyMaterialFromSessionHssFinalize(input: {
+    claims: ThresholdEd25519SessionClaims;
+    context: ThresholdEd25519HssCanonicalContext;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    serverOutput: { contextBindingB64u: string; xRelayerBaseB64u: string };
+  }): Promise<{ repaired: boolean }> {
+    const relayerKeyId = toOptionalTrimmedString(input.claims.relayerKeyId);
+    const nearAccountId = toOptionalTrimmedString(input.claims.sub);
+    const rpId = toOptionalTrimmedString(input.claims.rpId);
+    const keyVersion =
+      toOptionalTrimmedString(input.context.keyVersion) ||
+      toOptionalTrimmedString(input.preparedSession.keyVersion);
+    const relayerSigningShareB64u = toOptionalTrimmedString(input.serverOutput.xRelayerBaseB64u);
+    if (!relayerKeyId || !nearAccountId || !rpId || !keyVersion || !relayerSigningShareB64u) {
+      throw new Error('[threshold-ed25519] missing scope while attempting relayer share self-heal');
+    }
+
+    const existing = await this.keyStore.get(relayerKeyId);
+    if (existing) {
+      return { repaired: false };
+    }
+
+    const startedAt = Date.now();
+    try {
+      const relayerVerifyingShare = await deriveThresholdEd25519VerifyingShareFromSigningShare({
+        signingShareB64u: relayerSigningShareB64u,
+      });
+      await this.keyStore.put(relayerKeyId, {
+        nearAccountId,
+        rpId,
+        publicKey: relayerKeyId,
+        relayerSigningShareB64u,
+        relayerVerifyingShareB64u: relayerVerifyingShare.verifyingShareB64u,
+        keyVersion,
+        recoveryExportCapable: true,
+      });
+      this.logger?.warn?.('[threshold-ed25519] relayer share self-heal', {
+        relayerKeyId,
+        nearAccountId,
+        rpId,
+        keyVersion,
+        durationMs: Date.now() - startedAt,
+        outcome: 'success',
+      });
+      return { repaired: true };
+    } catch (error: unknown) {
+      this.logger?.error?.('[threshold-ed25519] relayer share self-heal failed', {
+        relayerKeyId,
+        nearAccountId,
+        rpId,
+        keyVersion,
+        durationMs: Date.now() - startedAt,
+        outcome: 'failure',
+        message: errorMessage(error),
+      });
+      throw error;
+    }
   }
 
   private clampSessionPolicy(input: { ttlMs: number; remainingUses: number }): {
@@ -3052,12 +3135,21 @@ export class ThresholdSigningService {
         preparedSession: preparedSession.value,
         evaluationResult: evaluationResult.value,
       });
+      const relayerShareRepairStartedAt = Date.now();
+      const repair = await this.maybeRepairRelayerKeyMaterialFromSessionHssFinalize({
+        claims: input.claims,
+        context: context.value,
+        preparedSession: preparedSession.value,
+        serverOutput: result.serverOutput,
+      });
 
       this.logger?.info?.('[threshold-ed25519] hss finalize timings', {
         relayerKeyId,
         nearAccountId: context.value.nearAccountId,
         ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
-        wasmFinalizeMs: Date.now() - wasmStartedAt,
+        wasmFinalizeMs: relayerShareRepairStartedAt - wasmStartedAt,
+        relayerShareRepairMs: Date.now() - relayerShareRepairStartedAt,
+        relayerShareRepaired: repair.repaired,
         totalMs: Date.now() - finalizeStartedAt,
       });
 

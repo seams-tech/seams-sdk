@@ -1,10 +1,13 @@
 import type { PasskeyManagerContext } from '../interfaces';
 import type { ConfirmationConfig } from '../../types/signer-worker';
+import type { AccountId } from '../../types/accountIds';
 import type {
   AccountSignerRecord,
   ChainAccountRecord,
   SignerOpOutboxRecord,
 } from '../../indexedDB/passkeyClientDB.types';
+import { IndexedDBManager } from '../../indexedDB';
+import { getNearAccountIdForProfile } from '../../accountData/near/accountProjection';
 import type { EvmContractAbi } from '../../signingEngine/chainAdaptors/evm/types';
 import { executeEvmFamilyTransactionLifecycle } from '../tempo/executeEvmFamilyTransaction';
 import { createEvmClient, parseRpcHexQuantity } from '../../rpcClients/evm/EvmClient';
@@ -119,15 +122,21 @@ export function createLocalDeployedSignerMutationRuntime(args: {
     data?: unknown;
   }) => void;
 }): {
+  resolveOwnerAccountId: (input: {
+    profileId: string;
+    op: SignerOpOutboxRecord;
+    signer: AccountSignerRecord;
+    chainAccount: ChainAccountRecord;
+  }) => Promise<AccountId | null>;
   executeDeployedAddSigner: (input: {
-    nearAccountId: string;
+    ownerAccountId: string;
     op: SignerOpOutboxRecord;
     signer: AccountSignerRecord;
     chainAccount: ChainAccountRecord;
     now: number;
   }) => Promise<{ txHash?: string | null }>;
   executeDeployedRemoveSigner: (input: {
-    nearAccountId: string;
+    ownerAccountId: string;
     op: SignerOpOutboxRecord;
     signer: AccountSignerRecord;
     chainAccount: ChainAccountRecord;
@@ -135,12 +144,15 @@ export function createLocalDeployedSignerMutationRuntime(args: {
   }) => Promise<{ txHash?: string | null }>;
 } {
   return {
+    resolveOwnerAccountId: async (input) => {
+      return await getNearAccountIdForProfile(IndexedDBManager.clientDB, input.profileId);
+    },
     executeDeployedAddSigner: async (input) => {
       return await executeDeployedSignerMutation({
         context: args.context,
         confirmationConfig: args.confirmationConfig,
         onEvent: args.onEvent,
-        nearAccountId: input.nearAccountId,
+        nearAccountId: input.ownerAccountId,
         chainAccount: input.chainAccount,
         signerAddress: normalizeAddress(input.signer.signerId),
         buildCalldata: buildAddOwnerCalldata,
@@ -153,7 +165,7 @@ export function createLocalDeployedSignerMutationRuntime(args: {
         context: args.context,
         confirmationConfig: args.confirmationConfig,
         onEvent: args.onEvent,
-        nearAccountId: input.nearAccountId,
+        nearAccountId: input.ownerAccountId,
         chainAccount: input.chainAccount,
         signerAddress: normalizeAddress(input.signer.signerId),
         buildCalldata: buildRemoveOwnerCalldata,

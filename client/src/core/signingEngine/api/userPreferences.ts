@@ -1,6 +1,9 @@
 import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type { AccountId } from '../../types/accountIds';
 import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
+import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
+import { getLastSelectedNearAccount, updateNearAccountPreferences } from '../../accountData/near/accountProjection';
+import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 
 export class UserPreferencesManager {
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
@@ -170,9 +173,10 @@ export class UserPreferencesManager {
 
   private async loadSettingsForUser(nearAccountId: AccountId): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
-    const context = await IndexedDBManager.clientDB
-      .resolveNearAccountContext(nearAccountId)
-      .catch(() => null);
+    const context = await resolveProfileAccountContextFromCandidates(
+      IndexedDBManager.clientDB,
+      buildNearAccountRefs(nearAccountId),
+    ).catch(() => null);
     if (!context?.profileId) return;
     const profile = await IndexedDBManager.clientDB.getProfile(context.profileId).catch(() => null);
     if (!profile) return;
@@ -200,7 +204,7 @@ export class UserPreferencesManager {
 
   async loadUserSettings(): Promise<void> {
     if (IndexedDBManager.clientDB.isDisabled()) return;
-    const last = await IndexedDBManager.clientDB.getLastSelectedNearAccount().catch(() => null);
+    const last = await getLastSelectedNearAccount(IndexedDBManager.clientDB).catch(() => null);
     if (!last) {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
@@ -224,7 +228,7 @@ export class UserPreferencesManager {
         return;
       }
 
-      await IndexedDBManager.clientDB.updatePreferences(accountId, {
+      await updateNearAccountPreferences(IndexedDBManager.clientDB, accountId, {
         confirmationConfig: this.confirmationConfig,
       });
     } catch (error) {

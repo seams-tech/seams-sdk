@@ -8,7 +8,7 @@ import {
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
   clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
@@ -35,6 +35,7 @@ import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
+import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -194,7 +195,9 @@ export async function signNep413Message({
         })
       : undefined;
 
-    const requestPayload: Omit<WasmSignNep413MessageRequest, 'sessionId'> = {
+    const buildRequestPayload = (
+      xClientBaseOverride?: string,
+    ): Omit<WasmSignNep413MessageRequest, 'sessionId'> => ({
       message: payload.message,
       recipient: payload.recipient,
       nonce: payload.nonce,
@@ -206,7 +209,7 @@ export async function signNep413Message({
           relayerUrl: signingContext.threshold.relayerUrl,
           thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
           xClientBaseB64u:
-            xClientBaseB64u ||
+            xClientBaseOverride ||
             getStoredThresholdEd25519SessionRecordByThresholdSessionId(canonicalThresholdSessionId)
               ?.xClientBaseB64u,
           thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
@@ -214,29 +217,60 @@ export async function signNep413Message({
         },
       }),
       credential: credentialForRelayJson,
-    };
+    });
+    let requestPayload = buildRequestPayload(xClientBaseB64u);
 
-    let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
-    try {
+    const executeNep413Request = async (
+      payloadForWorker: Omit<WasmSignNep413MessageRequest, 'sessionId'>,
+    ) => {
       const response = await executeWorkerOperation({
         ctx,
         kind: 'nearSigner',
         request: {
           sessionId,
           type: WorkerRequestType.SignNep413Message,
-          payload: requestPayload,
+          payload: payloadForWorker,
         },
       });
-      okResponse = requireOkSignNep413MessageResponse(response);
+      return requireOkSignNep413MessageResponse(response);
+    };
+
+    let okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
+    try {
+      okResponse = await executeNep413Request(requestPayload);
     } catch (e: unknown) {
       const err = e instanceof Error ? e : new Error(String(e));
 
       if (isThresholdSignerMissingKeyError(err)) {
-        const msg =
-          '[SigningEngine] threshold-signer requested but the relayer is missing the signing share; local fallback is disabled';
-        clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-        signingContext.threshold.thresholdSessionJwt = undefined;
-        throw new Error(msg);
+        try {
+          const repairedXClientBaseB64u = await repairThresholdEd25519MissingRelayerKey({
+            ctx,
+            operationLabel: 'nep413',
+            thresholdSessionId: canonicalThresholdSessionId,
+            thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
+            relayerUrl: signingContext.threshold.relayerUrl,
+            relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+            nearAccountId,
+            keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
+            participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
+              (p) => p.id,
+            ),
+            prfFirstB64u,
+          });
+          requestPayload = buildRequestPayload(repairedXClientBaseB64u);
+          okResponse = await executeNep413Request(requestPayload);
+        } catch (repairError: unknown) {
+          const repairErr =
+            repairError instanceof Error ? repairError : new Error(String(repairError));
+          if (isThresholdSignerMissingKeyError(repairErr)) {
+            const msg =
+              '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
+            clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
+            signingContext.threshold.thresholdSessionJwt = undefined;
+            throw new Error(msg);
+          }
+          throw repairErr;
+        }
       }
 
       if (isThresholdSessionAuthUnavailableError(err)) {
@@ -277,7 +311,7 @@ type ThresholdNep413SigningContext = {
   nearPublicKey: string;
   threshold: {
     relayerUrl: string;
-    thresholdKeyMaterial: ThresholdEd25519_V1Material;
+    thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
     thresholdSessionCacheKey: string;
     thresholdSessionKind: 'jwt' | 'cookie';
     thresholdSessionJwt: string | undefined;
@@ -288,7 +322,7 @@ function validateAndPrepareNep413SigningContext(args: {
   nearAccountId: string;
   relayerUrl: string;
   rpId: string | null;
-  thresholdKeyMaterial: ThresholdEd25519_V1Material | null;
+  thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
 }): ThresholdNep413SigningContext {
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
   if (!thresholdKeyMaterial) {

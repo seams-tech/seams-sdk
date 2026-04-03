@@ -1,4 +1,4 @@
-import type { ThresholdEd25519_V1Material } from '@/core/indexedDB/passkeyNearKeysDB.types';
+import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import type {
   ThresholdSignerConfig,
   WasmSignTransactionsWithActionsRequest,
@@ -6,7 +6,7 @@ import type {
 
 type NearThresholdSignerConfigInput = {
   relayerUrl: string;
-  thresholdKeyMaterial: ThresholdEd25519_V1Material;
+  thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionJwt?: string;

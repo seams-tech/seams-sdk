@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
   linkDevicePreparedEcdsa: '/sdk/esm/core/TatchiPasskey/near/linkDevicePreparedEcdsa.js',
 } as const;
@@ -20,7 +20,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
           const { persistPreparedLinkDeviceSmartAccountSigners } = await import(
             paths.linkDevicePreparedEcdsa
@@ -33,20 +33,39 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
           const nearAccountId = 'alice.testnet';
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-linkDevicePrepared-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-linkDevicePrepared-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDevicePrepared-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: nearAccountId,
+          };
+          const profileId = `profile-near:${nearAccountId}`;
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId,
-            deviceNumber: 1,
-            operationalPublicKey: 'ed25519:pk-device1',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 1,
             passkeyCredential: {
               id: 'cred-device1',
               rawId: 'cred-device1-b64u',
             },
-            version: 2,
+          });
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:pk-device1',
+            signerSlot: 1,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
           });
 
           const originalFetch = globalThis.fetch;
@@ -104,7 +123,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               maxWaitMs: 50,
             });
 
-            const context = await clientDB.resolveNearAccountContext(nearAccountId);
+            const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
             const signers = await indexedDB.listAccountSigners({
               chainIdKey: 'evm:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
@@ -154,7 +173,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
           const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
           const { persistPreparedLinkDeviceSmartAccountSigners } = await import(
             paths.linkDevicePreparedEcdsa
@@ -169,22 +188,41 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
           const signerId = `0x${'aa'.repeat(20)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-linkDevicePreparedPromote-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-linkDevicePreparedPromote-${suffix}`);
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDevicePreparedPromote-${suffix}`);
+          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const nearAccountRef = {
+            chainIdKey: 'near:testnet',
+            accountAddress: nearAccountId,
+          };
+          const profileId = `profile-near:${nearAccountId}`;
 
-          await clientDB.upsertNearAccountProjection({
-            nearAccountId,
-            deviceNumber: 1,
-            operationalPublicKey: 'ed25519:pk-device1',
-            lastUpdated: Date.now(),
+          await clientDB.upsertProfile({
+            profileId,
+            defaultDeviceNumber: 1,
             passkeyCredential: {
               id: 'cred-device1',
               rawId: 'cred-device1-b64u',
             },
-            version: 2,
           });
-          const initialContext = await clientDB.resolveNearAccountContext(nearAccountId);
+          await clientDB.upsertChainAccount({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await clientDB.upsertAccountSigner({
+            profileId,
+            chainIdKey: nearAccountRef.chainIdKey,
+            accountAddress: nearAccountRef.accountAddress,
+            signerId: 'ed25519:pk-device1',
+            signerSlot: 1,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          const initialContext = await clientDB.resolveProfileAccountContext(nearAccountRef);
           if (!initialContext?.profileId) throw new Error('missing near account context');
           await indexedDB.upsertChainAccount({
             profileId: initialContext.profileId,
@@ -248,9 +286,9 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               maxWaitMs: 50,
             });
 
-            const context = await clientDB.resolveNearAccountContext(nearAccountId);
+            const context = await clientDB.resolveProfileAccountContext(nearAccountRef);
             if (!context?.profileId) throw new Error('missing near account context');
-            await nearKeysDB.storeKeyMaterial({
+            await accountKeyMaterialDB.storeKeyMaterial({
               profileId: context.profileId,
               deviceNumber: 2,
               chainIdKey: 'evm:11155111',
@@ -271,9 +309,10 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
             const summary = await indexedDB.repairSignerMutationSagasWithRuntime({
               now: Date.now() + 60_000,
               runtime: {
+                resolveOwnerAccountId: async () => 'alice.testnet',
                 executeDeployedAddSigner: async (input: Record<string, unknown>) => {
                   runtimeCalls.push({
-                    nearAccountId: input.nearAccountId,
+                    ownerAccountId: input.ownerAccountId,
                     opType: (input.op as any)?.opType,
                     signerId: (input.signer as any)?.signerId,
                     accountAddress: (input.chainAccount as any)?.accountAddress,
@@ -291,7 +330,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],
               limit: 10,
             });
-            const keyMaterial = await nearKeysDB.listKeyMaterialByProfileAndDevice(
+            const keyMaterial = await accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
               context.profileId,
               2,
               'evm:11155111',
@@ -327,7 +366,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
     expect(result.outboxBefore.length).toBeGreaterThan(0);
     expect(result.runtimeCalls).toEqual([
       {
-        nearAccountId: 'alice.testnet',
+        ownerAccountId: 'alice.testnet',
         opType: 'add-signer',
         signerId: `0x${'aa'.repeat(20)}`,
         accountAddress: `0x${'11'.repeat(20)}`,

@@ -1,9 +1,10 @@
 import { createEcdsaAuthSessionStore } from '../../../core/ThresholdService';
+import { createEd25519AuthSessionStore } from '../../../core/ThresholdService';
 import type { ThresholdEd25519KeyStoreConfigInput } from '../../../core/types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createPrfSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
 import { resolvePrfSessionSealIdempotencyFromEnv } from './idempotencyBackends';
-import { createPrfSessionSealPolicyFromEcdsaAuthSessionStore } from './policy/sessionPolicy';
+import { createPrfSessionSealPolicyFromThresholdAuthSessionStores } from './policy/sessionPolicy';
 import { createPrfSessionSealRoutesOptions } from './routesOptions';
 
 export type CreatePrfSessionSealOptionsInput = {
@@ -110,6 +111,11 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
     );
   }
 
+  const authSessionStore = createEd25519AuthSessionStore({
+    config: input.thresholdKeyStoreConfig,
+    logger: console,
+    isNode: input.isNode === true,
+  });
   const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
     config: input.thresholdKeyStoreConfig,
     logger: console,
@@ -117,7 +123,9 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
   });
 
   return createPrfSessionSealRoutesOptions({
-    sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+    sessionPolicy: createPrfSessionSealPolicyFromThresholdAuthSessionStores({
+      stores: [authSessionStore, ecdsaAuthSessionStore],
+    }),
     cipher: createShamir3PassCipher({
       keyVersion,
       shamirPrimeB64u: input.shamirPrimeB64u,

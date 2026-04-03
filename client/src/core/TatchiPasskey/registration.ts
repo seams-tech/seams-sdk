@@ -228,23 +228,21 @@ export async function registerPasskeyInternal(
     });
 
     const localPersistenceStartedAt = performance.now();
-    await Promise.all([
-      signingEngine.atomicStoreRegistrationData({
-        nearAccountId,
-        credential,
-        operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
-      }),
-      persistRegisteredThresholdEd25519Session({
-        signingEngine,
-        nearAccountId,
-        deviceNumber,
-        rpId,
-        relayerUrl: context.configs.network.relayer.url,
-        prfFirstB64u: thresholdPrfFirstB64u,
-        registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
-        completedRegistration: completedThresholdEd25519Registration,
-      }),
-    ]);
+    await signingEngine.atomicStoreRegistrationData({
+      nearAccountId,
+      credential,
+      operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
+    });
+    await persistRegisteredThresholdEd25519Session({
+      signingEngine,
+      nearAccountId,
+      deviceNumber,
+      rpId,
+      relayerUrl: context.configs.network.relayer.url,
+      prfFirstB64u: thresholdPrfFirstB64u,
+      registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
+      completedRegistration: completedThresholdEd25519Registration,
+    });
     registrationTimingSummary.localPersistenceMs = Math.round(
       performance.now() - localPersistenceStartedAt,
     );

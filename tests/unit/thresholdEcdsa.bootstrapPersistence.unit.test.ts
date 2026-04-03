@@ -9,10 +9,12 @@ type UpsertCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertChainAc
 function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexedDbPort {
   return {
     clientDB: {
-      resolveNearAccountContext: async () => ({
+      resolveProfileAccountContext: async () => ({
         profileId: 'profile-1',
-        sourceChainIdKey: 'near:testnet',
-        sourceAccountAddress: 'alice.testnet',
+        accountRef: {
+          chainIdKey: 'near:testnet',
+          accountAddress: 'alice.testnet',
+        },
       }),
     },
     upsertChainAccount: async (input) => {

@@ -3,7 +3,9 @@ import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  nearKeysDb: '/sdk/esm/core/indexedDB/passkeyNearKeysDB/manager.js',
+  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
+  thresholdSessionStore:
+    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
   getDeviceNumber: '/sdk/esm/core/signingEngine/signers/webauthn/device/getDeviceNumber.js',
   signTxs: '/sdk/esm/core/signingEngine/orchestration/near/transactionsFlow.js',
   signerTypes: '/sdk/esm/core/types/signer-worker.js',
@@ -20,7 +22,11 @@ test.describe('Link device → immediate sign (regression)', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
+          const {
+            clearAllStoredThresholdEd25519SessionRecords,
+            upsertStoredThresholdEd25519SessionRecord,
+          } = await import(paths.thresholdSessionStore);
           const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
           const { signTransactionsWithActions } = await import(paths.signTxs);
           const { WorkerResponseType } = await import(paths.signerTypes);
@@ -28,40 +34,78 @@ test.describe('Link device → immediate sign (regression)', () => {
 
           const nearAccountId = 'linkdev1.w3a-v1.testnet';
           const deviceNumber = 2;
-          const profileId = `legacy-near:${nearAccountId.toLowerCase()}`;
+          const thresholdSessionId = 'linkdevice-regression';
+          const profileId = `profile-near:${nearAccountId.toLowerCase()}`;
           const chainIdKey = nearAccountId.toLowerCase().endsWith('.testnet')
             ? 'near:testnet'
             : 'near:mainnet';
 
-          // Use a per-test DB instance (the global IndexedDBManager is disabled on the app origin in wallet-iframe mode).
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
               ? crypto.randomUUID()
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-linkDeviceImmediateSign-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-linkDeviceImmediateSign-${suffix}`);
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDeviceImmediateSign-${suffix}`);
 
-          // Provide a minimal SigningEngine facade for the private storage helper.
-          // This keeps the regression deterministic and avoids relying on app-origin persistence.
-          const signingEngine: any = {
-            storeUserData: async (userData: any) => {
-              await clientDB.upsertNearAccountProjection(userData);
-            },
-            storeAuthenticator: async (authenticatorData: any) => {
-              await clientDB.upsertNearAuthenticator({
-                ...authenticatorData,
-                deviceNumber: authenticatorData.deviceNumber ?? 1,
-              });
-            },
-            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+          const storeUserData = async (userData: any) => {
+            const normalizedDeviceNumber =
+              Number.isFinite(Number(userData?.deviceNumber)) && Number(userData.deviceNumber) >= 1
+                ? Math.floor(Number(userData.deviceNumber))
+                : 1;
+            await clientDB.upsertProfile({
+              profileId,
+              defaultDeviceNumber: normalizedDeviceNumber,
+              passkeyCredential: userData.passkeyCredential,
+            });
+            await clientDB.upsertChainAccount({
+              profileId,
+              chainIdKey,
+              accountAddress: nearAccountId,
+              accountModel: 'near-native',
+              isPrimary: true,
+            });
+            await clientDB.upsertAccountSigner({
+              profileId,
+              chainIdKey,
+              accountAddress: nearAccountId,
+              signerId:
+                String(userData?.operationalPublicKey || '').trim() ||
+                `device:${normalizedDeviceNumber}`,
+              signerSlot: normalizedDeviceNumber,
+              signerType: 'passkey',
+              status: 'active',
+              mutation: { routeThroughOutbox: false },
+            });
+            await clientDB.setLastProfileStateForProfile(profileId, normalizedDeviceNumber);
           };
 
-          const ctx: any = {
-            signingEngine,
-            nearClient: null,
-            configs: {},
+          const storeAuthenticator = async (authenticatorData: any) => {
+            await clientDB.upsertProfileAuthenticator({
+              profileId,
+              deviceNumber: authenticatorData.deviceNumber ?? 1,
+              credentialId: authenticatorData.credentialId,
+              credentialPublicKey: authenticatorData.credentialPublicKey,
+              transports: authenticatorData.transports,
+              name: authenticatorData.name,
+              registered: authenticatorData.registered,
+              syncedAt: authenticatorData.syncedAt,
+            });
+          };
+
+          const getLastSelectedNearProjection = async () => {
+            const lastProfileState = await clientDB.getLastProfileState().catch(() => null);
+            if (!lastProfileState?.profileId) return null;
+            const chainAccounts = await clientDB.listChainAccountsByProfile(lastProfileState.profileId);
+            const nearAccount =
+              chainAccounts.find((row: any) => String(row.chainIdKey || '').startsWith('near:')) ||
+              null;
+            if (!nearAccount) return null;
+            return {
+              nearAccountId: nearAccount.accountAddress,
+              deviceNumber: lastProfileState.deviceNumber,
+            };
           };
 
           const dummyCredential = {
@@ -75,6 +119,12 @@ test.describe('Link device → immediate sign (regression)', () => {
               transports: ['internal'],
             },
             clientExtensionResults: { prf: { results: { first: 'BQ', second: undefined } } },
+          };
+
+          const signingEngine: any = {
+            storeUserData,
+            storeAuthenticator,
+            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
           };
 
           const deterministicKeysResult = {
@@ -92,6 +142,7 @@ test.describe('Link device → immediate sign (regression)', () => {
             deterministicKeysResult.credential.response?.attestationObject || '',
           ).trim();
           const credentialPublicKey = await signingEngine.extractCosePublicKey(attestationObject);
+
           await signingEngine.storeUserData({
             nearAccountId,
             deviceNumber: normalizedDeviceNumber,
@@ -116,9 +167,7 @@ test.describe('Link device → immediate sign (regression)', () => {
             deviceNumber: normalizedDeviceNumber,
           });
 
-          // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
-          // For this regression, store a minimal entry so signing can proceed immediately.
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId,
             deviceNumber,
             chainIdKey,
@@ -133,63 +182,70 @@ test.describe('Link device → immediate sign (regression)', () => {
             timestamp: Date.now(),
             schemaVersion: 1,
           });
+          await accountKeyMaterialDB.storeKeyMaterial({
+            profileId,
+            deviceNumber,
+            chainIdKey,
+            keyKind: 'threshold_share_v1',
+            algorithm: 'ed25519',
+            publicKey: 'ed25519:pk-device2',
+            payload: {
+              relayerKeyId: 'rk-1',
+              keyVersion: 'threshold-ed25519-hss-v1',
+              participants: [
+                { id: 1, role: 'client' },
+                { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
+              ],
+            },
+            timestamp: Date.now(),
+            schemaVersion: 1,
+          });
+          clearAllStoredThresholdEd25519SessionRecords();
+          upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId,
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay-server.localhost',
+            relayerKeyId: 'rk-1',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId,
+            thresholdSessionJwt: 'jwt-linkdevice-regression',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 9,
+            source: 'manual-connect',
+          });
 
-          const last = await clientDB.getLastSelectedNearAccountProjection();
+          const last = await getLastSelectedNearProjection();
           const deviceFromHelper = await getLastLoggedInDeviceNumber(nearAccountId, clientDB);
-          const key = await nearKeysDB.getKeyMaterial(
+          const key = await accountKeyMaterialDB.getKeyMaterial(
             profileId,
             deviceFromHelper,
             chainIdKey,
             'local_sk_encrypted_v1',
           );
-          const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
+          const authenticators = await clientDB.listProfileAuthenticators(profileId);
 
-          // Exercise the signing handler path up to and including the IndexedDB lookups.
-          // We stub the UserConfirm confirmation and worker response so the test stays deterministic
-          // and focuses on "link device → immediate sign" state wiring.
           const signingCtx: any = {
             indexedDB: {
               clientDB,
-              nearKeysDB,
-              getNearLocalKeyMaterial: async (accountId: string, deviceNum: number) => {
-                const normalizedAccountId = String(accountId || '')
-                  .trim()
-                  .toLowerCase();
-                const localProfileId = `legacy-near:${normalizedAccountId}`;
-                const localChainIdKey = normalizedAccountId.endsWith('.testnet')
-                  ? 'near:testnet'
-                  : 'near:mainnet';
-                const row = await nearKeysDB.getKeyMaterial(
-                  localProfileId,
-                  deviceNum,
-                  localChainIdKey,
-                  'local_sk_encrypted_v1',
-                );
-                if (!row) return null;
-                const wrapKeySalt = String(row.wrapKeySalt || '').trim();
-                const encryptedSk = String((row.payload as any)?.encryptedSk || '').trim();
-                const chacha20NonceB64u = String(
-                  (row.payload as any)?.chacha20NonceB64u || '',
-                ).trim();
-                if (!wrapKeySalt || !encryptedSk || !chacha20NonceB64u) return null;
-                return {
-                  nearAccountId: accountId,
-                  deviceNumber: deviceNum,
-                  kind: 'local_near_sk_v3' as const,
-                  publicKey: row.publicKey,
-                  wrapKeySalt,
-                  encryptedSk,
-                  chacha20NonceB64u,
-                  timestamp: row.timestamp,
-                };
-              },
-              getNearThresholdKeyMaterial: async () => null,
+              accountKeyMaterialDB,
             },
             nonceManager: { initializeUser: () => {} },
             touchIdPrompt: { getRpId: () => 'example.localhost' },
             relayerUrl: 'https://relay-server.localhost',
             postWrapKeySeedToSigner: () => {},
             touchConfirm: {
+              peekPrfFirstForThresholdSession: async () => ({
+                ok: false as const,
+                code: 'not_found',
+                message: 'warm cache missing',
+              }),
+              dispensePrfFirstForThresholdSession: async () => ({
+                ok: false as const,
+                code: 'not_found',
+                message: 'warm cache missing',
+              }),
+              clearPrfFirstForThresholdSession: async () => undefined,
               orchestrateSigningConfirmation: async () => ({
                 intentDigest: 'intent',
                 transactionContext: {
@@ -233,7 +289,7 @@ test.describe('Link device → immediate sign (regression)', () => {
               },
             ],
             rpcCall: { nearAccountId },
-            sessionId: 'linkdevice-regression',
+            sessionId: thresholdSessionId,
           });
 
           return {
@@ -273,7 +329,11 @@ test.describe('Link device → immediate sign (regression)', () => {
       async ({ paths }) => {
         try {
           const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
+          const {
+            clearAllStoredThresholdEd25519SessionRecords,
+            upsertStoredThresholdEd25519SessionRecord,
+          } = await import(paths.thresholdSessionStore);
           const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
           const { signTransactionsWithActions } = await import(paths.signTxs);
           const { WorkerResponseType } = await import(paths.signerTypes);
@@ -281,39 +341,78 @@ test.describe('Link device → immediate sign (regression)', () => {
 
           const nearAccountId = 'linkdev2.w3a-v1.testnet';
           const deviceNumber: any = '2';
-          const profileId = `legacy-near:${nearAccountId.toLowerCase()}`;
+          const thresholdSessionId = 'linkdevice-regression-string-device';
+          const profileId = `profile-near:${nearAccountId.toLowerCase()}`;
           const chainIdKey = nearAccountId.toLowerCase().endsWith('.testnet')
             ? 'near:testnet'
             : 'near:mainnet';
 
-          // Use a per-test DB instance (the global IndexedDBManager is disabled on the app origin in wallet-iframe mode).
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
               ? crypto.randomUUID()
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-linkDeviceImmediateSign-${suffix}`);
-          const nearKeysDB = new PasskeyNearKeysDBManager();
-          nearKeysDB.setDbName(`PasskeyNearKeys-linkDeviceImmediateSign-${suffix}`);
+          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDeviceImmediateSign-${suffix}`);
 
-          // Provide a minimal SigningEngine facade for the private storage helper.
-          const signingEngine: any = {
-            storeUserData: async (userData: any) => {
-              await clientDB.upsertNearAccountProjection(userData);
-            },
-            storeAuthenticator: async (authenticatorData: any) => {
-              await clientDB.upsertNearAuthenticator({
-                ...authenticatorData,
-                deviceNumber: authenticatorData.deviceNumber ?? 1,
-              });
-            },
-            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
+          const storeUserData = async (userData: any) => {
+            const normalizedDeviceNumber =
+              Number.isFinite(Number(userData?.deviceNumber)) && Number(userData.deviceNumber) >= 1
+                ? Math.floor(Number(userData.deviceNumber))
+                : 1;
+            await clientDB.upsertProfile({
+              profileId,
+              defaultDeviceNumber: normalizedDeviceNumber,
+              passkeyCredential: userData.passkeyCredential,
+            });
+            await clientDB.upsertChainAccount({
+              profileId,
+              chainIdKey,
+              accountAddress: nearAccountId,
+              accountModel: 'near-native',
+              isPrimary: true,
+            });
+            await clientDB.upsertAccountSigner({
+              profileId,
+              chainIdKey,
+              accountAddress: nearAccountId,
+              signerId:
+                String(userData?.operationalPublicKey || '').trim() ||
+                `device:${normalizedDeviceNumber}`,
+              signerSlot: normalizedDeviceNumber,
+              signerType: 'passkey',
+              status: 'active',
+              mutation: { routeThroughOutbox: false },
+            });
+            await clientDB.setLastProfileStateForProfile(profileId, normalizedDeviceNumber);
           };
 
-          const ctx: any = {
-            signingEngine,
-            nearClient: null,
-            configs: {},
+          const storeAuthenticator = async (authenticatorData: any) => {
+            await clientDB.upsertProfileAuthenticator({
+              profileId,
+              deviceNumber: authenticatorData.deviceNumber ?? 1,
+              credentialId: authenticatorData.credentialId,
+              credentialPublicKey: authenticatorData.credentialPublicKey,
+              transports: authenticatorData.transports,
+              name: authenticatorData.name,
+              registered: authenticatorData.registered,
+              syncedAt: authenticatorData.syncedAt,
+            });
+          };
+
+          const getLastSelectedNearProjection = async () => {
+            const lastProfileState = await clientDB.getLastProfileState().catch(() => null);
+            if (!lastProfileState?.profileId) return null;
+            const chainAccounts = await clientDB.listChainAccountsByProfile(lastProfileState.profileId);
+            const nearAccount =
+              chainAccounts.find((row: any) => String(row.chainIdKey || '').startsWith('near:')) ||
+              null;
+            if (!nearAccount) return null;
+            return {
+              nearAccountId: nearAccount.accountAddress,
+              deviceNumber: lastProfileState.deviceNumber,
+            };
           };
 
           const dummyCredential = {
@@ -327,6 +426,12 @@ test.describe('Link device → immediate sign (regression)', () => {
               transports: ['internal'],
             },
             clientExtensionResults: { prf: { results: { first: 'BQ', second: undefined } } },
+          };
+
+          const signingEngine: any = {
+            storeUserData,
+            storeAuthenticator,
+            extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
           };
 
           const deterministicKeysResult = {
@@ -344,6 +449,7 @@ test.describe('Link device → immediate sign (regression)', () => {
             deterministicKeysResult.credential.response?.attestationObject || '',
           ).trim();
           const credentialPublicKey = await signingEngine.extractCosePublicKey(attestationObject);
+
           await signingEngine.storeUserData({
             nearAccountId,
             deviceNumber: normalizedDeviceNumber,
@@ -368,9 +474,7 @@ test.describe('Link device → immediate sign (regression)', () => {
             deviceNumber: normalizedDeviceNumber,
           });
 
-          // LinkDeviceFlow derives/stores the encrypted NEAR key earlier in the real flow.
-          // For this regression, store a minimal entry so signing can proceed immediately.
-          await nearKeysDB.storeKeyMaterial({
+          await accountKeyMaterialDB.storeKeyMaterial({
             profileId,
             deviceNumber: 2,
             chainIdKey,
@@ -385,63 +489,70 @@ test.describe('Link device → immediate sign (regression)', () => {
             timestamp: Date.now(),
             schemaVersion: 1,
           });
+          await accountKeyMaterialDB.storeKeyMaterial({
+            profileId,
+            deviceNumber: 2,
+            chainIdKey,
+            keyKind: 'threshold_share_v1',
+            algorithm: 'ed25519',
+            publicKey: 'ed25519:pk-device2',
+            payload: {
+              relayerKeyId: 'rk-1',
+              keyVersion: 'threshold-ed25519-hss-v1',
+              participants: [
+                { id: 1, role: 'client' },
+                { id: 2, role: 'relayer', relayerKeyId: 'rk-1' },
+              ],
+            },
+            timestamp: Date.now(),
+            schemaVersion: 1,
+          });
+          clearAllStoredThresholdEd25519SessionRecords();
+          upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId,
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay-server.localhost',
+            relayerKeyId: 'rk-1',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId,
+            thresholdSessionJwt: 'jwt-linkdevice-regression-string-device',
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 9,
+            source: 'manual-connect',
+          });
 
-          const last = await clientDB.getLastSelectedNearAccountProjection();
+          const last = await getLastSelectedNearProjection();
           const deviceFromHelper = await getLastLoggedInDeviceNumber(nearAccountId, clientDB);
-          const key = await nearKeysDB.getKeyMaterial(
+          const key = await accountKeyMaterialDB.getKeyMaterial(
             profileId,
             deviceFromHelper,
             chainIdKey,
             'local_sk_encrypted_v1',
           );
-          const authenticators = await clientDB.listNearAuthenticators(nearAccountId);
+          const authenticators = await clientDB.listProfileAuthenticators(profileId);
 
-          // Exercise the signing handler path up to and including the IndexedDB lookups.
-          // We stub the UserConfirm confirmation and worker response so the test stays deterministic
-          // and focuses on "link device → immediate sign" state wiring.
           const signingCtx: any = {
             indexedDB: {
               clientDB,
-              nearKeysDB,
-              getNearLocalKeyMaterial: async (accountId: string, deviceNum: number) => {
-                const normalizedAccountId = String(accountId || '')
-                  .trim()
-                  .toLowerCase();
-                const localProfileId = `legacy-near:${normalizedAccountId}`;
-                const localChainIdKey = normalizedAccountId.endsWith('.testnet')
-                  ? 'near:testnet'
-                  : 'near:mainnet';
-                const row = await nearKeysDB.getKeyMaterial(
-                  localProfileId,
-                  deviceNum,
-                  localChainIdKey,
-                  'local_sk_encrypted_v1',
-                );
-                if (!row) return null;
-                const wrapKeySalt = String(row.wrapKeySalt || '').trim();
-                const encryptedSk = String((row.payload as any)?.encryptedSk || '').trim();
-                const chacha20NonceB64u = String(
-                  (row.payload as any)?.chacha20NonceB64u || '',
-                ).trim();
-                if (!wrapKeySalt || !encryptedSk || !chacha20NonceB64u) return null;
-                return {
-                  nearAccountId: accountId,
-                  deviceNumber: deviceNum,
-                  kind: 'local_near_sk_v3' as const,
-                  publicKey: row.publicKey,
-                  wrapKeySalt,
-                  encryptedSk,
-                  chacha20NonceB64u,
-                  timestamp: row.timestamp,
-                };
-              },
-              getNearThresholdKeyMaterial: async () => null,
+              accountKeyMaterialDB,
             },
             nonceManager: { initializeUser: () => {} },
             touchIdPrompt: { getRpId: () => 'example.localhost' },
             relayerUrl: 'https://relay-server.localhost',
             postWrapKeySeedToSigner: () => {},
             touchConfirm: {
+              peekPrfFirstForThresholdSession: async () => ({
+                ok: false as const,
+                code: 'not_found',
+                message: 'warm cache missing',
+              }),
+              dispensePrfFirstForThresholdSession: async () => ({
+                ok: false as const,
+                code: 'not_found',
+                message: 'warm cache missing',
+              }),
+              clearPrfFirstForThresholdSession: async () => undefined,
               orchestrateSigningConfirmation: async () => ({
                 intentDigest: 'intent',
                 transactionContext: {
@@ -485,7 +596,7 @@ test.describe('Link device → immediate sign (regression)', () => {
               },
             ],
             rpcCall: { nearAccountId },
-            sessionId: 'linkdevice-regression-string-device',
+            sessionId: thresholdSessionId,
           });
 
           return {

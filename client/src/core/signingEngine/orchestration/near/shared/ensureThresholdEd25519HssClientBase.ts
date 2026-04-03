@@ -23,6 +23,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   keyPurpose?: string;
   derivationVersion?: number;
   onProgress?: (message: string) => void;
+  forceRefresh?: boolean;
 }): Promise<string | undefined> {
   const startedAt = Date.now();
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
@@ -30,7 +31,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
 
   const record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
   const existing = String(record?.xClientBaseB64u || '').trim();
-  if (existing) {
+  if (existing && !args.forceRefresh) {
     console.info('[threshold-ed25519][client-base] cache hit', {
       thresholdSessionId,
       durationMs: Date.now() - startedAt,

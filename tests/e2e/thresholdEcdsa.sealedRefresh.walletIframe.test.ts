@@ -1,8 +1,16 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { createRelayRouter } from '@server/router/express-adaptor';
 import {
-  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleBootstrapTokenService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createRelayBootstrapGrantBroker,
+  createRelayPublishableKeyAuthAdapter,
+  createRelayRouter,
+} from '@server/router/express-adaptor';
+import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
+import {
+  createPrfSessionSealPolicyFromThresholdAuthSessionStores,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/prfSessionSeal';
@@ -27,6 +35,10 @@ const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
 type SealedRefreshHarness = {
   baseUrl: string;
   relayerUrl: string;
+  managedRegistration: {
+    environmentId: string;
+    publishableKey: string;
+  };
   prfSealRouteCounts: {
     applyServerSealCalls: number;
     removeServerSealCalls: number;
@@ -46,27 +58,12 @@ async function installThresholdRegistrationBootstrapMock(
   },
 ): Promise<void> {
   const threshold = input.threshold as {
-    getSchemeModule?: (schemeId: string) => {
-      registration?: {
-        keygenFromClientVerifyingShare: (request: {
-          nearAccountId: string;
-          rpId: string;
-          clientVerifyingShareB64u: string;
-        }) => Promise<Record<string, unknown>>;
-      };
-    } | null;
     ecdsaRegistrationKeygenFromClientVerifyingShare?: (request: {
       userId: string;
       rpId: string;
       clientVerifyingShareB64u: string;
     }) => Promise<Record<string, unknown>>;
   };
-
-  const edRegistrationKeygen = threshold.getSchemeModule?.('threshold-ed25519-frost-2p-v1')
-    ?.registration?.keygenFromClientVerifyingShare;
-  if (typeof edRegistrationKeygen !== 'function') {
-    throw new Error('Missing threshold-ed25519 registration keygen hook');
-  }
   if (typeof threshold.ecdsaRegistrationKeygenFromClientVerifyingShare !== 'function') {
     throw new Error('Missing threshold-ecdsa registration keygen hook');
   }
@@ -122,26 +119,15 @@ async function installThresholdRegistrationBootstrapMock(
     };
 
     const thresholdEd = payload?.threshold_ed25519 || null;
-    const thresholdEdClientVerifyingShareB64u = String(
-      thresholdEd?.client_verifying_share_b64u || '',
+    const thresholdEdPublicKey = String(thresholdEd?.public_key || '').trim();
+    const thresholdEdKeyVersion = String(thresholdEd?.key_version || '').trim();
+    const thresholdEdRelayerKeyId = String(
+      thresholdEd?.relayer_key_id || thresholdEdPublicKey,
     ).trim();
+    const thresholdEdRecoveryExportCapable = thresholdEd?.recovery_export_capable === true;
     let thresholdEdResponse: Record<string, unknown> | undefined;
-    if (thresholdEdClientVerifyingShareB64u) {
-      const keygen = (await edRegistrationKeygen({
-        nearAccountId: accountId,
-        rpId,
-        clientVerifyingShareB64u: thresholdEdClientVerifyingShareB64u,
-      })) as Record<string, unknown>;
-      if (!keygen?.ok) {
-        await route.fulfill({
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({ success: false, error: String(keygen?.message || 'ed keygen') }),
-        });
-        return;
-      }
-      const publicKey = String(keygen.publicKey || '').trim();
-      if (publicKey) input.onNewPublicKey(publicKey);
+    if (thresholdEdPublicKey && thresholdEdKeyVersion && thresholdEdRecoveryExportCapable) {
+      if (thresholdEdPublicKey) input.onNewPublicKey(thresholdEdPublicKey);
 
       const policy = thresholdEd?.session_policy || {};
       const sessionId = String(policy?.sessionId || policy?.session_id || `ed-session-${nowMs}`);
@@ -149,20 +135,20 @@ async function installThresholdRegistrationBootstrapMock(
       const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
       const expiresAtMs = nowMs + ttlMs;
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
-      const relayerKeyId = String(keygen.relayerKeyId || '').trim();
       const jwt = await signThresholdSessionJwt({
         kind: 'threshold_ed25519_session_v1',
         sessionId,
-        relayerKeyId,
+        relayerKeyId: thresholdEdRelayerKeyId,
         participantIds,
         expiresAtMs,
       });
       thresholdEdResponse = {
-        publicKey,
-        relayerKeyId,
-        relayerVerifyingShareB64u: String(keygen.relayerVerifyingShareB64u || ''),
-        clientParticipantId: Number(keygen.clientParticipantId || 1),
-        relayerParticipantId: Number(keygen.relayerParticipantId || 2),
+        keyVersion: thresholdEdKeyVersion,
+        recoveryExportCapable: true,
+        publicKey: thresholdEdPublicKey,
+        relayerKeyId: thresholdEdRelayerKeyId,
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
         participantIds,
         session: {
           sessionKind: 'jwt',
@@ -248,6 +234,85 @@ async function installThresholdRegistrationBootstrapMock(
   });
 }
 
+async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
+  page: Page,
+  input: {
+    relayerBaseUrl: string;
+    relayUpstreamBaseUrl: string;
+    threshold: unknown;
+  },
+): Promise<void> {
+  await page.route(`${input.relayerBaseUrl}/registration/threshold-ed25519/hss/finalize`, async (route) => {
+    const req = route.request();
+    const method = req.method().toUpperCase();
+    if (method === 'OPTIONS') {
+      await route.fallback();
+      return;
+    }
+    if (method !== 'POST') {
+      await route.fallback();
+      return;
+    }
+
+    const upstreamUrl = req.url().replace(input.relayerBaseUrl, input.relayUpstreamBaseUrl);
+    const upstreamResponse = await fetch(upstreamUrl, {
+      method,
+      headers: req.headers(),
+      body: req.postData(),
+    });
+    const upstreamText = await upstreamResponse.text();
+    const payload = JSON.parse(req.postData() || '{}');
+    const responseJson = JSON.parse(upstreamText || '{}');
+
+    if (upstreamResponse.ok && responseJson?.ok === true && responseJson?.finalizedReport) {
+      const preparedSession = payload?.preparedSession;
+      const finalizedReport = responseJson.finalizedReport;
+      const registrationMaterial = await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
+        preparedSession,
+        finalizedReport,
+      });
+      const keyStore = (
+        input.threshold as {
+          keyStore?: {
+            put: (
+              relayerKeyId: string,
+              record: {
+                nearAccountId: string;
+                rpId: string;
+                publicKey: string;
+                relayerSigningShareB64u: string;
+                relayerVerifyingShareB64u: string;
+                keyVersion: string;
+                recoveryExportCapable: true;
+              },
+            ) => Promise<void>;
+          };
+        }
+      ).keyStore;
+      if (keyStore?.put) {
+        await keyStore.put(registrationMaterial.relayerKeyId, {
+          nearAccountId: String(payload?.new_account_id || '').trim(),
+          rpId: String(payload?.rp_id || '').trim(),
+          publicKey: registrationMaterial.publicKey,
+          relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
+          relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
+          keyVersion: registrationMaterial.keyVersion,
+          recoveryExportCapable: true,
+        });
+      }
+    }
+
+    await route.fulfill({
+      status: upstreamResponse.status,
+      headers: {
+        ...corsHeadersForRoute(route),
+        ...Object.fromEntries(upstreamResponse.headers.entries()),
+      },
+      body: upstreamText,
+    });
+  });
+}
+
 async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<SealedRefreshHarness> {
   const keysOnChain = new Set<string>();
   const nonceByPublicKey = new Map<string, number>();
@@ -261,24 +326,74 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
 
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
   await service.getRelayerAccount();
+  const bootstrapTokenStore = createInMemoryConsoleBootstrapTokenService();
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const apiKeys = createInMemoryConsoleApiKeyService();
+  const bootstrapAdminCtx = {
+    orgId: 'org_threshold_sealed_refresh',
+    actorUserId: 'user_threshold_sealed_refresh',
+    roles: ['admin'],
+  } as const;
+  const bootstrapProjectId = 'proj_threshold_sealed_refresh';
+  const managedRegistrationEnvironmentId = `${bootstrapProjectId}:dev`;
+  await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
+    name: 'Threshold Sealed Refresh Org',
+    slug: 'threshold-sealed-refresh-org',
+  });
+  await orgProjectEnv.createProject(bootstrapAdminCtx, {
+    id: bootstrapProjectId,
+    name: 'Threshold Sealed Refresh Project',
+    liveEnvironmentsEnabled: true,
+  });
+  const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
+  const createdPublishableKey = await apiKeys.createApiKey(bootstrapAdminCtx, {
+    kind: 'publishable_key',
+    name: 'threshold-sealed-refresh-browser',
+    environmentId: managedRegistrationEnvironmentId,
+    allowedOrigins: [
+      frontendOrigin,
+      'https://example.localhost',
+      'https://wallet.example.localhost',
+    ],
+    rateLimitBucket: 'default_web_v1',
+    quotaBucket: 'free_registrations_v1',
+  });
+  const managedRegistration = {
+    environmentId: managedRegistrationEnvironmentId,
+    publishableKey: createdPublishableKey.secret,
+  } as const;
 
   const session = createInMemoryJwtSessionAdapter();
-  const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
   const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
-  const ecdsaAuthSessionStore = (threshold as unknown as { ecdsaAuthSessionStore?: unknown })
-    .ecdsaAuthSessionStore;
-  if (!ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold ECDSA auth session store for PRF seal policy');
+  const thresholdAuthStores = threshold as unknown as {
+    authSessionStore?: unknown;
+    ecdsaAuthSessionStore?: unknown;
+  };
+  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
+    throw new Error('Missing threshold auth session stores for PRF seal policy');
   }
 
   const router = createRelayRouter(service, {
     corsOrigins: [frontendOrigin, 'https://example.localhost', 'https://wallet.example.localhost'],
     threshold,
     session,
+    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+      apiKeys,
+      tokenStore: bootstrapTokenStore,
+      orgProjectEnv,
+      rateLimitsByBucket: {
+        default_web_v1: { windowMs: 60_000, maxIssued: 100 },
+      },
+      quotasByBucket: {
+        free_registrations_v1: { maxIssued: 100 },
+      },
+    }),
+    bootstrapTokenStore,
     prfSessionSeal: createPrfSessionSealRoutesOptions({
-      sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(
-        ecdsaAuthSessionStore as any,
-      ),
+      sessionPolicy: createPrfSessionSealPolicyFromThresholdAuthSessionStores({
+        stores: [thresholdAuthStores.authSessionStore as any, thresholdAuthStores.ecdsaAuthSessionStore as any],
+      }),
       cipher: createPrfSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: TEST_KEY_VERSION,
         keys: [
@@ -300,11 +415,22 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
   const server = await startExpressRouter(router);
 
   const attachPage = async (targetPage: Page): Promise<void> => {
+    await targetPage.addInitScript((config) => {
+      (window as any).__w3aManagedRegistration = config;
+    }, managedRegistration);
     await setupThresholdE2ePage(targetPage);
+    await targetPage.evaluate((config) => {
+      (window as any).__w3aManagedRegistration = config;
+    }, managedRegistration);
     await installRelayServerProxyShim(targetPage, {
       relayOrigin: relayerUrl,
       relayUpstream: server.baseUrl,
       logStyle: 'silent',
+    });
+    await installThresholdRegistrationFinalizeRelayKeyMaterialCapture(targetPage, {
+      relayerBaseUrl: relayerUrl,
+      relayUpstreamBaseUrl: server.baseUrl,
+      threshold,
     });
     await targetPage.route(`${relayerUrl}/threshold-ecdsa/prf-seal/**`, async (route) => {
       const url = route.request().url();
@@ -339,6 +465,7 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
   return {
     baseUrl: server.baseUrl,
     relayerUrl,
+    managedRegistration,
     prfSealRouteCounts,
     attachPage,
     close: server.close,
@@ -389,6 +516,42 @@ async function readWebAuthnGetCallCount(page: Page): Promise<number> {
   return total;
 }
 
+async function readWalletIframeThresholdPersistence(page: Page): Promise<
+  Array<{
+    origin: string;
+    localEd25519Index: string | null;
+    localPrfIndex: string | null;
+    sessionEd25519Index: string | null;
+    sessionPrfIndex: string | null;
+  }>
+> {
+  return await Promise.all(
+    page.frames().map(async (frame) => {
+      return await frame
+        .evaluate(() => {
+          return {
+            origin: String(window.location?.origin || 'unknown'),
+            localEd25519Index:
+              window.localStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
+            localPrfIndex:
+              window.localStorage?.getItem?.('tatchi:threshold-prf-sealed:v1:index') || null,
+            sessionEd25519Index:
+              window.sessionStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
+            sessionPrfIndex:
+              window.sessionStorage?.getItem?.('tatchi:threshold-prf-sealed:v1:index') || null,
+          };
+        })
+        .catch(() => ({
+          origin: 'unknown',
+          localEd25519Index: null,
+          localPrfIndex: null,
+          sessionEd25519Index: null,
+          sessionPrfIndex: null,
+        }));
+    }),
+  );
+}
+
 test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
   test.setTimeout(180_000);
 
@@ -409,6 +572,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             relayer: {
               url: relayerUrl,
               smartAccountDeploymentMode: 'observe',
+            },
+            registration: {
+              mode: 'managed',
+              environmentId: String(
+                (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+              ),
+              publishableKey: String(
+                (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+              ),
             },
             signingSessionPersistenceMode: 'sealed_refresh_v1',
             signingSessionSeal: {
@@ -461,13 +633,12 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
     try {
-      const firstPhasePromise = page.evaluate(
+      const loginPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
-            const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -482,6 +653,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayer: {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
               },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
@@ -518,28 +698,6 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const firstSign = await tatchi.near.executeAction({
-              nearAccountId: accountId,
-              receiverId: 'w3a-v1.testnet',
-              actionArgs: {
-                type: ActionType.FunctionCall,
-                methodName: 'set_greeting',
-                args: { greeting: `hello-before-refresh-${Date.now()}` },
-                gas: '30000000000000',
-                deposit: '0',
-              },
-              options: {
-                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
-                confirmationConfig,
-              },
-            });
-            if (!firstSign?.success) {
-              return {
-                ok: false,
-                error: String(firstSign?.error || 'first sign failed'),
-              };
-            }
-
             const session = await tatchi.auth.getWalletSession(accountId);
             return {
               ok: true,
@@ -563,15 +721,104 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
         },
       );
-      const firstPhase = await autoConfirmWalletIframeUntil(page, firstPhasePromise, {
+      const loginPhase = await autoConfirmWalletIframeUntil(page, loginPhasePromise, {
         timeoutMs: 120_000,
         intervalMs: 250,
       });
 
-      expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
-      expect(firstPhase.sessionStatus).toBe('active');
+      expect(loginPhase.ok, loginPhase.error || JSON.stringify(loginPhase)).toBe(true);
+      expect(loginPhase.sessionStatus).toBe('active');
+      const getCallsAfterLogin = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterLogin).toBeGreaterThan(0);
+
+      const firstSignPromise = page.evaluate(
+        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
+            const { TatchiPasskey } = sdkMod as any;
+            const { ActionType } = actionsMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+            const firstSign = await tatchi.near.executeAction({
+              nearAccountId: accountId,
+              receiverId: 'w3a-v1.testnet',
+              actionArgs: {
+                type: ActionType.FunctionCall,
+                methodName: 'set_greeting',
+                args: { greeting: `hello-before-refresh-${Date.now()}` },
+                gas: '30000000000000',
+                deposit: '0',
+              },
+              options: {
+                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                confirmationConfig,
+              },
+            });
+            return {
+              ok: !!firstSign?.success,
+              error: String(firstSign?.error || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'first sign failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          accountId: loginPhase.accountId,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const firstSign = await autoConfirmWalletIframeUntil(page, firstSignPromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+      expect(firstSign.ok, JSON.stringify({ firstSign })).toBe(true);
       const getCallsAfterLoginAndFirstSign = await readWebAuthnGetCallCount(page);
-      expect(getCallsAfterLoginAndFirstSign).toBeGreaterThan(0);
+      const persistenceBeforeReload = await readWalletIframeThresholdPersistence(page);
       await page.waitForTimeout(400);
       expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
 
@@ -598,6 +845,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayer: {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
               },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
@@ -650,7 +906,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         },
         {
           relayerUrl: harness.relayerUrl,
-          accountId: firstPhase.accountId,
+          accountId: loginPhase.accountId,
           keyVersion: TEST_KEY_VERSION,
           shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
         },
@@ -659,11 +915,17 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         timeoutMs: 90_000,
         intervalMs: 250,
       });
+      const persistenceAfterReload = await readWalletIframeThresholdPersistence(page);
 
-      expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
-      expect(secondPhase.sessionStatus).toBe('active');
-      expect(harness.prfSealRouteCounts.removeServerSealCalls).toBeGreaterThan(0);
-
+      expect(secondPhase.ok, JSON.stringify({ secondPhase })).toBe(true);
+      expect(
+        secondPhase.sessionStatus,
+        JSON.stringify({ secondPhase, persistenceBeforeReload, persistenceAfterReload }),
+      ).toBe('active');
+      expect(
+        harness.prfSealRouteCounts.removeServerSealCalls,
+        JSON.stringify({ secondPhase, persistenceBeforeReload, persistenceAfterReload }),
+      ).toBeGreaterThan(0);
       await page.waitForTimeout(300);
       const finalGetCalls = await readWebAuthnGetCallCount(page);
       expect(
@@ -671,8 +933,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         JSON.stringify({
           getCallsAfterLoginAndFirstSign,
           finalGetCalls,
-          firstPhase,
           secondPhase,
+          persistenceBeforeReload,
+          persistenceAfterReload,
         }),
       ).toBe(getCallsAfterLoginAndFirstSign);
     } finally {
@@ -704,6 +967,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayer: {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
               },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
@@ -826,6 +1098,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayer: {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
               },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
@@ -1002,6 +1283,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
                 keyVersion,
@@ -1077,6 +1367,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               relayer: {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
               },
               signingSessionPersistenceMode: 'sealed_refresh_v1',
               signingSessionSeal: {
@@ -1171,6 +1470,14 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
               };
+              const managedRuntimeScopeBootstrap = {
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              };
               const accountId =
                 `refreshmatrix-${curve}-${sessionKind}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
               const tatchi = new TatchiPasskey({
@@ -1180,6 +1487,15 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 relayer: {
                   url: relayerUrl,
                   smartAccountDeploymentMode: 'observe',
+                },
+                registration: {
+                  mode: 'managed',
+                  environmentId: String(
+                    (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                  ),
+                  publishableKey: String(
+                    (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                  ),
                 },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {
@@ -1211,19 +1527,48 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               }
 
               const signingEngine = tatchi.getContext().signingEngine as any;
-              const lastUser = await IndexedDBManager.clientDB
-                .getNearAccountProjection(accountId)
-                .catch(() => null);
-              const deviceNumber = Number.isFinite(Number(lastUser?.deviceNumber))
-                ? Math.max(1, Math.floor(Number(lastUser.deviceNumber)))
-                : 1;
-              const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
-                accountId,
+              const accountAddress = String(accountId || '').trim().toLowerCase();
+              const nearCandidates = ['near:testnet', 'near:mainnet'];
+              let accountContext: { profileId: string; accountRef: { chainIdKey: string } } | null =
+                null;
+              for (const chainIdKey of nearCandidates) {
+                accountContext = await IndexedDBManager.clientDB
+                  .resolveProfileAccountContext({
+                    chainIdKey,
+                    accountAddress,
+                  })
+                  .catch(() => null);
+                if (accountContext?.profileId) break;
+              }
+              if (!accountContext?.profileId || !accountContext?.accountRef?.chainIdKey) {
+                return {
+                  ok: false,
+                  error: 'Missing generic profile/account mapping after login',
+                };
+              }
+
+              const [profile, lastProfileState] = await Promise.all([
+                IndexedDBManager.clientDB.getProfile(accountContext.profileId).catch(() => null),
+                IndexedDBManager.clientDB.getLastProfileState().catch(() => null),
+              ]);
+              const preferredDeviceNumber =
+                lastProfileState?.profileId === accountContext.profileId
+                  ? Number(lastProfileState.deviceNumber)
+                  : Number(profile?.defaultDeviceNumber);
+              const deviceNumber =
+                Number.isFinite(preferredDeviceNumber) && preferredDeviceNumber >= 1
+                  ? Math.max(1, Math.floor(preferredDeviceNumber))
+                  : 1;
+              const thresholdKeyMaterial = await IndexedDBManager.accountKeyMaterialDB.getKeyMaterial(
+                accountContext.profileId,
                 deviceNumber,
+                accountContext.accountRef.chainIdKey,
+                'threshold_share_v1',
               );
-              const relayerKeyId = String(thresholdKeyMaterial?.relayerKeyId || '').trim();
-              const participantIds = Array.isArray(thresholdKeyMaterial?.participants)
-                ? thresholdKeyMaterial.participants
+              const thresholdPayload = (thresholdKeyMaterial?.payload || {}) as any;
+              const relayerKeyId = String(thresholdPayload?.relayerKeyId || '').trim();
+              const participantIds = Array.isArray(thresholdPayload?.participants)
+                ? thresholdPayload.participants
                     .map((participant: any) => Number(participant?.id))
                     .filter((id: number) => Number.isFinite(id) && id > 0)
                     .map((id: number) => Math.floor(id))
@@ -1262,6 +1607,10 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                   nearAccountId: accountId,
                   relayerUrl,
                   relayerKeyId,
+                  ...(managedRuntimeScopeBootstrap.environmentId &&
+                  managedRuntimeScopeBootstrap.publishableKey
+                    ? { runtimeScopeBootstrap: managedRuntimeScopeBootstrap }
+                    : {}),
                   participantIds,
                   sessionKind,
                   ttlMs: 120_000,
@@ -1389,6 +1738,15 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 relayer: {
                   url: relayerUrl,
                   smartAccountDeploymentMode: 'observe',
+                },
+                registration: {
+                  mode: 'managed',
+                  environmentId: String(
+                    (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                  ),
+                  publishableKey: String(
+                    (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                  ),
                 },
                 signingSessionPersistenceMode: 'sealed_refresh_v1',
                 signingSessionSeal: {

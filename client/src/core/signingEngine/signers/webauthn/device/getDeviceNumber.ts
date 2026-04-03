@@ -1,4 +1,6 @@
 import type { PasskeyClientDBManager } from '@/core/indexedDB';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { parseDeviceNumber } from '@shared/utils/deviceNumber';
 
@@ -14,7 +16,10 @@ export async function getLastLoggedInDeviceNumber(
   clientDB: PasskeyClientDBManager,
 ): Promise<number> {
   const accountId = toAccountId(nearAccountId);
-  const context = await clientDB.resolveNearAccountContext(accountId).catch(() => null);
+  const context = await resolveProfileAccountContextFromCandidates(
+    clientDB,
+    buildNearAccountRefs(accountId),
+  ).catch(() => null);
   if (!context?.profileId) {
     throw new Error(`No profile/account mapping for account ${accountId}`);
   }

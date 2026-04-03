@@ -1,4 +1,5 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
 
 type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -21,11 +22,19 @@ function storageKeyForThresholdSession(thresholdSessionId: string): string {
   return `${STORAGE_KEY_PREFIX}:${thresholdSessionId}`;
 }
 
+function getPreferredStorageKind(): 'sessionStorage' | 'localStorage' {
+  return __isWalletIframeHostMode() ? 'localStorage' : 'sessionStorage';
+}
+
 function getSessionStorageSafe(): SessionStoragePort | null {
-  const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
-  if (!globalObj?.sessionStorage) return null;
+  const storageKind = getPreferredStorageKind();
+  const globalObj = globalThis as {
+    sessionStorage?: SessionStoragePort;
+    localStorage?: SessionStoragePort;
+  };
+  const storage = globalObj?.[storageKind];
+  if (!storage) return null;
   try {
-    const storage = globalObj.sessionStorage;
     storage.getItem('__tatchi_prf_session_sealed_probe__');
     return storage;
   } catch {

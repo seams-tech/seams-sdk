@@ -1,6 +1,8 @@
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import type { PasskeyManagerContext } from '../interfaces';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
+import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 import { toAccountId } from '../../types/accountIds';
 
 type PreparedLinkDeviceThresholdEcdsa = {
@@ -156,8 +158,9 @@ export async function persistPreparedLinkDeviceSmartAccountSigners(args: {
     throw new Error('Missing link-device sessionId for prepared signer sync');
   }
 
-  const nearContext = await args.indexedDB.clientDB.resolveNearAccountContext(
-    toAccountId(String(args.accountId)),
+  const nearContext = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB,
+    buildNearAccountRefs(toAccountId(String(args.accountId))),
   );
   if (!nearContext?.profileId) {
     throw new Error(`Missing profile/account mapping for ${String(args.accountId)}`);

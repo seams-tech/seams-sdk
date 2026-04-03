@@ -27,7 +27,7 @@ test.describe('smart-account bootstrap persistence', () => {
         const entryPoint = `0x${'ef'.repeat(20)}`;
 
         IndexedDBManager.clientDB.setDisabled(false);
-        IndexedDBManager.nearKeysDB.setDisabled(false);
+        IndexedDBManager.accountKeyMaterialDB.setDisabled(false);
         IndexedDBManager.clientDB.setDbName(
           `PasskeyClientDB-smartacct-bootstrap-${now}-${Math.random().toString(16).slice(2)}`,
         );

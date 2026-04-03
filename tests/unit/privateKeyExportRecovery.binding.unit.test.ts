@@ -22,7 +22,10 @@ test.describe('privateKeyExportRecovery method binding', () => {
       {
         indexedDB: {
           clientDB: {
-            resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
+            resolveProfileAccountContext: async () => ({
+              profileId: 'profile-1',
+              accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+            }),
             getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
           },
         } as any,

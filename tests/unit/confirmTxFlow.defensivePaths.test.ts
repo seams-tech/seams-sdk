@@ -64,10 +64,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -255,10 +260,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -373,10 +383,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -475,10 +490,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -540,10 +560,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
         const ctx: any = {
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [authOld, authNew],
               selectProfileAuthenticatorsForPrompt: async () => ({
@@ -621,10 +646,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
         const ctx: any = {
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -730,10 +760,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -755,17 +790,6 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 timestamp: Date.now(),
               }),
             },
-            getNearLocalKeyMaterialV2First: async () => ({
-              kind: 'local_near_sk_v3',
-              nearAccountId: 'error.testnet',
-              deviceNumber: 1,
-              publicKey: 'ed25519:pk',
-              encryptedSk: 'ciphertext-b64u',
-              chacha20NonceB64u: 'nonce-b64u',
-              wrapKeySalt: 'salt-missing-prf',
-              timestamp: Date.now(),
-            }),
-            getNearThresholdKeyMaterialV2First: async () => null,
           },
         };
 
@@ -853,10 +877,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
@@ -947,10 +976,15 @@ test.describe('confirmTxFlow – defensive paths', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({

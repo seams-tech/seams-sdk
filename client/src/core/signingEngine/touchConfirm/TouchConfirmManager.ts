@@ -265,7 +265,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       thresholdSessionId,
     });
     if (!resolved) return null;
-    if (resolved.curve !== 'ecdsa') return null;
     const relayerUrl = String(resolved.relayerUrl || '').trim();
     if (!relayerUrl) return null;
     const thresholdSessionJwt = String(resolved.thresholdSessionJwt || '').trim();
@@ -610,6 +609,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         remainingUses: sealed.remainingUses,
         updatedAtMs: Date.now(),
       });
+      const persistedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      if (!persistedRecord) {
+        return {
+          ok: false,
+          code: 'local_persist_failed',
+          message: 'Failed to persist sealed PRF.first record locally',
+        };
+      }
       return sealed;
     })().finally(() => {
       thresholdPrfSealPersistSingleFlight.delete(singleFlightKey);

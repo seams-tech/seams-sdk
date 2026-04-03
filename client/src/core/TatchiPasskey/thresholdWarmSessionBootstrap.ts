@@ -12,6 +12,7 @@ import type {
 import { toAccountId } from '../types/accountIds';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { IndexedDBManager } from '../indexedDB';
+import { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import {
   buildAndCacheEd25519AuthSession,
   type Ed25519SessionKind,
@@ -320,25 +321,48 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   relayerUrl?: string | null;
   timestamp?: number;
 }): Promise<void> {
-  await IndexedDBManager.storeNearThresholdKeyMaterial({
-    nearAccountId: args.nearAccountId as AccountId,
-    deviceNumber: args.deviceNumber,
-    publicKey: String(args.publicKey || '').trim(),
-    relayerKeyId: String(args.relayerKeyId || '').trim(),
-    keyVersion: String(args.keyVersion || '').trim(),
-    participants: buildThresholdEd25519Participants2pV1({
-      clientParticipantId: Number.isFinite(Number(args.clientParticipantId))
-        ? Math.floor(Number(args.clientParticipantId))
-        : null,
-      relayerParticipantId: Number.isFinite(Number(args.relayerParticipantId))
-        ? Math.floor(Number(args.relayerParticipantId))
-        : null,
-      relayerKeyId: String(args.relayerKeyId || '').trim(),
-      relayerUrl: args.relayerUrl,
-      clientShareDerivation: 'prf_first_v1',
-    }),
-    timestamp: typeof args.timestamp === 'number' ? args.timestamp : Date.now(),
-  });
+  const nearAccountId = String(args.nearAccountId || '').trim();
+  const publicKey = String(args.publicKey || '').trim();
+  const relayerKeyId = String(args.relayerKeyId || '').trim();
+  const keyVersion = String(args.keyVersion || '').trim();
+  if (!nearAccountId) {
+    throw new Error('Threshold Ed25519 key persistence requires nearAccountId');
+  }
+  if (!Number.isSafeInteger(args.deviceNumber) || args.deviceNumber < 1) {
+    throw new Error('Threshold Ed25519 key persistence requires deviceNumber >= 1');
+  }
+  if (!publicKey) {
+    throw new Error('Threshold Ed25519 key persistence requires publicKey');
+  }
+  if (!relayerKeyId || !keyVersion) {
+    throw new Error('Threshold Ed25519 key persistence requires complete relayer metadata');
+  }
+
+  await storeNearThresholdKeyMaterial(
+    {
+      clientDB: IndexedDBManager.clientDB,
+      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+    },
+    {
+      nearAccountId: nearAccountId as AccountId,
+      deviceNumber: args.deviceNumber,
+      publicKey,
+      relayerKeyId,
+      keyVersion,
+      participants: buildThresholdEd25519Participants2pV1({
+        clientParticipantId: Number.isFinite(Number(args.clientParticipantId))
+          ? Math.floor(Number(args.clientParticipantId))
+          : null,
+        relayerParticipantId: Number.isFinite(Number(args.relayerParticipantId))
+          ? Math.floor(Number(args.relayerParticipantId))
+          : null,
+        relayerKeyId,
+        relayerUrl: args.relayerUrl,
+        clientShareDerivation: 'prf_first_v1',
+      }),
+      timestamp: typeof args.timestamp === 'number' ? args.timestamp : Date.now(),
+    },
+  );
 }
 
 export async function persistRegisteredThresholdEd25519Session(args: {
@@ -506,7 +530,11 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
   }
 
   const task = (async (): Promise<void> => {
-    const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+    const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+      {
+        clientDB: IndexedDBManager.clientDB,
+        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+      },
       toAccountId(nearAccountId),
       deviceNumber,
     ).catch(() => null);
@@ -607,15 +635,6 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
   }
 
-  await args.context.signingEngine.hydrateSigningSession({
-    nearAccountId: args.nearAccountId,
-    signerKind: 'threshold-ed25519',
-    sessionId,
-    prfFirstB64u,
-    expiresAtMs: Math.floor(expiresAtMs),
-    remainingUses,
-    setActiveSigningSessionId: args.setActiveSigningSessionId !== false,
-  });
   await buildAndCacheEd25519AuthSession({
     nearAccountId: String(args.nearAccountId),
     rpId: String(args.rpId || '').trim(),
@@ -628,6 +647,15 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     remainingUses,
     jwt: sessionJwt,
     source: 'bootstrap',
+  });
+  await args.context.signingEngine.hydrateSigningSession({
+    nearAccountId: args.nearAccountId,
+    signerKind: 'threshold-ed25519',
+    sessionId,
+    prfFirstB64u,
+    expiresAtMs: Math.floor(expiresAtMs),
+    remainingUses,
+    setActiveSigningSessionId: args.setActiveSigningSessionId !== false,
   });
 
   return {

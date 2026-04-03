@@ -56,10 +56,15 @@ test.describe('UserConfirm – warm signing', () => {
           },
           indexedDB: {
             clientDB: {
-              resolveNearAccountContext: async (nearAccountId: string) => ({
-                profileId: `legacy-near:${String(nearAccountId)}`,
-                sourceChainIdKey: 'near:testnet',
-                sourceAccountAddress: String(nearAccountId),
+              resolveProfileAccountContext: async ({
+                chainIdKey,
+                accountAddress,
+              }: {
+                chainIdKey: string;
+                accountAddress: string;
+              }) => ({
+                profileId: `legacy-near:${String(accountAddress)}`,
+                accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({

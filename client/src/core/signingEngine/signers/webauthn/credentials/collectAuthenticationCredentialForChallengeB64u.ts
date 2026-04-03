@@ -1,5 +1,7 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
+import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type WebAuthnAllowCredential = {
@@ -16,9 +18,10 @@ export type WebAuthnAuthenticatorRecord = Pick<
 export type WebAuthnIndexedDbClientPort<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 > = {
-  resolveNearAccountContext: (
-    nearAccountId: AccountId,
-  ) => Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null>;
+  resolveProfileAccountContext: (args: {
+    chainIdKey: string;
+    accountAddress: string;
+  }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
   listProfileAuthenticators: (profileId: string) => Promise<TAuth[]>;
   selectProfileAuthenticatorsForPrompt: (args: {
     profileId: string;
@@ -72,7 +75,10 @@ export async function collectAuthenticationCredentialForChallengeB64u<
   includeSecondPrfOutput?: boolean;
 }): Promise<WebAuthnAuthenticationCredential> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const context = await args.indexedDB.clientDB.resolveNearAccountContext(nearAccountId);
+  const context = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB as any,
+    buildNearAccountRefs(nearAccountId),
+  );
   if (!context?.profileId) {
     throw new Error(`[multichain] no profile/account mapping found for account ${nearAccountId}`);
   }

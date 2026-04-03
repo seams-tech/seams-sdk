@@ -14,7 +14,9 @@ import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '../indexedDB';
-import type { ClientUserData } from '../indexedDB';
+import { getNearAccountProjection, resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
+import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
+import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
 import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
@@ -73,7 +75,7 @@ export async function unlock(
     const [hintUser, lastUser, latestByAccount, authenticators] = await Promise.all([
       hintUserPromise,
       signingEngine.getLastUser().catch(() => null),
-      IndexedDBManager.clientDB.getMostRecentNearAccountProjection(nearAccountId).catch(() => null),
+      getNearAccountProjection(IndexedDBManager.clientDB, nearAccountId).catch(() => null),
       signingEngine.getAuthenticatorsByUser(nearAccountId).catch(() => []),
     ]);
 
@@ -158,7 +160,11 @@ export async function unlock(
         message: 'Preparing a threshold signing session...',
       });
 
-      const thresholdKeyMaterial = await IndexedDBManager.getNearThresholdKeyMaterial(
+      const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
+        {
+          clientDB: IndexedDBManager.clientDB,
+          accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+        },
         nearAccountId,
         deviceNumber,
       ).catch(() => null);
@@ -176,9 +182,10 @@ export async function unlock(
             thresholdSessionId: null,
             clientVerifyingShareB64u: null,
           };
-      const preferredEd25519SessionId = signersToWarm.includes('ecdsa')
-        ? undefined
-        : createThresholdLoginWarmSessionId('ed25519-login');
+      // Always mint a fresh shared threshold session id for login warm-up.
+      // Reusing a stored ECDSA thresholdSessionId can point at an expired server auth session,
+      // which breaks sealed PRF persistence before reload continuity is established.
+      const preferredEd25519SessionId = createThresholdLoginWarmSessionId('threshold-login');
       const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
       await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
       await primeThresholdLoginWarmSigners({
@@ -710,6 +717,7 @@ export async function getWalletSession(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId,
 ): Promise<WalletSession> {
+  await context.signingEngine.assertSealedRefreshStartupParity();
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
     ? await context.signingEngine
@@ -723,8 +731,10 @@ async function resolveThresholdEcdsaEthereumAddress(
   nearAccountId: AccountId,
 ): Promise<string | null> {
   try {
-    const continuity =
-      await IndexedDBManager.clientDB.resolveNearAccountProfileContinuity(nearAccountId);
+    const continuity = await resolveNearAccountProfileContinuity(
+      IndexedDBManager.clientDB,
+      nearAccountId,
+    );
     const chainAccounts = continuity?.chainAccounts || [];
     if (!Array.isArray(chainAccounts) || chainAccounts.length === 0) return null;
 
@@ -763,8 +773,10 @@ async function resolveThresholdLoginWarmSigners(
   nearAccountId: AccountId,
 ): Promise<ThresholdLoginWarmSigner[]> {
   try {
-    const continuity =
-      await IndexedDBManager.clientDB.resolveNearAccountProfileContinuity(nearAccountId);
+    const continuity = await resolveNearAccountProfileContinuity(
+      IndexedDBManager.clientDB,
+      nearAccountId,
+    );
     const chainAccounts = Array.isArray(continuity?.chainAccounts) ? continuity.chainAccounts : [];
     const hasThresholdEcdsaAccount = chainAccounts.some((row) => {
       const accountModel = String(row?.accountModel || '')
@@ -884,11 +896,10 @@ async function getLoginStateInternal(
   try {
     const lastUser = await signingEngine.getLastUser().catch(() => null);
     const targetAccountId = nearAccountId ?? lastUser?.nearAccountId ?? null;
-
-    if (!lastUser || (targetAccountId && lastUser.nearAccountId !== targetAccountId)) {
+    if (!targetAccountId) {
       return {
         isLoggedIn: false,
-        nearAccountId: targetAccountId || null,
+        nearAccountId: null,
         publicKey: null,
         userData: null,
         thresholdEcdsaEthereumAddress: null,
@@ -896,10 +907,20 @@ async function getLoginStateInternal(
       };
     }
 
-    const userData = lastUser;
+    const latestByAccount =
+      lastUser && lastUser.nearAccountId === targetAccountId
+        ? null
+        : await getNearAccountProjection(IndexedDBManager.clientDB, targetAccountId).catch(
+            () => null,
+          );
+    const userData =
+      (lastUser && lastUser.nearAccountId === targetAccountId
+        ? lastUser
+        : latestByAccount) ||
+      (await signingEngine.getUserByDevice(targetAccountId, 1).catch(() => null));
     const publicKey = userData?.operationalPublicKey || null;
     const isLoggedIn = !!(userData && userData.operationalPublicKey);
-    const resolvedNearAccountId = targetAccountId ?? null;
+    const resolvedNearAccountId = targetAccountId;
 
     if (isLoggedIn && shouldRequireThresholdWarmSession(context)) {
       const warmStatus = resolvedNearAccountId

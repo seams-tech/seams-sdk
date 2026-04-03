@@ -158,6 +158,40 @@ function makeThresholdKeyMaterial(publicKey: string) {
   };
 }
 
+function makeThresholdKeyMaterialRecord(publicKey: string) {
+  return {
+    profileId: 'profile-1',
+    deviceNumber: 1,
+    chainIdKey: `near:${NEAR_ACCOUNT_ID}`,
+    keyKind: 'threshold_share_v1',
+    algorithm: 'ed25519',
+    publicKey,
+    payload: {
+      relayerKeyId: RELAYER_KEY_ID,
+      keyVersion: CONTEXT.keyVersion,
+      participants: makeThresholdKeyMaterial(publicKey).participants,
+    },
+    timestamp: Date.now(),
+    schemaVersion: 1,
+  };
+}
+
+function makeIndexedDbThresholdDeps(publicKey: string) {
+  return {
+    clientDB: {
+      getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
+      resolveProfileAccountContext: async (accountRef: {
+        chainIdKey: string;
+        accountAddress: string;
+      }) => ({ profileId: 'profile-1', accountRef }),
+    },
+    accountKeyMaterialDB: {
+      getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
+      storeKeyMaterial: async () => undefined,
+    },
+  };
+}
+
 async function maybeServeLocalNearSignerWasm(url: string): Promise<Response | null> {
   if (!url.startsWith('file://') || !url.endsWith('/wasm_signer_worker_bg.wasm')) {
     return null;
@@ -400,10 +434,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     try {
       const result = await signTransactionsWithActions({
         ctx: {
-          indexedDB: {
-            getNearThresholdKeyMaterial: async () =>
-              makeThresholdKeyMaterial('ed25519:threshold-public-key'),
-          },
+          indexedDB: makeIndexedDbThresholdDeps('ed25519:threshold-public-key'),
           nonceManager: {
             initializeUser: () => undefined,
           },
@@ -472,6 +503,167 @@ test.describe('threshold Ed25519 Option A active path', () => {
       expect(Object.prototype.hasOwnProperty.call(capturedPayload || {}, 'wrapKeySalt')).toBe(
         false,
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAllStoredThresholdEd25519SessionRecords();
+      restore();
+    }
+  });
+
+  test('repairs missing relayer share state by forcing one HSS rebuild and retrying the sign', async () => {
+    const { restore } = installMemorySessionStorage();
+    const originalFetch = globalThis.fetch;
+    let hssFinalizeCalls = 0;
+    let signWorkerCalls = 0;
+
+    clearAllStoredThresholdEd25519SessionRecords();
+    seedThresholdEd25519Session({ xClientBaseB64u: Buffer.alloc(32, 23).toString('base64url') });
+
+    await buildAndCacheEd25519AuthSession({
+      nearAccountId: NEAR_ACCOUNT_ID,
+      rpId: RP_ID,
+      relayerUrl: RELAYER_URL,
+      relayerKeyId: RELAYER_KEY_ID,
+      runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+      participantIds: [...CONTEXT.participantIds],
+      sessionId: THRESHOLD_SESSION_ID,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 5,
+      jwt: THRESHOLD_SESSION_JWT,
+      source: 'test',
+    });
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const wasmResponse = await maybeServeLocalNearSignerWasm(url);
+      if (wasmResponse) {
+        return wasmResponse;
+      }
+      if (url.endsWith('/threshold-ed25519/healthz')) {
+        return new Response(JSON.stringify({ ok: true, configured: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, any>;
+
+      if (url.endsWith('/threshold-ed25519/hss/prepare')) {
+        const prepared = await prepareThresholdEd25519HssServerCeremony({
+          context: body.context,
+          masterSecretB64u: MASTER_SECRET_B64U,
+          preparedSession: body.preparedSession,
+          clientRequest: body.clientRequest,
+        });
+        return new Response(JSON.stringify({ ok: true, serverMessage: prepared.serverMessage }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (url.endsWith('/threshold-ed25519/hss/finalize')) {
+        hssFinalizeCalls += 1;
+        const finalized = await finalizeThresholdEd25519HssServerCeremony({
+          preparedSession: body.preparedSession,
+          evaluationResult: body.evaluationResult,
+        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            finalizedReport: finalized.finalizedReport,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      throw new Error(`unexpected fetch in test: ${url}`);
+    }) as typeof fetch;
+
+    const dummyCredential = {
+      id: 'cred-id',
+      rawId: 'cred-rawid-b64u',
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      response: {
+        clientDataJSON: 'clientDataJSON-b64u',
+        authenticatorData: 'authenticatorData-b64u',
+        signature: 'signature-b64u',
+        userHandle: '',
+      },
+      clientExtensionResults: {
+        prf: { results: { first: PRF_FIRST_B64U, second: undefined } },
+      },
+    };
+
+    try {
+      const result = await signTransactionsWithActions({
+        ctx: {
+          indexedDB: makeIndexedDbThresholdDeps('ed25519:threshold-public-key'),
+          nonceManager: {
+            initializeUser: () => undefined,
+          },
+          touchIdPrompt: {
+            getRpId: () => RP_ID,
+          },
+          relayerUrl: RELAYER_URL,
+          touchConfirm: {
+            peekPrfFirstForThresholdSession: async () => ({
+              ok: false as const,
+              code: 'not_found',
+              message: 'warm cache missing',
+            }),
+            clearPrfFirstForThresholdSession: async () => undefined,
+            orchestrateSigningConfirmation: async () => ({
+              intentDigest: 'intent-digest-b64u',
+              transactionContext: {
+                nearPublicKeyStr: 'ed25519:threshold-public-key',
+                nextNonce: '1',
+                txBlockHeight: '1',
+                txBlockHash: 'blockhash',
+                accessKeyInfo: { nonce: 0 },
+              },
+              credential: dummyCredential,
+            }),
+          },
+          requestWorkerOperation: async ({ request }: any) => {
+            if (request?.type === WorkerRequestType.SignTransactionsWithActions) {
+              signWorkerCalls += 1;
+              if (signWorkerCalls === 1) {
+                throw new Error(
+                  '{"ok":false,"code":"missing_key","message":"Unknown relayerKeyId; bootstrap Ed25519 key material must be persisted"}',
+                );
+              }
+              return {
+                type: WorkerResponseType.SignTransactionsWithActionsSuccess,
+                payload: {
+                  success: true,
+                  signedTransactions: [
+                    { transaction: {}, signature: {}, borshBytes: new Uint8Array([1]) },
+                  ],
+                  logs: [],
+                },
+              };
+            }
+            return await invokeNearSignerWorkerDirect(request);
+          },
+        } as any,
+        transactions: [
+          {
+            receiverId: NEAR_ACCOUNT_ID,
+            actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+          } as TransactionInputWasm,
+        ],
+        rpcCall: { nearAccountId: NEAR_ACCOUNT_ID },
+        deviceNumber: 1,
+        sessionId: THRESHOLD_SESSION_ID,
+      });
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result).toHaveLength(1);
+      expect(signWorkerCalls).toBe(2);
+      expect(hssFinalizeCalls).toBe(1);
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();
@@ -600,11 +792,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       engine.orchestrationDeps = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
-            clientDB: {
-              resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-              getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
-            },
-            getNearThresholdKeyMaterial: async () => makeThresholdKeyMaterial(expectedPublicKey),
+            ...makeIndexedDbThresholdDeps(expectedPublicKey),
           },
           relayerUrl: RELAYER_URL,
           getRpId: () => RP_ID,
@@ -619,11 +807,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
         },
         indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
-          },
-          getNearThresholdKeyMaterial: async () => makeThresholdKeyMaterial(expectedPublicKey),
+          ...makeIndexedDbThresholdDeps(expectedPublicKey),
         },
         signingSessionStateDeps: {
           activeSigningSessionIds: new Map<string, string>(),
@@ -723,14 +907,17 @@ test.describe('threshold Ed25519 Option A active path', () => {
       engine.orchestrationDeps = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
-            clientDB: {
-              resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-              getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
+            ...makeIndexedDbThresholdDeps('ed25519:unused'),
+            accountKeyMaterialDB: {
+              getKeyMaterial: async () => ({
+                ...makeThresholdKeyMaterialRecord('ed25519:unused'),
+                payload: {
+                  ...makeThresholdKeyMaterialRecord('ed25519:unused').payload,
+                  participants: [],
+                },
+              }),
+              storeKeyMaterial: async () => undefined,
             },
-            getNearThresholdKeyMaterial: async () => ({
-              ...makeThresholdKeyMaterial('ed25519:unused'),
-              participants: [],
-            }),
           },
           relayerUrl: RELAYER_URL,
           getRpId: () => RP_ID,
@@ -741,10 +928,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
         },
         indexedDB: {
           clientDB: {
-            resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
+            ...makeIndexedDbThresholdDeps('ed25519:unused').clientDB,
           },
-          getNearThresholdKeyMaterial: async () => null,
+          accountKeyMaterialDB: {
+            getKeyMaterial: async () => null,
+            storeKeyMaterial: async () => undefined,
+          },
         },
         signingSessionStateDeps: {
           activeSigningSessionIds: new Map<string, string>(),
@@ -880,9 +1069,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     try {
       await signTransactionsWithActions({
         ctx: {
-          indexedDB: {
-            getNearThresholdKeyMaterial: async () => makeThresholdKeyMaterial(thresholdPublicKey),
-          },
+          indexedDB: makeIndexedDbThresholdDeps(thresholdPublicKey),
           nonceManager: {
             initializeUser: () => undefined,
           },
@@ -962,11 +1149,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       engine.orchestrationDeps = {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
-            clientDB: {
-              resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-              getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
-            },
-            getNearThresholdKeyMaterial: async () => makeThresholdKeyMaterial(thresholdPublicKey),
+            ...makeIndexedDbThresholdDeps(thresholdPublicKey),
           },
           relayerUrl: RELAYER_URL,
           getRpId: () => RP_ID,
@@ -981,11 +1164,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
         },
         indexedDB: {
-          clientDB: {
-            resolveNearAccountContext: async () => ({ profileId: 'profile-1' }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
-          },
-          getNearThresholdKeyMaterial: async () => makeThresholdKeyMaterial(thresholdPublicKey),
+          ...makeIndexedDbThresholdDeps(thresholdPublicKey),
         },
         signingSessionStateDeps: {
           activeSigningSessionIds: new Map<string, string>(),
@@ -1191,7 +1370,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     }
   });
 
-  test('uses the sessionless registration HSS routes with per-request bootstrap grants', async () => {
+  test('uses the sessionless registration HSS routes with managed registration flow grants', async () => {
     const originalFetch = globalThis.fetch;
     const bootstrapGrantBodies: Array<Record<string, any>> = [];
     const prepareBodies: Array<Record<string, any>> = [];
@@ -1350,9 +1529,9 @@ test.describe('threshold Ed25519 Option A active path', () => {
         String(preparedSession.contextBindingB64u || ''),
       );
       expect(bootstrapGrantBodies).toHaveLength(2);
-      expect(bootstrapGrantBodies.map((entry) => entry.path)).toEqual([
-        '/registration/threshold-ed25519/hss/prepare',
-        '/registration/threshold-ed25519/hss/finalize',
+      expect(bootstrapGrantBodies.map((entry) => entry.flow)).toEqual([
+        'registration_v1',
+        'registration_v1',
       ]);
       expect(prepareBodies).toHaveLength(1);
       expect(finalizeBodies).toHaveLength(1);

@@ -1,4 +1,5 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
@@ -46,7 +47,14 @@ export async function warmCriticalResources(
       accountId,
       deps.indexedDB.clientDB,
     ).catch(() => 1);
-    await deps.indexedDB.getNearThresholdKeyMaterial(accountId, deviceNumber).catch(() => null);
+    await getNearThresholdKeyMaterial(
+      {
+        clientDB: deps.indexedDB.clientDB,
+        accountKeyMaterialDB: deps.indexedDB.accountKeyMaterialDB,
+      },
+      accountId,
+      deviceNumber,
+    ).catch(() => null);
   }
 
   const warmupTasks: Promise<unknown>[] = [deps.prewarmTouchConfirmUi().catch(() => null)];
