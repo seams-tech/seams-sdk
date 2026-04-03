@@ -12,7 +12,7 @@ import type {
 import type { ThemeName } from '../core/types/tatchi';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
-import type { ClientUserData } from '../core/indexedDB/passkeyClientDB.types';
+import type { ClientUserData } from '../core/accountData/near/types';
 import type { ActionArgs } from '../core/types/actions';
 import type {
   ActionSSEEvent,

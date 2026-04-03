@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { KeyIcon } from './icons/KeyIcon';
 import { SpinnerIcon } from './icons/SpinnerIcon';
 import { ScanIcon } from './icons/ScanIcon';
@@ -32,6 +32,19 @@ function resolveDefaultPortalTarget(
   } catch {}
   if (typeof document === 'undefined') return null;
   return document.body;
+}
+
+async function waitForNextPaint(): Promise<void> {
+  if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
 }
 
 /**
@@ -185,7 +198,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         description: 'View your private keys',
         disabled: !loginState.isLoggedIn || exportKeysLoading,
         onClick: async () => {
-          setExportKeysLoading(true);
+          flushSync(() => {
+            setExportKeysLoading(true);
+          });
+          await waitForNextPaint();
           try {
             await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
           } catch (error: any) {

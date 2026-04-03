@@ -102,24 +102,40 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       const signed = await signTransactionsWithActions({
         ctx: {
           indexedDB: {
-            getNearThresholdKeyMaterial: async () => ({
-              nearAccountId,
-              deviceNumber: 1,
-              kind: 'threshold_ed25519_v1' as const,
-              publicKey: 'ed25519:threshold-public-key',
-              relayerKeyId,
-              keyVersion: 'threshold-ed25519-hss-v1',
-              timestamp: Date.now(),
-              participants: [
-                { id: 1, role: 'client' },
-                {
-                  id: 2,
-                  role: 'relayer',
-                  relayerUrl,
-                  relayerKeyId,
+            clientDB: {
+              resolveProfileAccountContext: async () => ({
+                profileId: 'profile-immediate-fallback',
+                accountRef: {
+                  chainIdKey: 'near:testnet',
+                  accountAddress: nearAccountId,
                 },
-              ],
-            }),
+              }),
+            },
+            accountKeyMaterialDB: {
+              getKeyMaterial: async () => ({
+                profileId: 'profile-immediate-fallback',
+                deviceNumber: 1,
+                chainIdKey: 'near:testnet',
+                keyKind: 'threshold_share_v1' as const,
+                algorithm: 'ed25519' as const,
+                publicKey: 'ed25519:threshold-public-key',
+                payload: {
+                  relayerKeyId,
+                  keyVersion: 'threshold-ed25519-hss-v1',
+                  participants: [
+                    { id: 1, role: 'client' },
+                    {
+                      id: 2,
+                      role: 'relayer',
+                      relayerUrl,
+                      relayerKeyId,
+                    },
+                  ],
+                },
+                timestamp: Date.now(),
+                schemaVersion: 1,
+              }),
+            },
           },
           nonceManager: {
             initializeUser: () => undefined,

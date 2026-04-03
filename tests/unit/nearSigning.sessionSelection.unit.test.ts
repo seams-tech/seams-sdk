@@ -81,24 +81,40 @@ test.describe('near signing session selection', () => {
           getSignerWorkerContext: () =>
             ({
               indexedDB: {
-                getNearThresholdKeyMaterial: async () => ({
-                  nearAccountId: 'alice.testnet',
-                  deviceNumber: 1,
-                  kind: 'threshold_ed25519_v1' as const,
-                  publicKey: 'ed25519:threshold-public-key',
-                  relayerKeyId: 'ed25519:relayer-key-id',
-                  keyVersion: 'threshold-ed25519-hss-v1',
-                  timestamp: Date.now(),
-                  participants: [
-                    { id: 1, role: 'client' },
-                    {
-                      id: 2,
-                      role: 'relayer',
-                      relayerUrl: 'https://relay.example.test',
-                      relayerKeyId: 'ed25519:relayer-key-id',
+                clientDB: {
+                  resolveProfileAccountContext: async () => ({
+                    profileId: 'profile-alice',
+                    accountRef: {
+                      chainIdKey: 'near:testnet',
+                      accountAddress: 'alice.testnet',
                     },
-                  ],
-                }),
+                  }),
+                },
+                accountKeyMaterialDB: {
+                  getKeyMaterial: async () => ({
+                    profileId: 'profile-alice',
+                    deviceNumber: 1,
+                    chainIdKey: 'near:testnet',
+                    keyKind: 'threshold_share_v1' as const,
+                    algorithm: 'ed25519' as const,
+                    publicKey: 'ed25519:threshold-public-key',
+                    payload: {
+                      relayerKeyId: 'ed25519:relayer-key-id',
+                      keyVersion: 'threshold-ed25519-hss-v1',
+                      participants: [
+                        { id: 1, role: 'client' },
+                        {
+                          id: 2,
+                          role: 'relayer',
+                          relayerUrl: 'https://relay.example.test',
+                          relayerKeyId: 'ed25519:relayer-key-id',
+                        },
+                      ],
+                    },
+                    timestamp: Date.now(),
+                    schemaVersion: 1,
+                  }),
+                },
               },
               nonceManager: {
                 initializeUser: () => undefined,

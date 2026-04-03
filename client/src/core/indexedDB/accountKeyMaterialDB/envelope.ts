@@ -1,8 +1,8 @@
 import type {
-  PasskeyChainIdKeyMaterial,
-  PasskeyChainIdKeyPayloadEnvelope,
-  PasskeyChainIdKeyPayloadEnvelopeAAD,
-} from '../passkeyNearKeysDB.types';
+  KeyMaterialPayloadEnvelope,
+  KeyMaterialPayloadEnvelopeAAD,
+  KeyMaterialRecord,
+} from '../accountKeyMaterialDB.types';
 import { toTrimmedString } from '@shared/utils/validation';
 
 export const KEY_PAYLOAD_ENC_VERSION = 1;
@@ -25,7 +25,7 @@ export function buildEnvelopeAAD(args: {
   keyKind: string;
   schemaVersion: number;
   signerId?: string;
-}): PasskeyChainIdKeyPayloadEnvelopeAAD {
+}): KeyMaterialPayloadEnvelopeAAD {
   const signerId = toTrimmedString(args.signerId || '');
   return {
     profileId: toTrimmedString(args.profileId || ''),
@@ -39,9 +39,9 @@ export function buildEnvelopeAAD(args: {
 
 function normalizeEnvelopeAAD(
   raw: unknown,
-  expected: PasskeyChainIdKeyPayloadEnvelopeAAD,
+  expected: KeyMaterialPayloadEnvelopeAAD,
   context: string,
-): PasskeyChainIdKeyPayloadEnvelopeAAD {
+): KeyMaterialPayloadEnvelopeAAD {
   const record = asRecord(raw);
   const profileId = String(record?.profileId ?? expected.profileId).trim();
   const chainIdKey = String(record?.chainIdKey ?? expected.chainIdKey)
@@ -60,7 +60,7 @@ function normalizeEnvelopeAAD(
       : expected.deviceNumber;
   const signerId = String(record?.signerId ?? expected.signerId ?? '').trim();
   const accountAddress = toTrimmedString(record?.accountAddress || '').toLowerCase();
-  const normalized: PasskeyChainIdKeyPayloadEnvelopeAAD = {
+  const normalized: KeyMaterialPayloadEnvelopeAAD = {
     profileId,
     deviceNumber,
     chainIdKey,
@@ -78,7 +78,7 @@ function normalizeEnvelopeAAD(
     normalized.schemaVersion === expected.schemaVersion &&
     (!expected.signerId || normalized.signerId === expected.signerId);
   if (!matchesExpected) {
-    throw new Error(`PasskeyNearKeysDB: payloadEnvelope.aad mismatch for ${context}`);
+    throw new Error(`PasskeyAccountKeyMaterialDB: payloadEnvelope.aad mismatch for ${context}`);
   }
 
   return normalized;
@@ -86,13 +86,13 @@ function normalizeEnvelopeAAD(
 
 export function normalizePayloadEnvelope(
   raw: unknown,
-  expectedAAD: PasskeyChainIdKeyPayloadEnvelopeAAD,
+  expectedAAD: KeyMaterialPayloadEnvelopeAAD,
   context: string,
-): PasskeyChainIdKeyPayloadEnvelope | undefined {
+): KeyMaterialPayloadEnvelope | undefined {
   if (raw == null) return undefined;
   const record = asRecord(raw);
   if (!record) {
-    throw new Error(`PasskeyNearKeysDB: Invalid payloadEnvelope object for ${context}`);
+    throw new Error(`PasskeyAccountKeyMaterialDB: Invalid payloadEnvelope object for ${context}`);
   }
   const encVersionRaw = Number(record.encVersion);
   const encVersion =
@@ -102,11 +102,11 @@ export function normalizePayloadEnvelope(
   const ciphertext = toTrimmedString(record.ciphertext || '');
   const tag = toTrimmedString(record.tag || '');
   if (!Number.isFinite(encVersion)) {
-    throw new Error(`PasskeyNearKeysDB: Invalid payloadEnvelope.encVersion for ${context}`);
+    throw new Error(`PasskeyAccountKeyMaterialDB: Invalid payloadEnvelope.encVersion for ${context}`);
   }
   if (!alg || !nonce || !ciphertext) {
     throw new Error(
-      `PasskeyNearKeysDB: Missing payloadEnvelope cryptographic fields for ${context}`,
+      `PasskeyAccountKeyMaterialDB: Missing payloadEnvelope cryptographic fields for ${context}`,
     );
   }
   return {
@@ -120,8 +120,8 @@ export function normalizePayloadEnvelope(
 }
 
 export function normalizeStoredPayloadRecord(
-  rec: PasskeyChainIdKeyMaterial,
-): PasskeyChainIdKeyMaterial | null {
+  rec: KeyMaterialRecord,
+): KeyMaterialRecord | null {
   const profileId = toTrimmedString(rec.profileId || '');
   const chainIdKey = toTrimmedString(rec.chainIdKey || '').toLowerCase();
   const keyKind = toTrimmedString(rec.keyKind || '');

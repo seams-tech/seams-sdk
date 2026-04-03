@@ -3,8 +3,6 @@ import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { AccountId } from '../../types/accountIds';
-import { toAccountId } from '../../types/accountIds';
-import { DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type {
   AccountAddress,
   AccountModel,
@@ -15,8 +13,6 @@ import type {
   AccountSignerType,
   ChainAccountRecord,
   ChainIdKey,
-  ClientAuthenticatorData,
-  ClientUserData,
   DBConstraintErrorCode,
   EnqueueSignerOperationInput,
   IndexedDBEvent,
@@ -31,7 +27,6 @@ import type {
   SignerOperationStatus,
   SignerOperationType,
   SignerOpOutboxRecord,
-  StoreUserDataInput,
   UpsertAccountSignerInput,
   UpsertChainAccountInput,
   UpsertProfileInput,
@@ -53,14 +48,7 @@ import {
   listSignerOperationRecords,
   setSignerOperationRecordStatus,
 } from './outbox';
-import {
-  buildNearAccountProjection as buildNearAccountProjectionValue,
-  getNearChainCandidates,
-  inferNearChainIdKey,
-  mapProfileAuthenticatorToClient as mapProfileAuthenticatorToClientValue,
-  parseLastProfileState,
-  upsertNearAccountProjectionRecords as upsertNearAccountProjectionRecordsValue,
-} from '../near/accountProjection';
+import { parseLastProfileState } from '../lastProfileState';
 import {
   collectMigrationParity as collectMigrationParityValue,
   validateAndQuarantineInvariantViolations as validateAndQuarantineInvariantViolationsValue,
@@ -87,8 +75,6 @@ export type {
   AccountSignerType,
   ChainAccountRecord,
   ChainIdKey,
-  ClientAuthenticatorData,
-  ClientUserData,
   DBConstraintErrorCode,
   EnqueueSignerOperationInput,
   IndexedDBEvent,
@@ -98,14 +84,12 @@ export type {
   ProfileContinuitySnapshot,
   ProfileId,
   ProfileRecord,
-  RecoveryEmailRecord,
   ProfileRecoveryEmailRecord,
   SignerId,
   SignerMutationOptions,
   SignerOperationStatus,
   SignerOperationType,
   SignerOpOutboxRecord,
-  StoreUserDataInput,
   UpsertAccountSignerInput,
   UpsertChainAccountInput,
   UpsertProfileInput,
@@ -935,24 +919,6 @@ export class PasskeyClientDBManager {
     return next;
   }
 
-  async getProfileByAccount(
-    chainIdKey: string,
-    accountAddress: string,
-  ): Promise<ProfileRecord | null> {
-    const normalizedChainIdKey = normalizeChainIdKey(chainIdKey);
-    const normalizedAddress = normalizeAccountAddress(accountAddress);
-    if (!normalizedChainIdKey || !normalizedAddress) return null;
-    const db = await this.getDB();
-    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const idx = tx.store.index('chainIdKey_accountAddress');
-    const chainAccount = (await idx.get([normalizedChainIdKey, normalizedAddress])) as
-      | ChainAccountRecord
-      | undefined;
-    if (!chainAccount?.profileId) return null;
-    const profile = await db.get(DB_CONFIG.profilesStore, chainAccount.profileId);
-    return (profile as ProfileRecord) || null;
-  }
-
   async listChainAccountsByProfile(profileId: string): Promise<ChainAccountRecord[]> {
     const normalizedProfileId = toTrimmedString(profileId || '');
     if (!normalizedProfileId) return [];
@@ -1011,6 +977,80 @@ export class PasskeyClientDBManager {
     return row || null;
   }
 
+  async resolveProfileAccountContext(
+    accountRef: AccountRef,
+  ): Promise<{ profileId: string; accountRef: AccountRef } | null> {
+    const chainIdKey = normalizeChainIdKey(accountRef.chainIdKey);
+    const accountAddress = normalizeAccountAddress(accountRef.accountAddress);
+    if (!chainIdKey || !accountAddress) return null;
+
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
+    const row = (await tx.store
+      .index('chainIdKey_accountAddress')
+      .get([chainIdKey, accountAddress])) as ChainAccountRecord | undefined;
+    await tx.done;
+    if (!row?.profileId) return null;
+
+    return {
+      profileId: row.profileId,
+      accountRef: {
+        chainIdKey,
+        accountAddress,
+      },
+    };
+  }
+
+  async listChainAccountsByChain(chainIdKey: string): Promise<ChainAccountRecord[]> {
+    const normalizedChainIdKey = normalizeChainIdKey(chainIdKey);
+    if (!normalizedChainIdKey) return [];
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
+    const rows = (await tx.store.index('chainIdKey').getAll(normalizedChainIdKey)) as
+      | ChainAccountRecord[]
+      | undefined;
+    await tx.done;
+    return rows || [];
+  }
+
+  async getProfileContinuitySnapshot(profileId: string): Promise<ProfileContinuitySnapshot | null> {
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    if (!normalizedProfileId) return null;
+
+    const [profile, chainAccounts, accountSigners] = await Promise.all([
+      this.getProfile(normalizedProfileId),
+      this.listChainAccountsByProfile(normalizedProfileId),
+      this.listAccountSignersByProfile({ profileId: normalizedProfileId }),
+    ]);
+    if (!profile) return null;
+
+    return {
+      profile,
+      chainAccounts,
+      accountSigners,
+    };
+  }
+
+  async setLastProfileStateForProfile(profileId: string, deviceNumber: number): Promise<void> {
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    const normalizedDeviceNumber = Number(deviceNumber);
+    if (!normalizedProfileId) {
+      throw new Error('PasskeyClientDB: profileId is required');
+    }
+    if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
+      throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+    }
+    await this.setLastProfileState({
+      profileId: normalizedProfileId,
+      deviceNumber: normalizedDeviceNumber,
+      ...(this.lastUserScope != null ? { scope: this.lastUserScope } : {}),
+    });
+  }
+
+  async clearLastProfileSelection(): Promise<void> {
+    await this.setLastProfileState(null);
+  }
+
   async listProfileAuthenticators(profileId: string): Promise<ProfileAuthenticatorRecord[]> {
     const normalizedProfileId = toTrimmedString(profileId || '');
     if (!normalizedProfileId) return [];
@@ -1021,291 +1061,19 @@ export class PasskeyClientDBManager {
     return (rows as ProfileAuthenticatorRecord[]) || [];
   }
 
-  async resolveNearAccountContext(
-    nearAccountId: AccountId,
-  ): Promise<{ profileId: string; sourceChainIdKey: string; sourceAccountAddress: string } | null> {
-    const accountId = toAccountId(nearAccountId);
-    const sourceAccountAddress = normalizeAccountAddress(accountId);
-    const db = await this.getDB();
-
-    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const idx = tx.store.index('chainIdKey_accountAddress');
-    for (const sourceChainIdKey of getNearChainCandidates(accountId)) {
-      const chainAccount = (await idx.get([sourceChainIdKey, sourceAccountAddress])) as
-        | ChainAccountRecord
-        | undefined;
-      const profileId = toTrimmedString(chainAccount?.profileId || '');
-      if (profileId) {
-        await tx.done;
-        return {
-          profileId,
-          sourceChainIdKey,
-          sourceAccountAddress,
-        };
-      }
-    }
-    await tx.done;
-    return null;
-  }
-
-  async getNearAccountIdForProfile(profileId: string): Promise<AccountId | null> {
-    const normalizedProfileId = toTrimmedString(profileId || '');
-    if (!normalizedProfileId) return null;
-
-    const db = await this.getDB();
-    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const rows = (await tx.store
-      .index('profileId')
-      .getAll(normalizedProfileId)) as ChainAccountRecord[];
-    await tx.done;
-    if (!rows.length) return null;
-
-    const nearRows = rows.filter((row) => String(row.chainIdKey || '').startsWith('near:'));
-    if (!nearRows.length) return null;
-    const selected = nearRows.find((row) => !!row.isPrimary) || nearRows[0];
-    if (!selected) return null;
-    const candidate = toTrimmedString(selected.accountAddress || '');
-    if (!candidate) return null;
-    try {
-      return toAccountId(candidate);
-    } catch {
-      return null;
-    }
-  }
-
-  async getProfileContinuitySnapshot(profileId: string): Promise<ProfileContinuitySnapshot | null> {
-    const normalizedProfileId = toTrimmedString(profileId || '');
-    if (!normalizedProfileId) return null;
-
-    const [profile, nearAccountId, chainAccounts, accountSigners] = await Promise.all([
-      this.getProfile(normalizedProfileId),
-      this.getNearAccountIdForProfile(normalizedProfileId),
-      this.listChainAccountsByProfile(normalizedProfileId),
-      this.listAccountSignersByProfile({ profileId: normalizedProfileId }),
-    ]);
-    if (!profile) return null;
-
-    return {
-      profile,
-      nearAccountId,
-      chainAccounts,
-      accountSigners,
-    };
-  }
-
-  async resolveNearAccountProfileContinuity(
-    nearAccountId: AccountId,
-  ): Promise<ProfileContinuitySnapshot | null> {
-    const context = await this.resolveNearAccountContext(nearAccountId);
-    if (!context?.profileId) return null;
-    return this.getProfileContinuitySnapshot(context.profileId);
-  }
-
-  async getLastSelectedNearAccount(): Promise<{
-    nearAccountId: AccountId;
+  async updatePreferences(args: {
     profileId: string;
-    deviceNumber: number;
-  } | null> {
-    const lastProfileState = await this.getLastProfileState().catch(() => null);
-    if (!lastProfileState?.profileId) return null;
-    const nearAccountId = await this.getNearAccountIdForProfile(lastProfileState.profileId);
-    if (!nearAccountId) return null;
-    return {
-      nearAccountId,
-      profileId: lastProfileState.profileId,
-      deviceNumber: lastProfileState.deviceNumber,
-    };
-  }
+    preferences: Partial<UserPreferences>;
+    eventAccountId?: AccountId | null;
+  }): Promise<void> {
+    const profileId = toTrimmedString(args.profileId || '');
+    if (!profileId) return;
 
-  async setLastProfileStateForNearAccount(
-    nearAccountId: AccountId,
-    deviceNumber: number,
-  ): Promise<void> {
-    const normalizedDeviceNumber = Number(deviceNumber);
-    if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
-      throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
-    }
-    const context = await this.resolveNearAccountContext(nearAccountId);
-    if (!context?.profileId) {
-      throw new Error(
-        `PasskeyClientDB: Missing profile/account mapping for NEAR account ${String(nearAccountId)}`,
-      );
-    }
-    await this.setLastProfileState({
-      profileId: context.profileId,
-      deviceNumber: normalizedDeviceNumber,
-      ...(this.lastUserScope != null ? { scope: this.lastUserScope } : {}),
-    });
-  }
-
-  async getNearAccountProjection(
-    nearAccountId: AccountId,
-    deviceNumber?: number,
-  ): Promise<ClientUserData | null> {
-    const accountId = toAccountId(nearAccountId);
-    return this.buildNearAccountProjection(accountId, deviceNumber);
-  }
-
-  async getLastSelectedNearAccountProjection(): Promise<ClientUserData | null> {
-    const last = await this.getLastSelectedNearAccount().catch(() => null);
-    if (!last) return null;
-    return this.buildNearAccountProjection(last.nearAccountId, last.deviceNumber);
-  }
-
-  async getMostRecentNearAccountProjection(
-    nearAccountId: AccountId,
-  ): Promise<ClientUserData | null> {
-    return this.getNearAccountProjection(nearAccountId);
-  }
-
-  async listNearAccountProjections(): Promise<ClientUserData[]> {
-    const db = await this.getDB();
-    const tx = db.transaction(DB_CONFIG.chainAccountsStore, 'readonly');
-    const nearTestnetRows = (await tx.store
-      .index('chainIdKey')
-      .getAll('near:testnet')) as ChainAccountRecord[];
-    const nearMainnetRows = (await tx.store
-      .index('chainIdKey')
-      .getAll('near:mainnet')) as ChainAccountRecord[];
-    await tx.done;
-
-    const accountCandidates = new Set<AccountId>();
-    for (const row of [...(nearTestnetRows || []), ...(nearMainnetRows || [])]) {
-      const candidate = toTrimmedString(row.accountAddress || '');
-      if (!candidate) continue;
-      try {
-        accountCandidates.add(toAccountId(candidate));
-      } catch {}
-    }
-
-    const users: ClientUserData[] = [];
-    for (const accountId of accountCandidates) {
-      const projected = await this.getNearAccountProjection(accountId).catch(() => null);
-      if (projected) users.push(projected);
-    }
-    return users;
-  }
-
-  async upsertNearAccountProjection(input: StoreUserDataInput): Promise<ClientUserData> {
-    const accountId = toAccountId(input.nearAccountId);
-    const now = Date.now();
-    const deviceNumber = Number(input.deviceNumber);
-    const normalizedDeviceNumber =
-      Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : 1;
-    const userData: ClientUserData = {
-      nearAccountId: accountId,
-      deviceNumber: normalizedDeviceNumber,
-      version: input.version || 2,
-      registeredAt: now,
-      lastLogin: now,
-      lastUpdated: input.lastUpdated ?? now,
-      operationalPublicKey: input.operationalPublicKey,
-      passkeyCredential: input.passkeyCredential,
-      preferences: input.preferences ?? {
-        useRelayer: false,
-        useNetwork: inferNearChainIdKey(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
-        confirmationConfig: DEFAULT_CONFIRMATION_CONFIG,
-      },
-    };
-    await this.upsertNearAccountProjectionRecords(userData);
-    await this.setLastProfileStateForNearAccount(accountId, normalizedDeviceNumber);
-    return (await this.getNearAccountProjection(accountId, normalizedDeviceNumber)) || userData;
-  }
-
-  async touchLastLoginForNearAccount(nearAccountId: AccountId): Promise<void> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return;
-    const lastProfileState = await this.getLastProfileState().catch(() => null);
-    const profile = await this.getProfile(context.profileId).catch(() => null);
-    const defaultDeviceNumber = Number(profile?.defaultDeviceNumber);
-    const deviceNumber =
-      lastProfileState?.profileId === context.profileId
-        ? lastProfileState.deviceNumber
-        : Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
-          ? defaultDeviceNumber
-          : 1;
-    await this.setLastProfileStateForNearAccount(accountId, deviceNumber);
-  }
-
-  async clearLastProfileSelection(): Promise<void> {
-    await this.setLastProfileState(null);
-  }
-
-  async listNearAuthenticators(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return [];
-    const rows = await this.listProfileAuthenticators(context.profileId);
-    return rows.map((row) => mapProfileAuthenticatorToClientValue(row, accountId));
-  }
-
-  async getNearAuthenticatorByCredentialId(
-    nearAccountId: AccountId,
-    credentialId: string,
-  ): Promise<ClientAuthenticatorData | null> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return null;
-    const profileMatch = await this.getProfileAuthenticatorByCredentialId(
-      context.profileId,
-      credentialId,
-    );
-    if (!profileMatch) return null;
-    return mapProfileAuthenticatorToClientValue(profileMatch, accountId);
-  }
-
-  async clearNearAuthenticators(nearAccountId: AccountId): Promise<void> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return;
-    await this.clearProfileAuthenticators(context.profileId);
-  }
-
-  async upsertNearAuthenticator(authenticatorData: ClientAuthenticatorData): Promise<void> {
-    const accountId = toAccountId(authenticatorData.nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) {
-      throw new Error(
-        `PasskeyClientDB: Missing profile/account mapping for NEAR account ${accountId}`,
-      );
-    }
-    await this.upsertProfileAuthenticator({
-      profileId: context.profileId,
-      deviceNumber: authenticatorData.deviceNumber,
-      credentialId: authenticatorData.credentialId,
-      credentialPublicKey: authenticatorData.credentialPublicKey,
-      transports: authenticatorData.transports,
-      name: authenticatorData.name,
-      registered: authenticatorData.registered,
-      syncedAt: authenticatorData.syncedAt,
-    });
-  }
-
-  async hasNearPasskeyCredential(nearAccountId: AccountId): Promise<boolean> {
-    const authenticators = await this.listNearAuthenticators(nearAccountId);
-    if (authenticators.length > 0) return !!authenticators[0]?.credentialId;
-    const user = await this.getNearAccountProjection(nearAccountId).catch(() => null);
-    return !!user?.passkeyCredential?.rawId;
-  }
-
-  async updatePreferences(
-    nearAccountId: AccountId,
-    preferences: Partial<UserPreferences>,
-  ): Promise<void> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return;
-
-    const profile = await this.getProfile(context.profileId).catch(() => null);
+    const profile = await this.getProfile(profileId).catch(() => null);
     if (!profile) return;
     const updatedPreferences = {
-      ...(profile.preferences || {
-        useRelayer: false,
-        useNetwork: inferNearChainIdKey(accountId).endsWith('mainnet') ? 'mainnet' : 'testnet',
-        confirmationConfig: DEFAULT_CONFIRMATION_CONFIG,
-      }),
-      ...preferences,
+      ...(profile.preferences || {}),
+      ...args.preferences,
     } as UserPreferences;
 
     await this.upsertProfile({
@@ -1315,40 +1083,28 @@ export class PasskeyClientDBManager {
       preferences: updatedPreferences,
     });
 
-    this.emitEvent({
-      type: 'preferences-updated',
-      accountId,
-      data: { preferences: updatedPreferences },
-    });
-  }
-
-  async deleteNearAccountData(nearAccountId: AccountId): Promise<void> {
-    const accountId = toAccountId(nearAccountId);
-    const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-    if (!context?.profileId) return;
-    await this.clearNearAuthenticators(accountId);
-    await this.clearLastProfileStateIfMatchesProfile(context.profileId);
-    await this.deleteProfileDataForProfile(context.profileId);
-    this.emitEvent({ type: 'user-deleted', accountId });
-  }
-
-  async clearAllNearAccounts(): Promise<void> {
-    const allUsers = await this.listNearAccountProjections();
-    for (const user of allUsers) {
-      await this.deleteNearAccountData(user.nearAccountId).catch(() => undefined);
+    const accountId = toTrimmedString(args.eventAccountId || '');
+    if (accountId) {
+      this.emitEvent({
+        type: 'preferences-updated',
+        accountId: accountId as AccountId,
+        data: { preferences: updatedPreferences },
+      });
     }
   }
 
-  async rollbackNearAccountRegistration(nearAccountId: AccountId): Promise<void> {
-    const accountId = toAccountId(nearAccountId);
-    await this.atomicOperation(async () => {
-      await this.clearNearAuthenticators(accountId);
-      const context = await this.resolveNearAccountContext(accountId).catch(() => null);
-      if (!context?.profileId) return true;
-      await this.clearLastProfileStateIfMatchesProfile(context.profileId);
-      await this.deleteProfileDataForProfile(context.profileId);
-      return true;
-    });
+  async deleteProfileData(
+    profileId: string,
+    args?: { eventAccountId?: AccountId | null },
+  ): Promise<void> {
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    if (!normalizedProfileId) return;
+    await this.clearLastProfileStateIfMatchesProfile(normalizedProfileId);
+    await this.deleteProfileDataForProfile(normalizedProfileId);
+    const accountId = toTrimmedString(args?.eventAccountId || '');
+    if (accountId) {
+      this.emitEvent({ type: 'user-deleted', accountId: accountId as AccountId });
+    }
   }
 
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
@@ -1895,35 +1651,6 @@ export class PasskeyClientDBManager {
         }
       } catch {}
     }
-  }
-
-  private async upsertNearAccountProjectionRecords(userData: ClientUserData): Promise<void> {
-    await upsertNearAccountProjectionRecordsValue({
-      userData,
-      ops: {
-        upsertProfile: (input) => this.upsertProfile(input),
-        upsertChainAccount: (input) => this.upsertChainAccount(input),
-        getAccountSigner: (args) => this.getAccountSigner(args),
-        upsertAccountSigner: (input) => this.upsertAccountSigner(input),
-      },
-    });
-  }
-
-  private async buildNearAccountProjection(
-    nearAccountId: AccountId,
-    deviceNumber?: number,
-  ): Promise<ClientUserData | null> {
-    const db = await this.getDB();
-    return buildNearAccountProjectionValue({
-      db,
-      nearAccountId,
-      deviceNumber,
-      stores: {
-        chainAccountsStore: DB_CONFIG.chainAccountsStore,
-        profilesStore: DB_CONFIG.profilesStore,
-        accountSignersStore: DB_CONFIG.accountSignersStore,
-      },
-    });
   }
 
   private async deleteProfileDataForProfile(profileId: string): Promise<void> {

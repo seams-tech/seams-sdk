@@ -1,23 +1,21 @@
 export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB/manager';
-export { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
+export { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
-export { passkeyClientDB, passkeyNearKeysDB } from './singletons';
+export { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export type {
-  ClientUserData,
   UserPreferences,
-  ClientAuthenticatorData,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
   IndexedDBEvent,
   LastProfileState,
-  RecoveryEmailRecord,
   ProfileId,
   ChainIdKey,
   AccountAddress,
   SignerId,
   AccountRef,
   MigrationQuarantineRecord,
+  PasskeyCredentialRecord,
   ProfileRecord,
   ChainAccountRecord,
   AccountSignerRecord,
@@ -37,37 +35,45 @@ export type {
 export type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 
 export type {
-  PasskeyNearKeyMaterial,
-  ThresholdEd25519_V1Material,
-  PasskeyNearKeyMaterialKind,
-  ClientShareDerivation,
-  PasskeyChainIdKeyMaterial,
-  PasskeyChainIdKeyKind,
-  PasskeyChainIdKeyAlgorithm,
-  PasskeyChainIdKeyPayloadEnvelope,
-  PasskeyChainIdKeyPayloadEnvelopeAAD,
-} from './passkeyNearKeysDB.types';
+  KeyMaterialAlgorithm,
+  KeyMaterialKind,
+  KeyMaterialPayloadEnvelope,
+  KeyMaterialPayloadEnvelopeAAD,
+  KeyMaterialRecord,
+} from './accountKeyMaterialDB.types';
 
 import { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
-import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
+import { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
 const DB_CONFIG_BY_MODE: Record<
   IndexedDBMode,
-  { clientDbName: string; nearKeysDbName: string; disabled: boolean }
+  { clientDbName: string; accountKeyMaterialDbName: string; disabled: boolean }
 > = {
-  app: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
-  wallet: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: false },
+  app: {
+    clientDbName: 'PasskeyClientDB',
+    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
+    disabled: false,
+  },
+  wallet: {
+    clientDbName: 'PasskeyClientDB',
+    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
+    disabled: false,
+  },
   // When running the SDK on the app origin with a wallet iframe configured, we disable IndexedDB entirely
   // to ensure no SDK tables are created and nothing can accidentally persist there.
-  disabled: { clientDbName: 'PasskeyClientDB', nearKeysDbName: 'PasskeyNearKeys', disabled: true },
+  disabled: {
+    clientDbName: 'PasskeyClientDB',
+    accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
+    disabled: true,
+  },
 };
 
 let configured: {
   mode: IndexedDBMode;
   clientDbName: string;
-  nearKeysDbName: string;
+  accountKeyMaterialDbName: string;
   disabled: boolean;
 } | null = null;
 
@@ -81,7 +87,7 @@ let configured: {
  */
 export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   clientDbName: string;
-  nearKeysDbName: string;
+  accountKeyMaterialDbName: string;
 } {
   const mode = args?.mode;
   const next = DB_CONFIG_BY_MODE[mode];
@@ -92,7 +98,7 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   if (configured) {
     const isSame =
       configured.clientDbName === next.clientDbName &&
-      configured.nearKeysDbName === next.nearKeysDbName &&
+      configured.accountKeyMaterialDbName === next.accountKeyMaterialDbName &&
       configured.disabled === next.disabled;
     if (!isSame) {
       console.warn(
@@ -103,22 +109,28 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
         },
       );
     }
-    return { clientDbName: configured.clientDbName, nearKeysDbName: configured.nearKeysDbName };
+    return {
+      clientDbName: configured.clientDbName,
+      accountKeyMaterialDbName: configured.accountKeyMaterialDbName,
+    };
   }
 
   configured = { mode, ...next };
   passkeyClientDB.setDbName(next.clientDbName);
-  passkeyNearKeysDB.setDbName(next.nearKeysDbName);
+  accountKeyMaterialDB.setDbName(next.accountKeyMaterialDbName);
   passkeyClientDB.setDisabled(next.disabled);
-  passkeyNearKeysDB.setDisabled(next.disabled);
-  return { clientDbName: configured.clientDbName, nearKeysDbName: configured.nearKeysDbName };
+  accountKeyMaterialDB.setDisabled(next.disabled);
+  return {
+    clientDbName: configured.clientDbName,
+    accountKeyMaterialDbName: configured.accountKeyMaterialDbName,
+  };
 }
 
-export function getIndexedDBNames(): { clientDbName: string; nearKeysDbName: string } {
+export function getIndexedDBNames(): { clientDbName: string; accountKeyMaterialDbName: string } {
   return (
     configured || {
       clientDbName: passkeyClientDB.getDbName(),
-      nearKeysDbName: passkeyNearKeysDB.getDbName(),
+      accountKeyMaterialDbName: accountKeyMaterialDB.getDbName(),
     }
   );
 }
@@ -126,5 +138,5 @@ export function getIndexedDBNames(): { clientDbName: string; nearKeysDbName: str
 // Export singleton instance of unified manager
 export const IndexedDBManager = new UnifiedIndexedDBManager({
   clientDB: passkeyClientDB,
-  nearKeysDB: passkeyNearKeysDB,
+  accountKeyMaterialDB: accountKeyMaterialDB,
 });

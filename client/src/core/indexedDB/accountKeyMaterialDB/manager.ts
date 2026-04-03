@@ -1,37 +1,28 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import { toTrimmedString } from '@shared/utils/validation';
-import type {
-  ClientShareDerivation,
-  PasskeyChainIdKeyKind,
-  PasskeyChainIdKeyMaterial,
-  ThresholdEd25519_V1Material,
-} from '../passkeyNearKeysDB.types';
+import type { KeyMaterialKind, KeyMaterialRecord } from '../accountKeyMaterialDB.types';
 import {
   buildEnvelopeAAD,
   normalizeStoredPayloadRecord as normalizeStoredPayloadRecordValue,
   normalizePayloadEnvelope,
   sanitizePayload,
 } from './envelope';
-import { DB_CONFIG, type PasskeyNearKeysDBConfig, upgradePasskeyNearKeysDBSchema } from './schema';
+import { DB_CONFIG, type PasskeyAccountKeyMaterialDBConfig, upgradePasskeyAccountKeyMaterialDBSchema } from './schema';
 
 export type {
-  ClientShareDerivation,
-  PasskeyChainIdKeyAlgorithm,
-  PasskeyChainIdKeyKind,
-  PasskeyChainIdKeyMaterial,
-  PasskeyChainIdKeyPayloadEnvelope,
-  PasskeyChainIdKeyPayloadEnvelopeAAD,
-  PasskeyNearKeyMaterial,
-  PasskeyNearKeyMaterialKind,
-  ThresholdEd25519_V1Material,
-} from '../passkeyNearKeysDB.types';
+  KeyMaterialAlgorithm,
+  KeyMaterialKind,
+  KeyMaterialPayloadEnvelope,
+  KeyMaterialPayloadEnvelopeAAD,
+  KeyMaterialRecord,
+} from '../accountKeyMaterialDB.types';
 
-export class PasskeyNearKeysDBManager {
-  private config: PasskeyNearKeysDBConfig;
+export class AccountKeyMaterialDBManager {
+  private config: PasskeyAccountKeyMaterialDBConfig;
   private db: IDBPDatabase | null = null;
   private disabled = false;
 
-  constructor(config: PasskeyNearKeysDBConfig = DB_CONFIG) {
+  constructor(config: PasskeyAccountKeyMaterialDBConfig = DB_CONFIG) {
     this.config = config;
   }
 
@@ -70,7 +61,7 @@ export class PasskeyNearKeysDBManager {
    */
   private async getDB(): Promise<IDBPDatabase> {
     if (this.disabled) {
-      throw new Error('[PasskeyNearKeysDBManager] IndexedDB is disabled in this environment.');
+      throw new Error('[AccountKeyMaterialDBManager] IndexedDB is disabled in this environment.');
     }
     if (this.db) {
       return this.db;
@@ -78,16 +69,16 @@ export class PasskeyNearKeysDBManager {
 
     this.db = await openDB(this.config.dbName, this.config.dbVersion, {
       upgrade(db, _oldVersion, _newVersion, tx): void {
-        upgradePasskeyNearKeysDBSchema(db, tx);
+        upgradePasskeyAccountKeyMaterialDBSchema(db, tx);
       },
       blocked() {
-        console.warn('PasskeyNearKeysDB connection is blocked.');
+        console.warn('PasskeyAccountKeyMaterialDB connection is blocked.');
       },
       blocking() {
-        console.warn('PasskeyNearKeysDB connection is blocking another connection.');
+        console.warn('PasskeyAccountKeyMaterialDB connection is blocking another connection.');
       },
       terminated: () => {
-        console.warn('PasskeyNearKeysDB connection has been terminated.');
+        console.warn('PasskeyAccountKeyMaterialDB connection has been terminated.');
         this.db = null;
       },
     });
@@ -95,7 +86,7 @@ export class PasskeyNearKeysDBManager {
     return this.db;
   }
 
-  async storeKeyMaterial(data: PasskeyChainIdKeyMaterial): Promise<void> {
+  async storeKeyMaterial(data: KeyMaterialRecord): Promise<void> {
     const db = await this.getDB();
     const profileId = toTrimmedString(data.profileId || '');
     const signerId = toTrimmedString(data.signerId || '');
@@ -105,28 +96,28 @@ export class PasskeyNearKeysDBManager {
     const algorithm = toTrimmedString(data.algorithm || '');
     const publicKey = toTrimmedString(data.publicKey || '');
     if (!profileId) {
-      throw new Error('PasskeyNearKeysDB: Missing profileId for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing profileId for key material record');
     }
     if (!Number.isSafeInteger(data.deviceNumber) || data.deviceNumber < 1) {
-      throw new Error('PasskeyNearKeysDB: Invalid deviceNumber for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Invalid deviceNumber for key material record');
     }
     if (!chainIdKey) {
-      throw new Error('PasskeyNearKeysDB: Missing chainIdKey for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing chainIdKey for key material record');
     }
     if (!keyKind) {
-      throw new Error('PasskeyNearKeysDB: Missing keyKind for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing keyKind for key material record');
     }
     if (!algorithm) {
-      throw new Error('PasskeyNearKeysDB: Missing algorithm for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing algorithm for key material record');
     }
     if (!publicKey) {
-      throw new Error('PasskeyNearKeysDB: Missing publicKey for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing publicKey for key material record');
     }
     if (typeof data.timestamp !== 'number') {
-      throw new Error('PasskeyNearKeysDB: Missing timestamp for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Missing timestamp for key material record');
     }
     if (!Number.isSafeInteger(data.schemaVersion) || data.schemaVersion < 1) {
-      throw new Error('PasskeyNearKeysDB: Invalid schemaVersion for key material record');
+      throw new Error('PasskeyAccountKeyMaterialDB: Invalid schemaVersion for key material record');
     }
 
     const payload = sanitizePayload(data.payload);
@@ -144,7 +135,7 @@ export class PasskeyNearKeysDBManager {
       `${profileId}/${data.deviceNumber}/${chainIdKey}/${keyKind}`,
     );
 
-    const toStore: PasskeyChainIdKeyMaterial = {
+    const toStore: KeyMaterialRecord = {
       profileId,
       deviceNumber: data.deviceNumber,
       chainIdKey,
@@ -165,8 +156,8 @@ export class PasskeyNearKeysDBManager {
     profileId: string,
     deviceNumber: number,
     chainIdKey: string,
-    keyKind: PasskeyChainIdKeyKind,
-  ): Promise<PasskeyChainIdKeyMaterial | null> {
+    keyKind: KeyMaterialKind,
+  ): Promise<KeyMaterialRecord | null> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
     const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
@@ -177,7 +168,7 @@ export class PasskeyNearKeysDBManager {
       deviceNumber,
       normalizedChainIdKey,
       normalizedKeyKind,
-    ])) as PasskeyChainIdKeyMaterial | undefined;
+    ])) as KeyMaterialRecord | undefined;
     if (!rec) return null;
     return normalizeStoredPayloadRecordValue(rec);
   }
@@ -186,7 +177,7 @@ export class PasskeyNearKeysDBManager {
     profileId: string,
     deviceNumber: number,
     chainIdKey?: string,
-  ): Promise<PasskeyChainIdKeyMaterial[]> {
+  ): Promise<KeyMaterialRecord[]> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
     const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
@@ -196,12 +187,12 @@ export class PasskeyNearKeysDBManager {
     const tx = db.transaction(this.config.storeName, 'readonly');
     const rows = (await tx.store
       .index('profileId_deviceNumber')
-      .getAll([normalizedProfileId, deviceNumber])) as PasskeyChainIdKeyMaterial[];
+      .getAll([normalizedProfileId, deviceNumber])) as KeyMaterialRecord[];
     await tx.done;
 
     const hydratedRows = (rows || [])
       .map((row) => normalizeStoredPayloadRecordValue(row))
-      .filter((row): row is PasskeyChainIdKeyMaterial => !!row);
+      .filter((row): row is KeyMaterialRecord => !!row);
     if (!normalizedChainIdKey) return hydratedRows;
     return hydratedRows.filter(
       (row) => String(row.chainIdKey).trim().toLowerCase() === normalizedChainIdKey,
@@ -212,7 +203,7 @@ export class PasskeyNearKeysDBManager {
     profileId: string,
     deviceNumber: number,
     chainIdKey: string,
-    keyKind: PasskeyChainIdKeyKind,
+    keyKind: KeyMaterialKind,
   ): Promise<void> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');

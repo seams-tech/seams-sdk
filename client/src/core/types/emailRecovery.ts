@@ -3,7 +3,7 @@ import type { ConfirmationConfig } from './signer-worker';
 import type { EmailRecoverySSEEvent, EventCallback, AfterCall } from './sdkSentEvents';
 import type { WebAuthnRegistrationCredential } from './webauthn';
 import type { PendingStore } from '../../utils/emailRecovery';
-import type { StoreUserDataInput } from '../indexedDB/passkeyClientDB.types';
+import type { StoreUserDataInput } from '../accountData/near/types';
 import type { RecoverySubjectBinding, RecoveryTargetKeySet } from '@shared/utils';
 
 export enum EmailRecoveryErrorCode {

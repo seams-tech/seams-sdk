@@ -15,35 +15,34 @@ import type {
   UpsertChainAccountInput,
   UpsertProfileInput,
 } from './passkeyClientDB.types';
-import type { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
+import type { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 import {
-  type PasskeyChainIdKeyKind,
-  type PasskeyChainIdKeyMaterial,
-  type ThresholdEd25519_V1Material,
-} from './passkeyNearKeysDB.types';
-import {
-  getNearThresholdKeyMaterial as getNearThresholdKeyMaterialValue,
-  storeNearThresholdKeyMaterial as storeNearThresholdKeyMaterialValue,
-  type NearKeyMaterialDeps,
-  type StoreNearThresholdKeyMaterialInput,
-} from './near/keyMaterial';
-import { passkeyClientDB, passkeyNearKeysDB } from './singletons';
+  type KeyMaterialKind,
+  type KeyMaterialRecord,
+} from './accountKeyMaterialDB.types';
+import { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export interface UnifiedIndexedDBManagerDeps {
   clientDB: PasskeyClientDBManager;
-  nearKeysDB: PasskeyNearKeysDBManager;
+  accountKeyMaterialDB: AccountKeyMaterialDBManager;
 }
 
 type DeployedSignerMutationRuntime = {
+  resolveOwnerAccountId: (args: {
+    profileId: string;
+    op: SignerOpOutboxRecord;
+    signer: AccountSignerRecord;
+    chainAccount: ChainAccountRecord;
+  }) => Promise<AccountId | null>;
   executeDeployedAddSigner: (args: {
-    nearAccountId: AccountId;
+    ownerAccountId: AccountId;
     op: SignerOpOutboxRecord;
     signer: AccountSignerRecord;
     chainAccount: ChainAccountRecord;
     now: number;
   }) => Promise<{ txHash?: string | null }>;
   executeDeployedRemoveSigner?: (args: {
-    nearAccountId: AccountId;
+    ownerAccountId: AccountId;
     op: SignerOpOutboxRecord;
     signer: AccountSignerRecord;
     chainAccount: ChainAccountRecord;
@@ -57,12 +56,12 @@ type DeployedSignerMutationRuntime = {
  */
 export class UnifiedIndexedDBManager {
   public readonly clientDB: PasskeyClientDBManager;
-  public readonly nearKeysDB: PasskeyNearKeysDBManager;
+  public readonly accountKeyMaterialDB: AccountKeyMaterialDBManager;
   private _initialized = false;
 
   constructor(deps?: Partial<UnifiedIndexedDBManagerDeps>) {
     this.clientDB = deps?.clientDB || passkeyClientDB;
-    this.nearKeysDB = deps?.nearKeysDB || passkeyNearKeysDB;
+    this.accountKeyMaterialDB = deps?.accountKeyMaterialDB || accountKeyMaterialDB;
   }
 
   /**
@@ -75,7 +74,7 @@ export class UnifiedIndexedDBManager {
     }
 
     try {
-      if (this.clientDB.isDisabled() || this.nearKeysDB.isDisabled()) {
+      if (this.clientDB.isDisabled() || this.accountKeyMaterialDB.isDisabled()) {
         this._initialized = true;
         return;
       }
@@ -83,7 +82,7 @@ export class UnifiedIndexedDBManager {
       // This will trigger the getDB() method in both managers and ensure databases are created
       await Promise.all([
         this.clientDB.getAppState('_init_check'),
-        this.nearKeysDB.getKeyMaterial('_init_check', 1, 'near:testnet', 'threshold_share_v1'),
+        this.accountKeyMaterialDB.getKeyMaterial('_init_check', 1, 'init:check', 'init_check'),
       ]);
 
       try {
@@ -106,28 +105,6 @@ export class UnifiedIndexedDBManager {
     return this._initialized;
   }
 
-  private getNearKeyMaterialDeps(): NearKeyMaterialDeps {
-    return {
-      clientDB: this.clientDB,
-      nearKeysDB: this.nearKeysDB,
-    };
-  }
-
-  async getNearThresholdKeyMaterial(
-    nearAccountId: AccountId,
-    deviceNumber: number,
-  ): Promise<ThresholdEd25519_V1Material | null> {
-    return getNearThresholdKeyMaterialValue(
-      this.getNearKeyMaterialDeps(),
-      nearAccountId,
-      deviceNumber,
-    );
-  }
-
-  async storeNearThresholdKeyMaterial(input: StoreNearThresholdKeyMaterialInput): Promise<void> {
-    return storeNearThresholdKeyMaterialValue(this.getNearKeyMaterialDeps(), input);
-  }
-
   async getLastProfileState(): Promise<LastProfileState | null> {
     return this.clientDB.getLastProfileState();
   }
@@ -147,13 +124,6 @@ export class UnifiedIndexedDBManager {
 
   async upsertChainAccount(input: UpsertChainAccountInput): Promise<ChainAccountRecord> {
     return this.clientDB.upsertChainAccount(input);
-  }
-
-  async getProfileByAccount(
-    chainIdKey: string,
-    accountAddress: string,
-  ): Promise<ProfileRecord | null> {
-    return this.clientDB.getProfileByAccount(chainIdKey, accountAddress);
   }
 
   async getChainAccount(args: {
@@ -219,17 +189,17 @@ export class UnifiedIndexedDBManager {
   }
 
   // === key material convenience ===
-  async storeKeyMaterial(input: PasskeyChainIdKeyMaterial): Promise<void> {
-    return this.nearKeysDB.storeKeyMaterial(input);
+  async storeKeyMaterial(input: KeyMaterialRecord): Promise<void> {
+    return this.accountKeyMaterialDB.storeKeyMaterial(input);
   }
 
   async getKeyMaterial(
     profileId: string,
     deviceNumber: number,
     chainIdKey: string,
-    keyKind: PasskeyChainIdKeyKind,
-  ): Promise<PasskeyChainIdKeyMaterial | null> {
-    return this.nearKeysDB.getKeyMaterial(profileId, deviceNumber, chainIdKey, keyKind);
+    keyKind: KeyMaterialKind,
+  ): Promise<KeyMaterialRecord | null> {
+    return this.accountKeyMaterialDB.getKeyMaterial(profileId, deviceNumber, chainIdKey, keyKind);
   }
 
   private computeSignerOpRetryDelayMs(nextAttemptCount: number): number {
@@ -333,11 +303,6 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing profileId/signerSlot metadata for add-signer operation');
             continue;
           }
-          const nearAccountId = await this.clientDB.getNearAccountIdForProfile(profileIdRaw);
-          if (!nearAccountId) {
-            await markDeadLetter('Missing NEAR account row for deployed signer operation');
-            continue;
-          }
           const chainAccount = await this.clientDB.getChainAccount({
             profileId: signer.profileId,
             chainIdKey: op.chainIdKey,
@@ -347,7 +312,7 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing chain account row for add-signer operation');
             continue;
           }
-          const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
+          const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
             profileIdRaw,
             signerSlot,
             op.chainIdKey,
@@ -361,6 +326,22 @@ export class UnifiedIndexedDBManager {
               await markConfirmed();
               continue;
             }
+            if (!args?.runtime?.resolveOwnerAccountId) {
+              await markFailed(
+                'Deployed smart-account signer mutation requires an owner-account resolver',
+              );
+              continue;
+            }
+            const ownerAccountId = await args.runtime.resolveOwnerAccountId({
+              profileId: profileIdRaw,
+              op,
+              signer,
+              chainAccount,
+            });
+            if (!ownerAccountId) {
+              await markDeadLetter('Missing owner account row for deployed signer operation');
+              continue;
+            }
             if (!args?.runtime?.executeDeployedAddSigner) {
               await markFailed(
                 'Deployed smart-account signer mutation requires the owner-management executor',
@@ -368,7 +349,7 @@ export class UnifiedIndexedDBManager {
               continue;
             }
             const executed = await args.runtime.executeDeployedAddSigner({
-              nearAccountId,
+              ownerAccountId,
               op,
               signer,
               chainAccount,
@@ -405,9 +386,20 @@ export class UnifiedIndexedDBManager {
                 })
               : null;
           if (signer && chainAccount?.deployed === true) {
-            const nearAccountId = await this.clientDB.getNearAccountIdForProfile(signer.profileId);
-            if (!nearAccountId) {
-              await markDeadLetter('Missing NEAR account row for deployed signer operation');
+            if (!args?.runtime?.resolveOwnerAccountId) {
+              await markFailed(
+                'Deployed smart-account signer mutation requires an owner-account resolver',
+              );
+              continue;
+            }
+            const ownerAccountId = await args.runtime.resolveOwnerAccountId({
+              profileId: signer.profileId,
+              op,
+              signer,
+              chainAccount,
+            });
+            if (!ownerAccountId) {
+              await markDeadLetter('Missing owner account row for deployed signer operation');
               continue;
             }
             if (!args?.runtime?.executeDeployedRemoveSigner) {
@@ -417,7 +409,7 @@ export class UnifiedIndexedDBManager {
               continue;
             }
             const executed = await args.runtime.executeDeployedRemoveSigner({
-              nearAccountId,
+              ownerAccountId,
               op,
               signer,
               chainAccount,
@@ -434,13 +426,13 @@ export class UnifiedIndexedDBManager {
               });
             }
             if (profileIdRaw && signerSlot != null) {
-              const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
+              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
                 profileIdRaw,
                 signerSlot,
                 op.chainIdKey,
               );
               for (const key of keys) {
-                await this.nearKeysDB.deleteKeyMaterial(
+                await this.accountKeyMaterialDB.deleteKeyMaterial(
                   key.profileId,
                   key.deviceNumber,
                   key.chainIdKey,
@@ -470,13 +462,13 @@ export class UnifiedIndexedDBManager {
               });
             }
             if (profileIdRaw && signerSlot != null) {
-              const keys = await this.nearKeysDB.listKeyMaterialByProfileAndDevice(
+              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
                 profileIdRaw,
                 signerSlot,
                 op.chainIdKey,
               );
               for (const key of keys) {
-                await this.nearKeysDB.deleteKeyMaterial(
+                await this.accountKeyMaterialDB.deleteKeyMaterial(
                   key.profileId,
                   key.deviceNumber,
                   key.chainIdKey,

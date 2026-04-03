@@ -3,7 +3,8 @@ import { sdkEsmPath, setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   clientDb: sdkEsmPath('core/indexedDB/passkeyClientDB/manager.js'),
-  nearKeysDb: sdkEsmPath('core/indexedDB/passkeyNearKeysDB/manager.js'),
+  nearDb: sdkEsmPath('core/accountData/near/keyMaterial.js'),
+  accountKeyMaterialDb: sdkEsmPath('core/indexedDB/accountKeyMaterialDB/manager.js'),
   unifiedDb: sdkEsmPath('core/indexedDB/index.js'),
 } as const;
 
@@ -16,7 +17,10 @@ test.describe('NEAR threshold key material persistence', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { PasskeyClientDBManager } = await import(paths.clientDb);
-        const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+        const { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } = await import(
+          paths.nearDb
+        );
+        const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
         const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
         const suffix =
@@ -25,42 +29,68 @@ test.describe('NEAR threshold key material persistence', () => {
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const clientDB = new PasskeyClientDBManager();
         clientDB.setDbName(`PasskeyClientDB-nearThresholdCanonical-${suffix}`);
-        const nearKeysDB = new PasskeyNearKeysDBManager();
-        nearKeysDB.setDbName(`PasskeyNearKeys-nearThresholdCanonical-${suffix}`);
-        const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+        const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+        accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-nearThresholdCanonical-${suffix}`);
+        const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
         const nearAccountId = 'alice.testnet';
+        const chainIdKey = 'near:testnet';
+        const profileId = `profile-near:${nearAccountId}`;
 
-        await clientDB.upsertNearAccountProjection({
-          nearAccountId,
-          deviceNumber: 1,
-          operationalPublicKey: 'ed25519:threshold-operational',
-          lastUpdated: Date.now(),
+        await clientDB.upsertProfile({
+          profileId,
+          defaultDeviceNumber: 1,
           passkeyCredential: {
             id: 'credential-id',
             rawId: 'credential-raw-id',
           },
-          version: 2,
+        });
+        await clientDB.upsertChainAccount({
+          profileId,
+          chainIdKey,
+          accountAddress: nearAccountId,
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await clientDB.upsertAccountSigner({
+          profileId,
+          chainIdKey,
+          accountAddress: nearAccountId,
+          signerId: 'ed25519:threshold-operational',
+          signerSlot: 1,
+          signerType: 'passkey',
+          status: 'active',
+          mutation: { routeThroughOutbox: false },
         });
 
-        await indexedDB.storeNearThresholdKeyMaterial({
-          nearAccountId,
-          deviceNumber: 1,
-          publicKey: 'ed25519:threshold-operational',
-          relayerKeyId: 'rk-1',
-          keyVersion: 'threshold-ed25519-hss-v1',
-          timestamp: Date.now(),
-        });
+        await storeNearThresholdKeyMaterial(
+          { clientDB, accountKeyMaterialDB },
+          {
+            nearAccountId,
+            deviceNumber: 1,
+            publicKey: 'ed25519:threshold-operational',
+            relayerKeyId: 'rk-1',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            timestamp: Date.now(),
+          },
+        );
 
-        const context = await clientDB.resolveNearAccountContext(nearAccountId);
+        const context = await clientDB.resolveProfileAccountContext({
+          chainIdKey,
+          accountAddress: nearAccountId,
+        });
         const raw = context
-          ? await nearKeysDB.getKeyMaterial(
+          ? await accountKeyMaterialDB.getKeyMaterial(
               context.profileId,
               1,
-              context.sourceChainIdKey,
+              context.accountRef.chainIdKey,
               'threshold_share_v1',
             )
           : null;
-        const material = await indexedDB.getNearThresholdKeyMaterial(nearAccountId, 1);
+        const material = await getNearThresholdKeyMaterial(
+          { clientDB, accountKeyMaterialDB },
+          nearAccountId,
+          1,
+        );
         const rawPayload = (raw?.payload || {}) as Record<string, unknown>;
 
         return {
@@ -116,7 +146,8 @@ test.describe('NEAR threshold key material persistence', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { PasskeyClientDBManager } = await import(paths.clientDb);
-        const { PasskeyNearKeysDBManager } = await import(paths.nearKeysDb);
+        const { getNearThresholdKeyMaterial } = await import(paths.nearDb);
+        const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
         const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
 
         const suffix =
@@ -125,32 +156,51 @@ test.describe('NEAR threshold key material persistence', () => {
             : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const clientDB = new PasskeyClientDBManager();
         clientDB.setDbName(`PasskeyClientDB-nearThresholdFallback-${suffix}`);
-        const nearKeysDB = new PasskeyNearKeysDBManager();
-        nearKeysDB.setDbName(`PasskeyNearKeys-nearThresholdFallback-${suffix}`);
-        const indexedDB = new UnifiedIndexedDBManager({ clientDB, nearKeysDB });
+        const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
+        accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-nearThresholdFallback-${suffix}`);
+        const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
         const nearAccountId = 'alice.testnet';
+        const chainIdKey = 'near:testnet';
+        const profileId = `profile-near:${nearAccountId}`;
 
-        await clientDB.upsertNearAccountProjection({
-          nearAccountId,
-          deviceNumber: 1,
-          operationalPublicKey: 'ed25519:threshold-operational',
-          lastUpdated: Date.now(),
+        await clientDB.upsertProfile({
+          profileId,
+          defaultDeviceNumber: 1,
           passkeyCredential: {
             id: 'credential-id',
             rawId: 'credential-raw-id',
           },
-          version: 2,
+        });
+        await clientDB.upsertChainAccount({
+          profileId,
+          chainIdKey,
+          accountAddress: nearAccountId,
+          accountModel: 'near-native',
+          isPrimary: true,
+        });
+        await clientDB.upsertAccountSigner({
+          profileId,
+          chainIdKey,
+          accountAddress: nearAccountId,
+          signerId: 'ed25519:threshold-operational',
+          signerSlot: 1,
+          signerType: 'passkey',
+          status: 'active',
+          mutation: { routeThroughOutbox: false },
         });
 
-        const context = await clientDB.resolveNearAccountContext(nearAccountId);
+        const context = await clientDB.resolveProfileAccountContext({
+          chainIdKey,
+          accountAddress: nearAccountId,
+        });
         if (!context) {
           throw new Error('missing near account context');
         }
 
-        await nearKeysDB.storeKeyMaterial({
+        await accountKeyMaterialDB.storeKeyMaterial({
           profileId: context.profileId,
           deviceNumber: 1,
-          chainIdKey: context.sourceChainIdKey,
+          chainIdKey: context.accountRef.chainIdKey,
           keyKind: 'threshold_share_v1',
           algorithm: 'ed25519',
           publicKey: 'ed25519:threshold-operational',
@@ -162,7 +212,7 @@ test.describe('NEAR threshold key material persistence', () => {
           schemaVersion: 1,
         });
 
-        const material = await indexedDB.getNearThresholdKeyMaterial(nearAccountId, 1);
+        const material = await getNearThresholdKeyMaterial({ clientDB, accountKeyMaterialDB }, nearAccountId, 1);
         return material;
       },
       { paths: IMPORT_PATHS },

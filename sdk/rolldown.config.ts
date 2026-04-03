@@ -409,8 +409,9 @@ const configs = [
       '../client/src/core/types/signer-worker.ts',
       // Keep IndexedDB manager internals as stable deep-import entries for DB migration tests/tools.
       '../client/src/core/indexedDB/index.ts',
+      '../client/src/core/accountData/near/keyMaterial.ts',
       '../client/src/core/indexedDB/passkeyClientDB/manager.ts',
-      '../client/src/core/indexedDB/passkeyNearKeysDB/manager.ts',
+      '../client/src/core/indexedDB/accountKeyMaterialDB/manager.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       '../client/src/core/signingEngine/signers/wasm/ethSignerWasm.ts',
     ],

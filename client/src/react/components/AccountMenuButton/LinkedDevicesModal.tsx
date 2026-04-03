@@ -4,6 +4,7 @@ import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import { toAccountId } from '@/core/types/accountIds';
 
 interface LinkedDevicesModalProps {
@@ -193,7 +194,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       const currentKey = loginState?.nearPublicKey || null;
       const thresholdKeyMaterial =
         currentDeviceNumberFromState != null
-          ? await IndexedDBManager.getNearThresholdKeyMaterial(
+          ? await getNearThresholdKeyMaterial(
+              {
+                clientDB: IndexedDBManager.clientDB,
+                accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+              },
               toAccountId(nearAccountId),
               currentDeviceNumberFromState,
             ).catch(() => null)

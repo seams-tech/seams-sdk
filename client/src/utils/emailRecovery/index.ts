@@ -1,6 +1,8 @@
 import type { AccountId } from '../../core/types/accountIds';
 import { toAccountId } from '../../core/types/accountIds';
-import { IndexedDBManager, type RecoveryEmailRecord } from '../../core/indexedDB';
+import { IndexedDBManager } from '../../core/indexedDB';
+import { resolveNearAccountProfileContinuity } from '../../core/accountData/near/accountProjection';
+import type { RecoveryEmailRecord } from '../../core/accountData/near/types';
 import type { FinalExecutionOutcome } from '@near-js/types';
 import { base64Decode } from '@shared/utils/base64';
 export { EmailRecoveryPendingStore, type PendingStore } from './emailRecoveryPendingStore';
@@ -129,9 +131,10 @@ export async function prepareRecoveryEmails(
 
   void (async () => {
     try {
-      const continuity = await IndexedDBManager.clientDB
-        .resolveNearAccountProfileContinuity(accountId)
-        .catch(() => null);
+      const continuity = await resolveNearAccountProfileContinuity(
+        IndexedDBManager.clientDB,
+        accountId,
+      ).catch(() => null);
       if (!continuity?.profile.profileId) return;
       await IndexedDBManager.clientDB.upsertRecoveryEmails(continuity.profile.profileId, pairs);
     } catch (error) {
@@ -146,9 +149,10 @@ export async function getLocalRecoveryEmails(
   nearAccountId: AccountId,
 ): Promise<RecoveryEmailRecord[]> {
   const accountId = toAccountId(nearAccountId);
-  const continuity = await IndexedDBManager.clientDB
-    .resolveNearAccountProfileContinuity(accountId)
-    .catch(() => null);
+  const continuity = await resolveNearAccountProfileContinuity(
+    IndexedDBManager.clientDB,
+    accountId,
+  ).catch(() => null);
   if (!continuity?.profile.profileId) return [];
   const rows = await IndexedDBManager.clientDB.listRecoveryEmails(continuity.profile.profileId);
   return rows.map((row) => ({

@@ -1,6 +1,6 @@
 import { PasskeyClientDBManager } from './passkeyClientDB/manager';
-import { PasskeyNearKeysDBManager } from './passkeyNearKeysDB/manager';
+import { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 
 // Shared singleton instances used by runtime/config wiring.
 export const passkeyClientDB = new PasskeyClientDBManager();
-export const passkeyNearKeysDB = new PasskeyNearKeysDBManager();
+export const accountKeyMaterialDB = new AccountKeyMaterialDBManager();

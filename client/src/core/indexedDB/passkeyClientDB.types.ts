@@ -2,53 +2,16 @@ import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
 import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 
-export interface ClientUserData {
-  // Primary key - now uses AccountId + deviceNumber for unique identification
-  nearAccountId: AccountId;
-  deviceNumber: number; // Device number for multi-device support (1-indexed)
-  version?: number;
-
-  // User metadata
-  registeredAt?: number;
-  lastLogin?: number;
-  lastUpdated?: number;
-
-  // WebAuthn/Passkey data (merged from WebAuthnManager)
-  operationalPublicKey: string;
-  passkeyCredential: {
-    id: string;
-    rawId: string;
-  };
-
-  // User preferences
-  preferences?: UserPreferences;
+export interface PasskeyCredentialRecord {
+  id: string;
+  rawId: string;
 }
-
-export type StoreUserDataInput = Omit<
-  ClientUserData,
-  'deviceNumber' | 'lastLogin' | 'registeredAt'
-> & {
-  deviceNumber?: number;
-  version?: number;
-};
 
 export interface UserPreferences {
   useRelayer: boolean;
   useNetwork: 'testnet' | 'mainnet';
   confirmationConfig: ConfirmationConfig;
   // User preferences can be extended here as needed
-}
-
-// Authenticator cache
-export interface ClientAuthenticatorData {
-  credentialId: string;
-  credentialPublicKey: Uint8Array;
-  transports?: string[]; // AuthenticatorTransport[]
-  name?: string;
-  nearAccountId: AccountId; // FK reference using AccountId
-  deviceNumber: number; // Device number for this authenticator (1-indexed)
-  registered: string; // ISO date string
-  syncedAt: string; // When this cache entry was last synced with contract
 }
 
 export interface LastProfileState {
@@ -61,13 +24,6 @@ export interface IndexedDBEvent {
   type: 'user-updated' | 'preferences-updated' | 'user-deleted';
   accountId: AccountId;
   data?: Record<string, unknown>;
-}
-
-export interface RecoveryEmailRecord {
-  nearAccountId: AccountId;
-  hashHex: string;
-  email: string;
-  addedAt: number;
 }
 
 export interface ProfileAuthenticatorRecord {
@@ -143,7 +99,7 @@ export type SignerOperationStatus = 'queued' | 'submitted' | 'confirmed' | 'fail
 export interface ProfileRecord {
   profileId: ProfileId;
   defaultDeviceNumber: number;
-  passkeyCredential: ClientUserData['passkeyCredential'];
+  passkeyCredential: PasskeyCredentialRecord;
   preferences?: UserPreferences;
   createdAt: number;
   updatedAt: number;
@@ -183,7 +139,6 @@ export interface AccountSignerRecord {
 
 export interface ProfileContinuitySnapshot {
   profile: ProfileRecord;
-  nearAccountId: AccountId | null;
   chainAccounts: ChainAccountRecord[];
   accountSigners: AccountSignerRecord[];
 }
@@ -208,7 +163,7 @@ export interface SignerOpOutboxRecord {
 export type UpsertProfileInput = {
   profileId: ProfileId;
   defaultDeviceNumber?: number;
-  passkeyCredential: ClientUserData['passkeyCredential'];
+  passkeyCredential: PasskeyCredentialRecord;
   preferences?: UserPreferences;
 };
 

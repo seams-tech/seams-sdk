@@ -18,21 +18,54 @@ test.describe('PasskeyClientDB device selection', () => {
         const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
 
         const db = new PasskeyClientDBManager();
+        const seedNearDevice = async (input: {
+          nearAccountId: string;
+          deviceNumber: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+        }) => {
+          const accountAddress = String(input.nearAccountId || '').trim().toLowerCase();
+          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+          const profileId = `profile-near:${accountAddress}`;
+          await db.upsertProfile({
+            profileId,
+            defaultDeviceNumber: input.deviceNumber,
+            passkeyCredential: input.passkeyCredential,
+          });
+          await db.upsertChainAccount({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await db.upsertAccountSigner({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: input.operationalPublicKey,
+            signerSlot: input.deviceNumber,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          return { profileId, chainIdKey, accountAddress };
+        };
         // Store a different account in DB (this will set lastUser to bob)
-        await db.upsertNearAccountProjection({
+        await seedNearDevice({
           nearAccountId: 'bob.testnet',
           deviceNumber: 2,
           operationalPublicKey: 'ed25519:pkbob',
           passkeyCredential: { id: 'c-bob', rawId: 'r-bob' },
         });
-        await db.upsertNearAccountProjection({
+        const alice = await seedNearDevice({
           nearAccountId: 'alice.testnet',
           deviceNumber: 1,
           operationalPublicKey: 'ed25519:pkalice',
           passkeyCredential: { id: 'c-alice', rawId: 'r-alice' },
         });
         // Point lastUser back to a different account so bob has no last-user session
-        await db.setLastProfileStateForNearAccount('alice.testnet', 1);
+        await db.setLastProfileStateForProfile(alice.profileId, 1);
 
         try {
           await getLastLoggedInDeviceNumber('bob.testnet', db);
@@ -56,21 +89,54 @@ test.describe('PasskeyClientDB device selection', () => {
         const { PasskeyClientDBManager } = await import(paths.clientDB);
 
         const db = new PasskeyClientDBManager();
+        const seedNearDevice = async (input: {
+          nearAccountId: string;
+          deviceNumber: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+        }) => {
+          const accountAddress = String(input.nearAccountId || '').trim().toLowerCase();
+          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+          const profileId = `profile-near:${accountAddress}`;
+          await db.upsertProfile({
+            profileId,
+            defaultDeviceNumber: input.deviceNumber,
+            passkeyCredential: input.passkeyCredential,
+          });
+          await db.upsertChainAccount({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await db.upsertAccountSigner({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: input.operationalPublicKey,
+            signerSlot: input.deviceNumber,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          return { profileId, chainIdKey, accountAddress };
+        };
         // Store user records for both devices
-        await db.upsertNearAccountProjection({
+        const context = await seedNearDevice({
           nearAccountId: 'carol.testnet',
           deviceNumber: 3,
           operationalPublicKey: 'ed25519:pk-3',
           passkeyCredential: { id: 'c-3', rawId: 'r-3' },
         });
-        await db.upsertNearAccountProjection({
+        await seedNearDevice({
           nearAccountId: 'carol.testnet',
           deviceNumber: 6,
           operationalPublicKey: 'ed25519:pk-6',
           passkeyCredential: { id: 'c-6', rawId: 'r-6' },
         });
         // Last logged-in device is 6
-        await db.setLastProfileStateForNearAccount('carol.testnet', 6);
+        await db.setLastProfileStateForProfile(context.profileId, 6);
 
         const authenticators = [
           {
@@ -91,9 +157,8 @@ test.describe('PasskeyClientDB device selection', () => {
           },
         ];
 
-        const context = await db.resolveNearAccountContext('carol.testnet');
         const projected = authenticators.map((auth: any) => ({
-          profileId: context!.profileId,
+          profileId: context.profileId,
           deviceNumber: auth.deviceNumber,
           credentialId: auth.credentialId,
           credentialPublicKey: auth.credentialPublicKey,
@@ -104,7 +169,7 @@ test.describe('PasskeyClientDB device selection', () => {
         }));
         const { authenticatorsForPrompt, wrongPasskeyError } =
           await db.selectProfileAuthenticatorsForPrompt({
-            profileId: context!.profileId,
+            profileId: context.profileId,
             authenticators: projected as any,
           });
         return {
@@ -119,7 +184,7 @@ test.describe('PasskeyClientDB device selection', () => {
     expect(result.filteredIds).toEqual(['cred-new']);
   });
 
-  test('setLastProfileStateForNearAccount pins deviceNumber when multiple entries exist', async ({
+  test('setLastProfileStateForProfile pins deviceNumber when multiple entries exist', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -128,16 +193,63 @@ test.describe('PasskeyClientDB device selection', () => {
         const { getLastLoggedInDeviceNumber } = await import(paths.getDeviceNumber);
 
         const db = new PasskeyClientDBManager();
+        const seedNearDevice = async (input: {
+          nearAccountId: string;
+          deviceNumber: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+          lastUpdated?: number;
+        }) => {
+          const accountAddress = String(input.nearAccountId || '').trim().toLowerCase();
+          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+          const profileId = `profile-near:${accountAddress}`;
+          await db.upsertProfile({
+            profileId,
+            defaultDeviceNumber: input.deviceNumber,
+            passkeyCredential: input.passkeyCredential,
+          });
+          await db.upsertChainAccount({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await db.upsertAccountSigner({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: input.operationalPublicKey,
+            signerSlot: input.deviceNumber,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          return { profileId, chainIdKey, accountAddress };
+        };
+        const getLastSelectedNearProjection = async () => {
+          const lastProfileState = await db.getLastProfileState().catch(() => null);
+          if (!lastProfileState?.profileId) return null;
+          const chainAccounts = await db.listChainAccountsByProfile(lastProfileState.profileId);
+          const nearAccount =
+            chainAccounts.find((row: any) => String(row.chainIdKey || '').startsWith('near:')) ||
+            null;
+          if (!nearAccount) return null;
+          return {
+            nearAccountId: nearAccount.accountAddress,
+            deviceNumber: lastProfileState.deviceNumber,
+          };
+        };
 
         // Insert two devices for the same account
-        await db.upsertNearAccountProjection({
+        const context = await seedNearDevice({
           nearAccountId: 'dana.testnet',
           deviceNumber: 3,
           operationalPublicKey: 'ed25519:pk-3',
           passkeyCredential: { id: 'c-3', rawId: 'r-3' },
           lastUpdated: 1000,
         });
-        await db.upsertNearAccountProjection({
+        await seedNearDevice({
           nearAccountId: 'dana.testnet',
           deviceNumber: 6,
           operationalPublicKey: 'ed25519:pk-6',
@@ -146,11 +258,10 @@ test.describe('PasskeyClientDB device selection', () => {
         });
 
         // Simulate login selecting device 6
-        await db.setLastProfileStateForNearAccount('dana.testnet', 6);
+        await db.setLastProfileStateForProfile(context.profileId, 6);
 
-        const last = await db.getLastSelectedNearAccountProjection();
+        const last = await getLastSelectedNearProjection();
         const deviceFromHelper = await getLastLoggedInDeviceNumber('dana.testnet', db);
-        const context = await db.resolveNearAccountContext('dana.testnet');
         const projected = [
           {
             credentialId: 'c-3',
@@ -169,7 +280,7 @@ test.describe('PasskeyClientDB device selection', () => {
             syncedAt: '',
           },
         ].map((auth: any) => ({
-          profileId: context!.profileId,
+          profileId: context.profileId,
           deviceNumber: auth.deviceNumber,
           credentialId: auth.credentialId,
           credentialPublicKey: auth.credentialPublicKey,
@@ -179,7 +290,7 @@ test.describe('PasskeyClientDB device selection', () => {
           syncedAt: auth.syncedAt,
         }));
         const { authenticatorsForPrompt } = await db.selectProfileAuthenticatorsForPrompt({
-          profileId: context!.profileId,
+          profileId: context.profileId,
           authenticators: projected as any,
         });
 
@@ -207,29 +318,75 @@ test.describe('PasskeyClientDB device selection', () => {
         const db = new PasskeyClientDBManager();
         const originA = 'https://app-a.example';
         const originB = 'https://app-b.example';
+        const seedNearDevice = async (input: {
+          nearAccountId: string;
+          deviceNumber: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+        }) => {
+          const accountAddress = String(input.nearAccountId || '').trim().toLowerCase();
+          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+          const profileId = `profile-near:${accountAddress}`;
+          await db.upsertProfile({
+            profileId,
+            defaultDeviceNumber: input.deviceNumber,
+            passkeyCredential: input.passkeyCredential,
+          });
+          await db.upsertChainAccount({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await db.upsertAccountSigner({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: input.operationalPublicKey,
+            signerSlot: input.deviceNumber,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          return { profileId };
+        };
+        const getLastSelectedNearProjection = async () => {
+          const lastProfileState = await db.getLastProfileState().catch(() => null);
+          if (!lastProfileState?.profileId) return null;
+          const chainAccounts = await db.listChainAccountsByProfile(lastProfileState.profileId);
+          const nearAccount =
+            chainAccounts.find((row: any) => String(row.chainIdKey || '').startsWith('near:')) ||
+            null;
+          if (!nearAccount) return null;
+          return {
+            nearAccountId: nearAccount.accountAddress,
+            deviceNumber: lastProfileState.deviceNumber,
+          };
+        };
 
         db.setLastUserScope(originA);
-        await db.upsertNearAccountProjection({
+        const alice = await seedNearDevice({
           nearAccountId: 'alice.testnet',
           deviceNumber: 1,
           operationalPublicKey: 'ed25519:pk-a',
           passkeyCredential: { id: 'c-a', rawId: 'r-a' },
         });
-        await db.setLastProfileStateForNearAccount('alice.testnet', 1);
+        await db.setLastProfileStateForProfile(alice.profileId, 1);
 
         db.setLastUserScope(originB);
-        await db.upsertNearAccountProjection({
+        const bob = await seedNearDevice({
           nearAccountId: 'bob.testnet',
           deviceNumber: 2,
           operationalPublicKey: 'ed25519:pk-b',
           passkeyCredential: { id: 'c-b', rawId: 'r-b' },
         });
-        await db.setLastProfileStateForNearAccount('bob.testnet', 2);
+        await db.setLastProfileStateForProfile(bob.profileId, 2);
 
         db.setLastUserScope(originA);
-        const lastA = await db.getLastSelectedNearAccountProjection();
+        const lastA = await getLastSelectedNearProjection();
         db.setLastUserScope(originB);
-        const lastB = await db.getLastSelectedNearAccountProjection();
+        const lastB = await getLastSelectedNearProjection();
 
         return {
           lastA: lastA
@@ -255,18 +412,64 @@ test.describe('PasskeyClientDB device selection', () => {
         const { PasskeyClientDBManager } = await import(paths.clientDB);
 
         const db = new PasskeyClientDBManager();
+        const seedNearDevice = async (input: {
+          nearAccountId: string;
+          deviceNumber: number;
+          operationalPublicKey: string;
+          passkeyCredential: { id: string; rawId: string };
+        }) => {
+          const accountAddress = String(input.nearAccountId || '').trim().toLowerCase();
+          const chainIdKey = accountAddress.endsWith('.testnet') ? 'near:testnet' : 'near:mainnet';
+          const profileId = `profile-near:${accountAddress}`;
+          await db.upsertProfile({
+            profileId,
+            defaultDeviceNumber: input.deviceNumber,
+            passkeyCredential: input.passkeyCredential,
+          });
+          await db.upsertChainAccount({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            accountModel: 'near-native',
+            isPrimary: true,
+          });
+          await db.upsertAccountSigner({
+            profileId,
+            chainIdKey,
+            accountAddress,
+            signerId: input.operationalPublicKey,
+            signerSlot: input.deviceNumber,
+            signerType: 'passkey',
+            status: 'active',
+            mutation: { routeThroughOutbox: false },
+          });
+          return { profileId };
+        };
+        const getLastSelectedNearProjection = async () => {
+          const lastProfileState = await db.getLastProfileState().catch(() => null);
+          if (!lastProfileState?.profileId) return null;
+          const chainAccounts = await db.listChainAccountsByProfile(lastProfileState.profileId);
+          const nearAccount =
+            chainAccounts.find((row: any) => String(row.chainIdKey || '').startsWith('near:')) ||
+            null;
+          if (!nearAccount) return null;
+          return {
+            nearAccountId: nearAccount.accountAddress,
+            deviceNumber: lastProfileState.deviceNumber,
+          };
+        };
         // Store without setting a scope (unscoped lastProfileState pointer).
-        await db.upsertNearAccountProjection({
+        const erin = await seedNearDevice({
           nearAccountId: 'erin.testnet',
           deviceNumber: 1,
           operationalPublicKey: 'ed25519:pk-e',
           passkeyCredential: { id: 'c-e', rawId: 'r-e' },
         });
-        await db.setLastProfileStateForNearAccount('erin.testnet', 1);
+        await db.setLastProfileStateForProfile(erin.profileId, 1);
 
         // Scoped reads are strict: no fallback to unscoped pointers.
         db.setLastUserScope('https://app-legacy.example');
-        const last = await db.getLastSelectedNearAccountProjection();
+        const last = await getLastSelectedNearProjection();
         return last ? { nearAccountId: last.nearAccountId, deviceNumber: last.deviceNumber } : null;
       },
       { paths: IMPORT_PATHS },

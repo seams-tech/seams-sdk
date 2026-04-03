@@ -2,7 +2,7 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import type { AccountId } from './accountIds';
 import type { SignedTransaction } from '../rpcClients/near/NearClient';
 import type { AuthenticatorOptions } from './authenticatorOptions';
-import type { ClientUserData } from '../indexedDB/passkeyClientDB.types';
+import type { ClientUserData } from '../accountData/near/types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 

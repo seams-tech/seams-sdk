@@ -29,7 +29,6 @@ export const DB_CONFIG: PasskeyClientDBConfig = {
 } as const;
 
 export const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState' as const;
-export const NEAR_PROFILE_PREFIX = 'near-profile' as const;
 export const DB_MULTICHAIN_MIGRATION_STATE_KEY = 'migration.dbMultichainSchema.v1' as const;
 export const DB_MULTICHAIN_MIGRATION_LOCK_KEY = 'migration.dbMultichainSchema.v1.lock' as const;
 export const DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY =

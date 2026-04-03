@@ -71,6 +71,10 @@
 }
 
 .w3a-menu-spinner-icon {
+  display: block;
+  will-change: transform;
+  transform: translateZ(0);
+  transform-origin: center;
   animation: w3a-menu-spinner-rotate 850ms linear infinite;
 }
 

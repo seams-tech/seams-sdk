@@ -1,4 +1,8 @@
 import { PasskeyClientDBManager } from '../../client/src/core/indexedDB/passkeyClientDB/manager.ts';
+import {
+  getNearAccountIdForProfile,
+  resolveNearAccountProfileContinuity,
+} from '../../client/src/core/accountData/near/accountProjection.ts';
 
 const chainAccounts = [
   {
@@ -60,9 +64,6 @@ const fakeManager = {
       updatedAt: 2,
     };
   },
-  async getNearAccountIdForProfile(profileId: string) {
-    return profileId === 'profile-alice' ? 'alice.testnet' : null;
-  },
   async listChainAccountsByProfile(profileId: string) {
     return profileId === 'profile-alice' ? chainAccounts : [];
   },
@@ -71,12 +72,16 @@ const fakeManager = {
     if (!args.status) return accountSigners;
     return accountSigners.filter((row) => row.status === args.status);
   },
-  async resolveNearAccountContext(nearAccountId: string) {
-    if (nearAccountId !== 'alice.testnet') return null;
+  async resolveProfileAccountContext(args: { chainIdKey: string; accountAddress: string }) {
+    const chainIdKey = String(args.chainIdKey || '').trim();
+    const accountAddress = String(args.accountAddress || '').trim().toLowerCase();
+    if (chainIdKey !== 'near:testnet' || accountAddress !== 'alice.testnet') return null;
     return {
       profileId: 'profile-alice',
-      sourceChainIdKey: 'near:testnet',
-      sourceAccountAddress: 'alice.testnet',
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: 'alice.testnet',
+      },
     };
   },
   async getProfileContinuitySnapshot(profileId: string) {
@@ -91,11 +96,14 @@ const snapshot = await PasskeyClientDBManager.prototype.getProfileContinuitySnap
   fakeManager as unknown as PasskeyClientDBManager,
   'profile-alice',
 );
-const resolvedSnapshot =
-  await PasskeyClientDBManager.prototype.resolveNearAccountProfileContinuity.call(
-    fakeManager as unknown as PasskeyClientDBManager,
-    'alice.testnet',
-  );
+const nearAccountId = await getNearAccountIdForProfile(
+  fakeManager as unknown as PasskeyClientDBManager,
+  'profile-alice',
+);
+const resolvedSnapshot = await resolveNearAccountProfileContinuity(
+  fakeManager as unknown as PasskeyClientDBManager,
+  'alice.testnet',
+);
 const activeSigners = await fakeManager.listAccountSignersByProfile({
   profileId: 'profile-alice',
   status: 'active',
@@ -105,7 +113,7 @@ console.log(
   'RESULT:' +
     JSON.stringify({
       profileId: snapshot?.profile.profileId || null,
-      nearAccountId: snapshot?.nearAccountId || null,
+      nearAccountId,
       resolvedProfileId: resolvedSnapshot?.profile.profileId || null,
       chainAccounts:
         resolvedSnapshot?.chainAccounts.map((row) => ({
