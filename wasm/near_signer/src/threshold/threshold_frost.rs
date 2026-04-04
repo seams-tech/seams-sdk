@@ -35,12 +35,14 @@ pub fn threshold_ed25519_keygen_from_master_secret_and_client_verifying_share(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519RecoveryKeypairFromSeedArgs {
     seed_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519RecoveryKeypairFromSeedOutput {
     public_key: String,
     private_key: String,
@@ -64,6 +66,7 @@ pub(crate) struct ThresholdEd25519SeedExportArtifactFromSeedOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssServerInputsArgs {
     master_secret_b64u: String,
     org_id: String,
@@ -76,6 +79,7 @@ struct ThresholdEd25519HssServerInputsArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssServerInputsOutput {
     org_id: String,
     near_account_id: String,
@@ -89,6 +93,7 @@ struct ThresholdEd25519HssServerInputsOutput {
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_recovery_keypair_from_seed(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519RecoveryKeypairFromSeedArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -126,6 +131,7 @@ pub fn threshold_ed25519_seed_export_artifact_from_seed(args: JsValue) -> Result
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_hss_server_inputs(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssServerInputsArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;

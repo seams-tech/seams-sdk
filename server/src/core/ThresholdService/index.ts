@@ -24,15 +24,11 @@ export {
 export {
   ensureThresholdEd25519HssWasm,
   deriveThresholdEd25519HssServerInputs,
-  evaluateThresholdEd25519HssResult,
   finalizeThresholdEd25519HssServerCeremony,
   finalizeThresholdEd25519HssReport,
   deriveThresholdEd25519HssPublicKey,
-  openThresholdEd25519HssClientOutput,
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
   prepareThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssClientRequest,
   prepareThresholdEd25519HssServerMessage,
-  prepareThresholdEd25519HssSession,
 } from './ed25519HssWasm';

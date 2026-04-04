@@ -55,3 +55,5 @@ x25519-dalek = "2.0"
 
 [features]
 default = []
+hss-client-exports = []
+hss-server-exports = []

@@ -27,14 +27,10 @@ export {
   deriveThresholdEd25519HssServerInputs,
   deriveThresholdEd25519HssPublicKey,
   finalizeThresholdEd25519HssServerCeremony,
-  openThresholdEd25519HssClientOutput,
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
   prepareThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssSession,
-  prepareThresholdEd25519HssClientRequest,
   prepareThresholdEd25519HssServerMessage,
-  evaluateThresholdEd25519HssResult,
   finalizeThresholdEd25519HssReport,
 } from './core/ThresholdService/ed25519HssWasm';
 export type {

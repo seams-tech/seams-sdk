@@ -103,9 +103,9 @@ echo "Running cargo check first..."
 run cargo check
 
 echo "Running wasm-pack build..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker "${WASM_PACK_PROFILE_ARGS[@]}"
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker "${WASM_PACK_PROFILE_ARGS[@]}" --features hss-client-exports
 echo "Running server release wasm-pack build for near signer..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
 popd >/dev/null
 
 echo "Building eth signer WASM..."

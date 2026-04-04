@@ -19,13 +19,15 @@ use crate::threshold::threshold_frost::{
     ThresholdEd25519SeedExportArtifactFromSeedArgs,
 };
 use crate::threshold::threshold_hss::{
-    derive_threshold_ed25519_hss_public_key_from_base_shares,
+    derive_threshold_ed25519_hss_public_key_from_base_shares, open_threshold_ed25519_hss_seed_output,
+    ThresholdEd25519HssOpenSeedOutputArgs, ThresholdEd25519HssPublicKeyFromSharesArgs,
+};
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+use crate::threshold::threshold_hss::{
     evaluate_threshold_ed25519_hss_result, open_threshold_ed25519_hss_client_output,
-    open_threshold_ed25519_hss_seed_output, prepare_threshold_ed25519_hss_client_request,
-    prepare_threshold_ed25519_hss_session, ThresholdEd25519HssEvaluateResultArgs,
-    ThresholdEd25519HssOpenClientOutputArgs, ThresholdEd25519HssOpenSeedOutputArgs,
+    prepare_threshold_ed25519_hss_client_request, prepare_threshold_ed25519_hss_session,
+    ThresholdEd25519HssEvaluateResultArgs, ThresholdEd25519HssOpenClientOutputArgs,
     ThresholdEd25519HssPrepareClientRequestArgs, ThresholdEd25519HssPrepareSessionArgs,
-    ThresholdEd25519HssPublicKeyFromSharesArgs,
 };
 use crate::types::worker_messages::{
     parse_typed_payload, parse_worker_request_envelope, worker_request_type_name,
@@ -266,36 +268,76 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
         }
         WorkerRequestType::PrepareThresholdEd25519HssSession => {
-            let request: ThresholdEd25519HssPrepareSessionArgs =
-                parse_typed_payload(&payload_js, request_type)?;
-            let result = prepare_threshold_ed25519_hss_session(request)
-                .map_err(|e| JsValue::from_str(&e))?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+            #[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+            {
+                let request: ThresholdEd25519HssPrepareSessionArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result = prepare_threshold_ed25519_hss_session(request)
+                    .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(any(feature = "hss-client-exports", not(feature = "hss-server-exports"))))]
+            {
+                return Err(JsValue::from_str(
+                    "PrepareThresholdEd25519HssSession is not available in the server HSS runtime",
+                ));
+            }
         }
         WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
-            let request: ThresholdEd25519HssPrepareClientRequestArgs =
-                parse_typed_payload(&payload_js, request_type)?;
-            let result = prepare_threshold_ed25519_hss_client_request(request)
-                .map_err(|e| JsValue::from_str(&e))?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+            #[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+            {
+                let request: ThresholdEd25519HssPrepareClientRequestArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result = prepare_threshold_ed25519_hss_client_request(request)
+                    .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(any(feature = "hss-client-exports", not(feature = "hss-server-exports"))))]
+            {
+                return Err(JsValue::from_str(
+                    "PrepareThresholdEd25519HssClientRequest is not available in the server HSS runtime",
+                ));
+            }
         }
         WorkerRequestType::EvaluateThresholdEd25519HssResult => {
-            let request: ThresholdEd25519HssEvaluateResultArgs =
-                parse_typed_payload(&payload_js, request_type)?;
-            let result = evaluate_threshold_ed25519_hss_result(request)
-                .map_err(|e| JsValue::from_str(&e))?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+            #[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+            {
+                let request: ThresholdEd25519HssEvaluateResultArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result = evaluate_threshold_ed25519_hss_result(request)
+                    .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(any(feature = "hss-client-exports", not(feature = "hss-server-exports"))))]
+            {
+                return Err(JsValue::from_str(
+                    "EvaluateThresholdEd25519HssResult is not available in the server HSS runtime",
+                ));
+            }
         }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
-            let request: ThresholdEd25519HssOpenClientOutputArgs =
-                parse_typed_payload(&payload_js, request_type)?;
-            let result = open_threshold_ed25519_hss_client_output(request)
-                .map_err(|e| JsValue::from_str(&e))?;
-            serde_wasm_bindgen::to_value(&result)
-                .map_err(|e| JsValue::from_str(&format!("Failed to serialize result: {:?}", e)))?
+            #[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+            {
+                let request: ThresholdEd25519HssOpenClientOutputArgs =
+                    parse_typed_payload(&payload_js, request_type)?;
+                let result = open_threshold_ed25519_hss_client_output(request)
+                    .map_err(|e| JsValue::from_str(&e))?;
+                serde_wasm_bindgen::to_value(&result).map_err(|e| {
+                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
+                })?
+            }
+            #[cfg(not(any(feature = "hss-client-exports", not(feature = "hss-server-exports"))))]
+            {
+                return Err(JsValue::from_str(
+                    "OpenThresholdEd25519HssClientOutput is not available in the server HSS runtime",
+                ));
+            }
         }
         WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
             let request: ThresholdEd25519HssOpenSeedOutputArgs =

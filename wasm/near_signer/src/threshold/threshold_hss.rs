@@ -1,15 +1,24 @@
 use crate::encoders::{base64_url_decode, base64_url_encode};
 use ed25519_hss::{
-    prepare_prime_order_succinct_hss, reference::public_key_from_base_shares, CanonicalContext,
-    PrimeOrderSuccinctHssEvaluatorDriverState, PrimeOrderSuccinctHssEvaluatorOtState,
-    PrimeOrderSuccinctHssGarblerDriverState, PrimeOrderSuccinctHssWireMessage,
+    client::ClientDriverState,
+    shared::public_key_from_base_shares,
+    wire::WireMessage,
 };
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+use ed25519_hss::client::ClientOtState;
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
+use ed25519_hss::shared::CanonicalContext;
+#[cfg(feature = "hss-server-exports")]
+use ed25519_hss::server::ServerDriverState;
 use serde::{Deserialize, Serialize};
 use signer_platform_web::near_threshold_ed25519::verifying_share_bytes_from_signing_share_bytes;
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
     org_id: String,
     near_account_id: String,
@@ -21,6 +30,7 @@ pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
     org_id: String,
     near_account_id: String,
@@ -32,6 +42,7 @@ pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
     org_id: String,
     near_account_id: String,
@@ -47,6 +58,7 @@ pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssPrepareClientRequestArgs {
     evaluator_driver_state_json: String,
     client_ot_offer_message_b64u: String,
@@ -56,6 +68,7 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
     context_binding_b64u: String,
     client_request_message_b64u: String,
@@ -64,6 +77,7 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssPrepareServerMessageArgs {
     garbler_driver_state_json: String,
     client_request_message_b64u: String,
@@ -73,6 +87,7 @@ struct ThresholdEd25519HssPrepareServerMessageArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssPrepareServerMessageOutput {
     context_binding_b64u: String,
     server_message_b64u: String,
@@ -80,6 +95,7 @@ struct ThresholdEd25519HssPrepareServerMessageOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssEvaluateResultArgs {
     evaluator_driver_state_json: String,
     client_request_message_b64u: String,
@@ -89,6 +105,7 @@ pub(crate) struct ThresholdEd25519HssEvaluateResultArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssEvaluateResultOutput {
     context_binding_b64u: String,
     evaluation_result_message_b64u: String,
@@ -96,6 +113,7 @@ pub(crate) struct ThresholdEd25519HssEvaluateResultOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssFinalizeReportArgs {
     garbler_driver_state_json: String,
     evaluation_result_message_b64u: String,
@@ -103,6 +121,7 @@ struct ThresholdEd25519HssFinalizeReportArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssFinalizeReportOutput {
     context_binding_b64u: String,
     evaluation_report_json: String,
@@ -113,6 +132,7 @@ struct ThresholdEd25519HssFinalizeReportOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssOpenClientOutputArgs {
     evaluator_driver_state_json: String,
     client_output_message_b64u: String,
@@ -120,6 +140,7 @@ pub(crate) struct ThresholdEd25519HssOpenClientOutputArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) struct ThresholdEd25519HssOpenClientOutputOutput {
     context_binding_b64u: String,
     x_client_base_b64u: String,
@@ -127,6 +148,7 @@ pub(crate) struct ThresholdEd25519HssOpenClientOutputOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssOpenServerOutputArgs {
     garbler_driver_state_json: String,
     server_output_message_b64u: String,
@@ -134,6 +156,7 @@ struct ThresholdEd25519HssOpenServerOutputArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
 struct ThresholdEd25519HssOpenServerOutputOutput {
     context_binding_b64u: String,
     x_relayer_base_b64u: String,
@@ -179,6 +202,7 @@ struct ThresholdEd25519HssVerifyingShareFromSigningShareOutput {
 }
 
 #[wasm_bindgen]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareSessionArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -188,6 +212,7 @@ pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, J
 }
 
 #[wasm_bindgen]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareClientRequestArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -201,10 +226,11 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_hss_prepare_server_message(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareServerMessageArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState =
+    let garbler_state: ServerDriverState =
         parse_json(&args.garbler_driver_state_json, "garblerDriverStateJson")?;
     let context_binding = garbler_state.garbler_session.context_binding;
     let (_runtime, garbler_session) = garbler_state
@@ -232,6 +258,7 @@ pub fn threshold_ed25519_hss_prepare_server_message(args: JsValue) -> Result<JsV
 }
 
 #[wasm_bindgen]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub fn threshold_ed25519_hss_evaluate_result(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssEvaluateResultArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -241,10 +268,11 @@ pub fn threshold_ed25519_hss_evaluate_result(args: JsValue) -> Result<JsValue, J
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssFinalizeReportArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState =
+    let garbler_state: ServerDriverState =
         parse_json(&args.garbler_driver_state_json, "garblerDriverStateJson")?;
     let (runtime, garbler_session) = garbler_state
         .materialize()
@@ -270,6 +298,7 @@ pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, J
 }
 
 #[wasm_bindgen]
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssOpenClientOutputArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -283,10 +312,11 @@ pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_hss_open_server_output(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssOpenServerOutputArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState =
+    let garbler_state: ServerDriverState =
         parse_json(&args.garbler_driver_state_json, "garblerDriverStateJson")?;
     let (_runtime, garbler_session) = garbler_state
         .materialize()
@@ -347,6 +377,7 @@ pub fn threshold_ed25519_hss_verifying_share_from_signing_share(
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize verifying share: {e}")))
 }
 
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 fn canonical_context_from_args(
     args: ThresholdEd25519HssCanonicalContextArgs,
 ) -> Result<CanonicalContext, JsValue> {
@@ -394,17 +425,18 @@ fn decode_fixed_32(value: &str, field_name: &str) -> Result<[u8; 32], JsValue> {
 fn decode_wire_message(
     value: &str,
     field_name: &str,
-) -> Result<PrimeOrderSuccinctHssWireMessage, JsValue> {
-    Ok(PrimeOrderSuccinctHssWireMessage {
+) -> Result<WireMessage, JsValue> {
+    Ok(WireMessage {
         bytes: base64_url_decode(value)
             .map_err(|e| JsValue::from_str(&format!("Invalid {field_name}: {e}")))?,
     })
 }
 
-fn encode_wire_message(value: &PrimeOrderSuccinctHssWireMessage) -> String {
+fn encode_wire_message(value: &WireMessage) -> String {
     base64_url_encode(&value.bytes)
 }
 
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) fn prepare_threshold_ed25519_hss_session(
     args: ThresholdEd25519HssPrepareSessionArgs,
 ) -> Result<ThresholdEd25519HssPrepareSessionOutput, String> {
@@ -442,10 +474,11 @@ pub(crate) fn prepare_threshold_ed25519_hss_session(
     })
 }
 
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) fn prepare_threshold_ed25519_hss_client_request(
     args: ThresholdEd25519HssPrepareClientRequestArgs,
 ) -> Result<ThresholdEd25519HssPrepareClientRequestOutput, String> {
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+    let evaluator_state: ClientDriverState = parse_json(
         &args.evaluator_driver_state_json,
         "evaluatorDriverStateJson",
     )
@@ -472,15 +505,16 @@ pub(crate) fn prepare_threshold_ed25519_hss_client_request(
     })
 }
 
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) fn evaluate_threshold_ed25519_hss_result(
     args: ThresholdEd25519HssEvaluateResultArgs,
 ) -> Result<ThresholdEd25519HssEvaluateResultOutput, String> {
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+    let evaluator_state: ClientDriverState = parse_json(
         &args.evaluator_driver_state_json,
         "evaluatorDriverStateJson",
     )
     .map_err(js_value_to_string)?;
-    let evaluator_ot_state: PrimeOrderSuccinctHssEvaluatorOtState =
+    let evaluator_ot_state: ClientOtState =
         parse_json(&args.evaluator_ot_state_json, "evaluatorOtStateJson")
             .map_err(js_value_to_string)?;
     let (runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
@@ -506,10 +540,11 @@ pub(crate) fn evaluate_threshold_ed25519_hss_result(
     })
 }
 
+#[cfg(any(feature = "hss-client-exports", not(feature = "hss-server-exports")))]
 pub(crate) fn open_threshold_ed25519_hss_client_output(
     args: ThresholdEd25519HssOpenClientOutputArgs,
 ) -> Result<ThresholdEd25519HssOpenClientOutputOutput, String> {
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+    let evaluator_state: ClientDriverState = parse_json(
         &args.evaluator_driver_state_json,
         "evaluatorDriverStateJson",
     )
@@ -532,7 +567,7 @@ pub(crate) fn open_threshold_ed25519_hss_client_output(
 pub(crate) fn open_threshold_ed25519_hss_seed_output(
     args: ThresholdEd25519HssOpenSeedOutputArgs,
 ) -> Result<ThresholdEd25519HssOpenSeedOutputOutput, String> {
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState = parse_json(
+    let evaluator_state: ClientDriverState = parse_json(
         &args.evaluator_driver_state_json,
         "evaluatorDriverStateJson",
     )

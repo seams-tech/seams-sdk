@@ -1,14 +1,10 @@
 import wasmSignerServerDefault, {
   init_worker as init_worker_server,
-  threshold_ed25519_hss_evaluate_result as threshold_ed25519_hss_evaluate_result_server,
   threshold_ed25519_hss_finalize_report as threshold_ed25519_hss_finalize_report_server,
-  threshold_ed25519_hss_open_client_output as threshold_ed25519_hss_open_client_output_server,
   threshold_ed25519_hss_open_seed_output as threshold_ed25519_hss_open_seed_output_server,
   threshold_ed25519_hss_open_server_output as threshold_ed25519_hss_open_server_output_server,
   threshold_ed25519_hss_public_key_from_base_shares as threshold_ed25519_hss_public_key_from_base_shares_server,
-  threshold_ed25519_hss_prepare_client_request as threshold_ed25519_hss_prepare_client_request_server,
   threshold_ed25519_hss_prepare_server_message as threshold_ed25519_hss_prepare_server_message_server,
-  threshold_ed25519_hss_prepare_session as threshold_ed25519_hss_prepare_session_server,
   threshold_ed25519_hss_server_inputs as threshold_ed25519_hss_server_inputs_server,
   threshold_ed25519_hss_verifying_share_from_signing_share as threshold_ed25519_hss_verifying_share_from_signing_share_server,
   threshold_ed25519_recovery_keypair_from_seed as threshold_ed25519_recovery_keypair_from_seed_server,
@@ -17,12 +13,10 @@ import type { InitInput } from '../../../../wasm/near_signer/pkg-server/wasm_sig
 import { createWasmLoader } from '../wasm-loader';
 import type {
   ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssClientInputs,
   ThresholdEd25519HssClientRequestEnvelope,
   ThresholdEd25519HssDerivedPublicKey,
   ThresholdEd25519HssEvaluationResultEnvelope,
   ThresholdEd25519HssFinalizedReportEnvelope,
-  ThresholdEd25519HssOpenedClientOutput,
   ThresholdEd25519HssOpenedSeedOutput,
   ThresholdEd25519HssOpenedServerOutput,
   ThresholdEd25519HssPreparedSessionEnvelope,
@@ -125,78 +119,6 @@ export async function deriveThresholdEd25519HssServerInputs(input: {
   };
 }
 
-export async function prepareThresholdEd25519HssSession(input: {
-  context: ThresholdEd25519HssCanonicalContext;
-}): Promise<ThresholdEd25519HssPreparedSessionEnvelope> {
-  await ensureThresholdEd25519HssWasm();
-  requireThresholdEd25519HssWasmReady();
-
-  const result = threshold_ed25519_hss_prepare_session_server({
-    orgId: input.context.orgId,
-    nearAccountId: input.context.nearAccountId,
-    keyPurpose: input.context.keyPurpose,
-    keyVersion: input.context.keyVersion,
-    participantIds: input.context.participantIds,
-    derivationVersion: input.context.derivationVersion,
-  }) as {
-    orgId: string;
-    nearAccountId: string;
-    keyPurpose: string;
-    keyVersion: string;
-    participantIds: ArrayLike<number> | number[];
-    derivationVersion: number;
-    contextBindingB64u: string;
-    garblerDriverStateJson: string;
-    evaluatorDriverStateJson: string;
-    clientOtOfferMessageB64u: string;
-  };
-
-  const participantIdsValue = result.participantIds;
-  return {
-    orgId: String(result.orgId || '').trim(),
-    nearAccountId: String(result.nearAccountId || '').trim(),
-    keyPurpose: String(result.keyPurpose || '').trim(),
-    keyVersion: String(result.keyVersion || '').trim(),
-    participantIds:
-      Array.isArray(participantIdsValue) || ArrayBuffer.isView(participantIdsValue)
-        ? Array.from(participantIdsValue, (value) => Number(value))
-        : [],
-    derivationVersion: Number(result.derivationVersion),
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    garblerDriverStateJson: String(result.garblerDriverStateJson || '').trim(),
-    evaluatorDriverStateJson: String(result.evaluatorDriverStateJson || '').trim(),
-    clientOtOfferMessageB64u: String(result.clientOtOfferMessageB64u || '').trim(),
-  };
-}
-
-export async function prepareThresholdEd25519HssClientRequest(input: {
-  preparedSession: Pick<
-    ThresholdEd25519HssPreparedSessionEnvelope,
-    'evaluatorDriverStateJson' | 'clientOtOfferMessageB64u'
-  >;
-  clientInputs: ThresholdEd25519HssClientInputs;
-}): Promise<ThresholdEd25519HssClientRequestEnvelope> {
-  await ensureThresholdEd25519HssWasm();
-  requireThresholdEd25519HssWasmReady();
-
-  const result = threshold_ed25519_hss_prepare_client_request_server({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientOtOfferMessageB64u: input.preparedSession.clientOtOfferMessageB64u,
-    yClientB64u: input.clientInputs.yClientB64u,
-    tauClientB64u: input.clientInputs.tauClientB64u,
-  }) as {
-    contextBindingB64u: string;
-    clientRequestMessageB64u: string;
-    evaluatorOtStateJson: string;
-  };
-
-  return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
-    evaluatorOtStateJson: String(result.evaluatorOtStateJson || '').trim(),
-  };
-}
-
 export async function prepareThresholdEd25519HssServerMessage(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateJson'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
@@ -259,30 +181,6 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
   return { serverInputs, serverMessage };
 }
 
-export async function evaluateThresholdEd25519HssResult(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-  serverMessage: ThresholdEd25519HssServerMessageEnvelope;
-}): Promise<ThresholdEd25519HssEvaluationResultEnvelope> {
-  await ensureThresholdEd25519HssWasm();
-  requireThresholdEd25519HssWasmReady();
-
-  const result = threshold_ed25519_hss_evaluate_result_server({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
-    evaluatorOtStateJson: input.clientRequest.evaluatorOtStateJson,
-    serverMessageB64u: input.serverMessage.serverMessageB64u,
-  }) as {
-    contextBindingB64u: string;
-    evaluationResultMessageB64u: string;
-  };
-
-  return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    evaluationResultMessageB64u: String(result.evaluationResultMessageB64u || '').trim(),
-  };
-}
-
 export async function finalizeThresholdEd25519HssReport(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateJson'>;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
@@ -307,27 +205,6 @@ export async function finalizeThresholdEd25519HssReport(input: {
     clientOutputMessageB64u: String(result.clientOutputMessageB64u || '').trim(),
     seedOutputMessageB64u: String(result.seedOutputMessageB64u || '').trim(),
     serverOutputMessageB64u: String(result.serverOutputMessageB64u || '').trim(),
-  };
-}
-
-export async function openThresholdEd25519HssClientOutput(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
-  finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'clientOutputMessageB64u'>;
-}): Promise<ThresholdEd25519HssOpenedClientOutput> {
-  await ensureThresholdEd25519HssWasm();
-  requireThresholdEd25519HssWasmReady();
-
-  const result = threshold_ed25519_hss_open_client_output_server({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
-    clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
-  }) as {
-    contextBindingB64u: string;
-    xClientBaseB64u: string;
-  };
-
-  return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    xClientBaseB64u: String(result.xClientBaseB64u || '').trim(),
   };
 }
 

@@ -45,14 +45,14 @@ if WASM_PACK_BUILD_PROFILE=dev "$SDK_ROOT/scripts/codegen/generate-types.sh"; th
 
 print_step "Building WASM signer worker (release for active browser hot path)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release --features hss-client-exports; then
   print_success "WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM signer build failed"
   exit 1
 fi
 print_step "Building WASM signer worker for server HSS hot path (release)..."
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports; then
   print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "Server HSS WASM signer build failed"
