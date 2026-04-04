@@ -1,0 +1,325 @@
+# HSS Optimize Registration
+
+Date updated: April 3, 2026
+
+## Summary
+
+This plan is for speeding up the active Ed25519 Option A registration flow.
+
+The rule for this work is simple:
+
+- each optimization must be implemented in isolation
+- each optimization must be measured before and after
+- each optimization is only kept if it meaningfully improves registration speed
+- if the speed win is weak, inconsistent, or comes with bad complexity or risk,
+  revert it and move on
+
+This is a performance plan, not a speculative redesign doc.
+
+## Current Registration Shape
+
+The current registration flow does this:
+
+1. validate account input and run a best-effort account existence check
+2. complete WebAuthn registration
+3. run Ed25519 Option A HSS registration prepare/finalize
+4. submit atomic relay registration
+5. create the NEAR account on-chain
+6. run optimistic access-key visibility verification
+7. persist relay-side authenticator, binding, and warm-session data
+8. persist client-side wallet/session data
+9. start background ECDSA provisioning and Ed25519 prewarm
+
+Recent timings show:
+
+- HSS registration prepare is now in the low hundreds of milliseconds
+- HSS registration finalize is around one second or less
+- NEAR account creation plus optimistic key visibility is now one of the main
+  fixed costs
+- remaining avoidable latency is mostly wrapper overhead, request sequencing,
+  serialization, and persistence ordering
+
+## Success Criteria
+
+An optimization counts as successful only if it satisfies all of these:
+
+- improves median end-to-end registration time in local/dev benchmarking
+- does not regress correctness or active Option A behavior
+- does not materially weaken security or scope binding
+- does not add permanent legacy branches or duplicate code paths
+
+Suggested threshold for “meaningful”:
+
+- keep if median total registration time improves by at least `10%` or at least
+  `500ms`
+- otherwise revert unless the change is extremely small and obviously beneficial
+
+## Benchmark Rules
+
+Every phase below should use the same evaluation loop:
+
+1. capture the current baseline
+2. implement one isolated optimization
+3. run the same registration benchmark several times
+4. compare:
+   - total registration time
+   - Ed25519 HSS prepare/finalize time
+   - atomic registration time
+   - NEAR key visibility time
+   - client local persistence time
+5. keep only if the result is meaningfully better
+
+Benchmark output should be logged in one place so we can compare phases without
+guessing.
+
+## Instrumentation First
+
+Before changing behavior further, make the registration timing output complete
+enough that every experiment can be judged quickly.
+
+Needed timing buckets:
+
+- client input validation
+- client WebAuthn duration
+- managed flow grant duration
+- HSS client-input derivation duration
+- HSS local prepare duration
+- HSS relay prepare duration
+- HSS local evaluate duration
+- HSS relay finalize duration
+- atomic registration request duration
+- NEAR broadcast duration
+- optimistic key-visibility duration
+- relay persistence subtasks
+- client local persistence subtasks
+- total end-to-end duration
+
+## Optimization Phases
+
+### Phase 0: Establish Baseline
+
+Goal:
+
+- produce a stable registration baseline before changing anything else
+
+Work:
+
+- add one canonical registration benchmark checklist
+- run at least `5` full registrations in the same environment
+- record median and p95 timings
+- identify the largest stable buckets
+
+Keep rule:
+
+- always keep the improved instrumentation
+
+### Phase 1: Remove Or Hide Preflight Latency
+
+Candidate optimization:
+
+- defer or eliminate the blocking account-exists pre-check
+- fetch the managed `registration_v1` flow grant earlier, ideally while the
+  user is completing WebAuthn
+
+Hypothesis:
+
+- this should shave off obvious pre-registration idle time without changing
+  cryptographic behavior
+
+Measurement:
+
+- compare time-to-HSS-start
+- compare total registration time
+
+Keep only if:
+
+- the early grant/preflight changes reduce median registration time
+  meaningfully
+
+### Phase 2: Shrink HSS Transport Overhead
+
+Candidate optimization:
+
+- stop resending large HSS ceremony state on finalize
+- replace full finalize payload state with a short-lived relay-side ceremony
+  handle
+
+Possible implementation direction:
+
+- `prepare` stores server-side ceremony state keyed by a one-shot handle
+- `finalize` sends only:
+  - handle
+  - evaluation result
+  - minimal bound context
+
+Hypothesis:
+
+- this should reduce JSON serialization cost, request bytes, and browser/relay
+  overhead
+
+Measurement:
+
+- request payload size before/after
+- HSS prepare/finalize client timing
+- HSS total ceremony timing
+- total registration time
+
+Keep only if:
+
+- the handle-based design gives a clear speed win and does not complicate scope
+  binding in a risky way
+
+### Phase 3: Reduce Blocking On-Chain Verification
+
+Candidate optimization:
+
+- relax or remove the blocking optimistic key-visibility gate from the user
+  success path
+- rely on background audit plus first-use tolerance instead
+
+Hypothesis:
+
+- this is likely one of the largest remaining registration wins
+
+Measurement:
+
+- compare registration total time before/after
+- compare first-use success/failure immediately after registration
+- compare rate of background audit completion
+
+Keep only if:
+
+- registration gets materially faster
+- immediate post-registration signing remains reliable enough
+- failure mode is still clean and understandable
+
+If first-use reliability regresses, revert.
+
+### Phase 4: Parallelize Relay Persistence
+
+Candidate optimization:
+
+- parallelize independent relay-side post-transaction work:
+  - authenticator persistence
+  - credential binding persistence
+  - Ed25519 session mint where safe
+
+Hypothesis:
+
+- this should reduce the tail of relay registration after the chain operation
+  completes
+
+Measurement:
+
+- compare relay persistence subtasks
+- compare total atomic registration time
+
+Keep only if:
+
+- the parallel version is measurably faster and preserves deterministic error
+  behavior
+
+### Phase 5: Parallelize Client Local Persistence
+
+Candidate optimization:
+
+- parallelize:
+  - `atomicStoreRegistrationData(...)`
+  - `persistRegisteredThresholdEd25519Session(...)`
+
+Hypothesis:
+
+- this should reduce the post-success local storage tail on the client
+
+Measurement:
+
+- compare client local persistence time
+- compare total registration time
+
+Keep only if:
+
+- there is a measurable user-visible reduction
+
+### Phase 6: Reassess Background Work Placement
+
+Candidate optimization:
+
+- audit all remaining work that still runs before UI success
+- move non-critical work to background if it is not needed for immediate
+  correctness
+
+Likely audit targets:
+
+- any lingering local HSS warm-up
+- any duplicated session/bootstrap work
+- any non-critical relay metadata persistence
+
+Keep only if:
+
+- immediate registration correctness is unchanged
+- total registration time gets meaningfully better
+
+## Do Not Optimize Blindly
+
+Do not keep an optimization just because it sounds cleaner.
+
+Revert any change that:
+
+- does not produce a real speed win
+- weakens scope binding or request validation
+- adds duplicate flows or temporary compatibility branches
+- makes observability worse
+
+## Plan Checklist
+
+### Baseline
+
+- [ ] Add one canonical registration timing summary for all major client and
+      relay substeps
+- [ ] Capture baseline runs and record median/p95 registration timing
+
+### Phase 1
+
+- [ ] Prototype deferred or removed account-exists pre-check
+- [ ] Prototype earlier managed flow grant fetch
+- [ ] Benchmark both changes against baseline
+- [ ] Keep only the changes that meaningfully improve speed
+
+### Phase 2
+
+- [ ] Prototype relay-side HSS ceremony handle to reduce finalize payload size
+- [ ] Benchmark request size and total ceremony time before/after
+- [ ] Keep only if the handle-based design materially improves speed
+
+### Phase 3
+
+- [ ] Prototype non-blocking or reduced blocking optimistic key-visibility gate
+- [ ] Benchmark registration speed and immediate first-use reliability
+- [ ] Keep only if speed improves without unacceptable reliability regression
+
+### Phase 4
+
+- [ ] Identify relay persistence steps that can safely run in parallel
+- [ ] Implement relay-side parallel persistence
+- [ ] Benchmark total atomic registration time before/after
+- [ ] Keep only if the speed win is meaningful
+
+### Phase 5
+
+- [ ] Identify client local persistence steps that can safely run in parallel
+- [ ] Implement client-side parallel persistence
+- [ ] Benchmark local persistence and total registration time before/after
+- [ ] Keep only if the speed win is meaningful
+
+### Phase 6
+
+- [ ] Audit remaining blocking work after registration success
+- [ ] Move any non-critical work to background where safe
+- [ ] Benchmark final registration flow again
+- [ ] Keep only the background moves that produce a real speed improvement
+
+### Final Decision
+
+- [ ] Produce a final before/after summary of kept optimizations
+- [ ] Revert experiments that did not materially improve speed
+- [ ] Document the final optimized registration flow
