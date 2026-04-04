@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import * as ed from '@noble/ed25519';
 import bs58 from 'bs58';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { ActionType, type ActionArgsWasm } from '@/core/types/actions';
+import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import { createRelayRouter } from '@server/router/express-adaptor';
@@ -11,12 +13,19 @@ import {
   handle_signer_message,
   threshold_ed25519_compute_near_tx_signing_digests,
 } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
-import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 import {
-  evaluateThresholdEd25519HssResult,
-  prepareThresholdEd25519HssClientRequest,
-  prepareThresholdEd25519HssSession,
-} from '@server/core/ThresholdService/ed25519HssWasm';
+  derive_threshold_ed25519_hss_client_inputs,
+  initSync as initHssClientSignerWasmSync,
+  threshold_ed25519_hss_evaluate_result,
+  threshold_ed25519_hss_prepare_client_request,
+  threshold_ed25519_hss_prepare_session,
+} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import {
+  deriveThresholdEd25519HssClientInputsWasm,
+  evaluateThresholdEd25519HssResultWasm,
+  prepareThresholdEd25519HssClientRequestWasm,
+  prepareThresholdEd25519HssSessionWasm,
+} from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
 import {
   callCf,
   fetchJson,
@@ -46,6 +55,11 @@ const DEFAULT_HSS_PRF_FIRST_B64U = Buffer.from(new Uint8Array(32).fill(13)).toSt
 const DEFAULT_HSS_ORG_ID = 'org_threshold_scope_test';
 const DEFAULT_HSS_KEY_PURPOSE = 'near-ed25519-signing';
 const DEFAULT_HSS_DERIVATION_VERSION = 1;
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
+let hssClientSignerWasmInitializedForDirectWorkerTests = false;
 
 type CapturedLogEntry = {
   level: 'debug' | 'info' | 'warn' | 'error';
@@ -388,6 +402,41 @@ async function invokeNearSignerWorkerDirect(request: {
   type: number;
   payload?: Record<string, unknown>;
 }): Promise<any> {
+  if (
+    request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
+    request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
+    request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
+    request.type === WorkerRequestType.EvaluateThresholdEd25519HssResult
+  ) {
+    if (!hssClientSignerWasmInitializedForDirectWorkerTests) {
+      initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+      hssClientSignerWasmInitializedForDirectWorkerTests = true;
+    }
+    switch (request.type) {
+      case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess,
+          payload: derive_threshold_ed25519_hss_client_inputs(request.payload || {}),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssSession:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess,
+          payload: threshold_ed25519_hss_prepare_session(request.payload || {}),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssClientRequest:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
+          payload: threshold_ed25519_hss_prepare_client_request(request.payload || {}),
+        };
+      case WorkerRequestType.EvaluateThresholdEd25519HssResult:
+        return {
+          type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
+          payload: threshold_ed25519_hss_evaluate_result(request.payload || {}),
+        };
+      default:
+        break;
+    }
+  }
   return handle_signer_message({
     type: request.type,
     payload: {
@@ -396,6 +445,11 @@ async function invokeNearSignerWorkerDirect(request: {
     },
   });
 }
+
+const TEST_NEAR_SIGNER_WORKER_CTX = {
+  requestWorkerOperation: async ({ request }: { request: any }) =>
+    await invokeNearSignerWorkerDirect(request),
+};
 
 async function buildThresholdEd25519HssSessionMaterial(input: {
   thresholdSessionId: string;
@@ -427,7 +481,10 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
     participantIds,
     derivationVersion: DEFAULT_HSS_DERIVATION_VERSION,
   };
-  const preparedSession = await prepareThresholdEd25519HssSession({ context });
+  const preparedSession = await prepareThresholdEd25519HssSessionWasm({
+    context,
+    workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+  });
   const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: `${String(input.thresholdSessionId || '').trim()}:hss-client-inputs`,
     orgId: context.orgId,
@@ -437,14 +494,12 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
     participantIds: preparedSession.participantIds,
     derivationVersion: context.derivationVersion,
     prfFirstB64u: String(input.prfFirstB64u || DEFAULT_HSS_PRF_FIRST_B64U).trim(),
-    workerCtx: {
-      requestWorkerOperation: async ({ request }: { request: any }) =>
-        await invokeNearSignerWorkerDirect(request),
-    },
+    workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
   });
-  const clientRequest = await prepareThresholdEd25519HssClientRequest({
+  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
     preparedSession,
     clientInputs,
+    workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
   });
   return { context, preparedSession, clientRequest };
 }
@@ -745,6 +800,24 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(minted.status).toBe(200);
       expect(minted.json?.ok).toBe(true);
       const jwt = String(minted.json?.jwt || '');
+      const wrongScopeMinted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          await buildThresholdSessionBody({
+            relayerKeyId,
+            clientVerifyingShareB64u,
+            nearAccountId: 'alice.testnet',
+            rpId: 'example.localhost',
+            sessionId: `${sessionId}-wrong-scope`,
+            ttlMs: 60_000,
+            remainingUses: 4,
+          }),
+        ),
+      });
+      expect(wrongScopeMinted.status).toBe(200);
+      expect(wrongScopeMinted.json?.ok).toBe(true);
+      const wrongScopeJwt = String(wrongScopeMinted.json?.jwt || '');
       expect(jwt).toContain('testjwt-');
 
       // Simulate an eventually-consistent KV read where the session "record" is temporarily missing,
@@ -1207,6 +1280,24 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(minted.status).toBe(200);
       expect(minted.json?.ok).toBe(true);
       const jwt = String(minted.json?.jwt || '');
+      const wrongScopeMinted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          await buildThresholdSessionBody({
+            relayerKeyId,
+            clientVerifyingShareB64u,
+            nearAccountId: 'alice.testnet',
+            rpId: 'example.localhost',
+            sessionId: `${sessionId}-wrong-scope`,
+            ttlMs: 60_000,
+            remainingUses: 4,
+          }),
+        ),
+      });
+      expect(wrongScopeMinted.status).toBe(200);
+      expect(wrongScopeMinted.json?.ok).toBe(true);
+      const wrongScopeJwt = String(wrongScopeMinted.json?.jwt || '');
 
       const { context, preparedSession, clientRequest } =
         await buildThresholdEd25519HssSessionMaterial({
@@ -1228,19 +1319,18 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResult({
+      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
         preparedSession,
         clientRequest,
         serverMessage: prepared.json?.serverMessage as any,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${wrongScopeJwt}` },
         body: JSON.stringify({
-          relayerKeyId,
-          context: { ...context, nearAccountId: 'alice.testnet' },
-          preparedSession,
+          ceremonyHandle: prepared.json?.ceremonyHandle,
           evaluationResult,
         }),
       });
@@ -1305,19 +1395,18 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResult({
+      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
         preparedSession,
         clientRequest,
         serverMessage: prepared.json?.serverMessage as any,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({
-          relayerKeyId,
-          context,
-          preparedSession,
+          ceremonyHandle: prepared.json?.ceremonyHandle,
           evaluationResult: {
             ...evaluationResult,
             contextBindingB64u: base64UrlEncode(randomBytes32()),
@@ -1403,19 +1492,18 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResult({
+      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
         preparedSession: hssMaterial.preparedSession,
         clientRequest: hssMaterial.clientRequest,
         serverMessage: prepared.json?.serverMessage as any,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({
-          relayerKeyId,
-          context: hssMaterial.context,
-          preparedSession: hssMaterial.preparedSession,
+          ceremonyHandle: prepared.json?.ceremonyHandle,
           evaluationResult,
         }),
       });

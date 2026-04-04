@@ -31,6 +31,14 @@ import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { RegistrationErrorCode } from '../../types/tatchi';
 
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+function jsonBytes(value: unknown): number {
+  return utf8Bytes(JSON.stringify(value));
+}
+
 function isSerializedRegistrationCredential(
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
 ): credential is WebAuthnRegistrationCredential {
@@ -400,14 +408,24 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
   hssContext: ThresholdEd25519HssCanonicalContext;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-}): Promise<ThresholdEd25519HssServerMessageEnvelope> {
+}): Promise<{ ceremonyHandle: string; serverMessage: ThresholdEd25519HssServerMessageEnvelope }> {
+  const startedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
-  const requestBody = {
+  const requestPayload = {
     new_account_id: String(args.nearAccountId || '').trim(),
     rp_id: String(args.rpId || '').trim(),
     context: args.hssContext,
     preparedSession: args.preparedSession,
     clientRequest: args.clientRequest,
+  };
+  const requestBody = JSON.stringify(requestPayload);
+  const requestBytes = utf8Bytes(requestBody);
+  const requestSizeBreakdown = {
+    newAccountIdBytes: utf8Bytes(requestPayload.new_account_id),
+    rpIdBytes: utf8Bytes(requestPayload.rp_id),
+    contextBytes: jsonBytes(requestPayload.context),
+    preparedSessionBytes: jsonBytes(requestPayload.preparedSession),
+    clientRequestBytes: jsonBytes(requestPayload.clientRequest),
   };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let response: Response;
@@ -420,8 +438,8 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
           relayerUrl: registrationTransport.relayerUrl,
           publishableKey: registrationTransport.publishableKey,
           environmentId: registrationTransport.environmentId,
-          nearAccountId: requestBody.new_account_id,
-          rpId: requestBody.rp_id,
+          nearAccountId: requestPayload.new_account_id,
+          rpId: requestPayload.rp_id,
         })
       ).token;
     const prepareUrl = joinUrlPath(
@@ -437,7 +455,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
           ...headers,
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(requestBody),
+        body: requestBody,
       },
     });
   } else {
@@ -457,7 +475,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
       init: {
         method: 'POST',
         headers,
-        body: JSON.stringify(requestBody),
+        body: requestBody,
       },
     });
   }
@@ -465,14 +483,21 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
   const result = (await readJsonObject(
     response,
   )) as unknown as ThresholdEd25519HssPrepareForRegistrationResponse;
-  if (!response.ok || result.ok !== true || !result.serverMessage) {
+  const ceremonyHandle = String(result.ok === true ? result.ceremonyHandle || '' : '').trim();
+  if (!response.ok || result.ok !== true || !ceremonyHandle || !result.serverMessage) {
     const failure = result as Extract<
       ThresholdEd25519HssPrepareForRegistrationResponse,
       { ok: false }
     >;
     throw new Error(String(failure.message || failure.code || `HTTP ${response.status}`).trim());
   }
-  return result.serverMessage;
+  console.debug('[Registration] threshold-ed25519 HSS prepare response received', {
+    durationMs: Math.round(performance.now() - startedAt),
+    status: response.status,
+    requestBytes,
+    requestSizeBreakdown,
+  });
+  return { ceremonyHandle, serverMessage: result.serverMessage };
 }
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
@@ -480,18 +505,30 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   nearAccountId: string;
   rpId: string;
   managedRegistrationBootstrapToken?: string;
-  hssContext: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
 }): Promise<ThresholdEd25519RegistrationHssFinalizeResult> {
   const finalizeStartedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
-  const requestBody = {
+  const requestPayload = {
     new_account_id: String(args.nearAccountId || '').trim(),
     rp_id: String(args.rpId || '').trim(),
-    context: args.hssContext,
-    preparedSession: args.preparedSession,
+    ceremonyHandle: String(args.ceremonyHandle || '').trim(),
     evaluationResult: args.evaluationResult,
+  };
+  const requestBody = JSON.stringify(requestPayload);
+  const requestBytes = utf8Bytes(requestBody);
+  const requestSizeBreakdown = {
+    newAccountIdBytes: utf8Bytes(requestPayload.new_account_id),
+    rpIdBytes: utf8Bytes(requestPayload.rp_id),
+    ceremonyHandleBytes: utf8Bytes(requestPayload.ceremonyHandle),
+    evaluationResultBytes: jsonBytes(requestPayload.evaluationResult),
+    evaluationResultContextBindingBytes: utf8Bytes(
+      requestPayload.evaluationResult.contextBindingB64u,
+    ),
+    evaluationResultMessageBytes: utf8Bytes(
+      requestPayload.evaluationResult.evaluationResultMessageB64u,
+    ),
   };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let response: Response;
@@ -504,8 +541,8 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
           relayerUrl: registrationTransport.relayerUrl,
           publishableKey: registrationTransport.publishableKey,
           environmentId: registrationTransport.environmentId,
-          nearAccountId: requestBody.new_account_id,
-          rpId: requestBody.rp_id,
+          nearAccountId: requestPayload.new_account_id,
+          rpId: requestPayload.rp_id,
         })
       ).token;
     const finalizeUrl = joinUrlPath(
@@ -521,7 +558,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
           ...headers,
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(requestBody),
+        body: requestBody,
       },
     });
   } else {
@@ -541,7 +578,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
       init: {
         method: 'POST',
         headers,
-        body: JSON.stringify(requestBody),
+        body: requestBody,
       },
     });
   }
@@ -552,6 +589,8 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   console.debug('[Registration] threshold-ed25519 HSS finalize response received', {
     durationMs: Math.round(performance.now() - finalizeStartedAt),
     status: response.status,
+    requestBytes,
+    requestSizeBreakdown,
   });
   if (!response.ok || result.ok !== true || !result.finalizedReport) {
     const failure = result as Extract<

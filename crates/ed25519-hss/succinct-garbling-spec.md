@@ -1,6 +1,6 @@
 # Succinct Garbling Spec
 
-Date updated: March 31, 2026
+Date updated: April 5, 2026
 
 This document is the single active spec for the fixed-function succinct
 garbling / HSS work in this crate.
@@ -27,6 +27,13 @@ The target stays intentionally narrow:
 
 This crate is not solving generic threshold signing. It is solving one
 specific hidden conversion problem inside the Ed25519 shared-root lifecycle.
+
+Deployment constraint:
+
+- the browser/client runtime for this fixed-function path must stay small enough
+  to ship as a dedicated wasm artifact
+- so any protocol or implementation change should now be judged both by
+  correctness and by browser artifact size
 
 ## Domain Context
 
@@ -202,6 +209,25 @@ Responsibilities:
   - `x_relayer_base`
   - `A`
 
+## Runtime Boundary Requirement
+
+The live implementation now enforces a runtime split that matches the role
+model:
+
+- browser/client runtime contains evaluator-facing HSS code only
+- relay/server runtime contains garbler-facing HSS code only
+
+So the spec boundary is no longer abstract. It is reflected directly in the
+build outputs.
+
+Current browser HSS artifact baseline:
+
+- original broad browser HSS wasm: `1,163,476` bytes
+- current dedicated browser HSS wasm: `472,527` bytes
+
+That reduction is large enough that future changes should preserve the split
+unless a replacement is clearly better on both security and size.
+
 ## Chosen Backend
 
 The active backend family is the size-optimized prime-order-group
@@ -218,6 +244,12 @@ Current backend-family estimates still kept in code:
 
 - prime-order size-optimized: `138,256` bytes
 - prime-order compute-optimized: `5,320,016` bytes
+
+Those backend-family estimates are still useful for internal comparison, but
+the product-facing browser artifact is now dominated by the compiled runtime,
+wire, and evaluator machinery around the chosen prime-order path. That is why
+the current optimization priority is browser artifact size rather than backend
+profile tuning alone.
 
 The earlier Paillier and lattice families were removed from the active
 codebase because their public evaluator payloads were prohibitively large for

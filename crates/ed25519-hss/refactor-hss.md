@@ -1,10 +1,10 @@
 # Ed25519 HSS Refactor 1
 
-Date updated: April 4, 2026
+Date updated: April 5, 2026
 
 ## Summary
 
-This draft proposes a boundary-first refactor of
+This document records the landed boundary-first refactor of
 [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
 
 The main goal is to make client/server boundaries obvious in the codebase so
@@ -28,6 +28,14 @@ This plan is grounded in the active crate docs and specs:
 
 The module boundaries below are meant to mirror the protocol boundaries those
 docs already define.
+
+Current status:
+
+- the boundary split is landed
+- boundary-focused tests are landed
+- browser and relay runtime artifacts are split
+- the remaining performance priority is browser wasm size, not legacy mixed
+  module cleanup
 
 ## Why Refactor
 
@@ -217,6 +225,28 @@ crates/ed25519-hss/src/
   candidate.rs
   artifact_stub.rs
 ```
+
+## Landed Runtime Split
+
+The runtime split that this plan called for is also landed:
+
+- browser/client HSS runtime:
+  [`wasm/hss_client_signer`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
+- relay/server HSS runtime:
+  [`wasm/near_signer/pkg-server`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/pkg-server)
+
+This means the refactor goal is no longer hypothetical. The boundary-oriented
+module tree now feeds directly into separate browser and relay build surfaces.
+
+Measured browser result from the landed split:
+
+- original broad browser HSS wasm: `1,163,476` bytes
+- current dedicated browser HSS wasm: `472,527` bytes
+- original broad browser HSS JS glue: `173,004` bytes
+- current dedicated browser HSS JS glue: `18,414` bytes
+
+That reduction is large enough that the split should be treated as a permanent
+part of the crate/runtime design.
 
 ## Responsibility Split
 

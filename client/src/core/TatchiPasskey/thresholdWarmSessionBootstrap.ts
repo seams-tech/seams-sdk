@@ -172,7 +172,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   }
 
   args.onProgress?.('Preparing threshold Ed25519 relay ceremony...');
-  const serverMessage = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration({
+  const preparedRelayCeremony = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration({
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
@@ -192,7 +192,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   const evaluationResult = await args.context.signingEngine.evaluateThresholdEd25519HssResult({
     preparedSession: prepared.preparedSession,
     clientRequest: prepared.clientRequest,
-    serverMessage,
+    serverMessage: preparedRelayCeremony.serverMessage,
   });
 
   args.onProgress?.('Finalizing threshold Ed25519 registration material...');
@@ -201,15 +201,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
     managedRegistrationBootstrapToken: managedRegistrationFlow.token,
-    hssContext: {
-      orgId: runtimeSnapshotScope.orgId,
-      nearAccountId: String(args.nearAccountId),
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
-      participantIds: prepared.participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-    },
-    preparedSession: prepared.preparedSession,
+    ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
     evaluationResult,
   });
   if (!hssFinalize.publicKey || !hssFinalize.relayerKeyId) {

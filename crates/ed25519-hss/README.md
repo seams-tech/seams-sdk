@@ -1,5 +1,7 @@
 # Ed25519 HSS
 
+Date updated: April 5, 2026
+
 This crate is an implementation-focused fixed-function protocol built based on directions found in:
 
 - [A Unified Framework for Succinct Garbling from Homomorphic Secret Sharing (ePrint 2025/442)](https://eprint.iacr.org/2025/442)
@@ -137,6 +139,52 @@ That split is deliberate:
 - `wire/` owns the only cross-boundary payloads
 - `protocol/` owns prepared-session construction plus transcript/report helpers
 - `runtime/` owns runtime materialization and wasm/native adapters
+
+## Current Runtime Shape
+
+The crate now supports a boundary-aware runtime split:
+
+- browser HSS client flows are compiled through the dedicated
+  [`wasm/hss_client_signer`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
+  package
+- relay/server HSS flows are compiled through the server-only
+  [`wasm/near_signer/pkg-server`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/pkg-server)
+  surface
+
+That split is intentional:
+
+- browser builds should only ship evaluator/client HSS functionality
+- relay builds should only ship garbler/server HSS functionality
+- the crate surface should make it obvious which modules are browser-facing,
+  which are relay-facing, and which are shared
+
+## Current Browser HSS Size Baseline
+
+The main product constraint for this crate is now browser artifact size.
+
+The original broad browser HSS artifact was:
+
+- wasm: `1,163,476` bytes
+- JS glue: `173,004` bytes
+
+The current dedicated browser HSS client artifact is:
+
+- wasm: `472,527` bytes
+- JS glue: `18,414` bytes
+
+Net result:
+
+- wasm down by `690,949` bytes, about `59.4%`
+- JS glue down by `154,590` bytes, about `89.4%`
+
+The biggest wins that produced that reduction were:
+
+- splitting browser HSS into its own wasm package
+- removing JSON-based internal blob serialization from the browser HSS path
+- pruning non-browser `wasm32` surfaces from this crate
+
+For the current product, this means further work should bias toward reducing
+compiled browser code size before chasing smaller transport-only wins.
 
 ## Protocol Shape
 

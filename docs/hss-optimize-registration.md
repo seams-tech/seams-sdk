@@ -169,6 +169,20 @@ Keep only if:
 - the handle-based design gives a clear speed win and does not complicate scope
   binding in a risky way
 
+Result:
+
+- kept
+- prepare still sends full ceremony state, so prepare size is unchanged
+- finalize no longer reposts `preparedSession`; the relay stores a short-lived
+  ceremony record keyed by a one-shot handle
+- session HSS finalize request dropped from `315,263` bytes to `154,622` bytes
+  (about `50.9%` smaller)
+- registration HSS finalize request is now `154,693` bytes
+- ceremony timings stayed roughly flat, so the direct latency win was weak, but
+  the transport reduction is large and the design is cleaner and safer
+- the remaining dominant finalize payload is now
+  `evaluationResult.evaluationResultMessageB64u` at about `154.5KB`
+
 ### Phase 3: Reduce Blocking On-Chain Verification
 
 Candidate optimization:
@@ -287,9 +301,9 @@ Revert any change that:
 
 ### Phase 2
 
-- [ ] Prototype relay-side HSS ceremony handle to reduce finalize payload size
-- [ ] Benchmark request size and total ceremony time before/after
-- [ ] Keep only if the handle-based design materially improves speed
+- [x] Prototype relay-side HSS ceremony handle to reduce finalize payload size
+- [x] Benchmark request size and total ceremony time before/after
+- [x] Keep the handle-based finalize design
 
 ### Phase 3
 
@@ -323,3 +337,28 @@ Revert any change that:
 - [ ] Produce a final before/after summary of kept optimizations
 - [ ] Revert experiments that did not materially improve speed
 - [ ] Document the final optimized registration flow
+
+## Next Target
+
+The biggest remaining HSS transport cost is no longer `preparedSession`.
+
+It is now:
+
+- `evaluationResult.evaluationResultMessageB64u`
+
+Current measured sizes:
+
+- session HSS prepare request: `208,460` bytes
+- session HSS finalize request: `154,622` bytes
+- registration HSS prepare request: `208,491` bytes
+- registration HSS finalize request: `154,693` bytes
+
+That means the next real transport optimization is not another route-shape
+cleanup. It is a protocol-level reduction of the evaluation result payload.
+
+Candidate follow-up options:
+
+- shrink the HSS evaluation message format itself
+- move to a compact binary transport for the evaluation message
+- add a server-assisted finalize design only if it avoids adding an extra round
+  trip with negligible net win

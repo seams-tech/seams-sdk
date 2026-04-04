@@ -139,6 +139,7 @@ export interface ThresholdEd25519HssPrepareForRegistrationRequest {
 export type ThresholdEd25519HssPrepareWithSessionResponse =
   | {
       ok: true;
+      ceremonyHandle: string;
       serverMessage: ThresholdEd25519HssServerMessageEnvelope;
     }
   | {
@@ -150,6 +151,7 @@ export type ThresholdEd25519HssPrepareWithSessionResponse =
 export type ThresholdEd25519HssPrepareForRegistrationResponse =
   | {
       ok: true;
+      ceremonyHandle: string;
       serverMessage: ThresholdEd25519HssServerMessageEnvelope;
     }
   | {
@@ -159,17 +161,14 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
     };
 
 export interface ThresholdEd25519HssFinalizeWithSessionRequest {
-  relayerKeyId: string;
-  context: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
 }
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
-  context: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  ceremonyHandle: string;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
 }
 

@@ -1,6 +1,6 @@
 # Homomorphic Secret Sharing for Succinct Garbling
 
-Date updated: March 31, 2026
+Date updated: April 5, 2026
 
 Primary paper:
 
@@ -35,6 +35,16 @@ So the right interpretation is:
 - this paper validates the HSS-based succinct-garbling direction
 - it does not replace the need for our fixed-function compiler, delivery path,
   and executor engineering
+
+Current implementation note:
+
+- the crate has already landed the boundary-first split into `shared`, `wire`,
+  `client`, `server`, `protocol`, and `runtime`
+- the browser HSS path is now compiled into a dedicated
+  [`wasm/hss_client_signer`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
+  artifact instead of shipping the broader signer worker surface
+- that runtime split reduced the browser HSS wasm from `1,163,476` bytes to
+  `472,527` bytes
 
 ## Paper Summary
 
@@ -197,3 +207,17 @@ If we build on this paper, the right next step is:
 4. only after that, consider whether a more literal succinct-garbling compiler
    structure is worth importing
 
+## Practical Priority Right Now
+
+For this crate, the immediate bottleneck is no longer proving the HSS framing.
+
+It is:
+
+- keeping the browser/client HSS artifact small enough to stay deployable
+
+That means the most valuable paper-aligned engineering now is:
+
+- clearer separation between browser-facing evaluator code and relay-only
+  garbler code
+- pruning non-browser runtime/debug/test surfaces from `wasm32` builds
+- reducing compiled browser code size before reopening deeper protocol changes
