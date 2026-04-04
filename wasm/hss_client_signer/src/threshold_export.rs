@@ -1,4 +1,4 @@
-use crate::encoders::base64_url_decode;
+use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
@@ -31,7 +31,8 @@ pub fn threshold_ed25519_seed_export_artifact_from_seed(args: JsValue) -> Result
 fn build_threshold_ed25519_seed_export_artifact_from_seed(
     args: ThresholdEd25519SeedExportArtifactFromSeedArgs,
 ) -> Result<ThresholdEd25519SeedExportArtifactFromSeedOutput, String> {
-    let seed = base64_url_decode(&args.seed_b64u).map_err(|e| format!("Invalid seedB64u: {e}"))?;
+    let seed = Base64UrlUnpadded::decode_vec(args.seed_b64u.as_str())
+        .map_err(|e| format!("Invalid seedB64u: {e}"))?;
     if seed.len() != 32 {
         return Err(format!(
             "seedB64u must decode to 32 bytes, got {}",

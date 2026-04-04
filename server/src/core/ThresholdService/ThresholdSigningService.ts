@@ -476,8 +476,8 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
   const context = parseThresholdEd25519HssCanonicalContext(raw);
   if (!context.ok) return context;
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const garblerDriverStateJson = toOptionalTrimmedString(raw.garblerDriverStateJson);
-  const evaluatorDriverStateJson = toOptionalTrimmedString(raw.evaluatorDriverStateJson);
+  const garblerDriverStateB64u = toOptionalTrimmedString(raw.garblerDriverStateB64u);
+  const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
   const clientOtOfferMessageB64u = toOptionalTrimmedString(raw.clientOtOfferMessageB64u);
   if (!contextBindingB64u) {
     return {
@@ -486,18 +486,18 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
       message: 'preparedSession.contextBindingB64u is required',
     };
   }
-  if (!garblerDriverStateJson) {
+  if (!garblerDriverStateB64u) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'preparedSession.garblerDriverStateJson is required',
+      message: 'preparedSession.garblerDriverStateB64u is required',
     };
   }
-  if (!evaluatorDriverStateJson) {
+  if (!evaluatorDriverStateB64u) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'preparedSession.evaluatorDriverStateJson is required',
+      message: 'preparedSession.evaluatorDriverStateB64u is required',
     };
   }
   if (!clientOtOfferMessageB64u) {
@@ -512,8 +512,8 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
     value: {
       ...context.value,
       contextBindingB64u,
-      garblerDriverStateJson,
-      evaluatorDriverStateJson,
+      garblerDriverStateB64u,
+      evaluatorDriverStateB64u,
       clientOtOfferMessageB64u,
     },
   };
@@ -527,7 +527,7 @@ function parseThresholdEd25519HssClientRequestEnvelope(
   }
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
   const clientRequestMessageB64u = toOptionalTrimmedString(raw.clientRequestMessageB64u);
-  const evaluatorOtStateJson = toOptionalTrimmedString(raw.evaluatorOtStateJson);
+  const evaluatorOtStateB64u = toOptionalTrimmedString(raw.evaluatorOtStateB64u);
   if (!contextBindingB64u) {
     return {
       ok: false,
@@ -542,16 +542,16 @@ function parseThresholdEd25519HssClientRequestEnvelope(
       message: 'clientRequest.clientRequestMessageB64u is required',
     };
   }
-  if (!evaluatorOtStateJson) {
+  if (!evaluatorOtStateB64u) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'clientRequest.evaluatorOtStateJson is required',
+      message: 'clientRequest.evaluatorOtStateB64u is required',
     };
   }
   return {
     ok: true,
-    value: { contextBindingB64u, clientRequestMessageB64u, evaluatorOtStateJson },
+    value: { contextBindingB64u, clientRequestMessageB64u, evaluatorOtStateB64u },
   };
 }
 

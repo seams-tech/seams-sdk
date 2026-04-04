@@ -120,7 +120,7 @@ export async function deriveThresholdEd25519HssServerInputs(input: {
 }
 
 export async function prepareThresholdEd25519HssServerMessage(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateB64u'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverInputs: ThresholdEd25519HssServerInputs;
 }): Promise<ThresholdEd25519HssServerMessageEnvelope> {
@@ -128,7 +128,7 @@ export async function prepareThresholdEd25519HssServerMessage(input: {
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_prepare_server_message_server({
-    garblerDriverStateJson: input.preparedSession.garblerDriverStateJson,
+    garblerDriverStateB64u: input.preparedSession.garblerDriverStateB64u,
     clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
     yRelayerB64u: input.serverInputs.yRelayerB64u,
     tauRelayerB64u: input.serverInputs.tauRelayerB64u,
@@ -182,14 +182,14 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
 }
 
 export async function finalizeThresholdEd25519HssReport(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateB64u'>;
   evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
 }): Promise<ThresholdEd25519HssFinalizedReportEnvelope> {
   await ensureThresholdEd25519HssWasm();
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_finalize_report_server({
-    garblerDriverStateJson: input.preparedSession.garblerDriverStateJson,
+    garblerDriverStateB64u: input.preparedSession.garblerDriverStateB64u,
     evaluationResultMessageB64u: input.evaluationResult.evaluationResultMessageB64u,
   }) as {
     contextBindingB64u: string;
@@ -209,14 +209,14 @@ export async function finalizeThresholdEd25519HssReport(input: {
 }
 
 export async function openThresholdEd25519HssServerOutput(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'garblerDriverStateB64u'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'serverOutputMessageB64u'>;
 }): Promise<ThresholdEd25519HssOpenedServerOutput> {
   await ensureThresholdEd25519HssWasm();
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_open_server_output_server({
-    garblerDriverStateJson: input.preparedSession.garblerDriverStateJson,
+    garblerDriverStateB64u: input.preparedSession.garblerDriverStateB64u,
     serverOutputMessageB64u: input.finalizedReport.serverOutputMessageB64u,
   }) as {
     contextBindingB64u: string;
@@ -230,14 +230,14 @@ export async function openThresholdEd25519HssServerOutput(input: {
 }
 
 export async function openThresholdEd25519HssSeedOutput(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'seedOutputMessageB64u'>;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
   await ensureThresholdEd25519HssWasm();
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_open_seed_output_server({
-    evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+    evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
     seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
   }) as {
     contextBindingB64u: string;

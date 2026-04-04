@@ -1201,6 +1201,7 @@ name = "wasm_signer_worker"
 version = "0.4.3"
 dependencies = [
  "base64ct",
+ "bincode",
  "borsh",
  "bs58",
  "chacha20poly1305",

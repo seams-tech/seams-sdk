@@ -34,15 +34,15 @@ export type ThresholdEd25519HssClientInputs = {
 
 export type ThresholdEd25519HssPreparedSessionEnvelope = ThresholdEd25519HssCanonicalContext & {
   contextBindingB64u: string;
-  garblerDriverStateJson: string;
-  evaluatorDriverStateJson: string;
+  garblerDriverStateB64u: string;
+  evaluatorDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
 };
 
 export type ThresholdEd25519HssClientRequestEnvelope = {
   contextBindingB64u: string;
   clientRequestMessageB64u: string;
-  evaluatorOtStateJson: string;
+  evaluatorOtStateB64u: string;
 };
 
 export type ThresholdEd25519HssServerMessageEnvelope = {
@@ -140,7 +140,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
 
   const response = await executeWorkerOperation({
     ctx: args.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       sessionId,
       type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs,
@@ -190,7 +190,7 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
 }): Promise<ThresholdEd25519HssPreparedSessionEnvelope> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.PrepareThresholdEd25519HssSession,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -218,8 +218,8 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
     participantIds: normalizeParticipantIds(result.participantIds),
     derivationVersion: Number(result.derivationVersion),
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    garblerDriverStateJson: String(result.garblerDriverStateJson || '').trim(),
-    evaluatorDriverStateJson: String(result.evaluatorDriverStateJson || '').trim(),
+    garblerDriverStateB64u: String(result.garblerDriverStateB64u || '').trim(),
+    evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
     clientOtOfferMessageB64u: String(result.clientOtOfferMessageB64u || '').trim(),
   };
 }
@@ -227,19 +227,19 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
 export async function prepareThresholdEd25519HssClientRequestWasm(input: {
   preparedSession: Pick<
     ThresholdEd25519HssPreparedSessionEnvelope,
-    'evaluatorDriverStateJson' | 'clientOtOfferMessageB64u'
+    'evaluatorDriverStateB64u' | 'clientOtOfferMessageB64u'
   >;
   clientInputs: ThresholdEd25519HssClientInputs;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssClientRequestEnvelope> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
         clientOtOfferMessageB64u: input.preparedSession.clientOtOfferMessageB64u,
         yClientB64u: input.clientInputs.yClientB64u,
         tauClientB64u: input.clientInputs.tauClientB64u,
@@ -255,26 +255,26 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
-    evaluatorOtStateJson: String(result.evaluatorOtStateJson || '').trim(),
+    evaluatorOtStateB64u: String(result.evaluatorOtStateB64u || '').trim(),
   };
 }
 
 export async function evaluateThresholdEd25519HssResultWasm(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   serverMessage: ThresholdEd25519HssServerMessageEnvelope;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssEvaluationResultEnvelope> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.EvaluateThresholdEd25519HssResult,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
         clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
-        evaluatorOtStateJson: input.clientRequest.evaluatorOtStateJson,
+        evaluatorOtStateB64u: input.clientRequest.evaluatorOtStateB64u,
         serverMessageB64u: input.serverMessage.serverMessageB64u,
       },
     },
@@ -292,18 +292,18 @@ export async function evaluateThresholdEd25519HssResultWasm(input: {
 }
 
 export async function openThresholdEd25519HssClientOutputWasm(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'clientOutputMessageB64u'>;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedClientOutput> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.OpenThresholdEd25519HssClientOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
         clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
       },
     },
@@ -321,18 +321,18 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
 }
 
 export async function openThresholdEd25519HssSeedOutputWasm(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateJson'>;
+  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'seedOutputMessageB64u'>;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateJson: input.preparedSession.evaluatorDriverStateJson,
+        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
         seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
       },
     },
@@ -356,7 +356,7 @@ export async function deriveThresholdEd25519HssPublicKeyWasm(input: {
 }): Promise<ThresholdEd25519HssDerivedPublicKey> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.DeriveThresholdEd25519HssPublicKey,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
@@ -384,7 +384,7 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
 }): Promise<ThresholdEd25519SeedExportArtifact> {
   const response = await executeWorkerOperation({
     ctx: input.workerCtx,
-    kind: 'nearSigner',
+    kind: 'hssClient',
     request: {
       type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,

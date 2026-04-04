@@ -43,10 +43,12 @@ RUNTIME_SDK_BASE="/sdk"
 RUNTIME_WORKERS_BASE="/sdk/workers"
 RUNTIME_TOUCH_CONFIRM_WORKER="/sdk/workers/passkey-confirm.worker.js"
 RUNTIME_SIGNER_WORKER="/sdk/workers/near-signer.worker.js"
+RUNTIME_HSS_CLIENT_WORKER="/sdk/workers/hss-client.worker.js"
 
 # Worker file names
 WORKER_TOUCH_CONFIRM="passkey-confirm.worker.js"
 WORKER_SIGNER="near-signer.worker.js"
+WORKER_HSS_CLIENT="hss-client.worker.js"
 WORKER_SHAMIR3PASS="shamir3pass.worker.js"
 WORKER_ETH_SIGNER="eth-signer.worker.js"
 WORKER_TEMPO_SIGNER="tempo-signer.worker.js"

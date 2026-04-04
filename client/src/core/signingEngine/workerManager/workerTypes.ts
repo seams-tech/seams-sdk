@@ -1,5 +1,9 @@
 import type { onProgressEvents } from '@/core/types/sdkSentEvents';
-import type { WorkerRequestTypeMap, WorkerResponseForRequest } from '@/core/types/signer-worker';
+import {
+  type WorkerRequestTypeMap,
+  type WorkerResponseForRequest,
+  WorkerRequestType,
+} from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 
 /**
@@ -184,31 +188,78 @@ export type NearWorkerOperationRequest<T extends NearWorkerOperationType> = {
 export type NearWorkerOperationResult<T extends NearWorkerOperationType> =
   NearWorkerOperationEntry<T>['result'];
 
-export type SignerWorkerKind = 'nearSigner' | MultichainWorkerKind;
+export type HssWorkerOperationType =
+  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
+  | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
+  | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
+  | typeof WorkerRequestType.EvaluateThresholdEd25519HssResult
+  | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
+  | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
+  | typeof WorkerRequestType.DeriveThresholdEd25519HssPublicKey
+  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
 
-export type SignerWorkerOperationType<K extends SignerWorkerKind> = K extends 'nearSigner'
-  ? NearWorkerOperationType
-  : K extends MultichainWorkerKind
-    ? MultichainOperationType<K>
-    : never;
+type HssWorkerOperationEntry<T extends HssWorkerOperationType> = WorkerRequestTypeMap[T] extends {
+  request: infer P;
+  result: infer R;
+}
+  ? { payload: P; result: WorkerResponseForRequest<T> }
+  : never;
+
+export type HssWorkerOperationRequest<T extends HssWorkerOperationType> = {
+  sessionId?: string;
+  type: T;
+  payload: WithOptionalSessionId<HssWorkerOperationEntry<T>['payload']>;
+  timeoutMs?: number;
+  transfer?: Transferable[];
+};
+
+export type HssWorkerOperationResult<T extends HssWorkerOperationType> =
+  HssWorkerOperationEntry<T>['result'];
+
+export type HssSignerWorkerOperationMap = {
+  [T in HssWorkerOperationType]: {
+    payload: HssWorkerOperationEntry<T>['payload'];
+    result: HssWorkerOperationEntry<T>['result'];
+  };
+};
+
+export interface SignerWorkerOperationMapByKind {
+  nearSigner: NearSignerWorkerOperationMap;
+  hssClient: HssSignerWorkerOperationMap;
+  ethSigner: EthSignerWorkerOperationMap;
+  tempoSigner: TempoSignerWorkerOperationMap;
+}
+
+export type SignerWorkerKind = keyof SignerWorkerOperationMapByKind;
+
+export type SignerWorkerOperationType<K extends SignerWorkerKind> =
+  keyof SignerWorkerOperationMapByKind[K];
+
+type SignerWorkerOperationEntry<
+  K extends SignerWorkerKind,
+  T extends SignerWorkerOperationType<K>,
+> = SignerWorkerOperationMapByKind[K][T] extends { payload: infer P; result: infer R }
+  ? { payload: P; result: R }
+  : never;
 
 export type SignerWorkerOperationRequest<
   K extends SignerWorkerKind,
   T extends SignerWorkerOperationType<K>,
 > = K extends 'nearSigner'
   ? NearWorkerOperationRequest<Extract<T, NearWorkerOperationType>>
-  : K extends MultichainWorkerKind
-    ? MultichainWorkerOperationRequest<K, Extract<T, MultichainOperationType<K>>>
-    : never;
+  : K extends 'hssClient'
+    ? HssWorkerOperationRequest<Extract<T, HssWorkerOperationType>>
+    : {
+        type: T;
+        payload: SignerWorkerOperationEntry<K, T>['payload'];
+        timeoutMs?: number;
+        transfer?: Transferable[];
+      };
 
 export type SignerWorkerOperationResult<
   K extends SignerWorkerKind,
   T extends SignerWorkerOperationType<K>,
-> = K extends 'nearSigner'
-  ? NearWorkerOperationResult<Extract<T, NearWorkerOperationType>>
-  : K extends MultichainWorkerKind
-    ? MultichainWorkerOperationResult<K, Extract<T, MultichainOperationType<K>>>
-    : never;
+> = SignerWorkerOperationEntry<K, T>['result'];
 
 export interface SignerWorkerTransportProtocol {
   setWorkerBaseOrigin(origin: string | undefined): void;

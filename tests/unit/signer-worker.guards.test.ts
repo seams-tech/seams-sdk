@@ -10,10 +10,10 @@ test.describe('signer worker JS guards – PRF rejection', () => {
       try {
         // Load the signer worker as a module and create a Worker instance
         const workerUrl = new URL(
-          '/sdk/workers/near-signer.worker.js',
+          '/sdk/workers/hss-client.worker.js',
           window.location.origin,
         ).toString();
-        const worker = new Worker(workerUrl, { type: 'module', name: 'GuardTestSignerWorker' });
+        const worker = new Worker(workerUrl, { type: 'module', name: 'GuardTestHssClientWorker' });
 
         const messages: any[] = [];
         const errors: any[] = [];

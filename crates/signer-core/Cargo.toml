@@ -33,7 +33,8 @@ secp256k1 = ["dep:hkdf", "dep:k256", "dep:sha2", "dep:sha3"]
 near-crypto = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:chacha20poly1305"]
 tx-finalization = ["dep:serde", "dep:sha3"]
 threshold-ecdsa = ["dep:k256", "dep:threshold-signatures", "dep:rand_core"]
-near-threshold-ed25519 = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:curve25519-dalek", "dep:frost-ed25519", "dep:serde", "dep:bs58", "dep:borsh", "dep:rand_core", "dep:ed25519-dalek"]
+near-ed25519-recovery = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:curve25519-dalek", "dep:serde", "dep:bs58", "dep:rand_core", "dep:ed25519-dalek"]
+near-threshold-ed25519 = ["near-ed25519-recovery", "dep:frost-ed25519", "dep:borsh"]
 
 [dev-dependencies]
 serde_json = "1.0"

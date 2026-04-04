@@ -12,6 +12,11 @@ export const SIGNER_WORKER_MANAGER_CONFIG = {
     TYPE: 'module' as const,
     NAME: 'Web3AuthnSignerWorker',
   },
+  HSS_CLIENT_WORKER: {
+    URL: BUILD_PATHS.RUNTIME.HSS_CLIENT_WORKER,
+    TYPE: 'module' as const,
+    NAME: 'Web3AuthnHssClientWorker',
+  },
   RETRY: {
     MAX_ATTEMPTS: 3,
     BACKOFF_MS: 1000,

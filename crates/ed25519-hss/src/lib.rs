@@ -1,10 +1,12 @@
 pub mod artifact;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod artifact_stub;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod benchmark;
 pub mod candidate;
 pub mod client;
 pub mod ddh;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod fixtures;
 pub mod protocol;
 pub mod runtime;

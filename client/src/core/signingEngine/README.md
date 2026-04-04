@@ -65,6 +65,7 @@ flowchart LR
   SWM --> NKO["nearKeyOps"]
   NKO --> ST
   ST --> NSW["near-signer.worker"]
+  ST --> HSW["hss-client.worker"]
   ST --> EWK["eth-signer.worker"]
   ST --> TWK["tempo-signer.worker"]
 
@@ -82,7 +83,9 @@ flowchart LR
    - input normalization (`NearAdapter` for transactions),
    - touchConfirm handshake (`touchConfirm.orchestrateSigningConfirmation(...)` via bridge port),
    - signer worker call via `ctx.requestWorkerOperation(...)`.
-4. `SignerWorkerManager.requestWorkerOperation` sends request to `near-signer.worker`.
+4. `SignerWorkerManager.requestWorkerOperation` sends NEAR signing requests to
+   `near-signer.worker` and Ed25519 HSS lifecycle/export requests to
+   `hss-client.worker`.
 5. Worker response returns signed payload back through handler -> engine -> `finalize`.
 
 ### 2) Tempo Signing (`eip1559` / `tempoTransaction`)

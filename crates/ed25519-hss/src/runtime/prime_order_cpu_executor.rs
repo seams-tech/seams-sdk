@@ -1,23 +1,33 @@
 use std::collections::BTreeMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::hint::black_box;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::EdwardsPoint;
 use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
+#[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
 use crate::artifact::{
-    build_prime_order_execution_trace, decode_prime_order_size_optimized_artifact,
-    materialize_prime_order_size_optimized_bytes, PrimeOrderDecodedArtifact,
-    PrimeOrderEvaluatorOps, PrimeOrderExecutionStep, PrimeOrderWindowRecordClass,
+    build_prime_order_execution_trace, PrimeOrderDecodedArtifact, PrimeOrderExecutionStep,
+    PrimeOrderWindowRecordClass,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::artifact::{
+    decode_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
+    PrimeOrderEvaluatorOps,
+};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::candidate::build_fixed_hidden_core_candidate;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::fixtures::deterministic_fixture_corpus;
 use crate::shared::{ProtoError, ProtoResult};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub const PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION: &str =
     "prime_order_cpu_executor_benchmark_v0";
 
@@ -48,6 +58,7 @@ pub struct PrimeOrderCpuExecutionResult {
     pub final_point_compressed: [u8; 32],
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimeOrderCpuExecutorBenchmarkConfig {
     pub warmup_iterations: u64,
@@ -55,6 +66,7 @@ pub struct PrimeOrderCpuExecutorBenchmarkConfig {
     pub sample_count: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrimeOrderCpuExecutorBenchmarkReport {
     pub report_version: String,
@@ -73,6 +85,7 @@ pub struct PrimeOrderCpuExecutorBenchmarkReport {
     pub final_point_compressed_hex: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrimeOrderCpuBenchmarkStats {
     pub min: f64,
@@ -82,6 +95,7 @@ pub struct PrimeOrderCpuBenchmarkStats {
     pub max: f64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn default_prime_order_cpu_executor_benchmark_config() -> PrimeOrderCpuExecutorBenchmarkConfig {
     PrimeOrderCpuExecutorBenchmarkConfig {
         warmup_iterations: 3,
@@ -90,6 +104,7 @@ pub fn default_prime_order_cpu_executor_benchmark_config() -> PrimeOrderCpuExecu
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn compile_default_prime_order_cpu_execution_program(
 ) -> ProtoResult<(String, PrimeOrderCpuExecutionProgram)> {
     let fixture = deterministic_fixture_corpus()?
@@ -310,6 +325,7 @@ pub fn execute_prime_order_cpu_execution_program(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn generate_prime_order_cpu_executor_benchmark_report(
     config: &PrimeOrderCpuExecutorBenchmarkConfig,
 ) -> ProtoResult<PrimeOrderCpuExecutorBenchmarkReport> {
@@ -362,6 +378,7 @@ pub fn generate_prime_order_cpu_executor_benchmark_report(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl PrimeOrderCpuExecutionProgram {
     fn with_artifact_bytes(mut self, artifact_bytes: u64) -> Self {
         self.artifact_bytes = artifact_bytes;
@@ -369,6 +386,7 @@ impl PrimeOrderCpuExecutionProgram {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl PrimeOrderCpuExecutorBenchmarkReport {
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
@@ -453,6 +471,7 @@ mod tests {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn stats_from_samples(mut values: Vec<f64>) -> PrimeOrderCpuBenchmarkStats {
     values.sort_by(|left, right| left.partial_cmp(right).expect("samples must be finite"));
     let len = values.len();
@@ -468,6 +487,7 @@ fn stats_from_samples(mut values: Vec<f64>) -> PrimeOrderCpuBenchmarkStats {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn median_of_sorted(values: &[f64]) -> f64 {
     let len = values.len();
     if len % 2 == 1 {

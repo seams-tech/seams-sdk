@@ -83,6 +83,12 @@ const TARGETS = [
     budget: { raw: 90_000, gzip: 20_000, brotli: 20_000 },
   },
   {
+    id: 'hss-client-worker',
+    label: 'hss client worker',
+    relPath: 'dist/workers/hss-client.worker.js',
+    budget: { raw: 55_000, gzip: 14_000, brotli: 14_000 },
+  },
+  {
     id: 'wasm-signer',
     label: 'wasm signer',
     relPath: 'dist/workers/wasm_signer_worker_bg.wasm',

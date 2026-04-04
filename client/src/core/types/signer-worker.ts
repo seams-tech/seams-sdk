@@ -132,12 +132,12 @@ export interface WasmPrepareThresholdEd25519HssSessionResult {
   participantIds: number[];
   derivationVersion: number;
   contextBindingB64u: string;
-  garblerDriverStateJson: string;
-  evaluatorDriverStateJson: string;
+  garblerDriverStateB64u: string;
+  evaluatorDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
 }
 export interface WasmPrepareThresholdEd25519HssClientRequestRequest {
-  evaluatorDriverStateJson: string;
+  evaluatorDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
@@ -145,12 +145,12 @@ export interface WasmPrepareThresholdEd25519HssClientRequestRequest {
 export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   contextBindingB64u: string;
   clientRequestMessageB64u: string;
-  evaluatorOtStateJson: string;
+  evaluatorOtStateB64u: string;
 }
 export interface WasmEvaluateThresholdEd25519HssResultRequest {
-  evaluatorDriverStateJson: string;
+  evaluatorDriverStateB64u: string;
   clientRequestMessageB64u: string;
-  evaluatorOtStateJson: string;
+  evaluatorOtStateB64u: string;
   serverMessageB64u: string;
 }
 export interface WasmEvaluateThresholdEd25519HssResultResult {
@@ -158,7 +158,7 @@ export interface WasmEvaluateThresholdEd25519HssResultResult {
   evaluationResultMessageB64u: string;
 }
 export interface WasmOpenThresholdEd25519HssClientOutputRequest {
-  evaluatorDriverStateJson: string;
+  evaluatorDriverStateB64u: string;
   clientOutputMessageB64u: string;
 }
 export interface WasmOpenThresholdEd25519HssClientOutputResult {
@@ -166,7 +166,7 @@ export interface WasmOpenThresholdEd25519HssClientOutputResult {
   xClientBaseB64u: string;
 }
 export interface WasmOpenThresholdEd25519HssSeedOutputRequest {
-  evaluatorDriverStateJson: string;
+  evaluatorDriverStateB64u: string;
   seedOutputMessageB64u: string;
 }
 export interface WasmOpenThresholdEd25519HssSeedOutputResult {

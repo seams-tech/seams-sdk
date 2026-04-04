@@ -73,15 +73,15 @@ export interface ThresholdEd25519HssSessionInputs {
 
 export interface ThresholdEd25519HssPreparedSessionEnvelope extends ThresholdEd25519HssCanonicalContext {
   contextBindingB64u: string;
-  garblerDriverStateJson: string;
-  evaluatorDriverStateJson: string;
+  garblerDriverStateB64u: string;
+  evaluatorDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
 }
 
 export interface ThresholdEd25519HssClientRequestEnvelope {
   contextBindingB64u: string;
   clientRequestMessageB64u: string;
-  evaluatorOtStateJson: string;
+  evaluatorOtStateB64u: string;
 }
 
 export interface ThresholdEd25519HssServerMessageEnvelope {
