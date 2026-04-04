@@ -1,6 +1,6 @@
 # SSO + PIN + OPRF Unlock Plan
 
-Date updated: March 31, 2026
+Date updated: April 3, 2026
 
 ## Objective
 
@@ -30,7 +30,7 @@ We will support two canonical wallet unlock backends:
    - client runs OPRF against relay
    - client derives deterministic root material from OPRF output
    - client derives:
-     - threshold client share material
+     - threshold signing material
      - a dedicated unlock proof key
 
 The unlock proof key signs a fresh relay challenge containing timestamps and session-bound context, similar in spirit to WebAuthn challenge binding.
@@ -51,6 +51,58 @@ The acceptable fallback shape is:
 1. the app session is valid and fresh
 2. OPRF evaluation is rate-limited and abuse-controlled
 3. unlock verification checks challenge expiry, single use, and context binding
+
+## SDK API Rescan Snapshot
+
+The current SDK and relay surface is not fully generic today.
+
+### Stable public threshold exports
+
+The stable exports in `client/src/threshold.ts` currently expose:
+
+1. `keygenEcdsa`
+2. `connectEd25519Session`
+3. `connectEcdsaSession`
+4. `authorizeEcdsaWithSession`
+5. ECDSA presign/sign helpers
+
+Important current constraints:
+
+1. there is no stable public `keygenEd25519`
+2. there is no stable public secret-source abstraction that can swap `passkey_prf` for `pin_oprf`
+3. `connectEd25519Session` is still WebAuthn/passkey-oriented in shape
+
+That means the first `pin_oprf` implementation seam should be internal lifecycle/runtime code, not a forced fit into the current stable public threshold API.
+
+### Wallet unlock routes today
+
+Today, both Express and Cloudflare wire:
+
+1. `POST /wallet/unlock/challenge` to WebAuthn challenge issuance
+2. `POST /wallet/unlock/verify` to WebAuthn assertion verification
+
+Those routes are passkey-specific today. They are not yet backend-neutral wallet unlock routes.
+
+### NEAR threshold shape today
+
+NEAR threshold signing now uses the Ed25519 HSS Option A flow rather than a single derived client share.
+
+The active NEAR client path derives:
+
+1. `contextBindingB64u`
+2. `yClientB64u`
+3. `tauClientB64u`
+
+and then runs the HSS ceremony to reconstruct:
+
+1. `xClientBaseB64u`
+2. canonical Ed25519 public key material
+3. canonical seed export material when needed
+
+So this plan must distinguish:
+
+1. threshold ECDSA client-share derivation
+2. threshold Ed25519 HSS client-input derivation
 
 ## Security Model
 
@@ -90,6 +142,9 @@ Use these canonical names:
 4. `unlock proof key`
 5. `unlock challenge`
 6. `threshold root`
+7. `threshold ECDSA client share`
+8. `threshold Ed25519 HSS client inputs`
+9. `threshold Ed25519 HSS client base`
 
 Do not introduce duplicate legacy naming for:
 
@@ -125,12 +180,12 @@ oprf_output = OPRF(server_key_v1, pin_input)
 threshold_root = HKDF(oprf_output, salt="tatchi/pin-oprf/root/v1", info=wallet_id)
 ```
 
-### Threshold share branch
+### Threshold ECDSA branch
 
-The threshold ECDSA share branch should mirror the current deterministic share model, but use the OPRF-derived root instead of `PRF.first`.
+The threshold ECDSA branch should mirror the current deterministic share model, but use the OPRF-derived root instead of `PRF.first`.
 
 ```text
-client_share_seed =
+ecdsa_client_share_seed =
   HKDF(threshold_root, salt="tatchi/pin-oprf/threshold-client-share/v1", info=user_id || derivation_path)
 ```
 
@@ -139,6 +194,35 @@ From that branch:
 1. reduce to non-zero secp256k1 scalar
 2. derive the client verifying share pubkey
 3. keep the server-side threshold participant model unchanged where possible
+
+### Threshold Ed25519 HSS branch
+
+NEAR threshold signing now needs a distinct branch.
+
+Instead of deriving a single client verifying share, the client must deterministically derive HSS client inputs from `threshold_root` and then run the existing HSS prepare/finalize seam.
+
+```text
+ed25519_hss_input_material =
+  HKDF(threshold_root, salt="tatchi/pin-oprf/threshold-ed25519-hss/v1", info=org_id || near_account_id || key_purpose || key_version || participant_ids || derivation_version)
+```
+
+That branch must produce deterministic analogues of:
+
+1. `contextBindingB64u`
+2. `yClientB64u`
+3. `tauClientB64u`
+
+Those are then consumed by the existing HSS ceremony to reconstruct:
+
+1. `xClientBaseB64u`
+2. canonical public key material
+3. canonical seed export material where applicable
+
+The important implication is:
+
+1. ECDSA can continue to think in terms of “client share”
+2. NEAR Ed25519 HSS must think in terms of “client inputs -> HSS ceremony -> client base”
+3. the shared secret-source abstraction must support both shapes explicitly
 
 ### Unlock proof branch
 
@@ -202,11 +286,13 @@ PIN enrollment should happen only after SSO app session issuance.
 4. client starts `pin_oprf` setup with relay
 5. relay runs OPRF evaluation
 6. client derives:
-   - threshold client verifying share
+   - threshold ECDSA client verifying share when ECDSA threshold is enabled
+   - threshold Ed25519 HSS client inputs when NEAR threshold is enabled
    - unlock public key
 7. client sends enrollment payload to relay
 8. relay stores:
-   - enrolled threshold client verifying share
+   - enrolled threshold ECDSA client verifying share when ECDSA threshold is enabled
+   - NEAR HSS canonical context and registration material when NEAR threshold is enabled
    - enrolled unlock public key
    - key version metadata
    - failure counters and lockout state
@@ -218,10 +304,18 @@ Server-side:
 1. `unlockBackend = pin_oprf`
 2. `unlockPublicKey`
 3. `unlockKeyVersion`
-4. `thresholdClientVerifyingShareB64u`
-5. `createdAtMs`
-6. `pinFailureCount`
-7. `pinLockedUntilMs`
+4. `thresholdEcdsaClientVerifyingShareB64u` when applicable
+5. threshold Ed25519 HSS canonical context when applicable:
+   - `orgId`
+   - `nearAccountId`
+   - `keyPurpose`
+   - `keyVersion`
+   - `participantIds`
+   - `derivationVersion`
+6. threshold Ed25519 server-side registration material when applicable
+7. `createdAtMs`
+8. `pinFailureCount`
+9. `pinLockedUntilMs`
 
 Client-side:
 
@@ -238,14 +332,16 @@ Client-side:
 3. user enters PIN
 4. client runs OPRF evaluation under the current app session
 5. client derives:
-   - threshold client share
+   - threshold ECDSA client share when ECDSA threshold is enabled
+   - threshold Ed25519 HSS client inputs when NEAR threshold is enabled
    - unlock signing key
 6. client signs the unlock challenge
 7. client submits signed unlock proof
 8. relay verifies:
    - challenge validity
    - signature against enrolled unlock public key
-   - derived threshold client verifying share matches enrollment
+   - derived threshold ECDSA client verifying share matches enrollment when applicable
+   - derived threshold Ed25519 HSS client inputs match canonical context-binding requirements when applicable
 9. relay marks wallet unlocked and continues warm session bootstrap
 
 ### Warm session bootstrap result
@@ -254,7 +350,11 @@ Once unlock succeeds, warm session behavior should align with existing threshold
 
 1. session JWT/cookie behavior remains unchanged
 2. active warm signing session rules remain unchanged
-3. threshold ECDSA and Ed25519 orchestration should consume the derived client share seed, not expect WebAuthn PRF
+3. threshold ECDSA orchestration should consume the derived ECDSA client-share branch, not expect WebAuthn PRF
+4. threshold Ed25519 orchestration should consume the derived HSS client-input branch and continue through the existing HSS prepare/finalize seam
+5. cached artifacts remain backend-specific:
+   - ECDSA: client verifying share and warm-session state
+   - Ed25519 HSS: `xClientBaseB64u` and canonical HSS session state
 
 ## Proposed API Shape
 
@@ -265,7 +365,18 @@ Keep the canonical route planes:
 
 Do not add new auth-specific aliases for PIN fallback.
 
-### Phase 1 API shape
+### Current route reality
+
+Today, `wallet/unlock/*` is a passkey API surface, not a backend-neutral wallet unlock API surface.
+
+That means the first PIN release has two possible shapes:
+
+1. breaking change: generalize `POST /wallet/unlock/challenge` and `POST /wallet/unlock/verify`
+2. additive shape: introduce `wallet/pin/*` setup and unlock routes, then unify later
+
+Because the current handlers are explicitly WebAuthn-bound, this plan should not assume the route surface is already generic.
+
+### Target API shape
 
 Add backend-aware wallet unlock/setup routes:
 
@@ -281,7 +392,8 @@ Request:
 ```json
 {
   "unlockBackend": "pin_oprf",
-  "walletId": "wallet_123"
+  "walletId": "wallet_123",
+  "sessionKind": "jwt"
 }
 ```
 
@@ -323,7 +435,14 @@ Request:
     "signature": "base64url"
   },
   "threshold": {
-    "clientVerifyingShareB64u": "base64url"
+    "ecdsa": {
+      "clientVerifyingShareB64u": "base64url"
+    },
+    "ed25519": {
+      "contextBindingB64u": "base64url",
+      "yClientB64u": "base64url",
+      "tauClientB64u": "base64url"
+    }
   }
 }
 ```
@@ -344,6 +463,18 @@ The final OPRF message shape depends on the chosen OPRF suite and whether blindi
 1. no raw PIN leaves the client
 2. relay evaluates under authenticated, rate-limited context
 3. client derives final root locally
+
+### SDK integration guidance
+
+Do not initially force `pin_oprf` into the current stable public `client/src/threshold.ts` surface.
+
+Recommended implementation order:
+
+1. add internal secret-source support in `SigningEngine` and threshold lifecycle code
+2. add backend-aware wallet unlock plumbing
+3. add public stable API only after the internal seam is proven
+
+This avoids freezing a public API that still reflects passkey-specific assumptions.
 
 ## Product Rules
 
@@ -423,16 +554,18 @@ Do not log:
 
 1. add client OPRF helper
 2. add deterministic root derivation helper
-3. add threshold client share derivation branch from threshold root
-4. add unlock proof key derivation branch
-5. keep passkey and `pin_oprf` paths explicit rather than hidden behind legacy aliases
+3. add threshold ECDSA client-share derivation branch from threshold root
+4. add threshold Ed25519 HSS client-input derivation branch from threshold root
+5. add unlock proof key derivation branch
+6. keep passkey and `pin_oprf` paths explicit rather than hidden behind legacy aliases
 
 ### Phase 3 — Wallet unlock routes
 
-1. extend `POST /wallet/unlock/challenge` for backend-aware challenge issuance
-2. extend `POST /wallet/unlock/verify` for `pin_oprf` verification
-3. add dedicated PIN enrollment setup routes
-4. keep session issuance and wallet unlock semantics separate
+1. choose whether to generalize `wallet/unlock/*` or add `wallet/pin/*` first
+2. implement `pin_oprf` challenge issuance
+3. implement `pin_oprf` verification
+4. add dedicated PIN enrollment setup routes
+5. keep session issuance and wallet unlock semantics separate
 
 ### Phase 4 — Threshold bootstrap integration
 
@@ -441,7 +574,15 @@ Do not log:
 3. refactor threshold bootstrap code so secret-source backends are explicit:
    - `passkey_prf`
    - `pin_oprf`
-4. eliminate any passkey-only assumptions from shared threshold orchestration code
+4. route ECDSA through deterministic client-share derivation
+5. route NEAR Ed25519 through deterministic HSS client-input derivation plus the existing HSS ceremony seams
+6. eliminate any passkey-only assumptions from shared threshold orchestration code
+
+### Phase 4.5 — Public API decision
+
+1. review whether a new stable public helper is needed in `client/src/threshold.ts`
+2. avoid mutating `connectEd25519Session` into a multi-backend kitchen-sink API unless the secret-source abstraction is clean
+3. prefer explicit backend-aware APIs over hidden optional flags
 
 ### Phase 5 — UX and recovery
 
@@ -463,21 +604,24 @@ Do not log:
    - wrong PIN failure counting
    - challenge replay rejection
    - stale session rejection
+   - threshold ECDSA bootstrap from `pin_oprf` root
+   - threshold Ed25519 HSS reconstruction from `pin_oprf` root
 5. parity coverage for Express and Cloudflare adapters
 
 ## Open Questions
 
 1. Should `pin_oprf` support same-tab sealed refresh analogous to current passkey session persistence, or should refresh always require PIN re-entry?
 2. Should the unlock proof key use secp256k1 for implementation reuse, or Ed25519 for stricter domain separation?
-3. Should threshold Ed25519 and ECDSA both derive from the same threshold root in the first release, or should release one scope only ECDSA?
+3. Should the first release cover both ECDSA and Ed25519 HSS, or should it intentionally ship ECDSA-only first and add Ed25519 HSS after the secret-source seam is stable?
 4. What lockout thresholds are acceptable for product UX versus abuse resistance?
 5. Should PIN enrollment be allowed when passkey is not enrolled, or should passkey remain mandatory for initial wallet creation?
+6. Should we generalize `wallet/unlock/*` immediately, or ship `wallet/pin/*` first because the existing handlers are explicitly WebAuthn-bound?
 
 ## Recommended First Release Scope
 
 1. keep passkeys as the default primary unlock backend
 2. add `pin_oprf` as opt-in fallback
-3. scope first release to threshold ECDSA only if that materially reduces complexity
+3. strongly consider scoping first release to threshold ECDSA only if that materially reduces complexity, because Ed25519 HSS requires a different client-derived artifact shape than ECDSA
 4. require fresh SSO session for setup and reset
 5. do not support offline PIN-only unlock in any form
 
@@ -485,7 +629,8 @@ Do not log:
 
 1. user can sign in with SSO and unlock with `pin_oprf`
 2. unlock uses expiring signed challenges with timestamp and session binding
-3. threshold client share derivation is deterministic across devices for the same SSO identity and PIN
-4. wrong PIN attempts are rate-limited and lock out correctly
-5. passkey and `pin_oprf` coexist without duplicate legacy route or symbol pollution
-6. shared threshold orchestration no longer assumes WebAuthn PRF as the only secret source
+3. threshold ECDSA client-share derivation is deterministic across devices for the same SSO identity and PIN
+4. threshold Ed25519 HSS client-input derivation is deterministic across devices for the same SSO identity and PIN when Ed25519 support is in scope
+5. wrong PIN attempts are rate-limited and lock out correctly
+6. passkey and `pin_oprf` coexist without duplicate legacy route or symbol pollution
+7. shared threshold orchestration no longer assumes WebAuthn PRF as the only secret source
