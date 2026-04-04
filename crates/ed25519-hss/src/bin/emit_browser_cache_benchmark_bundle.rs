@@ -2,10 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use ed25519_hss::{
+use ed25519_hss::benchmark::{
     default_cache_benchmark_config, generate_cache_benchmark_report,
-    materialize_cache_benchmark_targets, CandidateBackendFamily,
+    materialize_cache_benchmark_targets, CacheBenchmarkReport,
 };
+use ed25519_hss::candidate::CandidateBackendFamily;
 use serde::Serialize;
 
 const BROWSER_CACHE_BENCHMARK_BUNDLE_VERSION: &str = "browser_cache_benchmark_bundle_v0";
@@ -170,7 +171,7 @@ struct BrowserCacheBenchmarkBundle {
     timed_samples: usize,
     cached_gc_baseline_bytes: u64,
     bandwidths_mbps: Vec<u64>,
-    local_file_io_report: ed25519_hss::CacheBenchmarkReport,
+    local_file_io_report: CacheBenchmarkReport,
     targets: Vec<BrowserCacheBenchmarkTargetBundle>,
 }
 

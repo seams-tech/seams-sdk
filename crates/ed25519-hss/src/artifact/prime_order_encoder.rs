@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::candidate::{CandidateBackendFamily, FixedHiddenCoreCandidate};
-use crate::error::{ProtoError, ProtoResult};
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const PRIME_ORDER_ENCODER_VERSION: &str = "prime_order_encoder_v1";
 

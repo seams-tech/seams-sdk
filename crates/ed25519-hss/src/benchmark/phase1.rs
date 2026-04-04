@@ -9,11 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::reference::{
+use crate::shared::ProtoResult;
+use crate::shared::{
     add_le_bytes_mod_2_256, derive_output_shares, eval_f_expand, eval_nonlinear_expansion,
     public_key_from_scalar_bytes, reduce_scalar_mod_l, sha512_one_block, FExpandInput,
 };
-use crate::ProtoResult;
 
 pub const PHASE1_REPORT_VERSION: &str = "phase1_eval_report_v1";
 
@@ -206,7 +206,7 @@ pub fn generate_phase1_benchmark_report(
             black_box(sha512_one_block(black_box(*d)));
         }),
         benchmark_component("clamp_rfc8032", config, &a_bytes_inputs, |a_bytes| {
-            black_box(crate::clamp_rfc8032(black_box(*a_bytes)));
+            black_box(crate::shared::clamp_rfc8032(black_box(*a_bytes)));
         }),
         benchmark_component("reduce_scalar_mod_l", config, &a_bytes_inputs, |a_bytes| {
             black_box(reduce_scalar_mod_l(black_box(*a_bytes)));
@@ -387,7 +387,7 @@ impl BenchmarkMetadata {
 }
 
 impl OutputWidthReport {
-    fn from_reference_trace(output: &crate::FExpandOutput) -> Self {
+    fn from_reference_trace(output: &crate::shared::FExpandOutput) -> Self {
         let nonlinear_core_output_bytes = output.a.len() as u64;
         let client_private_output_bytes = output.x_client_base.len() as u64;
         let server_private_output_bytes = output.x_relayer_base.len() as u64;

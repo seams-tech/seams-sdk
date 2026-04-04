@@ -12,8 +12,8 @@ use crate::artifact_stub::{
     build_candidate_artifact_stub, materialize_candidate_artifact_stub_bytes,
 };
 use crate::candidate::{build_fixed_hidden_core_candidate, CandidateBackendFamily};
-use crate::error::{ProtoError, ProtoResult};
 use crate::fixtures::deterministic_fixture_corpus;
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const CACHE_BENCHMARK_REPORT_VERSION: &str = "cache_benchmark_report_v0";
 pub const DEFAULT_CACHED_GC_BASELINE_BYTES: u64 = 1_200_000;

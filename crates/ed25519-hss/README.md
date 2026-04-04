@@ -1,6 +1,6 @@
 # Ed25519 HSS
 
-This crate is an implementation-focused fixed-function protocol built based on  directions found in:
+This crate is an implementation-focused fixed-function protocol built based on directions found in:
 
 - [A Unified Framework for Succinct Garbling from Homomorphic Secret Sharing (ePrint 2025/442)](https://eprint.iacr.org/2025/442)
 
@@ -10,16 +10,15 @@ This crate implements one narrow prime-order/DDH version targeting a fixed Ed255
 
 Specifically, this crate homomorphically derives Ed25519 signing-share material from a hidden canonical seed path using OT + HSS, so that threshold signing shares and standard-compatible private-key export can be supported without the server observing the plaintext seed.
 
-
 For a more detailed paper-to-code mapping, see
 
 Research crate for the fixed-function Ed25519 HSS track in
 [`succinct-garbling-spec.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md).
 
-[`homomorphic-secret-sharing.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/homomorphic-secret-sharing.md).
-
+[`homomorphic-secret-sharing.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/homomorphic-secret-sharing.md).
 
 Scope note:
+
 - earlier Paillier and lattice candidate families were removed because
   their public evaluator payloads were prohibitively large for this track
 
@@ -40,7 +39,6 @@ properties:
   roots, client signing shares, or hidden client inputs
 - the hidden conversion preserves one canonical lifecycle:
   - `y_client + y_relayer -> d -> a -> (x_client_base, x_relayer_base)`
-
 
 ## OT-HSS Protocol Overview
 
@@ -114,6 +112,31 @@ Informally:
 - OT answers: "how does the client privately inject its input bits?"
 - HSS answers: "how do we compute on those hidden values after they are
   represented as hidden shared values?"
+
+## Current Boundary Surface
+
+The public crate surface is now intentionally boundary-oriented:
+
+- `protocol::PreparedSession`
+- `client::{ClientDriverState, ClientSession, ClientSessionState, ClientOtState}`
+- `client::{ClientOutputOpener, SeedOutputOpener, OutputOpeners}`
+- `server::{ServerDriverState, ServerSession, ServerSessionState, ServerOtState}`
+- `server::ServerOutputOpener`
+- `runtime::{SharedRuntime, SharedRuntimeState}`
+- `runtime::{ClientRuntime, ClientRuntimeState}`
+- `runtime::{ServerRuntime, ServerRuntimeState}`
+- `runtime::EvaluateTiming`
+- `wire::{WireMessage, ClientOtOffer, ClientPacket, ServerPacket}`
+- `wire::{ServerInputsPacket, ClientOutputPacket, SeedOutputPacket, ServerOutputPacket}`
+- `wire::{EvaluationResult, EvaluationReport, ArtifactSummary, RunBindings, OutputDelivery, OtTranscript}`
+
+That split is deliberate:
+
+- `client/` owns evaluator-private state and evaluator-facing APIs
+- `server/` owns garbler-private state and garbler-facing APIs
+- `wire/` owns the only cross-boundary payloads
+- `protocol/` owns prepared-session construction plus transcript/report helpers
+- `runtime/` owns runtime materialization and wasm/native adapters
 
 ## Protocol Shape
 
@@ -305,13 +328,13 @@ Kept hardening steps:
   Performance impact: flat to slightly better in measured runs. Worth it: yes.
 
 - `server_output_payload_binding` on
-  `PrimeOrderSuccinctHssEvaluationResult`.
+  `EvaluationResult`.
   Why: closes a real tampering gap before garbler-side report finalization.
   Performance impact when landed: about `+3.2%` native, `+1.7%` browser.
   Worth it: yes.
 
 - `client_output_binding` on
-  `PrimeOrderSuccinctHssEvaluationResult`.
+  `EvaluationResult`.
   Why: closes the corresponding nested client-output tampering gap inside the
   evaluator result.
   Performance impact when landed: roughly flat native, about `+3%` browser.
@@ -351,6 +374,53 @@ Current recommendation:
 - default debug coverage is currently `32 passed, 4 ignored`,
 - the current full five-fixture ignored DDH conformance lane passes, but still
   takes about `334.90 s` in the debug test profile.
+
+## Boundary Model
+
+The active crate boundary model is now explicit in code:
+
+- [`shared/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/shared)
+  owns context normalization, shared math, labels, and common errors
+- [`wire/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/wire)
+  owns the cross-boundary message surface and transport encoding
+- [`client/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client)
+  owns evaluator-side state, OT handling, output opening, and role-facing APIs
+- [`server/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server)
+  owns garbler-side state, OT handling, output sealing, and role-facing APIs
+- [`protocol/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol)
+  now mostly owns transcript rules, invariants, and report assembly
+- [`runtime/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/runtime)
+  owns prepared-session wrappers, runtime state materialization, timing, debug
+  helpers, and wasm/native adapters
+
+Hard boundary rules:
+
+- wire-visible messages must not expose clear `y_client`, `tau_client`,
+  `y_relayer`, or `tau_relayer`
+- evaluator-facing serialized state must not expose garbler OT sender-state
+  material
+- server-owned hidden values may flow through evaluation, but the evaluator
+  must not receive enough material to decode them into plaintext
+
+The new boundary tests in
+[`tests/boundary/mod.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/tests/boundary/mod.rs)
+enforce those rules directly against serialized state and wire-message bytes.
+
+## Runtime Artifacts
+
+There is now an explicit browser/server export split for the `near_signer` HSS
+wasm consumer:
+
+- the browser `pkg` build omits relay-only HSS exports
+- the relay `pkg-server` build enables `hss-server-exports`
+
+Measured release build delta on April 4, 2026:
+
+- browser client artifact: `1,163,957` bytes
+- browser full artifact with relay-only exports: `1,222,812` bytes
+- reduction: `58,855` bytes, about `4.8%`
+
+That split is kept because it produces a real browser artifact reduction.
 
 This crate is intentionally isolated from production signer flows.
 

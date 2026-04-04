@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::candidate::{CandidateBackendFamily, FixedHiddenCoreCandidate};
-use crate::error::{ProtoError, ProtoResult};
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const CANDIDATE_ARTIFACT_STUB_VERSION: &str = "candidate_artifact_stub_v0";
 pub const DEFAULT_ARTIFACT_STUB_CHUNK_SIZE_BYTES: u64 = 4_096;

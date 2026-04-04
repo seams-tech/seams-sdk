@@ -14,7 +14,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::ddh::hidden_eval::{
     FixedFunctionHssBackend, HiddenEvalInputOwner, HiddenEvalProgram, HssPrimitiveKind,
 };
-use crate::{ProtoError, ProtoResult};
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v0";
 
@@ -6204,9 +6204,13 @@ fn ot_remote_release_transcript_binding(
 mod tests {
     use super::*;
     use crate::{
-        build_fixed_hidden_core_candidate, compile_prime_order_hidden_eval_program,
-        decode_prime_order_size_optimized_artifact, deterministic_fixture_corpus,
-        materialize_prime_order_size_optimized_bytes,
+        artifact::{
+            decode_prime_order_size_optimized_artifact,
+            materialize_prime_order_size_optimized_bytes,
+        },
+        candidate::build_fixed_hidden_core_candidate,
+        ddh::compile_prime_order_hidden_eval_program,
+        fixtures::deterministic_fixture_corpus,
     };
 
     fn test_backend() -> DdhHssBackend {

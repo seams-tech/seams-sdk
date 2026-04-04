@@ -1,4 +1,5 @@
-use ed25519_hss::{committed_fixture_corpus, prepare_prime_order_succinct_hss};
+use ed25519_hss::fixtures::committed_fixture_corpus;
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 
 use crate::support::{
     decode_evaluation_result_message, decode_server_message, encode_transport_message,

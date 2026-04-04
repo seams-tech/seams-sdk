@@ -1,16 +1,17 @@
+use ed25519_hss::artifact::PrimeOrderEncodedArtifact;
+use ed25519_hss::artifact::PrimeOrderSectionKind;
+use ed25519_hss::client::ClientOtState;
 use ed25519_hss::ddh::ddh_hss::role_views_for_backend;
-use ed25519_hss::protocol::succinct_hss::{
-    PrimeOrderSuccinctHssClientOtOffer, PrimeOrderSuccinctHssClientOutputPacket,
-    PrimeOrderSuccinctHssClientPacket, PrimeOrderSuccinctHssServerInputsPacket,
-    PrimeOrderSuccinctHssServerPacket,
+use ed25519_hss::ddh::{
+    DdhHssBackend, DdhHssTransportBundle, DdhHssTransportPurpose, FixedFunctionHssBackend,
+    HiddenEvalInputOwner,
 };
-use ed25519_hss::{
-    committed_fixture_corpus, DdhHssBackend, DdhHssTransportBundle, DdhHssTransportPurpose,
-    FExpandFixture, FixedFunctionHssBackend, HiddenEvalInputOwner, PrimeOrderEncodedArtifact,
-    PrimeOrderSectionKind, PrimeOrderSuccinctHssEvaluationResult,
-    PrimeOrderSuccinctHssEvaluatorOtState, PrimeOrderSuccinctHssPreparedSession,
-    PrimeOrderSuccinctHssWireMessage, ProtoError, ProtoResult,
-    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
+use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
+use ed25519_hss::protocol::PreparedSession;
+use ed25519_hss::shared::{ProtoError, ProtoResult};
+use ed25519_hss::wire::{
+    ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationResult, ServerInputsPacket,
+    ServerPacket, WireMessage, PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -78,7 +79,7 @@ pub fn read_u16_le(bytes: &[u8], offset: usize) -> u16 {
 pub fn decode_transport_message<T: DeserializeOwned>(
     expected_context_binding: [u8; 32],
     expected_kind: TransportKind,
-    message: &PrimeOrderSuccinctHssWireMessage,
+    message: &WireMessage,
 ) -> ProtoResult<T> {
     let frame: TransportFrame = bincode::deserialize(&message.bytes).map_err(|err| {
         ProtoError::Decode(format!(
@@ -116,7 +117,7 @@ pub fn encode_transport_message<T: Serialize>(
     context_binding: [u8; 32],
     kind: TransportKind,
     payload: &T,
-) -> ProtoResult<PrimeOrderSuccinctHssWireMessage> {
+) -> ProtoResult<WireMessage> {
     let frame = TransportFrame {
         report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
         context_binding,
@@ -134,49 +135,49 @@ pub fn encode_transport_message<T: Serialize>(
             kind
         ))
     })?;
-    Ok(PrimeOrderSuccinctHssWireMessage { bytes })
+    Ok(WireMessage { bytes })
 }
 
 pub fn decode_client_offer(
     context_binding: [u8; 32],
-    message: &PrimeOrderSuccinctHssWireMessage,
-) -> ProtoResult<PrimeOrderSuccinctHssClientOtOffer> {
+    message: &WireMessage,
+) -> ProtoResult<ClientOtOffer> {
     decode_transport_message(context_binding, TransportKind::ClientOtOffer, message)
 }
 
 pub fn decode_client_request(
     context_binding: [u8; 32],
-    message: &PrimeOrderSuccinctHssWireMessage,
-) -> ProtoResult<PrimeOrderSuccinctHssClientPacket> {
+    message: &WireMessage,
+) -> ProtoResult<ClientPacket> {
     decode_transport_message(context_binding, TransportKind::ClientOtRequest, message)
 }
 
 pub fn decode_server_message(
     context_binding: [u8; 32],
-    message: &PrimeOrderSuccinctHssWireMessage,
-) -> ProtoResult<PrimeOrderSuccinctHssServerPacket> {
+    message: &WireMessage,
+) -> ProtoResult<ServerPacket> {
     decode_transport_message(context_binding, TransportKind::ServerPacket, message)
 }
 
 pub fn decode_client_output_message(
     context_binding: [u8; 32],
-    message: &PrimeOrderSuccinctHssWireMessage,
-) -> ProtoResult<PrimeOrderSuccinctHssClientOutputPacket> {
+    message: &WireMessage,
+) -> ProtoResult<ClientOutputPacket> {
     decode_transport_message(context_binding, TransportKind::ClientOutput, message)
 }
 
 pub fn decode_evaluation_result_message(
     context_binding: [u8; 32],
-    message: &PrimeOrderSuccinctHssWireMessage,
-) -> ProtoResult<PrimeOrderSuccinctHssEvaluationResult> {
+    message: &WireMessage,
+) -> ProtoResult<EvaluationResult> {
     decode_transport_message(context_binding, TransportKind::EvaluationResult, message)
 }
 
 pub fn decode_client_input_delivery(
-    session: &PrimeOrderSuccinctHssPreparedSession,
-    client_request_message: &PrimeOrderSuccinctHssWireMessage,
-    evaluator_ot_state: &PrimeOrderSuccinctHssEvaluatorOtState,
-    server_message: &PrimeOrderSuccinctHssWireMessage,
+    session: &PreparedSession,
+    client_request_message: &WireMessage,
+    evaluator_ot_state: &ClientOtState,
+    server_message: &WireMessage,
 ) -> ProtoResult<([u8; 32], [u8; 32])> {
     let context_binding = session.candidate().context_binding;
     let client_packet = decode_client_request(context_binding, client_request_message)?;
@@ -199,8 +200,8 @@ pub fn decode_client_input_delivery(
 }
 
 pub fn decode_server_input_delivery(
-    session: &PrimeOrderSuccinctHssPreparedSession,
-    server_message: &PrimeOrderSuccinctHssWireMessage,
+    session: &PreparedSession,
+    server_message: &WireMessage,
 ) -> ProtoResult<([u8; 32], [u8; 32])> {
     let payload = open_server_inputs_payload(session, server_message)?;
     Ok((
@@ -222,8 +223,8 @@ pub fn decode_server_input_delivery(
 }
 
 pub fn decode_server_input_payload_json(
-    session: &PrimeOrderSuccinctHssPreparedSession,
-    server_message: &PrimeOrderSuccinctHssWireMessage,
+    session: &PreparedSession,
+    server_message: &WireMessage,
 ) -> ProtoResult<String> {
     let payload = open_server_inputs_payload(session, server_message)?;
     serde_json::to_string(&payload).map_err(|err| {
@@ -234,8 +235,8 @@ pub fn decode_server_input_payload_json(
 }
 
 fn open_server_inputs_payload(
-    session: &PrimeOrderSuccinctHssPreparedSession,
-    server_message: &PrimeOrderSuccinctHssWireMessage,
+    session: &PreparedSession,
+    server_message: &WireMessage,
 ) -> ProtoResult<EncodedServerInputsPayload> {
     let context_binding = session.candidate().context_binding;
     let server_packet = decode_server_message(context_binding, server_message)?;
@@ -244,7 +245,7 @@ fn open_server_inputs_payload(
 
 fn open_server_inputs_packet(
     backend: &DdhHssBackend,
-    packet: &PrimeOrderSuccinctHssServerInputsPacket,
+    packet: &ServerInputsPacket,
 ) -> ProtoResult<EncodedServerInputsPayload> {
     let roles = role_views_for_backend(backend);
     let aad = server_input_packet_aad(packet.context_binding, packet.server_input_commitment);

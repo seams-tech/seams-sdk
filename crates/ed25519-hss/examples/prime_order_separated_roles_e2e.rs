@@ -5,11 +5,12 @@ use std::process;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ed25519_hss::{
-    committed_fixture_corpus, prepare_prime_order_succinct_hss,
-    reference::public_key_from_base_shares, FExpandFixture, PrimeOrderSuccinctHssEvaluationReport,
-    PrimeOrderSuccinctHssEvaluatorDriverState, PrimeOrderSuccinctHssEvaluatorOtState,
-    PrimeOrderSuccinctHssGarblerDriverState, PrimeOrderSuccinctHssWireMessage, ProtoError,
-    ProtoResult,
+    client::{ClientDriverState, ClientOtState},
+    fixtures::{committed_fixture_corpus, FExpandFixture},
+    protocol::prepare_prime_order_succinct_hss,
+    server::ServerDriverState,
+    shared::{public_key_from_base_shares, ProtoError, ProtoResult},
+    wire::{EvaluationReport, WireMessage},
 };
 
 const SECURITY_AUDIT_CHECKLIST: &[(&str, &str)] = &[
@@ -91,8 +92,7 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let garbler_offer_started = Instant::now();
-    let garbler_state_for_offer: PrimeOrderSuccinctHssGarblerDriverState =
-        read_json(&garbler_state_path)?;
+    let garbler_state_for_offer: ServerDriverState = read_json(&garbler_state_path)?;
     let (_runtime, garbler_session_for_offer) = garbler_state_for_offer.materialize()?;
     let offer_message = garbler_session_for_offer.client_ot_offer_message()?;
     timings.push(("garbler_offer", garbler_offer_started.elapsed()));
@@ -109,10 +109,9 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let evaluator_request_started = Instant::now();
-    let evaluator_state_for_request: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json(&evaluator_state_path)?;
+    let evaluator_state_for_request: ClientDriverState = read_json(&evaluator_state_path)?;
     let (_runtime, evaluator_session_for_request) = evaluator_state_for_request.materialize()?;
-    let offer_message_for_request: PrimeOrderSuccinctHssWireMessage = read_json(&offer_path)?;
+    let offer_message_for_request: WireMessage = read_json(&offer_path)?;
     let (request_message, ot_state) = evaluator_session_for_request
         .prepare_client_ot_request_from_offer_message(
             &offer_message_for_request,
@@ -140,10 +139,9 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let garbler_respond_started = Instant::now();
-    let garbler_state_for_respond: PrimeOrderSuccinctHssGarblerDriverState =
-        read_json(&garbler_state_path)?;
+    let garbler_state_for_respond: ServerDriverState = read_json(&garbler_state_path)?;
     let (_runtime, garbler_session_for_respond) = garbler_state_for_respond.materialize()?;
-    let request_message_for_respond: PrimeOrderSuccinctHssWireMessage = read_json(&request_path)?;
+    let request_message_for_respond: WireMessage = read_json(&request_path)?;
     let server_message = garbler_session_for_respond.prepare_server_message(
         &request_message_for_respond,
         fixture.input.y_relayer,
@@ -163,13 +161,12 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let evaluator_evaluate_started = Instant::now();
-    let evaluator_state_for_evaluate: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json(&evaluator_state_path)?;
+    let evaluator_state_for_evaluate: ClientDriverState = read_json(&evaluator_state_path)?;
     let (runtime_for_evaluate, evaluator_session_for_evaluate) =
         evaluator_state_for_evaluate.materialize()?;
-    let request_message_for_evaluate: PrimeOrderSuccinctHssWireMessage = read_json(&request_path)?;
-    let ot_state_for_evaluate: PrimeOrderSuccinctHssEvaluatorOtState = read_json(&ot_state_path)?;
-    let server_message_for_evaluate: PrimeOrderSuccinctHssWireMessage = read_json(&server_path)?;
+    let request_message_for_evaluate: WireMessage = read_json(&request_path)?;
+    let ot_state_for_evaluate: ClientOtState = read_json(&ot_state_path)?;
+    let server_message_for_evaluate: WireMessage = read_json(&server_path)?;
     let evaluation_result_message = evaluator_session_for_evaluate
         .evaluate_result_message_from_transport_messages(
             &runtime_for_evaluate,
@@ -191,12 +188,10 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let garbler_finalize_started = Instant::now();
-    let garbler_state_for_finalize: PrimeOrderSuccinctHssGarblerDriverState =
-        read_json(&garbler_state_path)?;
+    let garbler_state_for_finalize: ServerDriverState = read_json(&garbler_state_path)?;
     let (runtime_for_finalize, garbler_session_for_finalize) =
         garbler_state_for_finalize.materialize()?;
-    let evaluation_result_for_finalize: PrimeOrderSuccinctHssWireMessage =
-        read_json(&evaluation_result_path)?;
+    let evaluation_result_for_finalize: WireMessage = read_json(&evaluation_result_path)?;
     let report = garbler_session_for_finalize.finalize_report_from_evaluation_result_message(
         &runtime_for_finalize,
         &evaluation_result_for_finalize,
@@ -246,10 +241,9 @@ fn verify_report(
     evaluator_state_path: &Path,
     report_path: &Path,
 ) -> ProtoResult<()> {
-    let report: PrimeOrderSuccinctHssEvaluationReport = read_json(report_path)?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState = read_json(garbler_state_path)?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json(evaluator_state_path)?;
+    let report: EvaluationReport = read_json(report_path)?;
+    let garbler_state: ServerDriverState = read_json(garbler_state_path)?;
+    let evaluator_state: ClientDriverState = read_json(evaluator_state_path)?;
     let (_runtime, garbler_session) = garbler_state.materialize()?;
     let (_runtime, evaluator_session) = evaluator_state.materialize()?;
     let x_client_base = evaluator_session

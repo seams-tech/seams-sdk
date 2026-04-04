@@ -3,17 +3,7 @@
 Date updated: March 31, 2026
 
 This document is the single active spec for the fixed-function succinct
-garbling / HSS work in this crate. It supersedes the old
-`docs/succinct-garbling.md` plan note and the old
-`docs/succinct-garbling-candidate-v0.md` candidate note.
-
-## Historical Provenance
-
-The original `succinct-garbling` branch was created from `dev` and landed the
-optimized DDH hidden-eval prototype before being folded forward. That branch
-history is provenance, not a separate spec source. The active technical source
-of truth is this document plus the implementation in
-[`src/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src).
+garbling / HSS work in this crate.
 
 ## Objective
 

@@ -4,9 +4,11 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ed25519_hss::{
-    committed_fixture_corpus, reference::public_key_from_base_shares,
-    PrimeOrderSuccinctHssEvaluationReport, PrimeOrderSuccinctHssEvaluatorDriverState,
-    PrimeOrderSuccinctHssGarblerDriverState, PrimeOrderSuccinctHssWireMessage,
+    client::ClientDriverState,
+    fixtures::committed_fixture_corpus,
+    server::ServerDriverState,
+    shared::public_key_from_base_shares,
+    wire::{EvaluationReport, WireMessage},
 };
 
 fn driver_bin() -> &'static str {
@@ -112,9 +114,9 @@ fn process_driver_round_trips_ot_messages_without_local_coordinator() {
         server_path.to_str().expect("server path"),
     ]);
 
-    let offer: PrimeOrderSuccinctHssWireMessage = read_json(&offer_path);
-    let request: PrimeOrderSuccinctHssWireMessage = read_json(&request_path);
-    let server: PrimeOrderSuccinctHssWireMessage = read_json(&server_path);
+    let offer: WireMessage = read_json(&offer_path);
+    let request: WireMessage = read_json(&request_path);
+    let server: WireMessage = read_json(&server_path);
     assert!(!offer.bytes.is_empty());
     assert!(!request.bytes.is_empty());
     assert!(!server.bytes.is_empty());
@@ -211,10 +213,9 @@ fn process_driver_end_to_end_matches_reference_fixture() {
         report_path.to_str().expect("report path"),
     ]);
 
-    let report: PrimeOrderSuccinctHssEvaluationReport = read_json(&report_path);
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState = read_json(&garbler_state_path);
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json(&evaluator_state_path);
+    let report: EvaluationReport = read_json(&report_path);
+    let garbler_state: ServerDriverState = read_json(&garbler_state_path);
+    let evaluator_state: ClientDriverState = read_json(&evaluator_state_path);
     let (_runtime, garbler_session) = garbler_state.materialize().expect("garbler runtime");
     let (_runtime, evaluator_session) = evaluator_state.materialize().expect("evaluator runtime");
     let x_client_base = evaluator_session

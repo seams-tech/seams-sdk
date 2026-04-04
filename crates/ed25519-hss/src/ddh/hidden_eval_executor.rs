@@ -16,8 +16,8 @@ use crate::ddh::hidden_eval::{
 };
 #[cfg(test)]
 use crate::ddh::DdhHssBackend;
-use crate::reference::FExpandInput;
-use crate::{ProtoError, ProtoResult};
+use crate::shared::FExpandInput;
+use crate::shared::{ProtoError, ProtoResult};
 
 const SHA512_IV: [u64; 8] = [
     0x6a09e667f3bcc908,
@@ -3925,10 +3925,10 @@ mod tests {
         reduce_scalar_bits_mod_l_with_constants_local, share_input_bits,
         split_local_bit_pair_to_arithmetic_word_pair_naive, SplitLocalBitWord,
     };
+    use crate::ddh::HiddenEvalInputOwner;
     use crate::fixtures::deterministic_fixture_corpus;
     use crate::protocol::prepare_prime_order_succinct_hss;
-    use crate::reference::{derive_output_shares, reduce_scalar_mod_l};
-    use crate::HiddenEvalInputOwner;
+    use crate::shared::{derive_output_shares, reduce_scalar_mod_l};
 
     #[test]
     fn phase_a_naive_conversion_round_trip_matches_original_word() {

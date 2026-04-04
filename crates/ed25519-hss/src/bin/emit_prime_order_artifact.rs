@@ -1,10 +1,11 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
-    build_fixed_hidden_core_candidate, build_prime_order_size_optimized_artifact,
-    deterministic_fixture_corpus, materialize_prime_order_size_optimized_bytes,
+use ed25519_hss::artifact::{
+    build_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
 };
+use ed25519_hss::candidate::build_fixed_hidden_core_candidate;
+use ed25519_hss::fixtures::deterministic_fixture_corpus;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {

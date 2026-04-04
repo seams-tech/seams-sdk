@@ -8,8 +8,8 @@ use crate::benchmark::{ComponentTimingReport, LatencyStats};
 use crate::ddh::HiddenEvalInputOwner;
 use crate::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use crate::protocol::prepare_prime_order_succinct_hss;
-use crate::reference::public_key_from_base_shares;
-use crate::{ProtoError, ProtoResult};
+use crate::shared::public_key_from_base_shares;
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION: &str = "ddh_hidden_eval_benchmark_v0";
 
@@ -376,7 +376,7 @@ impl DdhHiddenEvalBenchmarkReport {
 
 fn benchmark_primitives(
     config: &DdhHiddenEvalBenchmarkConfig,
-    backend: &crate::DdhHssBackend,
+    backend: &crate::ddh::DdhHssBackend,
 ) -> ProtoResult<Vec<ComponentTimingReport>> {
     let left_bit = backend.share_word(HiddenEvalInputOwner::Client, "bench/left_bit", 1, 1)?;
     let right_bit = backend.share_word(HiddenEvalInputOwner::Server, "bench/right_bit", 1, 1)?;

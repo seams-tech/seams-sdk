@@ -1,15 +1,26 @@
-use ed25519_hss::{
-    build_candidate_artifact_stub, build_fixed_hidden_core_candidate,
+use ed25519_hss::artifact::{
     build_prime_order_execution_trace, build_prime_order_size_optimized_artifact,
-    committed_fixture_corpus, compile_prime_order_cpu_execution_program,
-    compile_prime_order_hidden_eval_program, decode_prime_order_size_optimized_artifact,
-    default_cache_benchmark_config, default_prime_order_cpu_executor_benchmark_config,
-    generate_cache_benchmark_report, generate_prime_order_cpu_executor_benchmark_report,
-    keygen_prime_order_ddh_hss_backend, materialize_cache_benchmark_targets,
-    materialize_candidate_artifact_stub_bytes, materialize_prime_order_size_optimized_bytes,
-    prepare_prime_order_succinct_hss, FixedFunctionHssBackend, HiddenEvalInputOwner,
-    HssPrimitiveKind, PrimeOrderSectionKind, PrimeOrderWindowRecordClass,
-    DEFAULT_ARTIFACT_STUB_CHUNK_SIZE_BYTES, DEFAULT_CACHED_GC_BASELINE_BYTES,
+    decode_prime_order_size_optimized_artifact, materialize_prime_order_size_optimized_bytes,
+    PrimeOrderSectionKind, PrimeOrderWindowRecordClass,
+};
+use ed25519_hss::artifact_stub::{
+    build_candidate_artifact_stub, materialize_candidate_artifact_stub_bytes,
+    DEFAULT_ARTIFACT_STUB_CHUNK_SIZE_BYTES,
+};
+use ed25519_hss::benchmark::{
+    default_cache_benchmark_config, generate_cache_benchmark_report,
+    materialize_cache_benchmark_targets, DEFAULT_CACHED_GC_BASELINE_BYTES,
+};
+use ed25519_hss::candidate::build_fixed_hidden_core_candidate;
+use ed25519_hss::ddh::{
+    compile_prime_order_hidden_eval_program, keygen_prime_order_ddh_hss_backend,
+    FixedFunctionHssBackend, HiddenEvalInputOwner, HssPrimitiveKind,
+};
+use ed25519_hss::fixtures::committed_fixture_corpus;
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
+use ed25519_hss::runtime::{
+    compile_prime_order_cpu_execution_program, default_prime_order_cpu_executor_benchmark_config,
+    generate_prime_order_cpu_executor_benchmark_report,
 };
 
 use crate::support::{contains_subslice, first_fixture, read_u16_le, section_bytes};
@@ -212,7 +223,7 @@ fn prime_order_cpu_executor_executes_compiled_program() {
         decode_prime_order_size_optimized_artifact(&bytes).expect("decode structured artifact");
     let program =
         compile_prime_order_cpu_execution_program(&decoded).expect("compile cpu executor");
-    let result = ed25519_hss::execute_prime_order_cpu_execution_program(&program)
+    let result = ed25519_hss::runtime::execute_prime_order_cpu_execution_program(&program)
         .expect("execute cpu program");
 
     assert_eq!(program.trace.total_steps, 180);

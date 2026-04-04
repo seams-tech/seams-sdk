@@ -2,9 +2,9 @@ use curve25519_dalek::scalar::Scalar;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
-use crate::context::CanonicalContext;
-use crate::error::{ProtoError, ProtoResult};
-use crate::reference::{eval_f_expand, FExpandInput, FExpandOutput};
+use crate::shared::{
+    eval_f_expand, CanonicalContext, FExpandInput, FExpandOutput, ProtoError, ProtoResult,
+};
 
 pub const FIXTURE_FORMAT_VERSION: &str = "f_expand_v1";
 pub const COMMITTED_FIXTURE_CORPUS_JSON: &str = include_str!("../fixtures/f_expand_v1.json");

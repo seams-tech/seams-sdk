@@ -16,7 +16,7 @@ use crate::artifact::{
 };
 use crate::candidate::build_fixed_hidden_core_candidate;
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::{ProtoError, ProtoResult};
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION: &str =
     "prime_order_cpu_executor_benchmark_v0";
@@ -24,7 +24,7 @@ pub const PRIME_ORDER_CPU_EXECUTOR_BENCHMARK_REPORT_VERSION: &str =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrimeOrderCpuExecutionProgram {
     pub artifact_bytes: u64,
-    pub trace: crate::PrimeOrderExecutionTrace,
+    pub trace: crate::artifact::PrimeOrderExecutionTrace,
     pub steps: Vec<PrimeOrderCpuExecutionStep>,
 }
 

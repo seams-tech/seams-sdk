@@ -1,9 +1,8 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
-    deterministic_fixture_corpus, evaluate_prime_order_succinct_hss, FExpandFixture,
-};
+use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
+use ed25519_hss::runtime::evaluate_prime_order_succinct_hss;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {

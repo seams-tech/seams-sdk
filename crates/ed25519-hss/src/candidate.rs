@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::context::CanonicalContext;
-use crate::error::{ProtoError, ProtoResult};
-use crate::reference::{eval_f_expand, FExpandInput, FExpandOutput};
+use crate::shared::{
+    eval_f_expand, CanonicalContext, FExpandInput, FExpandOutput, ProtoError, ProtoResult,
+};
 
 pub const FIXED_HIDDEN_CORE_CANDIDATE_VERSION: &str = "fixed_hidden_core_candidate_v0";
 pub const FIXED_HIDDEN_CORE_FUNCTION_ID: &str =

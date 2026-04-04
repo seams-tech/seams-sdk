@@ -1,8 +1,10 @@
-use ed25519_hss::{
+use ed25519_hss::candidate::{
     build_fixed_hidden_core_candidate, build_fixed_hidden_core_candidate_for_backend,
+    simulate_fixed_hidden_core_candidate, ArtifactScope, CandidateBackendFamily,
+};
+use ed25519_hss::fixtures::{
     committed_fixture_corpus, deterministic_fixture_corpus, serialized_fixture_corpus,
-    simulate_fixed_hidden_core_candidate, ArtifactScope, CandidateBackendFamily, FixtureCorpusFile,
-    COMMITTED_FIXTURE_CORPUS_JSON,
+    FixtureCorpusFile, COMMITTED_FIXTURE_CORPUS_JSON,
 };
 
 use crate::support::first_fixture;

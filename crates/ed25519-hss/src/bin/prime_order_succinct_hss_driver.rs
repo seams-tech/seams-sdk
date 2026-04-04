@@ -3,9 +3,11 @@ use std::fs;
 use std::path::Path;
 
 use ed25519_hss::{
-    prepare_prime_order_succinct_hss, CanonicalContext, PrimeOrderSuccinctHssEvaluatorDriverState,
-    PrimeOrderSuccinctHssEvaluatorOtState, PrimeOrderSuccinctHssGarblerDriverState,
-    PrimeOrderSuccinctHssWireMessage, ProtoError, ProtoResult,
+    client::{ClientDriverState, ClientOtState},
+    protocol::prepare_prime_order_succinct_hss,
+    server::ServerDriverState,
+    shared::{CanonicalContext, ProtoError, ProtoResult},
+    wire::WireMessage,
 };
 
 fn main() {
@@ -48,7 +50,7 @@ fn cmd_prepare(args: &[String]) -> ProtoResult<()> {
 fn cmd_garbler_offer(args: &[String]) -> ProtoResult<()> {
     let garbler_state_in = required_arg(args, "--garbler-state-in")?;
     let offer_out = required_arg(args, "--offer-out")?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState = read_json_file(garbler_state_in)?;
+    let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
     let (_runtime, garbler_session) = garbler_state.materialize()?;
     let offer_message = garbler_session.client_ot_offer_message()?;
     write_json_file(offer_out, &offer_message)?;
@@ -62,10 +64,9 @@ fn cmd_evaluator_request(args: &[String]) -> ProtoResult<()> {
     let tau_client_hex = required_arg(args, "--tau-client-hex")?;
     let request_out = required_arg(args, "--request-out")?;
     let ot_state_out = required_arg(args, "--ot-state-out")?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json_file(evaluator_state_in)?;
+    let evaluator_state: ClientDriverState = read_json_file(evaluator_state_in)?;
     let (_runtime, evaluator_session) = evaluator_state.materialize()?;
-    let offer_message: PrimeOrderSuccinctHssWireMessage = read_json_file(offer_in)?;
+    let offer_message: WireMessage = read_json_file(offer_in)?;
     let y_client = parse_hex_array32(y_client_hex)?;
     let tau_client = parse_hex_array32(tau_client_hex)?;
     let (request_message, ot_state) = evaluator_session
@@ -81,9 +82,9 @@ fn cmd_garbler_respond(args: &[String]) -> ProtoResult<()> {
     let y_relayer_hex = required_arg(args, "--y-relayer-hex")?;
     let tau_relayer_hex = required_arg(args, "--tau-relayer-hex")?;
     let server_out = required_arg(args, "--server-out")?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState = read_json_file(garbler_state_in)?;
+    let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
     let (_runtime, garbler_session) = garbler_state.materialize()?;
-    let request_message: PrimeOrderSuccinctHssWireMessage = read_json_file(request_in)?;
+    let request_message: WireMessage = read_json_file(request_in)?;
     let y_relayer = parse_hex_array32(y_relayer_hex)?;
     let tau_relayer = parse_hex_array32(tau_relayer_hex)?;
     let server_message =
@@ -98,12 +99,11 @@ fn cmd_evaluator_evaluate(args: &[String]) -> ProtoResult<()> {
     let ot_state_in = required_arg(args, "--ot-state-in")?;
     let server_in = required_arg(args, "--server-in")?;
     let evaluation_result_out = required_arg(args, "--evaluation-result-out")?;
-    let evaluator_state: PrimeOrderSuccinctHssEvaluatorDriverState =
-        read_json_file(evaluator_state_in)?;
+    let evaluator_state: ClientDriverState = read_json_file(evaluator_state_in)?;
     let (runtime, evaluator_session) = evaluator_state.materialize()?;
-    let request_message: PrimeOrderSuccinctHssWireMessage = read_json_file(request_in)?;
-    let ot_state: PrimeOrderSuccinctHssEvaluatorOtState = read_json_file(ot_state_in)?;
-    let server_message: PrimeOrderSuccinctHssWireMessage = read_json_file(server_in)?;
+    let request_message: WireMessage = read_json_file(request_in)?;
+    let ot_state: ClientOtState = read_json_file(ot_state_in)?;
+    let server_message: WireMessage = read_json_file(server_in)?;
     let evaluation_result_message = evaluator_session
         .evaluate_result_message_from_transport_messages(
             &runtime,
@@ -119,10 +119,9 @@ fn cmd_garbler_finalize(args: &[String]) -> ProtoResult<()> {
     let garbler_state_in = required_arg(args, "--garbler-state-in")?;
     let evaluation_result_in = required_arg(args, "--evaluation-result-in")?;
     let report_out = required_arg(args, "--report-out")?;
-    let garbler_state: PrimeOrderSuccinctHssGarblerDriverState = read_json_file(garbler_state_in)?;
+    let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
     let (runtime, garbler_session) = garbler_state.materialize()?;
-    let evaluation_result_message: PrimeOrderSuccinctHssWireMessage =
-        read_json_file(evaluation_result_in)?;
+    let evaluation_result_message: WireMessage = read_json_file(evaluation_result_in)?;
     let report = garbler_session
         .finalize_report_from_evaluation_result_message(&runtime, &evaluation_result_message)?;
     write_json_file(report_out, &report)?;

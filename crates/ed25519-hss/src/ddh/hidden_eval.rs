@@ -5,7 +5,7 @@ use crate::artifact::{
     PrimeOrderWindowRecordClass,
 };
 use crate::candidate::CandidateBackendFamily;
-use crate::{ProtoError, ProtoResult};
+use crate::shared::{ProtoError, ProtoResult};
 
 pub const HIDDEN_EVAL_PROGRAM_VERSION: &str = "hidden_eval_program_v0";
 

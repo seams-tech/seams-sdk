@@ -1,11 +1,13 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
-    build_candidate_artifact_stub_with_chunk_size, build_fixed_hidden_core_candidate_for_backend,
-    deterministic_fixture_corpus, materialize_candidate_artifact_stub_bytes,
-    CandidateBackendFamily,
+use ed25519_hss::artifact_stub::{
+    build_candidate_artifact_stub_with_chunk_size, materialize_candidate_artifact_stub_bytes,
 };
+use ed25519_hss::candidate::{
+    build_fixed_hidden_core_candidate_for_backend, CandidateBackendFamily,
+};
+use ed25519_hss::fixtures::deterministic_fixture_corpus;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {

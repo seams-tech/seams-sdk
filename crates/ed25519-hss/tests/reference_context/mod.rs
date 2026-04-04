@@ -1,9 +1,4 @@
-use ed25519_dalek::SigningKey;
-use ed25519_hss::reference::public_key_from_base_shares;
-use ed25519_hss::{
-    add_le_bytes_mod_2_256, clamp_rfc8032, eval_f_expand, public_key_from_scalar_bytes,
-    recover_a_from_base_shares, CanonicalContext,
-};
+use ed25519_hss::shared::{add_le_bytes_mod_2_256, clamp_rfc8032, CanonicalContext};
 
 #[test]
 fn addition_is_little_endian_and_wraps_mod_2_256() {
@@ -72,33 +67,4 @@ fn context_binding_changes_when_context_changes() {
         left.binding_digest().expect("left binding digest"),
         right.binding_digest().expect("right binding digest"),
     );
-}
-
-#[test]
-fn fixtures_match_reference_and_invariants() {
-    for fixture in ed25519_hss::deterministic_fixture_corpus().expect("fixture corpus") {
-        let output = eval_f_expand(&fixture.input).expect("reference path");
-        assert_eq!(output, fixture.output);
-
-        let recovered_a =
-            recover_a_from_base_shares(fixture.output.x_client_base, fixture.output.x_relayer_base)
-                .expect("recover a from base shares");
-        assert_eq!(recovered_a, fixture.output.a);
-
-        let public_key =
-            public_key_from_scalar_bytes(fixture.output.a).expect("public key from scalar");
-        assert_eq!(public_key, fixture.output.public_key);
-        let public_key_from_outputs = public_key_from_base_shares(
-            fixture.output.x_client_base,
-            fixture.output.x_relayer_base,
-        )
-        .expect("public key from base shares");
-        assert_eq!(public_key_from_outputs, fixture.output.public_key);
-
-        let signing_key = SigningKey::from_bytes(&fixture.output.d);
-        assert_eq!(
-            signing_key.verifying_key().to_bytes(),
-            fixture.output.public_key
-        );
-    }
 }

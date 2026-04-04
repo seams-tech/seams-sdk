@@ -1,10 +1,11 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
-    build_fixed_hidden_core_candidate_for_backend, deterministic_fixture_corpus,
+use ed25519_hss::candidate::{
+    build_fixed_hidden_core_candidate_for_backend,
     simulate_fixed_hidden_core_candidate_for_backend, CandidateBackendFamily,
 };
+use ed25519_hss::fixtures::deterministic_fixture_corpus;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {

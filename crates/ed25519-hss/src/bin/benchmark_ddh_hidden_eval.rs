@@ -1,7 +1,7 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
+use ed25519_hss::benchmark::{
     default_ddh_hidden_eval_benchmark_config, generate_ddh_hidden_eval_benchmark_report,
 };
 

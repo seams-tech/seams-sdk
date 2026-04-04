@@ -1,53 +1,187 @@
-# HSS Refactor Plan
+# Ed25519 HSS Refactor 1
 
-Date updated: March 31, 2026
+Date updated: April 4, 2026
 
-## Goal
+## Summary
 
-Refactor `crates/ed25519-hss/src` so that:
+This draft proposes a boundary-first refactor of
+[crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss).
 
-- benchmark-related code is grouped in one folder
-- the crate uses a clearer folder hierarchy by subsystem
-- entrypoints are easier to discover and maintain
-- the public API surface is thinner and more intentional
-- legacy parallel code paths are removed as the refactor lands
+The main goal is to make client/server boundaries obvious in the codebase so
+that it is easy to:
 
-This is a structural refactor, not a feature branch. The result should look as
-if the new layout had always existed.
+- review which code is client-only
+- review which code is server-only
+- review which payloads are allowed to cross the wire
+- detect when key material or private state crosses boundaries incorrectly
+- write focused negative tests for boundary violations
 
-## Design Rules
+This is not just a folder cleanup. It is a structural refactor intended to make
+secret-flow review and boundary testing much clearer.
 
-- no legacy flags or deprecated symbols
-- no duplicate module trees left behind “for compatibility”
-- breaking internal module paths are acceptable
-- `lib.rs` should become a thin entrypoint, not a dumping ground
-- the secure hot path must not change behavior during pure layout moves
-- benchmark and CLI surface should be reorganized around function, not
-  historical file names
+This plan is grounded in the active crate docs and specs:
 
-## Target Layout
+- [crates/ed25519-hss/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
+- [crates/ed25519-hss/docs/homomorphic-secret-sharing.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/homomorphic-secret-sharing.md)
+- [crates/ed25519-hss/security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md)
+- [crates/ed25519-hss/succinct-garbling-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md)
+
+The module boundaries below are meant to mirror the protocol boundaries those
+docs already define.
+
+## Why Refactor
+
+The current crate has strong protocol logic, but the role boundaries are not
+obvious enough from the module tree.
+
+Today:
+
+- prepared-session construction was originally concentrated inside
+  [crates/ed25519-hss/src/protocol/prepared.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol/prepared.rs)
+- wire payloads, role-private state, and transcript/report assembly are too
+  close together
+- the top-level
+  [crates/ed25519-hss/src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/lib.rs)
+  flattens too much of the crate surface
+- this makes “what may cross from client to server” harder to audit than it
+  should be
+
+The refactor should make role ownership explicit in both the module tree and
+type names.
+
+## Boundary Rationale From The Specs
+
+The specs already tell us where the boundaries should exist.
+
+### 1. Role boundary: client = evaluator, server = garbler
+
+[crates/ed25519-hss/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
+states the live role model explicitly:
+
+- server = garbler
+- client = evaluator
+
+That means the crate should not bury both roles inside one mixed module. The
+filesystem and public API should make evaluator-only and garbler-only surfaces
+obvious.
+
+### 2. Primitive boundary: OT delivery vs HSS evaluation
+
+[crates/ed25519-hss/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
+and
+[crates/ed25519-hss/succinct-garbling-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md)
+both define the same split:
+
+- OT is the private input-delivery mechanism for client-owned bits
+- HSS is the hidden-computation mechanism once inputs are represented as hidden
+  shared values
+
+So the refactor should avoid one giant "protocol" bucket that mixes OT
+transport, role-private OT state, and the hidden-eval executor.
+
+### 3. Layer boundary: input-share, nonlinear expansion, output-share
+
+[crates/ed25519-hss/succinct-garbling-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md)
+defines three protocol layers:
+
+- input-share layer
+- nonlinear expansion layer
+- output-share layer
+
+That implies:
+
+- `wire/` should own the input-share crossing surface and binding checks
+- `ddh/` and `artifact/` should remain the nonlinear-expansion engine
+- `client/outputs.rs` and `server/outputs.rs` should make the output-share
+  boundary explicit
+
+### 4. Security boundary: evaluator may compute on hidden server input, but may not decode it
+
+The most important active rule in
+[crates/ed25519-hss/succinct-garbling-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md)
+and
+[crates/ed25519-hss/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
+is:
+
+- the evaluator may evaluate on hidden server input
+- the evaluator must not receive enough material to decode server input into
+  plaintext
+
+The same security note is reinforced in
+[crates/ed25519-hss/security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md):
+
+- no interparty wire type may carry both halves of a hidden server-owned value
+- joined hidden values must stay confined to trusted simulation, explicit
+  debug/profiling paths, or internal computation states that never cross the
+  evaluator/garbler boundary
+
+This is the core reason to split `wire/` away from `client/` and `server/`,
+and to keep boundary tests as a first-class part of the refactor.
+
+### 5. Reusable public artifact vs per-run secret preprocessing
+
+[crates/ed25519-hss/docs/homomorphic-secret-sharing.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/homomorphic-secret-sharing.md)
+argues for a cleaner separation between:
+
+- public reusable artifact data
+- per-session HSS preprocessing
+- evaluator-local split execution
+
+That supports the target split here:
+
+- `artifact/` and parts of `shared/` hold reusable public context/artifact data
+- `client/state.rs` and `server/state.rs` hold per-run private state
+- `ddh/` and `runtime/` execute over split/local hidden values without leaking
+  them into the wire surface
+
+## Refactor Goal
+
+After this refactor, the crate should communicate the following clearly:
+
+- `shared`: common context, fixed-function derivation math, labels, and errors
+- `wire`: the only data allowed to cross client/server boundaries
+- `client`: evaluator-side logic and client-private state
+- `server`: garbler-side logic and server-private state
+- `protocol`: transcript rules and cross-role invariants
+- `runtime`: wasm/native adapters only
+
+The structure should make boundary violations easier to spot before runtime.
+
+## Landed Module Tree
 
 ```text
 crates/ed25519-hss/src/
   lib.rs
 
-  core/
+  shared/
     mod.rs
     context.rs
     error.rs
-    fixtures.rs
     reference.rs
 
-  candidate/
+  wire/
     mod.rs
-    artifact_stub.rs
-    candidate.rs
 
-  artifact/
+  client/
     mod.rs
-    prime_order_encoder.rs
-    prime_order_decoder.rs
-    prime_order_trace.rs
+    api.rs
+    ot.rs
+    outputs.rs
+    state.rs
+
+  server/
+    mod.rs
+    api.rs
+    ot.rs
+    outputs.rs
+    state.rs
+
+  protocol/
+    mod.rs
+    invariants.rs
+    prepared.rs
+    report.rs
+    transcript.rs
 
   ddh/
     mod.rs
@@ -55,361 +189,536 @@ crates/ed25519-hss/src/
     hidden_eval.rs
     hidden_eval_executor.rs
 
-  protocol/
+  artifact/
     mod.rs
-    succinct_hss.rs
-    driver.rs
+    prime_order_decoder.rs
+    prime_order_encoder.rs
+    prime_order_trace.rs
 
   runtime/
     mod.rs
+    client.rs
+    debug.rs
+    evaluation.rs
+    flow.rs
+    prepared.rs
     prime_order_cpu_executor.rs
+    server.rs
+    shared.rs
     wasm.rs
 
   benchmark/
     mod.rs
-    phase1.rs
     cache.rs
     hidden_eval.rs
+    phase1.rs
 
-  bin/
-    bench_cache.rs
-    bench_hidden_eval.rs
-    bench_cpu_executor.rs
-    emit_browser_benchmark_bundle.rs
-    emit_candidate_artifact_stub.rs
-    emit_candidate_note.rs
-    emit_fixture_json.rs
-    emit_prime_order_artifact.rs
-    prime_order_driver.rs
-    profile_fixed_sha512.rs
-    run_prime_order_hss.rs
+  fixtures.rs
+  candidate.rs
+  artifact_stub.rs
 ```
 
-## Why This Layout
+## Responsibility Split
 
-### `core/`
+### `shared/`
 
-Stable shared types and the executable reference path:
+Holds:
 
-- context
-- error
-- fixtures
-- reference model
+- canonical context
+- fixed-function shared derivation logic
+- common labels and binding helpers
+- shared reference math
+- common error types
 
-This should be the least surprising part of the crate and the easiest to
-depend on from anywhere else.
+Must not hold:
 
-### `candidate/`
+- role-private driver state
+- wire packet codecs mixed with role-private state
 
-Candidate-model and artifact-stub logic belongs together:
+### `wire/`
 
-- candidate sizing/specs data
-- candidate note generation helpers
-- artifact stub helpers
+Holds:
 
-This keeps modeled/specs-only code separate from the actual protocol/runtime.
+- the only wire-visible envelopes and packets
+- serialization/deserialization for cross-boundary payloads
+- commitment and binding payloads
+- explicit validation helpers for wire-safe structures
 
-### `artifact/`
+This module exists specifically because the spec says no interparty wire type
+may carry both halves of a hidden server-owned value.
 
-The structured prime-order artifact pipeline is one subsystem:
+Must not hold:
 
-- encoder
-- decoder
-- execution trace
+- client-private driver state
+- server-private driver state
+- raw hidden roots
 
-These files already behave like one pipeline and should live together.
+### `client/`
 
-### `ddh/`
+Holds evaluator-side logic only:
 
-The DDH primitive backend and hidden evaluator are one engine:
+- client ceremony preparation
+- evaluator progression
+- client-private OT state
+- client output opening
 
-- DDH HSS primitive
-- hidden-eval IR
-- hidden-eval executor
+Must not expose:
 
-This is the cryptographic execution core and should be grouped as such.
+- server-private state
+- hidden server inputs
+
+This follows the active role model in the README: client = evaluator.
+
+### `server/`
+
+Holds garbler-side logic only:
+
+- server ceremony preparation
+- garbler progression
+- server-private OT state
+- server output opening
+
+Must not expose:
+
+- client-private state
+- hidden client inputs
+
+This follows the active role model in the README: server = garbler.
 
 ### `protocol/`
 
-The session and wire-message surface is one subsystem:
+Holds only cross-role invariants:
 
-- prepared session
-- wire messages
-- role state
-- driver-facing library flow
+- transcript rules
+- report assembly
+- explicit cross-role validation
 
-The current driver bin should become a thin CLI wrapper over this library
-layer.
+Must not become a generic dumping ground for role-specific code.
 
 ### `runtime/`
 
-Execution adapters go here:
+Holds:
 
-- CPU executor
-- wasm/browser runtime surface
+- wasm bindings
+- CPU/native execution adapters
 
-These are not protocol definitions and should not sit at top level.
+Must consume the role APIs, not define the role model itself.
 
-### `benchmark/`
+## Runtime Artifact Split
 
-All benchmark/report/config logic belongs together:
+Yes, this crate should eventually produce distinct client and server runtime
+artifacts for product builds.
 
-- phase 1 benchmark
-- cache benchmark
-- hidden-eval benchmark
+Reason:
 
-This is the first refactor slice because it is the clearest improvement with
-the least protocol risk.
+- the client only needs evaluator-side role logic plus the wire-safe payload
+  surface
+- the server only needs garbler-side role logic plus the wire-safe payload
+  surface
+- bundling both sides into one wasm/runtime package makes the browser ship
+  server-only code and role-private server state machinery it should never need
+- that works against the same boundary clarity this refactor is trying to
+  enforce
 
-## Entry Point Policy
+So the target runtime shape should be:
 
-### `lib.rs`
+- client artifact:
+  - evaluator-side ceremony
+  - client output opening
+  - shared math/context
+  - wire codecs
+- server artifact:
+  - garbler-side ceremony
+  - server output opening
+  - shared math/context
+  - wire codecs
 
-`lib.rs` should:
+This should be done after the role-private code is structurally separated in
+`client/` and `server/`. The runtime split should follow the module split, not
+precede it.
 
-- declare top-level subsystem modules
-- re-export only the intended public API
-- avoid long re-export lists for internal-only helpers
+Recommended implementation direction:
 
-Target public surface:
+1. keep one source crate
+2. split public module ownership cleanly first
+3. then add feature-gated or target-specific runtime entrypoints so the client
+   bundle does not pull in server-only code
+4. finally, update the build scripts to emit:
+   - a client/evaluator artifact
+   - a server/garbler artifact
 
-- `core` types needed by users
-- `protocol::prepare_prime_order_succinct_hss`
-- protocol session/report/wire types
-- selected benchmark report/config APIs under non-wasm builds
+Non-goal:
 
-### `src/bin`
+- do not fork the protocol into two independent crates unless the module split
+  proves insufficient
 
-Bins should be thin wrappers around library entrypoints.
+## Public API Direction
 
-Rename the current bins to function-first names:
+The current top-level crate surface is too flat. After refactor, the public API
+should intentionally export only:
 
-- `benchmark_cache_artifacts.rs` -> `bench_cache.rs`
-- `benchmark_ddh_hidden_eval.rs` -> `bench_hidden_eval.rs`
-- `benchmark_prime_order_cpu_executor.rs` -> `bench_cpu_executor.rs`
-- `emit_browser_cache_benchmark_bundle.rs` -> `emit_browser_benchmark_bundle.rs`
-- `prime_order_succinct_hss_driver.rs` -> `prime_order_driver.rs`
-- `run_prime_order_succinct_hss.rs` -> `run_prime_order_hss.rs`
+- shared context/types
+- wire envelopes
+- client API entrypoints
+- server API entrypoints
+- selected runtime/benchmark APIs where appropriate
 
-The emitters can keep their current names because they already follow a
-function-first pattern.
+That means the crate should stop reexporting large amounts of internal state
+flat from
+[crates/ed25519-hss/src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/lib.rs).
 
-## Migration Strategy
+Callers should use explicit module paths like:
 
-Move code in slices that preserve behavior and keep tests green after every
-step.
+- `ed25519_hss::client::...`
+- `ed25519_hss::server::...`
+- `ed25519_hss::wire::...`
+- `ed25519_hss::shared::...`
 
-### Phase 0 — Freeze the move order
+This is a deliberate breaking change and should be treated as a cleanup win.
 
-- [x] write this refactor plan
-- [ ] agree on target module names and bin names before moving files
-- [ ] keep one migration branch/series; do not maintain old and new layouts in
-  parallel
+## Naming Rules
 
-### Phase 1 — Group benchmark code first
+Type names should make ownership obvious.
 
-Move:
+Final boundary-owned names now follow that rule directly.
 
-- `src/benchmark.rs` -> `src/benchmark/phase1.rs`
-- `src/cache_benchmark.rs` -> `src/benchmark/cache.rs`
-- `src/ddh_hidden_eval_benchmark.rs` -> `src/benchmark/hidden_eval.rs`
+Examples:
 
-Tasks:
+- `protocol::PreparedSession`
+- `client::ClientDriverState`
+- `client::ClientSession`
+- `client::ClientOtState`
+- `client::ClientOutputOpener`
+- `server::ServerDriverState`
+- `server::ServerSession`
+- `server::ServerOtState`
+- `server::ServerOutputOpener`
+- `wire::WireMessage`
+- `wire::ClientOtOffer`
+- `wire::ClientPacket`
+- `wire::ServerPacket`
+- `wire::EvaluationResult`
+- `wire::EvaluationReport`
+- `runtime::SharedRuntime`
+- `runtime::ClientRuntime`
+- `runtime::ServerRuntime`
 
-- [x] create `src/benchmark/mod.rs`
-- [x] update `lib.rs` module declarations
-- [x] update all internal imports
-- [x] keep re-exported benchmark APIs stable where still useful
-- [ ] move benchmark bins to the new names
-- [ ] delete old benchmark bin files instead of leaving wrappers
+Rule:
 
-Acceptance:
+- anything crossing the boundary should be named `Wire*`
+- anything client-private should be named `Client*`
+- anything server-private should be named `Server*`
+- shared runtime/materialization types may stay `Shared*`, `Prepared*`, or
+  `Evaluate*` where that ownership is already unambiguous from the module path
 
-- `cargo test --lib` passes
-- benchmark bins still build and run
+## Proposed Migration Steps
 
-### Phase 2 — Group artifact pipeline
+### Phase 1: Create The New Skeleton
 
-Move:
+Add the new folders and `mod.rs` files without changing behavior:
 
-- `src/prime_order_encoder.rs` -> `src/artifact/prime_order_encoder.rs`
-- `src/prime_order_decoder.rs` -> `src/artifact/prime_order_decoder.rs`
-- `src/prime_order_trace.rs` -> `src/artifact/prime_order_trace.rs`
+- `shared/`
+- `wire/`
+- `client/`
+- `server/`
 
-Tasks:
+Keep existing code compiling while the new structure is introduced.
 
-- [x] create `src/artifact/mod.rs`
-- [x] update all imports across runtime, protocol, and tests
-- [ ] keep artifact-specific helper visibility as narrow as possible
-- [ ] remove stale comments that still imply a flat layout
-
-Acceptance:
-
-- encoder/decoder/trace tests still pass
-- no references remain to the old top-level files
-
-### Phase 3 — Group DDH engine code
-
-Move:
-
-- `src/ddh_hss.rs` -> `src/ddh/ddh_hss.rs`
-- `src/hidden_eval.rs` -> `src/ddh/hidden_eval.rs`
-- `src/ddh_hidden_eval_executor.rs` -> `src/ddh/hidden_eval_executor.rs`
-
-Tasks:
-
-- [x] create `src/ddh/mod.rs`
-- [x] update all imports in protocol, wasm, benchmark, and tests
-- [ ] keep the secure hot path exactly behavior-preserving during the move
-- [ ] delete obsolete top-level references immediately
-
-Acceptance:
-
-- fixture smoke still passes
-- hidden-eval benchmark still builds
-
-### Phase 4 — Group protocol/session flow
-
-Move:
-
-- `src/succinct_hss.rs` -> `src/protocol/succinct_hss.rs`
-
-Add:
-
-- `src/protocol/driver.rs`
-
-Tasks:
-
-- [x] create `src/protocol/mod.rs`
-- [ ] move driver-facing orchestration helpers out of the bin and into
-  `protocol::driver`
-- [ ] turn the process driver bin into a thin CLI wrapper
-- [ ] keep wire-message, state, and report types together
-
-Acceptance:
-
-- process-driver test still passes
-- separated e2e example still passes
-
-### Phase 5 — Group runtime adapters
+### Phase 2: Move Shared Foundations First
 
 Move:
 
-- `src/prime_order_cpu_executor.rs` -> `src/runtime/prime_order_cpu_executor.rs`
-- `src/wasm.rs` -> `src/runtime/wasm.rs`
+- [crates/ed25519-hss/src/context.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/context.rs)
+- [crates/ed25519-hss/src/error.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/error.rs)
+- [crates/ed25519-hss/src/reference.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/reference.rs)
 
-Tasks:
+Target:
 
-- [x] create `src/runtime/mod.rs`
-- [x] update cfg-gated module declarations cleanly
-- [x] keep wasm-only exports working
+- `shared/context.rs`
+- `shared/error.rs`
+- `shared/reference.rs`
 
-Acceptance:
+Keep behavior unchanged.
 
-- native tests still pass
-- wasm build still works
+### Phase 3: Extract Wire Types
 
-### Phase 6 — Group core/reference code
+Pull the wire-crossing payloads out of
+[crates/ed25519-hss/src/protocol/prepared.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol/prepared.rs).
 
-Move:
+First move:
 
-- `src/context.rs` -> `src/core/context.rs`
-- `src/error.rs` -> `src/core/error.rs`
-- `src/fixtures.rs` -> `src/core/fixtures.rs`
-- `src/reference.rs` -> `src/core/reference.rs`
+- message/envelope structs
+- packet wrappers
+- commitment/binding transport types
 
-Tasks:
+Target:
 
-- [ ] create `src/core/mod.rs`
-- [ ] make `core` the canonical home of specs/reference types
-- [ ] keep public re-exports stable where intentional
+- `wire/mod.rs`
 
-Acceptance:
+### Phase 4: Split Role-Private State
 
-- fixture and reference tests still pass
+Move evaluator-only private state to:
 
-### Phase 7 — Group candidate/specs-only code
+- `client/state.rs`
+- `client/ot.rs`
+- `client/outputs.rs`
 
-Move:
+Move garbler-only private state to:
 
-- `src/candidate.rs` -> `src/candidate/candidate.rs`
-- `src/artifact_stub.rs` -> `src/candidate/artifact_stub.rs`
+- `server/state.rs`
+- `server/ot.rs`
+- `server/outputs.rs`
 
-Tasks:
+The goal is to make it impossible to confuse wire-safe payloads with
+role-private state.
 
-- [ ] create `src/candidate/mod.rs`
-- [ ] keep candidate/specs-only code separate from production protocol/runtime
-- [ ] narrow the public API so internal-only candidate helpers stop leaking
-  through `lib.rs`
+### Phase 5: Split Ceremony Entry Points
 
-Acceptance:
+Client-side API should contain:
 
-- candidate artifact/note bins still work
+- prepare client request
+- evaluate result
+- open client output
+- open seed output if client-visible
 
-### Phase 8 — Thin `lib.rs`
+Server-side API should contain:
 
-Tasks:
+- derive server inputs
+- prepare server message
+- finalize report
+- open server output
 
-- [ ] replace the current flat `pub mod ...` list with subsystem modules
-- [ ] replace broad re-export dumping with a deliberate public surface
-- [ ] remove re-exports that are only used by crate-local bins/tests
-- [ ] document the new crate topology at the top of `lib.rs`
+This moves role behavior out of one large mixed module.
 
-Acceptance:
+### Phase 6: Shrink `protocol/`
 
-- downstream code used by this repo still compiles
-- no duplicate old/new module re-exports remain
+After the role split, keep only cross-role concerns in `protocol/`:
 
-### Phase 9 — Rename bins and clean docs
+- transcript rules
+- report assembly
+- invariants
 
-Tasks:
+Anything that only touches one role should be moved out.
 
-- [ ] rename the benchmark and runtime bins to the new function-first names
-- [ ] update README/docs/examples/test invocations
-- [ ] remove any doc references to old module paths
-- [ ] update generated pkg README if needed
+### Phase 7: Clean Up Top-Level Exports
 
-Acceptance:
+Reduce top-level `pub use` clutter in
+[crates/ed25519-hss/src/lib.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/lib.rs).
 
-- `rg` finds no stale references to deleted paths or removed bin names
+Deliberately force callers to use module-qualified paths.
 
-## Keep / Reject Rules
+This is one of the main wins for boundary clarity.
 
-Keep a refactor slice only if:
+### Phase 8: Update Runtime Adapters
 
-- it reduces layout ambiguity
-- it does not create duplicate module paths
-- it keeps tests green
+Once internal APIs are stable, update:
 
-Reject or revert a slice if:
+- [crates/ed25519-hss/src/runtime/wasm.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/runtime/wasm.rs)
 
-- it leaves compatibility wrappers behind without strong reason
-- it duplicates whole files or module trees
-- it mixes layout change with unrelated behavior change
+so it consumes the new `client`, `server`, `wire`, and `shared` modules
+instead of reaching into mixed protocol internals.
 
-## Verification Checklist
+### Phase 9: Add Boundary Tests
 
-After each phase:
+Add dedicated tests for:
 
-- [ ] `cargo fmt --manifest-path crates/ed25519-hss/Cargo.toml`
-- [ ] `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --lib -- --nocapture`
-- [ ] `cargo test --manifest-path crates/ed25519-hss/Cargo.toml tests::prime_order_succinct_hss_matches_reference_fixture_smoke -- --ignored --nocapture`
-- [ ] run the process-driver end-to-end ignored test after protocol/runtime moves
-- [ ] run the separated-role example after protocol/runtime moves
+- client-only invariants
+- server-only invariants
+- wire-only payload validation
+- negative boundary rejection cases
 
-After all phases:
+Suggested layout:
 
-- [ ] run a final `rg` for deleted module paths and old bin names
-- [ ] confirm there is no duplicate legacy layout left behind
+```text
+crates/ed25519-hss/tests/
+  boundary/
+    client_to_server.rs
+    server_to_client.rs
+    wire_only.rs
+    rejection.rs
+```
 
-## Immediate Work Order
+## Boundary Test Plan
 
-1. benchmark folder reorg
-2. artifact folder reorg
-3. DDH folder reorg
-4. protocol folder reorg
-5. runtime folder reorg
-6. core folder reorg
-7. candidate folder reorg
-8. thin `lib.rs`
-9. rename bins and clean docs
+The most important testing outcome is not just “flow still works”.
+
+It is “the wrong data cannot cross boundaries”.
+
+Add tests that explicitly fail if:
+
+- raw `y_client` crosses the wire
+- raw `y_relayer` crosses the wire
+- raw `tau_client` crosses the wire
+- raw `tau_relayer` crosses the wire
+- client-private driver state is accepted as a server-visible payload
+- server-private driver state is accepted as a client-visible payload
+- a wire payload contains both halves of a server-owned hidden value
+- malformed binding or transcript payloads are accepted
+
+Also keep an end-to-end role separation gate:
+
+- [crates/ed25519-hss/examples/prime_order_separated_roles_e2e.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/examples/prime_order_separated_roles_e2e.rs)
+
+## Recommended Order
+
+Do this in the following order:
+
+1. `shared`
+2. `wire`
+3. `client/state` and `server/state`
+4. `client/api` and `server/api`
+5. shrink `protocol`
+6. update runtime adapters
+7. add boundary tests
+8. remove old flat exports and old naming
+
+## Rules For This Refactor
+
+- no legacy compatibility aliases
+- no duplicate old/new module surfaces
+- no temporary alternate names kept long-term
+- breaking changes are acceptable
+- remove old structure as soon as the replacement is working
+
+## Todo List
+
+### Phase 1
+
+- [x] Create `shared/`, `wire/`, `client/`, and `server/` module skeletons
+- [x] Keep the crate compiling with the new skeleton in place
+
+### Phase 2
+
+- [x] Move context/error/reference into `shared/`
+- [x] Update imports to use `shared::*`
+
+### Phase 3
+
+- [x] Extract all wire-visible message and packet types into `wire/`
+- [x] Remove mixed wire/private type definitions from the old protocol module
+
+### Phase 4
+
+- [x] Move evaluator-private state into `client/state.rs`
+- [x] Move garbler-private state into `server/state.rs`
+- [x] Move role-private OT helpers into `client/ot.rs` and `server/ot.rs`
+- [x] Move role-private output opener ownership into `client/outputs.rs` and
+      `server/outputs.rs`
+
+### Phase 5
+
+- [x] Create explicit `client/api.rs` entrypoints
+- [x] Create explicit `server/api.rs` entrypoints
+- [x] Move public role-facing ceremony entrypoints out of `protocol/` and into
+      the boundary API modules
+- [x] Move remaining role-local trusted-eval helpers out of `protocol/`
+- [x] Remove mixed client/server ceremony logic from the old structure
+
+### Phase 6
+
+- [x] Move packet/transcript validation rules into `protocol/invariants.rs`
+- [x] Move report assembly helpers into `protocol/report.rs`
+- [x] Move transcript digest, binding, and AAD helpers into
+      `protocol/transcript.rs`
+- [x] Move transport frame encode/decode and payload serialization helpers into
+      `wire/`
+- [x] Move shared runtime types and materialization into `runtime/shared.rs`
+- [x] Move evaluation timing and trusted-eval carriers into `runtime/evaluation.rs`
+- [x] Move prepared-session debug and profiling helpers into `runtime/debug.rs`
+- [x] Move prepared-session flow wrappers into `runtime/flow.rs`
+- [x] Move prepared-session metadata and driver-state helpers into
+      `runtime/prepared.rs`
+- [x] Move role-gated output packet open/decode helpers into `client/outputs.rs`
+      and `server/outputs.rs`
+- [x] Move sealed server-input open/decode helpers into `client/api.rs`,
+      `server/api.rs`, and `wire/`
+- [x] Move server-output sealing helpers fully onto `server/api.rs`
+- [x] Reduce `protocol/` to transcript/report/invariant concerns only
+- [x] Remove role-specific logic from `protocol/`
+
+### Phase 7
+
+- [x] Move current driver/example/wasm consumers to module-qualified boundary
+      imports
+- [x] Move current crate test modules to module-qualified boundary imports
+- [x] Move current helper binaries to module-qualified boundary imports
+- [x] Remove flat top-level reexports for role-private client/server state and
+      output opener types
+- [x] Remove flat top-level reexports for benchmark, candidate, fixture, and
+      shared helper surfaces that current callers no longer use directly
+- [x] Remove flat top-level reexports for artifact and artifact-stub surfaces
+      that current callers no longer use directly
+- [x] Remove flat top-level protocol convenience exports that current callers
+      no longer use directly
+- [x] Eliminate internal crate-root dependencies on the removed flat export
+      surfaces
+- [x] Reduce top-level flat reexports in `lib.rs`
+- [x] Require callers to use module-qualified boundary-aware imports
+
+### Phase 8
+
+- [x] Update `runtime/wasm.rs` to use the new role APIs
+- [x] Verify wasm/native behavior remains correct
+
+### Phase 8b
+
+- [x] Design separate client and server runtime entrypoints
+- [x] Ensure the client runtime artifact excludes server-only role code
+- [x] Ensure the server runtime artifact excludes client-only role code
+- [x] Benchmark bundle-size impact and keep the split only if it materially
+      reduces shipped client size
+
+### Phase 9
+
+- [x] Add boundary-focused test modules
+- [x] Add negative tests for forbidden cross-boundary data flow
+- [x] Keep the separated-role end-to-end gate green
+
+### Final Cleanup
+
+- [x] Rename remaining ambiguous types to `Client*`, `Server*`, or `Wire*`
+- [x] Remove obsolete mixed-surface names and modules
+- [x] Document the final boundary model in the crate README
+
+### Phase 8b Benchmark Note
+
+The first runtime-artifact split is now kept for the browser `near_signer`
+build:
+
+- browser `pkg` omits relay-only HSS wasm exports via
+  `hss-server-exports = false`
+- relay `pkg-server` enables `hss-server-exports`
+
+Measured release artifacts on April 4, 2026:
+
+- browser client-only `wasm_signer_worker_bg.wasm`: `1,163,957` bytes
+- browser full `wasm_signer_worker_bg.wasm`: `1,222,812` bytes
+- delta: `58,855` bytes smaller, about `4.8%`
+
+The matching JS glue delta was smaller:
+
+- browser client-only glue: `173,004` bytes
+- browser full glue: `174,499` bytes
+- delta: `1,495` bytes smaller
+
+That is large enough to keep the browser-side export split.
+
+The relay-side split is now also real:
+
+- browser-only evaluator exports such as
+  `threshold_ed25519_hss_prepare_session`,
+  `threshold_ed25519_hss_prepare_client_request`,
+  `threshold_ed25519_hss_evaluate_result`, and
+  `threshold_ed25519_hss_open_client_output` are no longer emitted by the
+  server `pkg-server` artifact
+- the relay artifact keeps only the evaluator-facing export it still truly
+  needs on the registration path: `threshold_ed25519_hss_open_seed_output`
+
+Measured release artifacts on April 4, 2026:
+
+- browser client-only `wasm_signer_worker_bg.wasm`: `1,163,940` bytes
+- relay/server `wasm_signer_worker_bg.wasm`: `1,152,055` bytes
+
+The boundary keep-gate remains part of the refactor and now uses a
+non-degenerate committed fixture so it does not false-positive on the original
+`y_relayer = 0x01 || 0...0` fixture.

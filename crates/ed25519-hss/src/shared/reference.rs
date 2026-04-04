@@ -2,8 +2,7 @@ use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::scalar::Scalar;
 use sha2::{Digest, Sha512};
 
-use crate::context::CanonicalContext;
-use crate::error::{ProtoError, ProtoResult};
+use crate::shared::{CanonicalContext, ProtoError, ProtoResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FExpandInput {

@@ -5,12 +5,12 @@ use wasm_bindgen::prelude::*;
 use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::ddh::{DdhHiddenEvalCheckpoint, DdhHiddenEvalProbe};
 use crate::fixtures::deterministic_fixture_corpus;
-use crate::protocol::{prepare_prime_order_succinct_hss, PrimeOrderSuccinctHssPreparedSession};
-use crate::reference::{public_key_from_base_shares, FExpandInput, FExpandOutput};
+use crate::protocol::{prepare_prime_order_succinct_hss, PreparedSession};
 use crate::runtime::{
     compile_default_prime_order_cpu_execution_program, execute_prime_order_cpu_execution_program,
     PrimeOrderCpuExecutionProgram,
 };
+use crate::shared::{public_key_from_base_shares, FExpandInput, FExpandOutput};
 
 thread_local! {
     static WASM_EXECUTOR_PROGRAM: RefCell<Option<PrimeOrderCpuExecutionProgram>> = const { RefCell::new(None) };
@@ -38,7 +38,7 @@ struct WasmPrimeOrderCpuExecutorRun {
 struct WasmDdhHiddenEvalPreparedState {
     input: FExpandInput,
     expected_output: FExpandOutput,
-    session: PrimeOrderSuccinctHssPreparedSession,
+    session: PreparedSession,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -81,7 +81,7 @@ struct WasmDdhHiddenEvalRun {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct WasmDdhHiddenEvalProbeRun {
     completed_stage: DdhHiddenEvalCheckpoint,
-    stage_profile: crate::DdhHiddenEvalStageProfile,
+    stage_profile: crate::ddh::DdhHiddenEvalStageProfile,
     schedule_word_count: Option<usize>,
     hash_prefix_hex: Option<String>,
 }
@@ -183,19 +183,29 @@ pub fn execute_prime_order_ddh_hidden_eval_once() -> Result<JsValue, JsValue> {
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
         let started_ns = monotonic_now_ns();
         let evaluate_started_ns = started_ns;
-        let (report, evaluate_timing) = state
-            .session
-            .evaluate_with_timing(&state.input)
-            .map_err(js_error)?;
+        let (report, evaluate_timing) =
+            evaluate_prepared_session_with_boundary_roles(&state.session, &state.input)
+                .map_err(js_error)?;
         let evaluate_duration_ns = elapsed_ns(evaluate_started_ns);
-        let output_openers = state.session.output_openers();
+        let evaluator_runtime = state
+            .session
+            .client_runtime_state()
+            .materialize()
+            .map_err(js_error)?;
+        let garbler_runtime = state
+            .session
+            .server_runtime_state()
+            .materialize()
+            .map_err(js_error)?;
         let output_open_started_ns = monotonic_now_ns();
-        let x_client_base = output_openers
-            .client
+        let x_client_base = evaluator_runtime
+            .evaluator_session
+            .client_output_opener()
             .open(&report.output_delivery.client)
             .map_err(js_error)?;
-        let x_relayer_base = output_openers
-            .server
+        let x_relayer_base = garbler_runtime
+            .garbler_session
+            .server_output_opener()
             .open(&report.output_delivery.server)
             .map_err(js_error)?;
         let output_open_duration_ns = elapsed_ns(output_open_started_ns);
@@ -258,9 +268,7 @@ pub fn execute_prime_order_ddh_hidden_eval_once_fast() -> Result<bool, JsValue> 
         let state = borrowed
             .as_ref()
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
-        let run = state
-            .session
-            .evaluate_hidden_run(&state.input)
+        let run = evaluate_hidden_run_with_boundary_roles(&state.session, &state.input)
             .map_err(js_error)?;
         let (x_client_base, _x_relayer_base, public_key) = state
             .session
@@ -281,9 +289,7 @@ pub fn execute_prime_order_ddh_hidden_eval_hidden_run_once_fast() -> Result<(), 
         let state = borrowed
             .as_ref()
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
-        state
-            .session
-            .evaluate_hidden_run(&state.input)
+        evaluate_hidden_run_with_boundary_roles(&state.session, &state.input)
             .map(|_| ())
             .map_err(js_error)
     })
@@ -299,10 +305,9 @@ pub fn execute_prime_order_ddh_hidden_eval_hidden_run_once() -> Result<JsValue, 
             .ok_or_else(|| js_error("prime-order DDH hidden eval is not prepared"))?;
         let started_ns = monotonic_now_ns();
         let evaluate_started_ns = started_ns;
-        let (hidden_run, evaluate_timing) = state
-            .session
-            .evaluate_hidden_run_with_timing(&state.input)
-            .map_err(js_error)?;
+        let (hidden_run, evaluate_timing) =
+            evaluate_hidden_run_with_boundary_roles_timed(&state.session, &state.input)
+                .map_err(js_error)?;
         let evaluate_duration_ns = elapsed_ns(evaluate_started_ns);
         let output_materialization_started_ns = monotonic_now_ns();
         let (x_client_base, _x_relayer_base, public_key) = state
@@ -388,6 +393,150 @@ fn js_error(error: impl ToString) -> JsValue {
 
 fn serialize_js_value(value: &impl Serialize) -> Result<JsValue, JsValue> {
     serde_wasm_bindgen::to_value(value).map_err(|err| js_error(err.to_string()))
+}
+
+fn evaluate_prepared_session_with_boundary_roles(
+    session: &PreparedSession,
+    input: &FExpandInput,
+) -> Result<
+    (
+        crate::wire::EvaluationReport,
+        crate::runtime::EvaluateTiming,
+    ),
+    String,
+> {
+    let evaluator_runtime = session
+        .client_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let garbler_runtime = session
+        .server_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let mut timing = crate::runtime::EvaluateTiming::default();
+    let ot_open_join_started = monotonic_now_ns();
+    let (client_packet, evaluator_ot_state) = evaluator_runtime
+        .evaluator_session
+        .prepare_client_ot_request(
+            &garbler_runtime.garbler_session.client_ot_offer,
+            input.y_client,
+            input.tau_client,
+        )
+        .map_err(|e| e.to_string())?;
+    timing.ot_open_join_duration_ns =
+        crate::runtime::evaluation::elapsed_ns_u64(ot_open_join_started);
+    let (trusted_server_eval, garbler_prepare_timing) = garbler_runtime
+        .garbler_session
+        .prepare_trusted_server_eval_timed(&client_packet, input.y_relayer, input.tau_relayer)
+        .map_err(|e| e.to_string())?;
+    timing.add_assign(garbler_prepare_timing);
+    let (ddh_run, evaluation_timing) = evaluator_runtime
+        .evaluator_session
+        .evaluate_hidden_run_from_trusted_server_eval_timed(
+            &evaluator_runtime.shared_runtime.ddh_evaluator,
+            &evaluator_runtime.shared_runtime.hidden_eval_program,
+            &evaluator_runtime.shared_runtime.hidden_eval_constants,
+            &evaluator_ot_state,
+            &trusted_server_eval,
+        )
+        .map_err(|e| e.to_string())?;
+    timing.add_assign(evaluation_timing);
+    let (report, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
+        evaluator_runtime
+            .evaluator_session
+            .build_final_report_from_hidden_run(
+                &evaluator_runtime.shared_runtime,
+                &garbler_runtime.garbler_session,
+                ddh_run,
+            )
+            .map_err(|e| e.to_string())?;
+    timing.result_assembly_duration_ns = timing
+        .result_assembly_duration_ns
+        .saturating_add(result_assembly_duration_ns);
+    timing.output_sealing_finalization_duration_ns = timing
+        .output_sealing_finalization_duration_ns
+        .saturating_add(output_sealing_finalization_duration_ns);
+    Ok((report, timing))
+}
+
+fn evaluate_hidden_run_with_boundary_roles(
+    session: &PreparedSession,
+    input: &FExpandInput,
+) -> Result<crate::ddh::DdhHiddenEvalRun, String> {
+    let evaluator_runtime = session
+        .client_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let garbler_runtime = session
+        .server_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let (client_packet, evaluator_ot_state) = evaluator_runtime
+        .evaluator_session
+        .prepare_client_ot_request(
+            &garbler_runtime.garbler_session.client_ot_offer,
+            input.y_client,
+            input.tau_client,
+        )
+        .map_err(|e| e.to_string())?;
+    let (trusted_server_eval, _) = garbler_runtime
+        .garbler_session
+        .prepare_trusted_server_eval_timed(&client_packet, input.y_relayer, input.tau_relayer)
+        .map_err(|e| e.to_string())?;
+    evaluator_runtime
+        .evaluator_session
+        .evaluate_hidden_run_from_trusted_server_eval_timed(
+            &evaluator_runtime.shared_runtime.ddh_evaluator,
+            &evaluator_runtime.shared_runtime.hidden_eval_program,
+            &evaluator_runtime.shared_runtime.hidden_eval_constants,
+            &evaluator_ot_state,
+            &trusted_server_eval,
+        )
+        .map(|(run, _)| run)
+        .map_err(|e| e.to_string())
+}
+
+fn evaluate_hidden_run_with_boundary_roles_timed(
+    session: &PreparedSession,
+    input: &FExpandInput,
+) -> Result<(crate::ddh::DdhHiddenEvalRun, crate::runtime::EvaluateTiming), String> {
+    let evaluator_runtime = session
+        .client_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let garbler_runtime = session
+        .server_runtime_state()
+        .materialize()
+        .map_err(|e| e.to_string())?;
+    let mut timing = crate::runtime::EvaluateTiming::default();
+    let ot_open_join_started = monotonic_now_ns();
+    let (client_packet, evaluator_ot_state) = evaluator_runtime
+        .evaluator_session
+        .prepare_client_ot_request(
+            &garbler_runtime.garbler_session.client_ot_offer,
+            input.y_client,
+            input.tau_client,
+        )
+        .map_err(|e| e.to_string())?;
+    timing.ot_open_join_duration_ns =
+        crate::runtime::evaluation::elapsed_ns_u64(ot_open_join_started);
+    let (trusted_server_eval, garbler_prepare_timing) = garbler_runtime
+        .garbler_session
+        .prepare_trusted_server_eval_timed(&client_packet, input.y_relayer, input.tau_relayer)
+        .map_err(|e| e.to_string())?;
+    timing.add_assign(garbler_prepare_timing);
+    let (run, evaluation_timing) = evaluator_runtime
+        .evaluator_session
+        .evaluate_hidden_run_from_trusted_server_eval_timed(
+            &evaluator_runtime.shared_runtime.ddh_evaluator,
+            &evaluator_runtime.shared_runtime.hidden_eval_program,
+            &evaluator_runtime.shared_runtime.hidden_eval_constants,
+            &evaluator_ot_state,
+            &trusted_server_eval,
+        )
+        .map_err(|e| e.to_string())?;
+    timing.add_assign(evaluation_timing);
+    Ok((run, timing))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

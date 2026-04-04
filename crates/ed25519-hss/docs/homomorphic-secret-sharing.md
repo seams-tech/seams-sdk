@@ -131,44 +131,6 @@ That maps most closely to:
 This is not immediately reusable code, but it is a good guide for what a more
 principled Boolean/arithmetic split could look like.
 
-## What Is Not Directly Relevant
-
-Several parts of the paper are not a direct fit for the current crate.
-
-### Generic circuit focus
-
-The paper is about general succinct garbling. We are building one fixed
-function. That means our best wins come from fixed-function specialization, not
-from implementing the paper literally.
-
-### Label-centric garbling interface
-
-The paper is still framed as a garbling scheme with garbler/evaluator labels.
-Our runtime is already organized around explicit split/local hidden values and a
-compiled fixed-function executor.
-
-So the paper is better viewed as:
-
-- a backend/theory reference
-
-not:
-
-- the exact API shape we should expose
-
-### Assumption profile
-
-The paper's best size results rely on circular variants of power assumptions.
-It also offers leveled variants with a depth term.
-
-For us, this means:
-
-- if we borrow from the paper, the leveled variant is probably the cleaner
-  security story
-- our fixed one-block SHA-512 depth is bounded and known in advance, so a
-  depth-dependent additive term may be acceptable
-
-But this still requires fresh design work. It is not just a parameter swap in
-the current code.
 
 ## How To Use This In The Crate
 
@@ -235,15 +197,3 @@ If we build on this paper, the right next step is:
 4. only after that, consider whether a more literal succinct-garbling compiler
    structure is worth importing
 
-## Recommendation
-
-Keep this paper and this note.
-
-Delete the older broader SHA-512 MPC research note.
-
-Reason:
-
-- this paper is the only one from that old note that is still directly relevant
-  to the current succinct-HSS track
-- the rest were mostly earlier alternative directions that no longer describe
-  the implementation path we are actually pursuing

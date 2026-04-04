@@ -1,7 +1,7 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{default_phase1_config, generate_phase1_benchmark_report};
+use ed25519_hss::benchmark::{default_phase1_config, generate_phase1_benchmark_report};
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {

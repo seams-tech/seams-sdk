@@ -1,7 +1,11 @@
 #[path = "artifact_runtime/mod.rs"]
 mod artifact_runtime;
+#[path = "boundary/mod.rs"]
+mod boundary;
 #[path = "fixtures_candidate/mod.rs"]
 mod fixtures_candidate;
+#[path = "formal_verification/mod.rs"]
+mod formal_verification;
 #[path = "protocol_flow/mod.rs"]
 mod protocol_flow;
 #[path = "protocol_validation/mod.rs"]

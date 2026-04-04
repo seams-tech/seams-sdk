@@ -1,7 +1,8 @@
-use ed25519_hss::reference::public_key_from_base_shares;
-use ed25519_hss::{
-    prepare_prime_order_succinct_hss, HiddenCoreMaterialization, HiddenEvalInputOwner,
-};
+use ed25519_hss::ddh::HiddenEvalInputOwner;
+use ed25519_hss::fixtures::deterministic_fixture_corpus;
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
+use ed25519_hss::shared::{public_key_from_base_shares, ProtoError};
+use ed25519_hss::wire::HiddenCoreMaterialization;
 
 use crate::support::{
     decode_client_input_delivery, decode_client_offer, decode_client_output_message,
@@ -370,7 +371,7 @@ fn prime_order_succinct_hss_matches_reference_fixture_smoke() {
 #[test]
 #[ignore = "full five-fixture DDH hidden-eval conformance remains a Phase 3b milestone"]
 fn prime_order_succinct_hss_matches_reference_fixtures() {
-    for fixture in ed25519_hss::deterministic_fixture_corpus().expect("fixture corpus") {
+    for fixture in deterministic_fixture_corpus().expect("fixture corpus") {
         let session =
             prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
         let report = session
@@ -396,12 +397,12 @@ fn prime_order_succinct_hss_matches_reference_fixtures() {
 
 #[test]
 fn prime_order_succinct_hss_rejects_context_mismatch() {
-    let fixtures = ed25519_hss::deterministic_fixture_corpus().expect("fixture corpus");
+    let fixtures = deterministic_fixture_corpus().expect("fixture corpus");
     let session =
         prepare_prime_order_succinct_hss(&fixtures[0].input.context).expect("prepare session");
     let err = session
         .evaluate(&fixtures[1].input)
         .expect_err("mismatched context should fail");
 
-    assert!(matches!(err, ed25519_hss::ProtoError::InvalidInput(_)));
+    assert!(matches!(err, ProtoError::InvalidInput(_)));
 }

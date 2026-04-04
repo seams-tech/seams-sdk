@@ -1,7 +1,7 @@
 use std::fs;
 use std::process;
 
-use ed25519_hss::{
+use ed25519_hss::runtime::{
     default_prime_order_cpu_executor_benchmark_config,
     generate_prime_order_cpu_executor_benchmark_report,
 };
