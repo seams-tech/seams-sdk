@@ -56,7 +56,7 @@ import type {
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
-} from '../signingEngine/signers/wasm/nearSignerHssWasm';
+} from '../signingEngine/signers/wasm/hssClientSignerWasm';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,

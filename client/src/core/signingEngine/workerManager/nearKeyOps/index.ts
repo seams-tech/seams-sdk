@@ -2,11 +2,11 @@ import type { NearSigningKeyOps } from '@/core/signingEngine/interfaces/nearKeyO
 import type { SignerWorkerManagerContext } from '..';
 import {
   deriveThresholdEd25519ClientVerifyingShareWasm,
-  deriveThresholdEd25519HssClientInputsWasm,
   extractCosePublicKeyWasm,
   generateEphemeralNearKeypairWasm,
   signTransactionWithKeyPairWasm,
 } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
+import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
 
 export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): NearSigningKeyOps {
   return {

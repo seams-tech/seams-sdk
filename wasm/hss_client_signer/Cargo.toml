@@ -1,0 +1,29 @@
+[package]
+name = "hss_client_signer"
+version = "0.1.0"
+edition = "2021"
+description = "Browser-targeted Ed25519 HSS client signer"
+license = "Apache-2.0"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+base64ct = { version = "1.6", features = ["alloc"] }
+ed25519-hss = { path = "../../crates/ed25519-hss" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde-wasm-bindgen = "0.6"
+signer-platform-web = { path = "../../crates/signer-platform-web", features = ["near-threshold-ed25519"] }
+wasm-bindgen = "=0.2.100"

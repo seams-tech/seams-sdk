@@ -24,7 +24,7 @@ import {
   type ThresholdEd25519HssPreparedSessionEnvelope,
   type ThresholdEd25519SeedExportArtifact,
   type ThresholdEd25519HssServerMessageEnvelope,
-} from '../../signers/wasm/nearSignerHssWasm';
+} from '../../signers/wasm/hssClientSignerWasm';
 import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../../threshold/ed25519WrapKeySalt';
 
 export type ThresholdEd25519LifecycleDeps = {

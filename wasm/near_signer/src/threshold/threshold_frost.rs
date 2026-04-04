@@ -50,6 +50,7 @@ struct ThresholdEd25519RecoveryKeypairFromSeedOutput {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519SeedExportArtifactFromSeedArgs {
     seed_b64u: String,
     expected_public_key: String,
@@ -57,6 +58,7 @@ pub(crate) struct ThresholdEd25519SeedExportArtifactFromSeedArgs {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519SeedExportArtifactFromSeedOutput {
     artifact_kind: String,
     seed_b64u: String,
@@ -121,6 +123,7 @@ pub fn threshold_ed25519_recovery_keypair_from_seed(args: JsValue) -> Result<JsV
 }
 
 #[wasm_bindgen]
+#[cfg(feature = "hss-client-exports")]
 pub fn threshold_ed25519_seed_export_artifact_from_seed(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519SeedExportArtifactFromSeedArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -255,6 +258,7 @@ fn decode_fixed_32(input_b64u: &str, label: &str) -> Result<[u8; 32], JsValue> {
     Ok(out)
 }
 
+#[cfg(feature = "hss-client-exports")]
 pub(crate) fn build_threshold_ed25519_seed_export_artifact_from_seed(
     args: ThresholdEd25519SeedExportArtifactFromSeedArgs,
 ) -> Result<ThresholdEd25519SeedExportArtifactFromSeedOutput, String> {

@@ -18,13 +18,13 @@ import {
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
-import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 import {
+  deriveThresholdEd25519HssClientInputsWasm,
   evaluateThresholdEd25519HssResultWasm,
   openThresholdEd25519HssClientOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
-} from '@/core/signingEngine/signers/wasm/nearSignerHssWasm';
+} from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
 import {
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
@@ -38,6 +38,17 @@ import {
   handle_signer_message,
   initSync as initNearSignerWasmSync,
 } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  derive_threshold_ed25519_hss_client_inputs,
+  initSync as initHssClientSignerWasmSync,
+  threshold_ed25519_hss_evaluate_result,
+  threshold_ed25519_hss_open_client_output,
+  threshold_ed25519_hss_open_seed_output,
+  threshold_ed25519_hss_prepare_client_request,
+  threshold_ed25519_hss_prepare_session,
+  threshold_ed25519_hss_public_key_from_base_shares,
+  threshold_ed25519_seed_export_artifact_from_seed,
+} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
 class MemorySessionStorage implements Pick<
   Storage,
@@ -86,7 +97,12 @@ const NEAR_SIGNER_WASM_URL = new URL(
   '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   import.meta.url,
 );
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
 let nearSignerWasmInitializedForDirectWorkerTests = false;
+let hssClientSignerWasmInitializedForDirectWorkerTests = false;
 
 function installMemorySessionStorage(): {
   restore: () => void;
@@ -213,6 +229,64 @@ async function invokeNearSignerWorkerDirect(request: {
   type: number;
   payload?: Record<string, unknown>;
 }): Promise<any> {
+  if (
+    request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
+    request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
+    request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
+    request.type === WorkerRequestType.EvaluateThresholdEd25519HssResult ||
+    request.type === WorkerRequestType.OpenThresholdEd25519HssClientOutput ||
+    request.type === WorkerRequestType.OpenThresholdEd25519HssSeedOutput ||
+    request.type === WorkerRequestType.DeriveThresholdEd25519HssPublicKey ||
+    request.type === WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
+  ) {
+    if (!hssClientSignerWasmInitializedForDirectWorkerTests) {
+      initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+      hssClientSignerWasmInitializedForDirectWorkerTests = true;
+    }
+    switch (request.type) {
+      case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess,
+          payload: derive_threshold_ed25519_hss_client_inputs(request.payload || {}),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssSession:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess,
+          payload: threshold_ed25519_hss_prepare_session(request.payload || {}),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssClientRequest:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
+          payload: threshold_ed25519_hss_prepare_client_request(request.payload || {}),
+        };
+      case WorkerRequestType.EvaluateThresholdEd25519HssResult:
+        return {
+          type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
+          payload: threshold_ed25519_hss_evaluate_result(request.payload || {}),
+        };
+      case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
+        return {
+          type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
+          payload: threshold_ed25519_hss_open_client_output(request.payload || {}),
+        };
+      case WorkerRequestType.OpenThresholdEd25519HssSeedOutput:
+        return {
+          type: WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess,
+          payload: threshold_ed25519_hss_open_seed_output(request.payload || {}),
+        };
+      case WorkerRequestType.DeriveThresholdEd25519HssPublicKey:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess,
+          payload: threshold_ed25519_hss_public_key_from_base_shares(request.payload || {}),
+        };
+      case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
+        return {
+          type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
+          payload: threshold_ed25519_seed_export_artifact_from_seed(request.payload || {}),
+        };
+    }
+  }
+
   if (!nearSignerWasmInitializedForDirectWorkerTests) {
     initNearSignerWasmSync({ module: readFileSync(NEAR_SIGNER_WASM_URL) });
     nearSignerWasmInitializedForDirectWorkerTests = true;

@@ -34,10 +34,9 @@ import initEthSigner, {
   derive_secp256k1_keypair_from_prf_second,
   init_eth_signer,
 } from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
-import initNearSigner, {
-  init_worker as init_near_signer_worker,
+import initHssClientSigner, {
   threshold_ed25519_seed_export_artifact_from_seed,
-} from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+} from '../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
 // Expose the confirmation bridge under the JS name expected by wasm-bindgen.
 // awaitUserConfirmationV2 expects a UserConfirmRequest object.
@@ -78,7 +77,7 @@ const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
 const prfSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const prfSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
-const nearSignerWasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer');
+const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
 const PRF_SESSION_SEAL_BASE_PATH = '/threshold-ecdsa/prf-seal';
 type NearSeedExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
@@ -86,7 +85,7 @@ type NearSeedExportWorkerPayload = Extract<
 >;
 
 let ethSignerWasmInitPromise: Promise<void> | null = null;
-let nearSignerWasmInitPromise: Promise<void> | null = null;
+let hssClientSignerInitPromise: Promise<void> | null = null;
 
 type UserConfirmWorkerIncomingMessage = {
   id?: unknown;
@@ -383,18 +382,17 @@ async function ensureEthSignerWasmReady(): Promise<void> {
   return ethSignerWasmInitPromise;
 }
 
-async function ensureNearSignerWasmReady(): Promise<void> {
-  if (nearSignerWasmInitPromise) return nearSignerWasmInitPromise;
-  nearSignerWasmInitPromise = (async () => {
+async function ensureHssClientSignerWasmReady(): Promise<void> {
+  if (hssClientSignerInitPromise) return hssClientSignerInitPromise;
+  hssClientSignerInitPromise = (async () => {
     try {
-      await initNearSigner({ module_or_path: nearSignerWasmUrl });
-      init_near_signer_worker();
+      await initHssClientSigner({ module_or_path: hssClientSignerWasmUrl });
     } catch (error: unknown) {
-      nearSignerWasmInitPromise = null;
+      hssClientSignerInitPromise = null;
       throw error;
     }
   })();
-  return nearSignerWasmInitPromise;
+  return hssClientSignerInitPromise;
 }
 
 async function deriveSecp256k1FromPrfSecondInWorker(args: {
@@ -427,7 +425,7 @@ async function buildNearEd25519SeedExportArtifactInWorker(args: {
   seedB64u: string;
   expectedPublicKey: string;
 }): Promise<{ publicKey: string; privateKey: string }> {
-  await ensureNearSignerWasmReady();
+  await ensureHssClientSignerWasmReady();
   const artifact = threshold_ed25519_seed_export_artifact_from_seed({
     seedB64u: args.seedB64u,
     expectedPublicKey: args.expectedPublicKey,

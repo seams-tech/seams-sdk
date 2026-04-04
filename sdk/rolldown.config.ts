@@ -18,6 +18,11 @@ const NEAR_SIGNER_WASM_JS_ABS = path.resolve(
   '../wasm/near_signer/pkg/wasm_signer_worker.js',
 );
 const NEAR_SIGNER_WASM_JS_OUT = 'wasm/near_signer/pkg/wasm_signer_worker.js';
+const HSS_CLIENT_SIGNER_WASM_JS_ABS = path.resolve(
+  SDK_ROOT_ABS,
+  '../wasm/hss_client_signer/pkg/hss_client_signer.js',
+);
+const HSS_CLIENT_SIGNER_WASM_JS_OUT = 'wasm/hss_client_signer/pkg/hss_client_signer.js';
 const NEAR_SIGNER_WORKER_ENUM_EXPORTS = [
   'ConfirmationBehavior',
   'ConfirmationUIMode',
@@ -34,6 +39,7 @@ const stripLeadingDotDots = (p: string): string => {
 const preservedModuleOut = (opts: { facadeModuleId: string; rootAbs: string; prefix: string }) => {
   const facadeAbs = path.resolve(opts.facadeModuleId);
   if (facadeAbs === NEAR_SIGNER_WASM_JS_ABS) return NEAR_SIGNER_WASM_JS_OUT;
+  if (facadeAbs === HSS_CLIENT_SIGNER_WASM_JS_ABS) return HSS_CLIENT_SIGNER_WASM_JS_OUT;
 
   const rel = toPosixPath(path.relative(opts.rootAbs, facadeAbs));
   const relNoExt = stripExt(stripLeadingDotDots(rel));
@@ -633,6 +639,43 @@ const configs = [
             console.log('✅ Emitted dist/esm/wasm/near_signer/pkg/wasm_signer_worker_bg.wasm');
           } catch (error) {
             console.error('❌ Failed to copy signer WASM asset:', error);
+            throw error;
+          }
+        },
+      },
+    ],
+  },
+  {
+    input: '../wasm/hss_client_signer/pkg/hss_client_signer.js',
+    output: {
+      dir: BUILD_PATHS.BUILD.ESM,
+      format: 'esm',
+      entryFileNames: 'wasm/hss_client_signer/pkg/hss_client_signer.js',
+    },
+    plugins: [
+      {
+        name: 'emit-hss-client-signer-wasm',
+        generateBundle(_options, bundle) {
+          for (const output of Object.values(bundle)) {
+            if (
+              output.type !== 'chunk' ||
+              output.fileName !== HSS_CLIENT_SIGNER_WASM_JS_OUT
+            ) {
+              continue;
+            }
+          }
+          try {
+            const source = fs.readFileSync(
+              path.join(SDK_ROOT_ABS, '../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm'),
+            );
+            (this as any).emitFile({
+              type: 'asset',
+              fileName: 'wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+              source,
+            });
+            console.log('✅ Emitted dist/esm/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm');
+          } catch (error) {
+            console.error('❌ Failed to copy HSS client signer WASM asset:', error);
             throw error;
           }
         },

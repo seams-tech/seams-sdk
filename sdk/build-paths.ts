@@ -16,6 +16,7 @@ export const BUILD_PATHS = {
     CORE: '../client/src/core',
     SIGNING_WORKERS: '../client/src/core/signingEngine/workerManager/workers',
     WASM_SIGNER: '../wasm/near_signer',
+    WASM_HSS_CLIENT_SIGNER: '../wasm/hss_client_signer',
     WASM_ETH_SIGNER: '../wasm/eth_signer',
     WASM_TEMPO_SIGNER: '../wasm/tempo_signer',
     WASM_SHAMIR3PASS_RUNTIME: '../wasm/shamir3pass_runtime',
@@ -26,6 +27,7 @@ export const BUILD_PATHS = {
       '../server/src',
       '../shared/src',
       '../wasm/near_signer',
+      '../wasm/hss_client_signer',
       '../wasm/eth_signer',
       '../wasm/tempo_signer',
       '../wasm/shamir3pass_runtime',
@@ -54,6 +56,8 @@ export const BUILD_PATHS = {
     SHAMIR3PASS: 'shamir3pass.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
+    HSS_CLIENT_SIGNER_JS: 'hss_client_signer.js',
+    HSS_CLIENT_SIGNER_WASM: 'hss_client_signer_bg.wasm',
   },
 
   // Test worker file paths (for test files)
@@ -63,6 +67,8 @@ export const BUILD_PATHS = {
     SHAMIR3PASS: '/sdk/workers/shamir3pass.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
+    HSS_CLIENT_SIGNER_JS: '/sdk/workers/hss_client_signer.js',
+    HSS_CLIENT_SIGNER_WASM: '/sdk/workers/hss_client_signer_bg.wasm',
   },
 } as const;
 

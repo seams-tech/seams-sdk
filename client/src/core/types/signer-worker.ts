@@ -105,6 +105,17 @@ export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
   sessionId: string;
   prfFirstB64u?: string;
 }
+export interface WasmDeriveThresholdEd25519HssClientInputsResult {
+  orgId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  contextBindingB64u: string;
+  yClientB64u: string;
+  tauClientB64u: string;
+}
 export interface WasmPrepareThresholdEd25519HssSessionRequest {
   orgId: string;
   nearAccountId: string;
@@ -263,8 +274,6 @@ export type WasmDelegateSignResult = wasmModule.DelegateSignResult;
 // `InstanceType<typeof Class>`. Use the class name directly for the instance type.
 export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
   wasmModule.DeriveThresholdEd25519ClientVerifyingShareResult;
-export type WasmDeriveThresholdEd25519HssClientInputsResult =
-  wasmModule.DeriveThresholdEd25519HssClientInputsResult;
 
 // === WORKER REQUEST TYPE MAPPING ===
 // Define the complete type mapping for each worker request

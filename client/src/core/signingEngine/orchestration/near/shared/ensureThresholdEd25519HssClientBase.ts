@@ -1,11 +1,11 @@
 import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { runThresholdEd25519HssCeremonyWithSession } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle';
-import { deriveThresholdEd25519HssClientInputsWasm } from '@/core/signingEngine/signers/wasm/nearSignerWasm';
 import {
+  deriveThresholdEd25519HssClientInputsWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
-} from '@/core/signingEngine/signers/wasm/nearSignerHssWasm';
+} from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
 
 export const THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE = 'near-ed25519-signing';
 export const THRESHOLD_ED25519_HSS_DERIVATION_VERSION = 1;

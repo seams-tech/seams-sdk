@@ -45,7 +45,7 @@ if WASM_PACK_BUILD_PROFILE=dev "$SDK_ROOT/scripts/codegen/generate-types.sh"; th
 
 print_step "Building WASM signer worker (release for active browser hot path)..."
 pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release --features hss-client-exports; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release; then
   print_success "WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM signer build failed"
@@ -56,6 +56,16 @@ if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock"
   print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "Server HSS WASM signer build failed"
+  exit 1
+fi
+popd >/dev/null
+
+print_step "Building separate HSS client signer WASM (release for browser HSS path)..."
+pushd "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER" >/dev/null
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release; then
+  print_success "HSS client signer WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+else
+  print_error "HSS client signer WASM build failed"
   exit 1
 fi
 popd >/dev/null
@@ -95,6 +105,11 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
   print_success "WASM package metadata optimized"
 else
   print_warning "Failed to optimize WASM package metadata; bundler may deoptimize tree-shaking"
+fi
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg" 2>/dev/null; then
+  print_success "HSS client WASM package metadata optimized"
+else
+  print_warning "Failed to optimize HSS client WASM package metadata"
 fi
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg" 2>/dev/null; then
   print_success "Eth WASM package metadata optimized"
@@ -159,6 +174,7 @@ print_step "Copying worker WASM binaries next to worker JS..."
 mkdir -p "$BUILD_WORKERS"
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "Signer WASM copied"; else print_warning "Signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "HSS client signer WASM copied"; else print_warning "HSS client signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS/eth_signer.wasm" 2>/dev/null; then print_success "eth_signer.wasm copied"; else print_warning "eth_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
@@ -171,6 +187,15 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker_bg.wasm" "$SE
   print_success "Server HSS WASM copied"
 else
   print_warning "Server HSS WASM not found"
+fi
+
+print_step "Copying browser HSS client WASM binary into dist/esm..."
+HSS_CLIENT_WASM_DIR="$BUILD_ESM/wasm/hss_client_signer/pkg"
+mkdir -p "$HSS_CLIENT_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$HSS_CLIENT_WASM_DIR/" 2>/dev/null; then
+  print_success "Browser HSS client WASM copied"
+else
+  print_warning "Browser HSS client WASM not found"
 fi
 
 print_success "Development build completed successfully!"

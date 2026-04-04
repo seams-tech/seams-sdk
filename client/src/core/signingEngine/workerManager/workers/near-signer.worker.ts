@@ -33,11 +33,26 @@
  * - WorkerProgressMessage: Complete message structure
  */
 
-import { type SignerWorkerRequestType, WasmRequestPayload } from '@/core/types/signer-worker';
+import {
+  type SignerWorkerRequestType,
+  WasmRequestPayload,
+  WorkerRequestType,
+  WorkerResponseType,
+} from '@/core/types/signer-worker';
 // Import WASM binary directly
 import init, {
   handle_signer_message,
 } from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import initHssClientSigner, {
+  derive_threshold_ed25519_hss_client_inputs,
+  threshold_ed25519_hss_evaluate_result,
+  threshold_ed25519_hss_open_client_output,
+  threshold_ed25519_hss_open_seed_output,
+  threshold_ed25519_hss_prepare_client_request,
+  threshold_ed25519_hss_prepare_session,
+  threshold_ed25519_hss_public_key_from_base_shares,
+  threshold_ed25519_seed_export_artifact_from_seed,
+} from '../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from '../workerTypes';
@@ -54,9 +69,11 @@ import { WorkerControlMessage } from '../workerTypes';
 
 // Resolve WASM URL using the centralized resolution strategy
 const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
+const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
 // UserConfirm bridge removed: signer no longer initiates confirmations
 
 let wasmInitPromise: Promise<void> | null = null;
+let hssClientSignerInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let activeRequestId: string | null = null;
 
@@ -153,6 +170,93 @@ async function initializeWasm(): Promise<void> {
   return wasmInitPromise;
 }
 
+async function initializeHssClientSignerWasm(): Promise<void> {
+  if (hssClientSignerInitPromise) return hssClientSignerInitPromise;
+  hssClientSignerInitPromise = (async () => {
+    try {
+      const startedAt = Date.now();
+      await initHssClientSigner({ module_or_path: hssClientSignerWasmUrl });
+      console.info('[signer-worker]: HSS client WASM initialized', {
+        durationMs: Date.now() - startedAt,
+        wasmUrl: String(hssClientSignerWasmUrl),
+      });
+    } catch (error: unknown) {
+      hssClientSignerInitPromise = null;
+      console.error('[signer-worker]: HSS client WASM initialization failed:', error);
+      throw new Error(`HSS client WASM initialization failed: ${errorMessage(error)}`);
+    }
+  })();
+  return hssClientSignerInitPromise;
+}
+
+function isHssClientRequestType(requestType: number): requestType is WorkerRequestType {
+  return (
+    requestType === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
+    requestType === WorkerRequestType.PrepareThresholdEd25519HssSession ||
+    requestType === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
+    requestType === WorkerRequestType.EvaluateThresholdEd25519HssResult ||
+    requestType === WorkerRequestType.OpenThresholdEd25519HssClientOutput ||
+    requestType === WorkerRequestType.OpenThresholdEd25519HssSeedOutput ||
+    requestType === WorkerRequestType.DeriveThresholdEd25519HssPublicKey ||
+    requestType === WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
+  );
+}
+
+async function handleHssClientMessage(data: unknown): Promise<{
+  type: WorkerResponseType;
+  payload: unknown;
+}> {
+  const request = data as { type?: unknown; payload?: unknown };
+  const requestType = Number(request?.type);
+  const payload = request?.payload;
+  await initializeHssClientSignerWasm();
+
+  switch (requestType) {
+    case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
+      return {
+        type: WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess,
+        payload: derive_threshold_ed25519_hss_client_inputs(payload),
+      };
+    case WorkerRequestType.PrepareThresholdEd25519HssSession:
+      return {
+        type: WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess,
+        payload: threshold_ed25519_hss_prepare_session(payload),
+      };
+    case WorkerRequestType.PrepareThresholdEd25519HssClientRequest:
+      return {
+        type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
+        payload: threshold_ed25519_hss_prepare_client_request(payload),
+      };
+    case WorkerRequestType.EvaluateThresholdEd25519HssResult:
+      return {
+        type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
+        payload: threshold_ed25519_hss_evaluate_result(payload),
+      };
+    case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
+      return {
+        type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
+        payload: threshold_ed25519_hss_open_client_output(payload),
+      };
+    case WorkerRequestType.OpenThresholdEd25519HssSeedOutput:
+      return {
+        type: WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess,
+        payload: threshold_ed25519_hss_open_seed_output(payload),
+      };
+    case WorkerRequestType.DeriveThresholdEd25519HssPublicKey:
+      return {
+        type: WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess,
+        payload: threshold_ed25519_hss_public_key_from_base_shares(payload),
+      };
+    case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
+      return {
+        type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
+        payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
+      };
+    default:
+      throw new Error(`Unsupported HSS client request type: ${requestType}`);
+  }
+}
+
 // Signal readiness so the main thread can health-check persisted worker availability.
 // Delay one tick to allow listener registration on main thread
 setTimeout(() => {
@@ -175,11 +279,12 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
     const requestType = Number((event.data as { type?: unknown })?.type);
     // Guardrail: raw PRF fields must never traverse into signer payloads
     assertNoPrfSecretsInSignerPayload(event.data);
-    // Initialize WASM
-    await initializeWasm();
-    // Pass message object directly to Rust WASM (Zero-Copy)
-    // SignerWorkerMessage in Rust now supports JsValue payload via serde_wasm_bindgen
-    const response = await handle_signer_message(event.data);
+    const response = isHssClientRequestType(requestType)
+      ? await handleHssClientMessage(event.data)
+      : await (async () => {
+          await initializeWasm();
+          return handle_signer_message(event.data);
+        })();
     self.postMessage({
       id: requestId,
       ok: true,

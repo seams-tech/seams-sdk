@@ -15,7 +15,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
 - `signers/algorithms/`
   - Algorithm-specific signing implementations (`ed25519`, `secp256k1`, `webauthnP256`).
 - `signers/wasm/`
-  - WASM-backed chain signing wrappers (`nearSignerWasm`, `ethSignerWasm`, `tempoSignerWasm`).
+  - WASM-backed chain signing wrappers (`nearSignerWasm`, `hssClientSignerWasm`, `ethSignerWasm`, `tempoSignerWasm`).
 - `chainAdaptors/`
   - Chain-specific intent builders and handlers (NEAR, Tempo, EVM helpers).
 - `touchConfirm/`

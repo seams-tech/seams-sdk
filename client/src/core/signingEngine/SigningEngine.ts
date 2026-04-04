@@ -131,12 +131,12 @@ import {
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
-import { deriveThresholdEd25519HssClientInputsWasm } from './signers/wasm/nearSignerWasm';
 import {
+  deriveThresholdEd25519HssClientInputsWasm,
   evaluateThresholdEd25519HssResultWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
-} from './signers/wasm/nearSignerHssWasm';
+} from './signers/wasm/hssClientSignerWasm';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,

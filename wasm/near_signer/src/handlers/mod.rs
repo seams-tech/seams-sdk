@@ -29,6 +29,4 @@ pub use handle_sign_transactions_with_actions::{
     KeyActionResult, SignTransactionsWithActionsRequest, TransactionPayload,
 };
 pub use handle_threshold_ed25519_derive_client_verifying_share::DeriveThresholdEd25519ClientVerifyingShareRequest;
-pub use handle_threshold_ed25519_derive_hss_client_inputs::{
-    DeriveThresholdEd25519HssClientInputsRequest, DeriveThresholdEd25519HssClientInputsResult,
-};
+pub use handle_threshold_ed25519_derive_hss_client_inputs::DeriveThresholdEd25519HssClientInputsRequest;
