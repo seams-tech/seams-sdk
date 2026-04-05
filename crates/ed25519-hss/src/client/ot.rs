@@ -1,3 +1,4 @@
+use crate::client::state::ClientOfferCommitments;
 use crate::client::ClientOtState;
 use crate::ddh::{DdhHssEvaluator, HiddenEvalInputOwner};
 use crate::shared::{ProtoError, ProtoResult};
@@ -36,6 +37,10 @@ pub(crate) fn build_client_ot_request(
         client_packet,
         ClientOtState {
             context_binding,
+            offer_commitments: ClientOfferCommitments {
+                y_client_offer_commitment: offer.y_client_offer.commitment,
+                tau_client_offer_commitment: offer.tau_client_offer.commitment,
+            },
             y_client_local_state,
             tau_client_local_state,
         },

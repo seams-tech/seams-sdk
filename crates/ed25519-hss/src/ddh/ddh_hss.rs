@@ -2784,12 +2784,12 @@ impl DdhHssTransportPurpose {
 }
 
 fn hash_hidden_eval_program(program: &HiddenEvalProgram) -> ProtoResult<[u8; 32]> {
-    let json = serde_json::to_vec(program).map_err(|err| {
+    let encoded = bincode::serialize(program).map_err(|err| {
         ProtoError::Decode(format!(
             "failed to serialize hidden-eval program for digest: {err}"
         ))
     })?;
-    let digest = Sha256::digest(json);
+    let digest = Sha256::digest(encoded);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
     Ok(out)

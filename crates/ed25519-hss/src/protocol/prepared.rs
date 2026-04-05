@@ -84,8 +84,6 @@ pub fn prepare_prime_order_succinct_hss(
         candidate: candidate.clone(),
         artifact: build_artifact_summary(&candidate, &artifact),
         hidden_eval_program: hidden_eval_program.clone(),
-        hidden_eval_constants: hidden_eval_constants.clone(),
-        ddh_evaluator: ddh_roles.evaluator.clone(),
         execution_program: execution_program.clone(),
         execution_result: execution_result.clone(),
     };
@@ -104,7 +102,6 @@ pub fn prepare_prime_order_succinct_hss(
     let evaluator_session_cached = ClientSession {
         context_binding: candidate.context_binding,
         ddh_evaluator: ddh_roles.evaluator.clone(),
-        client_ot_offer: client_ot_offer.clone(),
     };
 
     Ok(PreparedSession {
@@ -118,6 +115,45 @@ pub fn prepare_prime_order_succinct_hss(
         shared_runtime_cached,
         garbler_session_cached,
         evaluator_session_cached,
+    })
+}
+
+pub fn prepare_prime_order_succinct_hss_client(
+    context: &CanonicalContext,
+) -> ProtoResult<crate::client::ClientDriverState> {
+    let candidate = build_fixed_hidden_core_candidate(context)?;
+    if candidate.backend.family != CandidateBackendFamily::PrimeOrderSizeOptimized {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS requires prime_order_size_optimized backend, got {}",
+            candidate.backend.family.as_str()
+        )));
+    }
+
+    let artifact_bytes = materialize_prime_order_size_optimized_bytes(&candidate)?;
+    let decoded = decode_prime_order_size_optimized_artifact(&artifact_bytes)?;
+    let hidden_eval_program = compile_prime_order_hidden_eval_program(&decoded)?;
+    let ddh_backend = keygen_prime_order_ddh_hss_backend(
+        candidate.context_binding,
+        candidate.template.candidate_digest,
+        &hidden_eval_program,
+    )?;
+    let ddh_roles = role_views_for_backend(&ddh_backend);
+
+    Ok(crate::client::ClientDriverState {
+        runtime: crate::runtime::SharedRuntimeState {
+            prepared_context: CanonicalContext {
+                org_id: candidate.context_descriptor.org_id.clone(),
+                account_id: candidate.context_descriptor.account_id.clone(),
+                key_purpose: candidate.context_descriptor.key_purpose.clone(),
+                key_version: candidate.context_descriptor.key_version.clone(),
+                participant_ids: candidate.context_descriptor.participant_ids.clone(),
+                derivation_version: candidate.context_descriptor.derivation_version,
+            },
+        },
+        evaluator_session: crate::client::ClientSessionState {
+            context_binding: candidate.context_binding,
+            ddh_evaluator: ddh_roles.evaluator,
+        },
     })
 }
 

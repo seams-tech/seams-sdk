@@ -6,4 +6,6 @@ pub mod outputs;
 pub mod state;
 
 pub use outputs::{ClientOutputOpener, OutputOpeners, SeedOutputOpener};
-pub use state::{ClientDriverState, ClientOtState, ClientSession, ClientSessionState};
+pub use state::{
+    ClientDriverState, ClientOfferCommitments, ClientOtState, ClientSession, ClientSessionState,
+};

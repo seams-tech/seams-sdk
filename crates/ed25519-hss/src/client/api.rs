@@ -23,7 +23,6 @@ impl ClientSessionState {
         ClientSession {
             context_binding: self.context_binding,
             ddh_evaluator: self.ddh_evaluator.clone(),
-            client_ot_offer: self.client_ot_offer.clone(),
         }
     }
 }
@@ -38,6 +37,10 @@ impl ClientDriverState {
 }
 
 impl ClientSession {
+    pub fn hidden_eval_constant_pool(&self) -> ProtoResult<DdhHiddenEvalConstantPool> {
+        crate::ddh::hidden_eval_executor::prepare_ddh_hidden_eval_constant_pool(&self.ddh_evaluator)
+    }
+
     pub fn client_output_opener(&self) -> ClientOutputOpener {
         ClientOutputOpener {
             evaluator: self.ddh_evaluator.clone(),
@@ -130,7 +133,7 @@ impl ClientSession {
             client_packet,
         )?;
         self.validate_evaluator_ot_state(evaluator_ot_state)?;
-        self.validate_server_packet(server_packet)?;
+        self.validate_server_packet(server_packet, evaluator_ot_state)?;
         if client_packet.y_client_request.commitment
             != server_packet.ot_transcript.y_client_request_commitment
             || client_packet.tau_client_request.commitment
@@ -290,10 +293,11 @@ impl ClientSession {
             TransportKind::ServerPacket,
             server_message,
         )?;
+        let hidden_eval_constants = self.hidden_eval_constant_pool()?;
         let ddh_run = self.evaluate_hidden_run_from_packets(
-            &runtime.ddh_evaluator,
+            &self.ddh_evaluator,
             &runtime.hidden_eval_program,
-            &runtime.hidden_eval_constants,
+            &hidden_eval_constants,
             &client_packet,
             evaluator_ot_state,
             &server_packet,
@@ -533,7 +537,11 @@ impl ClientSession {
         ))
     }
 
-    pub fn validate_server_packet(&self, packet: &ServerPacket) -> ProtoResult<()> {
-        crate::protocol::invariants::validate_evaluator_server_packet(self, packet)
+    pub fn validate_server_packet(
+        &self,
+        packet: &ServerPacket,
+        evaluator_ot_state: &ClientOtState,
+    ) -> ProtoResult<()> {
+        crate::protocol::invariants::validate_evaluator_server_packet(self, evaluator_ot_state, packet)
     }
 }

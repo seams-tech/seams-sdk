@@ -1,5 +1,6 @@
 mod client_inputs;
 mod encoders;
+mod js;
 mod threshold_hss;
 mod threshold_export;
 

@@ -181,7 +181,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
         derivation_version: normalized_context.derivation_version,
     };
 
-    let template_descriptor_bytes = serde_json::to_vec(&template_descriptor)
+    let template_descriptor_bytes = bincode::serialize(&template_descriptor)
         .map_err(|err| {
             ProtoError::Decode(format!(
                 "failed to serialize candidate template descriptor: {err}"
@@ -190,7 +190,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
         .len() as u64;
 
     let candidate_digest =
-        sha256_bytes(&serde_json::to_vec(&template_descriptor).map_err(|err| {
+        sha256_bytes(&bincode::serialize(&template_descriptor).map_err(|err| {
             ProtoError::Decode(format!(
                 "failed to serialize candidate digest material: {err}"
             ))

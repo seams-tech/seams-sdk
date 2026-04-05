@@ -36,10 +36,8 @@ impl PreparedSession {
     }
 
     pub fn shared_runtime_state(&self) -> SharedRuntimeState {
-        let evaluator_session = self.evaluator_session();
         SharedRuntimeState {
-            candidate: self.candidate().clone(),
-            ddh_evaluator: evaluator_session.ddh_evaluator,
+            prepared_context: self.prepared_context(),
         }
     }
 
@@ -63,7 +61,6 @@ impl PreparedSession {
             evaluator_session: crate::client::ClientSessionState {
                 context_binding: evaluator_session.context_binding,
                 ddh_evaluator: evaluator_session.ddh_evaluator,
-                client_ot_offer: evaluator_session.client_ot_offer,
             },
         }
     }

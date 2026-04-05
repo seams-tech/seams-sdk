@@ -88,11 +88,12 @@ impl PreparedSession {
             input.y_relayer,
             input.tau_relayer,
         )?;
+        let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let (ddh_run, _timing) = evaluator_session
             .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &runtime.ddh_evaluator,
+                &evaluator_session.ddh_evaluator,
                 &runtime.hidden_eval_program,
-                &runtime.hidden_eval_constants,
+                &hidden_eval_constants,
                 &evaluator_ot_state,
                 &trusted_server_eval,
             )?;
@@ -116,11 +117,12 @@ impl PreparedSession {
             input.y_relayer,
             input.tau_relayer,
         )?;
+        let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         Ok(evaluator_session
             .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &runtime.ddh_evaluator,
+                &evaluator_session.ddh_evaluator,
                 &runtime.hidden_eval_program,
-                &runtime.hidden_eval_constants,
+                &hidden_eval_constants,
                 &evaluator_ot_state,
                 &trusted_server_eval,
             )?
@@ -150,11 +152,12 @@ impl PreparedSession {
                 input.tau_relayer,
             )?;
         timing.add_assign(garbler_prepare_timing);
+        let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let (ddh_run, evaluation_timing) = evaluator_session
             .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &runtime.ddh_evaluator,
+                &evaluator_session.ddh_evaluator,
                 &runtime.hidden_eval_program,
-                &runtime.hidden_eval_constants,
+                &hidden_eval_constants,
                 &evaluator_ot_state,
                 &trusted_server_eval,
             )?;
@@ -197,11 +200,12 @@ impl PreparedSession {
                 input.tau_relayer,
             )?;
         timing.add_assign(garbler_prepare_timing);
+        let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let (ddh_run, evaluation_timing) = evaluator_session
             .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &runtime.ddh_evaluator,
+                &evaluator_session.ddh_evaluator,
                 &runtime.hidden_eval_program,
-                &runtime.hidden_eval_constants,
+                &hidden_eval_constants,
                 &evaluator_ot_state,
                 &trusted_server_eval,
             )?;

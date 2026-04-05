@@ -4,12 +4,9 @@ use crate::artifact::{
     build_prime_order_size_optimized_artifact, decode_prime_order_size_optimized_artifact,
     materialize_prime_order_size_optimized_bytes, PrimeOrderEncodedArtifact,
 };
-use crate::candidate::FixedHiddenCoreCandidate;
+use crate::candidate::{build_fixed_hidden_core_candidate, FixedHiddenCoreCandidate};
 use crate::client::{ClientSession, OutputOpeners};
-use crate::ddh::hidden_eval_executor::{
-    prepare_ddh_hidden_eval_constant_pool, DdhHiddenEvalConstantPool,
-};
-use crate::ddh::{compile_prime_order_hidden_eval_program, DdhHssEvaluator, HiddenEvalProgram};
+use crate::ddh::{compile_prime_order_hidden_eval_program, HiddenEvalProgram};
 use crate::protocol::report::{
     finalize_report_from_evaluation_result as build_report_from_evaluation_result,
     runtime_output_openers,
@@ -19,7 +16,7 @@ use crate::runtime::{
     PrimeOrderCpuExecutionProgram, PrimeOrderCpuExecutionResult,
 };
 use crate::server::ServerSession;
-use crate::shared::ProtoResult;
+use crate::shared::{CanonicalContext, ProtoResult};
 use crate::wire::{ArtifactSummary, EvaluationReport, EvaluationResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,16 +24,13 @@ pub struct SharedRuntime {
     pub(crate) candidate: FixedHiddenCoreCandidate,
     pub(crate) artifact: ArtifactSummary,
     pub(crate) hidden_eval_program: HiddenEvalProgram,
-    pub(crate) hidden_eval_constants: DdhHiddenEvalConstantPool,
-    pub(crate) ddh_evaluator: DdhHssEvaluator,
     pub(crate) execution_program: PrimeOrderCpuExecutionProgram,
     pub(crate) execution_result: PrimeOrderCpuExecutionResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SharedRuntimeState {
-    pub candidate: FixedHiddenCoreCandidate,
-    pub ddh_evaluator: DdhHssEvaluator,
+    pub prepared_context: CanonicalContext,
 }
 
 pub(crate) fn build_artifact_summary(
@@ -56,18 +50,17 @@ pub(crate) fn build_artifact_summary(
 
 impl SharedRuntimeState {
     pub fn materialize(&self) -> ProtoResult<SharedRuntime> {
-        let artifact = build_prime_order_size_optimized_artifact(&self.candidate)?;
-        let artifact_bytes = materialize_prime_order_size_optimized_bytes(&self.candidate)?;
+        let candidate = build_fixed_hidden_core_candidate(&self.prepared_context)?;
+        let artifact = build_prime_order_size_optimized_artifact(&candidate)?;
+        let artifact_bytes = materialize_prime_order_size_optimized_bytes(&candidate)?;
         let decoded = decode_prime_order_size_optimized_artifact(&artifact_bytes)?;
         let hidden_eval_program = compile_prime_order_hidden_eval_program(&decoded)?;
         let execution_program = compile_prime_order_cpu_execution_program(&decoded)?;
         let execution_result = execute_prime_order_cpu_execution_program(&execution_program)?;
         Ok(SharedRuntime {
-            candidate: self.candidate.clone(),
-            artifact: build_artifact_summary(&self.candidate, &artifact),
+            candidate: candidate.clone(),
+            artifact: build_artifact_summary(&candidate, &artifact),
             hidden_eval_program,
-            hidden_eval_constants: prepare_ddh_hidden_eval_constant_pool(&self.ddh_evaluator)?,
-            ddh_evaluator: self.ddh_evaluator.clone(),
             execution_program,
             execution_result,
         })

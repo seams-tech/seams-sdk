@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 
-use crate::client::ClientSession;
+use crate::client::{ClientOtState, ClientSession};
 use crate::ddh::{DdhHssShareSide, HiddenEvalInputOwner};
 use crate::server::ServerSession;
 use crate::shared::{ProtoError, ProtoResult};
@@ -192,6 +192,7 @@ pub(crate) fn validate_garbler_server_packet(
 
 pub(crate) fn validate_evaluator_server_packet(
     session: &ClientSession,
+    evaluator_ot_state: &ClientOtState,
     packet: &ServerPacket,
 ) -> ProtoResult<()> {
     if packet.context_binding != session.context_binding {
@@ -201,9 +202,9 @@ pub(crate) fn validate_evaluator_server_packet(
     }
     validate_ot_transcript(packet.context_binding, &packet.ot_transcript)?;
     if packet.ot_transcript.y_client_offer_commitment
-        != session.client_ot_offer.y_client_offer.commitment
+        != evaluator_ot_state.offer_commitments.y_client_offer_commitment
         || packet.ot_transcript.tau_client_offer_commitment
-            != session.client_ot_offer.tau_client_offer.commitment
+            != evaluator_ot_state.offer_commitments.tau_client_offer_commitment
     {
         return Err(ProtoError::InvalidInput(
             "server delivery packet OT transcript is not bound to the evaluator offer".to_string(),
