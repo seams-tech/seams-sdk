@@ -38,6 +38,7 @@ wasm/tempo_signer/pkg
 wasm/tempo_signer/target
 wasm/shamir3pass_runtime/pkg
 wasm/shamir3pass_runtime/target
+wasm/hss_client_signer/target/
 crates/*/target
 
 # Transpiled server artifacts emitted into source tree during local runs
