@@ -1,6 +1,6 @@
 # Separate HSS Client WASM Plan
 
-Date: April 4, 2026
+Date: April 5, 2026
 
 ## Summary
 
@@ -375,7 +375,7 @@ Phase 6 findings completed so far:
 
 - production SDK build completed successfully via
   [sdk/scripts/build/build-prod.sh](/Users/pta/Dev/rust/simple-threshold-signer/sdk/scripts/build/build-prod.sh)
-- shipped browser HSS client artifact in `dist/esm` is now:
+- shipped browser HSS client artifact in `dist/esm` was initially:
   - wasm:
     [sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm)
     = `562,737` bytes
@@ -399,6 +399,93 @@ Phase 6 findings completed so far:
   - dedicated `hss_client_signer`: `9.344ms` mean across 5 samples
   - improvement: about `19.0%`
 - these results clear the keep threshold, so the split should be kept
+
+## Post-Plan Follow-Up
+
+After the main split plan landed, we completed one more browser/relay seam
+cleanup and another wasm-size pass.
+
+### Relay-Authored Prepare Seam
+
+The browser HSS path no longer prepares relay-only / garbler-side session state
+on the client hot path.
+
+What changed:
+
+- the relay `prepare` route now creates the authoritative HSS prepared session
+  and returns:
+  - `preparedSession`
+  - `clientOtOfferMessageB64u`
+  - `ceremonyHandle`
+- the browser now sends only:
+  - `context` to `prepare`
+  - `clientRequest` plus `ceremonyHandle` to `respond`
+  - `evaluationResult` plus `ceremonyHandle` to `finalize`
+- the browser HSS path no longer needs to post or depend on browser-created
+  garbler-side session material
+
+Measured route-payload result:
+
+- session HSS finalize request:
+  - before: `315,263` bytes
+  - after ceremony-handle seam: `154,622` bytes
+  - reduction: `160,641` bytes, about `50.9%`
+- registration HSS finalize request:
+  - now `154,693` bytes
+
+Measured active-path timings after the seam cleanup:
+
+- HSS prepare: about `340-367ms`
+- HSS respond: about `302-310ms`
+- HSS finalize: about `479-489ms`
+- full HSS ceremony: about `3.57-3.64s`
+
+### Additional WASM Reduction
+
+We then continued the browser HSS wasm minimization pass:
+
+- removed `serde_wasm_bindgen` from the browser HSS path
+- made `serde_json` host-only in `ed25519-hss`
+- compacted serialized runtime state so the browser carries compact context
+  instead of full candidate metadata
+- stopped duplicating evaluator state inside shared runtime state
+
+Current shipped browser HSS baseline from the production SDK build:
+
+- wasm:
+  [sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm)
+  = `413,159` bytes
+- JS glue:
+  [sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer.js](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/esm/wasm/hss_client_signer/pkg/hss_client_signer.js)
+  = `14,897` bytes
+- dedicated browser HSS worker:
+  [sdk/dist/workers/hss-client.worker.js](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/workers/hss-client.worker.js)
+  = `22,550` bytes raw
+
+Current shipped relay/server HSS baseline from the production SDK build:
+
+- wasm:
+  [sdk/dist/esm/server/wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/esm/server/wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm)
+  = `874,850` bytes
+- JS glue:
+  [sdk/dist/esm/server/wasm/near_signer/pkg-server/wasm_signer_worker.js](/Users/pta/Dev/rust/simple-threshold-signer/sdk/dist/esm/server/wasm/near_signer/pkg-server/wasm_signer_worker.js)
+  = `47,598` bytes
+
+Net browser HSS reduction versus the original broad browser artifact:
+
+- wasm:
+  `1,163,476` -> `413,159`
+  reduction: `750,317` bytes, about `64.5%`
+- JS glue:
+  `173,004` -> `14,897`
+  reduction: `158,107` bytes, about `91.4%`
+
+### Follow-Up Checklist
+
+- [x] Move relay-only / garbler-side session preparation fully off the browser hot path
+- [x] Make relay `prepare` authoritative for returned evaluator session state
+- [x] Keep the active rebuild / export / registration HSS flows green with the new seam
+- [x] Rebuild production browser/server artifacts and record the new shipped sizes
 
 ## Verification Requirements
 
