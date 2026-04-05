@@ -542,6 +542,10 @@ impl ClientSession {
         packet: &ServerPacket,
         evaluator_ot_state: &ClientOtState,
     ) -> ProtoResult<()> {
-        crate::protocol::invariants::validate_evaluator_server_packet(self, evaluator_ot_state, packet)
+        crate::protocol::invariants::validate_evaluator_server_packet(
+            self,
+            evaluator_ot_state,
+            packet,
+        )
     }
 }

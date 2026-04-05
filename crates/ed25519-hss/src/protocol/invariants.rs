@@ -202,9 +202,13 @@ pub(crate) fn validate_evaluator_server_packet(
     }
     validate_ot_transcript(packet.context_binding, &packet.ot_transcript)?;
     if packet.ot_transcript.y_client_offer_commitment
-        != evaluator_ot_state.offer_commitments.y_client_offer_commitment
+        != evaluator_ot_state
+            .offer_commitments
+            .y_client_offer_commitment
         || packet.ot_transcript.tau_client_offer_commitment
-            != evaluator_ot_state.offer_commitments.tau_client_offer_commitment
+            != evaluator_ot_state
+                .offer_commitments
+                .tau_client_offer_commitment
     {
         return Err(ProtoError::InvalidInput(
             "server delivery packet OT transcript is not bound to the evaluator offer".to_string(),
