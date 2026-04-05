@@ -29,6 +29,7 @@ import {
   createManagedRegistrationFlowGrant,
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
+  respondThresholdEd25519HssServerCeremonyWithRelayRegistration,
   type CreateAccountAndRegisterThresholdEd25519Input,
   type ThresholdEd25519RegistrationHssFinalizeResult,
 } from './faucets/createAccountRelayServer';
@@ -167,7 +168,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       onProgress: args.onProgress,
     });
-  if (!prepared.success || !prepared.preparedSession || !prepared.clientRequest) {
+  if (!prepared.success) {
     throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 Option A registration');
   }
 
@@ -185,14 +186,31 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
       participantIds: prepared.participantIds,
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     },
-    preparedSession: prepared.preparedSession,
-    clientRequest: prepared.clientRequest,
+  });
+
+  const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
+    evaluatorDriverStateB64u: preparedRelayCeremony.preparedSession.evaluatorDriverStateB64u,
+    clientOtOfferMessageB64u: preparedRelayCeremony.clientOtOfferMessageB64u,
+    clientInputs: {
+      contextBindingB64u: prepared.contextBindingB64u,
+      yClientB64u: prepared.yClientB64u,
+      tauClientB64u: prepared.tauClientB64u,
+    },
+  });
+
+  const serverMessage = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
+    context: args.context,
+    nearAccountId: String(args.nearAccountId),
+    rpId: args.rpId,
+    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
+    ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
+    clientRequest,
   });
 
   const evaluationResult = await args.context.signingEngine.evaluateThresholdEd25519HssResult({
-    preparedSession: prepared.preparedSession,
-    clientRequest: prepared.clientRequest,
-    serverMessage: preparedRelayCeremony.serverMessage,
+    preparedSession: preparedRelayCeremony.preparedSession,
+    clientRequest,
+    serverMessage,
   });
 
   args.onProgress?.('Finalizing threshold Ed25519 registration material...');
@@ -475,7 +493,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       participantIds,
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     });
-  if (!prepared.success || !prepared.preparedSession || !prepared.clientRequest) {
+  if (!prepared.success) {
     throw new Error(
       prepared.error || 'Failed to prepare threshold Ed25519 Option A registration ceremony',
     );
@@ -484,8 +502,19 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
     relayerUrl,
     thresholdSessionJwt,
     relayerKeyId,
-    preparedSession: prepared.preparedSession,
-    clientRequest: prepared.clientRequest,
+    context: {
+      orgId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion,
+      participantIds,
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+    },
+    clientInputs: {
+      contextBindingB64u: prepared.contextBindingB64u,
+      yClientB64u: prepared.yClientB64u,
+      tauClientB64u: prepared.tauClientB64u,
+    },
     persistToThresholdSessionId: thresholdSessionId,
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {

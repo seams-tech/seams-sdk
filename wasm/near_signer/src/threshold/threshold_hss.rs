@@ -4,22 +4,26 @@ use ed25519_hss::client::ClientDriverState;
 #[cfg(feature = "hss-client-exports")]
 use ed25519_hss::client::ClientOtState;
 #[cfg(feature = "hss-client-exports")]
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss_client;
+#[cfg(feature = "hss-server-exports")]
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::shared::public_key_from_base_shares;
-#[cfg(feature = "hss-client-exports")]
+#[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::shared::CanonicalContext;
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use ed25519_hss::wire::WireMessage;
 use serde::{Deserialize, Serialize};
 use signer_platform_web::near_threshold_ed25519::verifying_share_bytes_from_signing_share_bytes;
 use wasm_bindgen::prelude::*;
+#[cfg(feature = "hss-server-exports")]
+use js_sys::{Object, Reflect};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[cfg(feature = "hss-client-exports")]
+#[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
     org_id: String,
     near_account_id: String,
@@ -52,9 +56,7 @@ pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
     participant_ids: Vec<u16>,
     derivation_version: u32,
     context_binding_b64u: String,
-    garbler_driver_state_b64u: String,
     evaluator_driver_state_b64u: String,
-    client_ot_offer_message_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +76,28 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
     context_binding_b64u: String,
     client_request_message_b64u: String,
     evaluator_ot_state_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+pub(crate) struct ThresholdEd25519HssPrepareServerSessionArgs {
+    org_id: String,
+    near_account_id: String,
+    key_purpose: String,
+    key_version: String,
+    participant_ids: Vec<u16>,
+    derivation_version: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+pub(crate) struct ThresholdEd25519HssPrepareServerSessionOutput {
+    context_binding_b64u: String,
+    evaluator_driver_state_b64u: String,
+    garbler_driver_state_b64u: String,
+    client_ot_offer_message_b64u: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +256,41 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 
 #[wasm_bindgen]
 #[cfg(feature = "hss-server-exports")]
+pub fn threshold_ed25519_hss_prepare_server_session(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519HssPrepareServerSessionArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
+    let output =
+        prepare_threshold_ed25519_hss_server_session(args).map_err(|e| JsValue::from_str(&e))?;
+    let js_output = Object::new();
+    Reflect::set(
+        &js_output,
+        &JsValue::from_str("contextBindingB64u"),
+        &JsValue::from_str(&output.context_binding_b64u),
+    )
+    .map_err(|_| JsValue::from_str("Failed to set contextBindingB64u"))?;
+    Reflect::set(
+        &js_output,
+        &JsValue::from_str("evaluatorDriverStateB64u"),
+        &JsValue::from_str(&output.evaluator_driver_state_b64u),
+    )
+    .map_err(|_| JsValue::from_str("Failed to set evaluatorDriverStateB64u"))?;
+    Reflect::set(
+        &js_output,
+        &JsValue::from_str("garblerDriverStateB64u"),
+        &JsValue::from_str(&output.garbler_driver_state_b64u),
+    )
+    .map_err(|_| JsValue::from_str("Failed to set garblerDriverStateB64u"))?;
+    Reflect::set(
+        &js_output,
+        &JsValue::from_str("clientOtOfferMessageB64u"),
+        &JsValue::from_str(&output.client_ot_offer_message_b64u),
+    )
+    .map_err(|_| JsValue::from_str("Failed to set clientOtOfferMessageB64u"))?;
+    Ok(js_output.into())
+}
+
+#[wasm_bindgen]
+#[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_hss_prepare_server_message(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssPrepareServerMessageArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
@@ -384,7 +443,7 @@ pub fn threshold_ed25519_hss_verifying_share_from_signing_share(
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize verifying share: {e}")))
 }
 
-#[cfg(feature = "hss-client-exports")]
+#[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 fn canonical_context_from_args(
     args: ThresholdEd25519HssCanonicalContextArgs,
 ) -> Result<CanonicalContext, JsValue> {
@@ -426,7 +485,7 @@ fn decode_state_blob<T: for<'de> Deserialize<'de>>(
         .map_err(|e| JsValue::from_str(&format!("Invalid {field_name}: {e}")))
 }
 
-#[cfg(feature = "hss-client-exports")]
+#[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 fn encode_state_blob<T: Serialize>(value: &T, field_name: &str) -> Result<String, String> {
     let bytes =
         bincode::serialize(value).map_err(|e| format!("Failed to serialize {field_name}: {e}"))?;
@@ -468,12 +527,8 @@ pub(crate) fn prepare_threshold_ed25519_hss_session(
         derivation_version: args.derivation_version,
     })
     .map_err(js_value_to_string)?;
-    let session = prepare_prime_order_succinct_hss(&context).map_err(|e| e.to_string())?;
-    let garbler_driver_state = session.garbler_driver_state();
-    let evaluator_driver_state = session.evaluator_driver_state();
-    let client_ot_offer_message = session
-        .prepare_client_ot_offer_message()
-        .map_err(|e| e.to_string())?;
+    let evaluator_driver_state =
+        prepare_prime_order_succinct_hss_client(&context).map_err(|e| e.to_string())?;
 
     Ok(ThresholdEd25519HssPrepareSessionOutput {
         org_id: context.org_id,
@@ -483,10 +538,42 @@ pub(crate) fn prepare_threshold_ed25519_hss_session(
         participant_ids: context.participant_ids,
         derivation_version: context.derivation_version,
         context_binding_b64u: base64_url_encode(
+            &evaluator_driver_state.evaluator_session.context_binding,
+        ),
+        evaluator_driver_state_b64u: encode_state_blob(&evaluator_driver_state, "evaluator state")?,
+    })
+}
+
+#[cfg(feature = "hss-server-exports")]
+pub(crate) fn prepare_threshold_ed25519_hss_server_session(
+    args: ThresholdEd25519HssPrepareServerSessionArgs,
+) -> Result<ThresholdEd25519HssPrepareServerSessionOutput, String> {
+    let context = canonical_context_from_args(ThresholdEd25519HssCanonicalContextArgs {
+        org_id: args.org_id,
+        near_account_id: args.near_account_id,
+        key_purpose: args.key_purpose,
+        key_version: args.key_version,
+        participant_ids: args.participant_ids,
+        derivation_version: args.derivation_version,
+    })
+    .map_err(js_value_to_string)?;
+    let session = prepare_prime_order_succinct_hss(&context).map_err(|e| e.to_string())?;
+    let evaluator_driver_state = session.evaluator_driver_state();
+    let garbler_driver_state = session.garbler_driver_state();
+    let client_ot_offer_message = session
+        .garbler_session()
+        .client_ot_offer_message()
+        .map_err(|e| e.to_string())?;
+
+    Ok(ThresholdEd25519HssPrepareServerSessionOutput {
+        context_binding_b64u: base64_url_encode(
             &garbler_driver_state.garbler_session.context_binding,
         ),
+        evaluator_driver_state_b64u: encode_state_blob(
+            &evaluator_driver_state,
+            "evaluator state",
+        )?,
         garbler_driver_state_b64u: encode_state_blob(&garbler_driver_state, "garbler state")?,
-        evaluator_driver_state_b64u: encode_state_blob(&evaluator_driver_state, "evaluator state")?,
         client_ot_offer_message_b64u: encode_wire_message(&client_ot_offer_message),
     })
 }

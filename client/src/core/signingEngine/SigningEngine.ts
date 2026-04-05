@@ -681,7 +681,22 @@ export class SigningEngine {
       throw new Error('Missing warm PRF material for Option A Ed25519 export');
     }
 
-    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
+    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
+      sessionId: `${args.thresholdSessionId}:hss-export-client-inputs`,
+      orgId: args.orgId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
+
+    const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
+      relayerUrl: args.relayerUrl,
+      thresholdSessionJwt: args.thresholdSessionJwt,
+      relayerKeyId: args.relayerKeyId,
       context: {
         orgId: args.orgId,
         nearAccountId: args.nearAccountId,
@@ -690,41 +705,15 @@ export class SigningEngine {
         participantIds: args.participantIds,
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       },
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    });
-
-    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
-      sessionId: `${args.thresholdSessionId}:hss-export-client-inputs`,
-      orgId: args.orgId,
-      nearAccountId: args.nearAccountId,
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: args.keyVersion,
-      participantIds: preparedSession.participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    });
-
-    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
-      preparedSession,
       clientInputs,
       workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
-
-    const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
-      relayerUrl: args.relayerUrl,
-      thresholdSessionJwt: args.thresholdSessionJwt,
-      relayerKeyId: args.relayerKeyId,
-      preparedSession,
-      clientRequest,
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    });
-    if (!completed.success || !completed.finalizedReport) {
+    if (!completed.success || !completed.finalizedReport || !completed.preparedSession) {
       throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
     }
 
     return {
-      preparedSession,
+      preparedSession: completed.preparedSession,
       finalizedReport: completed.finalizedReport,
     };
   }
@@ -1294,6 +1283,15 @@ export class SigningEngine {
     );
   }
 
+  prepareThresholdEd25519HssClientRequest(
+    args: Omit<Parameters<typeof prepareThresholdEd25519HssClientRequestWasm>[0], 'workerCtx'>,
+  ): ReturnType<typeof prepareThresholdEd25519HssClientRequestWasm> {
+    return prepareThresholdEd25519HssClientRequestWasm({
+      ...args,
+      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
+    });
+  }
+
   evaluateThresholdEd25519HssResult(args: {
     preparedSession: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['preparedSession'];
     clientRequest: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['clientRequest'];
@@ -1447,6 +1445,7 @@ export type SigningEnginePublic = Pick<
   | 'deriveThresholdEd25519ClientVerifyingShareFromCredential'
   | 'deriveThresholdEd25519HssClientInputsFromCredential'
   | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
+  | 'prepareThresholdEd25519HssClientRequest'
   | 'evaluateThresholdEd25519HssResult'
   | 'completeThresholdEd25519HssClientCeremony'
   | 'runThresholdEd25519HssCeremonyWithSession'

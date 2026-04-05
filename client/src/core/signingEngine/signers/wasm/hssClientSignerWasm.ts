@@ -34,9 +34,7 @@ export type ThresholdEd25519HssClientInputs = {
 
 export type ThresholdEd25519HssPreparedSessionEnvelope = ThresholdEd25519HssCanonicalContext & {
   contextBindingB64u: string;
-  garblerDriverStateB64u: string;
   evaluatorDriverStateB64u: string;
-  clientOtOfferMessageB64u: string;
 };
 
 export type ThresholdEd25519HssClientRequestEnvelope = {
@@ -218,17 +216,13 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
     participantIds: normalizeParticipantIds(result.participantIds),
     derivationVersion: Number(result.derivationVersion),
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    garblerDriverStateB64u: String(result.garblerDriverStateB64u || '').trim(),
     evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
-    clientOtOfferMessageB64u: String(result.clientOtOfferMessageB64u || '').trim(),
   };
 }
 
 export async function prepareThresholdEd25519HssClientRequestWasm(input: {
-  preparedSession: Pick<
-    ThresholdEd25519HssPreparedSessionEnvelope,
-    'evaluatorDriverStateB64u' | 'clientOtOfferMessageB64u'
-  >;
+  evaluatorDriverStateB64u: string;
+  clientOtOfferMessageB64u: string;
   clientInputs: ThresholdEd25519HssClientInputs;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssClientRequestEnvelope> {
@@ -239,8 +233,8 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
       type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
-        clientOtOfferMessageB64u: input.preparedSession.clientOtOfferMessageB64u,
+        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+        clientOtOfferMessageB64u: input.clientOtOfferMessageB64u,
         yClientB64u: input.clientInputs.yClientB64u,
         tauClientB64u: input.clientInputs.tauClientB64u,
       },

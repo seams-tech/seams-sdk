@@ -3,8 +3,6 @@ import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/co
 import { runThresholdEd25519HssCeremonyWithSession } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
-  prepareThresholdEd25519HssClientRequestWasm,
-  prepareThresholdEd25519HssSessionWasm,
 } from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
 
 export const THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE = 'near-ed25519-signing';
@@ -67,46 +65,31 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     args.derivationVersion ?? THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   );
 
-  const prepareSessionStartedAt = Date.now();
-  args.onProgress?.('Preparing threshold Ed25519 signing material...');
-  const preparedSession = await prepareThresholdEd25519HssSessionWasm({
-    context: {
-      orgId,
-      nearAccountId: String(args.nearAccountId || '').trim(),
-      keyPurpose,
-      keyVersion: String(args.keyVersion || '').trim(),
-      participantIds: Array.isArray(args.participantIds)
-        ? args.participantIds.map((value) => Number(value))
-        : [],
-      derivationVersion,
-    },
-    workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
-  });
-  const prepareSessionMs = Date.now() - prepareSessionStartedAt;
+  const context = {
+    orgId,
+    nearAccountId: String(args.nearAccountId || '').trim(),
+    keyPurpose,
+    keyVersion: String(args.keyVersion || '').trim(),
+    participantIds: Array.isArray(args.participantIds)
+      ? args.participantIds.map((value) => Number(value))
+      : [],
+    derivationVersion,
+  };
 
   const deriveClientInputsStartedAt = Date.now();
   args.onProgress?.('Deriving threshold Ed25519 client inputs...');
   const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: `${thresholdSessionId}:hss-client-inputs`,
-    orgId,
-    nearAccountId: String(args.nearAccountId || '').trim(),
-    keyPurpose,
-    keyVersion: String(args.keyVersion || '').trim(),
-    participantIds: preparedSession.participantIds,
-    derivationVersion,
+    orgId: context.orgId,
+    nearAccountId: context.nearAccountId,
+    keyPurpose: context.keyPurpose,
+    keyVersion: context.keyVersion,
+    participantIds: context.participantIds,
+    derivationVersion: context.derivationVersion,
     prfFirstB64u: String(args.prfFirstB64u || '').trim(),
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
   });
   const deriveClientInputsMs = Date.now() - deriveClientInputsStartedAt;
-
-  const prepareClientRequestStartedAt = Date.now();
-  args.onProgress?.('Preparing threshold Ed25519 relay request...');
-  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
-    preparedSession,
-    clientInputs,
-    workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
-  });
-  const prepareClientRequestMs = Date.now() - prepareClientRequestStartedAt;
 
   const relayCeremonyStartedAt = Date.now();
   args.onProgress?.('Finalizing threshold Ed25519 signing material...');
@@ -114,8 +97,8 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     relayerUrl: String(args.relayerUrl || '').trim(),
     thresholdSessionJwt,
     relayerKeyId: String(args.relayerKeyId || '').trim(),
-    preparedSession,
-    clientRequest,
+    context,
+    clientInputs,
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
     persistToThresholdSessionId: thresholdSessionId,
   });
@@ -128,9 +111,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   console.info('[threshold-ed25519][client-base] lazy reconstruction timings', {
     thresholdSessionId,
     nearAccountId: String(args.nearAccountId || '').trim(),
-    prepareSessionMs,
     deriveClientInputsMs,
-    prepareClientRequestMs,
     relayCeremonyMs,
     totalMs: Date.now() - startedAt,
   });

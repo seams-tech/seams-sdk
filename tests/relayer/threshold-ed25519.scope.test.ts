@@ -467,8 +467,7 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
     participantIds: number[];
     derivationVersion: number;
   };
-  preparedSession: Awaited<ReturnType<typeof prepareThresholdEd25519HssSession>>;
-  clientRequest: Awaited<ReturnType<typeof prepareThresholdEd25519HssClientRequest>>;
+  clientInputs: Awaited<ReturnType<typeof deriveThresholdEd25519HssClientInputsWasm>>;
 }> {
   const participantIds = Array.isArray(input.participantIds)
     ? input.participantIds.map((value) => Number(value))
@@ -481,27 +480,18 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
     participantIds,
     derivationVersion: DEFAULT_HSS_DERIVATION_VERSION,
   };
-  const preparedSession = await prepareThresholdEd25519HssSessionWasm({
-    context,
-    workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-  });
   const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: `${String(input.thresholdSessionId || '').trim()}:hss-client-inputs`,
     orgId: context.orgId,
     nearAccountId: context.nearAccountId,
     keyPurpose: context.keyPurpose,
     keyVersion: context.keyVersion,
-    participantIds: preparedSession.participantIds,
+    participantIds: context.participantIds,
     derivationVersion: context.derivationVersion,
     prfFirstB64u: String(input.prfFirstB64u || DEFAULT_HSS_PRF_FIRST_B64U).trim(),
     workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
   });
-  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
-    preparedSession,
-    clientInputs,
-    workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-  });
-  return { context, preparedSession, clientRequest };
+  return { context, clientInputs };
 }
 
 async function provisionThresholdEd25519RegistrationMaterial(input: {
@@ -1299,7 +1289,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(wrongScopeMinted.json?.ok).toBe(true);
       const wrongScopeJwt = String(wrongScopeMinted.json?.jwt || '');
 
-      const { context, preparedSession, clientRequest } =
+      const { context, clientInputs } =
         await buildThresholdEd25519HssSessionMaterial({
           thresholdSessionId: sessionId,
           nearAccountId: 'bob.testnet',
@@ -1312,17 +1302,32 @@ test.describe('threshold-ed25519 scope (express)', () => {
         body: JSON.stringify({
           relayerKeyId,
           context,
-          preparedSession,
-          clientRequest,
         }),
       });
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
+      const preparedSession = prepared.json?.preparedSession as any;
+      const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+        evaluatorDriverStateB64u: String(preparedSession?.evaluatorDriverStateB64u || ''),
+        clientOtOfferMessageB64u: String(prepared.json?.clientOtOfferMessageB64u || ''),
+        clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
+      const responded = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          ceremonyHandle: prepared.json?.ceremonyHandle,
+          clientRequest,
+        }),
+      });
+      expect(responded.status, responded.text).toBe(200);
+      expect(responded.json?.ok, responded.text).toBe(true);
 
       const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
         preparedSession,
         clientRequest,
-        serverMessage: prepared.json?.serverMessage as any,
+        serverMessage: responded.json?.serverMessage as any,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 
@@ -1375,7 +1380,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(minted.json?.ok).toBe(true);
       const jwt = String(minted.json?.jwt || '');
 
-      const { context, preparedSession, clientRequest } =
+      const { context, clientInputs } =
         await buildThresholdEd25519HssSessionMaterial({
           thresholdSessionId: sessionId,
           nearAccountId: 'bob.testnet',
@@ -1388,17 +1393,32 @@ test.describe('threshold-ed25519 scope (express)', () => {
         body: JSON.stringify({
           relayerKeyId,
           context,
-          preparedSession,
-          clientRequest,
         }),
       });
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
+      const preparedSession = prepared.json?.preparedSession as any;
+      const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+        evaluatorDriverStateB64u: String(preparedSession?.evaluatorDriverStateB64u || ''),
+        clientOtOfferMessageB64u: String(prepared.json?.clientOtOfferMessageB64u || ''),
+        clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
+      const responded = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          ceremonyHandle: prepared.json?.ceremonyHandle,
+          clientRequest,
+        }),
+      });
+      expect(responded.status, responded.text).toBe(200);
+      expect(responded.json?.ok, responded.text).toBe(true);
 
       const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
         preparedSession,
         clientRequest,
-        serverMessage: prepared.json?.serverMessage as any,
+        serverMessage: responded.json?.serverMessage as any,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 
@@ -1485,17 +1505,32 @@ test.describe('threshold-ed25519 scope (express)', () => {
         body: JSON.stringify({
           relayerKeyId,
           context: hssMaterial.context,
-          preparedSession: hssMaterial.preparedSession,
-          clientRequest: hssMaterial.clientRequest,
         }),
       });
       expect(prepared.status, prepared.text).toBe(200);
       expect(prepared.json?.ok, prepared.text).toBe(true);
+      const preparedSession = prepared.json?.preparedSession as any;
+      const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+        evaluatorDriverStateB64u: String(preparedSession?.evaluatorDriverStateB64u || ''),
+        clientOtOfferMessageB64u: String(prepared.json?.clientOtOfferMessageB64u || ''),
+        clientInputs: hssMaterial.clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
+      const responded = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          ceremonyHandle: prepared.json?.ceremonyHandle,
+          clientRequest,
+        }),
+      });
+      expect(responded.status, responded.text).toBe(200);
+      expect(responded.json?.ok, responded.text).toBe(true);
 
       const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession: hssMaterial.preparedSession,
-        clientRequest: hssMaterial.clientRequest,
-        serverMessage: prepared.json?.serverMessage as any,
+        preparedSession,
+        clientRequest,
+        serverMessage: responded.json?.serverMessage as any,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
 

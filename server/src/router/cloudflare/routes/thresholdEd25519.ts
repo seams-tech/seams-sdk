@@ -50,6 +50,7 @@ export async function handleThresholdEd25519(
     pathname !== '/threshold-ed25519/authorize' &&
     pathname !== '/threshold-ed25519/hss/prepare' &&
     pathname !== '/threshold-ed25519/hss/finalize' &&
+    pathname !== '/threshold-ed25519/hss/respond' &&
     pathname !== '/threshold-ed25519/sign/init' &&
     pathname !== '/threshold-ed25519/sign/finalize' &&
     pathname !== '/threshold-ed25519/internal/cosign/init' &&
@@ -322,6 +323,42 @@ export async function handleThresholdEd25519(
       const result = await threshold.ed25519Hss.finalizeWithSession({
         claims: validated.claims,
         request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        durationMs: Date.now() - startedAt,
+        ...('code' in result && result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case '/threshold-ed25519/hss/respond': {
+      const startedAt = Date.now();
+      const b = (body || {}) as Record<string, unknown>;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        ceremonyHandle: typeof b.ceremonyHandle === 'string' ? b.ceremonyHandle : undefined,
+      });
+      const threshold = ctx.opts.threshold;
+      if (!threshold || !threshold.ed25519Hss) {
+        const result = {
+          ok: false,
+          code: 'threshold_disabled',
+          message: 'Threshold Ed25519 HSS is not configured on this server',
+        };
+        return json(result, { status: 501 });
+      }
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const result = await threshold.ed25519Hss.respondWithSession({
+        claims: validated.claims,
+        request: validated.body as any,
       });
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,

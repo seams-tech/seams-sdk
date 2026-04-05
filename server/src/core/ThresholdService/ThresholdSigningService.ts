@@ -35,6 +35,12 @@ import type {
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionResponse,
   ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssPreparedServerSessionEnvelope,
+  ThresholdEd25519HssServerInputs,
+  ThresholdEd25519HssRespondForRegistrationRequest,
+  ThresholdEd25519HssRespondForRegistrationResponse,
+  ThresholdEd25519HssRespondWithSessionRequest,
+  ThresholdEd25519HssRespondWithSessionResponse,
   Ed25519SessionPolicy,
   ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaKeygenResponse,
@@ -67,10 +73,12 @@ import {
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
 import {
+  deriveThresholdEd25519HssServerInputs,
   deriveThresholdEd25519VerifyingShareFromSigningShare,
   deriveThresholdEd25519RegistrationMaterialFromHssFinalize,
   finalizeThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssServerCeremony,
+  prepareThresholdEd25519HssServerSession,
 } from './ed25519HssWasm';
 import {
   threshold_ed25519_compute_delegate_signing_digest,
@@ -131,6 +139,8 @@ type ThresholdEd25519HssCeremonyRecord =
       relayerKeyId: string;
       context: ThresholdEd25519HssCanonicalContext;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      preparedServerSession: ThresholdEd25519HssPreparedServerSessionEnvelope;
+      serverInputs: ThresholdEd25519HssServerInputs;
     }
   | {
       kind: 'registration';
@@ -140,6 +150,8 @@ type ThresholdEd25519HssCeremonyRecord =
       rpId: string;
       context: ThresholdEd25519HssCanonicalContext;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      preparedServerSession: ThresholdEd25519HssPreparedServerSessionEnvelope;
+      serverInputs: ThresholdEd25519HssServerInputs;
     };
 
 type ThresholdEd25519HssCeremonyRecordInput =
@@ -156,6 +168,10 @@ function errorMessage(error: unknown): string {
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).length;
+}
+
+function jsonBytes(value: unknown): number {
+  return utf8Bytes(JSON.stringify(value));
 }
 
 function isEthSignerWasmRuntimeError(messageRaw: string): boolean {
@@ -503,21 +519,12 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
   const context = parseThresholdEd25519HssCanonicalContext(raw);
   if (!context.ok) return context;
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const garblerDriverStateB64u = toOptionalTrimmedString(raw.garblerDriverStateB64u);
   const evaluatorDriverStateB64u = toOptionalTrimmedString(raw.evaluatorDriverStateB64u);
-  const clientOtOfferMessageB64u = toOptionalTrimmedString(raw.clientOtOfferMessageB64u);
   if (!contextBindingB64u) {
     return {
       ok: false,
       code: 'invalid_body',
       message: 'preparedSession.contextBindingB64u is required',
-    };
-  }
-  if (!garblerDriverStateB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'preparedSession.garblerDriverStateB64u is required',
     };
   }
   if (!evaluatorDriverStateB64u) {
@@ -527,21 +534,12 @@ function parseThresholdEd25519HssPreparedSessionEnvelope(
       message: 'preparedSession.evaluatorDriverStateB64u is required',
     };
   }
-  if (!clientOtOfferMessageB64u) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'preparedSession.clientOtOfferMessageB64u is required',
-    };
-  }
   return {
     ok: true,
     value: {
       ...context.value,
       contextBindingB64u,
-      garblerDriverStateB64u,
       evaluatorDriverStateB64u,
-      clientOtOfferMessageB64u,
     },
   };
 }
@@ -1014,6 +1012,12 @@ export class ThresholdSigningService {
     }): Promise<ThresholdEd25519HssPrepareForRegistrationResponse> => {
       return this.ed25519HssPrepareForRegistration(input);
     },
+    respondForRegistration: async (input: {
+      orgId: string;
+      request: ThresholdEd25519HssRespondForRegistrationRequest;
+    }): Promise<ThresholdEd25519HssRespondForRegistrationResponse> => {
+      return this.ed25519HssRespondForRegistration(input);
+    },
     finalizeForRegistration: async (input: {
       orgId: string;
       request: ThresholdEd25519HssFinalizeForRegistrationRequest;
@@ -1033,6 +1037,20 @@ export class ThresholdSigningService {
         };
       }
       return this.ed25519HssPrepareWithSession({ claims, request: input.request });
+    },
+    respondWithSession: async (input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssRespondWithSessionRequest;
+    }): Promise<ThresholdEd25519HssRespondWithSessionResponse> => {
+      const claims = parseThresholdEd25519SessionClaims(input.claims);
+      if (!claims) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Invalid threshold session token claims',
+        };
+      }
+      return this.ed25519HssRespondWithSession({ claims, request: input.request });
     },
     finalizeWithSession: async (input: {
       claims: SessionClaims;
@@ -3029,26 +3047,6 @@ export class ThresholdSigningService {
       }
       const context = parseThresholdEd25519HssCanonicalContext(rec.context);
       if (!context.ok) return context;
-      const preparedSession = parseThresholdEd25519HssPreparedSessionEnvelope(rec.preparedSession);
-      if (!preparedSession.ok) return preparedSession;
-      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
-      if (!clientRequest.ok) return clientRequest;
-
-      const scopeError = this.validateThresholdEd25519HssSessionScope({
-        claims: input.claims,
-        relayerKeyId,
-        context: context.value,
-        preparedSession: preparedSession.value,
-      });
-      if (scopeError) return scopeError;
-
-      if (clientRequest.value.contextBindingB64u !== preparedSession.value.contextBindingB64u) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'clientRequest.contextBindingB64u does not match preparedSession',
-        };
-      }
 
       const ensureReadyStartedAt = Date.now();
       await this.ensureReady();
@@ -3061,17 +3059,41 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
-      const result = await prepareThresholdEd25519HssServerCeremony({
+      const [serverInputs, preparedServerSession] = await Promise.all([
+        deriveThresholdEd25519HssServerInputs({
+          masterSecretB64u: this.ed25519MasterSecretB64u,
+          context: context.value,
+        }),
+        prepareThresholdEd25519HssServerSession({
+          context: context.value,
+        }),
+      ]);
+      if (serverInputs.contextBindingB64u !== preparedServerSession.contextBindingB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'relay ceremony state context binding mismatch',
+        };
+      }
+      const resolvedPreparedSession: ThresholdEd25519HssPreparedSessionEnvelope = {
+        ...context.value,
+        contextBindingB64u: preparedServerSession.contextBindingB64u,
+        evaluatorDriverStateB64u: preparedServerSession.evaluatorDriverStateB64u,
+      };
+      const scopeError = this.validateThresholdEd25519HssSessionScope({
+        claims: input.claims,
+        relayerKeyId,
         context: context.value,
-        masterSecretB64u: this.ed25519MasterSecretB64u,
-        preparedSession: preparedSession.value,
-        clientRequest: clientRequest.value,
+        preparedSession: resolvedPreparedSession,
       });
+      if (scopeError) return scopeError;
       const ceremonyHandle = this.storeThresholdEd25519HssCeremony({
         kind: 'session',
         relayerKeyId,
         context: context.value,
-        preparedSession: preparedSession.value,
+        preparedSession: resolvedPreparedSession,
+        preparedServerSession,
+        serverInputs,
       });
 
       this.logger?.info?.('[threshold-ed25519] hss prepare timings', {
@@ -3080,13 +3102,15 @@ export class ThresholdSigningService {
         ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
         wasmPrepareMs: Date.now() - wasmStartedAt,
         ceremonyHandleBytes: utf8Bytes(ceremonyHandle),
+        clientOtOfferMessageBytes: utf8Bytes(preparedServerSession.clientOtOfferMessageB64u),
         totalMs: Date.now() - prepareStartedAt,
       });
 
       return {
         ok: true,
         ceremonyHandle,
-        serverMessage: result.serverMessage,
+        preparedSession: resolvedPreparedSession,
+        clientOtOfferMessageB64u: preparedServerSession.clientOtOfferMessageB64u,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -3112,26 +3136,6 @@ export class ThresholdSigningService {
       }
       const context = parseThresholdEd25519HssCanonicalContext(rec.context);
       if (!context.ok) return context;
-      const preparedSession = parseThresholdEd25519HssPreparedSessionEnvelope(rec.preparedSession);
-      if (!preparedSession.ok) return preparedSession;
-      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
-      if (!clientRequest.ok) return clientRequest;
-
-      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
-        orgId: toOptionalTrimmedString(input.orgId) || '',
-        newAccountId,
-        context: context.value,
-        preparedSession: preparedSession.value,
-      });
-      if (scopeError) return scopeError;
-
-      if (clientRequest.value.contextBindingB64u !== preparedSession.value.contextBindingB64u) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'clientRequest.contextBindingB64u does not match preparedSession',
-        };
-      }
 
       const ensureReadyStartedAt = Date.now();
       await this.ensureReady();
@@ -3144,19 +3148,43 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
-      const result = await prepareThresholdEd25519HssServerCeremony({
+      const [serverInputs, preparedServerSession] = await Promise.all([
+        deriveThresholdEd25519HssServerInputs({
+          masterSecretB64u: this.ed25519MasterSecretB64u,
+          context: context.value,
+        }),
+        prepareThresholdEd25519HssServerSession({
+          context: context.value,
+        }),
+      ]);
+      if (serverInputs.contextBindingB64u !== preparedServerSession.contextBindingB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'relay ceremony state context binding mismatch',
+        };
+      }
+      const resolvedPreparedSession: ThresholdEd25519HssPreparedSessionEnvelope = {
+        ...context.value,
+        contextBindingB64u: preparedServerSession.contextBindingB64u,
+        evaluatorDriverStateB64u: preparedServerSession.evaluatorDriverStateB64u,
+      };
+      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
+        orgId: toOptionalTrimmedString(input.orgId) || '',
+        newAccountId,
         context: context.value,
-        masterSecretB64u: this.ed25519MasterSecretB64u,
-        preparedSession: preparedSession.value,
-        clientRequest: clientRequest.value,
+        preparedSession: resolvedPreparedSession,
       });
+      if (scopeError) return scopeError;
       const ceremonyHandle = this.storeThresholdEd25519HssCeremony({
         kind: 'registration',
         orgId: toOptionalTrimmedString(input.orgId) || '',
         newAccountId,
         rpId,
         context: context.value,
-        preparedSession: preparedSession.value,
+        preparedSession: resolvedPreparedSession,
+        preparedServerSession,
+        serverInputs,
       });
 
       this.logger?.info?.('[threshold-ed25519][registration] hss prepare timings', {
@@ -3164,17 +3192,151 @@ export class ThresholdSigningService {
         ensureReadyMs: wasmStartedAt - ensureReadyStartedAt,
         wasmPrepareMs: Date.now() - wasmStartedAt,
         ceremonyHandleBytes: utf8Bytes(ceremonyHandle),
+        clientOtOfferMessageBytes: utf8Bytes(preparedServerSession.clientOtOfferMessageB64u),
         totalMs: Date.now() - prepareStartedAt,
       });
 
       return {
         ok: true,
         ceremonyHandle,
-        serverMessage: result.serverMessage,
+        preparedSession: resolvedPreparedSession,
+        clientOtOfferMessageB64u: preparedServerSession.clientOtOfferMessageB64u,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
       this.logger?.error?.('[threshold-ed25519][registration] hss prepare failed', {
+        message: msg,
+      });
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  private async ed25519HssRespondWithSession(input: {
+    claims: ThresholdEd25519SessionClaims;
+    request: ThresholdEd25519HssRespondWithSessionRequest;
+  }): Promise<ThresholdEd25519HssRespondWithSessionResponse> {
+    try {
+      const respondStartedAt = Date.now();
+      const rec = (input.request || {}) as unknown as Record<string, unknown>;
+      const ceremony = this.getThresholdEd25519HssCeremony(rec.ceremonyHandle);
+      if (!ceremony.ok) return ceremony;
+      if (ceremony.value.kind !== 'session') {
+        return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
+      }
+      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
+      if (!clientRequest.ok) return clientRequest;
+
+      const scopeError = this.validateThresholdEd25519HssSessionScope({
+        claims: input.claims,
+        relayerKeyId: ceremony.value.relayerKeyId,
+        context: ceremony.value.context,
+        preparedSession: ceremony.value.preparedSession,
+      });
+      if (scopeError) return scopeError;
+
+      if (
+        clientRequest.value.contextBindingB64u !==
+        ceremony.value.preparedSession.contextBindingB64u
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientRequest.contextBindingB64u does not match preparedSession',
+        };
+      }
+
+      const result = await prepareThresholdEd25519HssServerCeremony({
+        preparedServerSession: ceremony.value.preparedServerSession,
+        clientRequest: clientRequest.value,
+        serverInputs: ceremony.value.serverInputs,
+      });
+
+      this.logger?.info?.('[threshold-ed25519] hss respond timings', {
+        relayerKeyId: ceremony.value.relayerKeyId,
+        nearAccountId: ceremony.value.context.nearAccountId,
+        clientRequestBytes: jsonBytes(clientRequest.value),
+        wasmRespondMs: Date.now() - respondStartedAt,
+      });
+
+      return {
+        ok: true,
+        serverMessage: result.serverMessage,
+      };
+    } catch (e: unknown) {
+      const msg = errorMessage(e);
+      this.logger?.error?.('[threshold-ed25519] hss respond failed', { message: msg });
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  private async ed25519HssRespondForRegistration(input: {
+    orgId: string;
+    request: ThresholdEd25519HssRespondForRegistrationRequest;
+  }): Promise<ThresholdEd25519HssRespondForRegistrationResponse> {
+    try {
+      const respondStartedAt = Date.now();
+      const rec = (input.request || {}) as unknown as Record<string, unknown>;
+      const newAccountId = toOptionalTrimmedString(rec.new_account_id);
+      const rpId = toOptionalTrimmedString(rec.rp_id);
+      if (!newAccountId) {
+        return { ok: false, code: 'invalid_body', message: 'new_account_id is required' };
+      }
+      if (!rpId) {
+        return { ok: false, code: 'invalid_body', message: 'rp_id is required' };
+      }
+      const ceremony = this.getThresholdEd25519HssCeremony(rec.ceremonyHandle);
+      if (!ceremony.ok) return ceremony;
+      if (ceremony.value.kind !== 'registration') {
+        return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
+      }
+      if (ceremony.value.newAccountId !== newAccountId || ceremony.value.rpId !== rpId) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ceremonyHandle does not match registration scope',
+        };
+      }
+      const clientRequest = parseThresholdEd25519HssClientRequestEnvelope(rec.clientRequest);
+      if (!clientRequest.ok) return clientRequest;
+
+      const scopeError = this.validateThresholdEd25519HssRegistrationScope({
+        orgId: ceremony.value.orgId,
+        newAccountId,
+        context: ceremony.value.context,
+        preparedSession: ceremony.value.preparedSession,
+      });
+      if (scopeError) return scopeError;
+
+      if (
+        clientRequest.value.contextBindingB64u !==
+        ceremony.value.preparedSession.contextBindingB64u
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientRequest.contextBindingB64u does not match preparedSession',
+        };
+      }
+
+      const result = await prepareThresholdEd25519HssServerCeremony({
+        preparedServerSession: ceremony.value.preparedServerSession,
+        clientRequest: clientRequest.value,
+        serverInputs: ceremony.value.serverInputs,
+      });
+
+      this.logger?.info?.('[threshold-ed25519][registration] hss respond timings', {
+        nearAccountId: newAccountId,
+        clientRequestBytes: jsonBytes(clientRequest.value),
+        wasmRespondMs: Date.now() - respondStartedAt,
+      });
+
+      return {
+        ok: true,
+        serverMessage: result.serverMessage,
+      };
+    } catch (e: unknown) {
+      const msg = errorMessage(e);
+      this.logger?.error?.('[threshold-ed25519][registration] hss respond failed', {
         message: msg,
       });
       return { ok: false, code: 'internal', message: msg };
@@ -3231,6 +3393,7 @@ export class ThresholdSigningService {
       const wasmStartedAt = Date.now();
       const result = await finalizeThresholdEd25519HssServerCeremony({
         preparedSession: ceremony.value.preparedSession,
+        preparedServerSession: ceremony.value.preparedServerSession,
         evaluationResult: evaluationResult.value,
       });
       const relayerShareRepairStartedAt = Date.now();
@@ -3326,11 +3489,13 @@ export class ThresholdSigningService {
       const hssFinalizeStartedAt = Date.now();
       const result = await finalizeThresholdEd25519HssServerCeremony({
         preparedSession: ceremony.value.preparedSession,
+        preparedServerSession: ceremony.value.preparedServerSession,
         evaluationResult: evaluationResult.value,
       });
       const registrationMaterialStartedAt = Date.now();
       const registrationMaterial = await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
         preparedSession: ceremony.value.preparedSession,
+        preparedServerSession: ceremony.value.preparedServerSession,
         finalizedReport: result.finalizedReport,
       });
       const keyStorePutStartedAt = Date.now();

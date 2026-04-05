@@ -4,6 +4,8 @@ import type {
   ThresholdEd25519HssFinalizeForRegistrationResponse,
   ThresholdEd25519HssPrepareForRegistrationRequest,
   ThresholdEd25519HssPrepareForRegistrationResponse,
+  ThresholdEd25519HssRespondForRegistrationRequest,
+  ThresholdEd25519HssRespondForRegistrationResponse,
 } from '../core/types';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -136,6 +138,28 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
   const result = await threshold.ed25519Hss.finalizeForRegistration({
     orgId: auth.orgId,
     request: (input.body || {}) as ThresholdEd25519HssFinalizeForRegistrationRequest,
+  });
+  return routeJson(result.ok ? 200 : 400, result);
+};
+
+export const handleRelayRegistrationThresholdEd25519HssRespond: RelayRegistrationThresholdEd25519HssHandler<
+  ThresholdEd25519HssRespondForRegistrationResponse
+> = async (input) => {
+  const auth = await enforceRegistrationHssPolicy(input);
+  if (!auth.ok) return auth.response;
+
+  const threshold = input.services.authService.getThresholdSigningService();
+  if (!threshold || !threshold.ed25519Hss) {
+    return routeJson(501, {
+      ok: false,
+      code: 'threshold_disabled',
+      message: 'Threshold Ed25519 HSS is not configured on this server',
+    });
+  }
+
+  const result = await threshold.ed25519Hss.respondForRegistration({
+    orgId: auth.orgId,
+    request: (input.body || {}) as ThresholdEd25519HssRespondForRegistrationRequest,
   });
   return routeJson(result.ok ? 200 : 400, result);
 };

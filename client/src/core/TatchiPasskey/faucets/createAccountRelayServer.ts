@@ -21,6 +21,7 @@ import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPrepareForRegistrationResponse,
   ThresholdEd25519HssPreparedSessionEnvelope,
+  ThresholdEd25519HssRespondForRegistrationResponse,
   ThresholdEd25519HssServerMessageEnvelope,
   ThresholdEd25519HssEvaluationResultEnvelope,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
@@ -406,17 +407,17 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
   rpId: string;
   managedRegistrationBootstrapToken?: string;
   hssContext: ThresholdEd25519HssCanonicalContext;
+}): Promise<{
+  ceremonyHandle: string;
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-}): Promise<{ ceremonyHandle: string; serverMessage: ThresholdEd25519HssServerMessageEnvelope }> {
+  clientOtOfferMessageB64u: string;
+}> {
   const startedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
   const requestPayload = {
     new_account_id: String(args.nearAccountId || '').trim(),
     rp_id: String(args.rpId || '').trim(),
     context: args.hssContext,
-    preparedSession: args.preparedSession,
-    clientRequest: args.clientRequest,
   };
   const requestBody = JSON.stringify(requestPayload);
   const requestBytes = utf8Bytes(requestBody);
@@ -424,8 +425,6 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
     newAccountIdBytes: utf8Bytes(requestPayload.new_account_id),
     rpIdBytes: utf8Bytes(requestPayload.rp_id),
     contextBytes: jsonBytes(requestPayload.context),
-    preparedSessionBytes: jsonBytes(requestPayload.preparedSession),
-    clientRequestBytes: jsonBytes(requestPayload.clientRequest),
   };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let response: Response;
@@ -484,7 +483,17 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
     response,
   )) as unknown as ThresholdEd25519HssPrepareForRegistrationResponse;
   const ceremonyHandle = String(result.ok === true ? result.ceremonyHandle || '' : '').trim();
-  if (!response.ok || result.ok !== true || !ceremonyHandle || !result.serverMessage) {
+  const preparedSession = result.ok === true ? result.preparedSession : undefined;
+  const clientOtOfferMessageB64u = String(
+    result.ok === true ? result.clientOtOfferMessageB64u || '' : '',
+  ).trim();
+  if (
+    !response.ok ||
+    result.ok !== true ||
+    !ceremonyHandle ||
+    !preparedSession ||
+    !clientOtOfferMessageB64u
+  ) {
     const failure = result as Extract<
       ThresholdEd25519HssPrepareForRegistrationResponse,
       { ok: false }
@@ -497,7 +506,103 @@ export async function prepareThresholdEd25519HssServerCeremonyWithRelayRegistrat
     requestBytes,
     requestSizeBreakdown,
   });
-  return { ceremonyHandle, serverMessage: result.serverMessage };
+  return { ceremonyHandle, preparedSession, clientOtOfferMessageB64u };
+}
+
+export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
+  context: PasskeyManagerContext;
+  nearAccountId: string;
+  rpId: string;
+  managedRegistrationBootstrapToken?: string;
+  ceremonyHandle: string;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}): Promise<ThresholdEd25519HssServerMessageEnvelope> {
+  const startedAt = performance.now();
+  const registrationTransport = resolveRegistrationTransport(args.context);
+  const requestPayload = {
+    new_account_id: String(args.nearAccountId || '').trim(),
+    rp_id: String(args.rpId || '').trim(),
+    ceremonyHandle: String(args.ceremonyHandle || '').trim(),
+    clientRequest: args.clientRequest,
+  };
+  const requestBody = JSON.stringify(requestPayload);
+  const requestBytes = utf8Bytes(requestBody);
+  const requestSizeBreakdown = {
+    newAccountIdBytes: utf8Bytes(requestPayload.new_account_id),
+    rpIdBytes: utf8Bytes(requestPayload.rp_id),
+    ceremonyHandleBytes: utf8Bytes(requestPayload.ceremonyHandle),
+    clientRequestBytes: jsonBytes(requestPayload.clientRequest),
+  };
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  let response: Response;
+
+  if (registrationTransport.mode === 'managed') {
+    const token =
+      String(args.managedRegistrationBootstrapToken || '').trim() ||
+      (
+        await requestManagedRegistrationFlowGrant({
+          relayerUrl: registrationTransport.relayerUrl,
+          publishableKey: registrationTransport.publishableKey,
+          environmentId: registrationTransport.environmentId,
+          nearAccountId: requestPayload.new_account_id,
+          rpId: requestPayload.rp_id,
+        })
+      ).token;
+    const respondUrl = joinUrlPath(
+      registrationTransport.relayerUrl,
+      '/registration/threshold-ed25519/hss/respond',
+    );
+    response = await fetchWithRegistrationTimeout({
+      url: respondUrl,
+      operation: 'Threshold Ed25519 HSS registration respond',
+      init: {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${token}`,
+        },
+        body: requestBody,
+      },
+    });
+  } else {
+    const respondUrl =
+      replaceUrlPathSuffix(
+        registrationTransport.bootstrapUrl,
+        '/registration/bootstrap',
+        '/registration/threshold-ed25519/hss/respond',
+      ) ||
+      joinUrlPath(
+        registrationTransport.bootstrapUrl,
+        '/registration/threshold-ed25519/hss/respond',
+      );
+    response = await fetchWithRegistrationTimeout({
+      url: respondUrl,
+      operation: 'Threshold Ed25519 HSS registration respond',
+      init: {
+        method: 'POST',
+        headers,
+        body: requestBody,
+      },
+    });
+  }
+
+  const result = (await readJsonObject(
+    response,
+  )) as unknown as ThresholdEd25519HssRespondForRegistrationResponse;
+  if (!response.ok || result.ok !== true || !result.serverMessage) {
+    const failure = result as Extract<
+      ThresholdEd25519HssRespondForRegistrationResponse,
+      { ok: false }
+    >;
+    throw new Error(String(failure.message || failure.code || `HTTP ${response.status}`).trim());
+  }
+  console.debug('[Registration] threshold-ed25519 HSS respond response received', {
+    durationMs: Math.round(performance.now() - startedAt),
+    status: response.status,
+    requestBytes,
+    requestSizeBreakdown,
+  });
+  return result.serverMessage;
 }
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {

@@ -132,9 +132,7 @@ export interface WasmPrepareThresholdEd25519HssSessionResult {
   participantIds: number[];
   derivationVersion: number;
   contextBindingB64u: string;
-  garblerDriverStateB64u: string;
   evaluatorDriverStateB64u: string;
-  clientOtOfferMessageB64u: string;
 }
 export interface WasmPrepareThresholdEd25519HssClientRequestRequest {
   evaluatorDriverStateB64u: string;

@@ -73,8 +73,13 @@ export interface ThresholdEd25519HssSessionInputs {
 
 export interface ThresholdEd25519HssPreparedSessionEnvelope extends ThresholdEd25519HssCanonicalContext {
   contextBindingB64u: string;
-  garblerDriverStateB64u: string;
   evaluatorDriverStateB64u: string;
+}
+
+export interface ThresholdEd25519HssPreparedServerSessionEnvelope {
+  contextBindingB64u: string;
+  evaluatorDriverStateB64u: string;
+  garblerDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
 }
 
@@ -124,15 +129,23 @@ export interface ThresholdEd25519HssDerivedPublicKey {
 export interface ThresholdEd25519HssPrepareWithSessionRequest {
   relayerKeyId: string;
   context: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
 }
 
 export interface ThresholdEd25519HssPrepareForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   context: ThresholdEd25519HssCanonicalContext;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+}
+
+export interface ThresholdEd25519HssRespondWithSessionRequest {
+  ceremonyHandle: string;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}
+
+export interface ThresholdEd25519HssRespondForRegistrationRequest {
+  new_account_id: string;
+  rp_id: string;
+  ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
 }
 
@@ -140,7 +153,8 @@ export type ThresholdEd25519HssPrepareWithSessionResponse =
   | {
       ok: true;
       ceremonyHandle: string;
-      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      clientOtOfferMessageB64u: string;
     }
   | {
       ok: false;
@@ -152,6 +166,29 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
   | {
       ok: true;
       ceremonyHandle: string;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      clientOtOfferMessageB64u: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
+export type ThresholdEd25519HssRespondWithSessionResponse =
+  | {
+      ok: true;
+      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
+export type ThresholdEd25519HssRespondForRegistrationResponse =
+  | {
+      ok: true;
       serverMessage: ThresholdEd25519HssServerMessageEnvelope;
     }
   | {

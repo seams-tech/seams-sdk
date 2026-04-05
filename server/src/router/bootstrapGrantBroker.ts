@@ -87,6 +87,7 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
 const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
   '/registration/bootstrap',
   '/registration/threshold-ed25519/hss/prepare',
+  '/registration/threshold-ed25519/hss/respond',
   '/registration/threshold-ed25519/hss/finalize',
 ] as const;
 

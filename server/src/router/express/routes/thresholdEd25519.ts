@@ -5,6 +5,7 @@ import type {
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionRequest,
+  ThresholdEd25519HssRespondWithSessionRequest,
   ThresholdEd25519SignFinalizeRequest,
   ThresholdEd25519SignInitRequest,
   ThresholdEd25519SessionRequest,
@@ -332,6 +333,40 @@ export function registerThresholdEd25519Routes(
         return threshold.ed25519Hss.finalizeWithSession({
           claims: validated.claims,
           request: validated.body as unknown as ThresholdEd25519HssFinalizeWithSessionRequest,
+        });
+      },
+    );
+  });
+
+  router.post('/threshold-ed25519/hss/respond', async (req: Request, res: Response) => {
+    const bodyUnknown = (req.body || {}) as unknown;
+    const body = (bodyUnknown || {}) as Record<string, unknown>;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ed25519/hss/respond',
+      {
+        ceremonyHandle: typeof body.ceremonyHandle === 'string' ? body.ceremonyHandle : undefined,
+      },
+      async () => {
+        const threshold = ctx.opts.threshold;
+        if (!threshold || !threshold.ed25519Hss) {
+          return {
+            ok: false,
+            code: 'threshold_disabled',
+            message: 'Threshold Ed25519 HSS is not configured on this server',
+          };
+        }
+        const validated = await validateThresholdEd25519SessionTokenInputs({
+          body: bodyUnknown,
+          headers: req.headers || {},
+          session: ctx.opts.session,
+        });
+        if (!validated.ok) return validated;
+        return threshold.ed25519Hss.respondWithSession({
+          claims: validated.claims,
+          request: validated.body as unknown as ThresholdEd25519HssRespondWithSessionRequest,
         });
       },
     );

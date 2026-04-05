@@ -6,6 +6,8 @@ import type {
   ThresholdEd25519HssFinalizeWithSessionResponse,
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionResponse,
+  ThresholdEd25519HssRespondWithSessionRequest,
+  ThresholdEd25519HssRespondWithSessionResponse,
 } from '../core/types';
 import type { RelayRouterRorOptions } from './ror/provider';
 import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
@@ -104,6 +106,10 @@ export interface ThresholdSigningAdapter {
       claims: SessionClaims;
       request: ThresholdEd25519HssPrepareWithSessionRequest;
     }): Promise<ThresholdEd25519HssPrepareWithSessionResponse>;
+    respondWithSession(input: {
+      claims: SessionClaims;
+      request: ThresholdEd25519HssRespondWithSessionRequest;
+    }): Promise<ThresholdEd25519HssRespondWithSessionResponse>;
     finalizeWithSession(input: {
       claims: SessionClaims;
       request: ThresholdEd25519HssFinalizeWithSessionRequest;

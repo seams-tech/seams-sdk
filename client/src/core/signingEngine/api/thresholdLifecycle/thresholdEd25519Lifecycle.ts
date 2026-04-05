@@ -14,8 +14,9 @@ import {
   openThresholdEd25519HssClientOutputWasm,
   openThresholdEd25519HssSeedOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
-  prepareThresholdEd25519HssSessionWasm,
+  type ThresholdEd25519HssCanonicalContext,
   type ThresholdEd25519HssClientRequestEnvelope,
+  type ThresholdEd25519HssClientInputs,
   type ThresholdEd25519HssEvaluationResultEnvelope,
   type ThresholdEd25519HssFinalizedReportEnvelope,
   type ThresholdEd25519HssOpenedClientOutput,
@@ -68,14 +69,13 @@ export type PrepareThresholdEd25519HssClientCeremonyResult = {
   contextBindingB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
-  preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest?: ThresholdEd25519HssClientRequestEnvelope;
   error?: string;
 };
 
 export type CompleteThresholdEd25519HssClientCeremonyResult = {
   success: boolean;
   contextBindingB64u: string;
+  preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
   evaluationResult?: ThresholdEd25519HssEvaluationResultEnvelope;
   finalizedReport?: ThresholdEd25519HssFinalizedReportEnvelope;
   clientOutput?: ThresholdEd25519HssOpenedClientOutput;
@@ -88,6 +88,14 @@ export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult = {
   success: boolean;
   contextBindingB64u: string;
   ceremonyHandle?: string;
+  preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
+  clientOtOfferMessageB64u?: string;
+  error?: string;
+};
+
+export type RespondThresholdEd25519HssServerCeremonyWithSessionResult = {
+  success: boolean;
+  contextBindingB64u: string;
   serverMessage?: ThresholdEd25519HssServerMessageEnvelope;
   error?: string;
 };
@@ -137,20 +145,24 @@ function summarizePrepareRequestSize(args: {
     derivationVersion: number;
   };
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
 }): Record<string, number> {
   return {
     relayerKeyIdBytes: utf8Bytes(args.relayerKeyId),
     contextBytes: jsonBytes(args.context),
     preparedSessionBytes: jsonBytes(args.preparedSession),
     preparedSessionContextBindingBytes: utf8Bytes(args.preparedSession.contextBindingB64u),
-    preparedSessionGarblerDriverStateBytes: utf8Bytes(args.preparedSession.garblerDriverStateB64u),
     preparedSessionEvaluatorDriverStateBytes: utf8Bytes(
       args.preparedSession.evaluatorDriverStateB64u,
     ),
-    preparedSessionClientOtOfferMessageBytes: utf8Bytes(
-      args.preparedSession.clientOtOfferMessageB64u,
-    ),
+  };
+}
+
+function summarizeRespondRequestSize(args: {
+  ceremonyHandle: string;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}): Record<string, number> {
+  return {
+    ceremonyHandleBytes: utf8Bytes(args.ceremonyHandle),
     clientRequestBytes: jsonBytes(args.clientRequest),
     clientRequestContextBindingBytes: utf8Bytes(args.clientRequest.contextBindingB64u),
     clientRequestMessageBytes: utf8Bytes(args.clientRequest.clientRequestMessageB64u),
@@ -280,41 +292,6 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   }
 
   try {
-    const workerCtx = deps.getSignerWorkerContext();
-    args.onProgress?.('Preparing threshold Ed25519 HSS session...');
-    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
-      context: {
-        orgId: derived.orgId,
-        nearAccountId: derived.nearAccountId,
-        keyPurpose: derived.keyPurpose,
-        keyVersion: derived.keyVersion,
-        participantIds: derived.participantIds,
-        derivationVersion: derived.derivationVersion,
-      },
-      workerCtx,
-    });
-
-    if (preparedSession.contextBindingB64u !== derived.contextBindingB64u) {
-      throw new Error('Prepared HSS session context binding did not match derived client inputs');
-    }
-
-    args.onProgress?.('Preparing threshold Ed25519 HSS client request...');
-    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
-      preparedSession,
-      clientInputs: {
-        contextBindingB64u: derived.contextBindingB64u,
-        yClientB64u: derived.yClientB64u,
-        tauClientB64u: derived.tauClientB64u,
-      },
-      workerCtx,
-    });
-
-    if (clientRequest.contextBindingB64u !== derived.contextBindingB64u) {
-      throw new Error(
-        'Prepared HSS client request context binding did not match derived client inputs',
-      );
-    }
-
     return {
       success: true,
       orgId: derived.orgId,
@@ -326,8 +303,6 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
       contextBindingB64u: derived.contextBindingB64u,
       yClientB64u: derived.yClientB64u,
       tauClientB64u: derived.tauClientB64u,
-      preparedSession,
-      clientRequest,
     };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
@@ -410,6 +385,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
     return {
       success: true,
       contextBindingB64u,
+      preparedSession: args.preparedSession,
       evaluationResult,
       finalizedReport: args.finalizedReport,
       clientOutput,
@@ -432,10 +408,9 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
   relayerUrl: string;
   thresholdSessionJwt: string;
   relayerKeyId: string;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  context: ThresholdEd25519HssCanonicalContext;
 }): Promise<PrepareThresholdEd25519HssServerCeremonyWithSessionResult> {
-  const contextBindingB64u = String(args.preparedSession.contextBindingB64u || '').trim();
+  const contextBindingB64u = '';
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
@@ -452,16 +427,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
 
     const requestPayload = {
       relayerKeyId,
-      context: {
-        orgId: args.preparedSession.orgId,
-        nearAccountId: args.preparedSession.nearAccountId,
-        keyPurpose: args.preparedSession.keyPurpose,
-        keyVersion: args.preparedSession.keyVersion,
-        participantIds: args.preparedSession.participantIds,
-        derivationVersion: args.preparedSession.derivationVersion,
-      },
-      preparedSession: args.preparedSession,
-      clientRequest: args.clientRequest,
+      context: args.context,
     };
     const serializeStartedAt = Date.now();
     const requestBody = JSON.stringify(requestPayload);
@@ -470,8 +436,11 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     const requestSizeBreakdown = summarizePrepareRequestSize({
       relayerKeyId,
       context: requestPayload.context,
-      preparedSession: args.preparedSession,
-      clientRequest: args.clientRequest,
+      preparedSession: {
+        ...args.context,
+        contextBindingB64u: '',
+        evaluatorDriverStateB64u: '',
+      },
     });
 
     const fetchStartedAt = Date.now();
@@ -490,17 +459,32 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     const data = (await response.json().catch(() => ({}))) as Partial<{
       ok: boolean;
       ceremonyHandle: string;
-      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+      clientOtOfferMessageB64u: string;
       code: string;
       message: string;
     }>;
     const parseMs = Date.now() - parseStartedAt;
     const ceremonyHandle = String(data.ceremonyHandle || '').trim();
-    if (!response.ok || data.ok !== true || !ceremonyHandle || !data.serverMessage) {
+    const preparedSession =
+      data.preparedSession &&
+      typeof data.preparedSession === 'object' &&
+      !Array.isArray(data.preparedSession)
+        ? (data.preparedSession as ThresholdEd25519HssPreparedSessionEnvelope)
+        : undefined;
+    const clientOtOfferMessageB64u = String(data.clientOtOfferMessageB64u || '').trim();
+    if (!response.ok || data.ok !== true || !ceremonyHandle || !clientOtOfferMessageB64u || !preparedSession) {
       throw new Error(data.message || data.code || `HTTP ${response.status}`);
     }
-    if (String(data.serverMessage.contextBindingB64u || '').trim() !== contextBindingB64u) {
-      throw new Error('HSS server message context binding mismatch');
+    if (
+      preparedSession.orgId !== args.context.orgId ||
+      preparedSession.nearAccountId !== args.context.nearAccountId ||
+      preparedSession.keyPurpose !== args.context.keyPurpose ||
+      preparedSession.keyVersion !== args.context.keyVersion ||
+      preparedSession.derivationVersion !== args.context.derivationVersion ||
+      JSON.stringify(preparedSession.participantIds) !== JSON.stringify(args.context.participantIds)
+    ) {
+      throw new Error('Relay-prepared HSS session scope mismatch');
     }
     console.info('[threshold-ed25519][client] hss prepare timings', {
       relayerKeyId,
@@ -513,8 +497,94 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     });
     return {
       success: true,
-      contextBindingB64u,
+      contextBindingB64u: String(preparedSession.contextBindingB64u || '').trim(),
       ceremonyHandle,
+      preparedSession,
+      clientOtOfferMessageB64u,
+    };
+  } catch (error: unknown) {
+    const message = String((error as { message?: unknown })?.message ?? error);
+    return {
+      success: false,
+      contextBindingB64u,
+      error: message,
+    };
+  }
+}
+
+export async function respondThresholdEd25519HssServerCeremonyWithSession(args: {
+  relayerUrl: string;
+  thresholdSessionJwt: string;
+  ceremonyHandle: string;
+  contextBindingB64u: string;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}): Promise<RespondThresholdEd25519HssServerCeremonyWithSessionResult> {
+  const contextBindingB64u = String(args.contextBindingB64u || '').trim();
+  try {
+    const startedAt = Date.now();
+    const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
+    const thresholdSessionJwt = String(args.thresholdSessionJwt || '').trim();
+    const ceremonyHandle = String(args.ceremonyHandle || '').trim();
+    if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server respond');
+    if (!thresholdSessionJwt) {
+      throw new Error('Missing threshold session JWT for Ed25519 HSS server respond');
+    }
+    if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server respond');
+    if (typeof fetch !== 'function') {
+      throw new Error('fetch is not available for Ed25519 HSS server respond');
+    }
+
+    const requestPayload = {
+      ceremonyHandle,
+      clientRequest: args.clientRequest,
+    };
+    const serializeStartedAt = Date.now();
+    const requestBody = JSON.stringify(requestPayload);
+    const serializeMs = Date.now() - serializeStartedAt;
+    const requestBytes = utf8Bytes(requestBody);
+    const requestSizeBreakdown = summarizeRespondRequestSize({
+      ceremonyHandle,
+      clientRequest: args.clientRequest,
+    });
+
+    const fetchStartedAt = Date.now();
+    const response = await fetch(`${relayerUrl}/threshold-ed25519/hss/respond`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${thresholdSessionJwt}`,
+      },
+      credentials: 'omit',
+      body: requestBody,
+    });
+    const fetchMs = Date.now() - fetchStartedAt;
+
+    const parseStartedAt = Date.now();
+    const data = (await response.json().catch(() => ({}))) as Partial<{
+      ok: boolean;
+      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      code: string;
+      message: string;
+    }>;
+    const parseMs = Date.now() - parseStartedAt;
+    if (!response.ok || data.ok !== true || !data.serverMessage) {
+      throw new Error(data.message || data.code || `HTTP ${response.status}`);
+    }
+    if (String(data.serverMessage.contextBindingB64u || '').trim() !== contextBindingB64u) {
+      throw new Error('HSS server message context binding mismatch');
+    }
+    console.info('[threshold-ed25519][client] hss respond timings', {
+      ceremonyHandle,
+      serializeMs,
+      fetchMs,
+      parseMs,
+      requestBytes,
+      requestSizeBreakdown,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      success: true,
+      contextBindingB64u,
       serverMessage: data.serverMessage,
     };
   } catch (error: unknown) {
@@ -618,8 +688,8 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   relayerUrl: string;
   thresholdSessionJwt: string;
   relayerKeyId: string;
-  preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+  context: ThresholdEd25519HssCanonicalContext;
+  clientInputs: ThresholdEd25519HssClientInputs;
   workerCtx: WorkerOperationContext;
   persistToThresholdSessionId?: string;
 }): Promise<CompleteThresholdEd25519HssClientCeremonyResult> {
@@ -628,10 +698,14 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     relayerUrl: args.relayerUrl,
     thresholdSessionJwt: args.thresholdSessionJwt,
     relayerKeyId: args.relayerKeyId,
-    preparedSession: args.preparedSession,
-    clientRequest: args.clientRequest,
+    context: args.context,
   });
-  if (!prepared.success || !prepared.ceremonyHandle || !prepared.serverMessage) {
+  if (
+    !prepared.success ||
+    !prepared.ceremonyHandle ||
+    !prepared.clientOtOfferMessageB64u ||
+    !prepared.preparedSession
+  ) {
     return {
       success: false,
       contextBindingB64u: prepared.contextBindingB64u,
@@ -639,21 +713,43 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     };
   }
 
+  const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+    evaluatorDriverStateB64u: prepared.preparedSession.evaluatorDriverStateB64u,
+    clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
+    clientInputs: args.clientInputs,
+    workerCtx: args.workerCtx,
+  });
+
+  const responded = await respondThresholdEd25519HssServerCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    thresholdSessionJwt: args.thresholdSessionJwt,
+    ceremonyHandle: prepared.ceremonyHandle,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
+    clientRequest,
+  });
+  if (!responded.success || !responded.serverMessage) {
+    return {
+      success: false,
+      contextBindingB64u: responded.contextBindingB64u,
+      error: responded.error,
+    };
+  }
+
   const evaluateStartedAt = Date.now();
   const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-    preparedSession: args.preparedSession,
-    clientRequest: args.clientRequest,
-    serverMessage: prepared.serverMessage,
+    preparedSession: prepared.preparedSession,
+    clientRequest,
+    serverMessage: responded.serverMessage,
     workerCtx: args.workerCtx,
   });
   const evaluateMs = Date.now() - evaluateStartedAt;
   if (
     String(evaluationResult.contextBindingB64u || '').trim() !==
-    String(args.preparedSession.contextBindingB64u || '').trim()
+    String(prepared.preparedSession.contextBindingB64u || '').trim()
   ) {
     return {
       success: false,
-      contextBindingB64u: String(args.preparedSession.contextBindingB64u || '').trim(),
+      contextBindingB64u: String(prepared.preparedSession.contextBindingB64u || '').trim(),
       error: 'HSS evaluation result context binding mismatch',
     };
   }
@@ -662,7 +758,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     relayerUrl: args.relayerUrl,
     thresholdSessionJwt: args.thresholdSessionJwt,
     ceremonyHandle: prepared.ceremonyHandle,
-    contextBindingB64u: args.preparedSession.contextBindingB64u,
+    contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     evaluationResult,
   });
   if (!finalized.success || !finalized.finalizedReport) {
@@ -675,9 +771,9 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   const completeStartedAt = Date.now();
   const completed = await completeThresholdEd25519HssClientCeremony({
-    preparedSession: args.preparedSession,
-    clientRequest: args.clientRequest,
-    serverMessage: prepared.serverMessage,
+    preparedSession: prepared.preparedSession,
+    clientRequest,
+    serverMessage: responded.serverMessage,
     finalizedReport: finalized.finalizedReport,
     workerCtx: args.workerCtx,
     persistToThresholdSessionId: args.persistToThresholdSessionId,
@@ -691,6 +787,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   });
   return {
     ...completed,
+    preparedSession: prepared.preparedSession,
     ...(finalized.finalizedReport ? { finalizedReport: finalized.finalizedReport } : {}),
   };
 }
