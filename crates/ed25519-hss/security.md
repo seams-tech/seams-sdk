@@ -17,19 +17,48 @@ The signing scalar `a = clamp(SHA-512(d)[0..31]) mod l` is never reconstructed i
 
 Recovering `a` from one share requires knowing `rho`, which is derived from both `tau_client` (client-held) and `tau_relayer` (server-held). Neither party has both.
 
-### 2. Neither party learns the other's root share
+### 2. Root-share boundary status
 
 - `y_client` (derived from WebAuthn PRF output) never leaves the client. It enters the protocol via Oblivious Transfer — the server provides encrypted label pairs, the client selects one per bit, and the server cannot determine which was chosen.
-- `y_relayer` (derived from server's `K_org` via HKDF) enters the protocol as an additive share transported to the evaluator. The evaluator receives one share-side, not the full value. The other share-side is embedded in the Beaver triple correlation.
+- `y_relayer` (derived from server's `K_org` via HKDF) is intended to remain server-confidential in all non-export production flows. The old sealed `ServerInputsPacket` seam failed that stronger property against a malicious client endpoint and now survives only as regression-test support.
 
-### 3. Three independent factors required for compromise
+Current reality:
+
+- the legacy sealed packet seam is no longer part of the production client boundary
+- the production staged flow is now execution-backed from add-stage onward:
+  the server derives real hidden-eval execution checkpoints from the client
+  add-stage request plus server-owned relayer roots and binds later staged
+  responses to that execution state
+- `ServerAssistInit` is now only the authenticated init/handle handoff; the
+  server-owned hidden-eval execution state begins at the first online
+  add-stage request
+- so the old joined-input packet boundary is removed from production, while
+  broader malicious-security work still remains outside this specific fix
+
+Required invariant for the next protocol revision:
+
+- in non-export production flows, the client must never receive enough material
+  to reconstruct per-account `y_relayer`
+- in non-export production flows, the client must never receive enough material
+  to reconstruct per-account `tau_relayer`
+- satisfying this invariant requires a protocol redesign, not just stronger
+  packet encryption or tighter API visibility
+
+Intentional exception:
+
+- `ExplicitKeyExport` is allowed to deliver the canonical seed to the
+  authorized client
+- that flow therefore intentionally falls outside the non-export secrecy
+  invariant above
+
+### 3. Factors required for compromise
 
 To reconstruct the signing key, an attacker needs ALL of:
 
 | Factor | Held by | How it's protected |
 |--------|---------|-------------------|
 | `y_client` | Client only | Derived from WebAuthn PRF; requires biometric/PIN + passkey ceremony |
-| `y_relayer` | Server only | Derived from `K_org` via HKDF; scoped to `(orgId, accountId, keyPurpose, keyVersion, credentialId)` |
+| `y_relayer` | Intended server-only factor | Derived from `K_org` via HKDF; scoped to `(orgId, accountId, keyPurpose, keyVersion, credentialId)` |
 | Beaver triple correlation | Split across both parties | Generated during session preparation; each party holds only their share-side |
 
 Compromising any single factor yields no usable information about the signing key.
@@ -50,10 +79,12 @@ y_relayer = HKDF(K_org, label, (orgId, accountId, keyPurpose, keyVersion, creden
 
 If an attacker intercepts the server's transport bundle (the wire message sent during the online phase), they obtain:
 
-- One share-side of `y_relayer` for one specific credential
+- Encrypted/authenticated relayer transport material for one specific credential
 - OT encrypted branches (two ciphertexts per client input bit, only one decryptable per bit)
 
-This is insufficient to recover `y_relayer` (need the other share-side from the Beaver correlation), `y_client` (protected by OT — attacker cannot decrypt without the client's selection), or `a` (requires both root shares plus the full evaluation).
+This is insufficient for a passive wire attacker to recover `y_relayer`, `tau_relayer`, `y_client`, or `a`.
+
+However, this passive-wire statement is weaker than the malicious-client boundary we ultimately want. The old sealed server-input packet flow did allow an evaluator endpoint to observe both relayer transport halves, which is why that seam was removed from production. The kept production path now uses the staged server-assisted flow instead.
 
 ### 5.1 Evaluator-side server-input handling
 
@@ -74,6 +105,8 @@ Security-wise, this does **not** change the on-wire cryptography or the commitme
 - the same hidden evaluation result is produced
 
 So the change removes an unnecessary in-memory materialization step without weakening any of the existing checks.
+
+It also does **not** solve the stronger malicious-client boundary problem. The evaluator still receives both relayer transport halves inside the sealed packet flow.
 
 Measured impact was acceptable:
 
@@ -109,7 +142,7 @@ What is still not solved:
 
 - joined hidden value types still exist for trusted simulation/tests and a few explicit boundary helpers
 - the split/local production representation is still implemented with helper-composed `DdhHssLocalBitSlice` values rather than a denser executor-local storage model
-- Phase 6 performance work is still needed before we can say the hardened split/local model is also the optimized one
+- the staged boundary hardening is now benchmarked and kept, but there is still room for future executor-local storage and kernel-fusion work if we want more latency wins
 
 Current direction:
 
@@ -117,7 +150,8 @@ Current direction:
 - backend-local width-1 batched local-mul helpers are now landed and tested
 - the stage-local `Ch`, `Maj`, carry/add, schedule, round-core, and output-projector rewrites are landed
 - the executor now stays split/local end-to-end through the production arithmetic path
-- the next meaningful security/performance step is therefore not more joined-value cleanup; it is Phase 6 work on denser storage, fused local kernels, and amortized local Beaver material inside the hardened split/local model
+- the staged production seam is now the kept design
+- the next meaningful security/performance step is therefore not more joined-value cleanup; it is optional follow-on work on denser storage, fused local kernels, and amortized local Beaver material inside the hardened split/local model
 
 ### 6. Oblivious Transfer security
 
@@ -144,6 +178,8 @@ Each AND gate in the SHA-512 circuit is evaluated using a precomputed Beaver tri
 - Dual execution with progressive output revelation (Liu et al. 2025)
 - MAC-based triple verification
 - Commitment consistency checks on wire messages
+
+**Historical boundary gap:** the old sealed server-input packet flow did not satisfy the stronger product invariant that the client must never be able to reconstruct per-account `y_relayer` or `tau_relayer`. This refactor removes that production seam; the remaining work is broader malicious-security hardening beyond this specific boundary fix.
 
 ## Assumptions
 

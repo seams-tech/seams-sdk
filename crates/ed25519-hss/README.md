@@ -128,9 +128,19 @@ The public crate surface is now intentionally boundary-oriented:
 - `runtime::{ClientRuntime, ClientRuntimeState}`
 - `runtime::{ServerRuntime, ServerRuntimeState}`
 - `runtime::EvaluateTiming`
-- `wire::{WireMessage, ClientOtOffer, ClientPacket, ServerPacket}`
-- `wire::{ServerInputsPacket, ClientOutputPacket, SeedOutputPacket, ServerOutputPacket}`
-- `wire::{EvaluationResult, EvaluationReport, ArtifactSummary, RunBindings, OutputDelivery, OtTranscript}`
+- `wire::{WireMessage, ClientOtOffer, ClientPacket, ClientOutputPacket, SeedOutputPacket, ServerOutputPacket}`
+- `wire::{ServerAssistInitPacket, ClientStageRequestPacket, ServerStageResponsePacket, ServerFinalizePacket}`
+- `wire::{StagedEvaluatorArtifact, EvaluationReport, ArtifactSummary, RunBindings, OutputDelivery, OtTranscript}`
+
+For non-export production flows, the client boundary is intended to prevent
+reconstruction of per-account `y_relayer` and `tau_relayer`. The explicit
+exception is `ExplicitKeyExport`, which intentionally delivers canonical seed
+material to the authorized client.
+
+The kept production path now enforces that boundary through the staged
+server-assisted flow: `ServerAssistInit` authenticates the handle/init state,
+the add-stage request carries the client hidden-input bundles, and the server
+owns the execution-backed state from that first online round onward.
 
 That split is deliberate:
 
@@ -169,19 +179,21 @@ The original broad browser HSS artifact was:
 
 The current dedicated browser HSS client artifact is:
 
-- wasm: `472,527` bytes
-- JS glue: `18,414` bytes
+- wasm: `262,409` bytes
+- JS glue: `14,028` bytes
 
 Net result:
 
-- wasm down by `690,949` bytes, about `59.4%`
-- JS glue down by `154,590` bytes, about `89.4%`
+- wasm down by `901,067` bytes, about `77.4%`
+- JS glue down by `158,976` bytes, about `91.9%`
 
 The biggest wins that produced that reduction were:
 
 - splitting browser HSS into its own wasm package
 - removing JSON-based internal blob serialization from the browser HSS path
 - pruning non-browser `wasm32` surfaces from this crate
+- deleting the last duplicate legacy runtime seam and finalizing through staged
+  evaluator artifacts instead of the old joined-input transport path
 
 For the current product, this means further work should bias toward reducing
 compiled browser code size before chasing smaller transport-only wins.

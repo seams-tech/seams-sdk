@@ -11,6 +11,28 @@ The target claim is:
 - a malicious client cannot obtain more than its allowed branch or output view
 - cheating causes abort before useful extra output is released
 
+## Boundary Prerequisite Status
+
+One important prerequisite boundary fix is now landed:
+
+- the old sealed `ServerInputsPacket` production seam is removed from the
+  production client boundary
+- the production staged flow is execution-backed from add-stage onward instead
+  of being only transcript scaffolding
+- non-export production flows now use the staged server-assisted path rather
+  than the old joined-input packet delivery path
+
+That closes the specific boundary gap where a malicious client could recover
+per-account `y_relayer` or `tau_relayer` from the old production seam.
+
+What it does **not** do:
+
+- it does not produce a full malicious-security claim by itself
+- it does not make `ExplicitKeyExport` safe against malicious in-page code,
+  because that flow intentionally delivers canonical seed material
+- it does not replace the need for malicious-secure OT, authenticated Beaver
+  protections, replay limits, or broader active-security controls
+
 ## Threat Reality
 
 The practical concern is usually not one-shot exfiltration.

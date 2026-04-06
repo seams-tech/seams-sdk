@@ -223,7 +223,7 @@ build outputs.
 Current browser HSS artifact baseline:
 
 - original broad browser HSS wasm: `1,163,476` bytes
-- current dedicated browser HSS wasm: `472,527` bytes
+- current dedicated browser HSS wasm: `262,409` bytes
 
 That reduction is large enough that future changes should preserve the split
 unless a replacement is clearly better on both security and size.
@@ -331,12 +331,16 @@ The deployed protocol must preserve this rule:
 
 That means:
 
-- no interparty wire type may carry both halves of a hidden server-owned value
+- no non-export production wire type may carry both halves of a hidden
+  server-owned value in reconstructable form
 - joined hidden values must stay confined to trusted simulation, explicit
   debug/profiling paths, or internal computation states that never cross the
-  evaluator/garbler boundary
+  evaluator/garbler boundary as a production client surface
 - any optimization that reconstructs hidden intermediates in the evaluator is
   not production-safe
+- `ExplicitKeyExport` is the explicit exception: it intentionally delivers the
+  canonical seed to the authorized client and therefore is outside the
+  non-export secrecy invariant for `y_relayer` and `tau_relayer`
 
 The most important recent security lesson was the rejected insecure A2B
 shortcut:
@@ -352,23 +356,28 @@ Implemented in code:
 - candidate model:
   [`src/candidate.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/candidate.rs)
 - frozen reference path and fixtures:
-  [`src/reference.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/reference.rs)
+  [`src/shared/reference.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/shared/reference.rs)
   and
   [`fixtures/f_expand_v1.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/fixtures/f_expand_v1.json)
 - DDH hidden-eval IR compiler:
-  [`src/hidden_eval.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/hidden_eval.rs)
+  [`src/ddh/hidden_eval.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh/hidden_eval.rs)
 - DDH primitive baseline:
-  [`src/ddh_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh_hss.rs)
+  [`src/ddh/ddh_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh/ddh_hss.rs)
 - structured prime-order artifact path:
-  [`src/prime_order_encoder.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/prime_order_encoder.rs)
+  [`src/artifact/prime_order_encoder.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/artifact/prime_order_encoder.rs)
   and
-  [`src/prime_order_decoder.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/prime_order_decoder.rs)
+  [`src/artifact/prime_order_decoder.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/artifact/prime_order_decoder.rs)
 - CPU execution baseline:
-  [`src/prime_order_cpu_executor.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/prime_order_cpu_executor.rs)
+  [`src/runtime/prime_order_cpu_executor.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/runtime/prime_order_cpu_executor.rs)
 - kept secure prepared-session and packetized role split:
-  [`src/succinct_hss.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/succinct_hss.rs)
+  [`src/protocol/prepared.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol/prepared.rs)
+  plus
+  [`src/client/api.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client/api.rs),
+  [`src/server/api.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server/api.rs),
+  and
+  [`src/wire/mod.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/wire/mod.rs)
 - compiled hidden evaluator:
-  [`src/ddh_hidden_eval_executor.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh_hidden_eval_executor.rs)
+  [`src/ddh/hidden_eval_executor.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/ddh/hidden_eval_executor.rs)
 
 Role-separated flow:
 
