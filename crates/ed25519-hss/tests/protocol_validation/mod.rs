@@ -2,20 +2,9 @@ use ed25519_hss::fixtures::committed_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 
 use crate::support::{
-    decode_transport_message, encode_transport_message, first_fixture, TransportKind,
+    build_server_owned_staged_evaluator_artifact, decode_transport_message,
+    encode_transport_message, first_fixture, TransportKind,
 };
-
-fn build_staged_evaluator_artifact_same_process(
-    session: &ed25519_hss::protocol::PreparedSession,
-    input: &ed25519_hss::shared::FExpandInput,
-) -> ed25519_hss::shared::ProtoResult<ed25519_hss::wire::StagedEvaluatorArtifact> {
-    let runtime = session.shared_runtime();
-    let evaluator_session = session.evaluator_session();
-    let ddh_run = session.evaluate_hidden_run_for_clear_input_debug(input)?;
-    let (artifact, _, _) =
-        evaluator_session.build_staged_evaluator_artifact_from_hidden_run(&runtime, ddh_run)?;
-    Ok(artifact)
-}
 
 #[test]
 fn prime_order_succinct_hss_rejects_server_assist_init_from_different_request_same_context() {
@@ -454,11 +443,9 @@ fn prime_order_succinct_hss_rejects_tampered_server_output_payload_in_evaluation
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let mut staged_evaluator_artifact = build_staged_evaluator_artifact_same_process(
-        &session,
-        &fixture.input,
-    )
-    .expect("staged evaluator artifact");
+    let mut staged_evaluator_artifact =
+        build_server_owned_staged_evaluator_artifact(&session, &fixture.input)
+            .expect("staged evaluator artifact");
     staged_evaluator_artifact.server_output_payload[0] ^= 0x01;
 
     let err = runtime
@@ -486,11 +473,9 @@ fn prime_order_succinct_hss_rejects_tampered_client_output_in_evaluation_result(
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let mut staged_evaluator_artifact = build_staged_evaluator_artifact_same_process(
-        &session,
-        &fixture.input,
-    )
-    .expect("staged evaluator artifact");
+    let mut staged_evaluator_artifact =
+        build_server_owned_staged_evaluator_artifact(&session, &fixture.input)
+            .expect("staged evaluator artifact");
     let last_idx = staged_evaluator_artifact.client_output.bytes.len() - 1;
     staged_evaluator_artifact.client_output.bytes[last_idx] ^= 0x01;
 
@@ -520,11 +505,9 @@ fn prime_order_succinct_hss_rejects_swapped_client_output_between_same_context_r
             fixtures[0].input.tau_client,
         )
         .expect("prepare client OT request A");
-    let mut staged_evaluator_artifact_a = build_staged_evaluator_artifact_same_process(
-        &session,
-        &fixtures[0].input,
-    )
-    .expect("staged evaluator artifact A");
+    let mut staged_evaluator_artifact_a =
+        build_server_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
+            .expect("staged evaluator artifact A");
 
     let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
@@ -535,11 +518,9 @@ fn prime_order_succinct_hss_rejects_swapped_client_output_between_same_context_r
         .expect("prepare client OT request B");
     let mut same_context_input_b = fixtures[1].input.clone();
     same_context_input_b.context = fixtures[0].input.context.clone();
-    let staged_evaluator_artifact_b = build_staged_evaluator_artifact_same_process(
-        &session,
-        &same_context_input_b,
-    )
-    .expect("staged evaluator artifact B");
+    let staged_evaluator_artifact_b =
+        build_server_owned_staged_evaluator_artifact(&session, &same_context_input_b)
+            .expect("staged evaluator artifact B");
 
     staged_evaluator_artifact_a.client_output = staged_evaluator_artifact_b.client_output;
 
@@ -573,11 +554,9 @@ fn prime_order_succinct_hss_rejects_swapped_server_output_payload_between_same_c
             fixtures[0].input.tau_client,
         )
         .expect("prepare client OT request A");
-    let mut staged_evaluator_artifact_a = build_staged_evaluator_artifact_same_process(
-        &session,
-        &fixtures[0].input,
-    )
-    .expect("staged evaluator artifact A");
+    let mut staged_evaluator_artifact_a =
+        build_server_owned_staged_evaluator_artifact(&session, &fixtures[0].input)
+            .expect("staged evaluator artifact A");
 
     let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
@@ -588,11 +567,9 @@ fn prime_order_succinct_hss_rejects_swapped_server_output_payload_between_same_c
         .expect("prepare client OT request B");
     let mut same_context_input_b = fixtures[1].input.clone();
     same_context_input_b.context = fixtures[0].input.context.clone();
-    let staged_evaluator_artifact_b = build_staged_evaluator_artifact_same_process(
-        &session,
-        &same_context_input_b,
-    )
-    .expect("staged evaluator artifact B");
+    let staged_evaluator_artifact_b =
+        build_server_owned_staged_evaluator_artifact(&session, &same_context_input_b)
+            .expect("staged evaluator artifact B");
 
     staged_evaluator_artifact_a.server_output_payload =
         staged_evaluator_artifact_b.server_output_payload;

@@ -135,7 +135,11 @@ The public crate surface is now intentionally boundary-oriented:
 For non-export production flows, the client boundary is intended to prevent
 reconstruction of per-account `y_relayer` and `tau_relayer`. The explicit
 exception is `ExplicitKeyExport`, which intentionally delivers canonical seed
-material to the authorized client.
+material to the authorized client. That exception exists because export is the
+one flow where the user is explicitly asking to receive private-key-equivalent
+material in the client runtime; a compromised client runtime can therefore
+abuse that flow by design, so the stronger secrecy guarantee is scoped to
+non-export operations.
 
 The kept production path now enforces that boundary through the staged
 server-assisted flow: `ServerAssistInit` authenticates the handle/init state,

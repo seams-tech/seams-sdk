@@ -34,6 +34,20 @@ What it does **not** do:
 - it does not replace the need for malicious-secure OT, authenticated Beaver
   protections, replay limits, or broader active-security controls
 
+Possible follow-on directions for export hardening:
+
+- encrypted backup export:
+  - export a sealed backup artifact rather than handing the canonical seed to
+    ordinary page/application code
+  - this only strengthens the boundary if the decryption key lives outside the
+    browser/page runtime being protected
+- device-to-device migration export:
+  - migrate key-equivalent material into another trusted device/runtime
+    boundary without exposing the raw canonical seed to normal browser-page
+    code
+  - this is the cleaner direction if we want export-like UX without relaxing
+    the non-export secrecy model as much as direct client-visible export does
+
 ## Threat Reality
 
 The practical concern is usually not one-shot exfiltration.

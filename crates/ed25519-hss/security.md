@@ -66,8 +66,36 @@ Intentional exception:
 
 - `ExplicitKeyExport` is allowed to deliver the canonical seed to the
   authorized client
+- that is intentional because export is the one flow where the user is asking
+  to receive private-key-equivalent material in the client runtime
+- a compromised browser/app runtime can therefore abuse or exfiltrate export
+  output by design
+- the stronger secrecy guarantee for `y_relayer` and `tau_relayer` applies
+  only to non-export operations
 - that flow therefore intentionally falls outside the non-export secrecy
   invariant above
+
+Possible future directions for safer export:
+
+- encrypted backup export:
+  - instead of handing the raw canonical seed to ordinary page/application
+    logic, export a ciphertext or sealed backup artifact
+  - this only improves the boundary if the decryption key is outside the
+    browser/page runtime being protected
+  - a page-collected passphrase is not enough, because malicious in-page code
+    could still steal the plaintext before encryption
+- device-to-device migration export:
+  - move key-equivalent material into another trusted device or stronger
+    runtime boundary instead of disclosing it to normal browser-page code
+  - examples include native-app transfer, hardware-backed import, or another
+    privileged runtime treated as part of the trusted computing base
+  - this preserves a stronger browser boundary because the page receives only
+    migration protocol messages, not the raw canonical seed
+
+These are intentionally different product/security models from the current
+`ExplicitKeyExport` behavior. The current flow is a direct client-visible
+export; the alternatives above are ways to avoid disclosing relayer-recoverable
+material to ordinary browser-page execution.
 
 ### 3. Factors required for compromise
 

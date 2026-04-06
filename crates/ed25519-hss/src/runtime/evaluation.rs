@@ -19,46 +19,6 @@ pub struct EvaluateTiming {
 
 impl EvaluateTiming {
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn add_assign(&mut self, other: Self) {
-        self.ot_open_join_duration_ns = self
-            .ot_open_join_duration_ns
-            .saturating_add(other.ot_open_join_duration_ns);
-        self.ot_branch_key_derivation_duration_ns = self
-            .ot_branch_key_derivation_duration_ns
-            .saturating_add(other.ot_branch_key_derivation_duration_ns);
-        self.ot_branch_decrypt_duration_ns = self
-            .ot_branch_decrypt_duration_ns
-            .saturating_add(other.ot_branch_decrypt_duration_ns);
-        self.ot_point_scalar_reconstruction_duration_ns = self
-            .ot_point_scalar_reconstruction_duration_ns
-            .saturating_add(other.ot_point_scalar_reconstruction_duration_ns);
-        self.ot_commitment_verification_duration_ns = self
-            .ot_commitment_verification_duration_ns
-            .saturating_add(other.ot_commitment_verification_duration_ns);
-        self.server_input_open_duration_ns = self
-            .server_input_open_duration_ns
-            .saturating_add(other.server_input_open_duration_ns);
-        self.server_input_share_duration_ns = self
-            .server_input_share_duration_ns
-            .saturating_add(other.server_input_share_duration_ns);
-        self.server_input_commitment_duration_ns = self
-            .server_input_commitment_duration_ns
-            .saturating_add(other.server_input_commitment_duration_ns);
-        self.server_input_transcript_duration_ns = self
-            .server_input_transcript_duration_ns
-            .saturating_add(other.server_input_transcript_duration_ns);
-        self.server_input_seal_duration_ns = self
-            .server_input_seal_duration_ns
-            .saturating_add(other.server_input_seal_duration_ns);
-        self.output_sealing_finalization_duration_ns = self
-            .output_sealing_finalization_duration_ns
-            .saturating_add(other.output_sealing_finalization_duration_ns);
-        self.result_assembly_duration_ns = self
-            .result_assembly_duration_ns
-            .saturating_add(other.result_assembly_duration_ns);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn add_ot_reconstruct_timing(&mut self, other: DdhHssOtReconstructTiming) {
         self.ot_branch_key_derivation_duration_ns = self
             .ot_branch_key_derivation_duration_ns

@@ -10,7 +10,9 @@ use ed25519_hss::wire::{
 
 use crate::support::{
     decode_client_offer, decode_client_output_message, decode_client_request,
-    decode_server_input_delivery, decode_transport_message, first_fixture, TransportKind,
+    decode_server_input_delivery, decode_transport_message,
+    ensure_prepared_session_input_context, evaluate_via_staged_server_owned_flow, first_fixture,
+    TransportKind,
 };
 
 #[test]
@@ -221,9 +223,8 @@ fn prime_order_succinct_hss_splits_output_delivery_packets() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let report = session
-        .evaluate_for_clear_input_debug(&fixture.input)
-        .expect("evaluate session");
+    let report =
+        evaluate_via_staged_server_owned_flow(&session, &fixture.input).expect("evaluate session");
     let delivery = report.output_delivery.clone();
     let output_openers = session.output_openers();
     let client_packet =
@@ -1047,8 +1048,7 @@ fn prime_order_succinct_hss_delivery_packets_round_trip_end_to_end() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let evaluated = session
-        .evaluate_for_clear_input_debug(&fixture.input)
+    let evaluated = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
         .expect("evaluate prepared session");
     let output_openers = session.output_openers();
     assert_eq!(
@@ -1080,8 +1080,7 @@ fn prime_order_succinct_hss_matches_reference_fixture_smoke() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let report = session
-        .evaluate_for_clear_input_debug(&fixture.input)
+    let report = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
         .expect("evaluate prepared session");
 
     let output_openers = session.output_openers();
@@ -1126,8 +1125,7 @@ fn prime_order_succinct_hss_matches_reference_fixtures() {
     for fixture in deterministic_fixture_corpus().expect("fixture corpus") {
         let session =
             prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-        let report = session
-            .evaluate_for_clear_input_debug(&fixture.input)
+        let report = evaluate_via_staged_server_owned_flow(&session, &fixture.input)
             .expect("evaluate prepared session");
         let output_openers = session.output_openers();
         let x_client_base = output_openers
@@ -1152,8 +1150,7 @@ fn prime_order_succinct_hss_rejects_context_mismatch() {
     let fixtures = deterministic_fixture_corpus().expect("fixture corpus");
     let session =
         prepare_prime_order_succinct_hss(&fixtures[0].input.context).expect("prepare session");
-    let err = session
-        .evaluate_for_clear_input_debug(&fixtures[1].input)
+    let err = ensure_prepared_session_input_context(&session, &fixtures[1].input)
         .expect_err("mismatched context should fail");
 
     assert!(matches!(err, ProtoError::InvalidInput(_)));

@@ -1,6 +1,6 @@
 pub mod client;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod debug;
+mod debug;
 pub mod evaluation;
 pub mod flow;
 pub mod prepared;

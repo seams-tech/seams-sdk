@@ -93,8 +93,13 @@ impl ServerSession {
         match operation {
             ServerEvalOperation::ExplicitKeyExport => {
                 // Explicit key export intentionally falls outside the non-export
-                // relayer-root secrecy invariant: the authorized client is
-                // allowed to receive canonical seed material in this flow.
+                // relayer-root secrecy invariant. This flow is allowed to hand
+                // canonical-seed/private-key-equivalent material to the
+                // authorized client runtime because export is the operation
+                // where the user explicitly asks to receive the key. A
+                // compromised client runtime can therefore abuse this flow by
+                // design, which is why the stronger secrecy guarantee only
+                // applies to non-export operations.
                 crate::wire::AllowedOutputKind::ClientOutputAndSeedOutput
             }
             ServerEvalOperation::Registration

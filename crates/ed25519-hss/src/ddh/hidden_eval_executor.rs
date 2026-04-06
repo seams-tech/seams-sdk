@@ -3143,17 +3143,12 @@ impl LocalArithmeticWordPair {
     }
 }
 
-fn modulus_for_width(width_bits: u16) -> u128 {
+fn bitmask_for_width(width_bits: u16) -> u64 {
     if width_bits == 64 {
-        1u128 << 64
+        u64::MAX
     } else {
-        1u128 << u32::from(width_bits)
+        (1u64 << u32::from(width_bits)) - 1
     }
-}
-
-fn reduce_mod_2_pow_n(value: u128, width_bits: u16) -> u64 {
-    let reduced = value % modulus_for_width(width_bits);
-    reduced as u64
 }
 
 fn pack_local_side_share_bits(source: &LocalBitWordSide) -> ProtoResult<u64> {
@@ -3205,20 +3200,18 @@ fn split_local_bit_pair_to_arithmetic_word_pair_naive<B: DdhHssArithmeticBackend
             bits.len()
         ))
     })?;
+    let width_mask = bitmask_for_width(width_bits);
     let left_packed = pack_local_side_share_bits(&bits.left)?;
     let mut adjusted_right = pack_local_side_share_bits(&bits.right)?;
     for idx in 0..bits.len() {
         if idx + 1 >= bits.len() {
             continue;
         }
-        let cross = u64::from(bits.left.share_bit(idx) & bits.right.share_bit(idx));
-        if cross == 0 {
-            continue;
-        }
-        adjusted_right = reduce_mod_2_pow_n(
-            modulus_for_width(width_bits) + u128::from(adjusted_right) - (1u128 << (idx + 1)),
-            width_bits,
-        );
+        let cross_mask = 0u64.wrapping_sub(u64::from(
+            bits.left.share_bit(idx) & bits.right.share_bit(idx),
+        ));
+        let delta = (1u64 << (idx + 1)) & cross_mask;
+        adjusted_right = adjusted_right.wrapping_sub(delta) & width_mask;
     }
     let mut base_material = Vec::with_capacity(bits.len() * 5);
     for idx in 0..bits.len() {

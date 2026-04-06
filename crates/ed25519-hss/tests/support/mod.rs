@@ -7,9 +7,11 @@ use ed25519_hss::ddh::{
 };
 use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::PreparedSession;
+use ed25519_hss::server::ServerEvalOperation;
 use ed25519_hss::shared::{ProtoError, ProtoResult};
 use ed25519_hss::wire::{
-    ClientOtOffer, ClientOutputPacket, ClientPacket, WireMessage,
+    ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationReport, StagedEvaluatorArtifact,
+    WireMessage,
     PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 use serde::de::DeserializeOwned;
@@ -71,6 +73,78 @@ pub fn first_fixture() -> FExpandFixture {
         .into_iter()
         .next()
         .expect("fixture")
+}
+
+pub fn ensure_prepared_session_input_context(
+    session: &PreparedSession,
+    fixture: &ed25519_hss::shared::FExpandInput,
+) -> ProtoResult<()> {
+    let input_context_binding = fixture.context.binding_digest()?;
+    if input_context_binding != session.candidate().context_binding {
+        return Err(ProtoError::InvalidInput(
+            "input context does not match prepared prime-order succinct HSS session".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub fn build_server_owned_staged_evaluator_artifact(
+    session: &PreparedSession,
+    input: &ed25519_hss::shared::FExpandInput,
+) -> ProtoResult<StagedEvaluatorArtifact> {
+    ensure_prepared_session_input_context(session, input)?;
+    let client_ot_offer_message = session.prepare_client_ot_offer_message()?;
+    let garbler_ot_state = session.prepare_garbler_ot_state()?;
+    let (client_request_message, evaluator_ot_state) =
+        session.prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            input.y_client,
+            input.tau_client,
+        )?;
+    let flow = session.prepare_server_assist_flow_to_output_projection(
+        &garbler_ot_state,
+        &client_request_message,
+        &evaluator_ot_state,
+        input.y_relayer,
+        input.tau_relayer,
+        ServerEvalOperation::Registration,
+    )?;
+    session.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+        &flow.final_server_eval_state,
+    )
+}
+
+pub fn evaluate_via_staged_server_owned_flow(
+    session: &PreparedSession,
+    input: &ed25519_hss::shared::FExpandInput,
+) -> ProtoResult<EvaluationReport> {
+    ensure_prepared_session_input_context(session, input)?;
+    let runtime = session.shared_runtime();
+    let client_ot_offer_message = session.prepare_client_ot_offer_message()?;
+    let garbler_ot_state = session.prepare_garbler_ot_state()?;
+    let (client_request_message, evaluator_ot_state) =
+        session.prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            input.y_client,
+            input.tau_client,
+        )?;
+    let flow = session.prepare_server_assist_flow_to_output_projection(
+        &garbler_ot_state,
+        &client_request_message,
+        &evaluator_ot_state,
+        input.y_relayer,
+        input.tau_relayer,
+        ServerEvalOperation::Registration,
+    )?;
+    let artifact = session.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+        &flow.final_server_eval_state,
+    )?;
+    let (_server_finalize, report) = session.prepare_server_finalize_from_staged_evaluator_artifact(
+        &runtime,
+        &flow.final_server_eval_state,
+        &artifact,
+    )?;
+    Ok(report)
 }
 
 pub fn section_bytes<'a>(

@@ -341,6 +341,10 @@ That means:
 - `ExplicitKeyExport` is the explicit exception: it intentionally delivers the
   canonical seed to the authorized client and therefore is outside the
   non-export secrecy invariant for `y_relayer` and `tau_relayer`
+- that exception is deliberate because export is the operation where the user
+  is explicitly asking to receive private-key-equivalent material in the
+  client runtime; a compromised client runtime can therefore abuse export by
+  design, while non-export flows must keep the stronger secrecy boundary
 
 The most important recent security lesson was the rejected insecure A2B
 shortcut:

@@ -236,7 +236,15 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let final_report_started = Instant::now();
-    let report = prepared.evaluate_for_clear_input_debug(&fixture.input)?;
+    let staged_evaluator_artifact = prepared
+        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+            &final_server_eval_state,
+        )?;
+    let (_server_finalize, report) = prepared.prepare_server_finalize_from_staged_evaluator_artifact(
+        prepared.shared_runtime(),
+        &final_server_eval_state,
+        &staged_evaluator_artifact,
+    )?;
     timings.push(("final_report", final_report_started.elapsed()));
     write_json(&report_path, &report)?;
 
