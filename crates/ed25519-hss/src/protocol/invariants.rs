@@ -1,6 +1,6 @@
 use crate::client::{ClientOtState, ClientSession};
 use crate::ddh::{DdhHssShareSide, HiddenEvalInputOwner};
-use crate::server::ServerEvalState;
+use crate::server::{ServerEvalState, ServerEvalStatus};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     AddStageRequestPayload, AddStageResponsePayload, ClientPacket, ClientStagePayload,
@@ -9,6 +9,24 @@ use crate::wire::{
     RoundCoreRequestPayload, RoundCoreResponsePayload, ServerAssistInitPacket,
     ServerStagePayload, ServerStageResponsePacket,
 };
+
+fn ensure_stage_request_state_is_live(
+    state: &ServerEvalState,
+    label: &str,
+) -> ProtoResult<()> {
+    match state.status {
+        ServerEvalStatus::Pending | ServerEvalStatus::InProgress => Ok(()),
+        ServerEvalStatus::Finalized => Err(ProtoError::InvalidInput(format!(
+            "{label} cannot be accepted after the server eval handle is finalized"
+        ))),
+        ServerEvalStatus::Aborted => Err(ProtoError::InvalidInput(format!(
+            "{label} cannot be accepted after the server eval handle is aborted"
+        ))),
+        ServerEvalStatus::Expired => Err(ProtoError::InvalidInput(format!(
+            "{label} cannot be accepted after the server eval handle is expired"
+        ))),
+    }
+}
 
 pub(crate) fn validate_client_packet_context(
     expected_context_binding: [u8; 32],
@@ -164,6 +182,7 @@ pub(crate) fn validate_add_stage_request_packet(
     state: &ServerEvalState,
     packet: &ClientStageRequestPacket,
 ) -> ProtoResult<()> {
+    ensure_stage_request_state_is_live(state, "add-stage request")?;
     if packet.context_binding != state.context_binding {
         return Err(ProtoError::InvalidInput(
             "client stage request context binding does not match server eval state".to_string(),
@@ -265,8 +284,8 @@ pub(crate) fn validate_add_stage_response_packet(
             "server stage response commitments are not bound to the add-stage payload".to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        if *execution_checkpoint_digest != checkpoints.add_stage_digest {
+    if let Some(expected_execution_digest) = state.current_execution_checkpoint_digest() {
+        if *execution_checkpoint_digest != expected_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "server stage response add-stage checkpoint digest does not match server eval state"
                     .to_string(),
@@ -280,6 +299,7 @@ pub(crate) fn validate_message_schedule_request_packet(
     state: &ServerEvalState,
     packet: &ClientStageRequestPacket,
 ) -> ProtoResult<()> {
+    ensure_stage_request_state_is_live(state, "message-schedule request")?;
     if packet.context_binding != state.context_binding {
         return Err(ProtoError::InvalidInput(
             "message-schedule request context binding does not match server eval state".to_string(),
@@ -330,12 +350,7 @@ pub(crate) fn validate_message_schedule_request_packet(
                 .to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        let expected_prior_execution_digest = if *schedule_step == 0 {
-            checkpoints.add_stage_digest
-        } else {
-            checkpoints.message_schedule_digest
-        };
+    if let Some(expected_prior_execution_digest) = state.prior_execution_checkpoint_digest() {
         if *prior_server_stage_digest != expected_prior_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "message-schedule request prior execution checkpoint digest does not match server eval state"
@@ -404,8 +419,8 @@ pub(crate) fn validate_message_schedule_response_packet(
                 .to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        if *execution_checkpoint_digest != checkpoints.message_schedule_digest {
+    if let Some(expected_execution_digest) = state.current_execution_checkpoint_digest() {
+        if *execution_checkpoint_digest != expected_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "message-schedule response execution checkpoint digest does not match server eval state"
                     .to_string(),
@@ -419,6 +434,7 @@ pub(crate) fn validate_round_core_request_packet(
     state: &ServerEvalState,
     packet: &ClientStageRequestPacket,
 ) -> ProtoResult<()> {
+    ensure_stage_request_state_is_live(state, "round-core request")?;
     if packet.context_binding != state.context_binding {
         return Err(ProtoError::InvalidInput(
             "round-core request context binding does not match server eval state".to_string(),
@@ -466,11 +482,11 @@ pub(crate) fn validate_round_core_request_packet(
             "round-core request commitments are not bound to the round-core payload".to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
+    if let Some(current_execution_digest) = state.current_execution_checkpoint_digest() {
         let expected_prior_execution_digest = if *round_index == 0 {
-            checkpoints.message_schedule_digest
+            state.prior_execution_checkpoint_digest().unwrap_or(current_execution_digest)
         } else {
-            checkpoints.round_core_digest
+            current_execution_digest
         };
         if *prior_server_stage_digest != expected_prior_execution_digest {
             return Err(ProtoError::InvalidInput(
@@ -537,8 +553,15 @@ pub(crate) fn validate_round_core_response_packet(
             "round-core response commitments are not bound to the round-core payload".to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        if *execution_checkpoint_digest != checkpoints.round_core_digest {
+    let expected_execution_digest = if state.current_stage
+        == crate::wire::ServerEvalStageId::output_projection()
+    {
+        state.prior_execution_checkpoint_digest()
+    } else {
+        state.current_execution_checkpoint_digest()
+    };
+    if let Some(expected_execution_digest) = expected_execution_digest {
+        if *execution_checkpoint_digest != expected_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "round-core response execution checkpoint digest does not match server eval state"
                     .to_string(),
@@ -552,6 +575,7 @@ pub(crate) fn validate_output_projection_request_packet(
     state: &ServerEvalState,
     packet: &ClientStageRequestPacket,
 ) -> ProtoResult<()> {
+    ensure_stage_request_state_is_live(state, "output-projection request")?;
     if packet.context_binding != state.context_binding {
         return Err(ProtoError::InvalidInput(
             "output-projection request context binding does not match server eval state"
@@ -598,8 +622,8 @@ pub(crate) fn validate_output_projection_request_packet(
                 .to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        if *prior_server_stage_digest != checkpoints.round_core_digest {
+    if let Some(expected_prior_execution_digest) = state.prior_execution_checkpoint_digest() {
+        if *prior_server_stage_digest != expected_prior_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "output-projection request prior execution checkpoint digest does not match server eval state"
                     .to_string(),
@@ -663,8 +687,8 @@ pub(crate) fn validate_output_projection_response_packet(
                 .to_string(),
         ));
     }
-    if let Some(checkpoints) = &state.execution_checkpoints {
-        if *execution_checkpoint_digest != checkpoints.output_projection_digest {
+    if let Some(expected_execution_digest) = state.current_execution_checkpoint_digest() {
+        if *execution_checkpoint_digest != expected_execution_digest {
             return Err(ProtoError::InvalidInput(
                 "output-projection response execution checkpoint digest does not match server eval state"
                     .to_string(),

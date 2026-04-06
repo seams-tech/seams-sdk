@@ -1,8 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ddh::DdhHiddenEvalRun;
+use crate::ddh::hidden_eval_executor::{
+    compute_message_schedule_completed_digest, compute_output_projection_continuation_digest,
+    compute_output_projection_output_digest, compute_round_core_completed_digest,
+    DdhHiddenEvalMessageScheduleContinuation, DdhHiddenEvalProjectorInputs,
+    DdhHiddenEvalRoundCoreContinuation,
+};
+use crate::ddh::DdhHiddenEvalOutputBundles;
 use crate::ddh::ddh_hss::DdhHssPreparedOtSenderStateWord;
-use crate::ddh::{DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle};
+use crate::ddh::{
+    DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle, HiddenEvalProgram,
+};
 use crate::runtime::SharedRuntimeState;
 use crate::wire::{ClientOtOffer, OtTranscript, ServerEvalHandle, ServerEvalStageId, TranscriptId};
 
@@ -67,11 +75,44 @@ pub struct ServerEvalRelayerRoots {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServerEvalExecutionCheckpoints {
-    pub add_stage_digest: [u8; 32],
-    pub message_schedule_digest: [u8; 32],
-    pub round_core_digest: [u8; 32],
-    pub output_projection_digest: [u8; 32],
+pub struct ServerEvalFinalizeState {
+    pub client_input_commitment: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+    pub output: DdhHiddenEvalOutputBundles,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerEvalMessageScheduleState {
+    pub message_schedule: DdhHiddenEvalMessageScheduleContinuation,
+    pub projector_inputs: DdhHiddenEvalProjectorInputs,
+    pub client_input_commitment: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerEvalRoundCoreState {
+    pub prior_execution_checkpoint_digest: [u8; 32],
+    pub round_core: DdhHiddenEvalRoundCoreContinuation,
+    pub projector_inputs: DdhHiddenEvalProjectorInputs,
+    pub client_input_commitment: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerEvalOutputProjectionState {
+    pub prior_execution_checkpoint_digest: [u8; 32],
+    pub round_core: DdhHiddenEvalRoundCoreContinuation,
+    pub projector_inputs: DdhHiddenEvalProjectorInputs,
+    pub client_input_commitment: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerEvalExecutionState {
+    MessageSchedule(ServerEvalMessageScheduleState),
+    RoundCore(ServerEvalRoundCoreState),
+    OutputProjection(ServerEvalOutputProjectionState),
+    Finalize(ServerEvalFinalizeState),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,9 +127,9 @@ pub struct ServerEvalState {
     pub server_input_commitment: [u8; 32],
     pub ot_transcript: OtTranscript,
     pub last_request_digest: Option<[u8; 32]>,
-    pub relayer_roots: ServerEvalRelayerRoots,
-    pub execution_checkpoints: Option<ServerEvalExecutionCheckpoints>,
-    pub execution_run: Option<DdhHiddenEvalRun>,
+    pub relayer_roots: Option<ServerEvalRelayerRoots>,
+    pub hidden_eval_program: Option<HiddenEvalProgram>,
+    pub execution_state: Option<ServerEvalExecutionState>,
 }
 
 impl ServerEvalState {
@@ -113,21 +154,98 @@ impl ServerEvalState {
             server_input_commitment,
             ot_transcript,
             last_request_digest: None,
-            relayer_roots,
-            execution_checkpoints: None,
-            execution_run: None,
+            relayer_roots: Some(relayer_roots),
+            hidden_eval_program: None,
+            execution_state: None,
         }
     }
 
-    pub fn with_execution_materialization(
+    pub fn with_add_stage_materialization(
         &self,
-        execution_checkpoints: ServerEvalExecutionCheckpoints,
-        execution_run: DdhHiddenEvalRun,
+        hidden_eval_program: HiddenEvalProgram,
+        message_schedule: DdhHiddenEvalMessageScheduleContinuation,
+        projector_inputs: DdhHiddenEvalProjectorInputs,
+        client_input_commitment: [u8; 32],
+        server_input_commitment: [u8; 32],
     ) -> Self {
         let mut next = self.clone();
-        next.execution_checkpoints = Some(execution_checkpoints);
-        next.execution_run = Some(execution_run);
+        next.relayer_roots = None;
+        next.hidden_eval_program = Some(hidden_eval_program);
+        next.execution_state = Some(ServerEvalExecutionState::MessageSchedule(
+            ServerEvalMessageScheduleState {
+                message_schedule,
+                projector_inputs,
+                client_input_commitment,
+                server_input_commitment,
+            },
+        ));
         next
+    }
+
+    pub fn current_execution_checkpoint_digest(&self) -> Option<[u8; 32]> {
+        match &self.execution_state {
+            Some(ServerEvalExecutionState::MessageSchedule(state)) => {
+                compute_message_schedule_completed_digest(&state.message_schedule).ok()
+            }
+            Some(ServerEvalExecutionState::RoundCore(state)) => {
+                if state.round_core.rounds_completed == 0 {
+                    Some(state.prior_execution_checkpoint_digest)
+                } else {
+                    compute_round_core_completed_digest(&state.round_core).ok()
+                }
+            }
+            Some(ServerEvalExecutionState::OutputProjection(state)) => {
+                Some(compute_output_projection_continuation_digest(
+                    &state.projector_inputs,
+                ))
+            }
+            Some(ServerEvalExecutionState::Finalize(state)) => Some(
+                compute_output_projection_output_digest(&state.output),
+            ),
+            None => None,
+        }
+    }
+
+    pub fn prior_execution_checkpoint_digest(&self) -> Option<[u8; 32]> {
+        match &self.execution_state {
+            Some(ServerEvalExecutionState::MessageSchedule(state)) => {
+                compute_message_schedule_completed_digest(&state.message_schedule).ok()
+            }
+            Some(ServerEvalExecutionState::RoundCore(state)) => {
+                if state.round_core.rounds_completed == 0 {
+                    Some(state.prior_execution_checkpoint_digest)
+                } else {
+                    compute_round_core_completed_digest(&state.round_core).ok()
+                }
+            }
+            Some(ServerEvalExecutionState::OutputProjection(state)) => {
+                Some(state.prior_execution_checkpoint_digest)
+            }
+            Some(ServerEvalExecutionState::Finalize(_))
+            | None => None,
+        }
+    }
+
+    pub fn finalize_state(&self) -> Option<&ServerEvalFinalizeState> {
+        match &self.execution_state {
+            Some(ServerEvalExecutionState::MessageSchedule(_)) => None,
+            Some(ServerEvalExecutionState::RoundCore(_)) => None,
+            Some(ServerEvalExecutionState::OutputProjection(_)) => None,
+            Some(ServerEvalExecutionState::Finalize(state)) => Some(state),
+            None => None,
+        }
+    }
+
+    pub fn stores_stage_local_continuation(&self) -> bool {
+        self.execution_state.is_some()
+    }
+
+    pub fn relayer_roots(&self) -> Option<&ServerEvalRelayerRoots> {
+        self.relayer_roots.as_ref()
+    }
+
+    pub fn retains_raw_relayer_roots(&self) -> bool {
+        self.relayer_roots.is_some()
     }
 
     pub fn advance_after_add_stage(
@@ -147,10 +265,41 @@ impl ServerEvalState {
         &self,
         next_transcript_digest: [u8; 32],
         request_digest: [u8; 32],
+        next_message_schedule: Option<DdhHiddenEvalMessageScheduleContinuation>,
+        next_round_core: Option<DdhHiddenEvalRoundCoreContinuation>,
     ) -> Self {
         let mut next = self.clone();
-        next.current_stage =
-            if self.current_stage.ordinal + 1 >= ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+        let final_schedule_round =
+            self.current_stage.ordinal + 1 >= ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS;
+        next.execution_state = match (&self.execution_state, final_schedule_round) {
+            (Some(ServerEvalExecutionState::MessageSchedule(state)), true) => Some(
+                ServerEvalExecutionState::RoundCore(ServerEvalRoundCoreState {
+                    prior_execution_checkpoint_digest: compute_message_schedule_completed_digest(
+                        next_message_schedule
+                            .as_ref()
+                            .expect("final message-schedule transition requires next continuation"),
+                    )
+                    .unwrap_or(state.message_schedule.add_stage_digest),
+                    round_core: next_round_core.expect(
+                        "final message-schedule transition requires round-core continuation",
+                    ),
+                    projector_inputs: state.projector_inputs.clone(),
+                    client_input_commitment: state.client_input_commitment,
+                    server_input_commitment: state.server_input_commitment,
+                }),
+            ),
+            (Some(ServerEvalExecutionState::MessageSchedule(state)), false) => Some(
+                ServerEvalExecutionState::MessageSchedule(ServerEvalMessageScheduleState {
+                    message_schedule: next_message_schedule
+                        .expect("message-schedule transition requires next continuation"),
+                    projector_inputs: state.projector_inputs.clone(),
+                    client_input_commitment: state.client_input_commitment,
+                    server_input_commitment: state.server_input_commitment,
+                }),
+            ),
+            (other, _) => other.clone(),
+        };
+        next.current_stage = if final_schedule_round {
                 ServerEvalStageId::round_core(0)
             } else {
                 ServerEvalStageId::message_schedule(self.current_stage.ordinal + 1)
@@ -165,10 +314,37 @@ impl ServerEvalState {
         &self,
         next_transcript_digest: [u8; 32],
         request_digest: [u8; 32],
+        next_round_core: DdhHiddenEvalRoundCoreContinuation,
     ) -> Self {
         let mut next = self.clone();
-        next.current_stage =
-            if self.current_stage.ordinal + 1 >= ServerEvalStageId::ROUND_CORE_ROUNDS {
+        let final_round_core = self.current_stage.ordinal + 1 >= ServerEvalStageId::ROUND_CORE_ROUNDS;
+        next.execution_state = match (&self.execution_state, final_round_core) {
+            (Some(ServerEvalExecutionState::RoundCore(state)), true) => Some(
+                ServerEvalExecutionState::OutputProjection(ServerEvalOutputProjectionState {
+                    prior_execution_checkpoint_digest: compute_round_core_completed_digest(
+                        &next_round_core,
+                    )
+                    .unwrap_or_else(|_| {
+                        compute_output_projection_continuation_digest(&state.projector_inputs)
+                    }),
+                    round_core: next_round_core,
+                    projector_inputs: state.projector_inputs.clone(),
+                    client_input_commitment: state.client_input_commitment,
+                    server_input_commitment: state.server_input_commitment,
+                }),
+            ),
+            (Some(ServerEvalExecutionState::RoundCore(state)), false) => Some(
+                ServerEvalExecutionState::RoundCore(ServerEvalRoundCoreState {
+                    prior_execution_checkpoint_digest: state.prior_execution_checkpoint_digest,
+                    round_core: next_round_core,
+                    projector_inputs: state.projector_inputs.clone(),
+                    client_input_commitment: state.client_input_commitment,
+                    server_input_commitment: state.server_input_commitment,
+                }),
+            ),
+            (other, _) => other.clone(),
+        };
+        next.current_stage = if final_round_core {
                 ServerEvalStageId::output_projection()
             } else {
                 ServerEvalStageId::round_core(self.current_stage.ordinal + 1)
@@ -183,8 +359,15 @@ impl ServerEvalState {
         &self,
         next_transcript_digest: [u8; 32],
         request_digest: [u8; 32],
+        finalize: ServerEvalFinalizeState,
     ) -> Self {
         let mut next = self.clone();
+        next.execution_state = match &self.execution_state {
+            Some(ServerEvalExecutionState::OutputProjection(_)) => {
+                Some(ServerEvalExecutionState::Finalize(finalize))
+            }
+            other => other.clone(),
+        };
         next.current_stage = ServerEvalStageId::output_projection();
         next.current_transcript_digest = next_transcript_digest;
         next.status = ServerEvalStatus::Finalized;

@@ -252,73 +252,80 @@ fn prime_order_succinct_hss_rejects_cross_account_message_schedule_response() {
         prepare_prime_order_succinct_hss(&fixtures[0].input.context).expect("prepare session a");
     let session_b =
         prepare_prime_order_succinct_hss(&fixtures[1].input.context).expect("prepare session b");
-    let (_runtime_a, garbler_session_a, evaluator_session_a) = session_a.split_runtime();
-    let (_runtime_b, garbler_session_b, evaluator_session_b) = session_b.split_runtime();
 
-    let client_ot_offer_message_a = garbler_session_a
-        .client_ot_offer_message()
+    let evaluator_session_a = session_a.evaluator_session();
+    let client_ot_offer_message_a = session_a
+        .prepare_client_ot_offer_message()
         .expect("prepare client OT offer message a");
-    let (client_request_message_a, evaluator_ot_state_a) = evaluator_session_a
+    let garbler_ot_state_a = session_a
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler ot state a");
+    let (client_request_message_a, evaluator_ot_state_a) = session_a
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message_a,
             fixtures[0].input.y_client,
             fixtures[0].input.tau_client,
         )
         .expect("prepare client OT request a");
-    let (server_assist_init_message_a, server_eval_state_a) = garbler_session_a
+    let (server_assist_init_message_a, server_eval_state_a) = session_a
         .prepare_server_assist_init_message(
+            &garbler_ot_state_a,
             &client_request_message_a,
             fixtures[0].input.y_relayer,
             fixtures[0].input.tau_relayer,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init a");
-    let add_stage_request_message_a = evaluator_session_a
+    let add_stage_request_message_a = session_a
         .prepare_add_stage_request_message(
             &client_request_message_a,
             &evaluator_ot_state_a,
             &server_assist_init_message_a,
         )
         .expect("prepare add-stage request a");
-    let (add_stage_response_message_a, _next_state_a) = garbler_session_a
+    let (add_stage_response_message_a, _next_state_a) = session_a
         .prepare_add_stage_response_message(&server_eval_state_a, &add_stage_request_message_a)
         .expect("prepare add-stage response a");
-    let message_schedule_request_message_a = evaluator_session_a
+    let message_schedule_request_message_a = session_a
         .prepare_message_schedule_request_message(&add_stage_response_message_a)
         .expect("prepare message-schedule request a");
 
-    let client_ot_offer_message_b = garbler_session_b
-        .client_ot_offer_message()
+    let client_ot_offer_message_b = session_b
+        .prepare_client_ot_offer_message()
         .expect("prepare client OT offer message b");
-    let (client_request_message_b, evaluator_ot_state_b) = evaluator_session_b
+    let garbler_ot_state_b = session_b
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler ot state b");
+    let (client_request_message_b, evaluator_ot_state_b) = session_b
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message_b,
             fixtures[1].input.y_client,
             fixtures[1].input.tau_client,
         )
         .expect("prepare client OT request b");
-    let (server_assist_init_message_b, server_eval_state_b) = garbler_session_b
+    let (server_assist_init_message_b, server_eval_state_b) = session_b
         .prepare_server_assist_init_message(
+            &garbler_ot_state_b,
             &client_request_message_b,
             fixtures[1].input.y_relayer,
             fixtures[1].input.tau_relayer,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init b");
-    let add_stage_request_message_b = evaluator_session_b
+    let add_stage_request_message_b = session_b
         .prepare_add_stage_request_message(
             &client_request_message_b,
             &evaluator_ot_state_b,
             &server_assist_init_message_b,
         )
         .expect("prepare add-stage request b");
-    let (add_stage_response_message_b, next_state_b) = garbler_session_b
+    let (add_stage_response_message_b, next_state_b) = session_b
         .prepare_add_stage_response_message(&server_eval_state_b, &add_stage_request_message_b)
         .expect("prepare add-stage response b");
-    let message_schedule_request_message_b = evaluator_session_b
+    let message_schedule_request_message_b = session_b
         .prepare_message_schedule_request_message(&add_stage_response_message_b)
         .expect("prepare message-schedule request b");
-    let (message_schedule_response_message_b, _next_state_b) = garbler_session_b
+    let (message_schedule_response_message_b, _next_state_b) = session_b
         .prepare_message_schedule_response_message(
             &next_state_b,
             &message_schedule_request_message_b,
@@ -337,6 +344,97 @@ fn prime_order_succinct_hss_rejects_cross_account_message_schedule_response() {
             || err.to_string().contains("handle")
             || err.to_string().contains("stage id"),
         "unexpected cross-account message-schedule error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_output_projection_replay_after_finalization() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("prepare client OT offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client ot request from offer");
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection(
+            &garbler_ot_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare staged flow to output projection");
+
+    let err = session
+        .prepare_output_projection_response_message(
+            &flow.final_server_eval_state,
+            &flow.output_projection_request_message,
+        )
+        .expect_err("finalized handle must reject output-projection replay");
+    assert!(
+        err.to_string().contains("finalized"),
+        "unexpected finalized replay error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match_finalize_state() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let runtime = session.shared_runtime();
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("prepare client OT offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("prepare garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client ot request from offer");
+    let flow = session
+        .prepare_server_assist_flow_to_output_projection(
+            &garbler_ot_state,
+            &client_request_message,
+            &evaluator_ot_state,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare staged flow to output projection");
+    let mut artifact = session
+        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+            &flow.final_server_eval_state,
+        )
+        .expect("server-owned staged evaluator artifact");
+    artifact.bindings.evaluation_digest[0] ^= 0x01;
+
+    let err = session
+        .prepare_server_finalize_from_staged_evaluator_artifact(
+            &runtime,
+            &flow.final_server_eval_state,
+            &artifact,
+        )
+        .expect_err("tampered artifact must fail finalize-state binding");
+    assert!(
+        err.to_string().contains("finalize state")
+            || err.to_string().contains("evaluation digest"),
+        "unexpected finalize-state mismatch error: {err}"
     );
 }
 

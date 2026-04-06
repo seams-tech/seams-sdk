@@ -455,15 +455,6 @@ pub(crate) struct EncodedServerInputsPayload {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OpenedServerInputs {
-    pub(crate) y_relayer_left: DdhHssTransportBundle,
-    pub(crate) y_relayer_right: DdhHssTransportBundle,
-    pub(crate) tau_relayer_left: DdhHssTransportBundle,
-    pub(crate) tau_relayer_right: DdhHssTransportBundle,
-}
-
-#[cfg(test)]
 #[derive(Debug, Serialize)]
 pub(crate) struct EncodedServerInputsPayloadRef<'a> {
     pub(crate) y_relayer_left: &'a DdhHssTransportBundle,
@@ -491,19 +482,6 @@ pub(crate) fn encode_transport_message<T: Serialize>(
         ))
     })?;
     Ok(WireMessage { bytes })
-}
-
-#[cfg(test)]
-pub(crate) fn deserialize_server_inputs_payload_opened(
-    plaintext: &[u8],
-) -> ProtoResult<OpenedServerInputs> {
-    let payload: EncodedServerInputsPayload = deserialize_server_inputs_payload(plaintext)?;
-    Ok(OpenedServerInputs {
-        y_relayer_left: payload.y_relayer_left,
-        y_relayer_right: payload.y_relayer_right,
-        tau_relayer_left: payload.tau_relayer_left,
-        tau_relayer_right: payload.tau_relayer_right,
-    })
 }
 
 pub(crate) fn decode_transport_message<T: DeserializeOwned>(

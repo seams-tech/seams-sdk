@@ -14,13 +14,14 @@ use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
     AddStageRequestPayload, AddStageResponsePayload, ClientOtOffer, ClientOutputPacket,
     ClientPacket, ClientStageCommitments, ClientStagePayload, ClientStageRequestPacket,
-    EvaluationReport, EvaluatorWitness, MessageScheduleRequestPayload,
-    MessageScheduleResponsePayload, OutputDelivery, OutputProjectionRequestPayload,
-    OutputProjectionResponsePayload, RoundCoreRequestPayload, RoundCoreResponsePayload,
-    RunBindings, SeedOutputPacket, ServerAssistInitPacket, ServerFinalizePacket,
-    ServerStagePayload, ServerStageResponsePacket, StagedEvaluatorArtifact, TransportKind,
-    WireMessage,
+    MessageScheduleRequestPayload, MessageScheduleResponsePayload,
+    OutputProjectionRequestPayload, OutputProjectionResponsePayload, RoundCoreRequestPayload,
+    RoundCoreResponsePayload, RunBindings, SeedOutputPacket, ServerAssistInitPacket,
+    ServerFinalizePacket, ServerStagePayload, ServerStageResponsePacket,
+    StagedEvaluatorArtifact, TransportKind, WireMessage,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::wire::{EvaluationReport, EvaluatorWitness, OutputDelivery};
 use rand_core::{OsRng, RngCore};
 
 impl ClientSessionState {
@@ -1201,24 +1202,39 @@ impl ClientSession {
         runtime: &SharedRuntime,
         ddh_run: DdhHiddenEvalRun,
     ) -> ProtoResult<(StagedEvaluatorArtifact, u64, u64)> {
+        self.build_staged_evaluator_artifact_from_hidden_eval_outputs(
+            runtime,
+            ddh_run.client_input_commitment,
+            ddh_run.server_input_commitment,
+            ddh_run.output,
+        )
+    }
+
+    pub fn build_staged_evaluator_artifact_from_hidden_eval_outputs(
+        &self,
+        runtime: &SharedRuntime,
+        client_input_commitment: [u8; 32],
+        server_input_commitment: [u8; 32],
+        output: crate::ddh::DdhHiddenEvalOutputBundles,
+    ) -> ProtoResult<(StagedEvaluatorArtifact, u64, u64)> {
         let result_assembly_started = monotonic_now_ns();
         let run_binding = self.ddh_evaluator.run_binding(
             runtime.artifact.artifact_digest,
-            ddh_run.client_input_commitment,
-            ddh_run.server_input_commitment,
+            client_input_commitment,
+            server_input_commitment,
         );
         let evaluation_digest = crate::protocol::transcript::compute_evaluation_digest(
             runtime.artifact.artifact_digest,
             run_binding,
             &runtime.execution_result,
-            &ddh_run.output,
+            &output,
         );
         let result_assembly_duration_ns = elapsed_ns_u64(result_assembly_started);
         let output_sealing_started = monotonic_now_ns();
         let client_output = self.seal_client_output_packet_message(
             run_binding,
             evaluation_digest,
-            &ddh_run.output.x_client_base,
+            &output.x_client_base,
         )?;
         let client_output_binding = crate::protocol::transcript::nested_output_message_binding(
             self.context_binding,
@@ -1230,7 +1246,7 @@ impl ClientSession {
         let seed_output = self.seal_seed_output_packet_message(
             run_binding,
             evaluation_digest,
-            &ddh_run.output.canonical_seed,
+            &output.canonical_seed,
         )?;
         let seed_output_binding = crate::protocol::transcript::nested_output_message_binding(
             self.context_binding,
@@ -1241,8 +1257,8 @@ impl ClientSession {
         );
         let server_output_payload = crate::wire::serialize_transport_pair_payload(
             "server_output_bundle",
-            &ddh_run.output.x_relayer_base_left,
-            &ddh_run.output.x_relayer_base_right,
+            &output.x_relayer_base_left,
+            &output.x_relayer_base_right,
         )?;
         let server_output_payload_binding =
             crate::protocol::transcript::server_output_payload_binding(
@@ -1256,8 +1272,8 @@ impl ClientSession {
             StagedEvaluatorArtifact {
                 context_binding: self.context_binding,
                 bindings: RunBindings {
-                    client_input_commitment: ddh_run.client_input_commitment,
-                    server_input_commitment: ddh_run.server_input_commitment,
+                    client_input_commitment,
+                    server_input_commitment,
                     run_binding,
                     evaluation_digest,
                 },
@@ -1280,6 +1296,7 @@ impl ClientSession {
         ))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn build_final_report_from_hidden_run(
         &self,
         runtime: &SharedRuntime,

@@ -1523,6 +1523,10 @@ impl DdhHssBackend {
 }
 
 impl DdhHssGarbler {
+    pub(crate) fn backend(&self) -> &DdhHssBackend {
+        &self.backend
+    }
+
     pub fn evaluation_key(&self) -> &DdhHssEvaluationKey {
         self.backend.evaluation_key()
     }
@@ -2168,6 +2172,7 @@ impl DdhHssEvaluator {
         .0)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn reconstruct_client_ot_bundle_timed_trusted(
         &self,
         expected_context_binding: [u8; 32],
@@ -5595,6 +5600,7 @@ fn reconstruct_client_ot_bundle_timed_public(
     ))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn reconstruct_client_ot_bundle_timed_trusted_public(
     evaluation_key: &DdhHssEvaluationKey,
     expected_context_binding: [u8; 32],

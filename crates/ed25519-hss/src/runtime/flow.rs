@@ -76,7 +76,7 @@ impl PreparedSession {
         client_stage_request_message: &WireMessage,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let mut server_eval_state = server_eval_state.clone();
-        if server_eval_state.execution_checkpoints.is_none() {
+        if server_eval_state.execution_state.is_none() {
             let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
                 self.candidate().context_binding,
                 crate::wire::TransportKind::ClientStageRequest,
@@ -255,14 +255,19 @@ impl PreparedSession {
         &self,
         server_eval_state: &ServerEvalState,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
-        let execution_run = server_eval_state.execution_run.clone().ok_or_else(|| {
+        let finalize_state = server_eval_state.finalize_state().cloned().ok_or_else(|| {
             ProtoError::InvalidInput(
-                "staged flow did not materialize a server-owned hidden-eval run".to_string(),
+                "staged flow did not materialize server-owned finalize state".to_string(),
             )
         })?;
         let (artifact, _, _) = self
             .evaluator_session()
-            .build_staged_evaluator_artifact_from_hidden_run(&self.shared_runtime(), execution_run)?;
+            .build_staged_evaluator_artifact_from_hidden_eval_outputs(
+                &self.shared_runtime(),
+                finalize_state.client_input_commitment,
+                finalize_state.server_input_commitment,
+                finalize_state.output,
+            )?;
         Ok(artifact)
     }
 

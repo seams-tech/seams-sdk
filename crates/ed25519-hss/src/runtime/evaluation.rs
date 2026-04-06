@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use crate::ddh::DdhHssOtReconstructTiming;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17,6 +18,7 @@ pub struct EvaluateTiming {
 }
 
 impl EvaluateTiming {
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn add_assign(&mut self, other: Self) {
         self.ot_open_join_duration_ns = self
             .ot_open_join_duration_ns
@@ -56,6 +58,7 @@ impl EvaluateTiming {
             .saturating_add(other.result_assembly_duration_ns);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn add_ot_reconstruct_timing(&mut self, other: DdhHssOtReconstructTiming) {
         self.ot_branch_key_derivation_duration_ns = self
             .ot_branch_key_derivation_duration_ns

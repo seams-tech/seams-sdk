@@ -169,6 +169,36 @@ pub struct DdhHiddenEvalExecutionTrace {
     pub checkpoint_digests: DdhHiddenEvalCheckpointDigests,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalMessageScheduleContinuation {
+    pub add_stage_digest: [u8; 32],
+    pub schedule_words: Vec<Vec<DdhHssSharedWord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalRoundCoreContinuation {
+    pub rounds_completed: u16,
+    pub schedule_words: Vec<Vec<DdhHssSharedWord>>,
+    pub state_words: Vec<Vec<DdhHssSharedWord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalProjectorInputs {
+    pub add_stage_bits: Vec<DdhHssSharedWord>,
+    pub tau_client_bits: Vec<DdhHssSharedWord>,
+    pub tau_relayer_left_bits: Vec<DdhHssTransportWord>,
+    pub tau_relayer_right_bits: Vec<DdhHssTransportWord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalStagedMaterialization {
+    pub add_stage_digest: [u8; 32],
+    pub message_schedule: DdhHiddenEvalMessageScheduleContinuation,
+    pub projector_inputs: DdhHiddenEvalProjectorInputs,
+    pub client_input_commitment: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalStageProfile {
     pub input_sharing_duration_ns: u128,
@@ -523,7 +553,9 @@ fn digest_split_local_bit_words(
     Ok(hasher.finalize().into())
 }
 
-fn digest_hidden_eval_output_bundles(output: &DdhHiddenEvalOutputBundles) -> [u8; 32] {
+pub fn compute_output_projection_output_digest(
+    output: &DdhHiddenEvalOutputBundles,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"prime_order_ddh_hidden_eval_output_projection_digest_v0");
     hasher.update(output.canonical_seed.commitment);
@@ -531,6 +563,76 @@ fn digest_hidden_eval_output_bundles(output: &DdhHiddenEvalOutputBundles) -> [u8
     hasher.update(output.x_relayer_base_left.commitment);
     hasher.update(output.x_relayer_base_right.commitment);
     hasher.finalize().into()
+}
+
+pub fn compute_output_projection_continuation_digest(
+    continuation: &DdhHiddenEvalProjectorInputs,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"prime_order_ddh_hidden_eval_output_projection_continuation_digest_v0");
+    hasher.update(digest_shared_words(
+        b"add_stage_bits",
+        &continuation.add_stage_bits,
+    ));
+    hasher.update(digest_shared_words(
+        b"tau_client_bits",
+        &continuation.tau_client_bits,
+    ));
+    for word in &continuation.tau_relayer_left_bits {
+        hasher.update(word.width_bits.to_le_bytes());
+        hasher.update(match word.share_side {
+            DdhHssShareSide::Left => [0u8],
+            DdhHssShareSide::Right => [1u8],
+        });
+        hasher.update(word.share_word.to_le_bytes());
+        hasher.update(word.share_commitment);
+        hasher.update(word.counterparty_commitment);
+        hasher.update(word.provenance_digest);
+    }
+    for word in &continuation.tau_relayer_right_bits {
+        hasher.update(word.width_bits.to_le_bytes());
+        hasher.update(match word.share_side {
+            DdhHssShareSide::Left => [0u8],
+            DdhHssShareSide::Right => [1u8],
+        });
+        hasher.update(word.share_word.to_le_bytes());
+        hasher.update(word.share_commitment);
+        hasher.update(word.counterparty_commitment);
+        hasher.update(word.provenance_digest);
+    }
+    hasher.finalize().into()
+}
+
+pub fn compute_message_schedule_completed_digest(
+    continuation: &DdhHiddenEvalMessageScheduleContinuation,
+) -> ProtoResult<[u8; 32]> {
+    if continuation.schedule_words.len() <= 16 {
+        return Ok(continuation.add_stage_digest);
+    }
+    let words = continuation
+        .schedule_words
+        .iter()
+        .map(|word| SplitLocalBitWord::from_shared_bits(word))
+        .collect::<ProtoResult<Vec<_>>>()?;
+    digest_split_local_bit_words(b"message_schedule", &words)
+}
+
+pub fn compute_round_core_completed_digest(
+    continuation: &DdhHiddenEvalRoundCoreContinuation,
+) -> ProtoResult<[u8; 32]> {
+    let state_words = continuation
+        .state_words
+        .iter()
+        .map(|word| SplitLocalBitWord::from_shared_bits(word))
+        .collect::<ProtoResult<Vec<_>>>()?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"prime_order_ddh_hidden_eval_round_core_continuation_digest_v1");
+    hasher.update(continuation.rounds_completed.to_le_bytes());
+    hasher.update((state_words.len() as u64).to_le_bytes());
+    for word in &state_words {
+        hasher.update(digest_split_local_bit_word(b"state_word", word)?);
+    }
+    Ok(hasher.finalize().into())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -640,6 +742,38 @@ impl RoundKernelState {
             )?);
         }
         Ok(final_words)
+    }
+
+    fn from_shared_bits(words: &[Vec<DdhHssSharedWord>]) -> ProtoResult<Self> {
+        if words.len() != 8 {
+            return Err(ProtoError::InvalidInput(format!(
+                "round-core state must contain 8 words, got {}",
+                words.len()
+            )));
+        }
+        let mut local_words = words
+            .iter()
+            .map(|word| SplitLocalBitWord::from_shared_bits(word))
+            .collect::<ProtoResult<Vec<_>>>()?;
+        Ok(Self {
+            a: local_words.remove(0),
+            b: local_words.remove(0),
+            c: local_words.remove(0),
+            d: local_words.remove(0),
+            e: local_words.remove(0),
+            f: local_words.remove(0),
+            g: local_words.remove(0),
+            h: local_words.remove(0),
+        })
+    }
+
+    fn to_shared_bits(&self) -> ProtoResult<Vec<Vec<DdhHssSharedWord>>> {
+        [
+            &self.a, &self.b, &self.c, &self.d, &self.e, &self.f, &self.g, &self.h,
+        ]
+        .into_iter()
+        .map(|word| word.to_shared_bits())
+        .collect()
     }
 }
 
@@ -1248,7 +1382,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
-    let output_projection_digest = digest_hidden_eval_output_bundles(&output);
+    let output_projection_digest = compute_output_projection_output_digest(&output);
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1381,7 +1515,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &tau_relayer_bits.right_words,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
-    let output_projection_digest = digest_hidden_eval_output_bundles(&output);
+    let output_projection_digest = compute_output_projection_output_digest(&output);
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1458,6 +1592,340 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_p
     Ok(DdhHiddenEvalExecutionTrace {
         run,
         checkpoint_digests,
+    })
+}
+
+pub fn materialize_message_schedule_continuation_with_split_server_inputs_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+) -> ProtoResult<DdhHiddenEvalMessageScheduleContinuation> {
+    ensure_program_shape(program)?;
+    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits.words)?;
+    let d_bits = execute_add_stage(
+        backend,
+        &program.stages[0],
+        &y_client_bits_local,
+        &y_relayer_bits.left_words,
+        &y_relayer_bits.right_words,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
+    let schedule_output =
+        execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
+    let schedule_words = schedule_output
+        .words
+        .into_iter()
+        .map(|word| word.to_shared_bits())
+        .collect::<ProtoResult<Vec<_>>>()?;
+    let _ = (tau_client_bits, tau_relayer_bits);
+    Ok(DdhHiddenEvalMessageScheduleContinuation {
+        add_stage_digest,
+        schedule_words,
+    })
+}
+
+pub fn initialize_message_schedule_continuation(
+    add_stage_digest: [u8; 32],
+    add_stage_bits: &[DdhHssSharedWord],
+    constant_pool: &DdhHiddenEvalConstantPool,
+) -> ProtoResult<DdhHiddenEvalMessageScheduleContinuation> {
+    let d_bits = SplitLocalBitWord::from_shared_bits(add_stage_bits)?;
+    let schedule_words =
+        initial_one_block_schedule_prefix_local_words(&d_bits, &constant_pool.schedule_suffix_words)?
+            .into_iter()
+            .map(|word| word.to_shared_bits())
+            .collect::<ProtoResult<Vec<_>>>()?;
+    Ok(DdhHiddenEvalMessageScheduleContinuation {
+        add_stage_digest,
+        schedule_words,
+    })
+}
+
+pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    continuation: &DdhHiddenEvalMessageScheduleContinuation,
+) -> ProtoResult<DdhHiddenEvalMessageScheduleContinuation> {
+    if continuation.schedule_words.len() < 16 || continuation.schedule_words.len() >= 80 {
+        return Err(ProtoError::InvalidInput(format!(
+            "message-schedule continuation must hold between 16 and 79 words, got {}",
+            continuation.schedule_words.len()
+        )));
+    }
+    let mut words = continuation
+        .schedule_words
+        .iter()
+        .map(|word| SplitLocalBitWord::from_shared_bits(word))
+        .collect::<ProtoResult<Vec<_>>>()?;
+    let t = words.len();
+    let sigma0 = small_sigma0_local_bits(
+        backend,
+        &format!("message_schedule/{t}/sigma0"),
+        &words[t - 15],
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let sigma1 = small_sigma1_local_bits(
+        backend,
+        &format!("message_schedule/{t}/sigma1"),
+        &words[t - 2],
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let (accumulation_arith, _) = add_four_local_bit_pairs_to_arithmetic_naive(
+        backend,
+        &format!("message_schedule/{t}"),
+        words[t - 16].as_pair_ref(),
+        sigma0.as_pair_ref(),
+        words[t - 7].as_pair_ref(),
+        sigma1.as_pair_ref(),
+    )?;
+    let accumulation = arithmetic_word_pair_to_split_local_bits_secure(
+        backend,
+        &format!("message_schedule/{t}/out"),
+        &accumulation_arith,
+    )?;
+    words.push(accumulation);
+    Ok(DdhHiddenEvalMessageScheduleContinuation {
+        add_stage_digest: continuation.add_stage_digest,
+        schedule_words: words
+            .into_iter()
+            .map(|word| word.to_shared_bits())
+            .collect::<ProtoResult<Vec<_>>>()?,
+    })
+}
+
+pub fn initialize_round_core_continuation_from_message_schedule_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    message_schedule: &DdhHiddenEvalMessageScheduleContinuation,
+) -> ProtoResult<DdhHiddenEvalRoundCoreContinuation> {
+    ensure_program_shape(program)?;
+    if message_schedule.schedule_words.len() != 80 {
+        return Err(ProtoError::InvalidInput(format!(
+            "message-schedule continuation must contain 80 words, got {}",
+            message_schedule.schedule_words.len()
+        )));
+    }
+    let _ = backend;
+    Ok(DdhHiddenEvalRoundCoreContinuation {
+        rounds_completed: 0,
+        schedule_words: message_schedule.schedule_words.clone(),
+        state_words: RoundKernelState::from_iv_words(&constant_pool.sha512_iv_words)
+            .to_shared_bits()?,
+    })
+}
+
+pub fn advance_round_core_continuation_with_pool<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    continuation: &DdhHiddenEvalRoundCoreContinuation,
+) -> ProtoResult<DdhHiddenEvalRoundCoreContinuation> {
+    if continuation.schedule_words.len() != 80 {
+        return Err(ProtoError::InvalidInput(format!(
+            "round-core continuation must contain 80 schedule words, got {}",
+            continuation.schedule_words.len()
+        )));
+    }
+    let round = usize::from(continuation.rounds_completed);
+    if round >= 80 {
+        return Err(ProtoError::InvalidInput(
+            "round-core continuation has already completed all 80 rounds".to_string(),
+        ));
+    }
+    let schedule_words = continuation
+        .schedule_words
+        .iter()
+        .map(|word| SplitLocalBitWord::from_shared_bits(word))
+        .collect::<ProtoResult<Vec<_>>>()?;
+    let mut state = RoundKernelState::from_shared_bits(&continuation.state_words)?;
+    let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
+    big_sigma1_local_bits_into(
+        backend,
+        &format!("round_core/{round}/sigma1"),
+        state.e.as_pair_ref(),
+        &mut boolean_scratch.sigma1,
+    )?;
+    ch_local_bits_into(
+        backend,
+        &format!("round_core/{round}/ch"),
+        state.e.as_pair_ref(),
+        state.f.as_pair_ref(),
+        state.g.as_pair_ref(),
+        &mut boolean_scratch,
+    )?;
+    let (temp1, _) = add_five_local_bit_pairs_to_arithmetic_naive(
+        backend,
+        &format!("round_core/{round}/temp1"),
+        state.h.as_pair_ref(),
+        boolean_scratch.sigma1.as_pair_ref(),
+        boolean_scratch.choose.as_pair_ref(),
+        constant_pool.sha512_round_constants[round].as_pair_ref(),
+        schedule_words[round].as_pair_ref(),
+    )?;
+    big_sigma0_local_bits_into(
+        backend,
+        &format!("round_core/{round}/sigma0"),
+        state.a.as_pair_ref(),
+        &mut boolean_scratch.sigma0,
+    )?;
+    maj_local_bits_into(
+        backend,
+        &format!("round_core/{round}/maj"),
+        state.a.as_pair_ref(),
+        state.b.as_pair_ref(),
+        state.c.as_pair_ref(),
+        &mut boolean_scratch,
+    )?;
+    let (temp2, _) = add_two_local_bit_pairs_to_arithmetic_naive(
+        backend,
+        &format!("round_core/{round}/temp2"),
+        boolean_scratch.sigma0.as_pair_ref(),
+        boolean_scratch.majority.as_pair_ref(),
+    )?;
+    let state3 = split_local_bit_pair_to_arithmetic_word_pair_naive(
+        backend,
+        &format!("round_core/{round}/state3"),
+        state.d.as_pair_ref(),
+    )?;
+    let arithmetic_temps = RoundKernelArithmeticTemps { temp1, temp2, state3 };
+    let new_a_arith = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        &format!("round_core/{round}/new_a"),
+        &arithmetic_temps.temp1,
+        &arithmetic_temps.temp2,
+    )?;
+    let new_a = arithmetic_word_pair_to_split_local_bits_secure(
+        backend,
+        &format!("round_core/{round}/new_a_bits"),
+        &new_a_arith,
+    )?;
+    let new_e_arith = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        &format!("round_core/{round}/new_e"),
+        &arithmetic_temps.state3,
+        &arithmetic_temps.temp1,
+    )?;
+    let new_e = arithmetic_word_pair_to_split_local_bits_secure(
+        backend,
+        &format!("round_core/{round}/new_e_bits"),
+        &new_e_arith,
+    )?;
+    state.rotate_with_new_words(new_a, new_e);
+    Ok(DdhHiddenEvalRoundCoreContinuation {
+        rounds_completed: continuation.rounds_completed.saturating_add(1),
+        schedule_words: continuation.schedule_words.clone(),
+        state_words: state.to_shared_bits()?,
+    })
+}
+
+pub fn compute_round_core_continuation_digest(
+    continuation: &DdhHiddenEvalRoundCoreContinuation,
+) -> ProtoResult<[u8; 32]> {
+    compute_round_core_completed_digest(continuation)
+}
+
+fn materialize_projector_inputs_from_add_stage_inputs(
+    d_bits: &SplitLocalBitWord,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+) -> ProtoResult<DdhHiddenEvalProjectorInputs> {
+    Ok(DdhHiddenEvalProjectorInputs {
+        add_stage_bits: d_bits.to_shared_bits()?,
+        tau_client_bits: tau_client_bits.words.clone(),
+        tau_relayer_left_bits: tau_relayer_bits.left_words.clone(),
+        tau_relayer_right_bits: tau_relayer_bits.right_words.clone(),
+    })
+}
+
+pub fn materialize_output_bundles_from_continuations_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    round_core: &DdhHiddenEvalRoundCoreContinuation,
+    projector_inputs: &DdhHiddenEvalProjectorInputs,
+) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+    ensure_program_shape(program)?;
+    let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
+    let round_state = RoundKernelState::from_shared_bits(&round_core.state_words)?;
+    let final_words = round_state.finalize_with_iv(
+        backend,
+        &constant_pool.sha512_iv_words,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let tau_client_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.tau_client_bits)?;
+    execute_output_projector_stage(
+        backend,
+        constant_pool,
+        &program.stages[6],
+        &d_bits,
+        &final_words,
+        &tau_client_bits,
+        &projector_inputs.tau_relayer_left_bits,
+        &projector_inputs.tau_relayer_right_bits,
+    )
+}
+
+pub fn materialize_staged_server_execution_with_split_server_inputs_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+) -> ProtoResult<DdhHiddenEvalStagedMaterialization> {
+    ensure_program_shape(program)?;
+    let client_input_commitment = combine_bundle_commitments(
+        backend,
+        HiddenEvalInputOwner::Client,
+        &[y_client_bits, tau_client_bits],
+    );
+    let server_input_commitment =
+        combine_server_input_bundle_commitments(backend, y_relayer_bits, tau_relayer_bits);
+    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits.words)?;
+    let d_bits = execute_add_stage(
+        backend,
+        &program.stages[0],
+        &y_client_bits_local,
+        &y_relayer_bits.left_words,
+        &y_relayer_bits.right_words,
+        &constant_pool.zero_left,
+        &constant_pool.zero_right,
+    )?;
+    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
+
+    let message_schedule =
+        initialize_message_schedule_continuation(add_stage_digest, &d_bits.to_shared_bits()?, constant_pool)?;
+
+    let projector_inputs = materialize_projector_inputs_from_add_stage_inputs(
+        &d_bits,
+        tau_client_bits,
+        tau_relayer_bits,
+    )?;
+
+    Ok(DdhHiddenEvalStagedMaterialization {
+        add_stage_digest,
+        message_schedule,
+        projector_inputs,
+        client_input_commitment,
+        server_input_commitment,
     })
 }
 

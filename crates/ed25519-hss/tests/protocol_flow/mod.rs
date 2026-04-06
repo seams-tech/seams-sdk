@@ -1,7 +1,7 @@
 use ed25519_hss::ddh::HiddenEvalInputOwner;
 use ed25519_hss::fixtures::deterministic_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
-use ed25519_hss::server::ServerEvalOperation;
+use ed25519_hss::server::{ServerEvalExecutionState, ServerEvalOperation};
 use ed25519_hss::shared::{public_key_from_base_shares, ProtoError};
 use ed25519_hss::wire::{
     ClientStagePayload, ClientStageRequestPacket, HiddenCoreMaterialization,
@@ -423,14 +423,29 @@ fn prime_order_succinct_hss_prepared_session_exposes_new_server_assist_rounds() 
         !add_stage_request_payload.tau_client_bundle_payload.is_empty(),
         "add-stage request must carry the encoded tau_client bundle for server-owned execution seeding"
     );
-    let checkpoints = server_eval_state
-        .execution_checkpoints
-        .as_ref()
-        .expect("execution checkpoints on post-add-stage server state");
+    let ed25519_hss::wire::ClientStagePayload::MessageSchedule(message_schedule_request_payload) =
+        &message_schedule_request.client_stage_payload
+    else {
+        panic!("expected message-schedule request payload");
+    };
     assert_eq!(
         add_stage_response_payload.execution_checkpoint_digest,
-        checkpoints.add_stage_digest
+        message_schedule_request_payload.prior_server_stage_digest
     );
+    assert!(
+        !server_eval_state.retains_raw_relayer_roots(),
+        "post-add-stage server state must drop raw relayer roots"
+    );
+    match server_eval_state
+        .execution_state
+        .as_ref()
+        .expect("post-add-stage execution state")
+    {
+        ServerEvalExecutionState::MessageSchedule(_) => {}
+        other => panic!(
+            "post-add-stage state should advance into message-schedule continuation, got {other:?}"
+        ),
+    }
     assert_eq!(
         message_schedule_request.stage_id,
         ed25519_hss::wire::ServerEvalStageId::message_schedule(0)
@@ -811,18 +826,20 @@ fn prime_order_succinct_hss_prepared_session_can_drive_staged_flow_to_output_pro
         flow.final_server_eval_state.status,
         ed25519_hss::server::ServerEvalStatus::Finalized
     );
-    let checkpoints = flow
-        .final_server_eval_state
-        .execution_checkpoints
-        .as_ref()
-        .expect("execution checkpoints on staged flow state");
     assert!(
-        flow.final_server_eval_state.execution_run.is_some(),
-        "staged flow should materialize a server-owned hidden-eval run"
+        flow.final_server_eval_state.stores_stage_local_continuation(),
+        "staged flow should store a stage-local continuation"
     );
-    assert_eq!(
+    assert_ne!(
         output_projection_payload.execution_checkpoint_digest,
-        checkpoints.output_projection_digest
+        flow.final_server_eval_state
+            .current_execution_checkpoint_digest()
+            .expect("finalized output-projection digest on staged flow state"),
+        "output-projection response should bind the pre-finalize continuation digest, not the finalized output digest",
+    );
+    assert!(
+        flow.final_server_eval_state.finalize_state().is_some(),
+        "output-projection completion should materialize finalize state",
     );
 }
 

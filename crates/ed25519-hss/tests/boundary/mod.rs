@@ -11,18 +11,6 @@ use crate::support::{
     TransportKind,
 };
 
-fn build_staged_evaluator_artifact_same_process(
-    session: &ed25519_hss::protocol::PreparedSession,
-    input: &ed25519_hss::shared::FExpandInput,
-) -> ed25519_hss::shared::ProtoResult<ed25519_hss::wire::StagedEvaluatorArtifact> {
-    let runtime = session.shared_runtime();
-    let evaluator_session = session.evaluator_session();
-    let ddh_run = session.evaluate_hidden_run_for_clear_input_debug(input)?;
-    evaluator_session
-        .build_staged_evaluator_artifact_from_hidden_run(&runtime, ddh_run)
-        .map(|(artifact, _, _)| artifact)
-}
-
 fn boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
     deterministic_fixture_corpus()
         .expect("fixture corpus")
@@ -234,9 +222,11 @@ fn wire_messages_do_not_embed_clear_client_or_server_inputs() {
         )
         .expect("prepare staged assist flow");
     let runtime = session.shared_runtime();
-    let staged_evaluator_artifact =
-        build_staged_evaluator_artifact_same_process(&session, &fixture.input)
-            .expect("build staged evaluator artifact");
+    let staged_evaluator_artifact = session
+        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+            &flow.final_server_eval_state,
+        )
+        .expect("build staged evaluator artifact");
     let (server_finalize_message, _report) = session
         .prepare_server_finalize_message_from_staged_evaluator_artifact(
             &runtime,
@@ -449,19 +439,25 @@ fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots()
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, server_eval_state) = garbler_session
+    let evaluator_session = session.evaluator_session();
+
+    let (server_assist_init_message, server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -469,7 +465,7 @@ fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots()
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -477,15 +473,15 @@ fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots()
         )
         .expect("prepare add-stage request message");
 
-    let (server_add_stage_response_message, next_server_eval_state) = garbler_session
+    let (server_add_stage_response_message, next_server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
 
-    let client_message_schedule_request_message = evaluator_session
+    let client_message_schedule_request_message = session
         .prepare_message_schedule_request_message(&server_add_stage_response_message)
         .expect("prepare message-schedule request message");
 
-    let (server_message_schedule_response_message, final_server_eval_state) = garbler_session
+    let (server_message_schedule_response_message, final_server_eval_state) = session
         .prepare_message_schedule_response_message(
             &next_server_eval_state,
             &client_message_schedule_request_message,
@@ -543,19 +539,25 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, server_eval_state) = garbler_session
+    let evaluator_session = session.evaluator_session();
+
+    let (server_assist_init_message, server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -563,7 +565,7 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -571,14 +573,14 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
         )
         .expect("prepare add-stage request message");
 
-    let (server_add_stage_response_message, next_server_eval_state) = garbler_session
+    let (server_add_stage_response_message, next_server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
 
-    let client_message_schedule_request_0 = evaluator_session
+    let client_message_schedule_request_0 = session
         .prepare_message_schedule_request_message(&server_add_stage_response_message)
         .expect("prepare first message-schedule request");
-    let (server_message_schedule_response_0, next_server_eval_state) = garbler_session
+    let (server_message_schedule_response_0, next_server_eval_state) = session
         .prepare_message_schedule_response_message(
             &next_server_eval_state,
             &client_message_schedule_request_0,
@@ -593,10 +595,10 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
         )
         .expect("decode first message-schedule response");
 
-    let client_message_schedule_request_1 = evaluator_session
+    let client_message_schedule_request_1 = session
         .prepare_message_schedule_request_message(&server_message_schedule_response_0)
         .expect("prepare second message-schedule request");
-    let (server_message_schedule_response_1, final_server_eval_state) = garbler_session
+    let (server_message_schedule_response_1, final_server_eval_state) = session
         .prepare_message_schedule_response_message(
             &next_server_eval_state,
             &client_message_schedule_request_1,
@@ -649,19 +651,23 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, server_eval_state) = garbler_session
+    let (server_assist_init_message, server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -669,7 +675,7 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -677,24 +683,24 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
         )
         .expect("prepare add-stage request message");
 
-    let (server_add_stage_response_message, next_server_eval_state) = garbler_session
+    let (server_add_stage_response_message, next_server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
 
-    let client_message_schedule_request_0 = evaluator_session
+    let client_message_schedule_request_0 = session
         .prepare_message_schedule_request_message(&server_add_stage_response_message)
         .expect("prepare first message-schedule request");
-    let (server_message_schedule_response_0, next_server_eval_state) = garbler_session
+    let (server_message_schedule_response_0, next_server_eval_state) = session
         .prepare_message_schedule_response_message(
             &next_server_eval_state,
             &client_message_schedule_request_0,
         )
         .expect("prepare first message-schedule response");
 
-    let client_message_schedule_request_1 = evaluator_session
+    let client_message_schedule_request_1 = session
         .prepare_message_schedule_request_message(&server_message_schedule_response_0)
         .expect("prepare second message-schedule request");
-    let (server_message_schedule_response_1, _) = garbler_session
+    let (server_message_schedule_response_1, _) = session
         .prepare_message_schedule_response_message(
             &next_server_eval_state,
             &client_message_schedule_request_1,
@@ -748,19 +754,24 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, server_eval_state) = garbler_session
+    let (server_assist_init_message, server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -768,7 +779,7 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -776,16 +787,16 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
         )
         .expect("prepare add-stage request message");
 
-    let (server_stage_response_message, mut server_eval_state) = garbler_session
+    let (server_stage_response_message, mut server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
 
     let mut prior_stage_response_message = server_stage_response_message;
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-        let client_message_schedule_request_message = evaluator_session
+        let client_message_schedule_request_message = session
             .prepare_message_schedule_request_message(&prior_stage_response_message)
             .expect("prepare message-schedule request message");
-        let (server_message_schedule_response_message, next_server_eval_state) = garbler_session
+        let (server_message_schedule_response_message, next_server_eval_state) = session
             .prepare_message_schedule_response_message(
                 &server_eval_state,
                 &client_message_schedule_request_message,
@@ -795,10 +806,10 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
         server_eval_state = next_server_eval_state;
     }
 
-    let client_round_core_request_message = evaluator_session
+    let client_round_core_request_message = session
         .prepare_round_core_request_message(&prior_stage_response_message)
         .expect("prepare round-core request message");
-    let (server_round_core_response_message, final_server_eval_state) = garbler_session
+    let (server_round_core_response_message, final_server_eval_state) = session
         .prepare_round_core_response_message(&server_eval_state, &client_round_core_request_message)
         .expect("prepare round-core response message");
 
@@ -857,19 +868,24 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, server_eval_state) = garbler_session
+    let (server_assist_init_message, server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -877,7 +893,7 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -885,16 +901,16 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
         )
         .expect("prepare add-stage request message");
 
-    let (server_stage_response_message, mut server_eval_state) = garbler_session
+    let (server_stage_response_message, mut server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
 
     let mut prior_stage_response_message = server_stage_response_message;
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-        let client_message_schedule_request_message = evaluator_session
+        let client_message_schedule_request_message = session
             .prepare_message_schedule_request_message(&prior_stage_response_message)
             .expect("prepare message-schedule request message");
-        let (server_message_schedule_response_message, next_server_eval_state) = garbler_session
+        let (server_message_schedule_response_message, next_server_eval_state) = session
             .prepare_message_schedule_response_message(
                 &server_eval_state,
                 &client_message_schedule_request_message,
@@ -904,17 +920,17 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
         server_eval_state = next_server_eval_state;
     }
 
-    let client_round_core_request_0 = evaluator_session
+    let client_round_core_request_0 = session
         .prepare_round_core_request_message(&prior_stage_response_message)
         .expect("prepare first round-core request message");
-    let (server_round_core_response_0, server_eval_state) = garbler_session
+    let (server_round_core_response_0, server_eval_state) = session
         .prepare_round_core_response_message(&server_eval_state, &client_round_core_request_0)
         .expect("prepare first round-core response message");
 
-    let client_round_core_request_1 = evaluator_session
+    let client_round_core_request_1 = session
         .prepare_round_core_request_message(&server_round_core_response_0)
         .expect("prepare second round-core request message");
-    let (server_round_core_response_1, final_server_eval_state) = garbler_session
+    let (server_round_core_response_1, final_server_eval_state) = session
         .prepare_round_core_response_message(&server_eval_state, &client_round_core_request_1)
         .expect("prepare second round-core response message");
 
@@ -960,19 +976,24 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let evaluator_session = session.evaluator_session();
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, mut server_eval_state) = garbler_session
+    let (server_assist_init_message, mut server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -980,7 +1001,7 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
@@ -988,16 +1009,16 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
         )
         .expect("prepare add-stage request message");
 
-    let (mut prior_stage_response_message, next_server_eval_state) = garbler_session
+    let (mut prior_stage_response_message, next_server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
     server_eval_state = next_server_eval_state;
 
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-        let client_message_schedule_request_message = evaluator_session
+        let client_message_schedule_request_message = session
             .prepare_message_schedule_request_message(&prior_stage_response_message)
             .expect("prepare message-schedule request message");
-        let (server_message_schedule_response_message, next_server_eval_state) = garbler_session
+        let (server_message_schedule_response_message, next_server_eval_state) = session
             .prepare_message_schedule_response_message(
                 &server_eval_state,
                 &client_message_schedule_request_message,
@@ -1008,10 +1029,10 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
     }
 
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
-        let client_round_core_request_message = evaluator_session
+        let client_round_core_request_message = session
             .prepare_round_core_request_message(&prior_stage_response_message)
             .expect("prepare round-core request message");
-        let (server_round_core_response_message, next_server_eval_state) = garbler_session
+        let (server_round_core_response_message, next_server_eval_state) = session
             .prepare_round_core_response_message(
                 &server_eval_state,
                 &client_round_core_request_message,
@@ -1021,10 +1042,10 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
         server_eval_state = next_server_eval_state;
     }
 
-    let client_output_projection_request_message = evaluator_session
+    let client_output_projection_request_message = session
         .prepare_output_projection_request_message(&prior_stage_response_message)
         .expect("prepare output-projection request message");
-    let (server_output_projection_response_message, final_server_eval_state) = garbler_session
+    let (server_output_projection_response_message, final_server_eval_state) = session
         .prepare_output_projection_response_message(
             &server_eval_state,
             &client_output_projection_request_message,
@@ -1090,19 +1111,23 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
-    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let client_ot_offer_message = session
+        .prepare_client_ot_offer_message()
+        .expect("client ot offer message");
+    let garbler_ot_state = session
+        .prepare_garbler_ot_state()
+        .expect("garbler ot state");
+    let (client_request_message, evaluator_ot_state) = session
         .prepare_client_ot_request_from_offer_message(
-            &garbler_session
-                .client_ot_offer_message()
-                .expect("client ot offer message"),
+            &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client request from offer");
 
-    let (server_assist_init_message, mut server_eval_state) = garbler_session
+    let (server_assist_init_message, mut server_eval_state) = session
         .prepare_server_assist_init_message(
+            &garbler_ot_state,
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
@@ -1110,14 +1135,14 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
         )
         .expect("prepare server assist init message");
 
-    let client_add_stage_request_message = evaluator_session
+    let client_add_stage_request_message = session
         .prepare_add_stage_request_message(
             &client_request_message,
             &evaluator_ot_state,
             &server_assist_init_message,
         )
         .expect("prepare add-stage request message");
-    let (server_add_stage_response_message, next_server_eval_state) = garbler_session
+    let (server_add_stage_response_message, next_server_eval_state) = session
         .prepare_add_stage_response_message(&server_eval_state, &client_add_stage_request_message)
         .expect("prepare add-stage response message");
     server_eval_state = next_server_eval_state;
@@ -1134,10 +1159,10 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
     }
 
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-        let client_message_schedule_request_message = evaluator_session
+        let client_message_schedule_request_message = session
             .prepare_message_schedule_request_message(&prior_stage_response_message)
             .expect("prepare message-schedule request message");
-        let (server_message_schedule_response_message, next_server_eval_state) = garbler_session
+        let (server_message_schedule_response_message, next_server_eval_state) = session
             .prepare_message_schedule_response_message(
                 &server_eval_state,
                 &client_message_schedule_request_message,
@@ -1150,10 +1175,10 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
     }
 
     for _ in 0..ed25519_hss::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
-        let client_round_core_request_message = evaluator_session
+        let client_round_core_request_message = session
             .prepare_round_core_request_message(&prior_stage_response_message)
             .expect("prepare round-core request message");
-        let (server_round_core_response_message, next_server_eval_state) = garbler_session
+        let (server_round_core_response_message, next_server_eval_state) = session
             .prepare_round_core_response_message(
                 &server_eval_state,
                 &client_round_core_request_message,
@@ -1165,10 +1190,10 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
         server_eval_state = next_server_eval_state;
     }
 
-    let client_output_projection_request_message = evaluator_session
+    let client_output_projection_request_message = session
         .prepare_output_projection_request_message(&prior_stage_response_message)
         .expect("prepare output-projection request message");
-    let (server_output_projection_response_message, _final_server_eval_state) = garbler_session
+    let (server_output_projection_response_message, _final_server_eval_state) = session
         .prepare_output_projection_response_message(
             &server_eval_state,
             &client_output_projection_request_message,
@@ -1549,9 +1574,11 @@ fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
         )
         .expect("prepare staged assist flow");
     let runtime = session.shared_runtime();
-    let staged_evaluator_artifact =
-        build_staged_evaluator_artifact_same_process(&session, &fixture.input)
-            .expect("build staged evaluator artifact");
+    let staged_evaluator_artifact = session
+        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+            &flow.final_server_eval_state,
+        )
+        .expect("build staged evaluator artifact");
     let (server_finalize_message, _report) = session
         .prepare_server_finalize_message_from_staged_evaluator_artifact(
             &runtime,
