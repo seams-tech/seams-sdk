@@ -140,7 +140,21 @@ material to the authorized client.
 The kept production path now enforces that boundary through the staged
 server-assisted flow: `ServerAssistInit` authenticates the handle/init state,
 the add-stage request carries the client hidden-input bundles, and the server
-owns the execution-backed state from that first online round onward.
+owns a real stage-local continuation from that first online round onward.
+
+Concretely:
+
+- add-stage materializes only the add-stage transition plus the first stored
+  `message_schedule` continuation
+- each `message_schedule(n)` response advances only the immediately prior
+  schedule continuation
+- each `round_core(n)` response advances only the immediately prior round-core
+  continuation
+- `output_projection` materializes final output only when that stage executes
+
+Within that staged model, the accepted minimal retained post-add-stage state is
+the server-owned `projector_inputs` needed for a later `output_projection`.
+Those inputs are not final output bundles and are not client-visible.
 
 That split is deliberate:
 
@@ -179,12 +193,12 @@ The original broad browser HSS artifact was:
 
 The current dedicated browser HSS client artifact is:
 
-- wasm: `262,409` bytes
+- wasm: `262,555` bytes
 - JS glue: `14,028` bytes
 
 Net result:
 
-- wasm down by `901,067` bytes, about `77.4%`
+- wasm down by `900,921` bytes, about `77.4%`
 - JS glue down by `158,976` bytes, about `91.9%`
 
 The biggest wins that produced that reduction were:

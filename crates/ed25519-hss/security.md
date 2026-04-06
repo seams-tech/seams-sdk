@@ -25,13 +25,31 @@ Recovering `a` from one share requires knowing `rho`, which is derived from both
 Current reality:
 
 - the legacy sealed packet seam is no longer part of the production client boundary
-- the production staged flow is now execution-backed from add-stage onward:
-  the server derives real hidden-eval execution checkpoints from the client
-  add-stage request plus server-owned relayer roots and binds later staged
-  responses to that execution state
+- the production staged flow now advances through real server-owned stage-local
+  continuation state from add-stage onward:
+  - add-stage materializes only the add-stage transition plus the first stored
+    `message_schedule` continuation
+  - each `message_schedule(n)` response advances only the immediately prior
+    schedule continuation
+  - each `round_core(n)` response advances only the immediately prior
+    round-core continuation
+  - `output_projection` materializes final output only when that stage
+    executes
 - `ServerAssistInit` is now only the authenticated init/handle handoff; the
   server-owned hidden-eval execution state begins at the first online
   add-stage request
+- the staged server state now carries only stage-local continuations plus the
+  minimum projector prerequisites needed for a later `output_projection`
+  transition:
+  - add-stage bits
+  - client tau bits
+  - relayer tau transport halves
+- those projector prerequisites are retained because delaying them further
+  would require recomputing from dropped relayer roots; they are not final
+  output bundles and are not client-visible
+- that retained `projector_inputs` set is the accepted minimal post-add-stage
+  server state for the current design, not a temporary loophole in the
+  boundary model
 - so the old joined-input packet boundary is removed from production, while
   broader malicious-security work still remains outside this specific fix
 

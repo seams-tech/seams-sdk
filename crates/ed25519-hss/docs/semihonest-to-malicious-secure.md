@@ -17,8 +17,9 @@ One important prerequisite boundary fix is now landed:
 
 - the old sealed `ServerInputsPacket` production seam is removed from the
   production client boundary
-- the production staged flow is execution-backed from add-stage onward instead
-  of being only transcript scaffolding
+- the production staged flow now advances through real server-owned stage-local
+  continuations from add-stage onward instead of being only transcript
+  scaffolding
 - non-export production flows now use the staged server-assisted path rather
   than the old joined-input packet delivery path
 

@@ -55,13 +55,19 @@ Current implementation status:
   client boundary
 - `PreparedSession::evaluate*` no longer exists on the production public
   surface
-- the production staged flow is now execution-backed from add-stage onward:
-  the add-stage request carries the client hidden-input bundles, the server
-  derives real hidden-eval execution checkpoints from those bundles plus the
-  server-owned relayer roots, and the later staged responses bind to that
-  server-owned execution state
+- the production staged flow now advances through real stage-local server-owned
+  continuations from add-stage onward:
+  - add-stage materializes only the add-stage transition plus the first stored
+    `message_schedule` continuation
+  - each `message_schedule(n)` response advances only the immediately prior
+    schedule continuation
+  - each `round_core(n)` response advances only the immediately prior
+    round-core continuation
+  - `output_projection` materializes final output only when that stage executes
 - `ServerAssistInit` is now just the authenticated init/handle handoff; the
   hidden-eval execution state begins at the first online add-stage request
+- the stronger continuation-architecture follow-up is tracked in
+  [refactor-hss-4.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/refactor-hss-4.md)
 - the remaining work after this refactor is cleanup, constant-time review, and
   broader malicious-security hardening beyond this boundary fix
 
@@ -1308,9 +1314,10 @@ These are part of the security boundary, not just follow-up integration.
 Current recorded Phase 6 results:
 
 - native hidden eval benchmark after the staged seam cut:
-  `306.2ms` mean, `305.9ms` median, `309.7ms` p95
+  originally recorded as `306.2ms` mean, `305.9ms` median, `309.7ms` p95
+  after the focused recovery pass
 - prime-order CPU executor benchmark after the staged seam cut:
-  `2.40ms` mean, `2.44ms` median, `2.58ms` p95
+  originally recorded as `2.40ms` mean, `2.44ms` median, `2.58ms` p95
 - browser HSS client artifact after the staged seam cut:
   - wasm: `262,409` bytes
   - JS glue: `14,028` bytes
@@ -1320,6 +1327,19 @@ Current recorded Phase 6 results:
   - wasm: `262,439 -> 262,409` bytes
   - JS glue: `14,028 -> 14,028` bytes
   - worker JS: `21,744 -> 21,744` bytes
+
+Fresh post-Refactor-4 rerun:
+
+- native hidden eval:
+  `293.47ms` mean, `293.49ms` median, `295.72ms` p95
+- hidden eval prepare:
+  `207.74ms`
+- prime-order CPU executor:
+  `2.041ms` mean, `2.041ms` median, `2.044ms` p95
+- browser HSS client artifact:
+  - wasm: `262,555` bytes
+  - JS glue: `14,028` bytes
+  - worker JS: `21,744` bytes
 
 Decision:
 

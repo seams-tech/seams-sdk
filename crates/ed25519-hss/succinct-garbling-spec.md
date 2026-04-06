@@ -349,6 +349,20 @@ shortcut:
   correct but not secure for the real boundary
 - the production path now uses secure carry-aware A2B again
 
+The kept staged production path now advances through real server-owned
+continuation state:
+
+- add-stage materializes only the add-stage transition plus the first stored
+  `message_schedule` continuation
+- each `message_schedule(n)` response advances only the immediately prior
+  schedule continuation
+- each `round_core(n)` response advances only the immediately prior
+  round-core continuation
+- `output_projection` materializes final output only when that stage executes
+- the only accepted retained-state exception before `output_projection` is the
+  minimal server-owned `projector_inputs` needed to reach that stage without
+  recomputing from dropped relayer roots
+
 ## Current Implementation Status
 
 Implemented in code:
