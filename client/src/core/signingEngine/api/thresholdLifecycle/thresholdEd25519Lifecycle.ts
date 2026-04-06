@@ -10,21 +10,20 @@ import { persistStoredThresholdEd25519SessionClientBase } from './thresholdSessi
 import {
   buildThresholdEd25519SeedExportArtifactWasm,
   deriveThresholdEd25519HssPublicKeyWasm,
-  evaluateThresholdEd25519HssResultWasm,
   openThresholdEd25519HssClientOutputWasm,
   openThresholdEd25519HssSeedOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   type ThresholdEd25519HssCanonicalContext,
   type ThresholdEd25519HssClientRequestEnvelope,
   type ThresholdEd25519HssClientInputs,
-  type ThresholdEd25519HssEvaluationResultEnvelope,
   type ThresholdEd25519HssFinalizedReportEnvelope,
   type ThresholdEd25519HssOpenedClientOutput,
   type ThresholdEd25519HssOpenedSeedOutput,
   type ThresholdEd25519HssOpenedServerOutput,
   type ThresholdEd25519HssPreparedSessionEnvelope,
   type ThresholdEd25519SeedExportArtifact,
-  type ThresholdEd25519HssServerMessageEnvelope,
+  type ThresholdEd25519HssServerAssistInitEnvelope,
+  type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '../../signers/wasm/hssClientSignerWasm';
 import { THRESHOLD_ED25519_WRAP_KEY_SALT_B64U } from '../../threshold/ed25519WrapKeySalt';
 
@@ -76,7 +75,7 @@ export type CompleteThresholdEd25519HssClientCeremonyResult = {
   success: boolean;
   contextBindingB64u: string;
   preparedSession?: ThresholdEd25519HssPreparedSessionEnvelope;
-  evaluationResult?: ThresholdEd25519HssEvaluationResultEnvelope;
+  evaluationResult?: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
   finalizedReport?: ThresholdEd25519HssFinalizedReportEnvelope;
   clientOutput?: ThresholdEd25519HssOpenedClientOutput;
   publicKeyB64u?: string;
@@ -96,7 +95,8 @@ export type PrepareThresholdEd25519HssServerCeremonyWithSessionResult = {
 export type RespondThresholdEd25519HssServerCeremonyWithSessionResult = {
   success: boolean;
   contextBindingB64u: string;
-  serverMessage?: ThresholdEd25519HssServerMessageEnvelope;
+  serverAssistInit?: ThresholdEd25519HssServerAssistInitEnvelope;
+  evaluationResult?: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
   error?: string;
 };
 
@@ -324,8 +324,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
 
 export async function completeThresholdEd25519HssClientCeremony(args: {
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-  serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   workerCtx: WorkerOperationContext;
   serverOutput?: ThresholdEd25519HssOpenedServerOutput;
@@ -333,14 +332,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
 }): Promise<CompleteThresholdEd25519HssClientCeremonyResult> {
   const contextBindingB64u = String(args.preparedSession.contextBindingB64u || '').trim();
   try {
-    const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-      preparedSession: args.preparedSession,
-      clientRequest: args.clientRequest,
-      serverMessage: args.serverMessage,
-      workerCtx: args.workerCtx,
-    });
-
-    if (evaluationResult.contextBindingB64u !== contextBindingB64u) {
+    if (String(args.evaluationResult.contextBindingB64u || '').trim() !== contextBindingB64u) {
       throw new Error('HSS evaluation result context binding mismatch');
     }
 
@@ -386,7 +378,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
       success: true,
       contextBindingB64u,
       preparedSession: args.preparedSession,
-      evaluationResult,
+      evaluationResult: args.evaluationResult,
       finalizedReport: args.finalizedReport,
       clientOutput,
       ...(publicKeyB64u ? { publicKeyB64u } : {}),
@@ -562,16 +554,20 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
     const parseStartedAt = Date.now();
     const data = (await response.json().catch(() => ({}))) as Partial<{
       ok: boolean;
-      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
+      evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
       code: string;
       message: string;
     }>;
     const parseMs = Date.now() - parseStartedAt;
-    if (!response.ok || data.ok !== true || !data.serverMessage) {
+    if (!response.ok || data.ok !== true || !data.serverAssistInit || !data.evaluationResult) {
       throw new Error(data.message || data.code || `HTTP ${response.status}`);
     }
-    if (String(data.serverMessage.contextBindingB64u || '').trim() !== contextBindingB64u) {
-      throw new Error('HSS server message context binding mismatch');
+    if (String(data.serverAssistInit.contextBindingB64u || '').trim() !== contextBindingB64u) {
+      throw new Error('HSS server assist init context binding mismatch');
+    }
+    if (String(data.evaluationResult.contextBindingB64u || '').trim() !== contextBindingB64u) {
+      throw new Error('HSS staged evaluator artifact context binding mismatch');
     }
     console.info('[threshold-ed25519][client] hss respond timings', {
       ceremonyHandle,
@@ -585,7 +581,8 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
     return {
       success: true,
       contextBindingB64u,
-      serverMessage: data.serverMessage,
+      serverAssistInit: data.serverAssistInit,
+      evaluationResult: data.evaluationResult,
     };
   } catch (error: unknown) {
     const message = String((error as { message?: unknown })?.message ?? error);
@@ -602,7 +599,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
   thresholdSessionJwt: string;
   ceremonyHandle: string;
   contextBindingB64u: string;
-  evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }): Promise<FinalizeThresholdEd25519HssServerCeremonyWithSessionResult> {
   const contextBindingB64u = String(args.contextBindingB64u || '').trim();
   try {
@@ -631,7 +628,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
       ceremonyHandleBytes: utf8Bytes(ceremonyHandle),
       evaluationResultBytes: jsonBytes(args.evaluationResult),
       evaluationResultContextBindingBytes: utf8Bytes(args.evaluationResult.contextBindingB64u),
-      evaluationResultMessageBytes: utf8Bytes(args.evaluationResult.evaluationResultMessageB64u),
+      stagedEvaluatorArtifactBytes: utf8Bytes(args.evaluationResult.stagedEvaluatorArtifactB64u),
     };
 
     const fetchStartedAt = Date.now();
@@ -727,7 +724,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     clientRequest,
   });
-  if (!responded.success || !responded.serverMessage) {
+  if (!responded.success || !responded.evaluationResult) {
     return {
       success: false,
       contextBindingB64u: responded.contextBindingB64u,
@@ -735,14 +732,8 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
     };
   }
 
-  const evaluateStartedAt = Date.now();
-  const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-    preparedSession: prepared.preparedSession,
-    clientRequest,
-    serverMessage: responded.serverMessage,
-    workerCtx: args.workerCtx,
-  });
-  const evaluateMs = Date.now() - evaluateStartedAt;
+  const evaluationResult = responded.evaluationResult;
+  const evaluateMs = 0;
   if (
     String(evaluationResult.contextBindingB64u || '').trim() !==
     String(prepared.preparedSession.contextBindingB64u || '').trim()
@@ -772,8 +763,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   const completeStartedAt = Date.now();
   const completed = await completeThresholdEd25519HssClientCeremony({
     preparedSession: prepared.preparedSession,
-    clientRequest,
-    serverMessage: responded.serverMessage,
+    evaluationResult,
     finalizedReport: finalized.finalizedReport,
     workerCtx: args.workerCtx,
     persistToThresholdSessionId: args.persistToThresholdSessionId,

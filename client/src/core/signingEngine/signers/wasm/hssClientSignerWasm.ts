@@ -4,7 +4,6 @@ import {
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
   type WasmDeriveThresholdEd25519HssPublicKeyResult,
-  type WasmEvaluateThresholdEd25519HssResultResult,
   type WasmOpenThresholdEd25519HssClientOutputResult,
   type WasmOpenThresholdEd25519HssSeedOutputResult,
   type WasmPrepareThresholdEd25519HssClientRequestResult,
@@ -43,14 +42,14 @@ export type ThresholdEd25519HssClientRequestEnvelope = {
   evaluatorOtStateB64u: string;
 };
 
-export type ThresholdEd25519HssServerMessageEnvelope = {
+export type ThresholdEd25519HssServerAssistInitEnvelope = {
   contextBindingB64u: string;
-  serverMessageB64u: string;
+  serverAssistInitMessageB64u: string;
 };
 
-export type ThresholdEd25519HssEvaluationResultEnvelope = {
+export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope = {
   contextBindingB64u: string;
-  evaluationResultMessageB64u: string;
+  stagedEvaluatorArtifactB64u: string;
 };
 
 export type ThresholdEd25519HssFinalizedReportEnvelope = {
@@ -250,38 +249,6 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
     evaluatorOtStateB64u: String(result.evaluatorOtStateB64u || '').trim(),
-  };
-}
-
-export async function evaluateThresholdEd25519HssResultWasm(input: {
-  preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
-  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-  serverMessage: ThresholdEd25519HssServerMessageEnvelope;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519HssEvaluationResultEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
-    request: {
-      type: WorkerRequestType.EvaluateThresholdEd25519HssResult,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
-        clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
-        evaluatorOtStateB64u: input.clientRequest.evaluatorOtStateB64u,
-        serverMessageB64u: input.serverMessage.serverMessageB64u,
-      },
-    },
-  });
-
-  if (response.type !== WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess) {
-    throw new Error('EvaluateThresholdEd25519HssResult failed');
-  }
-
-  const result = response.payload as WasmEvaluateThresholdEd25519HssResultResult;
-  return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    evaluationResultMessageB64u: String(result.evaluationResultMessageB64u || '').trim(),
   };
 }
 

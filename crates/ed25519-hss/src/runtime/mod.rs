@@ -10,7 +10,6 @@ pub mod shared;
 
 pub use client::{ClientRuntime, ClientRuntimeState};
 pub use evaluation::EvaluateTiming;
-pub use flow::evaluate_prime_order_succinct_hss;
 #[cfg(not(target_arch = "wasm32"))]
 pub use prime_order_cpu_executor::{
     compile_default_prime_order_cpu_execution_program, compile_prime_order_cpu_execution_program,

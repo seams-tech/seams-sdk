@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::candidate::CandidateBackendFamily;
@@ -75,8 +74,12 @@ pub struct ClientOtOffer {
 pub(crate) enum TransportKind {
     ClientOtOffer,
     ClientOtRequest,
+    ServerAssistInit,
+    ClientStageRequest,
+    ServerStageResponse,
+    ServerFinalize,
+    #[cfg(test)]
     ServerPacket,
-    EvaluationResult,
     ClientOutput,
     SeedOutput,
     ServerOutput,
@@ -95,6 +98,7 @@ pub struct WireMessage {
     pub bytes: Vec<u8>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerPacket {
     pub context_binding: [u8; 32],
@@ -155,7 +159,7 @@ pub struct OutputDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvaluationResult {
+pub struct StagedEvaluatorArtifact {
     pub context_binding: [u8; 32],
     pub bindings: RunBindings,
     pub evaluator_witness: EvaluatorWitness,
@@ -167,12 +171,230 @@ pub struct EvaluationResult {
     pub server_output_payload: Vec<u8>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerInputsPacket {
     pub context_binding: [u8; 32],
     pub server_input_commitment: [u8; 32],
     pub nonce: [u8; 12],
     pub ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ServerEvalHandle {
+    pub bytes: [u8; 32],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TranscriptId {
+    pub bytes: [u8; 32],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServerEvalStageKind {
+    AddStage,
+    MessageSchedule,
+    RoundCore,
+    OutputProjection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ServerEvalStageId {
+    pub kind: ServerEvalStageKind,
+    pub ordinal: u16,
+}
+
+impl ServerEvalStageId {
+    pub const MESSAGE_SCHEDULE_ROUNDS: u16 = 64;
+    pub const ROUND_CORE_ROUNDS: u16 = 80;
+
+    pub const fn add_stage() -> Self {
+        Self {
+            kind: ServerEvalStageKind::AddStage,
+            ordinal: 0,
+        }
+    }
+
+    pub const fn message_schedule(ordinal: u16) -> Self {
+        Self {
+            kind: ServerEvalStageKind::MessageSchedule,
+            ordinal,
+        }
+    }
+
+    pub const fn round_core(ordinal: u16) -> Self {
+        Self {
+            kind: ServerEvalStageKind::RoundCore,
+            ordinal,
+        }
+    }
+
+    pub const fn output_projection() -> Self {
+        Self {
+            kind: ServerEvalStageKind::OutputProjection,
+            ordinal: 0,
+        }
+    }
+}
+
+impl ClientOtRequestCommitments {
+    pub fn from_client_packet(packet: &ClientPacket) -> Self {
+        Self {
+            y_client_request_commitment: packet.y_client_request.commitment,
+            tau_client_request_commitment: packet.tau_client_request.commitment,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AllowedOutputKind {
+    ClientOutputOnly,
+    ClientOutputAndSeedOutput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientOtRequestCommitments {
+    pub y_client_request_commitment: [u8; 32],
+    pub tau_client_request_commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientStageCommitments {
+    pub digests: Vec<[u8; 32]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerStageCommitments {
+    pub digests: Vec<[u8; 32]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddStageRequestPayload {
+    pub client_input_commitment: [u8; 32],
+    pub client_stage_openings_digest: [u8; 32],
+    pub client_stage_nonce: [u8; 16],
+    pub y_client_bundle_payload: Vec<u8>,
+    pub tau_client_bundle_payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AddStageResponsePayload {
+    pub server_stage_token: [u8; 32],
+    pub server_input_commitment: [u8; 32],
+    pub server_stage_digest: [u8; 32],
+    pub execution_checkpoint_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageScheduleRequestPayload {
+    pub schedule_step: u16,
+    pub client_schedule_digest: [u8; 32],
+    pub prior_server_stage_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageScheduleResponsePayload {
+    pub schedule_step: u16,
+    pub server_schedule_digest: [u8; 32],
+    pub next_stage_token: [u8; 32],
+    pub execution_checkpoint_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoundCoreRequestPayload {
+    pub round_index: u16,
+    pub client_round_digest: [u8; 32],
+    pub prior_server_stage_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoundCoreResponsePayload {
+    pub round_index: u16,
+    pub server_round_digest: [u8; 32],
+    pub next_stage_token: [u8; 32],
+    pub execution_checkpoint_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputProjectionRequestPayload {
+    pub final_client_digest: [u8; 32],
+    pub prior_server_stage_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputProjectionResponsePayload {
+    pub final_server_digest: [u8; 32],
+    pub output_release_token: [u8; 32],
+    pub allowed_output_kind: AllowedOutputKind,
+    pub execution_checkpoint_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientStagePayload {
+    AddStage(AddStageRequestPayload),
+    MessageSchedule(MessageScheduleRequestPayload),
+    RoundCore(RoundCoreRequestPayload),
+    OutputProjection(OutputProjectionRequestPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ServerStagePayload {
+    AddStage(AddStageResponsePayload),
+    MessageSchedule(MessageScheduleResponsePayload),
+    RoundCore(RoundCoreResponsePayload),
+    OutputProjection(OutputProjectionResponsePayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientOtRequestPacket {
+    pub context_binding: [u8; 32],
+    pub transcript_id: TranscriptId,
+    pub client_ot_request: ClientPacket,
+    pub client_request_commitments: ClientOtRequestCommitments,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerAssistInitPacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub transcript_id: TranscriptId,
+    pub server_input_commitment: [u8; 32],
+    pub y_client_response: DdhHssOtResponseBundle,
+    pub tau_client_response: DdhHssOtResponseBundle,
+    pub y_client_remote_release: DdhHssOtReleasedRemoteBundle,
+    pub tau_client_remote_release: DdhHssOtReleasedRemoteBundle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientStageRequestPacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub stage_id: ServerEvalStageId,
+    pub prior_transcript_digest: [u8; 32],
+    pub client_stage_payload: ClientStagePayload,
+    pub client_stage_commitments: ClientStageCommitments,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerStageResponsePacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub stage_id: ServerEvalStageId,
+    pub next_transcript_digest: [u8; 32],
+    pub server_stage_payload: ServerStagePayload,
+    pub server_stage_commitments: ServerStageCommitments,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerFinalizePacket {
+    pub context_binding: [u8; 32],
+    pub server_eval_handle: ServerEvalHandle,
+    pub final_transcript_digest: [u8; 32],
+    pub allowed_output_kind: AllowedOutputKind,
+    pub client_output: WireMessage,
+    pub seed_output: Option<WireMessage>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +445,7 @@ pub(crate) struct EncodedTransportPairPayloadRef<'a> {
     pub(crate) right: &'a DdhHssTransportBundle,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct EncodedServerInputsPayload {
     pub(crate) y_relayer_left: DdhHssTransportBundle,
@@ -231,6 +454,7 @@ pub(crate) struct EncodedServerInputsPayload {
     pub(crate) tau_relayer_right: DdhHssTransportBundle,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OpenedServerInputs {
     pub(crate) y_relayer_left: DdhHssTransportBundle,
@@ -239,6 +463,7 @@ pub(crate) struct OpenedServerInputs {
     pub(crate) tau_relayer_right: DdhHssTransportBundle,
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 pub(crate) struct EncodedServerInputsPayloadRef<'a> {
     pub(crate) y_relayer_left: &'a DdhHssTransportBundle,
@@ -268,32 +493,7 @@ pub(crate) fn encode_transport_message<T: Serialize>(
     Ok(WireMessage { bytes })
 }
 
-impl OpenedServerInputs {
-    pub(crate) fn server_input_commitment(&self, evaluation_key: &DdhHssEvaluationKey) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(b"succinct-garbling-proto/ddh-hss/combined-input-commitment/v0");
-        hasher.update(evaluation_key.key_id);
-        hasher.update(b"server");
-        for bundle in [
-            (
-                &self.y_relayer_left.commitment,
-                self.y_relayer_left.label.as_bytes(),
-            ),
-            (
-                &self.tau_relayer_left.commitment,
-                self.tau_relayer_left.label.as_bytes(),
-            ),
-        ] {
-            hasher.update(bundle.0);
-            hasher.update(bundle.1);
-        }
-        let digest = hasher.finalize();
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&digest);
-        out
-    }
-}
-
+#[cfg(test)]
 pub(crate) fn deserialize_server_inputs_payload_opened(
     plaintext: &[u8],
 ) -> ProtoResult<OpenedServerInputs> {
@@ -426,6 +626,14 @@ pub(crate) fn deserialize_encoded_bundle_payload(
     Ok(joint_bundle_from_wire(payload.bundle))
 }
 
+pub(crate) fn deserialize_encoded_bundle_payload_unsealed(
+    plaintext: &[u8],
+) -> ProtoResult<DdhHssInputShareBundle> {
+    let payload: EncodedBundlePayload =
+        deserialize_transport_payload_with_label("encoded_bundle", plaintext)?;
+    Ok(joint_bundle_from_wire(payload.bundle))
+}
+
 pub(crate) fn serialize_transport_pair_payload(
     label: &str,
     left: &DdhHssTransportBundle,
@@ -443,6 +651,7 @@ pub(crate) fn deserialize_transport_pair_payload(
     Ok((payload.left, payload.right))
 }
 
+#[cfg(test)]
 pub(crate) fn serialize_server_inputs_payload(
     y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
     tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
@@ -456,6 +665,7 @@ pub(crate) fn serialize_server_inputs_payload(
     serialize_transport_payload_with_label("server_inputs", &payload)
 }
 
+#[cfg(test)]
 pub(crate) fn deserialize_server_inputs_payload(
     plaintext: &[u8],
 ) -> ProtoResult<EncodedServerInputsPayload> {

@@ -198,7 +198,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     },
   });
 
-  const serverMessage = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
+  const responded = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
@@ -207,11 +207,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     clientRequest,
   });
 
-  const evaluationResult = await args.context.signingEngine.evaluateThresholdEd25519HssResult({
-    preparedSession: preparedRelayCeremony.preparedSession,
-    clientRequest,
-    serverMessage,
-  });
+  const evaluationResult = responded.evaluationResult;
 
   args.onProgress?.('Finalizing threshold Ed25519 registration material...');
   const hssFinalize = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({

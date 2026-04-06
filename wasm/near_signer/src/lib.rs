@@ -27,9 +27,8 @@ use crate::threshold::threshold_hss::{
 };
 #[cfg(feature = "hss-client-exports")]
 use crate::threshold::threshold_hss::{
-    evaluate_threshold_ed25519_hss_result, open_threshold_ed25519_hss_client_output,
-    prepare_threshold_ed25519_hss_client_request, prepare_threshold_ed25519_hss_session,
-    ThresholdEd25519HssEvaluateResultArgs, ThresholdEd25519HssOpenClientOutputArgs,
+    open_threshold_ed25519_hss_client_output, prepare_threshold_ed25519_hss_client_request,
+    prepare_threshold_ed25519_hss_session, ThresholdEd25519HssOpenClientOutputArgs,
     ThresholdEd25519HssPrepareClientRequestArgs, ThresholdEd25519HssPrepareSessionArgs,
 };
 use crate::types::worker_messages::{
@@ -305,24 +304,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
-        WorkerRequestType::EvaluateThresholdEd25519HssResult => {
-            #[cfg(feature = "hss-client-exports")]
-            {
-                let request: ThresholdEd25519HssEvaluateResultArgs =
-                    parse_typed_payload(&payload_js, request_type)?;
-                let result = evaluate_threshold_ed25519_hss_result(request)
-                    .map_err(|e| JsValue::from_str(&e))?;
-                serde_wasm_bindgen::to_value(&result).map_err(|e| {
-                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
-                })?
-            }
-            #[cfg(not(feature = "hss-client-exports"))]
-            {
-                return Err(JsValue::from_str(
-                    "EvaluateThresholdEd25519HssResult is not available in the server HSS runtime",
-                ));
-            }
-        }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
             #[cfg(feature = "hss-client-exports")]
             {
@@ -425,9 +406,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
             WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess
-        }
-        WorkerRequestType::EvaluateThresholdEd25519HssResult => {
-            WorkerResponseType::EvaluateThresholdEd25519HssResultSuccess
         }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
             WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess

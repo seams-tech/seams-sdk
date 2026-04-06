@@ -8,7 +8,7 @@ use crate::candidate::{build_fixed_hidden_core_candidate, FixedHiddenCoreCandida
 use crate::client::{ClientSession, OutputOpeners};
 use crate::ddh::{compile_prime_order_hidden_eval_program, HiddenEvalProgram};
 use crate::protocol::report::{
-    finalize_report_from_evaluation_result as build_report_from_evaluation_result,
+    finalize_report_from_staged_evaluator_artifact as build_report_from_staged_evaluator_artifact,
     runtime_output_openers,
 };
 use crate::runtime::{
@@ -17,7 +17,7 @@ use crate::runtime::{
 };
 use crate::server::ServerSession;
 use crate::shared::{CanonicalContext, ProtoResult};
-use crate::wire::{ArtifactSummary, EvaluationReport, EvaluationResult};
+use crate::wire::{ArtifactSummary, EvaluationReport, StagedEvaluatorArtifact};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedRuntime {
@@ -80,11 +80,11 @@ impl SharedRuntime {
         runtime_output_openers(garbler_session, evaluator_session)
     }
 
-    pub fn finalize_report_from_evaluation_result(
+    pub fn finalize_report_from_staged_evaluator_artifact(
         &self,
         garbler_session: &ServerSession,
-        evaluation_result: &EvaluationResult,
+        artifact: &StagedEvaluatorArtifact,
     ) -> ProtoResult<EvaluationReport> {
-        build_report_from_evaluation_result(self, garbler_session, evaluation_result)
+        build_report_from_staged_evaluator_artifact(self, garbler_session, artifact)
     }
 }

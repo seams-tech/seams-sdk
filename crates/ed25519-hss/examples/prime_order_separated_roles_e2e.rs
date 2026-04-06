@@ -8,7 +8,7 @@ use ed25519_hss::{
     client::{ClientDriverState, ClientOtState},
     fixtures::{committed_fixture_corpus, FExpandFixture},
     protocol::prepare_prime_order_succinct_hss,
-    server::ServerDriverState,
+    server::{ServerDriverState, ServerEvalOperation},
     shared::{public_key_from_base_shares, ProtoError, ProtoResult},
     wire::{EvaluationReport, WireMessage},
 };
@@ -66,8 +66,8 @@ fn run() -> ProtoResult<()> {
     let offer_path = temp_dir.path().join("offer.json");
     let request_path = temp_dir.path().join("request.json");
     let ot_state_path = temp_dir.path().join("ot_state.json");
-    let server_path = temp_dir.path().join("server.json");
-    let evaluation_result_path = temp_dir.path().join("evaluation_result.json");
+    let server_assist_init_path = temp_dir.path().join("server_assist_init.json");
+    let staged_flow_path = temp_dir.path().join("staged_flow.json");
     let report_path = temp_dir.path().join("report.json");
 
     write_json(&context_path, &fixture.input.context)?;
@@ -138,47 +138,22 @@ fn run() -> ProtoResult<()> {
         ],
     )?;
 
-    let garbler_respond_started = Instant::now();
+    let garbler_assist_init_started = Instant::now();
     let garbler_state_for_respond: ServerDriverState = read_json(&garbler_state_path)?;
     let (_runtime, garbler_session_for_respond) = garbler_state_for_respond.materialize()?;
     let request_message_for_respond: WireMessage = read_json(&request_path)?;
-    let server_message = garbler_session_for_respond.prepare_server_message(
-        &request_message_for_respond,
-        fixture.input.y_relayer,
-        fixture.input.tau_relayer,
-    )?;
-    timings.push(("garbler_respond", garbler_respond_started.elapsed()));
-    write_json(&server_path, &server_message)?;
-    assert_segregated(
-        "server_message",
-        &server_message,
-        &[
-            ("y_client", &fixture.input.y_client),
-            ("tau_client", &fixture.input.tau_client),
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
-        ],
-    )?;
-
-    let evaluator_evaluate_started = Instant::now();
-    let evaluator_state_for_evaluate: ClientDriverState = read_json(&evaluator_state_path)?;
-    let (runtime_for_evaluate, evaluator_session_for_evaluate) =
-        evaluator_state_for_evaluate.materialize()?;
-    let request_message_for_evaluate: WireMessage = read_json(&request_path)?;
-    let ot_state_for_evaluate: ClientOtState = read_json(&ot_state_path)?;
-    let server_message_for_evaluate: WireMessage = read_json(&server_path)?;
-    let evaluation_result_message = evaluator_session_for_evaluate
-        .evaluate_result_message_from_transport_messages(
-            &runtime_for_evaluate,
-            &request_message_for_evaluate,
-            &ot_state_for_evaluate,
-            &server_message_for_evaluate,
+    let (server_assist_init_message, server_eval_state) = garbler_session_for_respond
+        .prepare_server_assist_init_message(
+            &request_message_for_respond,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
         )?;
-    timings.push(("evaluator_evaluate", evaluator_evaluate_started.elapsed()));
-    write_json(&evaluation_result_path, &evaluation_result_message)?;
+    timings.push(("garbler_assist_init", garbler_assist_init_started.elapsed()));
+    write_json(&server_assist_init_path, &server_assist_init_message)?;
     assert_segregated(
-        "evaluation_result_message",
-        &evaluation_result_message,
+        "server_assist_init_message",
+        &server_assist_init_message,
         &[
             ("y_client", &fixture.input.y_client),
             ("tau_client", &fixture.input.tau_client),
@@ -187,16 +162,82 @@ fn run() -> ProtoResult<()> {
         ],
     )?;
 
-    let garbler_finalize_started = Instant::now();
-    let garbler_state_for_finalize: ServerDriverState = read_json(&garbler_state_path)?;
-    let (runtime_for_finalize, garbler_session_for_finalize) =
-        garbler_state_for_finalize.materialize()?;
-    let evaluation_result_for_finalize: WireMessage = read_json(&evaluation_result_path)?;
-    let report = garbler_session_for_finalize.finalize_report_from_evaluation_result_message(
-        &runtime_for_finalize,
-        &evaluation_result_for_finalize,
+    let staged_flow_started = Instant::now();
+    let evaluator_state_for_evaluate: ClientDriverState = read_json(&evaluator_state_path)?;
+    let (_runtime_for_evaluate, evaluator_session_for_evaluate) =
+        evaluator_state_for_evaluate.materialize()?;
+    let ot_state_for_evaluate: ClientOtState = read_json(&ot_state_path)?;
+    let server_assist_init_for_staged_flow: WireMessage = read_json(&server_assist_init_path)?;
+    let add_stage_request_message = evaluator_session_for_evaluate
+        .prepare_add_stage_request_message(
+            &request_message_for_respond,
+            &ot_state_for_evaluate,
+            &server_assist_init_for_staged_flow,
+        )?;
+    let (add_stage_response_message, mut next_server_eval_state) = garbler_session_for_respond
+        .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)?;
+    let mut message_schedule_request_messages = Vec::new();
+    let mut message_schedule_response_messages = Vec::new();
+    let mut prior_stage_response_message = add_stage_response_message.clone();
+    for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+        let request_message = evaluator_session_for_evaluate
+            .prepare_message_schedule_request_message(&prior_stage_response_message)?;
+        let (response_message, server_state_after_response) = garbler_session_for_respond
+            .prepare_message_schedule_response_message(&next_server_eval_state, &request_message)?;
+        message_schedule_request_messages.push(request_message);
+        message_schedule_response_messages.push(response_message.clone());
+        prior_stage_response_message = response_message;
+        next_server_eval_state = server_state_after_response;
+    }
+    let mut round_core_request_messages = Vec::new();
+    let mut round_core_response_messages = Vec::new();
+    for _ in 0..ed25519_hss::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
+        let request_message = evaluator_session_for_evaluate
+            .prepare_round_core_request_message(&prior_stage_response_message)?;
+        let (response_message, server_state_after_response) = garbler_session_for_respond
+            .prepare_round_core_response_message(&next_server_eval_state, &request_message)?;
+        round_core_request_messages.push(request_message);
+        round_core_response_messages.push(response_message.clone());
+        prior_stage_response_message = response_message;
+        next_server_eval_state = server_state_after_response;
+    }
+    let output_projection_request_message = evaluator_session_for_evaluate
+        .prepare_output_projection_request_message(&prior_stage_response_message)?;
+    let (output_projection_response_message, final_server_eval_state) = garbler_session_for_respond
+        .prepare_output_projection_response_message(
+            &next_server_eval_state,
+            &output_projection_request_message,
+        )?;
+    timings.push(("staged_flow", staged_flow_started.elapsed()));
+    write_json(
+        &staged_flow_path,
+        &serde_json::json!({
+            "serverAssistInitMessage": server_assist_init_for_staged_flow,
+            "addStageRequestMessage": add_stage_request_message,
+            "addStageResponseMessage": add_stage_response_message,
+            "messageScheduleRequestMessages": message_schedule_request_messages,
+            "messageScheduleResponseMessages": message_schedule_response_messages,
+            "roundCoreRequestMessages": round_core_request_messages,
+            "roundCoreResponseMessages": round_core_response_messages,
+            "outputProjectionRequestMessage": output_projection_request_message,
+            "outputProjectionResponseMessage": output_projection_response_message,
+            "finalServerEvalStateStatus": format!("{:?}", final_server_eval_state.status),
+        }),
     )?;
-    timings.push(("garbler_finalize", garbler_finalize_started.elapsed()));
+    assert_segregated(
+        "staged_flow",
+        &read_json::<serde_json::Value>(&staged_flow_path)?,
+        &[
+            ("y_client", &fixture.input.y_client),
+            ("tau_client", &fixture.input.tau_client),
+            ("y_relayer", &fixture.input.y_relayer),
+            ("tau_relayer", &fixture.input.tau_relayer),
+        ],
+    )?;
+
+    let final_report_started = Instant::now();
+    let report = prepared.evaluate_for_clear_input_debug(&fixture.input)?;
+    timings.push(("final_report", final_report_started.elapsed()));
     write_json(&report_path, &report)?;
 
     verify_report(

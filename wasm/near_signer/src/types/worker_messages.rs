@@ -25,7 +25,6 @@ pub enum WorkerRequestType {
     GenerateEphemeralNearKeypair,
     PrepareThresholdEd25519HssSession,
     PrepareThresholdEd25519HssClientRequest,
-    EvaluateThresholdEd25519HssResult,
     OpenThresholdEd25519HssClientOutput,
     OpenThresholdEd25519HssSeedOutput,
     DeriveThresholdEd25519HssPublicKey,
@@ -45,11 +44,10 @@ impl From<u32> for WorkerRequestType {
             7 => WorkerRequestType::GenerateEphemeralNearKeypair,
             8 => WorkerRequestType::PrepareThresholdEd25519HssSession,
             9 => WorkerRequestType::PrepareThresholdEd25519HssClientRequest,
-            10 => WorkerRequestType::EvaluateThresholdEd25519HssResult,
-            11 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
-            12 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
-            13 => WorkerRequestType::DeriveThresholdEd25519HssPublicKey,
-            14 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
+            10 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
+            11 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
+            12 => WorkerRequestType::DeriveThresholdEd25519HssPublicKey,
+            13 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -74,9 +72,6 @@ impl WorkerRequestType {
             }
             WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
                 "PREPARE_THRESHOLD_ED25519_HSS_CLIENT_REQUEST"
-            }
-            WorkerRequestType::EvaluateThresholdEd25519HssResult => {
-                "EVALUATE_THRESHOLD_ED25519_HSS_RESULT"
             }
             WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
                 "OPEN_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT"
@@ -115,9 +110,6 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::PrepareThresholdEd25519HssClientRequest => {
             "PREPARE_THRESHOLD_ED25519_HSS_CLIENT_REQUEST"
-        }
-        WorkerRequestType::EvaluateThresholdEd25519HssResult => {
-            "EVALUATE_THRESHOLD_ED25519_HSS_RESULT"
         }
         WorkerRequestType::OpenThresholdEd25519HssClientOutput => {
             "OPEN_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT"
@@ -181,16 +173,14 @@ pub enum WorkerResponseType {
     PrepareThresholdEd25519HssSessionFailure = 21,
     PrepareThresholdEd25519HssClientRequestSuccess = 22,
     PrepareThresholdEd25519HssClientRequestFailure = 23,
-    EvaluateThresholdEd25519HssResultSuccess = 24,
-    EvaluateThresholdEd25519HssResultFailure = 25,
-    OpenThresholdEd25519HssClientOutputSuccess = 26,
-    OpenThresholdEd25519HssClientOutputFailure = 27,
-    OpenThresholdEd25519HssSeedOutputSuccess = 28,
-    OpenThresholdEd25519HssSeedOutputFailure = 29,
-    DeriveThresholdEd25519HssPublicKeySuccess = 30,
-    DeriveThresholdEd25519HssPublicKeyFailure = 31,
-    BuildThresholdEd25519SeedExportArtifactSuccess = 32,
-    BuildThresholdEd25519SeedExportArtifactFailure = 33,
+    OpenThresholdEd25519HssClientOutputSuccess = 24,
+    OpenThresholdEd25519HssClientOutputFailure = 25,
+    OpenThresholdEd25519HssSeedOutputSuccess = 26,
+    OpenThresholdEd25519HssSeedOutputFailure = 27,
+    DeriveThresholdEd25519HssPublicKeySuccess = 28,
+    DeriveThresholdEd25519HssPublicKeyFailure = 29,
+    BuildThresholdEd25519SeedExportArtifactSuccess = 30,
+    BuildThresholdEd25519SeedExportArtifactFailure = 31,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -229,16 +219,14 @@ impl From<u32> for WorkerResponseType {
             21 => WorkerResponseType::PrepareThresholdEd25519HssSessionFailure,
             22 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestSuccess,
             23 => WorkerResponseType::PrepareThresholdEd25519HssClientRequestFailure,
-            24 => WorkerResponseType::EvaluateThresholdEd25519HssResultSuccess,
-            25 => WorkerResponseType::EvaluateThresholdEd25519HssResultFailure,
-            26 => WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess,
-            27 => WorkerResponseType::OpenThresholdEd25519HssClientOutputFailure,
-            28 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess,
-            29 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
-            30 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess,
-            31 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeyFailure,
-            32 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
-            33 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
+            24 => WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess,
+            25 => WorkerResponseType::OpenThresholdEd25519HssClientOutputFailure,
+            26 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess,
+            27 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
+            28 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess,
+            29 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeyFailure,
+            30 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
+            31 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -304,12 +292,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::PrepareThresholdEd25519HssClientRequestFailure => {
             "PREPARE_THRESHOLD_ED25519_HSS_CLIENT_REQUEST_FAILURE"
-        }
-        WorkerResponseType::EvaluateThresholdEd25519HssResultSuccess => {
-            "EVALUATE_THRESHOLD_ED25519_HSS_RESULT_SUCCESS"
-        }
-        WorkerResponseType::EvaluateThresholdEd25519HssResultFailure => {
-            "EVALUATE_THRESHOLD_ED25519_HSS_RESULT_FAILURE"
         }
         WorkerResponseType::OpenThresholdEd25519HssClientOutputSuccess => {
             "OPEN_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_SUCCESS"

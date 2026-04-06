@@ -6,7 +6,6 @@ import {
 } from '@/core/types/signer-worker';
 import initHssClientSigner, {
   derive_threshold_ed25519_hss_client_inputs,
-  threshold_ed25519_hss_evaluate_result,
   threshold_ed25519_hss_open_client_output,
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
@@ -66,11 +65,6 @@ async function handleHssClientMessage(data: unknown): Promise<{
       return {
         type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
         payload: threshold_ed25519_hss_prepare_client_request(payload),
-      };
-    case WorkerRequestType.EvaluateThresholdEd25519HssResult:
-      return {
-        type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
-        payload: threshold_ed25519_hss_evaluate_result(payload),
       };
     case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
       return {

@@ -1,6 +1,5 @@
 use ed25519_hss::artifact::PrimeOrderEncodedArtifact;
 use ed25519_hss::artifact::PrimeOrderSectionKind;
-use ed25519_hss::client::ClientOtState;
 use ed25519_hss::ddh::ddh_hss::role_views_for_backend;
 use ed25519_hss::ddh::{
     DdhHssBackend, DdhHssTransportBundle, DdhHssTransportPurpose, FixedFunctionHssBackend,
@@ -10,8 +9,8 @@ use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::PreparedSession;
 use ed25519_hss::shared::{ProtoError, ProtoResult};
 use ed25519_hss::wire::{
-    ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationResult, ServerInputsPacket,
-    ServerPacket, WireMessage, PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
+    ClientOtOffer, ClientOutputPacket, ClientPacket, WireMessage,
+    PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -21,9 +20,13 @@ use serde::{Deserialize, Serialize};
 pub enum TransportKind {
     ClientOtOffer,
     ClientOtRequest,
+    ServerAssistInit,
+    ClientStageRequest,
+    ServerStageResponse,
+    ServerFinalize,
     ServerPacket,
-    EvaluationResult,
     ClientOutput,
+    SeedOutput,
     ServerOutput,
 }
 
@@ -41,6 +44,25 @@ struct EncodedServerInputsPayload {
     y_relayer_right: DdhHssTransportBundle,
     tau_relayer_left: DdhHssTransportBundle,
     tau_relayer_right: DdhHssTransportBundle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ServerInputsPacket {
+    context_binding: [u8; 32],
+    server_input_commitment: [u8; 32],
+    nonce: [u8; 12],
+    ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ServerPacket {
+    context_binding: [u8; 32],
+    ot_transcript: serde_json::Value,
+    y_client_response: serde_json::Value,
+    tau_client_response: serde_json::Value,
+    y_client_remote_release: serde_json::Value,
+    tau_client_remote_release: serde_json::Value,
+    server_inputs: ServerInputsPacket,
 }
 
 pub fn first_fixture() -> FExpandFixture {
@@ -152,51 +174,11 @@ pub fn decode_client_request(
     decode_transport_message(context_binding, TransportKind::ClientOtRequest, message)
 }
 
-pub fn decode_server_message(
-    context_binding: [u8; 32],
-    message: &WireMessage,
-) -> ProtoResult<ServerPacket> {
-    decode_transport_message(context_binding, TransportKind::ServerPacket, message)
-}
-
 pub fn decode_client_output_message(
     context_binding: [u8; 32],
     message: &WireMessage,
 ) -> ProtoResult<ClientOutputPacket> {
     decode_transport_message(context_binding, TransportKind::ClientOutput, message)
-}
-
-pub fn decode_evaluation_result_message(
-    context_binding: [u8; 32],
-    message: &WireMessage,
-) -> ProtoResult<EvaluationResult> {
-    decode_transport_message(context_binding, TransportKind::EvaluationResult, message)
-}
-
-pub fn decode_client_input_delivery(
-    session: &PreparedSession,
-    client_request_message: &WireMessage,
-    evaluator_ot_state: &ClientOtState,
-    server_message: &WireMessage,
-) -> ProtoResult<([u8; 32], [u8; 32])> {
-    let context_binding = session.candidate().context_binding;
-    let client_packet = decode_client_request(context_binding, client_request_message)?;
-    let server_packet = decode_server_message(context_binding, server_message)?;
-    let (_runtime, _garbler_session, evaluator_session) = session.split_runtime();
-    let (y_client_bundle, tau_client_bundle) = evaluator_session.reconstruct_client_input_bundles(
-        &client_packet,
-        evaluator_ot_state,
-        &server_packet,
-    )?;
-    let roles = role_views_for_backend(session.ddh_backend());
-    Ok((
-        roles
-            .evaluator
-            .decode_client_bit_bundle_array(&y_client_bundle)?,
-        roles
-            .evaluator
-            .decode_client_bit_bundle_array(&tau_client_bundle)?,
-    ))
 }
 
 pub fn decode_server_input_delivery(
@@ -222,24 +204,13 @@ pub fn decode_server_input_delivery(
     ))
 }
 
-pub fn decode_server_input_payload_json(
-    session: &PreparedSession,
-    server_message: &WireMessage,
-) -> ProtoResult<String> {
-    let payload = open_server_inputs_payload(session, server_message)?;
-    serde_json::to_string(&payload).map_err(|err| {
-        ProtoError::Decode(format!(
-            "failed to serialize decoded server input payload json: {err}"
-        ))
-    })
-}
-
 fn open_server_inputs_payload(
     session: &PreparedSession,
     server_message: &WireMessage,
 ) -> ProtoResult<EncodedServerInputsPayload> {
     let context_binding = session.candidate().context_binding;
-    let server_packet = decode_server_message(context_binding, server_message)?;
+    let server_packet: ServerPacket =
+        decode_transport_message(context_binding, TransportKind::ServerPacket, server_message)?;
     open_server_inputs_packet(session.ddh_backend(), &server_packet.server_inputs)
 }
 

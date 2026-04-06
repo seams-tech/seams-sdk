@@ -73,7 +73,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let prepare_duration_ns = prepare_started.elapsed().as_nanos();
     let output_openers = session.output_openers();
 
-    let baseline_report = session.evaluate(&fixture.input)?;
+    let baseline_report = session.evaluate_for_clear_input_debug(&fixture.input)?;
     let baseline_x_client_base = output_openers
         .client
         .open(&baseline_report.output_delivery.client)?;
@@ -94,7 +94,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let primitive_timings = benchmark_primitives(config, session.ddh_backend())?;
 
     for _ in 0..config.stage_warmup_iterations {
-        let delivery_report = session.evaluate(&fixture.input)?;
+        let delivery_report = session.evaluate_for_clear_input_debug(&fixture.input)?;
         let x_client_base = output_openers
             .client
             .open(&delivery_report.output_delivery.client)?;
@@ -151,7 +151,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
 
         for _ in 0..config.stage_sample_iterations {
             let total_started = Instant::now();
-            let delivery_report = session.evaluate(&fixture.input)?;
+            let delivery_report = session.evaluate_for_clear_input_debug(&fixture.input)?;
             let transport_total_ns = total_started.elapsed().as_nanos() as f64;
             let x_client_base = output_openers
                 .client

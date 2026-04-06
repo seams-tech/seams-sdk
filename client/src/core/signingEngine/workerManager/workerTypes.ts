@@ -192,7 +192,6 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
   | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
-  | typeof WorkerRequestType.EvaluateThresholdEd25519HssResult
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.DeriveThresholdEd25519HssPublicKey

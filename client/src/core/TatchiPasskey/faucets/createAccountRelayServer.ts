@@ -22,8 +22,8 @@ import type {
   ThresholdEd25519HssPrepareForRegistrationResponse,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssRespondForRegistrationResponse,
-  ThresholdEd25519HssServerMessageEnvelope,
-  ThresholdEd25519HssEvaluationResultEnvelope,
+  ThresholdEd25519HssServerAssistInitEnvelope,
+  ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
 } from '@server/core/types';
 import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/session/sessionPolicy';
@@ -516,7 +516,10 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
   managedRegistrationBootstrapToken?: string;
   ceremonyHandle: string;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
-}): Promise<ThresholdEd25519HssServerMessageEnvelope> {
+}): Promise<{
+  serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
+}> {
   const startedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
   const requestPayload = {
@@ -589,7 +592,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
   const result = (await readJsonObject(
     response,
   )) as unknown as ThresholdEd25519HssRespondForRegistrationResponse;
-  if (!response.ok || result.ok !== true || !result.serverMessage) {
+  if (!response.ok || result.ok !== true || !result.serverAssistInit || !result.evaluationResult) {
     const failure = result as Extract<
       ThresholdEd25519HssRespondForRegistrationResponse,
       { ok: false }
@@ -602,7 +605,10 @@ export async function respondThresholdEd25519HssServerCeremonyWithRelayRegistrat
     requestBytes,
     requestSizeBreakdown,
   });
-  return result.serverMessage;
+  return {
+    serverAssistInit: result.serverAssistInit,
+    evaluationResult: result.evaluationResult,
+  };
 }
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration(args: {
@@ -611,7 +617,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
   rpId: string;
   managedRegistrationBootstrapToken?: string;
   ceremonyHandle: string;
-  evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }): Promise<ThresholdEd25519RegistrationHssFinalizeResult> {
   const finalizeStartedAt = performance.now();
   const registrationTransport = resolveRegistrationTransport(args.context);
@@ -631,8 +637,8 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithRelayRegistra
     evaluationResultContextBindingBytes: utf8Bytes(
       requestPayload.evaluationResult.contextBindingB64u,
     ),
-    evaluationResultMessageBytes: utf8Bytes(
-      requestPayload.evaluationResult.evaluationResultMessageB64u,
+    stagedEvaluatorArtifactBytes: utf8Bytes(
+      requestPayload.evaluationResult.stagedEvaluatorArtifactB64u,
     ),
   };
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

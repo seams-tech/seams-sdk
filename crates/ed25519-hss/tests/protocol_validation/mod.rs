@@ -2,12 +2,23 @@ use ed25519_hss::fixtures::committed_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 
 use crate::support::{
-    decode_evaluation_result_message, decode_server_message, encode_transport_message,
-    first_fixture, TransportKind,
+    decode_transport_message, encode_transport_message, first_fixture, TransportKind,
 };
 
+fn build_staged_evaluator_artifact_same_process(
+    session: &ed25519_hss::protocol::PreparedSession,
+    input: &ed25519_hss::shared::FExpandInput,
+) -> ed25519_hss::shared::ProtoResult<ed25519_hss::wire::StagedEvaluatorArtifact> {
+    let runtime = session.shared_runtime();
+    let evaluator_session = session.evaluator_session();
+    let ddh_run = session.evaluate_hidden_run_for_clear_input_debug(input)?;
+    let (artifact, _, _) =
+        evaluator_session.build_staged_evaluator_artifact_from_hidden_run(&runtime, ddh_run)?;
+    Ok(artifact)
+}
+
 #[test]
-fn prime_order_succinct_hss_rejects_server_message_from_different_request_same_context() {
+fn prime_order_succinct_hss_rejects_server_assist_init_from_different_request_same_context() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -34,16 +45,21 @@ fn prime_order_succinct_hss_rejects_server_message_from_different_request_same_c
         )
         .expect("prepare request b");
 
-    let server_message_b = garbler_session
-        .prepare_server_message(
+    let (server_assist_init_message_b, _server_eval_state_b) = garbler_session
+        .prepare_server_assist_init_message(
             &request_b,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
         )
-        .expect("prepare server message for request b");
+        .expect("prepare server assist init for request b");
 
-    let err = session
-        .evaluate_from_transport_messages(&request_a, &evaluator_ot_state_a, &server_message_b)
+    let err = evaluator_session
+        .decode_server_assist_init_message(
+            &request_a,
+            &evaluator_ot_state_a,
+            &server_assist_init_message_b,
+        )
         .expect_err("same-context request/release mismatch must fail");
     assert!(
         err.to_string().contains("request")
@@ -56,7 +72,7 @@ fn prime_order_succinct_hss_rejects_server_message_from_different_request_same_c
 }
 
 #[test]
-fn prime_order_succinct_hss_rejects_swapped_remote_releases_same_context() {
+fn prime_order_succinct_hss_rejects_swapped_server_assist_init_releases_same_context() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -71,31 +87,37 @@ fn prime_order_succinct_hss_rejects_swapped_remote_releases_same_context() {
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let server_message = garbler_session
-        .prepare_server_message(
+    let (server_assist_init_message, _server_eval_state) = garbler_session
+        .prepare_server_assist_init_message(
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
         )
-        .expect("prepare server message");
-    let mut server_packet = decode_server_message(fixture.output.context_binding, &server_message)
-        .expect("decode server message");
+        .expect("prepare server assist init");
+    let mut server_assist_init: ed25519_hss::wire::ServerAssistInitPacket =
+        decode_transport_message(
+            fixture.output.context_binding,
+            TransportKind::ServerAssistInit,
+            &server_assist_init_message,
+        )
+        .expect("decode server assist init");
     std::mem::swap(
-        &mut server_packet.y_client_remote_release,
-        &mut server_packet.tau_client_remote_release,
+        &mut server_assist_init.y_client_remote_release,
+        &mut server_assist_init.tau_client_remote_release,
     );
-    let swapped_server_message = encode_transport_message(
+    let swapped_server_assist_init_message = encode_transport_message(
         fixture.output.context_binding,
-        TransportKind::ServerPacket,
-        &server_packet,
+        TransportKind::ServerAssistInit,
+        &server_assist_init,
     )
-    .expect("encode swapped server message");
+    .expect("encode swapped server assist init");
 
-    let err = session
-        .evaluate_from_transport_messages(
+    let err = evaluator_session
+        .decode_server_assist_init_message(
             &client_request_message,
             &evaluator_ot_state,
-            &swapped_server_message,
+            &swapped_server_assist_init_message,
         )
         .expect_err("swapped same-context OT releases must fail");
     assert!(
@@ -107,7 +129,7 @@ fn prime_order_succinct_hss_rejects_swapped_remote_releases_same_context() {
 }
 
 #[test]
-fn prime_order_succinct_hss_rejects_remote_release_with_tampered_context_binding() {
+fn prime_order_succinct_hss_rejects_server_assist_init_release_with_tampered_context_binding() {
     let fixture = first_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -122,33 +144,199 @@ fn prime_order_succinct_hss_rejects_remote_release_with_tampered_context_binding
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let server_message = garbler_session
-        .prepare_server_message(
+    let (server_assist_init_message, _server_eval_state) = garbler_session
+        .prepare_server_assist_init_message(
             &client_request_message,
             fixture.input.y_relayer,
             fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
         )
-        .expect("prepare server message");
-    let mut server_packet = decode_server_message(fixture.output.context_binding, &server_message)
-        .expect("decode server message");
-    server_packet.y_client_remote_release.context_binding[0] ^= 0x01;
-    let tampered_server_message = encode_transport_message(
+        .expect("prepare server assist init");
+    let mut server_assist_init: ed25519_hss::wire::ServerAssistInitPacket =
+        decode_transport_message(
+            fixture.output.context_binding,
+            TransportKind::ServerAssistInit,
+            &server_assist_init_message,
+        )
+        .expect("decode server assist init");
+    server_assist_init.y_client_remote_release.context_binding[0] ^= 0x01;
+    let tampered_server_assist_init_message = encode_transport_message(
         fixture.output.context_binding,
-        TransportKind::ServerPacket,
-        &server_packet,
+        TransportKind::ServerAssistInit,
+        &server_assist_init,
     )
-    .expect("encode tampered server message");
+    .expect("encode tampered server assist init");
 
-    let err = session
-        .evaluate_from_transport_messages(
+    let err = evaluator_session
+        .decode_server_assist_init_message(
             &client_request_message,
             &evaluator_ot_state,
-            &tampered_server_message,
+            &tampered_server_assist_init_message,
         )
         .expect_err("tampered release context binding must fail");
     assert!(
         err.to_string().contains("context binding"),
         "unexpected tampered-context error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_add_stage_response_with_tampered_context_binding() {
+    let fixture = first_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
+    let client_ot_offer_message = garbler_session
+        .client_ot_offer_message()
+        .expect("prepare client OT offer message");
+    let (client_request_message, evaluator_ot_state) = evaluator_session
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message,
+            fixture.input.y_client,
+            fixture.input.tau_client,
+        )
+        .expect("prepare client OT request");
+    let (server_assist_init_message, server_eval_state) = garbler_session
+        .prepare_server_assist_init_message(
+            &client_request_message,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare server assist init");
+    let add_stage_request_message = evaluator_session
+        .prepare_add_stage_request_message(
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_assist_init_message,
+        )
+        .expect("prepare add-stage request");
+    let (add_stage_response_message, _next_state) = garbler_session
+        .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)
+        .expect("prepare add-stage response");
+
+    let mut add_stage_response: ed25519_hss::wire::ServerStageResponsePacket =
+        decode_transport_message(
+            fixture.output.context_binding,
+            TransportKind::ServerStageResponse,
+            &add_stage_response_message,
+        )
+        .expect("decode add-stage response");
+    add_stage_response.context_binding[0] ^= 0x01;
+    let tampered_add_stage_response_message = encode_transport_message(
+        fixture.output.context_binding,
+        TransportKind::ServerStageResponse,
+        &add_stage_response,
+    )
+    .expect("encode tampered add-stage response");
+
+    let err = evaluator_session
+        .decode_add_stage_response_message(
+            &client_request_message,
+            &evaluator_ot_state,
+            &server_assist_init_message,
+            &add_stage_request_message,
+            &tampered_add_stage_response_message,
+        )
+        .expect_err("tampered add-stage response context binding must fail");
+    assert!(
+        err.to_string().contains("context binding"),
+        "unexpected add-stage tampered-context error: {err}"
+    );
+}
+
+#[test]
+fn prime_order_succinct_hss_rejects_cross_account_message_schedule_response() {
+    let fixtures = committed_fixture_corpus().expect("fixture corpus");
+    let session_a =
+        prepare_prime_order_succinct_hss(&fixtures[0].input.context).expect("prepare session a");
+    let session_b =
+        prepare_prime_order_succinct_hss(&fixtures[1].input.context).expect("prepare session b");
+    let (_runtime_a, garbler_session_a, evaluator_session_a) = session_a.split_runtime();
+    let (_runtime_b, garbler_session_b, evaluator_session_b) = session_b.split_runtime();
+
+    let client_ot_offer_message_a = garbler_session_a
+        .client_ot_offer_message()
+        .expect("prepare client OT offer message a");
+    let (client_request_message_a, evaluator_ot_state_a) = evaluator_session_a
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message_a,
+            fixtures[0].input.y_client,
+            fixtures[0].input.tau_client,
+        )
+        .expect("prepare client OT request a");
+    let (server_assist_init_message_a, server_eval_state_a) = garbler_session_a
+        .prepare_server_assist_init_message(
+            &client_request_message_a,
+            fixtures[0].input.y_relayer,
+            fixtures[0].input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare server assist init a");
+    let add_stage_request_message_a = evaluator_session_a
+        .prepare_add_stage_request_message(
+            &client_request_message_a,
+            &evaluator_ot_state_a,
+            &server_assist_init_message_a,
+        )
+        .expect("prepare add-stage request a");
+    let (add_stage_response_message_a, _next_state_a) = garbler_session_a
+        .prepare_add_stage_response_message(&server_eval_state_a, &add_stage_request_message_a)
+        .expect("prepare add-stage response a");
+    let message_schedule_request_message_a = evaluator_session_a
+        .prepare_message_schedule_request_message(&add_stage_response_message_a)
+        .expect("prepare message-schedule request a");
+
+    let client_ot_offer_message_b = garbler_session_b
+        .client_ot_offer_message()
+        .expect("prepare client OT offer message b");
+    let (client_request_message_b, evaluator_ot_state_b) = evaluator_session_b
+        .prepare_client_ot_request_from_offer_message(
+            &client_ot_offer_message_b,
+            fixtures[1].input.y_client,
+            fixtures[1].input.tau_client,
+        )
+        .expect("prepare client OT request b");
+    let (server_assist_init_message_b, server_eval_state_b) = garbler_session_b
+        .prepare_server_assist_init_message(
+            &client_request_message_b,
+            fixtures[1].input.y_relayer,
+            fixtures[1].input.tau_relayer,
+            ed25519_hss::server::ServerEvalOperation::Registration,
+        )
+        .expect("prepare server assist init b");
+    let add_stage_request_message_b = evaluator_session_b
+        .prepare_add_stage_request_message(
+            &client_request_message_b,
+            &evaluator_ot_state_b,
+            &server_assist_init_message_b,
+        )
+        .expect("prepare add-stage request b");
+    let (add_stage_response_message_b, next_state_b) = garbler_session_b
+        .prepare_add_stage_response_message(&server_eval_state_b, &add_stage_request_message_b)
+        .expect("prepare add-stage response b");
+    let message_schedule_request_message_b = evaluator_session_b
+        .prepare_message_schedule_request_message(&add_stage_response_message_b)
+        .expect("prepare message-schedule request b");
+    let (message_schedule_response_message_b, _next_state_b) = garbler_session_b
+        .prepare_message_schedule_response_message(
+            &next_state_b,
+            &message_schedule_request_message_b,
+        )
+        .expect("prepare message-schedule response b");
+
+    let err = evaluator_session_a
+        .decode_message_schedule_response_message(
+            &server_assist_init_message_a,
+            &message_schedule_request_message_a,
+            &message_schedule_response_message_b,
+        )
+        .expect_err("cross-account message-schedule response must fail");
+    assert!(
+        err.to_string().contains("context binding")
+            || err.to_string().contains("handle")
+            || err.to_string().contains("stage id"),
+        "unexpected cross-account message-schedule error: {err}"
     );
 }
 
@@ -161,46 +349,22 @@ fn prime_order_succinct_hss_rejects_tampered_server_output_payload_in_evaluation
     let client_ot_offer_message = garbler_session
         .client_ot_offer_message()
         .expect("prepare client OT offer message");
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let server_message = garbler_session
-        .prepare_server_message(
-            &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
-        )
-        .expect("prepare server message");
-    let evaluation_result_message = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message,
-            &evaluator_ot_state,
-            &server_message,
-        )
-        .expect("evaluate result message");
-    let mut evaluation_result = decode_evaluation_result_message(
-        fixture.output.context_binding,
-        &evaluation_result_message,
+    let mut staged_evaluator_artifact = build_staged_evaluator_artifact_same_process(
+        &session,
+        &fixture.input,
     )
-    .expect("decode evaluation result message");
-    evaluation_result.server_output_payload[0] ^= 0x01;
-    let tampered_evaluation_result_message = encode_transport_message(
-        fixture.output.context_binding,
-        TransportKind::EvaluationResult,
-        &evaluation_result,
-    )
-    .expect("encode tampered evaluation result message");
+    .expect("staged evaluator artifact");
+    staged_evaluator_artifact.server_output_payload[0] ^= 0x01;
 
-    let err = garbler_session
-        .finalize_report_from_evaluation_result_message(
-            &runtime,
-            &tampered_evaluation_result_message,
-        )
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &staged_evaluator_artifact)
         .expect_err("tampered server output payload must fail");
     assert!(
         err.to_string().contains("server output payload binding"),
@@ -217,47 +381,23 @@ fn prime_order_succinct_hss_rejects_tampered_client_output_in_evaluation_result(
     let client_ot_offer_message = garbler_session
         .client_ot_offer_message()
         .expect("prepare client OT offer message");
-    let (client_request_message, evaluator_ot_state) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixture.input.y_client,
             fixture.input.tau_client,
         )
         .expect("prepare client OT request");
-    let server_message = garbler_session
-        .prepare_server_message(
-            &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
-        )
-        .expect("prepare server message");
-    let evaluation_result_message = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message,
-            &evaluator_ot_state,
-            &server_message,
-        )
-        .expect("evaluate result message");
-    let mut evaluation_result = decode_evaluation_result_message(
-        fixture.output.context_binding,
-        &evaluation_result_message,
+    let mut staged_evaluator_artifact = build_staged_evaluator_artifact_same_process(
+        &session,
+        &fixture.input,
     )
-    .expect("decode evaluation result message");
-    let last_idx = evaluation_result.client_output.bytes.len() - 1;
-    evaluation_result.client_output.bytes[last_idx] ^= 0x01;
-    let tampered_evaluation_result_message = encode_transport_message(
-        fixture.output.context_binding,
-        TransportKind::EvaluationResult,
-        &evaluation_result,
-    )
-    .expect("encode tampered evaluation result message");
+    .expect("staged evaluator artifact");
+    let last_idx = staged_evaluator_artifact.client_output.bytes.len() - 1;
+    staged_evaluator_artifact.client_output.bytes[last_idx] ^= 0x01;
 
-    let err = garbler_session
-        .finalize_report_from_evaluation_result_message(
-            &runtime,
-            &tampered_evaluation_result_message,
-        )
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(&garbler_session, &staged_evaluator_artifact)
         .expect_err("tampered client output must fail");
     assert!(
         err.to_string().contains("client output binding"),
@@ -275,74 +415,40 @@ fn prime_order_succinct_hss_rejects_swapped_client_output_between_same_context_r
         .client_ot_offer_message()
         .expect("prepare client OT offer message");
 
-    let (client_request_message_a, evaluator_ot_state_a) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixtures[0].input.y_client,
             fixtures[0].input.tau_client,
         )
         .expect("prepare client OT request A");
-    let server_message_a = garbler_session
-        .prepare_server_message(
-            &client_request_message_a,
-            fixtures[0].input.y_relayer,
-            fixtures[0].input.tau_relayer,
-        )
-        .expect("prepare server message A");
-    let evaluation_result_message_a = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message_a,
-            &evaluator_ot_state_a,
-            &server_message_a,
-        )
-        .expect("evaluate result message A");
-    let mut evaluation_result_a = decode_evaluation_result_message(
-        fixtures[0].output.context_binding,
-        &evaluation_result_message_a,
+    let mut staged_evaluator_artifact_a = build_staged_evaluator_artifact_same_process(
+        &session,
+        &fixtures[0].input,
     )
-    .expect("decode evaluation result A");
+    .expect("staged evaluator artifact A");
 
-    let (client_request_message_b, evaluator_ot_state_b) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixtures[1].input.y_client,
             fixtures[1].input.tau_client,
         )
         .expect("prepare client OT request B");
-    let server_message_b = garbler_session
-        .prepare_server_message(
-            &client_request_message_b,
-            fixtures[1].input.y_relayer,
-            fixtures[1].input.tau_relayer,
-        )
-        .expect("prepare server message B");
-    let evaluation_result_message_b = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message_b,
-            &evaluator_ot_state_b,
-            &server_message_b,
-        )
-        .expect("evaluate result message B");
-    let evaluation_result_b = decode_evaluation_result_message(
-        fixtures[0].output.context_binding,
-        &evaluation_result_message_b,
+    let mut same_context_input_b = fixtures[1].input.clone();
+    same_context_input_b.context = fixtures[0].input.context.clone();
+    let staged_evaluator_artifact_b = build_staged_evaluator_artifact_same_process(
+        &session,
+        &same_context_input_b,
     )
-    .expect("decode evaluation result B");
+    .expect("staged evaluator artifact B");
 
-    evaluation_result_a.client_output = evaluation_result_b.client_output;
-    let tampered_evaluation_result_message = encode_transport_message(
-        fixtures[0].output.context_binding,
-        TransportKind::EvaluationResult,
-        &evaluation_result_a,
-    )
-    .expect("encode tampered evaluation result");
+    staged_evaluator_artifact_a.client_output = staged_evaluator_artifact_b.client_output;
 
-    let err = garbler_session
-        .finalize_report_from_evaluation_result_message(
-            &runtime,
-            &tampered_evaluation_result_message,
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact_a,
         )
         .expect_err("swapped client output between same-context runs must fail");
     assert!(
@@ -362,74 +468,41 @@ fn prime_order_succinct_hss_rejects_swapped_server_output_payload_between_same_c
         .client_ot_offer_message()
         .expect("prepare client OT offer message");
 
-    let (client_request_message_a, evaluator_ot_state_a) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixtures[0].input.y_client,
             fixtures[0].input.tau_client,
         )
         .expect("prepare client OT request A");
-    let server_message_a = garbler_session
-        .prepare_server_message(
-            &client_request_message_a,
-            fixtures[0].input.y_relayer,
-            fixtures[0].input.tau_relayer,
-        )
-        .expect("prepare server message A");
-    let evaluation_result_message_a = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message_a,
-            &evaluator_ot_state_a,
-            &server_message_a,
-        )
-        .expect("evaluate result message A");
-    let mut evaluation_result_a = decode_evaluation_result_message(
-        fixtures[0].output.context_binding,
-        &evaluation_result_message_a,
+    let mut staged_evaluator_artifact_a = build_staged_evaluator_artifact_same_process(
+        &session,
+        &fixtures[0].input,
     )
-    .expect("decode evaluation result A");
+    .expect("staged evaluator artifact A");
 
-    let (client_request_message_b, evaluator_ot_state_b) = evaluator_session
+    let _ = evaluator_session
         .prepare_client_ot_request_from_offer_message(
             &client_ot_offer_message,
             fixtures[1].input.y_client,
             fixtures[1].input.tau_client,
         )
         .expect("prepare client OT request B");
-    let server_message_b = garbler_session
-        .prepare_server_message(
-            &client_request_message_b,
-            fixtures[1].input.y_relayer,
-            fixtures[1].input.tau_relayer,
-        )
-        .expect("prepare server message B");
-    let evaluation_result_message_b = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message_b,
-            &evaluator_ot_state_b,
-            &server_message_b,
-        )
-        .expect("evaluate result message B");
-    let evaluation_result_b = decode_evaluation_result_message(
-        fixtures[0].output.context_binding,
-        &evaluation_result_message_b,
+    let mut same_context_input_b = fixtures[1].input.clone();
+    same_context_input_b.context = fixtures[0].input.context.clone();
+    let staged_evaluator_artifact_b = build_staged_evaluator_artifact_same_process(
+        &session,
+        &same_context_input_b,
     )
-    .expect("decode evaluation result B");
+    .expect("staged evaluator artifact B");
 
-    evaluation_result_a.server_output_payload = evaluation_result_b.server_output_payload;
-    let tampered_evaluation_result_message = encode_transport_message(
-        fixtures[0].output.context_binding,
-        TransportKind::EvaluationResult,
-        &evaluation_result_a,
-    )
-    .expect("encode tampered evaluation result");
+    staged_evaluator_artifact_a.server_output_payload =
+        staged_evaluator_artifact_b.server_output_payload;
 
-    let err = garbler_session
-        .finalize_report_from_evaluation_result_message(
-            &runtime,
-            &tampered_evaluation_result_message,
+    let err = runtime
+        .finalize_report_from_staged_evaluator_artifact(
+            &garbler_session,
+            &staged_evaluator_artifact_a,
         )
         .expect_err("swapped server output payload between same-context runs must fail");
     assert!(

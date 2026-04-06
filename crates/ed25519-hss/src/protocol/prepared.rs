@@ -20,11 +20,7 @@ use crate::runtime::{
 use crate::server::{ot::prepare_garbler_ot_state_for_session, ServerOtState, ServerSession};
 use crate::shared::CanonicalContext;
 use crate::shared::{ProtoError, ProtoResult};
-pub use crate::wire::{
-    ArtifactSummary, ClientOtOffer, ClientOutputPacket, ClientPacket, EvaluationReport,
-    EvaluationResult, EvaluatorWitness, OtTranscript, OutputDelivery, RunBindings,
-    SeedOutputPacket, ServerInputsPacket, ServerOutputPacket, ServerPacket, WireMessage,
-};
+use crate::wire::ClientOtOffer;
 pub struct PreparedSession {
     candidate: FixedHiddenCoreCandidate,
     artifact: PrimeOrderEncodedArtifact,

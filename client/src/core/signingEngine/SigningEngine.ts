@@ -133,7 +133,6 @@ import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
-  evaluateThresholdEd25519HssResultWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
 } from './signers/wasm/hssClientSignerWasm';
@@ -1292,17 +1291,6 @@ export class SigningEngine {
     });
   }
 
-  evaluateThresholdEd25519HssResult(args: {
-    preparedSession: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['preparedSession'];
-    clientRequest: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['clientRequest'];
-    serverMessage: Parameters<typeof evaluateThresholdEd25519HssResultWasm>[0]['serverMessage'];
-  }): ReturnType<typeof evaluateThresholdEd25519HssResultWasm> {
-    return evaluateThresholdEd25519HssResultWasm({
-      ...args,
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-    });
-  }
-
   completeThresholdEd25519HssClientCeremony(
     args: Omit<Parameters<typeof completeThresholdEd25519HssClientCeremonyValue>[0], 'workerCtx'>,
   ): ReturnType<typeof completeThresholdEd25519HssClientCeremonyValue> {
@@ -1446,7 +1434,6 @@ export type SigningEnginePublic = Pick<
   | 'deriveThresholdEd25519HssClientInputsFromCredential'
   | 'prepareThresholdEd25519HssClientCeremonyFromCredential'
   | 'prepareThresholdEd25519HssClientRequest'
-  | 'evaluateThresholdEd25519HssResult'
   | 'completeThresholdEd25519HssClientCeremony'
   | 'runThresholdEd25519HssCeremonyWithSession'
   | 'openThresholdEd25519HssSeedOutput'

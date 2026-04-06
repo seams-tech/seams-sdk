@@ -6,10 +6,10 @@ use crate::ddh::ddh_hss::{
     eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public,
     eval_mul_local_bit_pair_batch_raw_xor_base_public, eval_mul_local_word_pair_batch_public,
     eval_mul_local_word_pairs_public, local_word_from_shared, local_word_from_transport_public,
-    validate_transport_bundle_pair_public, validate_transport_word_pair_public,
-    xor_local_bit_from_raw_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
-    DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide,
-    DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
+    validate_transport_word_pair_public, xor_local_bit_from_raw_public,
+    xor_local_word_pairs_public, DdhHssArithmeticBackend, DdhHssInputShareBundle,
+    DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide, DdhHssSharedWord,
+    DdhHssTransportBundle, DdhHssTransportWord,
 };
 use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
@@ -153,6 +153,20 @@ pub struct DdhHiddenEvalRun {
     pub client_input_commitment: [u8; 32],
     pub server_input_commitment: [u8; 32],
     pub output: DdhHiddenEvalOutputBundles,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalCheckpointDigests {
+    pub add_stage: [u8; 32],
+    pub message_schedule: [u8; 32],
+    pub round_core: [u8; 32],
+    pub output_projection: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalExecutionTrace {
+    pub run: DdhHiddenEvalRun,
+    pub checkpoint_digests: DdhHiddenEvalCheckpointDigests,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -475,6 +489,50 @@ impl RoundKernelBooleanWord {
     }
 }
 
+fn digest_shared_words(label: &[u8], words: &[DdhHssSharedWord]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"prime_order_ddh_hidden_eval_stage_digest_v0");
+    hasher.update(label);
+    hasher.update((words.len() as u64).to_le_bytes());
+    for word in words {
+        hasher.update(word.width_bits.to_le_bytes());
+        hasher.update(word.left_word.to_le_bytes());
+        hasher.update(word.right_word.to_le_bytes());
+        hasher.update(word.left_commitment);
+        hasher.update(word.right_commitment);
+        hasher.update(word.provenance_digest);
+    }
+    hasher.finalize().into()
+}
+
+fn digest_split_local_bit_word(label: &[u8], word: &SplitLocalBitWord) -> ProtoResult<[u8; 32]> {
+    Ok(digest_shared_words(label, &word.to_shared_bits()?))
+}
+
+fn digest_split_local_bit_words(
+    label: &[u8],
+    words: &[SplitLocalBitWord],
+) -> ProtoResult<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"prime_order_ddh_hidden_eval_stage_vector_digest_v0");
+    hasher.update(label);
+    hasher.update((words.len() as u64).to_le_bytes());
+    for word in words {
+        hasher.update(digest_split_local_bit_word(b"word", word)?);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn digest_hidden_eval_output_bundles(output: &DdhHiddenEvalOutputBundles) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"prime_order_ddh_hidden_eval_output_projection_digest_v0");
+    hasher.update(output.canonical_seed.commitment);
+    hasher.update(output.x_client_base.commitment);
+    hasher.update(output.x_relayer_base_left.commitment);
+    hasher.update(output.x_relayer_base_right.commitment);
+    hasher.finalize().into()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SharedHashCoreOutput {
     final_words: Vec<SplitLocalBitWord>,
@@ -680,60 +738,6 @@ pub fn execute_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmetic
     )
 }
 
-pub(crate) fn execute_prime_order_ddh_hidden_eval_program_with_transport_server_inputs_with_pool<
-    B: DdhHssArithmeticBackend,
->(
-    program: &HiddenEvalProgram,
-    backend: &B,
-    constant_pool: &DdhHiddenEvalConstantPool,
-    y_client_bits: &DdhHssInputShareBundle,
-    y_relayer_left: &DdhHssTransportBundle,
-    y_relayer_right: &DdhHssTransportBundle,
-    tau_client_bits: &DdhHssInputShareBundle,
-    tau_relayer_left: &DdhHssTransportBundle,
-    tau_relayer_right: &DdhHssTransportBundle,
-) -> ProtoResult<DdhHiddenEvalRun> {
-    Ok(
-        execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_inputs(
-            program,
-            backend,
-            constant_pool,
-            y_client_bits,
-            y_relayer_left,
-            y_relayer_right,
-            tau_client_bits,
-            tau_relayer_left,
-            tau_relayer_right,
-        )?
-        .run,
-    )
-}
-
-pub(crate) fn execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool<
-    B: DdhHssArithmeticBackend,
->(
-    program: &HiddenEvalProgram,
-    backend: &B,
-    constant_pool: &DdhHiddenEvalConstantPool,
-    y_client_bits: &DdhHssInputShareBundle,
-    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
-    tau_client_bits: &DdhHssInputShareBundle,
-    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
-) -> ProtoResult<DdhHiddenEvalRun> {
-    Ok(
-        execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs(
-            program,
-            backend,
-            constant_pool,
-            y_client_bits,
-            y_relayer_bits,
-            tau_client_bits,
-            tau_relayer_bits,
-        )?
-        .run,
-    )
-}
-
 pub fn execute_prime_order_ddh_hidden_eval_program_profiled<B: DdhHssArithmeticBackend>(
     program: &HiddenEvalProgram,
     backend: &B,
@@ -756,7 +760,9 @@ pub fn execute_prime_order_ddh_hidden_eval_program_profiled_with_pool<
     constant_pool: &DdhHiddenEvalConstantPool,
     input_bundles: &DdhHiddenEvalInputBundles,
 ) -> ProtoResult<DdhHiddenEvalProfile> {
-    let ExecutionUntilOutputProjector { stage_profile, run } =
+    let ExecutionUntilOutputProjector {
+        stage_profile, run, ..
+    } =
         execute_prime_order_ddh_hidden_eval_program_internal(
             program,
             backend,
@@ -1140,6 +1146,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
 struct ExecutionUntilOutputProjector {
     stage_profile: DdhHiddenEvalStageProfile,
     run: DdhHiddenEvalRun,
+    checkpoint_digests: DdhHiddenEvalCheckpointDigests,
 }
 
 fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBackend>(
@@ -1196,6 +1203,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &constant_pool.zero_right,
     )?;
     let add_stage_duration_ns = elapsed_ns(add_started_ns);
+    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
 
     let schedule_started_ns = monotonic_now_ns();
     let schedule_output =
@@ -1203,6 +1211,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
+    let message_schedule_digest =
+        digest_split_local_bit_words(b"message_schedule", &schedule_output.words)?;
 
     let round_started_ns = monotonic_now_ns();
     let round_output = execute_round_stages(
@@ -1223,6 +1233,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
+    let round_core_digest =
+        digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1236,6 +1248,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
+    let output_projection_digest = digest_hidden_eval_output_bundles(&output);
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1276,47 +1289,13 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
             server_input_commitment,
             output,
         },
+        checkpoint_digests: DdhHiddenEvalCheckpointDigests {
+            add_stage: add_stage_digest,
+            message_schedule: message_schedule_digest,
+            round_core: round_core_digest,
+            output_projection: output_projection_digest,
+        },
     })
-}
-
-fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs<
-    B: DdhHssArithmeticBackend,
->(
-    program: &HiddenEvalProgram,
-    backend: &B,
-    constant_pool: &DdhHiddenEvalConstantPool,
-    y_client_bits: &DdhHssInputShareBundle,
-    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
-    tau_client_bits: &DdhHssInputShareBundle,
-    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
-) -> ProtoResult<ExecutionUntilOutputProjector> {
-    ensure_program_shape(program)?;
-    validate_input_bit_bundle(y_client_bits, HiddenEvalInputOwner::Client, "y_client_bits")?;
-    validate_server_input_bit_bundle(
-        y_relayer_bits,
-        HiddenEvalInputOwner::Server,
-        "y_relayer_bits",
-    )?;
-    validate_input_bit_bundle(
-        tau_client_bits,
-        HiddenEvalInputOwner::Client,
-        "tau_client_bits",
-    )?;
-    validate_server_input_bit_bundle(
-        tau_relayer_bits,
-        HiddenEvalInputOwner::Server,
-        "tau_relayer_bits",
-    )?;
-
-    execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs_validated(
-        program,
-        backend,
-        constant_pool,
-        y_client_bits,
-        y_relayer_bits,
-        tau_client_bits,
-        tau_relayer_bits,
-    )
 }
 
 fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs_validated<
@@ -1357,6 +1336,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &constant_pool.zero_right,
     )?;
     let add_stage_duration_ns = elapsed_ns(add_started_ns);
+    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
 
     let schedule_started_ns = monotonic_now_ns();
     let schedule_output =
@@ -1364,6 +1344,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
+    let message_schedule_digest =
+        digest_split_local_bit_words(b"message_schedule", &schedule_output.words)?;
 
     let round_started_ns = monotonic_now_ns();
     let round_output = execute_round_stages(
@@ -1384,6 +1366,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
+    let round_core_digest =
+        digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1397,6 +1381,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &tau_relayer_bits.right_words,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
+    let output_projection_digest = digest_hidden_eval_output_bundles(&output);
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1437,150 +1422,42 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
             server_input_commitment,
             output,
         },
+        checkpoint_digests: DdhHiddenEvalCheckpointDigests {
+            add_stage: add_stage_digest,
+            message_schedule: message_schedule_digest,
+            round_core: round_core_digest,
+            output_projection: output_projection_digest,
+        },
     })
 }
 
-fn execute_prime_order_ddh_hidden_eval_program_internal_with_transport_server_inputs<
+pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool<
     B: DdhHssArithmeticBackend,
 >(
     program: &HiddenEvalProgram,
     backend: &B,
     constant_pool: &DdhHiddenEvalConstantPool,
     y_client_bits: &DdhHssInputShareBundle,
-    y_relayer_left: &DdhHssTransportBundle,
-    y_relayer_right: &DdhHssTransportBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
     tau_client_bits: &DdhHssInputShareBundle,
-    tau_relayer_left: &DdhHssTransportBundle,
-    tau_relayer_right: &DdhHssTransportBundle,
-) -> ProtoResult<ExecutionUntilOutputProjector> {
-    ensure_program_shape(program)?;
-    let total_started_ns = monotonic_now_ns();
-    let input_sharing_started_ns = monotonic_now_ns();
-    validate_input_bit_bundle(y_client_bits, HiddenEvalInputOwner::Client, "y_client_bits")?;
-    validate_server_input_transport_bundle_pair(
-        backend.evaluation_key(),
-        y_relayer_left,
-        y_relayer_right,
-        HiddenEvalInputOwner::Server,
-        "y_relayer_bits",
-    )?;
-    validate_input_bit_bundle(
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+) -> ProtoResult<DdhHiddenEvalExecutionTrace> {
+    let ExecutionUntilOutputProjector {
+        run,
+        checkpoint_digests,
+        ..
+    } = execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs_validated(
+        program,
+        backend,
+        constant_pool,
+        y_client_bits,
+        y_relayer_bits,
         tau_client_bits,
-        HiddenEvalInputOwner::Client,
-        "tau_client_bits",
+        tau_relayer_bits,
     )?;
-    validate_server_input_transport_bundle_pair(
-        backend.evaluation_key(),
-        tau_relayer_left,
-        tau_relayer_right,
-        HiddenEvalInputOwner::Server,
-        "tau_relayer_bits",
-    )?;
-
-    let client_input_commitment = combine_bundle_commitments(
-        backend,
-        HiddenEvalInputOwner::Client,
-        &[y_client_bits, tau_client_bits],
-    );
-    let server_input_commitment =
-        combine_server_input_transport_commitments(backend, y_relayer_left, tau_relayer_left);
-    let y_client_bits = y_client_bits.words.clone();
-    let tau_client_bits = tau_client_bits.words.clone();
-    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits)?;
-    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bits)?;
-    let input_sharing_duration_ns = elapsed_ns(input_sharing_started_ns);
-
-    let add_started_ns = monotonic_now_ns();
-    let d_bits = execute_add_stage(
-        backend,
-        &program.stages[0],
-        &y_client_bits_local,
-        &y_relayer_left.words,
-        &y_relayer_right.words,
-        &constant_pool.zero_left,
-        &constant_pool.zero_right,
-    )?;
-    let add_stage_duration_ns = elapsed_ns(add_started_ns);
-
-    let schedule_started_ns = monotonic_now_ns();
-    let schedule_output =
-        execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
-    let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
-    let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
-    let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
-
-    let round_started_ns = monotonic_now_ns();
-    let round_output = execute_round_stages(
-        backend,
-        constant_pool,
-        &program.stages[2..6],
-        &schedule_output.words,
-    )?;
-    let round_core_duration_ns = elapsed_ns(round_started_ns);
-    let hash_core = round_output.hash_core;
-    let round_sigma0_duration_ns = round_output.sigma0_duration_ns;
-    let round_sigma1_duration_ns = round_output.sigma1_duration_ns;
-    let round_ch_duration_ns = round_output.ch_duration_ns;
-    let round_maj_duration_ns = round_output.maj_duration_ns;
-    let round_state3_duration_ns = round_output.state3_duration_ns;
-    let round_temp1_duration_ns = round_output.temp1_duration_ns;
-    let round_temp1_add_timing = round_output.temp1_add_timing;
-    let round_temp2_duration_ns = round_output.temp2_duration_ns;
-    let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
-    let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
-
-    let output_started_ns = monotonic_now_ns();
-    let output = execute_output_projector_stage(
-        backend,
-        constant_pool,
-        &program.stages[6],
-        &d_bits,
-        &hash_core.final_words,
-        &tau_client_bits_local,
-        &tau_relayer_left.words,
-        &tau_relayer_right.words,
-    )?;
-    let output_projector_duration_ns = elapsed_ns(output_started_ns);
-
-    Ok(ExecutionUntilOutputProjector {
-        stage_profile: DdhHiddenEvalStageProfile {
-            input_sharing_duration_ns,
-            add_stage_duration_ns,
-            message_schedule_duration_ns,
-            message_schedule_accumulation_duration_ns,
-            message_schedule_accumulation_xor_ab_duration_ns:
-                message_schedule_accumulation_add_timing.xor_ab_duration_ns,
-            message_schedule_accumulation_sum_duration_ns: message_schedule_accumulation_add_timing
-                .sum_duration_ns,
-            message_schedule_accumulation_a_xor_carry_duration_ns:
-                message_schedule_accumulation_add_timing.a_xor_carry_duration_ns,
-            message_schedule_accumulation_carry_gate_duration_ns:
-                message_schedule_accumulation_add_timing.carry_gate_duration_ns,
-            message_schedule_accumulation_next_carry_duration_ns:
-                message_schedule_accumulation_add_timing.next_carry_duration_ns,
-            round_core_duration_ns,
-            round_sigma0_duration_ns,
-            round_sigma1_duration_ns,
-            round_ch_duration_ns,
-            round_maj_duration_ns,
-            round_state3_duration_ns,
-            round_temp1_duration_ns,
-            round_temp1_xor_ab_duration_ns: round_temp1_add_timing.xor_ab_duration_ns,
-            round_temp1_sum_duration_ns: round_temp1_add_timing.sum_duration_ns,
-            round_temp1_a_xor_carry_duration_ns: round_temp1_add_timing.a_xor_carry_duration_ns,
-            round_temp1_carry_gate_duration_ns: round_temp1_add_timing.carry_gate_duration_ns,
-            round_temp1_next_carry_duration_ns: round_temp1_add_timing.next_carry_duration_ns,
-            round_temp2_duration_ns,
-            round_new_a_bits_duration_ns,
-            round_new_e_bits_duration_ns,
-            output_projector_duration_ns,
-            total_duration_ns: elapsed_ns(total_started_ns),
-        },
-        run: DdhHiddenEvalRun {
-            client_input_commitment,
-            server_input_commitment,
-            output,
-        },
+    Ok(DdhHiddenEvalExecutionTrace {
+        run,
+        checkpoint_digests,
     })
 }
 
@@ -1725,9 +1602,9 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
     stages: &[HiddenEvalStage],
     schedule: &[SplitLocalBitWord],
 ) -> ProtoResult<RoundStagesOutput> {
-    let iv_words = constant_pool.sha512_iv_words.clone();
-    let round_constants = constant_pool.sha512_round_constants.clone();
-    let mut state = RoundKernelState::from_iv_words(&iv_words);
+    let iv_words = &constant_pool.sha512_iv_words;
+    let round_constants = &constant_pool.sha512_round_constants;
+    let mut state = RoundKernelState::from_iv_words(iv_words);
     let mut sigma0_duration_ns = 0u128;
     let mut sigma1_duration_ns = 0u128;
     let mut ch_duration_ns = 0u128;
@@ -2325,50 +2202,6 @@ fn validate_server_input_bit_bundle(
             left_word,
             right_word,
         )?;
-    }
-    Ok(())
-}
-
-fn validate_server_input_transport_bundle_pair(
-    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
-    left: &DdhHssTransportBundle,
-    right: &DdhHssTransportBundle,
-    expected_owner: HiddenEvalInputOwner,
-    expected_label: &str,
-) -> ProtoResult<()> {
-    validate_transport_bundle_pair_public(evaluation_key, left, right)?;
-    if left.owner != expected_owner {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bit bundle owner mismatch for {expected_label}: expected {:?}, got {:?}",
-            expected_owner, left.owner
-        )));
-    }
-    if left.label != expected_label {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bit bundle label mismatch: expected {expected_label}, got {}",
-            left.label
-        )));
-    }
-    if left.words.len() != 256 {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bit bundle {expected_label} must contain 256 bits, got {}",
-            left.words.len()
-        )));
-    }
-    if left
-        .words
-        .iter()
-        .zip(&right.words)
-        .any(|(left_word, right_word)| {
-            left_word.width_bits != 1
-                || right_word.width_bits != 1
-                || left_word.share_side != DdhHssShareSide::Left
-                || right_word.share_side != DdhHssShareSide::Right
-        })
-    {
-        return Err(ProtoError::InvalidInput(format!(
-            "server input bit bundle {expected_label} must contain 1-bit words"
-        )));
     }
     Ok(())
 }
@@ -3888,25 +3721,6 @@ fn combine_server_input_bundle_commitments(
     hasher.update(backend.evaluation_key().key_id);
     hasher.update(b"server");
     for bundle in [y_relayer_bits, tau_relayer_bits] {
-        hasher.update(bundle.commitment);
-        hasher.update(bundle.label.as_bytes());
-    }
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
-}
-
-fn combine_server_input_transport_commitments(
-    backend: &impl DdhHssArithmeticBackend,
-    y_relayer_left: &DdhHssTransportBundle,
-    tau_relayer_left: &DdhHssTransportBundle,
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"succinct-garbling-proto/ddh-hss/combined-input-commitment/v0");
-    hasher.update(backend.evaluation_key().key_id);
-    hasher.update(b"server");
-    for bundle in [y_relayer_left, tau_relayer_left] {
         hasher.update(bundle.commitment);
         hasher.update(bundle.label.as_bytes());
     }

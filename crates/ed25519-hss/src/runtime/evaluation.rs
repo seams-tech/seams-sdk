@@ -1,14 +1,4 @@
-use crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputs;
-use crate::ddh::{DdhHssOtReconstructTiming, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle};
-
-pub(crate) struct TrustedServerEval {
-    pub(crate) y_client_response: DdhHssOtResponseBundle,
-    pub(crate) tau_client_response: DdhHssOtResponseBundle,
-    pub(crate) y_client_remote_release: DdhHssOtReleasedRemoteBundle,
-    pub(crate) tau_client_remote_release: DdhHssOtReleasedRemoteBundle,
-    pub(crate) server_input_commitment: [u8; 32],
-    pub(crate) trusted_server_inputs: DdhHiddenEvalServerInputs,
-}
+use crate::ddh::DdhHssOtReconstructTiming;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EvaluateTiming {

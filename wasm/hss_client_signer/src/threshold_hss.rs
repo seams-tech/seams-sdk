@@ -4,7 +4,7 @@ use crate::js::{
     set_u32,
 };
 use ed25519_hss::{
-    client::{ClientDriverState, ClientOtState},
+    client::ClientDriverState,
     protocol::prepare_prime_order_succinct_hss_client,
     shared::{public_key_from_base_shares, CanonicalContext},
     wire::WireMessage,
@@ -75,46 +75,6 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
         "evaluatorOtStateB64u",
         &encode_state_blob(&evaluator_ot_state, "evaluator OT state")
             .map_err(|e| JsValue::from_str(&e))?,
-    )?;
-    Ok(out.into())
-}
-
-#[wasm_bindgen]
-pub fn threshold_ed25519_hss_evaluate_result(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
-    let client_request_message_b64u = get_required_string(&args, "clientRequestMessageB64u")?;
-    let evaluator_ot_state_b64u = get_required_string(&args, "evaluatorOtStateB64u")?;
-    let server_message_b64u = get_required_string(&args, "serverMessageB64u")?;
-
-    let evaluator_state: ClientDriverState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
-    let evaluator_ot_state: ClientOtState =
-        decode_state_blob(&evaluator_ot_state_b64u, "evaluatorOtStateB64u")?;
-    let (runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let client_request_message =
-        decode_wire_message(&client_request_message_b64u, "clientRequestMessageB64u")?;
-    let server_message = decode_wire_message(&server_message_b64u, "serverMessageB64u")?;
-    let evaluation_result_message = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
-            &client_request_message,
-            &evaluator_ot_state,
-            &server_message,
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let out = object();
-    set_string(
-        &out,
-        "contextBindingB64u",
-        &base64_url_encode(&evaluator_ot_state.context_binding),
-    )?;
-    set_string(
-        &out,
-        "evaluationResultMessageB64u",
-        &encode_wire_message(&evaluation_result_message),
     )?;
     Ok(out.into())
 }

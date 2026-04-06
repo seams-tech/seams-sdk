@@ -2,7 +2,7 @@ use std::fs;
 use std::process;
 
 use ed25519_hss::fixtures::{deterministic_fixture_corpus, FExpandFixture};
-use ed25519_hss::runtime::evaluate_prime_order_succinct_hss;
+use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 
 fn main() {
     let args = match CliArgs::parse(std::env::args().skip(1).collect()) {
@@ -14,7 +14,9 @@ fn main() {
     };
 
     let fixture = select_fixture(args.fixture_name.as_deref());
-    let report = evaluate_prime_order_succinct_hss(&fixture.input).expect("evaluate succinct HSS");
+    let report = prepare_prime_order_succinct_hss(&fixture.input.context)
+        .and_then(|session| session.evaluate_for_clear_input_debug(&fixture.input))
+        .expect("evaluate succinct HSS");
     let rendered = if args.emit_json {
         serde_json::to_string_pretty(&report).expect("serialize succinct HSS report")
     } else {

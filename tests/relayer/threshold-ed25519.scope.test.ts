@@ -16,13 +16,11 @@ import {
 import {
   derive_threshold_ed25519_hss_client_inputs,
   initSync as initHssClientSignerWasmSync,
-  threshold_ed25519_hss_evaluate_result,
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
-  evaluateThresholdEd25519HssResultWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
 } from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
@@ -405,8 +403,7 @@ async function invokeNearSignerWorkerDirect(request: {
   if (
     request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
-    request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
-    request.type === WorkerRequestType.EvaluateThresholdEd25519HssResult
+    request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest
   ) {
     if (!hssClientSignerWasmInitializedForDirectWorkerTests) {
       initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
@@ -427,11 +424,6 @@ async function invokeNearSignerWorkerDirect(request: {
         return {
           type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
           payload: threshold_ed25519_hss_prepare_client_request(request.payload || {}),
-        };
-      case WorkerRequestType.EvaluateThresholdEd25519HssResult:
-        return {
-          type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
-          payload: threshold_ed25519_hss_evaluate_result(request.payload || {}),
         };
       default:
         break;
@@ -1324,12 +1316,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(responded.status, responded.text).toBe(200);
       expect(responded.json?.ok, responded.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession,
-        clientRequest,
-        serverMessage: responded.json?.serverMessage as any,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = responded.json?.evaluationResult as any;
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',
@@ -1415,12 +1402,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(responded.status, responded.text).toBe(200);
       expect(responded.json?.ok, responded.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession,
-        clientRequest,
-        serverMessage: responded.json?.serverMessage as any,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = responded.json?.evaluationResult as any;
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',
@@ -1527,12 +1509,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(responded.status, responded.text).toBe(200);
       expect(responded.json?.ok, responded.text).toBe(true);
 
-      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession,
-        clientRequest,
-        serverMessage: responded.json?.serverMessage as any,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = responded.json?.evaluationResult as any;
 
       const finalized = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/finalize`, {
         method: 'POST',

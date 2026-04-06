@@ -145,16 +145,6 @@ export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
 }
-export interface WasmEvaluateThresholdEd25519HssResultRequest {
-  evaluatorDriverStateB64u: string;
-  clientRequestMessageB64u: string;
-  evaluatorOtStateB64u: string;
-  serverMessageB64u: string;
-}
-export interface WasmEvaluateThresholdEd25519HssResultResult {
-  contextBindingB64u: string;
-  evaluationResultMessageB64u: string;
-}
 export interface WasmOpenThresholdEd25519HssClientOutputRequest {
   evaluatorDriverStateB64u: string;
   clientOutputMessageB64u: string;
@@ -250,7 +240,6 @@ export type WasmRequestPayload =
   | WasmDeriveThresholdEd25519HssClientInputsRequest
   | WasmPrepareThresholdEd25519HssSessionRequest
   | WasmPrepareThresholdEd25519HssClientRequestRequest
-  | WasmEvaluateThresholdEd25519HssResultRequest
   | WasmOpenThresholdEd25519HssClientOutputRequest
   | WasmOpenThresholdEd25519HssSeedOutputRequest
   | WasmDeriveThresholdEd25519HssPublicKeyRequest
@@ -295,11 +284,6 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest;
     request: WasmPrepareThresholdEd25519HssClientRequestRequest;
     result: WasmPrepareThresholdEd25519HssClientRequestResult;
-  };
-  [WorkerRequestType.EvaluateThresholdEd25519HssResult]: {
-    type: WorkerRequestType.EvaluateThresholdEd25519HssResult;
-    request: WasmEvaluateThresholdEd25519HssResultRequest;
-    result: WasmEvaluateThresholdEd25519HssResultResult;
   };
   [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: {
     type: WorkerRequestType.OpenThresholdEd25519HssClientOutput;
@@ -521,7 +505,6 @@ export interface RequestResponseMap {
   [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: WasmDeriveThresholdEd25519HssClientInputsResult;
   [WorkerRequestType.PrepareThresholdEd25519HssSession]: WasmPrepareThresholdEd25519HssSessionResult;
   [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: WasmPrepareThresholdEd25519HssClientRequestResult;
-  [WorkerRequestType.EvaluateThresholdEd25519HssResult]: WasmEvaluateThresholdEd25519HssResultResult;
   [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: WasmOpenThresholdEd25519HssClientOutputResult;
   [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
   [WorkerRequestType.DeriveThresholdEd25519HssPublicKey]: WasmDeriveThresholdEd25519HssPublicKeyResult;
@@ -616,7 +599,6 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess ||
-    response.type === WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess ||
@@ -638,7 +620,6 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionFailure ||
     response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestFailure ||
-    response.type === WorkerResponseType.EvaluateThresholdEd25519HssResultFailure ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputFailure ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
     response.type === WorkerResponseType.DeriveThresholdEd25519HssPublicKeyFailure ||

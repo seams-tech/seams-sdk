@@ -20,7 +20,6 @@ import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
-  evaluateThresholdEd25519HssResultWasm,
   openThresholdEd25519HssClientOutputWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
@@ -44,7 +43,6 @@ import {
 import {
   derive_threshold_ed25519_hss_client_inputs,
   initSync as initHssClientSignerWasmSync,
-  threshold_ed25519_hss_evaluate_result,
   threshold_ed25519_hss_open_client_output,
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
@@ -116,7 +114,12 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
   }>;
   respond: (body: Record<string, any>) => Promise<{
     ok: true;
-    serverMessage: Awaited<ReturnType<typeof prepareThresholdEd25519HssServerCeremony>>['serverMessage'];
+    serverAssistInit: Awaited<
+      ReturnType<typeof prepareThresholdEd25519HssServerCeremony>
+    >['serverAssistInit'];
+    evaluationResult: Awaited<
+      ReturnType<typeof prepareThresholdEd25519HssServerCeremony>
+    >['evaluationResult'];
   }>;
   finalize: (body: Record<string, any>) => Promise<{
     ok: true;
@@ -173,7 +176,11 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
         clientRequest: body.clientRequest,
         serverInputs: ceremony.serverInputs,
       });
-      return { ok: true as const, serverMessage: prepared.serverMessage };
+      return {
+        ok: true as const,
+        serverAssistInit: prepared.serverAssistInit,
+        evaluationResult: prepared.evaluationResult,
+      };
     },
     async finalize(body) {
       const ceremonyHandle = String(body.ceremonyHandle || '').trim();
@@ -325,7 +332,6 @@ async function invokeNearSignerWorkerDirect(request: {
     request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssClientRequest ||
-    request.type === WorkerRequestType.EvaluateThresholdEd25519HssResult ||
     request.type === WorkerRequestType.OpenThresholdEd25519HssClientOutput ||
     request.type === WorkerRequestType.OpenThresholdEd25519HssSeedOutput ||
     request.type === WorkerRequestType.DeriveThresholdEd25519HssPublicKey ||
@@ -350,11 +356,6 @@ async function invokeNearSignerWorkerDirect(request: {
         return {
           type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
           payload: threshold_ed25519_hss_prepare_client_request(request.payload || {}),
-        };
-      case WorkerRequestType.EvaluateThresholdEd25519HssResult:
-        return {
-          type: WorkerResponseType.EvaluateThresholdEd25519HssResultSuccess,
-          payload: threshold_ed25519_hss_evaluate_result(request.payload || {}),
         };
       case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
         return {
@@ -397,6 +398,47 @@ const TEST_NEAR_SIGNER_WORKER_CTX = {
 };
 
 test.describe('threshold Ed25519 Option A active path', () => {
+  test('browser HSS wasm exports do not expose clear relayer roots', async () => {
+    const context = {
+      orgId: CONTEXT.orgId,
+      nearAccountId: NEAR_ACCOUNT_ID,
+      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+      keyVersion: CONTEXT.keyVersion,
+      participantIds: [...CONTEXT.participantIds],
+      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+    };
+
+    const preparedSession = await prepareThresholdEd25519HssSessionWasm({
+      context,
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+    const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
+      sessionId: `${THRESHOLD_SESSION_ID}:wasm-boundary-inputs`,
+      ...context,
+      prfFirstB64u: PRF_FIRST_B64U,
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+    const preparedServerSession = await prepareThresholdEd25519HssServerSession({ context });
+    const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+      evaluatorDriverStateB64u: preparedSession.evaluatorDriverStateB64u,
+      clientOtOfferMessageB64u: preparedServerSession.clientOtOfferMessageB64u,
+      clientInputs,
+      workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+    });
+    const serverInputs = await deriveThresholdEd25519HssServerInputs({
+      context,
+      masterSecretB64u: MASTER_SECRET_B64U,
+    });
+    for (const payload of [
+      JSON.stringify(preparedSession),
+      JSON.stringify(clientInputs),
+      JSON.stringify(clientRequest),
+    ]) {
+      expect(payload.includes(serverInputs.yRelayerB64u)).toBeFalsy();
+      expect(payload.includes(serverInputs.tauRelayerB64u)).toBeFalsy();
+    }
+  });
+
   test('preserves xClientBaseB64u when rebuilding the same auth session record', async () => {
     const { restore } = installMemorySessionStorage();
     const expectedXClientBaseB64u = Buffer.alloc(32, 29).toString('base64url');
@@ -951,12 +993,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         clientRequest,
         serverInputs,
       });
-      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession,
-        clientRequest,
-        serverMessage: prepared.serverMessage,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = prepared.evaluationResult;
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
         preparedSession,
         preparedServerSession,
@@ -1217,7 +1254,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
 
       if (url.endsWith('/threshold-ed25519/hss/respond')) {
         const responded = await hssCeremonyServer.respond(body);
-        lastContextBinding = String(responded.serverMessage.contextBindingB64u || '').trim();
+        lastContextBinding = String(responded.serverAssistInit.contextBindingB64u || '').trim();
         return new Response(JSON.stringify(responded), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -1543,7 +1580,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
 
       expect(prepareResponses[0]).toHaveProperty('ceremonyHandle');
       expect(prepareResponses[0]).toHaveProperty('clientOtOfferMessageB64u');
-      expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverMessage')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverAssistInit')).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverOutput')).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverInputs')).toBe(false);
       expect(prepareResponseJson.includes(MASTER_SECRET_B64U)).toBe(false);
@@ -1556,7 +1593,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       expect(respondRequestJson.includes(PRF_FIRST_B64U)).toBe(false);
       expect(respondRequestJson.includes(MASTER_SECRET_B64U)).toBe(false);
 
-      expect(respondResponses[0]).toHaveProperty('serverMessage');
+      expect(respondResponses[0]).toHaveProperty('serverAssistInit');
       expect(Object.prototype.hasOwnProperty.call(respondResponses[0], 'serverOutput')).toBe(false);
       expect(respondResponseJson.includes(MASTER_SECRET_B64U)).toBe(false);
 
@@ -1717,7 +1754,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         clientInputs,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
-      const serverMessage = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
+      const responded = await respondThresholdEd25519HssServerCeremonyWithRelayRegistration({
         context: registrationContext,
         nearAccountId: NEAR_ACCOUNT_ID,
         rpId: RP_ID,
@@ -1725,12 +1762,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         ceremonyHandle: String(preparedRelayCeremony.ceremonyHandle || ''),
         clientRequest,
       });
-      const evaluationResult = await evaluateThresholdEd25519HssResultWasm({
-        preparedSession,
-        clientRequest,
-        serverMessage,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = responded.evaluationResult;
       const finalized = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
         context: registrationContext,
         nearAccountId: NEAR_ACCOUNT_ID,
@@ -1741,7 +1773,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       });
 
       expect(String(preparedRelayCeremony.clientOtOfferMessageB64u || '')).not.toBe('');
-      expect(String(serverMessage.contextBindingB64u || '')).toBe(
+      expect(String(responded.serverAssistInit.contextBindingB64u || '')).toBe(
         String(preparedSession.contextBindingB64u || ''),
       );
       expect(String(finalized.finalizedReport.contextBindingB64u || '')).toBe(

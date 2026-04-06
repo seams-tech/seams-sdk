@@ -3,9 +3,9 @@ use std::fs;
 use std::path::Path;
 
 use ed25519_hss::{
-    client::{ClientDriverState, ClientOtState},
+    client::ClientDriverState,
     protocol::prepare_prime_order_succinct_hss,
-    server::ServerDriverState,
+    server::{ServerDriverState, ServerEvalOperation},
     shared::{CanonicalContext, ProtoError, ProtoResult},
     wire::WireMessage,
 };
@@ -27,9 +27,7 @@ fn run() -> ProtoResult<()> {
         "prepare" => cmd_prepare(&rest),
         "garbler-offer" => cmd_garbler_offer(&rest),
         "evaluator-request" => cmd_evaluator_request(&rest),
-        "garbler-respond" => cmd_garbler_respond(&rest),
-        "evaluator-evaluate" => cmd_evaluator_evaluate(&rest),
-        "garbler-finalize" => cmd_garbler_finalize(&rest),
+        "server-assist-init" => cmd_server_assist_init(&rest),
         _ => Err(ProtoError::InvalidInput(format!(
             "unknown subcommand {command}"
         ))),
@@ -76,55 +74,25 @@ fn cmd_evaluator_request(args: &[String]) -> ProtoResult<()> {
     Ok(())
 }
 
-fn cmd_garbler_respond(args: &[String]) -> ProtoResult<()> {
+fn cmd_server_assist_init(args: &[String]) -> ProtoResult<()> {
     let garbler_state_in = required_arg(args, "--garbler-state-in")?;
     let request_in = required_arg(args, "--request-in")?;
     let y_relayer_hex = required_arg(args, "--y-relayer-hex")?;
     let tau_relayer_hex = required_arg(args, "--tau-relayer-hex")?;
-    let server_out = required_arg(args, "--server-out")?;
+    let server_assist_init_out = required_arg(args, "--server-assist-init-out")?;
     let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
     let (_runtime, garbler_session) = garbler_state.materialize()?;
     let request_message: WireMessage = read_json_file(request_in)?;
     let y_relayer = parse_hex_array32(y_relayer_hex)?;
     let tau_relayer = parse_hex_array32(tau_relayer_hex)?;
-    let server_message =
-        garbler_session.prepare_server_message(&request_message, y_relayer, tau_relayer)?;
-    write_json_file(server_out, &server_message)?;
-    Ok(())
-}
-
-fn cmd_evaluator_evaluate(args: &[String]) -> ProtoResult<()> {
-    let evaluator_state_in = required_arg(args, "--evaluator-state-in")?;
-    let request_in = required_arg(args, "--request-in")?;
-    let ot_state_in = required_arg(args, "--ot-state-in")?;
-    let server_in = required_arg(args, "--server-in")?;
-    let evaluation_result_out = required_arg(args, "--evaluation-result-out")?;
-    let evaluator_state: ClientDriverState = read_json_file(evaluator_state_in)?;
-    let (runtime, evaluator_session) = evaluator_state.materialize()?;
-    let request_message: WireMessage = read_json_file(request_in)?;
-    let ot_state: ClientOtState = read_json_file(ot_state_in)?;
-    let server_message: WireMessage = read_json_file(server_in)?;
-    let evaluation_result_message = evaluator_session
-        .evaluate_result_message_from_transport_messages(
-            &runtime,
+    let (server_assist_init_message, _server_eval_state) = garbler_session
+        .prepare_server_assist_init_message(
             &request_message,
-            &ot_state,
-            &server_message,
+            y_relayer,
+            tau_relayer,
+            ServerEvalOperation::Registration,
         )?;
-    write_json_file(evaluation_result_out, &evaluation_result_message)?;
-    Ok(())
-}
-
-fn cmd_garbler_finalize(args: &[String]) -> ProtoResult<()> {
-    let garbler_state_in = required_arg(args, "--garbler-state-in")?;
-    let evaluation_result_in = required_arg(args, "--evaluation-result-in")?;
-    let report_out = required_arg(args, "--report-out")?;
-    let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
-    let (runtime, garbler_session) = garbler_state.materialize()?;
-    let evaluation_result_message: WireMessage = read_json_file(evaluation_result_in)?;
-    let report = garbler_session
-        .finalize_report_from_evaluation_result_message(&runtime, &evaluation_result_message)?;
-    write_json_file(report_out, &report)?;
+    write_json_file(server_assist_init_out, &server_assist_init_message)?;
     Ok(())
 }
 

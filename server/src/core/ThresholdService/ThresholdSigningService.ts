@@ -25,7 +25,6 @@ import type {
   ThresholdEd25519AuthorizeWithSessionRequest,
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssClientRequestEnvelope,
-  ThresholdEd25519HssEvaluationResultEnvelope,
   ThresholdEd25519HssFinalizeForRegistrationRequest,
   ThresholdEd25519HssFinalizeForRegistrationResponse,
   ThresholdEd25519HssFinalizeWithSessionRequest,
@@ -41,6 +40,7 @@ import type {
   ThresholdEd25519HssRespondForRegistrationResponse,
   ThresholdEd25519HssRespondWithSessionRequest,
   ThresholdEd25519HssRespondWithSessionResponse,
+  ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
   Ed25519SessionPolicy,
   ThresholdEcdsaKeygenRequest,
   ThresholdEcdsaKeygenResponse,
@@ -580,14 +580,14 @@ function parseThresholdEd25519HssClientRequestEnvelope(
   };
 }
 
-function parseThresholdEd25519HssEvaluationResultEnvelope(
+function parseThresholdEd25519HssStagedEvaluatorArtifactEnvelope(
   raw: unknown,
-): ParseResult<ThresholdEd25519HssEvaluationResultEnvelope> {
+): ParseResult<ThresholdEd25519HssStagedEvaluatorArtifactEnvelope> {
   if (!isObject(raw)) {
     return { ok: false, code: 'invalid_body', message: 'evaluationResult is required' };
   }
   const contextBindingB64u = toOptionalTrimmedString(raw.contextBindingB64u);
-  const evaluationResultMessageB64u = toOptionalTrimmedString(raw.evaluationResultMessageB64u);
+  const stagedEvaluatorArtifactB64u = toOptionalTrimmedString(raw.stagedEvaluatorArtifactB64u);
   if (!contextBindingB64u) {
     return {
       ok: false,
@@ -595,16 +595,16 @@ function parseThresholdEd25519HssEvaluationResultEnvelope(
       message: 'evaluationResult.contextBindingB64u is required',
     };
   }
-  if (!evaluationResultMessageB64u) {
+  if (!stagedEvaluatorArtifactB64u) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'evaluationResult.evaluationResultMessageB64u is required',
+      message: 'evaluationResult.stagedEvaluatorArtifactB64u is required',
     };
   }
   return {
     ok: true,
-    value: { contextBindingB64u, evaluationResultMessageB64u },
+    value: { contextBindingB64u, stagedEvaluatorArtifactB64u },
   };
 }
 
@@ -3260,7 +3260,8 @@ export class ThresholdSigningService {
 
       return {
         ok: true,
-        serverMessage: result.serverMessage,
+        serverAssistInit: result.serverAssistInit,
+        evaluationResult: result.evaluationResult,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -3332,7 +3333,8 @@ export class ThresholdSigningService {
 
       return {
         ok: true,
-        serverMessage: result.serverMessage,
+        serverAssistInit: result.serverAssistInit,
+        evaluationResult: result.evaluationResult,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -3355,7 +3357,7 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'session') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult = parseThresholdEd25519HssEvaluationResultEnvelope(
+      const evaluationResult = parseThresholdEd25519HssStagedEvaluatorArtifactEnvelope(
         rec.evaluationResult,
       );
       if (!evaluationResult.ok) return evaluationResult;
@@ -3445,7 +3447,7 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'registration') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult = parseThresholdEd25519HssEvaluationResultEnvelope(
+      const evaluationResult = parseThresholdEd25519HssStagedEvaluatorArtifactEnvelope(
         rec.evaluationResult,
       );
       if (!evaluationResult.ok) return evaluationResult;

@@ -89,14 +89,14 @@ export interface ThresholdEd25519HssClientRequestEnvelope {
   evaluatorOtStateB64u: string;
 }
 
-export interface ThresholdEd25519HssServerMessageEnvelope {
+export interface ThresholdEd25519HssServerAssistInitEnvelope {
   contextBindingB64u: string;
-  serverMessageB64u: string;
+  serverAssistInitMessageB64u: string;
 }
 
-export interface ThresholdEd25519HssEvaluationResultEnvelope {
+export interface ThresholdEd25519HssStagedEvaluatorArtifactEnvelope {
   contextBindingB64u: string;
-  evaluationResultMessageB64u: string;
+  stagedEvaluatorArtifactB64u: string;
 }
 
 export interface ThresholdEd25519HssFinalizedReportEnvelope {
@@ -178,7 +178,8 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
 export type ThresholdEd25519HssRespondWithSessionResponse =
   | {
       ok: true;
-      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
+      evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
     }
   | {
       ok: false;
@@ -189,7 +190,8 @@ export type ThresholdEd25519HssRespondWithSessionResponse =
 export type ThresholdEd25519HssRespondForRegistrationResponse =
   | {
       ok: true;
-      serverMessage: ThresholdEd25519HssServerMessageEnvelope;
+      serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
+      evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
     }
   | {
       ok: false;
@@ -199,14 +201,14 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
 
 export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   ceremonyHandle: string;
-  evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   ceremonyHandle: string;
-  evaluationResult: ThresholdEd25519HssEvaluationResultEnvelope;
+  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }
 
 export type ThresholdEd25519HssFinalizeWithSessionResponse =

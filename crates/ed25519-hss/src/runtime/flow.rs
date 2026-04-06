@@ -1,12 +1,23 @@
-use crate::ddh::DdhHiddenEvalRun;
-use crate::protocol::{prepare_prime_order_succinct_hss, PreparedSession};
-use crate::runtime::evaluation::{elapsed_ns_u64, monotonic_now_ns, EvaluateTiming};
-use crate::server::ServerOtState;
-use crate::shared::{FExpandInput, ProtoError, ProtoResult};
-use crate::wire::{ClientOtOffer, EvaluationReport, OutputDelivery, WireMessage};
+use crate::protocol::PreparedSession;
+use crate::runtime::SharedRuntime;
+use crate::server::{ServerEvalOperation, ServerEvalState, ServerOtState};
+use crate::shared::{ProtoError, ProtoResult};
+use crate::wire::{
+    ClientOtOffer, ClientStageRequestPacket, EvaluationReport, StagedEvaluatorArtifact,
+    WireMessage,
+};
 
-pub fn evaluate_prime_order_succinct_hss(input: &FExpandInput) -> ProtoResult<EvaluationReport> {
-    prepare_prime_order_succinct_hss(&input.context)?.evaluate(input)
+pub struct PreparedServerAssistFlow {
+    pub server_assist_init_message: WireMessage,
+    pub add_stage_request_message: WireMessage,
+    pub add_stage_response_message: WireMessage,
+    pub message_schedule_request_messages: Vec<WireMessage>,
+    pub message_schedule_response_messages: Vec<WireMessage>,
+    pub round_core_request_messages: Vec<WireMessage>,
+    pub round_core_response_messages: Vec<WireMessage>,
+    pub output_projection_request_message: WireMessage,
+    pub output_projection_response_message: WireMessage,
+    pub final_server_eval_state: ServerEvalState,
 }
 
 impl PreparedSession {
@@ -28,196 +39,305 @@ impl PreparedSession {
             .prepare_client_ot_request_from_offer_message(offer_message, y_client, tau_client)
     }
 
-    pub fn prepare_server_message(
+    pub fn prepare_server_assist_init_message(
         &self,
         garbler_ot_state: &ServerOtState,
         client_request_message: &WireMessage,
         y_relayer: [u8; 32],
         tau_relayer: [u8; 32],
-    ) -> ProtoResult<WireMessage> {
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let garbler_session = self.garbler_session();
         self.validate_garbler_ot_state(garbler_ot_state, &garbler_session.client_ot_offer)?;
-        garbler_session.prepare_server_message(client_request_message, y_relayer, tau_relayer)
+        garbler_session.prepare_server_assist_init_message(
+            client_request_message,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )
     }
 
-    pub fn evaluate_from_transport_messages(
+    pub fn prepare_add_stage_request_message(
         &self,
         client_request_message: &WireMessage,
         evaluator_ot_state: &crate::client::ClientOtState,
-        server_message: &WireMessage,
-    ) -> ProtoResult<EvaluationReport> {
-        let (runtime, garbler_session, evaluator_session) = self.split_runtime();
-        let evaluation_result_message = evaluator_session
-            .evaluate_result_message_from_transport_messages(
-                &runtime,
-                client_request_message,
-                evaluator_ot_state,
-                server_message,
-            )?;
-        garbler_session
-            .finalize_report_from_evaluation_result_message(&runtime, &evaluation_result_message)
+        server_assist_init_message: &WireMessage,
+    ) -> ProtoResult<WireMessage> {
+        self.evaluator_session().prepare_add_stage_request_message(
+            client_request_message,
+            evaluator_ot_state,
+            server_assist_init_message,
+        )
     }
 
-    pub fn deliver_output_from_transport_messages(
+    pub fn prepare_add_stage_response_message(
         &self,
-        client_request_message: &WireMessage,
-        evaluator_ot_state: &crate::client::ClientOtState,
-        server_message: &WireMessage,
-    ) -> ProtoResult<OutputDelivery> {
-        Ok(self
-            .evaluate_from_transport_messages(
-                client_request_message,
-                evaluator_ot_state,
-                server_message,
-            )?
-            .output_delivery)
-    }
-
-    pub fn evaluate(&self, input: &FExpandInput) -> ProtoResult<EvaluationReport> {
-        self.ensure_input_context(input)?;
-        let runtime = self.shared_runtime();
-        let garbler_session = self.garbler_session();
-        let evaluator_session = self.evaluator_session();
-        let (client_packet, evaluator_ot_state) = evaluator_session.prepare_client_ot_request(
-            &garbler_session.client_ot_offer,
-            input.y_client,
-            input.tau_client,
-        )?;
-        let (trusted_server_eval, _timing) = garbler_session.prepare_trusted_server_eval_timed(
-            &client_packet,
-            input.y_relayer,
-            input.tau_relayer,
-        )?;
-        let (ddh_run, _timing) = evaluator_session
-            .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &evaluator_session.ddh_evaluator,
-                &runtime.hidden_eval_program,
-                self.hidden_eval_constants(),
-                &evaluator_ot_state,
-                &trusted_server_eval,
+        server_eval_state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        let mut server_eval_state = server_eval_state.clone();
+        if server_eval_state.execution_checkpoints.is_none() {
+            let request: ClientStageRequestPacket = crate::wire::decode_transport_message(
+                self.candidate().context_binding,
+                crate::wire::TransportKind::ClientStageRequest,
+                client_stage_request_message,
             )?;
-        Ok(evaluator_session
-            .build_final_report_from_hidden_run(&runtime, &garbler_session, ddh_run)?
-            .0)
-    }
-
-    pub fn evaluate_hidden_run(&self, input: &FExpandInput) -> ProtoResult<DdhHiddenEvalRun> {
-        self.ensure_input_context(input)?;
-        let runtime = self.shared_runtime();
-        let garbler_session = self.garbler_session();
-        let evaluator_session = self.evaluator_session();
-        let (client_packet, evaluator_ot_state) = evaluator_session.prepare_client_ot_request(
-            &garbler_session.client_ot_offer,
-            input.y_client,
-            input.tau_client,
-        )?;
-        let (trusted_server_eval, _timing) = garbler_session.prepare_trusted_server_eval_timed(
-            &client_packet,
-            input.y_relayer,
-            input.tau_relayer,
-        )?;
-        Ok(evaluator_session
-            .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &evaluator_session.ddh_evaluator,
-                &runtime.hidden_eval_program,
-                self.hidden_eval_constants(),
-                &evaluator_ot_state,
-                &trusted_server_eval,
-            )?
-            .0)
-    }
-
-    pub fn evaluate_with_timing(
-        &self,
-        input: &FExpandInput,
-    ) -> ProtoResult<(EvaluationReport, EvaluateTiming)> {
-        self.ensure_input_context(input)?;
-        let runtime = self.shared_runtime();
-        let garbler_session = self.garbler_session();
-        let evaluator_session = self.evaluator_session();
-        let mut timing = EvaluateTiming::default();
-        let ot_open_join_started = monotonic_now_ns();
-        let (client_packet, evaluator_ot_state) = evaluator_session.prepare_client_ot_request(
-            &garbler_session.client_ot_offer,
-            input.y_client,
-            input.tau_client,
-        )?;
-        timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
-        let (trusted_server_eval, garbler_prepare_timing) = garbler_session
-            .prepare_trusted_server_eval_timed(
-                &client_packet,
-                input.y_relayer,
-                input.tau_relayer,
+            server_eval_state = self.garbler_session().materialize_execution_state_from_add_stage_request(
+                &self.shared_runtime(),
+                &self.evaluator_session(),
+                &server_eval_state,
+                &request,
             )?;
-        timing.add_assign(garbler_prepare_timing);
-        let (ddh_run, evaluation_timing) = evaluator_session
-            .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &evaluator_session.ddh_evaluator,
-                &runtime.hidden_eval_program,
-                self.hidden_eval_constants(),
-                &evaluator_ot_state,
-                &trusted_server_eval,
-            )?;
-        timing.add_assign(evaluation_timing);
-        let (report, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
-            evaluator_session.build_final_report_from_hidden_run(
-                &runtime,
-                &garbler_session,
-                ddh_run,
-            )?;
-        timing.result_assembly_duration_ns = timing
-            .result_assembly_duration_ns
-            .saturating_add(result_assembly_duration_ns);
-        timing.output_sealing_finalization_duration_ns = timing
-            .output_sealing_finalization_duration_ns
-            .saturating_add(output_sealing_finalization_duration_ns);
-        Ok((report, timing))
-    }
-
-    pub fn evaluate_hidden_run_with_timing(
-        &self,
-        input: &FExpandInput,
-    ) -> ProtoResult<(DdhHiddenEvalRun, EvaluateTiming)> {
-        self.ensure_input_context(input)?;
-        let runtime = self.shared_runtime();
-        let garbler_session = self.garbler_session();
-        let evaluator_session = self.evaluator_session();
-        let mut timing = EvaluateTiming::default();
-        let ot_open_join_started = monotonic_now_ns();
-        let (client_packet, evaluator_ot_state) = evaluator_session.prepare_client_ot_request(
-            &garbler_session.client_ot_offer,
-            input.y_client,
-            input.tau_client,
-        )?;
-        timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
-        let (trusted_server_eval, garbler_prepare_timing) = garbler_session
-            .prepare_trusted_server_eval_timed(
-                &client_packet,
-                input.y_relayer,
-                input.tau_relayer,
-            )?;
-        timing.add_assign(garbler_prepare_timing);
-        let (ddh_run, evaluation_timing) = evaluator_session
-            .evaluate_hidden_run_from_trusted_server_eval_timed(
-                &evaluator_session.ddh_evaluator,
-                &runtime.hidden_eval_program,
-                self.hidden_eval_constants(),
-                &evaluator_ot_state,
-                &trusted_server_eval,
-            )?;
-        timing.add_assign(evaluation_timing);
-        Ok((ddh_run, timing))
-    }
-
-    fn ensure_input_context(&self, input: &FExpandInput) -> ProtoResult<()> {
-        let input_context_binding = input.context.binding_digest()?;
-        if input_context_binding != self.candidate().context_binding {
-            return Err(ProtoError::InvalidInput(
-                "input context does not match prepared prime-order succinct HSS session"
-                    .to_string(),
-            ));
         }
-        Ok(())
+        self.garbler_session()
+            .prepare_add_stage_response_message(&server_eval_state, client_stage_request_message)
+    }
+
+    pub fn prepare_message_schedule_request_message(
+        &self,
+        prior_stage_response_message: &WireMessage,
+    ) -> ProtoResult<WireMessage> {
+        self.evaluator_session()
+            .prepare_message_schedule_request_message(prior_stage_response_message)
+    }
+
+    pub fn prepare_message_schedule_response_message(
+        &self,
+        server_eval_state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        self.garbler_session()
+            .prepare_message_schedule_response_message(
+                server_eval_state,
+                client_stage_request_message,
+            )
+    }
+
+    pub fn prepare_round_core_request_message(
+        &self,
+        prior_stage_response_message: &WireMessage,
+    ) -> ProtoResult<WireMessage> {
+        self.evaluator_session()
+            .prepare_round_core_request_message(prior_stage_response_message)
+    }
+
+    pub fn prepare_round_core_response_message(
+        &self,
+        server_eval_state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        self.garbler_session()
+            .prepare_round_core_response_message(server_eval_state, client_stage_request_message)
+    }
+
+    pub fn prepare_output_projection_request_message(
+        &self,
+        prior_stage_response_message: &WireMessage,
+    ) -> ProtoResult<WireMessage> {
+        self.evaluator_session()
+            .prepare_output_projection_request_message(prior_stage_response_message)
+    }
+
+    pub fn prepare_output_projection_response_message(
+        &self,
+        server_eval_state: &ServerEvalState,
+        client_stage_request_message: &WireMessage,
+    ) -> ProtoResult<(WireMessage, ServerEvalState)> {
+        self.garbler_session()
+            .prepare_output_projection_response_message(
+                server_eval_state,
+                client_stage_request_message,
+            )
+    }
+
+    pub fn prepare_server_assist_flow_to_output_projection(
+        &self,
+        garbler_ot_state: &ServerOtState,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<PreparedServerAssistFlow> {
+        let (server_assist_init_message, mut server_eval_state) = self
+            .prepare_server_assist_init_message(
+                garbler_ot_state,
+                client_request_message,
+                y_relayer,
+                tau_relayer,
+                operation,
+            )?;
+        let add_stage_request_message = self.prepare_add_stage_request_message(
+            client_request_message,
+            evaluator_ot_state,
+            &server_assist_init_message,
+        )?;
+        let (add_stage_response_message, next_server_eval_state) = self
+            .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)?;
+        server_eval_state = next_server_eval_state;
+
+        let mut message_schedule_request_messages =
+            Vec::with_capacity(crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS as usize);
+        let mut message_schedule_response_messages =
+            Vec::with_capacity(crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS as usize);
+        let mut prior_stage_response_message = add_stage_response_message.clone();
+        for _ in 0..crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
+            let request_message =
+                self.prepare_message_schedule_request_message(&prior_stage_response_message)?;
+            let (response_message, next_server_eval_state) = self
+                .prepare_message_schedule_response_message(&server_eval_state, &request_message)?;
+            message_schedule_request_messages.push(request_message);
+            message_schedule_response_messages.push(response_message.clone());
+            prior_stage_response_message = response_message;
+            server_eval_state = next_server_eval_state;
+        }
+
+        let mut round_core_request_messages =
+            Vec::with_capacity(crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS as usize);
+        let mut round_core_response_messages =
+            Vec::with_capacity(crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS as usize);
+        for _ in 0..crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
+            let request_message =
+                self.prepare_round_core_request_message(&prior_stage_response_message)?;
+            let (response_message, next_server_eval_state) =
+                self.prepare_round_core_response_message(&server_eval_state, &request_message)?;
+            round_core_request_messages.push(request_message);
+            round_core_response_messages.push(response_message.clone());
+            prior_stage_response_message = response_message;
+            server_eval_state = next_server_eval_state;
+        }
+
+        let output_projection_request_message =
+            self.prepare_output_projection_request_message(&prior_stage_response_message)?;
+        let (output_projection_response_message, final_server_eval_state) = self
+            .prepare_output_projection_response_message(
+                &server_eval_state,
+                &output_projection_request_message,
+            )?;
+
+        Ok(PreparedServerAssistFlow {
+            server_assist_init_message,
+            add_stage_request_message,
+            add_stage_response_message,
+            message_schedule_request_messages,
+            message_schedule_response_messages,
+            round_core_request_messages,
+            round_core_response_messages,
+            output_projection_request_message,
+            output_projection_response_message,
+            final_server_eval_state,
+        })
+    }
+
+    pub fn build_server_owned_staged_evaluator_artifact_from_transport_messages(
+        &self,
+        garbler_ot_state: &ServerOtState,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        let flow = self.prepare_server_assist_flow_to_output_projection(
+            garbler_ot_state,
+            client_request_message,
+            evaluator_ot_state,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )?;
+        self.build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+            &flow.final_server_eval_state,
+        )
+    }
+
+    pub fn build_server_owned_staged_evaluator_artifact_from_server_eval_state(
+        &self,
+        server_eval_state: &ServerEvalState,
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        let execution_run = server_eval_state.execution_run.clone().ok_or_else(|| {
+            ProtoError::InvalidInput(
+                "staged flow did not materialize a server-owned hidden-eval run".to_string(),
+            )
+        })?;
+        let (artifact, _, _) = self
+            .evaluator_session()
+            .build_staged_evaluator_artifact_from_hidden_run(&self.shared_runtime(), execution_run)?;
+        Ok(artifact)
+    }
+
+    pub fn validate_server_assist_flow_to_output_projection(
+        &self,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        flow: &PreparedServerAssistFlow,
+    ) -> ProtoResult<crate::wire::ServerStageResponsePacket> {
+        self.evaluator_session()
+            .validate_server_assist_flow_to_output_projection(
+                client_request_message,
+                evaluator_ot_state,
+                &flow.server_assist_init_message,
+                &flow.add_stage_request_message,
+                &flow.add_stage_response_message,
+                &flow.message_schedule_request_messages,
+                &flow.message_schedule_response_messages,
+                &flow.round_core_request_messages,
+                &flow.round_core_response_messages,
+                &flow.output_projection_request_message,
+                &flow.output_projection_response_message,
+            )
+    }
+
+    pub fn prepare_server_finalize_message_from_staged_evaluator_artifact(
+        &self,
+        runtime: &SharedRuntime,
+        server_eval_state: &ServerEvalState,
+        artifact: &StagedEvaluatorArtifact,
+    ) -> ProtoResult<(WireMessage, EvaluationReport)> {
+        self.garbler_session()
+            .prepare_server_finalize_message_from_staged_evaluator_artifact(
+            runtime,
+            server_eval_state,
+            artifact,
+        )
+    }
+
+    pub fn prepare_server_finalize_from_staged_evaluator_artifact(
+        &self,
+        runtime: &SharedRuntime,
+        server_eval_state: &ServerEvalState,
+        artifact: &crate::wire::StagedEvaluatorArtifact,
+    ) -> ProtoResult<(crate::wire::ServerFinalizePacket, EvaluationReport)> {
+        self.garbler_session()
+            .prepare_server_finalize_packet_from_staged_evaluator_artifact(
+                runtime,
+                server_eval_state,
+                artifact,
+            )
+    }
+
+    pub fn validate_server_assist_flow_to_finalize(
+        &self,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        flow: &PreparedServerAssistFlow,
+        server_finalize_message: &WireMessage,
+    ) -> ProtoResult<crate::wire::ServerFinalizePacket> {
+        self.evaluator_session()
+            .validate_server_assist_flow_to_finalize(
+                client_request_message,
+                evaluator_ot_state,
+                &flow.server_assist_init_message,
+                &flow.add_stage_request_message,
+                &flow.add_stage_response_message,
+                &flow.message_schedule_request_messages,
+                &flow.message_schedule_response_messages,
+                &flow.round_core_request_messages,
+                &flow.round_core_response_messages,
+                &flow.output_projection_request_message,
+                &flow.output_projection_response_message,
+                server_finalize_message,
+            )
     }
 
     fn validate_garbler_ot_state(
