@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use ed25519_hss::{
@@ -9,6 +10,44 @@ use ed25519_hss::{
     shared::{CanonicalContext, ProtoError, ProtoResult},
     wire::WireMessage,
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerCeremonyJsonInput {
+    prepared_server_session: PreparedServerSessionJson,
+    client_request: ClientRequestJson,
+    server_inputs: ServerInputsJson,
+    operation: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreparedServerSessionJson {
+    evaluator_driver_state_b64u: String,
+    garbler_driver_state_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientRequestJson {
+    client_request_message_b64u: String,
+    evaluator_ot_state_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerInputsJson {
+    y_relayer_b64u: String,
+    tau_relayer_b64u: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerCeremonyJsonOutput {
+    context_binding_b64u: String,
+    staged_evaluator_artifact_b64u: String,
+}
 
 fn main() {
     if let Err(err) = run() {
@@ -28,6 +67,7 @@ fn run() -> ProtoResult<()> {
         "garbler-offer" => cmd_garbler_offer(&rest),
         "evaluator-request" => cmd_evaluator_request(&rest),
         "server-assist-init" => cmd_server_assist_init(&rest),
+        "server-ceremony-json" => cmd_server_ceremony_json(),
         _ => Err(ProtoError::InvalidInput(format!(
             "unknown subcommand {command}"
         ))),
@@ -96,6 +136,60 @@ fn cmd_server_assist_init(args: &[String]) -> ProtoResult<()> {
     Ok(())
 }
 
+fn cmd_server_ceremony_json() -> ProtoResult<()> {
+    let input: ServerCeremonyJsonInput = read_json_stdin()?;
+    let evaluator_driver_state: ClientDriverState = decode_b64u_state_blob_named(
+        "preparedServerSession.evaluatorDriverStateB64u",
+        &input.prepared_server_session.evaluator_driver_state_b64u,
+    )?;
+    let garbler_driver_state: ServerDriverState = decode_b64u_state_blob_named(
+        "preparedServerSession.garblerDriverStateB64u",
+        &input.prepared_server_session.garbler_driver_state_b64u,
+    )?;
+    let client_request_message = decode_b64u_wire_message_named(
+        "clientRequest.clientRequestMessageB64u",
+        &input.client_request.client_request_message_b64u,
+    )?;
+    let evaluator_ot_state = decode_b64u_state_blob_named(
+        "clientRequest.evaluatorOtStateB64u",
+        &input.client_request.evaluator_ot_state_b64u,
+    )?;
+    let y_relayer =
+        decode_b64u_array32_named("serverInputs.yRelayerB64u", &input.server_inputs.y_relayer_b64u)?;
+    let tau_relayer = decode_b64u_array32_named(
+        "serverInputs.tauRelayerB64u",
+        &input.server_inputs.tau_relayer_b64u,
+    )?;
+    let operation = parse_operation(&input.operation)?;
+
+    if evaluator_driver_state.runtime != garbler_driver_state.runtime {
+        return Err(ProtoError::InvalidInput(
+            "evaluator and garbler driver states do not share the same prepared runtime".to_string(),
+        ));
+    }
+    let runtime = evaluator_driver_state.runtime.materialize()?;
+    let evaluator_session = evaluator_driver_state.evaluator_session.materialize();
+    let garbler_session = garbler_driver_state.garbler_session.materialize()?;
+    let (_server_assist_init, artifact) = garbler_session
+        .prepare_server_ceremony_from_transport_messages(
+            &runtime,
+            &evaluator_session,
+            &evaluator_ot_state,
+            &client_request_message,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )?;
+
+    let output = ServerCeremonyJsonOutput {
+        context_binding_b64u: base64_url_encode(
+            &evaluator_driver_state.evaluator_session.context_binding,
+        ),
+        staged_evaluator_artifact_b64u: encode_state_blob_b64u(&artifact)?,
+    };
+    write_json_stdout(&output)
+}
+
 fn required_arg<'a>(args: &'a [String], flag: &str) -> ProtoResult<&'a str> {
     let Some(index) = args.iter().position(|value| value == flag) else {
         return Err(ProtoError::InvalidInput(format!(
@@ -119,6 +213,15 @@ fn read_json_file<T: serde::de::DeserializeOwned>(path: &str) -> ProtoResult<T> 
     })
 }
 
+fn read_json_stdin<T: serde::de::DeserializeOwned>() -> ProtoResult<T> {
+    let mut bytes = Vec::new();
+    io::stdin()
+        .read_to_end(&mut bytes)
+        .map_err(|err| ProtoError::Decode(format!("failed to read stdin: {err}")))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|err| ProtoError::Decode(format!("failed to decode JSON from stdin: {err}")))
+}
+
 fn write_json_file<T: serde::Serialize>(path: &str, value: &T) -> ProtoResult<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|err| {
         ProtoError::Decode(format!(
@@ -130,6 +233,14 @@ fn write_json_file<T: serde::Serialize>(path: &str, value: &T) -> ProtoResult<()
         .map_err(|err| ProtoError::Decode(format!("failed to write {}: {err}", display_path(path))))
 }
 
+fn write_json_stdout<T: serde::Serialize>(value: &T) -> ProtoResult<()> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|err| ProtoError::Decode(format!("failed to encode stdout JSON: {err}")))?;
+    io::stdout()
+        .write_all(&bytes)
+        .map_err(|err| ProtoError::Decode(format!("failed to write stdout: {err}")))
+}
+
 fn parse_hex_array32(value: &str) -> ProtoResult<[u8; 32]> {
     let decoded = hex::decode(value)
         .map_err(|err| ProtoError::InvalidInput(format!("failed to decode hex input: {err}")))?;
@@ -139,6 +250,70 @@ fn parse_hex_array32(value: &str) -> ProtoResult<[u8; 32]> {
             decoded.len()
         ))
     })
+}
+
+fn parse_operation(value: &str) -> ProtoResult<ServerEvalOperation> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "registration" => Ok(ServerEvalOperation::Registration),
+        "txsigning" | "tx_signing" | "sign" => Ok(ServerEvalOperation::TxSigning),
+        "linkdevice" | "link_device" => Ok(ServerEvalOperation::LinkDevice),
+        "emailrecovery" | "email_recovery" => Ok(ServerEvalOperation::EmailRecovery),
+        "warmsessionreconstruction" | "warm_session_reconstruction" => {
+            Ok(ServerEvalOperation::WarmSessionReconstruction)
+        }
+        "export" | "explicitkeyexport" | "explicit_key_export" => {
+            Ok(ServerEvalOperation::ExplicitKeyExport)
+        }
+        other => Err(ProtoError::InvalidInput(format!(
+            "unknown server ceremony operation {other}"
+        ))),
+    }
+}
+
+fn decode_b64u_state_blob_named<T: serde::de::DeserializeOwned>(
+    label: &str,
+    value: &str,
+) -> ProtoResult<T> {
+    let decoded = base64_url_decode(value)?;
+    bincode::deserialize(&decoded).map_err(|err| {
+        ProtoError::Decode(format!("failed to decode base64url state blob {label}: {err}"))
+    })
+}
+
+fn decode_b64u_array32_named(label: &str, value: &str) -> ProtoResult<[u8; 32]> {
+    let decoded = base64_url_decode(value)?;
+    decoded.try_into().map_err(|decoded: Vec<u8>| {
+        ProtoError::InvalidInput(format!(
+            "expected 32-byte base64url payload for {label}, got {} bytes",
+            decoded.len()
+        ))
+    })
+}
+
+fn decode_b64u_wire_message_named(label: &str, value: &str) -> ProtoResult<WireMessage> {
+    Ok(WireMessage {
+        bytes: base64_url_decode(value).map_err(|err| {
+            ProtoError::Decode(format!("failed to decode base64url wire message {label}: {err}"))
+        })?,
+    })
+}
+
+fn encode_state_blob_b64u<T: serde::Serialize>(value: &T) -> ProtoResult<String> {
+    let bytes = bincode::serialize(value)
+        .map_err(|err| ProtoError::Decode(format!("failed to encode state blob: {err}")))?;
+    Ok(base64_url_encode(&bytes))
+}
+
+fn base64_url_encode(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn base64_url_decode(value: &str) -> ProtoResult<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|err| ProtoError::Decode(format!("failed to decode base64url payload: {err}")))
 }
 
 fn display_path(path: &str) -> String {

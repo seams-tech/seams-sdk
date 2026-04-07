@@ -7,7 +7,7 @@ use curve25519_dalek::scalar::Scalar;
 use curve25519_dalek::traits::Identity;
 use merlin::Transcript;
 use rand_core::{OsRng, RngCore};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -152,7 +152,7 @@ pub struct DdhHssOtWordOffer {
     pub sender_public: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssOtInputBundleOffer {
     pub owner: HiddenEvalInputOwner,
     pub label: String,
@@ -183,7 +183,7 @@ pub struct DdhHssOtSenderStateWord {
     pub sender_public: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssOtSenderStateBundle {
     pub owner: HiddenEvalInputOwner,
     pub label: String,
@@ -203,7 +203,7 @@ pub struct DdhHssOtSelectionWord {
     pub receiver_public: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssOtSelectionBundle {
     pub owner: HiddenEvalInputOwner,
     pub label: String,
@@ -218,12 +218,248 @@ pub struct DdhHssOtReceiverStateWord {
     pub shared_point: [u8; 32],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssOtReceiverStateBundle {
     pub owner: HiddenEvalInputOwner,
     pub label: String,
     pub words: Vec<DdhHssOtReceiverStateWord>,
     pub commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtSelectionWordCompact {
+    receiver_public: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtSelectionBundleCompact {
+    owner: HiddenEvalInputOwner,
+    label: String,
+    width_bits: u16,
+    words: Vec<DdhHssOtSelectionWordCompact>,
+    commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtReceiverStateWordCompact {
+    selected_branch: u8,
+    shared_point: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtReceiverStateBundleCompact {
+    owner: HiddenEvalInputOwner,
+    label: String,
+    width_bits: u16,
+    words: Vec<DdhHssOtReceiverStateWordCompact>,
+    commitment: [u8; 32],
+}
+
+fn uniform_word_width(widths: impl Iterator<Item = u16>, bundle_name: &str) -> Result<u16, String> {
+    let mut widths = widths.peekable();
+    let Some(width_bits) = widths.peek().copied() else {
+        return Ok(0);
+    };
+    if widths.any(|candidate| candidate != width_bits) {
+        return Err(format!(
+            "{bundle_name} serialization requires a uniform width_bits across words"
+        ));
+    }
+    Ok(width_bits)
+}
+
+impl Serialize for DdhHssOtSelectionBundle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let width_bits =
+            uniform_word_width(self.words.iter().map(|word| word.width_bits), "selection bundle")
+                .map_err(serde::ser::Error::custom)?;
+        DdhHssOtSelectionBundleCompact {
+            owner: self.owner,
+            label: self.label.clone(),
+            width_bits,
+            words: self
+                .words
+                .iter()
+                .map(|word| DdhHssOtSelectionWordCompact {
+                    receiver_public: word.receiver_public,
+                })
+                .collect(),
+            commitment: self.commitment,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl Serialize for DdhHssOtInputBundleOffer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let width_bits =
+            uniform_word_width(self.words.iter().map(|word| word.width_bits), "input offer bundle")
+                .map_err(serde::ser::Error::custom)?;
+        DdhHssOtInputBundleOfferCompact {
+            owner: self.owner,
+            label: self.label.clone(),
+            width_bits,
+            words: self
+                .words
+                .iter()
+                .map(|word| DdhHssOtWordOfferCompact {
+                    sender_public: word.sender_public,
+                })
+                .collect(),
+            commitment: self.commitment,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssOtInputBundleOffer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compact = DdhHssOtInputBundleOfferCompact::deserialize(deserializer)?;
+        Ok(Self {
+            owner: compact.owner,
+            label: compact.label,
+            words: compact
+                .words
+                .into_iter()
+                .map(|word| DdhHssOtWordOffer {
+                    width_bits: compact.width_bits,
+                    sender_public: word.sender_public,
+                })
+                .collect(),
+            commitment: compact.commitment,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssOtSelectionBundle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compact = DdhHssOtSelectionBundleCompact::deserialize(deserializer)?;
+        Ok(Self {
+            owner: compact.owner,
+            label: compact.label,
+            words: compact
+                .words
+                .into_iter()
+                .map(|word| DdhHssOtSelectionWord {
+                    width_bits: compact.width_bits,
+                    receiver_public: word.receiver_public,
+                })
+                .collect(),
+            commitment: compact.commitment,
+        })
+    }
+}
+
+impl Serialize for DdhHssOtSenderStateBundle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let width_bits =
+            uniform_word_width(self.words.iter().map(|word| word.width_bits), "sender state bundle")
+                .map_err(serde::ser::Error::custom)?;
+        DdhHssOtSenderStateBundleCompact {
+            owner: self.owner,
+            label: self.label.clone(),
+            width_bits,
+            words: self
+                .words
+                .iter()
+                .map(|word| DdhHssOtSenderStateWordCompact {
+                    sender_scalar: word.sender_scalar,
+                    sender_public: word.sender_public,
+                })
+                .collect(),
+            commitment: self.commitment,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl Serialize for DdhHssOtReceiverStateBundle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let width_bits = uniform_word_width(
+            self.words.iter().map(|word| word.width_bits),
+            "receiver state bundle",
+        )
+        .map_err(serde::ser::Error::custom)?;
+        DdhHssOtReceiverStateBundleCompact {
+            owner: self.owner,
+            label: self.label.clone(),
+            width_bits,
+            words: self
+                .words
+                .iter()
+                .map(|word| DdhHssOtReceiverStateWordCompact {
+                    selected_branch: word.selected_branch,
+                    shared_point: word.shared_point,
+                })
+                .collect(),
+            commitment: self.commitment,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssOtSenderStateBundle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compact = DdhHssOtSenderStateBundleCompact::deserialize(deserializer)?;
+        Ok(Self {
+            owner: compact.owner,
+            label: compact.label,
+            words: compact
+                .words
+                .into_iter()
+                .map(|word| DdhHssOtSenderStateWord {
+                    width_bits: compact.width_bits,
+                    sender_scalar: word.sender_scalar,
+                    sender_public: word.sender_public,
+                })
+                .collect(),
+            commitment: compact.commitment,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssOtReceiverStateBundle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let compact = DdhHssOtReceiverStateBundleCompact::deserialize(deserializer)?;
+        Ok(Self {
+            owner: compact.owner,
+            label: compact.label,
+            words: compact
+                .words
+                .into_iter()
+                .map(|word| DdhHssOtReceiverStateWord {
+                    width_bits: compact.width_bits,
+                    selected_branch: word.selected_branch,
+                    shared_point: word.shared_point,
+                })
+                .collect(),
+            commitment: compact.commitment,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -4165,10 +4401,9 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
                 b"right",
             ],
         );
-        let xor_ab_label = format!("{label_prefix}/xor_ab/{idx}");
         let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            xor_ab_label.as_bytes(),
+            format!("{label_prefix}/xor_ab/{idx}").as_bytes(),
             (left_bit_word.share_word as u8) & 1,
             0,
             &left_bit_word.provenance_digest,
@@ -4176,10 +4411,9 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
             (right_bit_word.share_word as u8) & 1,
             &right_bit_word.provenance_digest,
         );
-        let sum_label = format!("{label_prefix}/sum/{idx}");
         let (sum_left, sum_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            sum_label.as_bytes(),
+            format!("{label_prefix}/sum/{idx}").as_bytes(),
             (xor_ab_left.share_word as u8) & 1,
             (xor_ab_right.share_word as u8) & 1,
             &xor_ab_left.provenance_digest,
@@ -4187,10 +4421,9 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
             (carry_right.share_word as u8) & 1,
             &carry_left.provenance_digest,
         );
-        let a_xor_carry_label = format!("{label_prefix}/a_xor_carry/{idx}");
         let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            a_xor_carry_label.as_bytes(),
+            format!("{label_prefix}/a_xor_carry/{idx}").as_bytes(),
             (left_bit_word.share_word as u8) & 1,
             0,
             &left_bit_word.provenance_digest,
@@ -4198,10 +4431,9 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
             (carry_right.share_word as u8) & 1,
             &carry_left.provenance_digest,
         );
-        let carry_gate_label = format!("{label_prefix}/carry/{idx}");
         let (carry_gate_left, carry_gate_right) = eval_mul_local_bit_pair_raw_public(
             evaluation_key,
-            carry_gate_label.as_bytes(),
+            format!("{label_prefix}/carry/{idx}").as_bytes(),
             (xor_ab_left.share_word as u8) & 1,
             (xor_ab_right.share_word as u8) & 1,
             &xor_ab_left.share_commitment,
@@ -4213,10 +4445,9 @@ pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public(
             &a_xor_carry_right.share_commitment,
             &a_xor_carry_left.provenance_digest,
         )?;
-        let next_carry_label = format!("{label_prefix}/next_carry/{idx}");
         (carry_left, carry_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
-            next_carry_label.as_bytes(),
+            format!("{label_prefix}/next_carry/{idx}").as_bytes(),
             (left_bit_word.share_word as u8) & 1,
             0,
             &left_bit_word.provenance_digest,
@@ -6446,4 +6677,32 @@ mod tests {
         assert_eq!(local_decoded, shared_decoded);
         assert_eq!(local_decoded, vec![0, 1, 0, 0, 1, 0, 0, 0]);
     }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtWordOfferCompact {
+    sender_public: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtInputBundleOfferCompact {
+    owner: HiddenEvalInputOwner,
+    label: String,
+    width_bits: u16,
+    words: Vec<DdhHssOtWordOfferCompact>,
+    commitment: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtSenderStateWordCompact {
+    sender_scalar: [u8; 32],
+    sender_public: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DdhHssOtSenderStateBundleCompact {
+    owner: HiddenEvalInputOwner,
+    label: String,
+    width_bits: u16,
+    words: Vec<DdhHssOtSenderStateWordCompact>,
+    commitment: [u8; 32],
 }

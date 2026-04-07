@@ -6,7 +6,7 @@ use crate::js::{
 use ed25519_hss::{
     client::ClientDriverState,
     protocol::prepare_prime_order_succinct_hss_client,
-    shared::{public_key_from_base_shares, CanonicalContext},
+    shared::CanonicalContext,
     wire::WireMessage,
 };
 use serde::{Deserialize, Serialize};
@@ -60,11 +60,6 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(
-        &out,
-        "contextBindingB64u",
-        &base64_url_encode(&evaluator_ot_state.context_binding),
-    )?;
     set_string(
         &out,
         "clientRequestMessageB64u",
@@ -127,22 +122,6 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
         &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
     )?;
     set_string(&out, "canonicalSeedB64u", &base64_url_encode(&canonical_seed))?;
-    Ok(out.into())
-}
-
-#[wasm_bindgen]
-pub fn threshold_ed25519_hss_public_key_from_base_shares(
-    args: JsValue,
-) -> Result<JsValue, JsValue> {
-    let x_client_base_b64u = get_required_string(&args, "xClientBaseB64u")?;
-    let x_relayer_base_b64u = get_required_string(&args, "xRelayerBaseB64u")?;
-    let x_client_base = decode_fixed_32(&x_client_base_b64u, "xClientBaseB64u")?;
-    let x_relayer_base = decode_fixed_32(&x_relayer_base_b64u, "xRelayerBaseB64u")?;
-    let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let out = object();
-    set_string(&out, "publicKeyB64u", &base64_url_encode(&public_key))?;
     Ok(out.into())
 }
 

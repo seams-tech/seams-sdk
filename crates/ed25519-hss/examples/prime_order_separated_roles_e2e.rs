@@ -142,7 +142,7 @@ fn run() -> ProtoResult<()> {
     let garbler_state_for_respond: ServerDriverState = read_json(&garbler_state_path)?;
     let (_runtime, garbler_session_for_respond) = garbler_state_for_respond.materialize()?;
     let request_message_for_respond: WireMessage = read_json(&request_path)?;
-    let (server_assist_init_message, server_eval_state) = garbler_session_for_respond
+    let (server_assist_init_message, _server_eval_state) = garbler_session_for_respond
         .prepare_server_assist_init_message(
             &request_message_for_respond,
             fixture.input.y_relayer,
@@ -174,39 +174,16 @@ fn run() -> ProtoResult<()> {
             &ot_state_for_evaluate,
             &server_assist_init_for_staged_flow,
         )?;
-    let (add_stage_response_message, mut next_server_eval_state) = garbler_session_for_respond
-        .prepare_add_stage_response_message(&server_eval_state, &add_stage_request_message)?;
-    let mut message_schedule_request_messages = Vec::new();
-    let mut message_schedule_response_messages = Vec::new();
-    let mut prior_stage_response_message = add_stage_response_message.clone();
-    for _ in 0..ed25519_hss::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-        let request_message = evaluator_session_for_evaluate
-            .prepare_message_schedule_request_message(&prior_stage_response_message)?;
-        let (response_message, server_state_after_response) = garbler_session_for_respond
-            .prepare_message_schedule_response_message(&next_server_eval_state, &request_message)?;
-        message_schedule_request_messages.push(request_message);
-        message_schedule_response_messages.push(response_message.clone());
-        prior_stage_response_message = response_message;
-        next_server_eval_state = server_state_after_response;
-    }
-    let mut round_core_request_messages = Vec::new();
-    let mut round_core_response_messages = Vec::new();
-    for _ in 0..ed25519_hss::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
-        let request_message = evaluator_session_for_evaluate
-            .prepare_round_core_request_message(&prior_stage_response_message)?;
-        let (response_message, server_state_after_response) = garbler_session_for_respond
-            .prepare_round_core_response_message(&next_server_eval_state, &request_message)?;
-        round_core_request_messages.push(request_message);
-        round_core_response_messages.push(response_message.clone());
-        prior_stage_response_message = response_message;
-        next_server_eval_state = server_state_after_response;
-    }
-    let output_projection_request_message = evaluator_session_for_evaluate
-        .prepare_output_projection_request_message(&prior_stage_response_message)?;
-    let (output_projection_response_message, final_server_eval_state) = garbler_session_for_respond
-        .prepare_output_projection_response_message(
-            &next_server_eval_state,
-            &output_projection_request_message,
+    let shared_runtime = prepared.shared_runtime();
+    let staged_evaluator_artifact = garbler_session_for_respond
+        .build_staged_evaluator_artifact_from_transport_messages(
+            &shared_runtime,
+            &evaluator_session_for_evaluate,
+            &ot_state_for_evaluate,
+            &request_message_for_respond,
+            fixture.input.y_relayer,
+            fixture.input.tau_relayer,
+            ServerEvalOperation::Registration,
         )?;
     timings.push(("staged_flow", staged_flow_started.elapsed()));
     write_json(
@@ -214,14 +191,9 @@ fn run() -> ProtoResult<()> {
         &serde_json::json!({
             "serverAssistInitMessage": server_assist_init_for_staged_flow,
             "addStageRequestMessage": add_stage_request_message,
-            "addStageResponseMessage": add_stage_response_message,
-            "messageScheduleRequestMessages": message_schedule_request_messages,
-            "messageScheduleResponseMessages": message_schedule_response_messages,
-            "roundCoreRequestMessages": round_core_request_messages,
-            "roundCoreResponseMessages": round_core_response_messages,
-            "outputProjectionRequestMessage": output_projection_request_message,
-            "outputProjectionResponseMessage": output_projection_response_message,
-            "finalServerEvalStateStatus": format!("{:?}", final_server_eval_state.status),
+            "stagedEvaluatorArtifactContextBinding": staged_evaluator_artifact.context_binding,
+            "stagedEvaluatorArtifactEvaluationDigest": staged_evaluator_artifact.bindings.evaluation_digest,
+            "stagedFlowImplementation": "build_staged_evaluator_artifact_from_transport_messages",
         }),
     )?;
     assert_segregated(
@@ -236,13 +208,8 @@ fn run() -> ProtoResult<()> {
     )?;
 
     let final_report_started = Instant::now();
-    let staged_evaluator_artifact = prepared
-        .build_server_owned_staged_evaluator_artifact_from_server_eval_state(
-            &final_server_eval_state,
-        )?;
-    let (_server_finalize, report) = prepared.prepare_server_finalize_from_staged_evaluator_artifact(
-        prepared.shared_runtime(),
-        &final_server_eval_state,
+    let report = shared_runtime.finalize_report_from_staged_evaluator_artifact(
+        &prepared.garbler_session(),
         &staged_evaluator_artifact,
     )?;
     timings.push(("final_report", final_report_started.elapsed()));

@@ -31,7 +31,10 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
+import {
+  resolveCanonicalThresholdSessionId,
+  resolveThresholdSessionAuth,
+} from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
@@ -148,6 +151,12 @@ export async function signNep413Message({
       throw new Error('Missing PRF.first output for signing');
     }
 
+    const canonicalThresholdSessionId = signingContext.threshold
+      ? resolveCanonicalThresholdSessionId({
+          thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
+          fallbackSessionId: sessionId,
+        })
+      : sessionId;
     if (
       signingContext.threshold &&
       ((signingContext.threshold.thresholdSessionKind === 'jwt' &&
@@ -156,7 +165,7 @@ export async function signNep413Message({
     ) {
       const auth = await resolveThresholdSessionAuth({
         thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
-        thresholdSessionId: sessionId,
+        thresholdSessionId: canonicalThresholdSessionId,
       });
       if (auth) {
         signingContext.threshold.thresholdSessionKind = auth.sessionKind;
@@ -173,12 +182,6 @@ export async function signNep413Message({
         '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
       );
     }
-    const canonicalThresholdSessionId = signingContext.threshold
-      ? String(
-          getCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey)?.policy
-            .sessionId || sessionId,
-        ).trim() || sessionId
-      : sessionId;
     const xClientBaseB64u = signingContext.threshold
       ? await ensureThresholdEd25519HssClientBase({
           ctx,

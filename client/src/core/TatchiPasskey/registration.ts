@@ -155,8 +155,6 @@ export async function registerPasskeyInternal(
         thresholdEd25519: {
           ...thresholdEd25519Registration.registrationInput,
         },
-        managedRegistrationBootstrapToken:
-          thresholdEd25519Registration.managedRegistrationBootstrapToken,
       },
     );
     registrationTimingSummary.relayRegistrationMs = Math.round(

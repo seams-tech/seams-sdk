@@ -10,7 +10,6 @@ import initHssClientSigner, {
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
-  threshold_ed25519_hss_public_key_from_base_shares,
   threshold_ed25519_seed_export_artifact_from_seed,
 } from '../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -75,11 +74,6 @@ async function handleHssClientMessage(data: unknown): Promise<{
       return {
         type: WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess,
         payload: threshold_ed25519_hss_open_seed_output(payload),
-      };
-    case WorkerRequestType.DeriveThresholdEd25519HssPublicKey:
-      return {
-        type: WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess,
-        payload: threshold_ed25519_hss_public_key_from_base_shares(payload),
       };
     case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
       return {

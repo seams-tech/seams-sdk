@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 
 use crate::ddh::ddh_hss::{
     build_local_word_pair_public, eval_add_cross_share_local_arithmetic_word_bits_secure_public,
@@ -7,6 +9,7 @@ use crate::ddh::ddh_hss::{
     eval_mul_local_bit_pair_batch_raw_xor_base_public, eval_mul_local_word_pair_batch_public,
     eval_mul_local_word_pairs_public, local_word_from_shared, local_word_from_transport_public,
     validate_transport_word_pair_public, xor_local_bit_from_raw_public,
+    xor_local_bit_pair_from_raw_public,
     xor_local_word_pairs_public, DdhHssArithmeticBackend, DdhHssInputShareBundle,
     DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide, DdhHssSharedWord,
     DdhHssTransportBundle, DdhHssTransportWord,
@@ -1880,6 +1883,33 @@ pub fn materialize_output_bundles_from_continuations_with_pool<
     )
 }
 
+pub fn materialize_output_bundles_from_projector_inputs_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    projector_inputs: &DdhHiddenEvalProjectorInputs,
+) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+    ensure_program_shape(program)?;
+    let d_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.add_stage_bits)?;
+    let schedule_output =
+        execute_message_schedule_stage(backend, constant_pool, &program.stages[1], &d_bits)?;
+    let round_output =
+        execute_round_stages(backend, constant_pool, &program.stages[2..6], &schedule_output.words)?;
+    let tau_client_bits = SplitLocalBitWord::from_shared_bits(&projector_inputs.tau_client_bits)?;
+    execute_output_projector_stage(
+        backend,
+        constant_pool,
+        &program.stages[6],
+        &d_bits,
+        &round_output.hash_core.final_words,
+        &tau_client_bits,
+        &projector_inputs.tau_relayer_left_bits,
+        &projector_inputs.tau_relayer_right_bits,
+    )
+}
+
 pub fn materialize_staged_server_execution_with_split_server_inputs_with_pool<
     B: DdhHssArithmeticBackend,
 >(
@@ -1940,10 +1970,14 @@ fn monotonic_now_ns() -> u128 {
 
 #[cfg(target_arch = "wasm32")]
 fn monotonic_now_ns() -> u128 {
-    web_sys::window()
-        .and_then(|window| window.performance())
+    let window_performance = web_sys::window().and_then(|window| window.performance());
+    let global_performance = js_sys::Reflect::get(&js_sys::global(), &wasm_bindgen::JsValue::from_str("performance"))
+        .ok()
+        .and_then(|value| value.dyn_into::<web_sys::Performance>().ok());
+    window_performance
+        .or(global_performance)
         .map(|performance| (performance.now() * 1_000_000.0) as u128)
-        .unwrap_or(0)
+        .unwrap_or_else(|| (js_sys::Date::now() * 1_000_000.0) as u128)
 }
 
 fn elapsed_ns(started_ns: u128) -> u128 {
@@ -2169,7 +2203,6 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
                 temp2,
                 state3,
             };
-
             let new_a_arith = add_local_arithmetic_word_pairs(
                 backend.evaluation_key(),
                 &format!("round_core/{round}/new_a"),
@@ -2572,20 +2605,21 @@ fn extract_clamped_a_bits_local(
             let start = (7 - byte_idx) * 8;
             for bit_idx in 0..8 {
                 let absolute_idx = start + bit_idx;
-                let mut left_word = word_bits.left.local_word(absolute_idx)?;
-                let mut right_word = word_bits.right.local_word(absolute_idx)?;
                 if global_byte_idx == 0 && bit_idx < 3 {
-                    left_word = zero_left.clone();
-                    right_word = zero_right.clone();
+                    left.push_local_word(zero_left)?;
+                    right.push_local_word(zero_right)?;
                 } else if global_byte_idx == 31 && bit_idx == 6 {
-                    left_word = one_left.clone();
-                    right_word = one_right.clone();
+                    left.push_local_word(one_left)?;
+                    right.push_local_word(one_right)?;
                 } else if global_byte_idx == 31 && bit_idx == 7 {
-                    left_word = zero_left.clone();
-                    right_word = zero_right.clone();
+                    left.push_local_word(zero_left)?;
+                    right.push_local_word(zero_right)?;
+                } else {
+                    let left_word = word_bits.left.local_word(absolute_idx)?;
+                    let right_word = word_bits.right.local_word(absolute_idx)?;
+                    left.push_local_word(&left_word)?;
+                    right.push_local_word(&right_word)?;
                 }
-                left.push_local_word(&left_word)?;
-                right.push_local_word(&right_word)?;
             }
         }
     }
@@ -3021,6 +3055,54 @@ fn transformed_local_bit_parts(
     }
 }
 
+fn local_bit_pair_parts(
+    source: LocalBitWordPairRef<'_>,
+    idx: usize,
+) -> ProtoResult<(u8, u8, [u8; 32])> {
+    let left_provenance = source.left.provenance_digests[idx];
+    let right_provenance = source.right.provenance_digests[idx];
+    if left_provenance != right_provenance {
+        return Err(ProtoError::InvalidInput(format!(
+            "split local bit pair provenance mismatch at index {idx}"
+        )));
+    }
+    Ok((
+        source.left.share_bit(idx),
+        source.right.share_bit(idx),
+        left_provenance,
+    ))
+}
+
+fn transformed_local_bit_pair_parts(
+    source: LocalBitWordPairRef<'_>,
+    idx: usize,
+    spec: LocalBitTransformSpec<'_>,
+) -> ProtoResult<(u8, u8, [u8; 32])> {
+    match spec.transform {
+        LocalBitTransform::Rotate(offset) => {
+            let transformed_idx = (idx + offset) % source.len();
+            local_bit_pair_parts(source, transformed_idx)
+        }
+        LocalBitTransform::Shift(shift) => {
+            let zero = spec.zero.ok_or_else(|| {
+                ProtoError::InvalidInput(
+                    "shifted local bit transform requires a zero word".to_string(),
+                )
+            })?;
+            if zero.width_bits != 1 {
+                return Err(ProtoError::InvalidInput(
+                    "shifted local bit transform requires width-1 zero".to_string(),
+                ));
+            }
+            if idx + shift < source.len() {
+                local_bit_pair_parts(source, idx + shift)
+            } else {
+                Ok(((zero.share_word as u8) & 1, 0, zero.provenance_digest))
+            }
+        }
+    }
+}
+
 fn xor_transformed_local_bit_word_side(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
@@ -3071,6 +3153,56 @@ fn xor_transformed_local_bit_word_side_into(
     Ok(())
 }
 
+fn xor_transformed_local_bit_word_pair_into(
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
+    label: &str,
+    source: LocalBitWordPairRef<'_>,
+    transforms: [LocalBitTransformSpec<'_>; 3],
+    out: &mut RoundKernelBooleanWord,
+) -> ProtoResult<()> {
+    source.left.ensure_shape()?;
+    source.right.ensure_shape()?;
+    if source.left.len() != source.right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "{label} requires same-width local word pair, got {} and {}",
+            source.left.len(),
+            source.right.len()
+        )));
+    }
+    out.reset();
+    for idx in 0..source.len() {
+        let (first_left, first_right, first_provenance) =
+            transformed_local_bit_pair_parts(source, idx, transforms[0])?;
+        let (second_left, second_right, second_provenance) =
+            transformed_local_bit_pair_parts(source, idx, transforms[1])?;
+        let (third_left, third_right, third_provenance) =
+            transformed_local_bit_pair_parts(source, idx, transforms[2])?;
+        let xor01 = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            format!("{label}/xor01/{idx}").as_bytes(),
+            first_left,
+            first_right,
+            &first_provenance,
+            second_left,
+            second_right,
+            &second_provenance,
+        );
+        let xor012 = xor_local_bit_pair_from_raw_public(
+            evaluation_key,
+            format!("{label}/xor012/{idx}").as_bytes(),
+            (xor01.0.share_word as u8) & 1,
+            (xor01.1.share_word as u8) & 1,
+            &xor01.0.provenance_digest,
+            third_left,
+            third_right,
+            &third_provenance,
+        );
+        out.left.push_local_word(&xor012.0)?;
+        out.right.push_local_word(&xor012.1)?;
+    }
+    Ok(())
+}
+
 fn xor_split_local_bit_words_into(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
@@ -3091,26 +3223,20 @@ fn xor_split_local_bit_words_into(
     right.right.ensure_shape()?;
     out.reset();
     for idx in 0..left.len() {
-        let xor_left = xor_local_bit_from_raw_public(
+        let left_parts = local_bit_pair_parts(left, idx)?;
+        let right_parts = local_bit_pair_parts(right, idx)?;
+        let xor_pair = xor_local_bit_pair_from_raw_public(
             evaluation_key,
             format!("{label}/{idx}").as_bytes(),
-            DdhHssShareSide::Left,
-            left.left.share_bit(idx),
-            &left.left.provenance_digests[idx],
-            right.left.share_bit(idx),
-            &right.left.provenance_digests[idx],
+            left_parts.0,
+            left_parts.1,
+            &left_parts.2,
+            right_parts.0,
+            right_parts.1,
+            &right_parts.2,
         );
-        let xor_right = xor_local_bit_from_raw_public(
-            evaluation_key,
-            format!("{label}/{idx}").as_bytes(),
-            DdhHssShareSide::Right,
-            left.right.share_bit(idx),
-            &left.right.provenance_digests[idx],
-            right.right.share_bit(idx),
-            &right.right.provenance_digests[idx],
-        );
-        out.left.push_local_word(&xor_left)?;
-        out.right.push_local_word(&xor_right)?;
+        out.left.push_local_word(&xor_pair.0)?;
+        out.right.push_local_word(&xor_pair.1)?;
     }
     Ok(())
 }
@@ -3820,17 +3946,25 @@ fn big_sigma0_local_bits_into<B: DdhHssArithmeticBackend>(
     word: LocalBitWordPairRef<'_>,
     out: &mut RoundKernelBooleanWord,
 ) -> ProtoResult<()> {
-    xor_three_rotates_local_bit_word_side_into::<28, 34, 39>(
+    xor_transformed_local_bit_word_pair_into(
         backend.evaluation_key(),
         label,
-        word.left,
-        &mut out.left,
-    )?;
-    xor_three_rotates_local_bit_word_side_into::<28, 34, 39>(
-        backend.evaluation_key(),
-        label,
-        word.right,
-        &mut out.right,
+        word,
+        [
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(28),
+                zero: None,
+            },
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(34),
+                zero: None,
+            },
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(39),
+                zero: None,
+            },
+        ],
+        out,
     )?;
     Ok(())
 }
@@ -3841,54 +3975,26 @@ fn big_sigma1_local_bits_into<B: DdhHssArithmeticBackend>(
     word: LocalBitWordPairRef<'_>,
     out: &mut RoundKernelBooleanWord,
 ) -> ProtoResult<()> {
-    xor_three_rotates_local_bit_word_side_into::<14, 18, 41>(
+    xor_transformed_local_bit_word_pair_into(
         backend.evaluation_key(),
         label,
-        word.left,
-        &mut out.left,
+        word,
+        [
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(14),
+                zero: None,
+            },
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(18),
+                zero: None,
+            },
+            LocalBitTransformSpec {
+                transform: LocalBitTransform::Rotate(41),
+                zero: None,
+            },
+        ],
+        out,
     )?;
-    xor_three_rotates_local_bit_word_side_into::<14, 18, 41>(
-        backend.evaluation_key(),
-        label,
-        word.right,
-        &mut out.right,
-    )?;
-    Ok(())
-}
-
-fn xor_three_rotates_local_bit_word_side_into<const R0: usize, const R1: usize, const R2: usize>(
-    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
-    label: &str,
-    source: &LocalBitWordSide,
-    out: &mut LocalBitWordSide,
-) -> ProtoResult<()> {
-    source.ensure_shape()?;
-    let len = source.len();
-    out.reset();
-    for idx in 0..len {
-        let idx0 = (idx + R0) % len;
-        let idx1 = (idx + R1) % len;
-        let idx2 = (idx + R2) % len;
-        let xor01 = xor_local_bit_from_raw_public(
-            evaluation_key,
-            format!("{label}/xor01/{idx}").as_bytes(),
-            source.share_side,
-            source.share_bit(idx0),
-            &source.provenance_digests[idx0],
-            source.share_bit(idx1),
-            &source.provenance_digests[idx1],
-        );
-        let xor012 = xor_local_bit_from_raw_public(
-            evaluation_key,
-            format!("{label}/xor012/{idx}").as_bytes(),
-            source.share_side,
-            (xor01.share_word as u8) & 1,
-            &xor01.provenance_digest,
-            source.share_bit(idx2),
-            &source.provenance_digests[idx2],
-        );
-        out.push_local_word(&xor012)?;
-    }
     Ok(())
 }
 

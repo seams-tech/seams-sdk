@@ -3,7 +3,6 @@ import {
   WorkerResponseType,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
-  type WasmDeriveThresholdEd25519HssPublicKeyResult,
   type WasmOpenThresholdEd25519HssClientOutputResult,
   type WasmOpenThresholdEd25519HssSeedOutputResult,
   type WasmPrepareThresholdEd25519HssClientRequestResult,
@@ -31,13 +30,12 @@ export type ThresholdEd25519HssClientInputs = {
   tauClientB64u: string;
 };
 
-export type ThresholdEd25519HssPreparedSessionEnvelope = ThresholdEd25519HssCanonicalContext & {
+export type ThresholdEd25519HssPreparedSessionEnvelope = {
   contextBindingB64u: string;
   evaluatorDriverStateB64u: string;
 };
 
 export type ThresholdEd25519HssClientRequestEnvelope = {
-  contextBindingB64u: string;
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
 };
@@ -54,10 +52,8 @@ export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope = {
 
 export type ThresholdEd25519HssFinalizedReportEnvelope = {
   contextBindingB64u: string;
-  evaluationReportJson: string;
   clientOutputMessageB64u: string;
-  seedOutputMessageB64u: string;
-  serverOutputMessageB64u: string;
+  seedOutputMessageB64u?: string;
 };
 
 export type ThresholdEd25519HssOpenedClientOutput = {
@@ -65,18 +61,9 @@ export type ThresholdEd25519HssOpenedClientOutput = {
   xClientBaseB64u: string;
 };
 
-export type ThresholdEd25519HssOpenedServerOutput = {
-  contextBindingB64u: string;
-  xRelayerBaseB64u: string;
-};
-
 export type ThresholdEd25519HssOpenedSeedOutput = {
   contextBindingB64u: string;
   canonicalSeedB64u: string;
-};
-
-export type ThresholdEd25519HssDerivedPublicKey = {
-  publicKeyB64u: string;
 };
 
 export type ThresholdEd25519SeedExportArtifact = {
@@ -208,12 +195,6 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
 
   const result = response.payload as WasmPrepareThresholdEd25519HssSessionResult;
   return {
-    orgId: String(result.orgId || '').trim(),
-    nearAccountId: String(result.nearAccountId || '').trim(),
-    keyPurpose: String(result.keyPurpose || '').trim(),
-    keyVersion: String(result.keyVersion || '').trim(),
-    participantIds: normalizeParticipantIds(result.participantIds),
-    derivationVersion: Number(result.derivationVersion),
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
   };
@@ -246,7 +227,6 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
 
   const result = response.payload as WasmPrepareThresholdEd25519HssClientRequestResult;
   return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
     evaluatorOtStateB64u: String(result.evaluatorOtStateB64u || '').trim(),
   };
@@ -283,7 +263,7 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
 
 export async function openThresholdEd25519HssSeedOutputWasm(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
-  finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'seedOutputMessageB64u'>;
+  finalizedReport: { seedOutputMessageB64u: string };
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
   const response = await executeWorkerOperation({
@@ -307,34 +287,6 @@ export async function openThresholdEd25519HssSeedOutputWasm(input: {
   return {
     contextBindingB64u: String(result.contextBindingB64u || '').trim(),
     canonicalSeedB64u: String(result.canonicalSeedB64u || '').trim(),
-  };
-}
-
-export async function deriveThresholdEd25519HssPublicKeyWasm(input: {
-  xClientBaseB64u: string;
-  xRelayerBaseB64u: string;
-  workerCtx: WorkerOperationContext;
-}): Promise<ThresholdEd25519HssDerivedPublicKey> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
-    request: {
-      type: WorkerRequestType.DeriveThresholdEd25519HssPublicKey,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        xClientBaseB64u: input.xClientBaseB64u,
-        xRelayerBaseB64u: input.xRelayerBaseB64u,
-      },
-    },
-  });
-
-  if (response.type !== WorkerResponseType.DeriveThresholdEd25519HssPublicKeySuccess) {
-    throw new Error('DeriveThresholdEd25519HssPublicKey failed');
-  }
-
-  const result = response.payload as WasmDeriveThresholdEd25519HssPublicKeyResult;
-  return {
-    publicKeyB64u: String(result.publicKeyB64u || '').trim(),
   };
 }
 

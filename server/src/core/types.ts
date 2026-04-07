@@ -60,9 +60,13 @@ export interface ThresholdEd25519HssClientInputs {
 }
 
 export interface ThresholdEd25519HssServerInputs {
-  contextBindingB64u: string;
   yRelayerB64u: string;
   tauRelayerB64u: string;
+}
+
+export interface ThresholdEd25519HssStoredServerInputs {
+  yRelayerBytes: Uint8Array;
+  tauRelayerBytes: Uint8Array;
 }
 
 export interface ThresholdEd25519HssSessionInputs {
@@ -71,7 +75,7 @@ export interface ThresholdEd25519HssSessionInputs {
   server: ThresholdEd25519HssServerInputs;
 }
 
-export interface ThresholdEd25519HssPreparedSessionEnvelope extends ThresholdEd25519HssCanonicalContext {
+export interface ThresholdEd25519HssPreparedSessionEnvelope {
   contextBindingB64u: string;
   evaluatorDriverStateB64u: string;
 }
@@ -81,30 +85,46 @@ export interface ThresholdEd25519HssPreparedServerSessionEnvelope {
   evaluatorDriverStateB64u: string;
   garblerDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
+  preparedSessionHandle: string;
+}
+
+export interface ThresholdEd25519HssStoredPreparedServerSession {
+  preparedSessionHandle?: string;
+  evaluatorDriverStateBytes: Uint8Array;
+  garblerDriverStateBytes: Uint8Array;
 }
 
 export interface ThresholdEd25519HssClientRequestEnvelope {
-  contextBindingB64u: string;
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
 }
 
-export interface ThresholdEd25519HssServerAssistInitEnvelope {
-  contextBindingB64u: string;
-  serverAssistInitMessageB64u: string;
-}
+export type ThresholdEd25519HssStagedEvaluatorArtifactEnvelope =
+  | {
+      contextBindingB64u: string;
+      stagedEvaluatorArtifactHandle: string;
+      stagedEvaluatorArtifactBytes?: undefined;
+    }
+  | {
+      contextBindingB64u: string;
+      stagedEvaluatorArtifactBytes: Uint8Array;
+      stagedEvaluatorArtifactHandle?: undefined;
+    };
 
-export interface ThresholdEd25519HssStagedEvaluatorArtifactEnvelope {
-  contextBindingB64u: string;
-  stagedEvaluatorArtifactB64u: string;
-}
+export type ThresholdEd25519HssStoredStagedEvaluatorArtifact =
+  | {
+      stagedEvaluatorArtifactHandle: string;
+      stagedEvaluatorArtifactBytes?: undefined;
+    }
+  | {
+      stagedEvaluatorArtifactBytes: Uint8Array;
+      stagedEvaluatorArtifactHandle?: undefined;
+    };
 
 export interface ThresholdEd25519HssFinalizedReportEnvelope {
   contextBindingB64u: string;
-  evaluationReportJson: string;
   clientOutputMessageB64u: string;
-  seedOutputMessageB64u: string;
-  serverOutputMessageB64u: string;
+  seedOutputMessageB64u?: string;
 }
 
 export interface ThresholdEd25519HssOpenedClientOutput {
@@ -126,8 +146,16 @@ export interface ThresholdEd25519HssDerivedPublicKey {
   publicKeyB64u: string;
 }
 
+export type ThresholdEd25519HssSessionOperation =
+  | 'tx_signing'
+  | 'link_device'
+  | 'email_recovery'
+  | 'warm_session_reconstruction'
+  | 'explicit_key_export';
+
 export interface ThresholdEd25519HssPrepareWithSessionRequest {
   relayerKeyId: string;
+  operation: ThresholdEd25519HssSessionOperation;
   context: ThresholdEd25519HssCanonicalContext;
 }
 
@@ -178,8 +206,6 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
 export type ThresholdEd25519HssRespondWithSessionResponse =
   | {
       ok: true;
-      serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
-      evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
     }
   | {
       ok: false;
@@ -190,8 +216,6 @@ export type ThresholdEd25519HssRespondWithSessionResponse =
 export type ThresholdEd25519HssRespondForRegistrationResponse =
   | {
       ok: true;
-      serverAssistInit: ThresholdEd25519HssServerAssistInitEnvelope;
-      evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
     }
   | {
       ok: false;
@@ -201,14 +225,12 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
 
 export interface ThresholdEd25519HssFinalizeWithSessionRequest {
   ceremonyHandle: string;
-  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }
 
 export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   ceremonyHandle: string;
-  evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
 }
 
 export type ThresholdEd25519HssFinalizeWithSessionResponse =
@@ -225,7 +247,6 @@ export type ThresholdEd25519HssFinalizeWithSessionResponse =
 export type ThresholdEd25519HssFinalizeForRegistrationResponse =
   | {
       ok: true;
-      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
       publicKey: string;
       relayerKeyId: string;
     }

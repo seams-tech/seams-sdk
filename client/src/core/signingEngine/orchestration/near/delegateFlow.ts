@@ -42,7 +42,10 @@ import {
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import { resolveThresholdSessionAuth } from './shared/thresholdSessionAuth';
+import {
+  resolveCanonicalThresholdSessionId,
+  resolveThresholdSessionAuth,
+} from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
@@ -217,6 +220,10 @@ export async function signDelegateAction({
     publicKey: signingContext.delegatePublicKeyStr,
   };
 
+  const canonicalThresholdSessionId = resolveCanonicalThresholdSessionId({
+    thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
+    fallbackSessionId: sessionId,
+  });
   if (
     (signingContext.threshold.thresholdSessionKind === 'jwt' &&
       !signingContext.threshold.thresholdSessionJwt) ||
@@ -224,7 +231,7 @@ export async function signDelegateAction({
   ) {
     const auth = await resolveThresholdSessionAuth({
       thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
-      thresholdSessionId: sessionId,
+      thresholdSessionId: canonicalThresholdSessionId,
     });
     if (auth) {
       signingContext.threshold.thresholdSessionKind = auth.sessionKind;
@@ -240,11 +247,6 @@ export async function signDelegateAction({
       '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
     );
   }
-  const canonicalThresholdSessionId =
-    String(
-      getCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey)?.policy
-        .sessionId || sessionId,
-    ).trim() || sessionId;
   const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
     ...(onEvent
       ? {

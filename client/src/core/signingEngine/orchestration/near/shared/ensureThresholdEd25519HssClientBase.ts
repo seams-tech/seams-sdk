@@ -97,6 +97,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     relayerUrl: String(args.relayerUrl || '').trim(),
     thresholdSessionJwt,
     relayerKeyId: String(args.relayerKeyId || '').trim(),
+    operation: 'warm_session_reconstruction',
     context,
     clientInputs,
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },

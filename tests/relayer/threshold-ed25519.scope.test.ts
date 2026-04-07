@@ -1293,6 +1293,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({
           relayerKeyId,
+          operation: 'tx_signing',
           context,
         }),
       });
@@ -1379,6 +1380,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({
           relayerKeyId,
+          operation: 'tx_signing',
           context,
         }),
       });
@@ -1418,6 +1420,195 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(finalized.status, finalized.text).toBe(400);
       expect(finalized.json?.code, finalized.text).toBe('invalid_body');
       expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeNull();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('hss prepare/respond logs compact ceremony-state measurements', async () => {
+    const captured = makeCapturedLogger();
+    const { service, threshold } = makeAuthServiceForThreshold({ logger: captured.logger });
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId } = await provisionThresholdEd25519RegistrationMaterial({
+        service,
+        threshold,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+      });
+
+      const sessionId = `sess-${Date.now()}`;
+      const sessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 4,
+      });
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody),
+      });
+      expect(minted.status).toBe(200);
+      expect(minted.json?.ok).toBe(true);
+      const jwt = String(minted.json?.jwt || '');
+
+      const { context, clientInputs } = await buildThresholdEd25519HssSessionMaterial({
+        thresholdSessionId: sessionId,
+        nearAccountId: 'bob.testnet',
+      });
+
+      const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          relayerKeyId,
+          operation: 'tx_signing',
+          context,
+        }),
+      });
+      expect(prepared.status, prepared.text).toBe(200);
+      expect(prepared.json?.ok, prepared.text).toBe(true);
+
+      const ceremonyHandle = String(prepared.json?.ceremonyHandle || '');
+      const ceremonyStore = (threshold as any).ed25519HssCeremonyStore as Map<string, any>;
+      const storedCeremony = ceremonyStore.get(ceremonyHandle) as Record<string, any> | undefined;
+      expect(storedCeremony).toBeTruthy();
+      expect(
+        Object.prototype.hasOwnProperty.call(storedCeremony?.preparedSession || {}, 'orgId'),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(storedCeremony?.preparedSession || {}, 'nearAccountId'),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(storedCeremony?.serverInputs || {}, 'contextBindingB64u'),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          storedCeremony?.preparedServerSession || {},
+          'contextBindingB64u',
+        ),
+      ).toBe(false);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          storedCeremony?.preparedServerSession || {},
+          'clientOtOfferMessageB64u',
+        ),
+      ).toBe(false);
+      expect(storedCeremony?.preparedServerSession?.evaluatorDriverStateBytes).toBeInstanceOf(Uint8Array);
+      expect(storedCeremony?.preparedServerSession?.garblerDriverStateBytes).toBeInstanceOf(Uint8Array);
+      expect(storedCeremony?.serverInputs?.yRelayerBytes).toBeInstanceOf(Uint8Array);
+      expect(storedCeremony?.serverInputs?.tauRelayerBytes).toBeInstanceOf(Uint8Array);
+
+      const preparedSession = prepared.json?.preparedSession as any;
+      const clientRequest = await prepareThresholdEd25519HssClientRequestWasm({
+        evaluatorDriverStateB64u: String(preparedSession?.evaluatorDriverStateB64u || ''),
+        clientOtOfferMessageB64u: String(prepared.json?.clientOtOfferMessageB64u || ''),
+        clientInputs,
+        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+      });
+      const responded = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({
+          ceremonyHandle,
+          clientRequest,
+        }),
+      });
+      expect(responded.status, responded.text).toBe(200);
+      expect(responded.json?.ok, responded.text).toBe(true);
+      const storedCeremonyAfterRespond = ceremonyStore.get(ceremonyHandle) as
+        | Record<string, any>
+        | undefined;
+      expect(storedCeremonyAfterRespond).toBeTruthy();
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          storedCeremonyAfterRespond?.evaluationResult || {},
+          'contextBindingB64u',
+        ),
+      ).toBe(false);
+      const storedEvaluationResult = storedCeremonyAfterRespond?.evaluationResult || {};
+      expect(
+        Object.prototype.hasOwnProperty.call(storedCeremonyAfterRespond || {}, 'serverInputs'),
+      ).toBe(false);
+      expect(
+        storedEvaluationResult.stagedEvaluatorArtifactBytes instanceof Uint8Array ||
+          typeof storedEvaluationResult.stagedEvaluatorArtifactHandle === 'string',
+      ).toBe(true);
+
+      const prepareTimingEntry = captured.entries.find(
+        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss prepare timings',
+      );
+      expect(prepareTimingEntry).toBeTruthy();
+      const prepareTiming = (prepareTimingEntry?.args[1] as Record<string, unknown>) || {};
+      expect(prepareTiming).toHaveProperty('ceremonyStateBytes');
+      expect(Number(prepareTiming.evaluatorDriverStateBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.evaluatorDriverStatePayloadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.evaluatorDriverStateTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.clientOtOfferMessageBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.clientOtOfferMessagePayloadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.clientOtOfferMessageTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(
+        Number((prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.preparedSessionBytes || 0),
+      ).toBeGreaterThan(0);
+      expect(
+        Number((prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0),
+      ).toBeGreaterThan(0);
+
+      const respondTimingEntry = captured.entries.find(
+        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
+      );
+      expect(respondTimingEntry).toBeTruthy();
+      const respondTiming = (respondTimingEntry?.args[1] as Record<string, unknown>) || {};
+      expect(respondTiming).toHaveProperty('ceremonyStateBytes');
+      expect(Number(respondTiming.clientRequestMessageBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.clientRequestMessagePayloadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.clientRequestMessageTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.evaluatorOtStateBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.evaluatorOtStatePayloadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.evaluatorOtStateTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(['native', 'wasm']).toContain(String(respondTiming.respondEngine || ''));
+      if (respondTiming.respondEngine === 'wasm') {
+        const breakdown = (respondTiming.wasmRespondBreakdownMs as Record<string, unknown>) || {};
+        const summary =
+          (respondTiming.wasmRespondBreakdownSummary as Record<string, unknown>) || {};
+        expect(Number(breakdown.decodeStatesMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.decodeMessagesMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.materializeRuntimeMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.materializeSessionsMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyCoreMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyAddStageMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyMessageScheduleMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyRoundCoreMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyOutputProjectorMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.encodeArtifactMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.totalMeasuredMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.materializationMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(String(summary.dominantBucket || '')).not.toBe('');
+        expect(Number(summary.dominantBucketMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(String(summary.dominantCeremonyStage || '')).not.toBe('');
+        expect(Number(summary.dominantCeremonyStageMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.materializationMs || 0)).toBeLessThanOrEqual(1);
+        expect(['materializeRuntimeMs', 'materializeSessionsMs']).not.toContain(
+          String(summary.dominantBucket || ''),
+        );
+      }
+      expect(Number(respondTiming.evaluationResultBytes || 0)).toBeGreaterThan(0);
+      expect(
+        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0),
+      ).toBe(0);
+      expect(
+        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.evaluationResultBytes || 0),
+      ).toBeGreaterThan(0);
+      expect(
+        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.stagedEvaluatorArtifactBytes || 0),
+      ).toBeGreaterThan(0);
     } finally {
       await srv.close();
     }
@@ -1486,6 +1677,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
         body: JSON.stringify({
           relayerKeyId,
+          operation: 'tx_signing',
           context: hssMaterial.context,
         }),
       });
@@ -1575,6 +1767,39 @@ test.describe('threshold-ed25519 scope (express)', () => {
         (entry) =>
           entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss finalize timings',
       );
+      const respondTimingEntry = captured.entries.find(
+        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
+      );
+      expect(respondTimingEntry).toBeTruthy();
+      const respondTiming = (respondTimingEntry?.args[1] as Record<string, unknown>) || {};
+      expect(['native', 'wasm']).toContain(String(respondTiming.respondEngine || ''));
+      expect(Number(respondTiming.clientRequestMessageBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.evaluatorOtStateBytes || 0)).toBeGreaterThan(0);
+      if (respondTiming.respondEngine === 'wasm') {
+        const breakdown = (respondTiming.wasmRespondBreakdownMs as Record<string, unknown>) || {};
+        const summary =
+          (respondTiming.wasmRespondBreakdownSummary as Record<string, unknown>) || {};
+        expect(Number(breakdown.decodeStatesMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.decodeMessagesMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.materializeRuntimeMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.materializeSessionsMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyCoreMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyAddStageMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyMessageScheduleMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyRoundCoreMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.ceremonyOutputProjectorMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(breakdown.encodeArtifactMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.totalMeasuredMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.materializationMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(String(summary.dominantBucket || '')).not.toBe('');
+        expect(Number(summary.dominantBucketMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(String(summary.dominantCeremonyStage || '')).not.toBe('');
+        expect(Number(summary.dominantCeremonyStageMs || 0)).toBeGreaterThanOrEqual(0);
+        expect(Number(summary.materializationMs || 0)).toBeLessThanOrEqual(1);
+        expect(['materializeRuntimeMs', 'materializeSessionsMs']).not.toContain(
+          String(summary.dominantBucket || ''),
+        );
+      }
       expect(finalizeTimingEntry).toBeTruthy();
       expect((finalizeTimingEntry?.args[1] as Record<string, unknown>)?.relayerShareRepaired).toBe(
         true,

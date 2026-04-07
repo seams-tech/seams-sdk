@@ -123,7 +123,7 @@ test.describe('PRF session sealed store', () => {
     expect(result.indexAfter).toBeNull();
   });
 
-  test('uses localStorage in wallet iframe host mode for reload continuity', async ({ page }) => {
+  test('uses sessionStorage in wallet iframe host mode for reload continuity', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean }).__W3A_TEST_WALLET_IFRAME_HOST_MODE__ =
@@ -150,16 +150,16 @@ test.describe('PRF session sealed store', () => {
         } finally {
           delete (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean })
             .__W3A_TEST_WALLET_IFRAME_HOST_MODE__;
-          localStorage.removeItem('tatchi:threshold-prf-sealed:v1:sess-host-mode');
-          localStorage.removeItem('tatchi:threshold-prf-sealed:v1:index');
+          sessionStorage.removeItem('tatchi:threshold-prf-sealed:v1:sess-host-mode');
+          sessionStorage.removeItem('tatchi:threshold-prf-sealed:v1:index');
         }
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.localRaw).not.toBeNull();
-    expect(result.localIndex).toBe(JSON.stringify(['sess-host-mode']));
-    expect(result.sessionRaw).toBeNull();
-    expect(result.sessionIndex).toBeNull();
+    expect(result.localRaw).toBeNull();
+    expect(result.localIndex).toBeNull();
+    expect(result.sessionRaw).not.toBeNull();
+    expect(result.sessionIndex).toBe(JSON.stringify(['sess-host-mode']));
   });
 });

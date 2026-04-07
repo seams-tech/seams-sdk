@@ -287,6 +287,28 @@ export class SigningEngine {
     await this.ensureSealedRefreshStartupParity();
   }
 
+  private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
+    args: Parameters<typeof bootstrapEcdsaSessionValue>[1],
+  ): Promise<void> {
+    try {
+      await this.ensureSealedRefreshStartupParity();
+    } catch (error: unknown) {
+      if (args.source === 'registration') {
+        const message = error instanceof Error ? error.message : String(error || 'unknown error');
+        console.warn(
+          '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
+          {
+            nearAccountId: String(args.nearAccountId || '').trim(),
+            chain: args.chain || 'tempo',
+            error: message,
+          },
+        );
+        return;
+      }
+      throw error;
+    }
+  }
+
   private async withThresholdEcdsaBootstrapQueue<T>(
     nearAccountId: AccountId,
     task: () => Promise<T>,
@@ -696,6 +718,7 @@ export class SigningEngine {
       relayerUrl: args.relayerUrl,
       thresholdSessionJwt: args.thresholdSessionJwt,
       relayerKeyId: args.relayerKeyId,
+      operation: 'explicit_key_export',
       context: {
         orgId: args.orgId,
         nearAccountId: args.nearAccountId,
@@ -945,7 +968,7 @@ export class SigningEngine {
   async bootstrapEcdsaSession(
     args: Parameters<typeof bootstrapEcdsaSessionValue>[1],
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-    await this.ensureSealedRefreshStartupParity();
+    await this.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(args);
     const nearAccountId = toAccountId(args.nearAccountId);
     const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
     const normalizedAuthorizationJwt = String(args.authorizationJwt || '').trim();

@@ -3,6 +3,10 @@ use crate::ddh::hidden_eval_executor::{
     advance_round_core_continuation_with_pool,
     compute_message_schedule_completed_digest,
     compute_round_core_completed_digest,
+    execute_prime_order_ddh_hidden_eval_program_profiled_with_pool,
+    DdhHiddenEvalConstantPool,
+    DdhHiddenEvalInputBundles,
+    DdhHiddenEvalStageProfile,
     initialize_round_core_continuation_from_message_schedule_with_pool,
     materialize_output_bundles_from_continuations_with_pool,
     materialize_staged_server_execution_with_split_server_inputs_with_pool,
@@ -13,11 +17,7 @@ use crate::ddh::{
     DdhHssTransportBundle, DdhHssTransportPurpose,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use crate::ddh::hidden_eval_executor::{
-    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool,
-    DdhHiddenEvalConstantPool,
-};
-#[cfg(not(target_arch = "wasm32"))]
+use crate::ddh::hidden_eval_executor::trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_with_pool;
 use crate::ddh::{
     DdhHiddenEvalRun, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle,
     HiddenEvalProgram,
@@ -43,7 +43,6 @@ use crate::wire::{
 };
 use rand_core::{OsRng, RngCore};
 
-#[cfg(not(target_arch = "wasm32"))]
 struct SameProcessTrustedEvalMaterial {
     y_client_response: DdhHssOtResponseBundle,
     tau_client_response: DdhHssOtResponseBundle,
@@ -270,58 +269,190 @@ impl ServerSession {
         tau_relayer: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
+        let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
+        self.build_staged_evaluator_artifact_from_transport_messages_with_pool(
+            runtime,
+            evaluator_session,
+            evaluator_ot_state,
+            client_request_message,
+            y_relayer,
+            tau_relayer,
+            operation,
+            &constant_pool,
+        )
+    }
+
+    pub fn build_staged_evaluator_artifact_from_transport_messages_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        evaluator_session: &crate::client::ClientSession,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
+        let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
+        self.build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
+            runtime,
+            evaluator_session,
+            evaluator_ot_state,
+            client_request_message,
+            y_relayer,
+            tau_relayer,
+            operation,
+            &constant_pool,
+        )
+    }
+
+    pub fn build_staged_evaluator_artifact_from_transport_messages_with_pool(
+        &self,
+        runtime: &SharedRuntime,
+        evaluator_session: &crate::client::ClientSession,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        _operation: ServerEvalOperation,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<StagedEvaluatorArtifact> {
+        Ok(self
+            .build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
+                runtime,
+                evaluator_session,
+                evaluator_ot_state,
+                client_request_message,
+                y_relayer,
+                tau_relayer,
+                _operation,
+                constant_pool,
+            )?
+            .0)
+    }
+
+    pub fn build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
+        &self,
+        runtime: &SharedRuntime,
+        evaluator_session: &crate::client::ClientSession,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        _operation: ServerEvalOperation,
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientOtRequest,
             client_request_message,
         )?;
-        let (server_assist_init, mut server_eval_state) =
+        let (run, stage_profile) = self.build_hidden_eval_run_from_transport_messages_with_pool(
+            evaluator_session,
+            evaluator_ot_state,
+            &client_packet,
+            &runtime.hidden_eval_program,
+            y_relayer,
+            tau_relayer,
+            constant_pool,
+        )?;
+        let artifact = evaluator_session.build_staged_evaluator_artifact_from_hidden_eval_outputs(
+                runtime,
+                run.client_input_commitment,
+                run.server_input_commitment,
+                run.output,
+            )
+            .map(|(artifact, _, _)| artifact)?;
+        Ok((artifact, stage_profile))
+    }
+
+    fn build_hidden_eval_run_from_transport_messages_with_pool(
+        &self,
+        evaluator_session: &crate::client::ClientSession,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        client_packet: &ClientPacket,
+        hidden_eval_program: &HiddenEvalProgram,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        constant_pool: &DdhHiddenEvalConstantPool,
+    ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile)> {
+        let (trusted_server_eval, _timing) =
+            self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
+        let y_client_bundle = evaluator_session.ddh_evaluator.reconstruct_client_ot_bundle(
+            evaluator_session.context_binding,
+            &trusted_server_eval.y_client_response,
+            &evaluator_ot_state.y_client_local_state,
+            &trusted_server_eval.y_client_remote_release,
+        )?;
+        let tau_client_bundle = evaluator_session.ddh_evaluator.reconstruct_client_ot_bundle(
+            evaluator_session.context_binding,
+            &trusted_server_eval.tau_client_response,
+            &evaluator_ot_state.tau_client_local_state,
+            &trusted_server_eval.tau_client_remote_release,
+        )?;
+        let expected_client_input_commitment = evaluator_session
+            .ddh_evaluator
+            .combined_input_commitment(
+                crate::ddh::HiddenEvalInputOwner::Client,
+                &[&y_client_bundle, &tau_client_bundle],
+            );
+        let input_bundles = DdhHiddenEvalInputBundles {
+            y_client_bits: y_client_bundle,
+            server_inputs: trusted_server_eval.trusted_server_inputs,
+            tau_client_bits: tau_client_bundle,
+        };
+        let profile = execute_prime_order_ddh_hidden_eval_program_profiled_with_pool(
+            hidden_eval_program,
+            &evaluator_session.ddh_evaluator,
+            constant_pool,
+            &input_bundles,
+        )?;
+        let run = profile.run;
+        if run.client_input_commitment != expected_client_input_commitment {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "client delivery packet commitment does not match evaluated run".to_string(),
+            ));
+        }
+        if run.server_input_commitment != trusted_server_eval.server_input_commitment {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "server delivery packet commitment does not match evaluated run".to_string(),
+            ));
+        }
+        Ok((run, profile.stage_profile))
+    }
+
+    pub fn prepare_server_ceremony_from_transport_messages(
+        &self,
+        runtime: &SharedRuntime,
+        evaluator_session: &crate::client::ClientSession,
+        evaluator_ot_state: &crate::client::ClientOtState,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(WireMessage, StagedEvaluatorArtifact)> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        let (server_assist_init, _server_eval_state) =
             self.prepare_server_assist_init(&client_packet, y_relayer, tau_relayer, operation)?;
-        let add_stage_request =
-            evaluator_session.build_add_stage_request(&client_packet, evaluator_ot_state, &server_assist_init)?;
-        server_eval_state = self.materialize_execution_state_from_add_stage_request(
+        let artifact = self.build_staged_evaluator_artifact_from_transport_messages_with_pool(
             runtime,
             evaluator_session,
-            &server_eval_state,
-            &add_stage_request,
+            evaluator_ot_state,
+            client_request_message,
+            y_relayer,
+            tau_relayer,
+            operation,
+            &prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?,
         )?;
-        let (mut prior_stage_response, mut server_eval_state) =
-            self.prepare_add_stage_response(&server_eval_state, &add_stage_request)?;
-
-        for _ in 0..crate::wire::ServerEvalStageId::MESSAGE_SCHEDULE_ROUNDS {
-            let request = evaluator_session.build_message_schedule_request(&prior_stage_response)?;
-            let (response, next_state) =
-                self.prepare_message_schedule_response(&server_eval_state, &request)?;
-            prior_stage_response = response;
-            server_eval_state = next_state;
-        }
-        for _ in 0..crate::wire::ServerEvalStageId::ROUND_CORE_ROUNDS {
-            let request = evaluator_session.build_round_core_request(&prior_stage_response)?;
-            let (response, next_state) =
-                self.prepare_round_core_response(&server_eval_state, &request)?;
-            prior_stage_response = response;
-            server_eval_state = next_state;
-        }
-        let output_projection_request =
-            evaluator_session.build_output_projection_request(&prior_stage_response)?;
-        let (_output_projection_response, server_eval_state) =
-            self.prepare_output_projection_response(
-                &server_eval_state,
-                &output_projection_request,
-            )?;
-        let finalize_state = server_eval_state.finalize_state().cloned().ok_or_else(|| {
-            crate::shared::ProtoError::InvalidInput(
-                "staged flow did not materialize server-owned finalize state".to_string(),
-            )
-        })?;
-        evaluator_session
-            .build_staged_evaluator_artifact_from_hidden_eval_outputs(
-                runtime,
-                finalize_state.client_input_commitment,
-                finalize_state.server_input_commitment,
-                finalize_state.output,
-            )
-            .map(|(artifact, _, _)| artifact)
+        let server_assist_init_message = crate::wire::encode_transport_message(
+            self.context_binding,
+            TransportKind::ServerAssistInit,
+            &server_assist_init,
+        )?;
+        Ok((server_assist_init_message, artifact))
     }
 
     pub fn prepare_add_stage_response(
@@ -766,7 +897,6 @@ impl ServerSession {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn prepare_trusted_server_eval_timed(
         &self,
         client_packet: &ClientPacket,
@@ -1355,6 +1485,10 @@ mod tests {
             .any(|window| window == needle)
     }
 
+    fn serialized_size<T: serde::Serialize>(value: &T) -> u64 {
+        bincode::serialized_size(value).expect("serialized size")
+    }
+
     fn decode_trusted_server_input_bundle(
         session: &ServerSession,
         bundle: &crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputBundle,
@@ -1698,6 +1832,112 @@ mod tests {
         assert!(
             !flow.final_server_eval_state.retains_raw_relayer_roots(),
             "staged flow must not retain raw relayer roots after add-stage materialization",
+        );
+    }
+
+    #[test]
+    fn client_request_and_ot_state_sizes_are_word_vector_dominated() {
+        #[derive(serde::Serialize)]
+        struct SelectionPayloadWord {
+            receiver_public: [u8; 32],
+        }
+
+        #[derive(serde::Serialize)]
+        struct ReceiverStatePayloadWord {
+            selected_branch: u8,
+            shared_point: [u8; 32],
+        }
+
+        let fixture = boundary_fixture();
+        let session = crate::protocol::prepare_prime_order_succinct_hss(&fixture.input.context)
+            .expect("prepare session");
+        let (_runtime, garbler_session, evaluator_session) = session.split_runtime();
+
+        let client_ot_offer_message = garbler_session
+            .client_ot_offer_message()
+            .expect("prepare client OT offer");
+        let (client_request_message, evaluator_ot_state) = evaluator_session
+            .prepare_client_ot_request_from_offer_message(
+                &client_ot_offer_message,
+                fixture.input.y_client,
+                fixture.input.tau_client,
+            )
+            .expect("prepare client request");
+        let client_packet: crate::wire::ClientPacket = crate::wire::decode_transport_message(
+            session.candidate().context_binding,
+            crate::wire::TransportKind::ClientOtRequest,
+            &client_request_message,
+        )
+        .expect("decode client packet");
+
+        let client_packet_bytes = serialized_size(&client_packet);
+        let client_packet_word_bytes =
+            serialized_size(
+                &client_packet
+                    .y_client_request
+                    .words
+                    .iter()
+                    .map(|word| SelectionPayloadWord {
+                        receiver_public: word.receiver_public,
+                    })
+                    .collect::<Vec<_>>(),
+            ) + serialized_size(
+                &client_packet
+                    .tau_client_request
+                    .words
+                    .iter()
+                    .map(|word| SelectionPayloadWord {
+                        receiver_public: word.receiver_public,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        let client_packet_wrapper_bytes = client_packet_bytes - client_packet_word_bytes;
+
+        let evaluator_ot_state_bytes = serialized_size(&evaluator_ot_state);
+        let evaluator_ot_state_word_bytes =
+            serialized_size(
+                &evaluator_ot_state
+                    .y_client_local_state
+                    .words
+                    .iter()
+                    .map(|word| ReceiverStatePayloadWord {
+                        selected_branch: word.selected_branch,
+                        shared_point: word.shared_point,
+                    })
+                    .collect::<Vec<_>>(),
+            ) + serialized_size(
+                &evaluator_ot_state
+                    .tau_client_local_state
+                    .words
+                    .iter()
+                    .map(|word| ReceiverStatePayloadWord {
+                        selected_branch: word.selected_branch,
+                        shared_point: word.shared_point,
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        let evaluator_ot_state_wrapper_bytes =
+            evaluator_ot_state_bytes - evaluator_ot_state_word_bytes;
+
+        assert!(
+            client_packet_word_bytes * 100 / client_packet_bytes >= 85,
+            "client packet should be dominated by OT word vectors, got words={} total={}",
+            client_packet_word_bytes,
+            client_packet_bytes,
+        );
+        assert!(
+            evaluator_ot_state_word_bytes * 100 / evaluator_ot_state_bytes >= 85,
+            "evaluator OT state should be dominated by OT word vectors, got words={} total={}",
+            evaluator_ot_state_word_bytes,
+            evaluator_ot_state_bytes,
+        );
+        assert!(
+            client_packet_wrapper_bytes < client_packet_word_bytes,
+            "client packet wrappers should not dominate serialized size",
+        );
+        assert!(
+            evaluator_ot_state_wrapper_bytes < evaluator_ot_state_word_bytes,
+            "evaluator OT state wrappers should not dominate serialized size",
         );
     }
 }

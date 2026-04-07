@@ -1,5 +1,4 @@
 import {
-  clearCachedEd25519AuthSession,
   getCachedEd25519AuthSession,
   resolveEd25519AuthSessionBySessionId,
 } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
@@ -23,24 +22,20 @@ export async function resolveThresholdSessionAuth(args: {
   thresholdSessionCacheKey: string;
   thresholdSessionId: string;
 }): Promise<ResolvedThresholdSessionAuth | undefined> {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const cachedAuthSession = getCachedEd25519AuthSession(args.thresholdSessionCacheKey);
   if (cachedAuthSession) {
-    const cachedSessionId = String(cachedAuthSession.policy?.sessionId || '').trim();
-    if (thresholdSessionId && cachedSessionId && cachedSessionId !== thresholdSessionId) {
-      clearCachedEd25519AuthSession(args.thresholdSessionCacheKey);
-    } else if (cachedAuthSession.sessionKind === 'cookie') {
+    if (cachedAuthSession.sessionKind === 'cookie') {
       return { sessionKind: 'cookie' };
-    } else {
-      const jwtFromCache = normalizeOptionalNonEmptyString(cachedAuthSession.jwt);
-      if (jwtFromCache) {
-        return {
-          sessionKind: 'jwt',
-          thresholdSessionJwt: jwtFromCache,
-        };
-      }
+    }
+    const jwtFromCache = normalizeOptionalNonEmptyString(cachedAuthSession.jwt);
+    if (jwtFromCache) {
+      return {
+        sessionKind: 'jwt',
+        thresholdSessionJwt: jwtFromCache,
+      };
     }
   }
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return undefined;
 
   const bySessionId = await resolveEd25519AuthSessionBySessionId(thresholdSessionId);
@@ -54,4 +49,15 @@ export async function resolveThresholdSessionAuth(args: {
     sessionKind: 'jwt',
     thresholdSessionJwt: jwt,
   };
+}
+
+export function resolveCanonicalThresholdSessionId(args: {
+  thresholdSessionCacheKey: string;
+  fallbackSessionId: string;
+}): string {
+  const cachedSessionId = String(
+    getCachedEd25519AuthSession(args.thresholdSessionCacheKey)?.policy?.sessionId || '',
+  ).trim();
+  const fallbackSessionId = String(args.fallbackSessionId || '').trim();
+  return cachedSessionId || fallbackSessionId;
 }

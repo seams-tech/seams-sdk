@@ -717,7 +717,12 @@ export async function getWalletSession(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId,
 ): Promise<WalletSession> {
-  await context.signingEngine.assertSealedRefreshStartupParity();
+  await context.signingEngine.assertSealedRefreshStartupParity().catch((error: unknown) => {
+    console.warn(
+      '[WalletSession] sealed refresh startup parity check failed during session read; continuing with cached login state',
+      error instanceof Error ? error.message : String(error || 'unknown error'),
+    );
+  });
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
     ? await context.signingEngine

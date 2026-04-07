@@ -65,7 +65,6 @@ export type ThresholdWarmSessionRequestEnvelope = {
 export type PreparedThresholdEd25519RegistrationWithHss = {
   hssFinalize: ThresholdEd25519RegistrationHssFinalizeResult;
   registrationInput: CreateAccountAndRegisterThresholdEd25519Input;
-  managedRegistrationBootstrapToken: string;
 };
 
 export type CompletedThresholdEd25519Registration = {
@@ -177,7 +176,6 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
-    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     hssContext: {
       orgId: runtimeSnapshotScope.orgId,
       nearAccountId: String(args.nearAccountId),
@@ -202,21 +200,16 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
-    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
     clientRequest,
   });
-
-  const evaluationResult = responded.evaluationResult;
 
   args.onProgress?.('Finalizing threshold Ed25519 registration material...');
   const hssFinalize = await finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration({
     context: args.context,
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
-    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     ceremonyHandle: preparedRelayCeremony.ceremonyHandle,
-    evaluationResult,
   });
   if (!hssFinalize.publicKey || !hssFinalize.relayerKeyId) {
     throw new Error('Threshold Ed25519 registration HSS finalize returned incomplete key material');
@@ -224,7 +217,6 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
 
   return {
     hssFinalize,
-    managedRegistrationBootstrapToken: managedRegistrationFlow.token,
     registrationInput: {
       keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
       recoveryExportCapable: true,
@@ -432,22 +424,15 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     source: 'registration',
   });
 
-  void args.signingEngine
-    .hydrateSigningSession({
-      nearAccountId: args.nearAccountId,
-      signerKind: 'threshold-ed25519',
-      sessionId,
-      prfFirstB64u: args.prfFirstB64u,
-      expiresAtMs,
-      remainingUses,
-      setActiveSigningSessionId: true,
-    })
-    .catch((error: unknown) => {
-      console.warn(
-        '[threshold-ed25519] deferred warm-session PRF cache hydrate failed after registration',
-        error,
-      );
-    });
+  await args.signingEngine.hydrateSigningSession({
+    nearAccountId: args.nearAccountId,
+    signerKind: 'threshold-ed25519',
+    sessionId,
+    prfFirstB64u: args.prfFirstB64u,
+    expiresAtMs,
+    remainingUses,
+    setActiveSigningSessionId: true,
+  });
 }
 
 export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args: {
@@ -498,6 +483,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
     relayerUrl,
     thresholdSessionJwt,
     relayerKeyId,
+    operation: 'warm_session_reconstruction',
     context: {
       orgId,
       nearAccountId: args.nearAccountId,

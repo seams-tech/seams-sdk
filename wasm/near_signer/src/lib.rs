@@ -21,9 +21,7 @@ use crate::threshold::threshold_frost::{
 };
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 use crate::threshold::threshold_hss::{
-    derive_threshold_ed25519_hss_public_key_from_base_shares,
     open_threshold_ed25519_hss_seed_output, ThresholdEd25519HssOpenSeedOutputArgs,
-    ThresholdEd25519HssPublicKeyFromSharesArgs,
 };
 #[cfg(feature = "hss-client-exports")]
 use crate::threshold::threshold_hss::{
@@ -340,24 +338,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
-        WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
-            #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
-            {
-                let request: ThresholdEd25519HssPublicKeyFromSharesArgs =
-                    parse_typed_payload(&payload_js, request_type)?;
-                let result = derive_threshold_ed25519_hss_public_key_from_base_shares(request)
-                    .map_err(|e| JsValue::from_str(&e))?;
-                serde_wasm_bindgen::to_value(&result).map_err(|e| {
-                    JsValue::from_str(&format!("Failed to serialize result: {:?}", e))
-                })?
-            }
-            #[cfg(not(any(feature = "hss-client-exports", feature = "hss-server-exports")))]
-            {
-                return Err(JsValue::from_str(
-                    "DeriveThresholdEd25519HssPublicKey is not available in this runtime",
-                ));
-            }
-        }
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             #[cfg(feature = "hss-client-exports")]
             {
@@ -412,9 +392,6 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
             WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess
-        }
-        WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
-            WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess
         }
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess

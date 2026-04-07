@@ -27,7 +27,6 @@ pub enum WorkerRequestType {
     PrepareThresholdEd25519HssClientRequest,
     OpenThresholdEd25519HssClientOutput,
     OpenThresholdEd25519HssSeedOutput,
-    DeriveThresholdEd25519HssPublicKey,
     BuildThresholdEd25519SeedExportArtifact,
 }
 
@@ -46,8 +45,7 @@ impl From<u32> for WorkerRequestType {
             9 => WorkerRequestType::PrepareThresholdEd25519HssClientRequest,
             10 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
             11 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
-            12 => WorkerRequestType::DeriveThresholdEd25519HssPublicKey,
-            13 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
+            12 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -78,9 +76,6 @@ impl WorkerRequestType {
             }
             WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
                 "OPEN_THRESHOLD_ED25519_HSS_SEED_OUTPUT"
-            }
-            WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
-                "DERIVE_THRESHOLD_ED25519_HSS_PUBLIC_KEY"
             }
             WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
                 "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
@@ -116,9 +111,6 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::OpenThresholdEd25519HssSeedOutput => {
             "OPEN_THRESHOLD_ED25519_HSS_SEED_OUTPUT"
-        }
-        WorkerRequestType::DeriveThresholdEd25519HssPublicKey => {
-            "DERIVE_THRESHOLD_ED25519_HSS_PUBLIC_KEY"
         }
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
@@ -177,10 +169,8 @@ pub enum WorkerResponseType {
     OpenThresholdEd25519HssClientOutputFailure = 25,
     OpenThresholdEd25519HssSeedOutputSuccess = 26,
     OpenThresholdEd25519HssSeedOutputFailure = 27,
-    DeriveThresholdEd25519HssPublicKeySuccess = 28,
-    DeriveThresholdEd25519HssPublicKeyFailure = 29,
-    BuildThresholdEd25519SeedExportArtifactSuccess = 30,
-    BuildThresholdEd25519SeedExportArtifactFailure = 31,
+    BuildThresholdEd25519SeedExportArtifactSuccess = 28,
+    BuildThresholdEd25519SeedExportArtifactFailure = 29,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -223,10 +213,8 @@ impl From<u32> for WorkerResponseType {
             25 => WorkerResponseType::OpenThresholdEd25519HssClientOutputFailure,
             26 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputSuccess,
             27 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
-            28 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess,
-            29 => WorkerResponseType::DeriveThresholdEd25519HssPublicKeyFailure,
-            30 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
-            31 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
+            28 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
+            29 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -304,12 +292,6 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure => {
             "OPEN_THRESHOLD_ED25519_HSS_SEED_OUTPUT_FAILURE"
-        }
-        WorkerResponseType::DeriveThresholdEd25519HssPublicKeySuccess => {
-            "DERIVE_THRESHOLD_ED25519_HSS_PUBLIC_KEY_SUCCESS"
-        }
-        WorkerResponseType::DeriveThresholdEd25519HssPublicKeyFailure => {
-            "DERIVE_THRESHOLD_ED25519_HSS_PUBLIC_KEY_FAILURE"
         }
         WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT_SUCCESS"

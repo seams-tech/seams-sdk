@@ -30,7 +30,6 @@ export {
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
   prepareThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssServerAssistInit,
   finalizeThresholdEd25519HssReport,
 } from './core/ThresholdService/ed25519HssWasm';
 export type {

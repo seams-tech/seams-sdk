@@ -30,5 +30,4 @@ export {
   openThresholdEd25519HssSeedOutput,
   openThresholdEd25519HssServerOutput,
   prepareThresholdEd25519HssServerCeremony,
-  prepareThresholdEd25519HssServerAssistInit,
 } from './ed25519HssWasm';

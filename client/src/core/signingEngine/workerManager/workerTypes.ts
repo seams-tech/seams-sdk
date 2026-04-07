@@ -194,7 +194,6 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
-  | typeof WorkerRequestType.DeriveThresholdEd25519HssPublicKey
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
 
 type HssWorkerOperationEntry<T extends HssWorkerOperationType> = WorkerRequestTypeMap[T] extends {
