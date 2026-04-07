@@ -1,541 +1,126 @@
 # Ed25519 HSS
 
-Date updated: April 5, 2026
+`ed25519-hss` is the fixed-function Ed25519 hidden-evaluation crate used in
+this repo's threshold key-derivation flow.
 
-This crate is an implementation-focused fixed-function protocol built based on directions found in:
+It implements one narrow protocol:
 
-- [A Unified Framework for Succinct Garbling from Homomorphic Secret Sharing (ePrint 2025/442)](https://eprint.iacr.org/2025/442)
+- client and server each hold root-share material
+- the parties jointly derive the canonical Ed25519 seed path
+  `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+- the protocol projects that hidden scalar into durable signing shares
+  `x_client_base` and `x_relayer_base`
 
-The paper outlines a general HSS-based succinct-garbling framework.
+This crate is not a generic garbling framework and not a generic threshold
+signing crate. It is an implementation-focused fixed-function protocol for the
+Ed25519 shared-root lifecycle.
 
-This crate implements one narrow prime-order/DDH version targeting a fixed Ed25519 hidden-conversion function, not a generic garbling system.
+## Docs
 
-Specifically, this crate homomorphically derives Ed25519 signing-share material from a hidden canonical seed path using OT + HSS, so that threshold signing shares and standard-compatible private-key export can be supported without the server observing the plaintext seed.
+- API and runtime entrypoint:
+  [README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
+- Security and boundary model:
+  [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md)
+- Optimization notes and current benchmarks:
+  [optimization.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization.md)
+- Protocol spec:
+  [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/specs/protocol.md)
+- Derivation spec:
+  [specs/derivation.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/specs/derivation.md)
+- Implementation/refactor history:
+  [docs/plans/](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/plans)
 
-For a more detailed paper-to-code mapping, see
+## Public Surface
 
-Research crate for the fixed-function Ed25519 HSS track in
-[`succinct-garbling-spec.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md).
-
-[`homomorphic-secret-sharing.md`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/docs/homomorphic-secret-sharing.md).
-
-Scope note:
-
-- earlier Paillier and lattice candidate families were removed because
-  their public evaluator payloads were prohibitively large for this track
-
-## Intended Properties
-
-At the design level, this protocol is meant to preserve the following
-properties:
-
-- client signing-share reconstruction can be stateless:
-  - the client re-derives `y_client` and `tau_client` from passkey PRF output
-    plus canonical context, then re-enters the OT + HSS flow
-- server signing-share reconstruction can likewise be stateless:
-  - the server re-derives `y_relayer` and `tau_relayer` from server-held root
-    material plus the same canonical context
-- the client must never receive enough material to recover plaintext server
-  roots, server signing shares, or hidden server inputs
-- the server must never receive enough material to recover plaintext client
-  roots, client signing shares, or hidden client inputs
-- the hidden conversion preserves one canonical lifecycle:
-  - `y_client + y_relayer -> d -> a -> (x_client_base, x_relayer_base)`
-
-## OT-HSS Protocol Overview
-
-This crate studies one fixed hidden conversion:
-
-- client root share `y_client`,
-- server root share `y_relayer`,
-- canonical Ed25519 seed `d`,
-- canonical Ed25519 signing scalar `a`,
-- durable output shares `x_client_base`, `x_relayer_base`.
-
-Mathematically, the fixed functionality is:
-
-- `m = y_client + y_relayer mod 2^256`
-- `d = LE32(m)`
-- `h = SHA-512(d)`
-- `a_bytes = clamp(h[0..31])`
-- `a = LE256(a_bytes) mod l`
-- `tau = tau_client + tau_relayer mod l`
-- `x_client_base = a + tau mod l`
-- `x_relayer_base = a + 2 * tau mod l`
-- `A = [a]B`
-
-The clean way to think about the protocol is as two hidden paths that meet at
-the output-share projector.
-
-Seed path:
-
-- `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
-
-Share path:
-
-- `tau_client + tau_relayer -> tau`
-
-Output-share projection:
-
-- `x_client_base = a + tau`
-- `x_relayer_base = a + 2 * tau`
-
-Important distinction:
-
-- `d` is the canonical hidden seed,
-- `a` is the canonical hidden signing scalar derived from `d`,
-- `tau` is a hidden rerandomization value for share projection,
-- `x_client_base` and `x_relayer_base` are the actual durable signing shares.
-
-So this is not "sharing two signing secrets." It is:
-
-- one hidden canonical secret chain `d -> a`,
-- one hidden rerandomization path `tau_client + tau_relayer -> tau`,
-- one projection from those hidden values into durable signing shares.
-
-## OT vs HSS
-
-This README uses `HSS` in the homomorphic-secret-sharing sense:
-
-- `KeyGen`
-- `Share`
-- `EvalAdd`
-- `EvalMult`
-- `Decode`
-
-Role split:
-
-- OT is the private input-delivery mechanism for client-owned bits,
-- HSS is the hidden-computation mechanism once inputs are represented as hidden
-  shared values.
-
-Informally:
-
-- OT answers: "how does the client privately inject its input bits?"
-- HSS answers: "how do we compute on those hidden values after they are
-  represented as hidden shared values?"
-
-## Current Boundary Surface
-
-The public crate surface is now intentionally boundary-oriented:
+The boundary-oriented crate surface is centered on:
 
 - `protocol::PreparedSession`
-- `client::{ClientDriverState, ClientSession, ClientSessionState, ClientOtState}`
-- `client::{ClientOutputOpener, SeedOutputOpener, OutputOpeners}`
-- `server::{ServerDriverState, ServerSession, ServerSessionState, ServerOtState}`
-- `server::ServerOutputOpener`
-- `runtime::{SharedRuntime, SharedRuntimeState}`
-- `runtime::{ClientRuntime, ClientRuntimeState}`
-- `runtime::{ServerRuntime, ServerRuntimeState}`
-- `runtime::EvaluateTiming`
-- `wire::{WireMessage, ClientOtOffer, ClientPacket, ClientOutputPacket, SeedOutputPacket, ServerOutputPacket}`
+- `client::{ClientSession, ClientDriverState, ClientOtState}`
+- `server::{ServerSession, ServerDriverState, ServerOtState}`
+- `runtime::{ClientRuntime, ServerRuntime, SharedRuntime}`
+- `wire::{WireMessage, ClientOtOffer, ClientPacket}`
 - `wire::{ServerAssistInitPacket, ClientStageRequestPacket, ServerStageResponsePacket, ServerFinalizePacket}`
-- `wire::{StagedEvaluatorArtifact, EvaluationReport, ArtifactSummary, RunBindings, OutputDelivery, OtTranscript}`
+- `wire::{StagedEvaluatorArtifact, EvaluationReport, OutputDelivery}`
 
-For non-export production flows, the client boundary is intended to prevent
-reconstruction of per-account `y_relayer` and `tau_relayer`. The explicit
-exception is `ExplicitKeyExport`, which intentionally delivers canonical seed
-material to the authorized client. That exception exists because export is the
-one flow where the user is explicitly asking to receive private-key-equivalent
-material in the client runtime; a compromised client runtime can therefore
-abuse that flow by design, so the stronger secrecy guarantee is scoped to
-non-export operations.
+The production-facing shape is:
 
-The kept production path now enforces that boundary through the staged
-server-assisted flow: `ServerAssistInit` authenticates the handle/init state,
-the add-stage request carries the client hidden-input bundles, and the server
-owns a real stage-local continuation from that first online round onward.
-
-Concretely:
-
-- add-stage materializes only the add-stage transition plus the first stored
-  `message_schedule` continuation
-- each `message_schedule(n)` response advances only the immediately prior
-  schedule continuation
-- each `round_core(n)` response advances only the immediately prior round-core
-  continuation
-- `output_projection` materializes final output only when that stage executes
-
-Within that staged model, the accepted minimal retained post-add-stage state is
-the server-owned `projector_inputs` needed for a later `output_projection`.
-Those inputs are not final output bundles and are not client-visible.
-
-That split is deliberate:
-
-- `client/` owns evaluator-private state and evaluator-facing APIs
-- `server/` owns garbler-private state and garbler-facing APIs
+- `client/` owns evaluator-private state and client-side validators
+- `server/` owns garbler-private state and server-owned staged execution state
 - `wire/` owns the only cross-boundary payloads
-- `protocol/` owns prepared-session construction plus transcript/report helpers
-- `runtime/` owns runtime materialization and wasm/native adapters
+- `protocol/` owns prepared-session construction and report helpers
+- `runtime/` owns adapters around the staged role APIs
 
-## Current Runtime Shape
+## Runtime Shape
 
-The crate now supports a boundary-aware runtime split:
+The live runtime split is intentional:
 
-- browser HSS client flows are compiled through the dedicated
-  [`wasm/hss_client_signer`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
-  package
-- relay/server HSS flows are compiled through the server-only
-  [`wasm/near_signer/pkg-server`](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/pkg-server)
-  surface
+- browser/client flows compile through
+  [wasm/hss_client_signer](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
+- relay/server flows compile through
+  [wasm/near_signer/pkg-server](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/pkg-server)
 
-That split is intentional:
+The browser HSS artifact is deliberately small enough to ship as a dedicated
+wasm package instead of a broad mixed runtime bundle.
 
-- browser builds should only ship evaluator/client HSS functionality
-- relay builds should only ship garbler/server HSS functionality
-- the crate surface should make it obvious which modules are browser-facing,
-  which are relay-facing, and which are shared
+Current artifact sizes:
 
-## Current Browser HSS Size Baseline
+- browser wasm:
+  `262,555` bytes
+- browser JS glue:
+  `14,028` bytes
+- browser worker JS:
+  `21,744` bytes
 
-The main product constraint for this crate is now browser artifact size.
+## Logical Protocol vs Production HTTP
 
-The original broad browser HSS artifact was:
+The staged protocol has many logical transitions:
 
-- wasm: `1,163,476` bytes
-- JS glue: `173,004` bytes
+- `1` add-stage
+- `64` `message_schedule(n)` transitions
+- `80` `round_core(n)` transitions
+- `1` `output_projection`
+- `1` finalize step
 
-The current dedicated browser HSS client artifact is:
+If every logical stage were exposed directly over the network, the flow would
+be roughly `147` staged request/response pairs after OT/init handoff.
 
-- wasm: `262,555` bytes
-- JS glue: `14,028` bytes
+That is not the current production transport.
 
-Net result:
+The live browser/relay integration collapses the staged protocol into `3` HTTP
+roundtrips:
 
-- wasm down by `900,921` bytes, about `77.4%`
-- JS glue down by `158,976` bytes, about `91.9%`
+1. `POST /threshold-ed25519/hss/prepare`
+2. `POST /threshold-ed25519/hss/respond`
+3. `POST /threshold-ed25519/hss/finalize`
 
-The biggest wins that produced that reduction were:
+So the crate models a fine-grained staged execution protocol, while the
+current production transport batches that work server-side.
 
-- splitting browser HSS into its own wasm package
-- removing JSON-based internal blob serialization from the browser HSS path
-- pruning non-browser `wasm32` surfaces from this crate
-- deleting the last duplicate legacy runtime seam and finalizing through staged
-  evaluator artifacts instead of the old joined-input transport path
+## Current Status
 
-For the current product, this means further work should bias toward reducing
-compiled browser code size before chasing smaller transport-only wins.
+The production boundary hardening goal for non-export flows is:
 
-## Protocol Shape
+- the client must not be able to reconstruct `y_relayer`
+- the client must not be able to reconstruct `tau_relayer`
 
-### Prepare Once
+That production seam is now staged and server-owned from add-stage onward.
 
-The server/garbler starts by preparing a context-bound session:
+The explicit exception is `ExplicitKeyExport`:
 
-1. build the reusable prime-order artifact for the canonical context,
-2. decode and compile that artifact into a fixed hidden-eval program,
-3. run DDH `KeyGen` for the compiled program,
-4. prepare OT offer material for `y_client_bits` and `tau_client_bits`.
-
-The result is reusable prepared state:
-
-- artifact bytes and digest,
-- compiled hidden-eval program,
-- DDH backend and evaluation key,
-- client OT offer,
-- garbler-held OT sender state and remote-share state.
-
-### Per Run
-
-For one concrete registration/rebuild run:
-
-1. client derives `y_client` and holds `tau_client`,
-2. client turns those into `256` OT selections for `y_client_bits` and `256`
-   OT selections for `tau_client_bits`,
-3. client sends the OT request packet to the server,
-4. server derives/holds `y_relayer` and `tau_relayer`,
-5. server resolves the OT requests and prepares server-side hidden input
-   material,
-6. evaluator reconstructs the client-owned hidden bundles from
-   evaluator-selected local OT branches plus the garbler-provided remote-share
-   release,
-7. evaluator executes the compiled hidden-eval program over `y_client_bits`,
-   `y_relayer_bits`, `tau_client_bits`, and `tau_relayer_bits`,
-8. output-share projection emits hidden `x_client_base` and
-   `x_relayer_base`,
-9. client opens only `x_client_base`,
-10. server opens only `x_relayer_base`,
-11. both can verify the public key relation through `A`.
-
-## Who Computes What
-
-The current role model is:
-
-- server = garbler,
-- client = evaluator.
-
-Server/garbler responsibilities:
-
-- prepare the reusable artifact and compiled session,
-- prepare OT offers,
-- hold garbler OT sender state,
-- contribute hidden server input material,
-- seal the server output packet.
-
-Client/evaluator responsibilities:
-
-- prepare OT selections matching the real client bits,
-- reconstruct the client-owned hidden input bundles,
-- run the hidden evaluator over hidden shared-value representations,
-- seal or open the client output packet through the evaluator role API.
-
-## Where The Hidden Computation Happens
-
-The hidden computation happens after OT has already delivered the client-owned
-hidden shared-value representation.
-
-The executor then runs the fixed function over hidden shared values:
-
-- add stage for `y_client + y_relayer`,
-- one-block `SHA-512` message schedule,
-- `80` SHA-512 rounds,
-- RFC 8032 clamp,
-- reduction mod `l`,
-- output-share projection using `tau_client` and `tau_relayer`.
-
-In this crate, those hidden values use a DDH shared-word/shared-bundle
-representation and are evaluated through the DDH hidden-eval executor.
-
-## Security Boundary Reminder
-
-In the intended 2-party design, the evaluator may receive only server-input
-hidden shared-value representations that are sufficient to evaluate, but
-insufficient to recover plaintext `y_relayer` or plaintext `tau_relayer`.
-
-Design rule:
-
-- the evaluator may evaluate on hidden server input,
-- the evaluator must not receive enough material to decode that server input
-  into plaintext.
-
-This repo still contains the current implementation baseline for the delivery
-path. It should not be read as the final deployed security boundary until the
-real OT/HSS-specific 2-party input/output delivery path replaces the current
-same-process packet baseline.
-
-Current scope:
-
-- freeze the plaintext `F_expand` reference path,
-- freeze deterministic fixtures and serialized fixture format,
-- provide invariants for later backend conformance,
-- pin the concrete DDH / prime-order Phase 2b dependency baseline,
-- compile the 262-window prime-order artifact into a DDH-targeted hidden-eval
-  IR,
-- provide a transcript-bound DDH primitive baseline with `KeyGen`, `Share`,
-  `EvalAdd`, `EvalMult`, and `Decode` over split words plus group commitments,
-- move DDH multiplication onto preprocessing-style triple material plus opened
-  deltas instead of local cross-term expansion inside `eval_mul`,
-- execute the compiled add stage, message schedule, and round-state core
-  through a DDH hidden-eval executor over shared bits,
-- execute hash-prefix extraction and RFC 8032 clamp over shared bits,
-- execute scalar reduction mod `l` over shared bits,
-- execute output-share projection over shared bits,
-- derive `A` from the projected output shares instead of from clear `a`,
-- provide a baseline cached/per-run client/server delivery packet surface over
-  the current local simulation boundary, with OT-shaped client input offers,
-  evaluator-selected local client shares, and garbler-held remote client
-  shares instead of duplicated clear client inputs,
-- split DDH transport/output handling across explicit garbler/evaluator role
-  views,
-- move OT offers, requests, responses, remote-share release, and output return
-  across serialized wire messages instead of direct Rust packet handoff,
-- seal the client/server output packets as authenticated sealed transport
-  ciphertexts,
-- open output return through `output_openers()` recipient-specific wire-message
-  methods rather than one helper that decodes all outputs at once,
-- provide matching client/server hidden output bundles keyed by the same
-  `run_binding` inside those sealed transport ciphertexts,
-- benchmark DDH primitive ops and the compiled hidden-eval path in release
-  mode, with saved reports for later comparison,
-- provide a small profiling entry point for the fixed `SHA-512 + clamp` core,
-- define the first Phase 2 candidate artifact/message-flow model,
-- emit a structured prime-order artifact with fixed-function section
-  records, plus a cache benchmark/control stub,
-- decode the structured prime-order artifact back into header and grouped-window
-  records,
-- build a deterministic execution trace from the grouped-window records,
-- compile and execute a native prime-order CPU baseline over deterministic point
-  tables and bucket schedules,
-- compile and execute the same deterministic prime-order CPU baseline in
-  browser wasm,
-- wire the main prime-order prepared-session path so one object owns the
-  context-bound artifact and compiled evaluator program and one call binds a run
-  and returns the spec outputs plus evaluator witness data,
-- probe browser WebGPU setup and synthetic dispatch throughput against the same
-  structured artifact using backend-shaped step vectors, including per-subkernel
-  timing for digit recode, window/bucket accumulation, bucket reduction, and
-  dependency/normalization passes plus a more explicit signed-digit/window
-  recode layout,
-- save committed Phase 1 native/browser baseline reports for later comparison,
-- provide a standalone browser `IndexedDB` cache benchmark harness for the same
-  emitted artifact bytes, including structured-artifact decode and
-  execution-trace timing plus prime-order evaluator-op summaries.
-
-Current verification boundary:
-
-- fast debug tests cover the DDH primitive surface, hidden-eval compiler,
-  session preparation, and artifact/executor shape,
-- end-to-end DDH hidden-eval conformance is available as ignored tests in
-  [`src/lib.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/lib.rs)
-  because the gate-level path is now materially more expensive than the
-
-## Hardening Ledger
-
-The current tree keeps only hardening steps that closed a real integrity or
-misuse gap without causing an unacceptable performance regression.
-
-Current kept benchmark baseline:
-
-- native total hidden eval: about `0.402s`
-- browser total hidden eval: about `0.660s`
-
-Saved reports:
-
-- [`reports/phase3/ddh-hidden-eval-native-release.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/reports/phase3/ddh-hidden-eval-native-release.json)
-- [`reports/phase3/browser-ddh-hidden-eval-chrome.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/reports/phase3/browser-ddh-hidden-eval-chrome.json)
-
-Kept hardening steps:
-
-- OT/release misuse negative tests.
-  Why: catches same-context packet/release misuse without touching the runtime
-  path. Performance impact: effectively none. Worth it: yes.
-
-- Explicit context binding on OT remote-release objects plus stronger
-  client/server output AAD role separation.
-  Why: closes replay and cross-role mix risks on real transport objects.
-  Performance impact: flat to slightly better in measured runs. Worth it: yes.
-
-- `server_output_payload_binding` on
-  `EvaluationResult`.
-  Why: closes a real tampering gap before garbler-side report finalization.
-  Performance impact when landed: about `+3.2%` native, `+1.7%` browser.
-  Worth it: yes.
-
-- `client_output_binding` on
-  `EvaluationResult`.
-  Why: closes the corresponding nested client-output tampering gap inside the
-  evaluator result.
-  Performance impact when landed: roughly flat native, about `+3%` browser.
-  Worth it: yes.
-
-- Narrowed public decode / constructor surface for server-owned hidden values.
-  Why: removes accidental external API escape hatches without changing normal
-  execution. Performance impact: noise only. Worth it: yes.
-
-Attempted but reverted hardening steps:
-
-- Remove evaluator-side ownership of both server-input halves in normal
-  execution by threading server-input transport pairs deeper into the runtime
-  handoff.
-  Why it was attempted: this is the main remaining trust-boundary improvement.
-  Performance impact: native moved from about `0.401s` to about `0.444s`,
-  browser moved from about `0.663s` to about `0.764s`.
-  Worth it in that form: no. The security goal is real, but the naive
-  transport-pair representation was too expensive.
-
-- Enforce the same boundary in runtime wrapper types only.
-  Why it was attempted: make the role boundary visible in runtime/session
-  types, not just comments.
-  Performance impact in the measured attempt: native moved from about `0.402s`
-  to about `0.406s`, browser moved from about `0.660s` to about `0.676s`.
-  Worth it in that form: no. The step did not change actual evaluator
-  capability, so even a small regression was not justified.
-
-Current recommendation:
-
-- keep the integrity-focused hardening already landed,
-- keep misuse/replay checks and API-surface tightening,
-- do not retry the deeper server-input trust-boundary rewrite until there is a
-  more compact role-local runtime representation than full left/right transport
-  bundle threading.
-  previous oracle-backed path,
-- default debug coverage is currently `32 passed, 4 ignored`,
-- the current full five-fixture ignored DDH conformance lane passes, but still
-  takes about `334.90 s` in the debug test profile.
-
-## Boundary Model
-
-The active crate boundary model is now explicit in code:
-
-- [`shared/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/shared)
-  owns context normalization, shared math, labels, and common errors
-- [`wire/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/wire)
-  owns the cross-boundary message surface and transport encoding
-- [`client/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client)
-  owns evaluator-side state, OT handling, output opening, and role-facing APIs
-- [`server/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server)
-  owns garbler-side state, OT handling, output sealing, and role-facing APIs
-- [`protocol/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/protocol)
-  now mostly owns transcript rules, invariants, and report assembly
-- [`runtime/`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/runtime)
-  owns prepared-session wrappers, runtime state materialization, timing, debug
-  helpers, and wasm/native adapters
-
-Hard boundary rules:
-
-- wire-visible messages must not expose clear `y_client`, `tau_client`,
-  `y_relayer`, or `tau_relayer`
-- evaluator-facing serialized state must not expose garbler OT sender-state
+- the client is intentionally allowed to receive private-key-equivalent
   material
-- server-owned hidden values may flow through evaluation, but the evaluator
-  must not receive enough material to decode them into plaintext
+- a compromised client runtime can therefore abuse export by design
+- that exception is documented in
+  [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md)
 
-The new boundary tests in
-[`tests/boundary/mod.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/tests/boundary/mod.rs)
-enforce those rules directly against serialized state and wire-message bytes.
+## Benchmarks
 
-## Runtime Artifacts
+Latest local benchmark snapshot:
 
-There is now an explicit browser/server export split for the `near_signer` HSS
-wasm consumer:
+- hidden eval total:
+  `305.66ms` mean, `308.59ms` median, `310.17ms` p95
+- CPU executor:
+  `2.040ms` mean, `2.041ms` median, `2.057ms` p95
 
-- the browser `pkg` build omits relay-only HSS exports
-- the relay `pkg-server` build enables `hss-server-exports`
-
-Measured release build delta on April 4, 2026:
-
-- browser client artifact: `1,163,957` bytes
-- browser full artifact with relay-only exports: `1,222,812` bytes
-- reduction: `58,855` bytes, about `4.8%`
-
-That split is kept because it produces a real browser artifact reduction.
-
-This crate is intentionally isolated from production signer flows.
-
-Current DDH / prime-order Phase 2b baseline:
-
-- `curve25519-dalek = { version = "=4.1.3", features = ["group", "rand_core"] }`
-- `group = "0.13.0"`
-- `ff = "0.13.1"`
-- `rand_core = { version = "0.6.4", features = ["getrandom"] }`
-- `subtle = "2.6.1"`
-- `zeroize = { version = "1.8.2", features = ["zeroize_derive"] }`
-- `merlin = "3.0.0"`
-
-Useful commands:
-
-```bash
-cargo test --manifest-path crates/ed25519-hss/Cargo.toml
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_fixture_json
-cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin profile_fixed_sha512
-cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin profile_fixed_sha512 -- --json --output /tmp/phase1-report.json
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_candidate_note
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_candidate_note -- --fixture derived-alpha
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_candidate_artifact_stub -- --fixture derived-alpha
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_prime_order_artifact -- --fixture derived-alpha
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_cache_artifacts -- --samples 4 --warmups 1
-cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_prime_order_cpu_executor -- --json
-cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-iterations 5000 --samples 3 --stage-iterations 1 --json --output crates/ed25519-hss/reports/phase3/ddh-hidden-eval-native-release.json
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin run_prime_order_succinct_hss -- --fixture derived-alpha --json
-wasm-pack build crates/ed25519-hss --target web --out-dir web/generated/pkg --release --no-typescript
-cargo run --manifest-path crates/ed25519-hss/Cargo.toml --bin emit_browser_cache_benchmark_bundle -- --output-dir crates/ed25519-hss/web/generated
-python3 -m http.server 8765 -d crates/ed25519-hss/web
-# then open /indexeddb_cache_benchmark.html?bundle=generated/bundle.json&autorun=1
-node crates/ed25519-hss/scripts/collect_browser_cache_benchmark.mjs --debug-port 57514 --server-origin http://127.0.0.1:8765 --bundle-path generated/bundle.json --output crates/ed25519-hss/reports/phase1/browser-desktop-chrome-146.json
-node crates/ed25519-hss/scripts/collect_browser_cache_benchmark.mjs --debug-port 57514 --server-origin http://127.0.0.1:8765 --bundle-path generated/bundle.json --output crates/ed25519-hss/reports/phase3/browser-ddh-hidden-eval-chrome.json
-```
-
-Saved reports live in
-[`reports/phase1`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/reports/phase1)
-and
-[`reports/phase3`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/reports/phase3).
+The optimization history and hot-path notes live in
+[optimization.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization.md).
