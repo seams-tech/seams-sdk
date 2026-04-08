@@ -1,30 +1,23 @@
 CARGO ?= cargo
 MANIFEST := ../Cargo.toml
+TASK_BIN := run --quiet --manifest-path $(MANIFEST) --bin formal_verification_tasks --
 
-.PHONY: check vectors-check parity lean-check aeneas-check
+.PHONY: check vectors-check parity lean-check verus-check aeneas-check
 
-check: vectors-check parity
+check:
+	@$(CARGO) $(TASK_BIN) all
 
 vectors-check:
-	@$(CARGO) run --quiet --manifest-path $(MANIFEST) --bin emit_fixture_json | diff -u ../fixtures/f_expand_v1.json -
+	@$(CARGO) $(TASK_BIN) vectors-check
 
 parity:
-	@$(CARGO) test --manifest-path $(MANIFEST) fv_hss_
+	@$(CARGO) $(TASK_BIN) parity
 
 lean-check:
-	@if command -v lake >/dev/null 2>&1; then \
-		cd lean-privacy && lake build; \
-	else \
-		echo "Lean toolchain not installed; skipping lean-check"; \
-	fi
+	@$(CARGO) $(TASK_BIN) lean-check
+
+verus-check:
+	@$(CARGO) $(TASK_BIN) verus-check
 
 aeneas-check:
-	@if command -v aeneas >/dev/null 2>&1 && command -v charon >/dev/null 2>&1; then \
-		if command -v lake >/dev/null 2>&1; then \
-			cd lean-boundary && lake build; \
-		else \
-			echo "Lean toolchain not installed; skipping aeneas-check"; \
-		fi; \
-	else \
-		echo "Aeneas toolchain not installed; skipping aeneas-check"; \
-	fi
+	@$(CARGO) $(TASK_BIN) aeneas-check

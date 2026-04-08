@@ -16,7 +16,7 @@
     "lint:rust:strict": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets -- -D warnings); done'",
     "check:signing-architecture": "node ./sdk/scripts/checks/check-signing-api-cycles.mjs && node ./sdk/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./sdk/scripts/checks/check-worker-runtime-boundaries.mjs",
     "check:signer-parity": "pnpm -C tests test:signer-parity",
-    "check:formal-verification": "cargo hss-fv lean-check && cargo hss-fv verus-check",
+    "check:formal-verification": "cargo hss-fv all",
     "type-check:sdk": "pnpm -C sdk type-check",
     "type-check:relay-server": "pnpm -C sdk exec tsc -p tsconfig.build.json && pnpm -C examples/relay-server exec tsc --noEmit",
     "type-check:docs": "pnpm -C examples/tatchi-docs exec tsc --noEmit",

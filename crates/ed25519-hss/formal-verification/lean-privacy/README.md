@@ -10,6 +10,9 @@ scope for the implementation-oriented Verus pass:
 This track is not intended to re-prove the full crate implementation. Verus
 remains the implementation proof path. Lean privacy work should prove the
 privacy and hiding layer over the already-stabilized visible boundary.
+The Aeneas-backed `lean-boundary/` track now provides the mechanically linked
+Rust-to-Lean boundary bridge for the non-export slice, while `lean-privacy/`
+remains the handwritten theorem layer above that boundary.
 
 ## Layout
 
@@ -32,6 +35,12 @@ Or from the crate root through the shared wrapper:
 ```sh
 cargo hss-fv lean-check
 just fv-lean
+```
+
+The default full repo gate is:
+
+```sh
+pnpm check:formal-verification
 ```
 
 ## Scope

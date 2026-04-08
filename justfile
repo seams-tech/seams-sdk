@@ -1,8 +1,9 @@
-# Run the full `ed25519-hss` formal-verification task set: vectors, parity, and Lean privacy proof check.
+# Run the full `ed25519-hss` formal-verification task set: vectors, parity,
+# Lean privacy, and Verus.
 default:
   @just --list
 
-# Run vectors-check, parity tests, and Lean privacy proof check for `ed25519-hss`.
+# Run the full gated formal-verification path for `ed25519-hss`.
 fv:
   cargo hss-fv all
 

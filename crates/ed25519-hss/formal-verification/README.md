@@ -1,8 +1,8 @@
 # `ed25519-hss` Formal Verification
 
 This directory keeps shared formal-verification inputs, crate-local conformance
-tooling, the Lean privacy track, the future Aeneas Lean boundary track, and
-the Verus track next to the low-level cryptographic code they target.
+tooling, the Lean privacy track, the Aeneas Lean boundary track, and the Verus
+track next to the low-level cryptographic code they target.
 
 The first proof target for both tracks remains the clear fixed-function
 expansion spec in
@@ -38,17 +38,33 @@ Run from this directory:
 make check
 ```
 
+The default full gated command from the repo root is:
+
+```sh
+pnpm check:formal-verification
+```
+
 Useful subcommands:
 
 ```sh
 make vectors-check
 make parity
 make lean-check
+make verus-check
+make aeneas-check
 ```
 
-`make lean-check` now delegates to the Lean privacy workspace in
-`lean-privacy/`. `cargo hss-fv aeneas-check` and `just fv-aeneas` are the
-bootstrap commands for the separate Aeneas boundary workspace.
+`make check` and `pnpm check:formal-verification` now run the same default
+gated path:
+
+- fixture regeneration check
+- Rust parity tests
+- Lean privacy build
+- Verus verification
+
+`make aeneas-check`, `cargo hss-fv aeneas-check`, and `just fv-aeneas` are
+separate bootstrap checks for the Aeneas boundary workspace. They are not part
+of the default CI gate.
 
 ## Track Status
 

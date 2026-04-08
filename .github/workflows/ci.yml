@@ -34,9 +34,6 @@ jobs:
       - name: Install dependencies (workspace)
         run: pnpm install --frozen-lockfile
 
-      - name: Run formal verification checks
-        run: make -C formal-verification check
-
       - name: Install Lean toolchain
         run: |
           curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
@@ -65,7 +62,7 @@ jobs:
           verus --version
           cargo verus --help
 
-      - name: Run ed25519-hss proof checks
+      - name: Run ed25519-hss formal verification
         run: |
           source "$HOME/.elan/env"
           pnpm check:formal-verification

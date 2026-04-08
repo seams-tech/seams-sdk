@@ -29,6 +29,10 @@ Ed25519 shared-root lifecycle.
   [security.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md)
 - Optimization notes and current benchmarks:
   [optimization.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization.md)
+- Post-quantum roadmap:
+  [quantum.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/quantum.md)
+- Formal verification overview:
+  [formal-verification/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/README.md)
 - Protocol spec:
   [specs/protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/specs/protocol.md)
 - Derivation spec:

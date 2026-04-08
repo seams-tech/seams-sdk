@@ -20,6 +20,7 @@ fn run() -> Result<(), DynError> {
             run_vectors_check()?;
             run_parity()?;
             run_lean_check()?;
+            run_verus_check()?;
         }
         "check" => {
             run_vectors_check()?;

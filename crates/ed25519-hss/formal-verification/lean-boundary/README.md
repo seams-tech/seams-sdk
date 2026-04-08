@@ -64,6 +64,15 @@ Today this command verifies:
 - the `aeneas` and `charon` binaries are present
 
 It does not yet run extraction as part of the default proof path.
+It is also not part of the default CI-gated command path.
+
+The default gate is still:
+
+- `pnpm check:formal-verification`
+
+That default gate covers vectors, parity, Lean privacy, and Verus. Aeneas stays
+opt-in because it is a narrower Rust-to-Lean bridge track rather than the main
+implementation gate.
 
 The current reproducible extraction script for the minimal helper slice is:
 
