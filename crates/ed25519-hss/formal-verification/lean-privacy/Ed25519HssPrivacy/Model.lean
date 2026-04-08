@@ -56,8 +56,7 @@ structure ServerSecretState where
 structure NonExportVisibleBoundary where
   canonicalSeed : Bytes32
   xClientBase : Bytes32
-  xRelayerBaseTransportLeft : Bytes32
-  xRelayerBaseTransportRight : Bytes32
+  xRelayerBase : Bytes32
   deriving Repr
 
 structure ExplicitExportBoundary where

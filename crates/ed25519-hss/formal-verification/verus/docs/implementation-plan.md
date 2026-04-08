@@ -4,12 +4,8 @@ Last updated: 2026-04-07
 
 ## Decision
 
-Pause the handwritten Lean-model-first track as the primary implementation
-path.
-
 The new primary verification path is Verus so we can prove the Rust
-implementation more directly and avoid maintaining a second handwritten formal
-model as the main proof target.
+implementation more directly.
 
 ## Plan Status
 

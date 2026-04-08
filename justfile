@@ -19,8 +19,12 @@ fv-parity:
   cargo hss-fv parity
 
 # Run only the Lean/Lake privacy proof workspace build for `ed25519-hss`.
-fv-proof:
-  cargo hss-fv proof-check
+fv-lean:
+  cargo hss-fv lean-check
+
+# Run the Aeneas/Lean boundary bootstrap check for `ed25519-hss`.
+fv-aeneas:
+  cargo hss-fv aeneas-check
 
 # Run the committed fixture parity bridge and Verus verification path for `ed25519-hss`.
 fv-verus:

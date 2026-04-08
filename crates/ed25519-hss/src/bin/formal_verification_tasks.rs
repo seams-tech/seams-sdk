@@ -19,7 +19,7 @@ fn run() -> Result<(), DynError> {
         "all" => {
             run_vectors_check()?;
             run_parity()?;
-            run_proof_check()?;
+            run_lean_check()?;
         }
         "check" => {
             run_vectors_check()?;
@@ -27,12 +27,13 @@ fn run() -> Result<(), DynError> {
         }
         "vectors-check" => run_vectors_check()?,
         "parity" => run_parity()?,
-        "proof-check" => run_proof_check()?,
+        "lean-check" => run_lean_check()?,
+        "aeneas-check" => run_aeneas_check()?,
         "verus-check" => run_verus_check()?,
         "help" | "--help" | "-h" => print_help(),
         other => {
             return Err(format!(
-                "unknown task `{other}`; expected one of: all, check, vectors-check, parity, proof-check, verus-check"
+                "unknown task `{other}`; expected one of: all, check, vectors-check, parity, lean-check, aeneas-check, verus-check"
             )
             .into());
         }
@@ -41,7 +42,7 @@ fn run() -> Result<(), DynError> {
 }
 
 fn print_help() {
-    println!("usage: cargo hss-fv [all|check|vectors-check|parity|proof-check|verus-check]");
+    println!("usage: cargo hss-fv [all|check|vectors-check|parity|lean-check|aeneas-check|verus-check]");
 }
 
 fn crate_manifest_path() -> PathBuf {
@@ -60,6 +61,14 @@ fn formal_verification_dir() -> PathBuf {
 
 fn lean_privacy_verification_dir() -> PathBuf {
     formal_verification_dir().join("lean-privacy")
+}
+
+fn lean_boundary_verification_dir() -> PathBuf {
+    formal_verification_dir().join("lean-boundary")
+}
+
+fn lean_boundary_tools_dir() -> PathBuf {
+    lean_boundary_verification_dir().join("tools")
 }
 
 fn verus_verification_dir() -> PathBuf {
@@ -109,11 +118,11 @@ fn run_parity() -> Result<(), DynError> {
     Ok(())
 }
 
-fn run_proof_check() -> Result<(), DynError> {
+fn run_lean_check() -> Result<(), DynError> {
     let lake = match resolve_lake() {
         Some(path) => path,
         None => {
-            println!("Lean toolchain not installed; skipping proof-check");
+            println!("Lean toolchain not installed; skipping lean-check");
             return Ok(());
         }
     };
@@ -121,9 +130,59 @@ fn run_proof_check() -> Result<(), DynError> {
         .arg("build")
         .current_dir(lean_privacy_verification_dir())
         .status()?;
-    ensure_success("proof-check lake build", status)?;
-    println!("proof-check ok");
+    ensure_success("lean-check lake build", status)?;
+    println!("lean-check ok");
     Ok(())
+}
+
+fn run_aeneas_check() -> Result<(), DynError> {
+    let aeneas = resolve_aeneas();
+    let charon = resolve_charon();
+
+    if aeneas.is_none() || charon.is_none() {
+        println!("Aeneas toolchain not installed; skipping aeneas-check");
+        return Ok(());
+    }
+
+    let lake = match resolve_lake() {
+        Some(path) => path,
+        None => {
+            println!("Lean toolchain not installed; skipping aeneas-check");
+            return Ok(());
+        }
+    };
+
+    let aeneas_help = Command::new(aeneas.unwrap()).arg("--help").status()?;
+    ensure_success("aeneas-check aeneas --help", aeneas_help)?;
+
+    let charon_help = Command::new(charon.unwrap()).arg("--help").status()?;
+    ensure_success("aeneas-check charon --help", charon_help)?;
+
+    let status = Command::new(lake)
+        .arg("build")
+        .current_dir(lean_boundary_verification_dir())
+        .status()?;
+    ensure_success("aeneas-check lake build", status)?;
+    println!("aeneas-check ok");
+    Ok(())
+}
+
+fn resolve_aeneas() -> Option<PathBuf> {
+    if command_exists("aeneas") {
+        return Some(PathBuf::from("aeneas"));
+    }
+
+    let local = lean_boundary_tools_dir().join("aeneas").join("bin").join("aeneas");
+    local.exists().then_some(local)
+}
+
+fn resolve_charon() -> Option<PathBuf> {
+    if command_exists("charon") {
+        return Some(PathBuf::from("charon"));
+    }
+
+    let local = lean_boundary_tools_dir().join("charon").join("bin").join("charon");
+    local.exists().then_some(local)
 }
 
 fn run_verus_check() -> Result<(), DynError> {

@@ -17,13 +17,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Coq toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y coq
-
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies (workspace)
+        run: pnpm install --frozen-lockfile
 
       - name: Run formal verification checks
         run: make -C formal-verification check
@@ -32,16 +41,34 @@ jobs:
         run: |
           curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
 
-      - name: Verify Lean toolchain
+      - name: Install Verus release
+        env:
+          VERUS_VERSION: 0.2026.04.03.21dfcd2
+        run: |
+          curl -L "https://github.com/verus-lang/verus/releases/download/release%2F${VERUS_VERSION}/verus-${VERUS_VERSION}-x86-linux.zip" -o /tmp/verus.zip
+          rm -rf "$HOME/.local/verus"
+          unzip -q /tmp/verus.zip -d /tmp
+          mv /tmp/verus-x86-linux "$HOME/.local/verus"
+          echo "$HOME/.local/verus" >> "$GITHUB_PATH"
+
+      - name: Install Verus Rust toolchain
+        run: |
+          TOOLCHAIN=$(verus --version | sed -n 's/^  Toolchain: //p' | head -n1)
+          test -n "$TOOLCHAIN"
+          rustup toolchain install "$TOOLCHAIN"
+
+      - name: Verify Lean and Verus toolchains
         run: |
           source "$HOME/.elan/env"
           lean --version
           lake --version
+          verus --version
+          cargo verus --help
 
       - name: Run ed25519-hss proof checks
         run: |
           source "$HOME/.elan/env"
-          make -C crates/ed25519-hss/formal-verification proof-check
+          pnpm check:formal-verification
 
   build-and-test:
     runs-on: ubuntu-latest

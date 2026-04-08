@@ -1,3 +1,5 @@
 .DS_Store
+lean-boundary/.lake/
+lean-boundary/tools/
 lean-privacy/.lake/
 verus/target/

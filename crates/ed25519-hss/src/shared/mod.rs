@@ -1,6 +1,7 @@
 pub mod context;
 pub mod error;
 pub mod reference;
+pub mod reference_boundary;
 
 pub use context::CanonicalContext;
 pub use error::{ProtoError, ProtoResult};
@@ -11,3 +12,4 @@ pub use reference::{
     sha512_one_block, FExpandInput, FExpandOutput, NonlinearExpansionOutput,
     OutputShareDerivationOutput,
 };
+pub use reference_boundary::{eval_f_expand_visible_boundary, visible_boundary_from_output, FExpandVisibleBoundary};

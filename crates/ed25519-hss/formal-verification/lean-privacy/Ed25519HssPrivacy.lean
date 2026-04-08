@@ -1,5 +1,7 @@
 import Ed25519HssPrivacy.Model
 import Ed25519HssPrivacy.Views
 import Ed25519HssPrivacy.Simulators
+import Ed25519HssPrivacy.AeneasBridge
 import Ed25519HssPrivacy.Assumptions
 import Ed25519HssPrivacy.Goals
+import Ed25519HssPrivacy.AeneasGoals

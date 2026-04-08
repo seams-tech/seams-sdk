@@ -1,11 +1,7 @@
 # `ed25519-hss` Lean Privacy Track
 
 This directory is the Lean 4 track for privacy-specific proofs that are out of
-scope for the implementation-oriented Verus pass.
-
-The target claims here are narrower and more explicit than the retired
-model-first Lean track:
-
+scope for the implementation-oriented Verus pass:
 - non-export hidden-seed expansion is hidden from the client and the server
 - the client cannot derive `y_relayer` or `tau_relayer` from allowed outputs
 - the server cannot derive client-secret material from allowed outputs
@@ -34,8 +30,8 @@ lake build
 Or from the crate root through the shared wrapper:
 
 ```sh
-cargo hss-fv proof-check
-just fv-proof
+cargo hss-fv lean-check
+just fv-lean
 ```
 
 ## Scope
