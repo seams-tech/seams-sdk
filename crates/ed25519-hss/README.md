@@ -3,6 +3,12 @@
 `ed25519-hss` is the fixed-function Ed25519 hidden-evaluation crate used in
 this repo's threshold key-derivation flow.
 
+It extends FROST threshold Ed25519 signing with a deterministic exportable key path built with homomorphic secret sharing, where the server can participate in signing and recovery flows without seeing the canonical exportable secret.
+
+That means this crate is not just "threshold signing for Ed25519." It is the
+piece that makes threshold signing, deterministic key export, and a stronger
+server-blind boundary work together in one deployable protocol.
+
 It implements one narrow protocol:
 
 - client and server each hold root-share material
