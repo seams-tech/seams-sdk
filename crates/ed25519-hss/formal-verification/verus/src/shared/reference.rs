@@ -338,7 +338,7 @@ pub fn add_le_bytes_mod_2_256(left: Bytes32, right: Bytes32) -> (out: Bytes32)
 
     proof {
         broadcast use axiom_add_le_bytes_mod_2_256_spec;
-        assert forall|i: int| 0 <= i < 32 implies out[i] == add_le_bytes_mod_2_256_spec(left, right)[i] by {
+        assert forall|i: int| #![auto] 0 <= i < 32 implies out[i] == add_le_bytes_mod_2_256_spec(left, right)[i] by {
         }
     }
 
@@ -379,7 +379,7 @@ pub fn extract_a_bytes_from_hash(h: Bytes64) -> (out: Bytes32)
     let out = clamp_rfc8032(a_bytes);
     proof {
         broadcast use axiom_extract_a_bytes_from_hash_spec;
-        assert forall|i: int| 0 <= i < 32 implies out[i] == extract_a_bytes_from_hash_spec(h)[i] by {
+        assert forall|i: int| #![auto] 0 <= i < 32 implies out[i] == extract_a_bytes_from_hash_spec(h)[i] by {
         }
     }
     out
