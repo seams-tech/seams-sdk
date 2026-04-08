@@ -1,0 +1,2 @@
+[alias]
+hss-fv = "run --manifest-path crates/ed25519-hss/Cargo.toml --bin formal_verification_tasks --"
