@@ -28,6 +28,21 @@ jobs:
       - name: Run formal verification checks
         run: make -C formal-verification check
 
+      - name: Install Lean toolchain
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y
+
+      - name: Verify Lean toolchain
+        run: |
+          source "$HOME/.elan/env"
+          lean --version
+          lake --version
+
+      - name: Run ed25519-hss proof checks
+        run: |
+          source "$HOME/.elan/env"
+          make -C crates/ed25519-hss/formal-verification proof-check
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:
