@@ -1,0 +1,13 @@
+[aeneas]
+repo = "https://github.com/AeneasVerif/aeneas.git"
+rev = "42c0e90dacf486f7d3ed5b6cde3a9a81f04915a4"
+
+[charon]
+repo = "https://github.com/AeneasVerif/charon.git"
+rev = "419f53b6eed3fe487a8427fd290a734c49634366"
+
+[lean]
+toolchain = "leanprover/lean4:v4.29.0"
+
+[notes]
+scope = "Initial Rust-to-Lean extraction is limited to crates/ecdsa-hss/src/server/mod.rs plus the visible non-export/export outputs, retained-state shape, and operation-to-output-kind boundary."

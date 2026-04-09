@@ -177,7 +177,7 @@ Completed now:
 - top-level docs exist,
 - the bootstrap crate passes `cargo check`,
 - Verus runs through the wrapper command path:
-  `cargo hss-fv verus-check` and `just fv-verus`,
+  `cargo hss-fv verus-check` and `just ed25519-hss-fv-verus`,
 - the Verus toolchain is installed locally and the wrapper now runs the real
   verifier,
 - the verification-side `shared/reference.rs` mirrors the production
@@ -192,7 +192,7 @@ Completed now:
   helper layer is now verified around explicit trusted scalar and basepoint
   boundaries,
 - the committed fixture corpus now runs as the executable parity bridge in the
-  `just fv-verus` wrapper path,
+  `just ed25519-hss-fv-verus` wrapper path,
 - the first deterministic candidate-shape slice is in place for the fixed
   candidate version/function-id constants and the fixed message-flow and
   hidden-core stage counts/boundaries,
@@ -305,7 +305,7 @@ Completed now:
   a real production `FExpandOutput`, and checks both projections against the
   production `eval_f_expand` output path directly at `canonical_seed`,
   `x_client_base`, and `x_relayer_base`,
-- `cargo hss-fv verus-check` and `just fv-verus` are green against the current
+- `cargo hss-fv verus-check` and `just ed25519-hss-fv-verus` are green against the current
   Verus crate.
 
 Immediate next work:

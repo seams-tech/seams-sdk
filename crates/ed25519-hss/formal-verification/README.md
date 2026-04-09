@@ -62,7 +62,7 @@ gated path:
 - Lean privacy build
 - Verus verification
 
-`make aeneas-check`, `cargo hss-fv aeneas-check`, and `just fv-aeneas` are
+`make aeneas-check`, `cargo hss-fv aeneas-check`, and `just ed25519-hss-fv-aeneas` are
 separate bootstrap checks for the Aeneas boundary workspace. They are not part
 of the default CI gate.
 

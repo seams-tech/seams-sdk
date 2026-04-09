@@ -32,9 +32,9 @@ Current bootstrap status:
 Current command path:
 
 - `cargo hss-fv verus-check`
-- `just fv-verus`
+- `just ed25519-hss-fv-verus`
 
-`cargo hss-fv verus-check` runs only the verifier. `just fv-verus` runs the
+`cargo hss-fv verus-check` runs only the verifier. `just ed25519-hss-fv-verus` runs the
 committed fixture parity bridge first and then runs the verifier.
 
 These commands prefer `cargo verus` when the Verus toolchain is installed and

@@ -34,7 +34,7 @@ Or from the crate root through the shared wrapper:
 
 ```sh
 cargo hss-fv lean-check
-just fv-lean
+just ed25519-hss-fv-lean
 ```
 
 The default full repo gate is:

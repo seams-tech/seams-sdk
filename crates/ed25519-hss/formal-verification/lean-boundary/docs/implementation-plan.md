@@ -28,7 +28,7 @@ track is intentionally frozen at that boundary.
       `eval_f_expand`, `canonical_seed`, `x_client_base`, and
       `x_relayer_base`.
 - [x] Add repo-local wrapper commands for bootstrap validation:
-      `cargo hss-fv aeneas-check` and `just fv-aeneas`.
+      `cargo hss-fv aeneas-check` and `just ed25519-hss-fv-aeneas`.
 - [x] Add a pinned toolchain manifest for Aeneas, Charon, and the Lean backend.
 - [x] Add a repo-local Aeneas setup script based on the official Aeneas install
       path.

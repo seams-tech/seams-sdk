@@ -55,7 +55,7 @@ The bootstrap wrapper command is:
 
 ```sh
 cargo hss-fv aeneas-check
-just fv-aeneas
+just ed25519-hss-fv-aeneas
 ```
 
 Today this command verifies:
