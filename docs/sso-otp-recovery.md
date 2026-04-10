@@ -60,7 +60,7 @@ We will support three canonical account families:
    - cross-device recovery/unlock backend
    - functionally extends the password-style secret model with server escrow plus OTP-authorized unseal
    - requires valid SSO app session first in the current product direction
-   - requires email OTP or TOTP verification
+   - requires email OTP verification in the first release
    - recovers a previously enrolled client secret through server-assisted unseal
 
 We are explicitly choosing cross-device OTP behavior because users expect OTP recovery to work on a new device. A local-only OTP fallback would create accidental lockout.
@@ -69,6 +69,23 @@ The intended relationship between the alternative modes is:
 
 1. `password` = non-custodial client-secret model
 2. `otp_recovery` = the same client-secret role, but with `shamir3pass` escrow plus OTP-authorized cross-device recovery layered on top
+
+## First Release Decisions
+
+This document freezes the first implementation shape so the code can land without transitional APIs or ambiguous payloads.
+
+First release scope is:
+
+1. `recoveryChannel = email_otp` only
+2. threshold ECDSA only
+3. `S = randombytes(32)`
+4. immediate generalization of `POST /wallet/unlock/challenge` and `POST /wallet/unlock/verify` into backend-neutral wallet unlock routes
+
+Deferred from first release:
+
+1. `totp`
+2. threshold Ed25519 HSS derivation and bootstrap
+3. any transitional `wallet/recovery/unlock/*` aliases
 
 ## Account Creation Modes
 
@@ -138,15 +155,14 @@ The source differs by mode:
 The threshold derivation layer then consumes that source to produce:
 
 1. threshold ECDSA client share material
-2. threshold Ed25519 HSS client inputs
-3. unlock proof material when applicable
+2. unlock proof material when applicable
 
 ### What gets recovered
 
 The recovered value is a high-entropy client secret:
 
 ```text
-S = random 32-byte or 64-byte secret generated at enrollment
+S = random 32-byte secret generated at enrollment
 ```
 
 After recovery, `S` is used directly. We do not wrap `S` in an extra `PIN + OPRF` layer.
@@ -294,7 +310,7 @@ Do not introduce duplicate legacy naming for:
 At enrollment, the client generates a strong random client secret:
 
 ```text
-S = randombytes(32) or randombytes(64)
+S = randombytes(32)
 ```
 
 This is the canonical secret source for the OTP account mode.
@@ -330,17 +346,52 @@ Therefore:
 
 After recovery, `S` becomes the threshold root input.
 
+### Wire format and HKDF rules
+
+All derivations in this document are normative and use:
+
+1. RFC 5869 HKDF-SHA-256
+2. explicit extract plus expand for every derivation step
+3. UTF-8 encoding for string inputs
+4. canonical ordered field encoding for every multi-field `info` value
+
+Canonical field encoding:
+
+```text
+encode_field(x) = u16be(len(x)) || x
+encode_tuple([a, b, c]) = encode_field(a) || encode_field(b) || encode_field(c)
+```
+
+Rules:
+
+1. all identifiers such as `wallet_id`, `org_id`, `user_id`, `near_account_id`, `key_purpose`, `key_version`, and `derivation_version` are encoded as their exact persisted UTF-8 string values
+2. `participant_ids` must be deduplicated and sorted ascending by raw UTF-8 byte order before encoding
+3. `derivation_path` must be encoded as its canonical ASCII string form
+4. `salt` values in the examples below are UTF-8 literals exactly as written
+5. output length is 32 bytes unless a later section explicitly says otherwise
+
+Do not improvise alternative delimiters, JSON serialization, or unordered map encoding.
+
 ### Threshold root
 
 ```text
-threshold_root = HKDF(S, salt="tatchi/otp-recovery/root/v1", info=wallet_id)
+threshold_root =
+  HKDF-SHA-256(
+    ikm=S,
+    salt="tatchi/otp-recovery/root/v1",
+    info=encode_tuple([wallet_id])
+  )
 ```
 
 ### Threshold ECDSA branch
 
 ```text
 ecdsa_client_share_seed =
-  HKDF(threshold_root, salt="tatchi/otp-recovery/threshold-client-share/v1", info=user_id || derivation_path)
+  HKDF-SHA-256(
+    ikm=threshold_root,
+    salt="tatchi/otp-recovery/threshold-client-share/v1",
+    info=encode_tuple([user_id, derivation_path])
+  )
 ```
 
 From that branch:
@@ -350,24 +401,15 @@ From that branch:
 
 ### Threshold Ed25519 HSS branch
 
-NEAR threshold signing needs a distinct branch.
+Threshold Ed25519 HSS is explicitly out of scope for the first release.
 
-```text
-ed25519_hss_input_material =
-  HKDF(threshold_root, salt="tatchi/otp-recovery/threshold-ed25519-hss/v1", info=org_id || near_account_id || key_purpose || key_version || participant_ids || derivation_version)
-```
+Do not implement an Ed25519 branch from this document as part of the initial rollout.
 
-That branch must produce deterministic analogues of:
+A later spec revision may define:
 
-1. `contextBindingB64u`
-2. `yClientB64u`
-3. `tauClientB64u`
-
-Those are then consumed by the existing HSS prepare/finalize seam to reconstruct:
-
-1. `xClientBaseB64u`
-2. canonical public key material
-3. canonical seed export material where applicable
+1. Ed25519 HSS input derivation
+2. canonical byte encoding for its participant context
+3. bootstrap and verification payloads
 
 ### Unlock proof branch
 
@@ -375,7 +417,11 @@ Derive a separate branch for signed wallet unlock proofs:
 
 ```text
 unlock_auth_seed =
-  HKDF(threshold_root, salt="tatchi/otp-recovery/unlock-auth/v1", info=wallet_id)
+  HKDF-SHA-256(
+    ikm=threshold_root,
+    salt="tatchi/otp-recovery/unlock-auth/v1",
+    info=encode_tuple([wallet_id])
+  )
 unlock_signing_key = DeterministicKey(unlock_auth_seed)
 unlock_public_key = PublicKey(unlock_signing_key)
 ```
@@ -442,6 +488,10 @@ Cons:
 
 Optional stronger recovery channel.
 
+TOTP is deferred from the first release.
+
+Do not add `totp` enrollment or verification in the first implementation from this document.
+
 Pros:
 
 1. better factor separation
@@ -462,6 +512,7 @@ The current product direction is:
 2. `otp_recovery` = SSO-backed custodial alternative
 3. `password` = developer-enabled non-custodial alternative
 4. `password + email` does not require SSO
+5. first release of `otp_recovery` uses `email_otp` only
 
 ## Development OTP Delivery
 
@@ -506,7 +557,7 @@ For proper development and test ergonomics, add a dev OTP outbox.
 
 Recommended behavior:
 
-1. store the latest OTP in memory keyed by `walletId` or `userId`
+1. store the latest OTP in memory keyed by `challengeId`, with optional secondary lookup by `walletId` for local development convenience
 2. expose a dev-only read surface such as `GET /dev/otp/latest`
 3. gate that surface to non-production environments only
 4. optionally require a local dev secret or localhost-only access
@@ -535,13 +586,11 @@ Recovery enrollment should happen only after SSO app session issuance.
 2. relay issues `app_session_v1`
 3. user opts into OTP recovery
 4. user verifies recovery channel ownership:
-   - email OTP, or
-   - TOTP bootstrap
+   - email OTP
 5. client generates strong random client secret `S`
 6. client seals `S` into `E_ks(S)` via `shamir3pass`
 7. client derives:
    - threshold ECDSA client verifying share when ECDSA threshold is enabled
-   - threshold Ed25519 HSS client inputs or registration material when NEAR threshold is enabled
    - unlock public key
 8. client uploads:
    - recovery escrow blob
@@ -554,24 +603,16 @@ Recovery enrollment should happen only after SSO app session issuance.
 Server-side:
 
 1. `unlockBackend = otp_recovery`
-2. `recoveryChannel = email_otp | totp`
+2. `recoveryChannel = email_otp`
 3. `recoveryEscrowBlob = E_ks(S)`
 4. `recoveryKeyVersion`
 5. `unlockPublicKey`
 6. `unlockKeyVersion`
 7. `thresholdEcdsaClientVerifyingShareB64u` when applicable
-8. threshold Ed25519 HSS canonical context when applicable:
-   - `orgId`
-   - `nearAccountId`
-   - `keyPurpose`
-   - `keyVersion`
-   - `participantIds`
-   - `derivationVersion`
-9. threshold Ed25519 registration/server material when applicable
-10. `createdAtMs`
-11. `updatedAtMs`
-12. `lastRecoveryAtMs`
-13. OTP failure and lockout counters
+8. `createdAtMs`
+9. `updatedAtMs`
+10. `lastRecoveryAtMs`
+11. OTP failure and lockout counters
 
 Client-side:
 
@@ -592,7 +633,7 @@ Client-side:
 7. client recovers `S`
 8. client derives threshold material and unlock proof key
 9. client signs a fresh wallet unlock challenge
-10. relay verifies derived material and unlock proof
+10. relay verifies the unlock proof and continues threshold warm-session bootstrap against enrolled public verifier material
 11. relay marks wallet unlocked and continues warm session bootstrap
 
 ### Why there is still a wallet unlock proof
@@ -622,11 +663,44 @@ Recommended payload:
   "challengeId": "rc_123",
   "issuedAt": "2026-04-07T12:00:00Z",
   "expiresAt": "2026-04-07T12:05:00Z",
+  "orgId": "org_123",
+  "userId": "user_123",
   "walletId": "wallet_123",
+  "sessionHash": "base64url-hash",
+  "appSessionVersion": 7,
   "recoveryChannel": "email_otp",
   "action": "wallet_recovery_unlock"
 }
 ```
+
+The recovery challenge is bound to the current app session context. The server must reject verification if the current session hash or app-session version no longer matches the issued challenge context.
+
+### Recovery grant
+
+`recovery_grant` is a server-minted, single-use, short-lived authorization artifact for exactly one unseal.
+
+Required server-side claims:
+
+1. `grantId`
+2. `orgId`
+3. `userId`
+4. `walletId`
+5. `challengeId`
+6. `recoveryChannel = email_otp`
+7. `sessionHash`
+8. `appSessionVersion`
+9. `issuedAt`
+10. `expiresAt`
+11. `usedAt` or equivalent single-use marker
+12. `action = wallet_recovery_unseal`
+
+Enforcement rules:
+
+1. unseal authorization must derive wallet, subject, and recovery channel from the grant, not from caller-supplied selectors
+2. a grant is valid for one successful unseal only
+3. a grant becomes invalid if the underlying app session changes or expires
+4. a grant must not outlive the recovery challenge that minted it
+5. the server must record grant redemption before returning the unsealed response body
 
 ### Wallet unlock challenge
 
@@ -668,18 +742,19 @@ Keep the canonical route planes:
 1. session plane: existing `session/*`
 2. wallet plane: existing `wallet/*`
 
-Do not add auth-specific aliases.
+Do not add transitional alias routes.
 
 ### Current route reality
 
 Today, `wallet/unlock/*` is a passkey API surface, not a backend-neutral wallet unlock API surface.
 
-That means the first OTP release has two possible shapes:
+First release decision:
 
-1. breaking change: generalize `POST /wallet/unlock/challenge` and `POST /wallet/unlock/verify`
-2. additive shape: introduce `wallet/recovery/*` routes first, then unify later
+1. make a breaking change and generalize `POST /wallet/unlock/challenge` and `POST /wallet/unlock/verify` immediately
+2. remove passkey-only assumptions from those handlers in the same change
+3. do not add temporary `wallet/recovery/unlock/*` routes
 
-Because the current handlers are explicitly WebAuthn-bound, this plan should not assume the route surface is already generic.
+Because the current handlers are explicitly WebAuthn-bound, the implementation must treat this as a route migration, not as an additive aliasing exercise.
 
 ### Target API shape
 
@@ -713,7 +788,11 @@ Response:
     "challengeId": "rc_123",
     "issuedAt": "2026-04-07T12:00:00Z",
     "expiresAt": "2026-04-07T12:05:00Z",
+    "orgId": "org_123",
+    "userId": "user_123",
     "walletId": "wallet_123",
+    "sessionHash": "base64url-hash",
+    "appSessionVersion": 7,
     "recoveryChannel": "email_otp",
     "action": "wallet_recovery_unlock"
   }
@@ -739,6 +818,7 @@ Response:
 {
   "ok": true,
   "recoveryGrant": "single-use-short-lived-token",
+  "grantExpiresAt": "2026-04-07T12:05:30Z",
   "escrow": {
     "recoveryKeyVersion": "otp-recovery-v1",
     "ciphertext": "base64url"
@@ -752,7 +832,6 @@ Request:
 
 ```json
 {
-  "walletId": "wallet_123",
   "recoveryGrant": "single-use-short-lived-token",
   "wrappedCiphertext": "base64url"
 }
@@ -791,19 +870,17 @@ Request:
   "unlockProof": {
     "publicKey": "base64url",
     "signature": "base64url"
-  },
-  "threshold": {
-    "ecdsa": {
-      "clientRootShare32B64u": "base64url"
-    },
-    "ed25519": {
-      "contextBindingB64u": "base64url",
-      "yClientB64u": "base64url",
-      "tauClientB64u": "base64url"
-    }
   }
 }
 ```
+
+Server-side verification contract for `otp_recovery` unlock:
+
+1. this route accepts only public unlock proof material
+2. this route must not accept `clientRootShare32B64u`, plaintext secret shares, or any other secret-derived private threshold material
+3. the server verifies `unlockProof.publicKey` against the enrolled `unlockPublicKey`
+4. if the route also accepts threshold material in a future revision, it may accept only public verifier material and must compare it against enrolled public verifier values
+5. threshold ECDSA session bootstrap remains responsible for any later checks that depend on enrolled ECDSA verifier material
 
 Response:
 
@@ -860,8 +937,7 @@ Do not hide these behind passkey-only APIs or legacy optional flags.
 Route the recovered client secret into:
 
 1. threshold ECDSA client-share derivation
-2. threshold Ed25519 HSS client-input derivation
-3. unlock proof derivation
+2. unlock proof derivation
 
 Do not require a second `PIN + OPRF` step after client-secret recovery.
 
@@ -873,7 +949,7 @@ Do not require a second `PIN + OPRF` step after client-secret recovery.
 2. `otp_recovery` is the custodial account option
 3. `password` is the non-custodial account option with password-derived secret material
 4. email OTP recovery is convenience-oriented and weaker than passkeys
-5. TOTP may be offered as a stronger optional recovery channel within the custodial model
+5. TOTP may be added in a later revision as a stronger optional recovery channel within the custodial model
 
 ### Sensitive actions
 
@@ -930,22 +1006,25 @@ Do not log:
 Goal: freeze the product and protocol shape before code changes.
 
 - [ ] freeze canonical naming: `passkey`, `password`, `otp_recovery`
-- [ ] freeze recovery channel names: `email_otp`, `totp`
+- [ ] freeze first-release recovery channel: `email_otp`
 - [ ] freeze account-mode labeling:
   `passkey` = non-custodial, `password` = non-custodial, `otp_recovery` = custodial
 - [ ] freeze wallet identifiers and identity tuple inputs used by recovery flows
+- [ ] freeze derivation wire format, field ordering, and HKDF-SHA-256 usage
 - [ ] freeze OTP challenge lifetime, resend policy, and max attempts
 - [ ] freeze `recovery_grant` lifetime and single-use semantics
+- [ ] freeze `recovery_grant` claims:
+  `orgId`, `userId`, `walletId`, `challengeId`, `recoveryChannel`, `sessionHash`, `appSessionVersion`, `issuedAt`, `expiresAt`, `action`
 - [ ] freeze server seal key storage model: KMS or HSM-backed
-- [ ] freeze first-release scope:
-  ECDSA only or ECDSA + Ed25519 HSS
+- [ ] freeze first-release scope: threshold ECDSA only
+- [ ] freeze route migration plan: generalize `wallet/unlock/*` immediately with no transitional alias routes
 
 ### Phase 1 — Data model and server primitives
 
 Goal: add the server-side building blocks without exposing the feature yet.
 
 - [ ] add persisted wallet unlock backend enum/value for `otp_recovery`
-- [ ] add persisted recovery channel enum/value for `email_otp | totp`
+- [ ] add persisted recovery channel enum/value for `email_otp`
 - [ ] add persisted `recoveryEscrowBlob`
 - [ ] add persisted `recoveryKeyVersion`
 - [ ] add persisted `unlockPublicKey` and `unlockKeyVersion`
@@ -990,16 +1069,14 @@ Goal: derive threshold material and unlock proof material from recovered `S`.
 - [ ] implement `threshold_root = HKDF(S, ...)`
 - [ ] implement threshold ECDSA client-share derivation from `threshold_root`
 - [ ] integrate ECDSA verifying-share registration/verification with `otp_recovery`
-- [ ] implement threshold Ed25519 HSS input derivation from `threshold_root`
-- [ ] wire deterministic `contextBindingB64u`, `yClientB64u`, and `tauClientB64u` into the existing HSS prepare/finalize seam
 - [ ] implement unlock proof key derivation from `threshold_root`
 - [ ] ensure there is no second `PIN + OPRF` step anywhere in this flow
 
 ### Phase 5 — Relay and route integration
 
-Goal: expose backend-neutral recovery and unlock endpoints.
+Goal: expose backend-neutral wallet unlock endpoints and recovery-specific enrollment or unseal endpoints.
 
-- [ ] decide whether to generalize `wallet/unlock/*` immediately or land `wallet/recovery/*` first
+- [ ] generalize `wallet/unlock/*` immediately and remove passkey-only assumptions from the handlers
 - [ ] implement `POST /wallet/recovery/enroll/challenge`
 - [ ] implement `POST /wallet/recovery/enroll/verify`
 - [ ] implement `POST /wallet/recovery/challenge`
@@ -1007,7 +1084,7 @@ Goal: expose backend-neutral recovery and unlock endpoints.
 - [ ] implement `POST /wallet/recovery/unseal`
 - [ ] implement backend-aware wallet unlock verification for `otp_recovery`
 - [ ] keep Express and Cloudflare route surfaces in parity
-- [ ] remove any duplicate or transitional route shapes once the new surface lands
+- [ ] verify that no duplicate or transitional route shapes remain after the migration
 - [ ] if `memory` mode is implemented, add a dev-only OTP outbox read route and keep it excluded from production routing
 
 ### Phase 6 — Client SDK and app flows
@@ -1019,7 +1096,6 @@ Goal: make the feature usable from the client without freezing the wrong public 
 - [ ] implement client-side `shamir3pass` wrap/unwrap helper usage for recovery
 - [ ] implement unlock proof signing from recovered `S`
 - [ ] wire recovered threshold material into ECDSA session bootstrap
-- [ ] wire recovered threshold material into Ed25519 HSS bootstrap when Ed25519 is in scope
 - [ ] decide what, if anything, should be added later to `client/src/threshold.ts`
 - [ ] avoid publishing a stable public SDK helper until the internal abstraction is proven
 
@@ -1033,7 +1109,6 @@ Goal: make the custody model and user choices explicit.
 - [ ] label `otp_recovery` as custodial in product copy
 - [ ] label `passkey` and `password` as non-custodial in product copy
 - [ ] add recovery enrollment UI for email OTP
-- [ ] add optional TOTP enrollment UI if included in first release
 - [ ] add new-device recovery notification UX
 - [ ] add lockout, cooldown, and retry UX
 - [ ] clearly distinguish wallet recovery from ordinary sign-in
@@ -1068,17 +1143,14 @@ Goal: prove the feature works and is safe to ship.
 - [ ] add integration test for wrong OTP lockout
 - [ ] add integration test for unseal denial without valid `recovery_grant`
 - [ ] add integration test for threshold ECDSA bootstrap from recovered client secret
-- [ ] add integration test for threshold Ed25519 HSS bootstrap from recovered client secret if Ed25519 is in scope
 - [ ] add parity coverage for Express and Cloudflare adapters
 - [ ] confirm docs and product copy consistently label `otp_recovery` as custodial
 
 ## Open Questions
 
-1. Should email OTP be the only default recovery channel, or should TOTP be required for higher-assurance deployments?
-2. Should recovery unlock immediately grant full wallet capability, or should some high-risk actions require a second stronger step-up?
-3. Should local cached escrow blobs be retained for same-device convenience, or should recovery always fetch from server?
-4. Should first release cover only threshold ECDSA, or both ECDSA and Ed25519 HSS?
-5. Should recovery enrollment require an already-enrolled passkey, or may SSO-only users opt into recovery directly?
+1. Should recovery unlock immediately grant full wallet capability, or should some high-risk actions require a second stronger step-up?
+2. Should local cached escrow blobs be retained for same-device convenience, or should recovery always fetch from server?
+3. Should recovery enrollment require an already-enrolled passkey, or may SSO-only users opt into recovery directly?
 
 ## Recommended First Release Scope
 
@@ -1086,9 +1158,11 @@ Goal: prove the feature works and is safe to ship.
 2. offer `otp_recovery` as the SSO-backed custodial alternative
 3. offer `password` as the developer-enabled non-custodial alternative
 4. allow `password + email` without requiring SSO
-5. prefer email OTP for default custodial UX, with TOTP optional
-6. strongly consider scoping first release to threshold ECDSA only if that materially reduces complexity
-7. do not require any `PIN + OPRF` layer in this recovery design
+5. use `email_otp` as the only recovery channel in first release
+6. support threshold ECDSA only in first release
+7. fix `S` to 32 random bytes in first release
+8. generalize `wallet/unlock/*` immediately instead of introducing transitional alias routes
+9. do not require any `PIN + OPRF` layer in this recovery design
 
 ## Definition of Done
 
@@ -1102,6 +1176,7 @@ Goal: prove the feature works and is safe to ship.
 5. OTP-guarded client secret is never persisted in plaintext at rest
 6. server stores only server-sealed escrow blobs, not PIN-wrapped secrets
 7. threshold ECDSA derivation is deterministic from the recovered client secret
-8. threshold Ed25519 HSS derivation is deterministic from the recovered client secret when Ed25519 support is in scope
-9. OTP challenges and recovery grants are rate-limited, expiring, and single-use
-10. passkey, `password`, and `otp_recovery` coexist without duplicate legacy route or symbol pollution
+8. `recovery_grant` is bound to `orgId`, `userId`, `walletId`, `challengeId`, `recoveryChannel`, and current app-session context
+9. `wallet/unlock/verify` accepts only public unlock proof material and no secret-derived threshold share payloads
+10. OTP challenges and recovery grants are rate-limited, expiring, and single-use
+11. passkey, `password`, and `otp_recovery` coexist without duplicate legacy route or symbol pollution
