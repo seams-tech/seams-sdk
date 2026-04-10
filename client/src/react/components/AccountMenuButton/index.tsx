@@ -248,6 +248,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         description: 'View your private keys',
         disabled: !loginState.isLoggedIn || exportKeysLoading,
         onClick: () => {
+          setExportKeysLoading(false);
+          setExportChainLoading(null);
           setShowExportKeyTypeModal(true);
         },
         keepOpenOnClick: true,
@@ -401,8 +403,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           portalHost!,
         )}
 
-      {/* Export Key Type Modal (portaled to nearest root for robustness) */}
-      {canPortal &&
+      {/* Export Key Type Modal (portaled to document body so global modal CSS applies consistently) */}
+      {(typeof document !== 'undefined' ? document.body : portalHost) &&
         createPortal(
           <ExportKeyTypeModal
             isOpen={showExportKeyTypeModal}
@@ -415,7 +417,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               void startExportKeyFlow(chain);
             }}
           />,
-          portalHost!,
+          (typeof document !== 'undefined' ? document.body : portalHost)!,
         )}
     </div>
   );

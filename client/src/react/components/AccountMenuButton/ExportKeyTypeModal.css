@@ -96,13 +96,12 @@
   color: var(--w3a-colors-textPrimary);
   padding: 0.8rem 0.9rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .w3a-export-key-type-option:hover:not(:disabled) {
   border-color: var(--w3a-colors-primary);
   box-shadow: 0 2px 8px var(--w3a-shadows-sm);
-  transform: translateY(-1px);
 }
 
 .w3a-export-key-type-option:disabled {
@@ -148,4 +147,3 @@
     opacity: 1;
   }
 }
-
