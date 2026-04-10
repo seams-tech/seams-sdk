@@ -32,6 +32,14 @@ structure ProtocolExecutionState where
   serverSecrets : ServerSecretState
   deriving DecidableEq, Repr
 
+/-- Full execution state for the frozen hidden-eval/compiler-facing seam. -/
+structure HiddenEvalExecutionState where
+  hiddenEvalBoundary : HiddenEvalBoundaryModel
+  canonicalX32 : Bytes32
+  clientSecrets : ClientSecretState
+  serverSecrets : ServerSecretState
+  deriving DecidableEq, Repr
+
 /-- Hidden threshold-derived private material that must stay invisible to the server. -/
 structure HiddenThresholdPrivateMaterial where
   canonicalX32 : Bytes32

@@ -39,6 +39,44 @@ def serverVisibleBoundaryOfRespondBoundary
     retainedRetryCounter := boundary.retained.retryCounter
   }
 
+def respondBoundaryOfHiddenEvalBoundary
+    (boundary : HiddenEvalBoundaryModel) : RespondBoundaryModel :=
+  {
+    operation := boundary.transport.operation
+    clientOutput := boundary.transport.clientOutput
+    finalize := boundary.transport.finalize
+    retained := {
+      rawRootMaterialDropped := boundary.persisted.rawRootMaterialDropped
+      relayerThresholdShare32 := boundary.persisted.relayerThresholdShare32
+      relayerPublicKey33 := boundary.persisted.relayerPublicKey33
+      thresholdPublicKey33 := boundary.persisted.thresholdPublicKey33
+      thresholdEthereumAddress20 := boundary.persisted.thresholdEthereumAddress20
+      retryCounter := boundary.persisted.retryCounter
+    }
+  }
+
+def hiddenEvalTransportBoundaryOfState
+    (state : HiddenEvalExecutionState) : HiddenEvalTransportBoundaryModel :=
+  state.hiddenEvalBoundary.transport
+
+def hiddenEvalPersistedStateBoundaryOfState
+    (state : HiddenEvalExecutionState) : HiddenEvalPersistedStateBoundaryModel :=
+  state.hiddenEvalBoundary.persisted
+
+def hiddenEvalBoundaryOfState
+    (state : HiddenEvalExecutionState) : HiddenEvalBoundaryModel :=
+  state.hiddenEvalBoundary
+
+def clientVisibleBoundaryOfHiddenEvalState
+    (state : HiddenEvalExecutionState) : ClientVisibleBoundary :=
+  clientVisibleBoundaryOfRespondBoundary
+    (respondBoundaryOfHiddenEvalBoundary state.hiddenEvalBoundary)
+
+def serverVisibleBoundaryOfHiddenEvalState
+    (state : HiddenEvalExecutionState) : ServerVisibleBoundary :=
+  serverVisibleBoundaryOfRespondBoundary
+    (respondBoundaryOfHiddenEvalBoundary state.hiddenEvalBoundary)
+
 def clientVisibleBoundaryOfState
     (state : ProtocolExecutionState) : ClientVisibleBoundary :=
   clientVisibleBoundaryOfRespondBoundary state.boundary
@@ -152,5 +190,52 @@ theorem explicitExportServerView_exists_exactly_for_export_output
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => false
       | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret => true := by
   cases state.boundary.operation.allowedOutputKind <;> rfl
+
+def statesShareHiddenEvalBoundary
+    (left right : HiddenEvalExecutionState) : Prop :=
+  hiddenEvalBoundaryOfState left = hiddenEvalBoundaryOfState right
+
+def statesShareHiddenEvalTransportBoundary
+    (left right : HiddenEvalExecutionState) : Prop :=
+  hiddenEvalTransportBoundaryOfState left = hiddenEvalTransportBoundaryOfState right
+
+def statesShareHiddenEvalPersistedStateBoundary
+    (left right : HiddenEvalExecutionState) : Prop :=
+  hiddenEvalPersistedStateBoundaryOfState left =
+    hiddenEvalPersistedStateBoundaryOfState right
+
+theorem clientVisibleBoundaryOfHiddenEvalState_depends_only_on_hidden_eval_boundary
+    (left right : HiddenEvalExecutionState)
+    (hBoundary : statesShareHiddenEvalBoundary left right) :
+    clientVisibleBoundaryOfHiddenEvalState left =
+      clientVisibleBoundaryOfHiddenEvalState right := by
+  cases left
+  cases right
+  cases hBoundary
+  rfl
+
+theorem serverVisibleBoundaryOfHiddenEvalState_depends_only_on_hidden_eval_boundary
+    (left right : HiddenEvalExecutionState)
+    (hBoundary : statesShareHiddenEvalBoundary left right) :
+    serverVisibleBoundaryOfHiddenEvalState left =
+      serverVisibleBoundaryOfHiddenEvalState right := by
+  cases left
+  cases right
+  cases hBoundary
+  rfl
+
+theorem hiddenEvalTransportBoundaryOfState_depends_only_on_hidden_eval_boundary
+    (left right : HiddenEvalExecutionState)
+    (hBoundary : statesShareHiddenEvalBoundary left right) :
+    hiddenEvalTransportBoundaryOfState left =
+      hiddenEvalTransportBoundaryOfState right := by
+  exact congrArg HiddenEvalBoundaryModel.transport hBoundary
+
+theorem hiddenEvalPersistedStateBoundaryOfState_depends_only_on_hidden_eval_boundary
+    (left right : HiddenEvalExecutionState)
+    (hBoundary : statesShareHiddenEvalBoundary left right) :
+    hiddenEvalPersistedStateBoundaryOfState left =
+      hiddenEvalPersistedStateBoundaryOfState right := by
+  exact congrArg HiddenEvalBoundaryModel.persisted hBoundary
 
 end EcdsaHssPrivacy

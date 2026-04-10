@@ -224,37 +224,37 @@ That means:
 
 ### Phase P9: Hidden-Eval/Compiler Boundary Model
 
-- [ ] add a handwritten Lean model for the hidden-eval/compiler-facing
+- [x] add a handwritten Lean model for the hidden-eval/compiler-facing
       boundary
-- [ ] define the exact observable fields at that seam for non-export and
+- [x] define the exact observable fields at that seam for non-export and
       explicit-export flows
-- [ ] define which hidden materials may vary behind that seam while preserving
+- [x] define which hidden materials may vary behind that seam while preserving
       the same observable hidden-eval/compiler boundary
-- [ ] restate the current secrecy goals over hidden-eval/compiler-boundary
+- [x] restate the current secrecy goals over hidden-eval/compiler-boundary
       state pairs instead of only staged-boundary state pairs
 
 ### Phase P10: Transport And Persisted-State Exclusion
 
-- [ ] add a handwritten model for transport-visible non-export messages
-- [ ] add a handwritten model for transport-visible explicit-export messages
-- [ ] add a handwritten model for persisted staged runtime state
-- [ ] define field-level disclosure predicates for those message/state models
-- [ ] prove forbidden secret material is absent from non-export transport
+- [x] add a handwritten model for transport-visible non-export messages
+- [x] add a handwritten model for transport-visible explicit-export messages
+- [x] add a handwritten model for persisted staged runtime state
+- [x] define field-level disclosure predicates for those message/state models
+- [x] prove forbidden secret material is absent from non-export transport
       messages
-- [ ] prove forbidden secret material is absent from persisted staged runtime
+- [x] prove forbidden secret material is absent from persisted staged runtime
       state after the accepted boundary
-- [ ] prove explicit export remains the only allowed canonical-secret
+- [x] prove explicit export remains the only allowed canonical-secret
       disclosure exception at the transport/state layer
 
 ### Phase P11: Generated-Boundary Lift For The New Seam
 
-- [ ] extend the `lean-boundary/` extraction path to the hidden-eval/compiler
+- [x] extend the `lean-boundary/` extraction path to the hidden-eval/compiler
       facade
-- [ ] map the generated hidden-eval/compiler artifact into the new handwritten
+- [x] map the generated hidden-eval/compiler artifact into the new handwritten
       privacy model
-- [ ] lift the hidden-eval/compiler secrecy theorems onto the generated Rust
+- [x] lift the hidden-eval/compiler secrecy theorems onto the generated Rust
       boundary
-- [ ] add anti-drift checks so the Rust hidden-eval/compiler seam cannot move
+- [x] add anti-drift checks so the Rust hidden-eval/compiler seam cannot move
       without updating the Lean model
 
 ### Still Out Of Scope

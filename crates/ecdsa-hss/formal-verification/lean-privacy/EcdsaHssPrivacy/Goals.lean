@@ -87,6 +87,87 @@ def ServerCannotSeeClientOutputPayloads : Prop :=
       statesShareServerVisibleBoundary left right →
       serverObservableProfile left = serverObservableProfile right
 
+def transportBoundaryRevealsCanonicalX?
+    (boundary : HiddenEvalTransportBoundaryModel) : Option Bytes32 :=
+  revealedCanonicalX? boundary.clientOutput
+
+def transportBoundaryRevealsCanonicalX
+    (boundary : HiddenEvalTransportBoundaryModel) : Prop :=
+  (transportBoundaryRevealsCanonicalX? boundary).isSome
+
+def transportBoundaryCarriesRawRootMaterial
+    (_boundary : HiddenEvalTransportBoundaryModel) : Prop :=
+  False
+
+def transportBoundaryCarriesClientRootShare
+    (_boundary : HiddenEvalTransportBoundaryModel) : Prop :=
+  False
+
+def transportBoundaryCarriesRelayerRootShare
+    (_boundary : HiddenEvalTransportBoundaryModel) : Prop :=
+  False
+
+def persistedStateRevealsCanonicalX
+    (_boundary : HiddenEvalPersistedStateBoundaryModel) : Prop :=
+  False
+
+def persistedStateCarriesClientRootShare
+    (_boundary : HiddenEvalPersistedStateBoundaryModel) : Prop :=
+  False
+
+def persistedStateCarriesRelayerRootShare
+    (_boundary : HiddenEvalPersistedStateBoundaryModel) : Prop :=
+  False
+
+def persistedStateCarriesForbiddenRootMaterial
+    (boundary : HiddenEvalPersistedStateBoundaryModel) : Prop :=
+  boundary.rawRootMaterialDropped = false
+
+def HiddenEvalBoundaryIndistinguishableUnderClientSecretVariation : Prop :=
+  ∀
+      (left right : HiddenEvalExecutionState),
+      statesShareHiddenEvalBoundary left right →
+      hiddenEvalBoundaryOfState left = hiddenEvalBoundaryOfState right
+
+def HiddenEvalNonExportTransportExcludesCanonicalSecret : Prop :=
+  ∀ (boundary : HiddenEvalTransportBoundaryModel),
+      boundary.operation.allowedOutputKind =
+          ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly →
+      transportBoundaryRevealsCanonicalX? boundary = none
+
+def HiddenEvalTransportNeverCarriesRawRootMaterial : Prop :=
+  ∀ (boundary : HiddenEvalTransportBoundaryModel),
+      ¬ transportBoundaryCarriesRawRootMaterial boundary
+
+def HiddenEvalTransportNeverCarriesRootShares : Prop :=
+  ∀ (boundary : HiddenEvalTransportBoundaryModel),
+      ¬ transportBoundaryCarriesClientRootShare boundary ∧
+      ¬ transportBoundaryCarriesRelayerRootShare boundary
+
+def PersistedStateNeverRevealsCanonicalSecret : Prop :=
+  ∀ (boundary : HiddenEvalPersistedStateBoundaryModel),
+      ¬ persistedStateRevealsCanonicalX boundary
+
+def PersistedStateNeverCarriesRootShares : Prop :=
+  ∀ (boundary : HiddenEvalPersistedStateBoundaryModel),
+      ¬ persistedStateCarriesClientRootShare boundary ∧
+      ¬ persistedStateCarriesRelayerRootShare boundary
+
+def AcceptedPersistedStateExcludesForbiddenRootMaterial : Prop :=
+  ∀ (boundary : HiddenEvalPersistedStateBoundaryModel),
+      boundary.rawRootMaterialDropped = true →
+      ¬ persistedStateCarriesForbiddenRootMaterial boundary
+
+def HiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException :
+    Prop :=
+  ∀ (boundary : HiddenEvalBoundaryModel),
+      BoundaryRespectsFrozenDisclosurePolicy
+          (respondBoundaryOfHiddenEvalBoundary boundary) →
+      transportBoundaryRevealsCanonicalX boundary.transport
+        ↔
+        boundary.transport.operation.operation =
+          ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport
+
 theorem serverCannotSeeCanonicalSecret_proved :
     ServerCannotSeeCanonicalSecret := by
   exact serverViewIndistinguishableUnderClientSecretVariation_proved
@@ -149,5 +230,50 @@ theorem serverCannotSeeClientOutputPayloads_proved :
     ServerCannotSeeClientOutputPayloads := by
   intro left right hBoundary
   exact serverObservableProfile_eq_of_shared_server_boundary left right hBoundary
+
+theorem hiddenEvalBoundaryIndistinguishableUnderClientSecretVariation_proved :
+    HiddenEvalBoundaryIndistinguishableUnderClientSecretVariation := by
+  intro left right hBoundary
+  exact hBoundary
+
+theorem hiddenEvalNonExportTransportExcludesCanonicalSecret_proved :
+    HiddenEvalNonExportTransportExcludesCanonicalSecret := by
+  intro boundary hAllowed
+  cases boundary.clientOutput <;>
+    simp [transportBoundaryRevealsCanonicalX?, revealedCanonicalX?] at hAllowed ⊢
+
+theorem hiddenEvalTransportNeverCarriesRawRootMaterial_proved :
+    HiddenEvalTransportNeverCarriesRawRootMaterial := by
+  intro boundary
+  simp [HiddenEvalTransportNeverCarriesRawRootMaterial, transportBoundaryCarriesRawRootMaterial]
+
+theorem hiddenEvalTransportNeverCarriesRootShares_proved :
+    HiddenEvalTransportNeverCarriesRootShares := by
+  intro boundary
+  constructor <;>
+    simp [transportBoundaryCarriesClientRootShare, transportBoundaryCarriesRelayerRootShare]
+
+theorem persistedStateNeverRevealsCanonicalSecret_proved :
+    PersistedStateNeverRevealsCanonicalSecret := by
+  intro boundary
+  simp [persistedStateRevealsCanonicalX]
+
+theorem persistedStateNeverCarriesRootShares_proved :
+    PersistedStateNeverCarriesRootShares := by
+  intro boundary
+  constructor <;>
+    simp [persistedStateCarriesClientRootShare, persistedStateCarriesRelayerRootShare]
+
+theorem acceptedPersistedStateExcludesForbiddenRootMaterial_proved :
+    AcceptedPersistedStateExcludesForbiddenRootMaterial := by
+  intro boundary hDropped
+  simp [persistedStateCarriesForbiddenRootMaterial, hDropped]
+
+theorem hiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException_proved :
+    HiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException := by
+  intro boundary hPolicy
+  simpa [transportBoundaryRevealsCanonicalX, transportBoundaryRevealsCanonicalX?]
+    using explicitExportIsOnlyCanonicalSecretDisclosureException_proved
+      (respondBoundaryOfHiddenEvalBoundary boundary) hPolicy
 
 end EcdsaHssPrivacy

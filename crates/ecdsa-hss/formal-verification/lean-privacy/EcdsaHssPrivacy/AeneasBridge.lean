@@ -1,4 +1,5 @@
 import EcdsaHssBoundary.GeneratedVisibleBoundary
+import EcdsaHssBoundary.GeneratedHiddenEvalBoundary
 import EcdsaHssPrivacy.Goals
 
 namespace EcdsaHssPrivacy
@@ -197,5 +198,94 @@ theorem generatedBoundary_explicitExportIsOnlyCanonicalSecretDisclosureException
   intro hPolicy
   exact explicitExportIsOnlyCanonicalSecretDisclosureException_proved
     (toHandwrittenRespondBoundary boundary) hPolicy
+
+def hiddenEvalExecutionStateOfGeneratedBoundary
+    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (canonicalX32 : Bytes32)
+    (clientSecrets : ClientSecretState)
+    (serverSecrets : ServerSecretState) : HiddenEvalExecutionState :=
+  {
+    hiddenEvalBoundary := toHandwrittenHiddenEvalBoundary boundary
+    canonicalX32 := canonicalX32
+    clientSecrets := clientSecrets
+    serverSecrets := serverSecrets
+  }
+
+def hiddenEvalBoundaryOfGeneratedBoundary
+    (boundary : GeneratedHiddenEvalBoundaryV1) : HiddenEvalBoundaryModel :=
+  toHandwrittenHiddenEvalBoundary boundary
+
+def hiddenEvalTransportBoundaryOfGeneratedBoundary
+    (boundary : GeneratedHiddenEvalBoundaryV1) : HiddenEvalTransportBoundaryModel :=
+  (toHandwrittenHiddenEvalBoundary boundary).transport
+
+def hiddenEvalPersistedStateBoundaryOfGeneratedBoundary
+    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    HiddenEvalPersistedStateBoundaryModel :=
+  (toHandwrittenHiddenEvalBoundary boundary).persisted
+
+theorem hiddenEvalBoundaryOfGeneratedBoundary_matches_handwritten_model
+    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    hiddenEvalBoundaryOfGeneratedBoundary boundary =
+      toHandwrittenHiddenEvalBoundary boundary := by
+  rfl
+
+theorem generatedHiddenEvalBoundary_matches_privacy_model
+    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    hiddenEvalBoundaryOfGeneratedBoundary boundary = toHandwrittenHiddenEvalBoundary boundary := by
+  exact hiddenEvalBoundaryOfGeneratedBoundary_matches_handwritten_model boundary
+
+theorem generatedHiddenEvalBoundary_indistinguishable_under_client_secret_variation
+    (left right : GeneratedHiddenEvalBoundaryV1)
+    (canonicalX32₁ canonicalX32₂ : Bytes32)
+    (clientSecrets₁ clientSecrets₂ : ClientSecretState)
+    (serverSecrets₁ serverSecrets₂ : ServerSecretState)
+    (hBoundary : left = right) :
+    hiddenEvalBoundaryOfState
+        (hiddenEvalExecutionStateOfGeneratedBoundary left canonicalX32₁ clientSecrets₁ serverSecrets₁)
+      =
+      hiddenEvalBoundaryOfState
+        (hiddenEvalExecutionStateOfGeneratedBoundary right canonicalX32₂ clientSecrets₂ serverSecrets₂) := by
+  cases hBoundary
+  rfl
+
+theorem generatedHiddenEvalNonExportTransportExcludesCanonicalSecret
+    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (hAllowed :
+      (toHandwrittenHiddenEvalBoundary boundary).transport.operation.allowedOutputKind =
+        ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly) :
+    transportBoundaryRevealsCanonicalX?
+        (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary) = none := by
+  exact hiddenEvalNonExportTransportExcludesCanonicalSecret_proved
+    (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary) hAllowed
+
+theorem generatedPersistedStateNeverRevealsCanonicalSecret
+    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    ¬ persistedStateRevealsCanonicalX
+        (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary) := by
+  exact persistedStateNeverRevealsCanonicalSecret_proved
+    (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary)
+
+theorem generatedAcceptedPersistedStateExcludesForbiddenRootMaterial
+    (boundary : GeneratedHiddenEvalBoundaryV1)
+    (hDropped :
+      (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary).rawRootMaterialDropped = true) :
+    ¬ persistedStateCarriesForbiddenRootMaterial
+        (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary) := by
+  exact acceptedPersistedStateExcludesForbiddenRootMaterial_proved
+    (hiddenEvalPersistedStateBoundaryOfGeneratedBoundary boundary) hDropped
+
+theorem generatedHiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException
+    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    BoundaryRespectsFrozenDisclosurePolicy
+        (respondBoundaryOfHiddenEvalBoundary (toHandwrittenHiddenEvalBoundary boundary)) →
+    transportBoundaryRevealsCanonicalX
+        (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary)
+      ↔
+      (hiddenEvalTransportBoundaryOfGeneratedBoundary boundary).operation.operation =
+        ecdsa_hss.wire.ServerEvalOperationV1.ExplicitKeyExport := by
+  intro hPolicy
+  exact hiddenEvalTransportExplicitExportIsOnlyCanonicalSecretDisclosureException_proved
+    (toHandwrittenHiddenEvalBoundary boundary) hPolicy
 
 end EcdsaHssPrivacy

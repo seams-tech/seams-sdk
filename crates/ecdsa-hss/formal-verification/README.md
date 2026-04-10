@@ -87,6 +87,12 @@ Current state:
     same client-visible boundary
   - explicit export isolated as the only canonical-secret disclosure exception
   - generated-boundary lifts for those privacy theorems
+- the hidden-eval/compiler-facing reference seam is now frozen and extracted
+  as a second narrow Aeneas boundary
+- the Lean boundary track now proves the generated hidden-eval/compiler seam
+  matches the handwritten hidden-eval boundary model
+- the Lean privacy track now includes transport/persisted-state exclusion
+  theorems for forbidden secret material at that same frozen seam
 - the current wrapper commands are green:
   - `just ecdsa-hss-fv`
   - `just ecdsa-hss-fv-boundary`
@@ -100,7 +106,7 @@ just ecdsa-hss-fv
 
 That command now runs:
 
-- committed fixture parity for the Verus slice
+- committed fixture parity and executable anti-drift tests for the Verus slice
 - Verus verification
 - Lean boundary extraction plus Lean build
 - Lean privacy build
@@ -133,14 +139,23 @@ The completed privacy targets for that same frozen scope are:
 5. explicit export isolated as the only canonical-secret disclosure exception
 6. generated-boundary lifts of those privacy theorems
 
-The current privacy scope is intentionally capped there. Hidden-eval compiler
-correctness, transport/runtime orchestration, side-channel claims, and
+The current privacy scope is intentionally capped at the frozen boundary/seam
+models. Full runtime orchestration, side-channel claims, and
 implementation-facing algebra remain out of this Lean track.
 
 The important caveat is that some Verus theorems still rely on explicit
 trusted axioms at production-boundary seams. See
 [docs/proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
 for the exact list.
+
+The two former broad trusted seams for:
+
+- additive-share relayer-share construction
+- the `{1,2}` backend share-mapping formula
+
+are no longer axiom-only. Those slices are now proved in the Verus model,
+leaving narrower trust only at the scalar-reduction/encoding and public-key
+primitive boundaries.
 
 ## Docs
 

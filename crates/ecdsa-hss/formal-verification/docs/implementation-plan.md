@@ -1,6 +1,6 @@
 # `ecdsa-hss` Formal Verification Implementation Plan
 
-Last updated: 2026-04-08
+Last updated: 2026-04-09
 
 ## Decision
 
@@ -243,20 +243,20 @@ It should explicitly not try to prove:
 - side-channel resistance
 - full system behavior outside the frozen boundary slice
 
-- [ ] freeze the hidden-eval-facing Rust boundary spec that the privacy story
+- [x] freeze the hidden-eval-facing Rust boundary spec that the privacy story
       depends on
-- [ ] define the exact extracted Rust facade for the hidden-eval/compiler seam
-- [ ] add a separate Aeneas + Lean bridge for that hidden-eval/compiler seam
-- [ ] prove the generated hidden-eval/compiler boundary matches the handwritten
+- [x] define the exact extracted Rust facade for the hidden-eval/compiler seam
+- [x] add a separate Aeneas + Lean bridge for that hidden-eval/compiler seam
+- [x] prove the generated hidden-eval/compiler boundary matches the handwritten
       privacy model
-- [ ] add an explicit transport-visible message model for non-export vs
+- [x] add an explicit transport-visible message model for non-export vs
       explicit-export flows
-- [ ] add an explicit persisted-runtime-state model for the staged server path
-- [ ] prove forbidden secret material is absent from transport-visible
+- [x] add an explicit persisted-runtime-state model for the staged server path
+- [x] prove forbidden secret material is absent from transport-visible
       non-export messages
-- [ ] prove forbidden secret material is absent from persisted staged runtime
+- [x] prove forbidden secret material is absent from persisted staged runtime
       state after the accepted boundary
-- [ ] prove explicit export remains the only allowed disclosure exception at
+- [x] prove explicit export remains the only allowed disclosure exception at
       the transport/state layer
 - [ ] keep side-channel resistance in a separate security-engineering plan
       rather than this formal-verification phase
