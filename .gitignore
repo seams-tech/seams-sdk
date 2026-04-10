@@ -29,6 +29,9 @@ examples/relay-cloudflare-worker/.wrangler
 playwright-report
 test-results
 
+# Benchmark artifacts
+benchmarks/ecdsa-hss-wasm/out/
+
 # WASM worker outputs
 wasm/eth_signer/pkg
 wasm/eth_signer/target
@@ -40,6 +43,9 @@ wasm/shamir3pass_runtime/pkg
 wasm/shamir3pass_runtime/target
 wasm/hss_client_signer/target/
 crates/*/target
+crates/*/formal-verification/**/target
+crates/*/formal-verification/**/.lake
+crates/*/formal-verification/lean-boundary/tools/
 
 # Transpiled server artifacts emitted into source tree during local runs
 server/src/**/*.js
