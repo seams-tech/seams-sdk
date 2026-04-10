@@ -63,8 +63,9 @@ export function buildRegistrationSmartAccountRecords(input: {
   deviceNumber: number;
   credentialIdB64u: string;
   rpId: string;
+  ecdsaThresholdKeyId?: string;
   relayerKeyId: string;
-  groupPublicKeyB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
   thresholdOwnerAddress: string;
   participantIds?: number[];
   smartAccountTargets?: CreateAccountAndRegisterSmartAccountTarget[];
@@ -77,14 +78,15 @@ export function buildRegistrationSmartAccountRecords(input: {
   const nearAccountId = toOptionalTrimmedString(input.nearAccountId);
   const credentialIdB64u = toOptionalTrimmedString(input.credentialIdB64u);
   const rpId = toOptionalTrimmedString(input.rpId);
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(input.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
-  const groupPublicKeyB64u = toOptionalTrimmedString(input.groupPublicKeyB64u);
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(input.thresholdEcdsaPublicKeyB64u);
   const thresholdOwnerAddress = normalizeSmartAccountHexLike(input.thresholdOwnerAddress);
   const nowMs = Number.isFinite(Number(input.nowMs)) ? Math.floor(Number(input.nowMs)) : Date.now();
   if (!userId || !nearAccountId || !credentialIdB64u || !rpId) {
     return { accountSigners: [], recoverySubjects: [] };
   }
-  if (!thresholdOwnerAddress || !relayerKeyId || !groupPublicKeyB64u) {
+  if (!thresholdOwnerAddress || !relayerKeyId || !thresholdEcdsaPublicKeyB64u) {
     return { accountSigners: [], recoverySubjects: [] };
   }
 
@@ -118,8 +120,9 @@ export function buildRegistrationSmartAccountRecords(input: {
         metadata: {
           accountModel,
           ownerAddress: thresholdOwnerAddress,
+          ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
           relayerKeyId,
-          groupPublicKeyB64u,
+          thresholdEcdsaPublicKeyB64u,
           deviceNumber: input.deviceNumber,
           credentialIdB64u,
           rpId,

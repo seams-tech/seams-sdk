@@ -76,21 +76,6 @@ fn parity_codec_with_web_binding() {
 #[test]
 fn parity_secp256k1_with_web_binding() {
     assert_eq!(
-        v1::derive_threshold_secp256k1_client_share(
-            from_hex(SECP_PRF_FIRST32_HEX),
-            SECP_USER_ID.to_string(),
-            SECP_DERIVATION_PATH,
-        )
-        .expect("ios threshold share"),
-        signer_platform_web::secp256k1::derive_threshold_secp256k1_client_share(
-            from_hex(SECP_PRF_FIRST32_HEX).as_slice(),
-            SECP_USER_ID,
-            SECP_DERIVATION_PATH,
-        )
-        .expect("web threshold share")
-    );
-
-    assert_eq!(
         v1::derive_secp256k1_keypair_from_prf_second(
             from_hex(SECP_PRF_SECOND_HEX),
             SECP_NEAR_ACCOUNT_ID.to_string(),
@@ -184,19 +169,6 @@ fn vectors_v1_match_expected_outputs() {
     assert_eq!(
         to_hex(v1::rlp_encode_list(rlp_items).as_slice()),
         RLP_LIST_EXPECTED
-    );
-
-    assert_eq!(
-        to_hex(
-            v1::derive_threshold_secp256k1_client_share(
-                from_hex(SECP_PRF_FIRST32_HEX),
-                SECP_USER_ID.to_string(),
-                SECP_DERIVATION_PATH,
-            )
-            .expect("derive client share")
-            .as_slice()
-        ),
-        SECP_DERIVE_CLIENT_EXPECTED
     );
 
     assert_eq!(

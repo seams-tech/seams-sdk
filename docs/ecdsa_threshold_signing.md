@@ -1,6 +1,6 @@
 # Threshold ECDSA Signing
 
-Last updated: 2026-02-25
+Last updated: 2026-04-08
 
 ## 1. Non-Negotiable Invariants
 
@@ -20,13 +20,28 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 
 - `nearAccountId`
 - `chain` (`tempo` or `evm`)
-- `relayerUrl`, `relayerKeyId`
-- `clientVerifyingShareB64u`
+- `relayerUrl`
+- `ecdsaThresholdKeyId`
 - `participantIds` (required)
 - `thresholdSessionKind`, `thresholdSessionId`, `thresholdSessionJwt` (when JWT mode is used)
 - `expiresAtMs`, `remainingUses`
+- `groupPublicKeyB64u`
+- `ethereumAddress`
 - `updatedAtMs`
 - `source` (`registration` or `manual-bootstrap`)
+
+`ecdsaThresholdKeyId`, `groupPublicKeyB64u`, and `ethereumAddress` are the
+product-facing threshold identity seam for signing and later export-equivalence
+checks.
+
+Backend bridge inputs still exist behind `keyRef.backendBinding` where the
+current signer backend needs them:
+
+- `relayerKeyId`
+- `clientVerifyingShareB64u`
+- `relayerVerifyingShareB64u`
+
+Those fields are no longer the canonical product identity.
 
 ### 2.2 Ownership Model
 

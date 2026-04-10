@@ -78,7 +78,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
                 session: {
                   preparedThresholdEcdsa: {
                     relayerKeyId: 'rk-evm',
-                    groupPublicKeyB64u: 'group-public-key',
+                    thresholdEcdsaPublicKeyB64u: 'group-public-key',
                     ethereumAddress: `0x${'aa'.repeat(20)}`,
                     participantIds: [1, 2],
                   },
@@ -241,7 +241,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
                 session: {
                   preparedThresholdEcdsa: {
                     relayerKeyId: 'rk-evm',
-                    groupPublicKeyB64u: 'group-public-key',
+                    thresholdEcdsaPublicKeyB64u: 'group-public-key',
                     ethereumAddress: signerId,
                     participantIds: [1, 2],
                   },

@@ -75,10 +75,11 @@ export type ActivateEcdsaSessionDeps = {
 export type ActivateEcdsaSessionRequest = {
   nearAccountId: AccountId | string;
   relayerUrl: string;
+  ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
-  clientVerifyingShareB64u?: string;
+  clientRootShare32B64u?: string;
   authorizationJwt?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -96,12 +97,13 @@ export async function activateEcdsaSession(
     prfFirstCache: deps.prfFirstCache,
     relayerUrl: args.relayerUrl,
     userId: nearAccountId,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
     sessionId:
       String(args.sessionId || '').trim() ||
       deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, args.chain),
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+    clientRootShare32B64u: args.clientRootShare32B64u,
     bootstrapAuthorizationJwt: args.authorizationJwt,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
@@ -109,6 +111,11 @@ export async function activateEcdsaSession(
   });
   if (!bootstrap.ok) {
     throw new Error(bootstrap.message || bootstrap.code || 'threshold-ecdsa bootstrap failed');
+  }
+
+  const ecdsaThresholdKeyId = String(bootstrap.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty ecdsaThresholdKeyId');
   }
 
   const relayerKeyId = String(bootstrap.relayerKeyId || '').trim();
@@ -119,6 +126,10 @@ export async function activateEcdsaSession(
   const clientVerifyingShareB64u = String(bootstrap.clientVerifyingShareB64u || '').trim();
   if (!clientVerifyingShareB64u) {
     throw new Error('threshold-ecdsa bootstrap returned empty clientVerifyingShareB64u');
+  }
+  const clientAdditiveShare32B64u = String(bootstrap.clientAdditiveShare32B64u || '').trim();
+  if (!clientAdditiveShare32B64u) {
+    throw new Error('threshold-ecdsa bootstrap returned empty clientAdditiveShare32B64u');
   }
 
   const sessionId = String(bootstrap.sessionId || '').trim();
@@ -137,8 +148,9 @@ export async function activateEcdsaSession(
     keygenSessionId: bootstrap.keygenSessionId,
     rpId: bootstrap.rpId,
     clientVerifyingShareB64u,
+    ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     relayerKeyId,
-    groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
     ethereumAddress: bootstrap.ethereumAddress,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds,
@@ -168,11 +180,18 @@ export async function activateEcdsaSession(
     type: 'threshold-ecdsa-secp256k1',
     userId: nearAccountId,
     relayerUrl: args.relayerUrl,
-    relayerKeyId,
-    clientVerifyingShareB64u,
+    ecdsaThresholdKeyId,
+    backendBinding: {
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+    },
     participantIds,
-    ...(typeof bootstrap.groupPublicKeyB64u === 'string' && bootstrap.groupPublicKeyB64u.trim()
-      ? { groupPublicKeyB64u: bootstrap.groupPublicKeyB64u.trim() }
+    ...(typeof bootstrap.thresholdEcdsaPublicKeyB64u === 'string' && bootstrap.thresholdEcdsaPublicKeyB64u.trim()
+      ? { thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u.trim() }
+      : {}),
+    ...(typeof bootstrap.ethereumAddress === 'string' && bootstrap.ethereumAddress.trim()
+      ? { ethereumAddress: bootstrap.ethereumAddress.trim() }
       : {}),
     ...(typeof bootstrap.relayerVerifyingShareB64u === 'string' &&
     bootstrap.relayerVerifyingShareB64u.trim()

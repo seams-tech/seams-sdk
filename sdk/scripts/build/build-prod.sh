@@ -172,4 +172,12 @@ else
   print_warning "Browser HSS client WASM not found"
 fi
 
+print_step "Writing build input manifest..."
+if "$SDK_ROOT/scripts/build/check-build-freshness.sh" --print-input-hash > "$BUILD_ROOT/.build-inputs.sha256"; then
+  print_success "Build input manifest written"
+else
+  print_error "Failed to write build input manifest"
+  exit 1
+fi
+
 print_success "Production build completed successfully!"

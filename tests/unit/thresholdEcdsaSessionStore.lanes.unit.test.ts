@@ -20,6 +20,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
       storeMod.clearAllThresholdEcdsaSessionRecords(deps);
       const now = Date.now();
       const relayerKeyId = 'rk:tempo/1 with spaces';
+      const ecdsaThresholdKeyId = 'ek:tempo/1 with spaces';
       storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
         nearAccountId: 'alice.testnet',
         chain: 'tempo',
@@ -29,8 +30,11 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
             type: 'threshold-ecdsa-secp256k1',
             userId: 'alice.testnet',
             relayerUrl: 'https://relay.example',
-            relayerKeyId,
-            clientVerifyingShareB64u: 'AQ',
+            ecdsaThresholdKeyId,
+            backendBinding: {
+              relayerKeyId,
+              clientVerifyingShareB64u: 'AQ',
+            },
             participantIds: [1, 2],
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'session-tempo-encode-1',
@@ -104,7 +108,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
     }, { paths: IMPORT_PATHS });
 
     expect(result.canonicalLaneKey).toContain('|');
-    expect(result.canonicalDecoded).toEqual(['alice.testnet', 'tempo', 'rk:tempo/1 with spaces']);
+    expect(result.canonicalDecoded).toEqual(['alice.testnet', 'tempo', 'ek:tempo/1 with spaces']);
     expect(result.malformedLaneKeyError).toContain('missing canonical threshold ECDSA session');
   });
 
@@ -124,8 +128,11 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
               type: 'threshold-ecdsa-secp256k1',
               userId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
-              relayerKeyId: 'rk-tempo',
-              clientVerifyingShareB64u: 'AQ',
+              ecdsaThresholdKeyId: 'ek-tempo',
+              backendBinding: {
+                relayerKeyId: 'rk-tempo',
+                clientVerifyingShareB64u: 'AQ',
+              },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-tempo-1',
@@ -164,17 +171,25 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
     );
 
     expect(result.laneKey).toContain('|');
-    expect(result.parsed).toEqual(['alice.testnet', 'tempo', 'rk-tempo']);
+    expect(result.parsed).toEqual(['alice.testnet', 'tempo', 'ek-tempo']);
   });
 
   test('resolves Tempo/EVM records independently for the same account', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
-        const deps = { recordsByLane: new Map<string, unknown>() };
+        const deps = {
+          recordsByLane: new Map<string, unknown>(),
+          exportArtifactsByLane: new Map<string, unknown>(),
+        };
         const now = Date.now();
 
-        const upsert = (chain: 'tempo' | 'evm', sessionId: string, relayerKeyId: string) =>
+        const upsert = (
+          chain: 'tempo' | 'evm',
+          sessionId: string,
+          relayerKeyId: string,
+          ecdsaThresholdKeyId: string,
+        ) =>
           storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
             nearAccountId: 'alice.testnet',
             chain,
@@ -184,8 +199,11 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
                 type: 'threshold-ecdsa-secp256k1',
                 userId: 'alice.testnet',
                 relayerUrl: 'https://relay.example',
-                relayerKeyId,
-                clientVerifyingShareB64u: `cvs-${chain}`,
+                ecdsaThresholdKeyId,
+                backendBinding: {
+                  relayerKeyId,
+                  clientVerifyingShareB64u: `cvs-${chain}`,
+                },
                 participantIds: [1, 2],
                 thresholdSessionKind: 'jwt',
                 thresholdSessionId: sessionId,
@@ -210,8 +228,8 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           });
 
         storeMod.clearAllThresholdEcdsaSessionRecords(deps);
-        upsert('tempo', 'session-tempo-1', 'rk-tempo');
-        upsert('evm', 'session-evm-1', 'rk-evm');
+        upsert('tempo', 'session-tempo-1', 'rk-tempo', 'ek-tempo');
+        upsert('evm', 'session-evm-1', 'rk-evm', 'ek-evm');
 
         const tempoRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
           nearAccountId: 'alice.testnet',
@@ -249,6 +267,135 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
     });
   });
 
+  test('persists canonical threshold ECDSA records and loads legacy records without model metadata', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const deps = { recordsByLane: new Map<string, unknown>() };
+        const now = Date.now();
+
+        storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+        storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          source: 'registration',
+          bootstrap: {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              ecdsaThresholdKeyId: 'ek-evm-hss',
+              backendBinding: {
+                relayerKeyId: 'rk-evm-hss',
+                clientVerifyingShareB64u: 'AQ',
+              },
+              ecdsaHssExportArtifact: {
+                artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+                chain: 'evm',
+                publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
+                privateKeyHex: `0x${'22'.repeat(32)}`,
+                ethereumAddress: `0x${'33'.repeat(20)}`,
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-evm-hss-1',
+              thresholdSessionJwt: 'jwt-evm-hss-1',
+            },
+            keygen: {
+              ok: true,
+              keygenSessionId: 'kg-evm-hss-1',
+              rpId: 'example.localhost',
+              clientVerifyingShareB64u: 'AQ',
+              relayerKeyId: 'rk-evm-hss',
+              participantIds: [1, 2],
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-evm-hss-1',
+              jwt: 'jwt-evm-hss-1',
+              expiresAtMs: now + 120_000,
+              remainingUses: 9,
+            },
+          },
+        });
+
+        const explicitRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+        });
+        const explicitKeyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+        });
+        const explicitStoragePrefix = 'tatchi:threshold-ecdsa-session:v2';
+        const explicitLaneIndex = JSON.parse(
+          sessionStorage.getItem(`${explicitStoragePrefix}:index`) || '[]',
+        );
+        const explicitLaneKey = Array.isArray(explicitLaneIndex) ? String(explicitLaneIndex[0] || '') : '';
+        const explicitStoredRaw = explicitLaneKey
+          ? sessionStorage.getItem(`${explicitStoragePrefix}:${explicitLaneKey}`) || ''
+          : '';
+
+        sessionStorage.clear();
+        const legacyPrefix = 'tatchi:threshold-ecdsa-session:v2';
+        const legacyLaneKey =
+          encodeURIComponent('bob.testnet') + '|evm|' + encodeURIComponent('ek-legacy');
+        sessionStorage.setItem(`${legacyPrefix}:index`, JSON.stringify([legacyLaneKey]));
+        sessionStorage.setItem(
+          `${legacyPrefix}:${legacyLaneKey}`,
+          JSON.stringify({
+            v: 1,
+            record: {
+              nearAccountId: 'bob.testnet',
+              chain: 'evm',
+              relayerUrl: 'https://relay.example',
+              ecdsaThresholdKeyId: 'ek-legacy',
+              relayerKeyId: 'rk-legacy',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-legacy-1',
+              thresholdSessionJwt: 'jwt-legacy-1',
+              expiresAtMs: now + 120_000,
+              remainingUses: 9,
+              updatedAtMs: now,
+              source: 'login',
+            },
+          }),
+        );
+        deps.recordsByLane.clear();
+
+        const legacyRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          nearAccountId: 'bob.testnet',
+          chain: 'evm',
+        });
+        const legacyKeyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+          nearAccountId: 'bob.testnet',
+          chain: 'evm',
+        });
+
+        return {
+          explicitRecordHasThresholdKeyId: String(explicitRecord.ecdsaThresholdKeyId || '').trim(),
+          explicitKeyRefHasThresholdKeyId: String(explicitKeyRef.ecdsaThresholdKeyId || '').trim(),
+          explicitStoredHasPrivateKeyHex: explicitStoredRaw.includes('privateKeyHex'),
+          legacyRecordHasThresholdKeyId: String(legacyRecord.ecdsaThresholdKeyId || '').trim(),
+          legacyKeyRefHasThresholdKeyId: String(legacyKeyRef.ecdsaThresholdKeyId || '').trim(),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      explicitRecordHasThresholdKeyId: 'ek-evm-hss',
+      explicitKeyRefHasThresholdKeyId: 'ek-evm-hss',
+      explicitStoredHasPrivateKeyHex: false,
+      legacyRecordHasThresholdKeyId: 'ek-legacy',
+      legacyKeyRefHasThresholdKeyId: 'ek-legacy',
+    });
+  });
+
   test('fails chain-strict lookup when requested lane is missing', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -266,8 +413,11 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
               type: 'threshold-ecdsa-secp256k1',
               userId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
-              relayerKeyId: 'rk-tempo-only',
-              clientVerifyingShareB64u: 'AQ',
+              ecdsaThresholdKeyId: 'ek-tempo-only',
+              backendBinding: {
+                relayerKeyId: 'rk-tempo-only',
+                clientVerifyingShareB64u: 'AQ',
+              },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-tempo-only',
@@ -328,6 +478,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
               nearAccountId: 'alice.testnet',
               chain: 'tempo',
               relayerUrl: 'https://relay.example',
+              ecdsaThresholdKeyId: 'ek-legacy',
               relayerKeyId: 'rk-legacy',
               clientVerifyingShareB64u: 'AQ',
               participantIds: [1, 2],
@@ -346,7 +497,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
         });
-        const laneKey = ['alice.testnet', 'tempo', 'rk-legacy']
+        const laneKey = ['alice.testnet', 'tempo', 'ek-legacy']
           .map((part) => encodeURIComponent(part))
           .join('|');
         const v2Prefix = 'tatchi:threshold-ecdsa-session:v2';

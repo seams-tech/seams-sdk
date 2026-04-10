@@ -96,9 +96,9 @@ export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
         args.bootstrap.keygen.relayerKeyId.trim()
           ? { relayerKeyId: args.bootstrap.keygen.relayerKeyId.trim() }
           : {}),
-        ...(typeof args.bootstrap.keygen.groupPublicKeyB64u === 'string' &&
-        args.bootstrap.keygen.groupPublicKeyB64u.trim()
-          ? { groupPublicKeyB64u: args.bootstrap.keygen.groupPublicKeyB64u.trim() }
+        ...(typeof args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u === 'string' &&
+        args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u.trim()
+          ? { thresholdEcdsaPublicKeyB64u: args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u.trim() }
           : {}),
         ...(participantIds.length ? { participantIds } : {}),
       },

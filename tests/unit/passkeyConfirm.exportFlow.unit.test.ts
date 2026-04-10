@@ -665,4 +665,141 @@ test.describe('passkey-confirm export flow worker', () => {
       },
     });
   });
+
+  test('completes canonical ecdsa-hss EVM export without PRF.second', async ({ page }) => {
+    const publicKeyHex = `0x${'02'}${'44'.repeat(32)}`;
+    const privateKeyHex = `0x${'55'.repeat(32)}`;
+    const ethereumAddress = `0x${'66'.repeat(20)}`;
+
+    const result = await page.evaluate(
+      async ({ workerPath, publicKeyHex, privateKeyHex, ethereumAddress }) => {
+        await import(workerPath);
+
+        const originalPostMessage = (self as any).postMessage;
+        const prompts: any[] = [];
+        const responses: any[] = [];
+        let firstPromptCredential: any = 'unset';
+        let finalPromptKeys: any[] = [];
+
+        (self as any).postMessage = (message: any) => {
+          if (message?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
+            prompts.push(message);
+            const promptType = String(message?.data?.type || '');
+            if (promptType === 'decryptPrivateKeyWithPrf') {
+              self.dispatchEvent(
+                new MessageEvent('message', {
+                  data: {
+                    type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                    requestId: message.requestId,
+                    channelToken: message.channelToken,
+                    data: {
+                      requestId: message.data?.requestId,
+                      confirmed: true,
+                    },
+                  },
+                }),
+              );
+              return;
+            }
+
+            if (promptType === 'showSecurePrivateKeyUi') {
+              firstPromptCredential = prompts[0]?.data?.credential;
+              finalPromptKeys = Array.isArray(message?.data?.payload?.keys)
+                ? message.data.payload.keys
+                : [];
+              self.dispatchEvent(
+                new MessageEvent('message', {
+                  data: {
+                    type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                    requestId: message.requestId,
+                    channelToken: message.channelToken,
+                    data: {
+                      requestId: message.data?.requestId,
+                      confirmed: true,
+                    },
+                  },
+                }),
+              );
+              return;
+            }
+          }
+          responses.push(message);
+        };
+
+        try {
+          (self as any).onmessage?.({
+            data: {
+              id: 'export-op-ecdsa-hss-happy-path',
+              type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
+              payload: {
+                nearAccountId: 'alice.testnet',
+                deviceNumber: 1,
+                chain: 'evm',
+                artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+                publicKeyHex,
+                privateKeyHex,
+                ethereumAddress,
+                theme: 'dark',
+              },
+            },
+          });
+
+          const workerResponse = await new Promise<any>((resolve, reject) => {
+            const deadline = Date.now() + 10_000;
+            const poll = () => {
+              const found = responses.find(
+                (entry) => entry?.id === 'export-op-ecdsa-hss-happy-path',
+              );
+              if (found) {
+                resolve(found);
+                return;
+              }
+              if (Date.now() >= deadline) {
+                reject(new Error('Timed out waiting for export worker response'));
+                return;
+              }
+              setTimeout(poll, 0);
+            };
+            poll();
+          });
+
+          return {
+            promptCount: prompts.length,
+            promptTypes: prompts.map((entry) => String(entry?.data?.type || '')),
+            firstPromptCredential,
+            finalPromptKeys,
+            response: workerResponse,
+          };
+        } finally {
+          (self as any).postMessage = originalPostMessage;
+        }
+      },
+      {
+        workerPath: WORKER_PATH,
+        publicKeyHex,
+        privateKeyHex,
+        ethereumAddress,
+      },
+    );
+
+    expect(result.promptCount).toBe(2);
+    expect(result.promptTypes).toEqual(['decryptPrivateKeyWithPrf', 'showSecurePrivateKeyUi']);
+    expect(result.firstPromptCredential).toBeUndefined();
+    expect(result.finalPromptKeys).toHaveLength(1);
+    expect(result.finalPromptKeys[0]).toMatchObject({
+      scheme: 'secp256k1',
+      publicKey: publicKeyHex,
+      privateKey: privateKeyHex,
+      address: ethereumAddress,
+    });
+    expect(result.response).toMatchObject({
+      id: 'export-op-ecdsa-hss-happy-path',
+      success: true,
+      data: {
+        ok: true,
+        accountId: 'alice.testnet',
+        exportedSchemes: ['secp256k1'],
+      },
+    });
+  });
 });

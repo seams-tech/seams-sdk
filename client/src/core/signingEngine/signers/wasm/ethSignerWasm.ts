@@ -4,7 +4,7 @@ import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlDecode } from '@shared/utils/base64';
 
 type Eip1559TxWasmJson = {
   chainId: number;
@@ -116,71 +116,6 @@ export async function signSecp256k1RecoverableWasm(args: {
     },
   });
   return new Uint8Array(ab);
-}
-
-export async function deriveThresholdSecp256k1ClientShareWasm(args: {
-  prfFirstB64u: string;
-  userId: string;
-  derivationPath?: number;
-  workerCtx: WorkerOperationContext;
-}): Promise<{
-  clientSigningShare32: Uint8Array;
-  clientVerifyingShareB64u: string;
-  clientVerifyingShareBytes: Uint8Array;
-}> {
-  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
-  if (!prfFirstB64u) throw new Error('Missing prfFirstB64u');
-  const userId = String(args.userId || '').trim();
-  if (!userId) throw new Error('Missing userId');
-  const derivationPath = Number.isFinite(args.derivationPath)
-    ? Math.max(0, Math.floor(Number(args.derivationPath)))
-    : 0;
-
-  const prfFirst32 = base64UrlDecode(prfFirstB64u);
-  if (prfFirst32.length !== 32) {
-    throw new Error(`Invalid PRF.first: expected 32 bytes, got ${prfFirst32.length}`);
-  }
-  const prfFirst32Copy = prfFirst32.slice();
-
-  const raw = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: ETH_SIGNER_WORKER_KIND,
-    request: {
-      type: 'deriveThresholdSecp256k1ClientShare',
-      payload: {
-        prfFirst32: prfFirst32Copy.buffer,
-        userId,
-        derivationPath,
-      },
-      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
-      transfer: [prfFirst32Copy.buffer],
-    },
-  });
-
-  const clientSigningShare32 = new Uint8Array(raw.clientSigningShare32);
-  if (clientSigningShare32.length !== 32) {
-    throw new Error(
-      `deriveThresholdSecp256k1ClientShare expected 32-byte signing share (got ${clientSigningShare32.length})`,
-    );
-  }
-  const workerVerifyingShareBytes = new Uint8Array(raw.clientVerifyingShare33);
-  if (workerVerifyingShareBytes.length !== 33) {
-    throw new Error(
-      `deriveThresholdSecp256k1ClientShare expected 33-byte verifying share (got ${workerVerifyingShareBytes.length})`,
-    );
-  }
-
-  // Canonicalize/validate with Rust-backed WASM to keep secp256k1 handling in one place.
-  const clientVerifyingShareBytes = await validateSecp256k1PublicKey33Wasm({
-    publicKey33: workerVerifyingShareBytes,
-    workerCtx: args.workerCtx,
-  });
-
-  return {
-    clientSigningShare32,
-    clientVerifyingShareB64u: base64UrlEncode(clientVerifyingShareBytes),
-    clientVerifyingShareBytes,
-  };
 }
 
 export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {

@@ -2,19 +2,25 @@ import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
   ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignInitRequest,
+  ThresholdEcdsaHssFinalizeRequest,
+  ThresholdEcdsaHssPrepareRequest,
+  ThresholdEcdsaHssRespondRequest,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignStepRequest,
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
-import { parseThresholdEd25519SessionClaims } from '../../../core/ThresholdService/validation';
+import {
+  parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
+} from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
+  signThresholdSessionJwt,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
@@ -201,23 +207,17 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post('/threshold-ecdsa/bootstrap', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaBootstrapRequest;
+  router.post('/threshold-ecdsa/hss/prepare', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEcdsaHssPrepareRequest;
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ecdsa/bootstrap',
+      '/threshold-ecdsa/hss/prepare',
       {
         userId: typeof body.userId === 'string' ? body.userId : undefined,
         rpId: typeof body.rpId === 'string' ? body.rpId : undefined,
-        keygenSessionId:
-          typeof body.keygenSessionId === 'string' ? body.keygenSessionId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof body.clientVerifyingShareB64u === 'string'
-            ? body.clientVerifyingShareB64u.length
-            : undefined,
-        sessionPolicyVersion: body.sessionPolicy ? body.sessionPolicy.version : undefined,
+        operation: typeof body.operation === 'string' ? body.operation : undefined,
       },
       async () => {
         const resolved = resolveThresholdScheme(
@@ -229,107 +229,143 @@ export function registerThresholdEcdsaRoutes(
         );
         if (!resolved.ok) return resolved;
         const scheme = resolved.scheme;
-        if (!scheme.bootstrap) {
+        if (!scheme.hss) {
           return {
             ok: false,
             code: 'not_implemented',
-            message: 'threshold-ecdsa bootstrap is not implemented on this server',
+            message: 'threshold-ecdsa hss prepare is not implemented on this server',
           };
         }
-
         const session = ctx.opts.session;
-        if (!session) {
-          return {
-            ok: false,
-            code: 'sessions_disabled',
-            message: 'Sessions are not configured on this server',
-          };
-        }
-
         let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
-        const parsedSession = await session.parse(req.headers || {});
-        if (parsedSession.ok) {
-          ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+        let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+        if (session) {
+          const parsedSession = await session.parse(req.headers || {});
+          if (parsedSession.ok) {
+            ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+            ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+          }
         }
-        const bootstrapRequest: ThresholdEcdsaBootstrapRequest = {
+        const request: ThresholdEcdsaHssPrepareRequest = {
           ...body,
           ed25519SessionClaims: ed25519SessionClaims || undefined,
+          ecdsaSessionClaims: ecdsaSessionClaims || undefined,
         };
+        return await scheme.hss.prepare(request);
+      },
+    );
+  });
 
-        const result = await scheme.bootstrap(bootstrapRequest);
+  router.post('/threshold-ecdsa/hss/respond', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEcdsaHssRespondRequest;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ecdsa/hss/respond',
+      {
+        ceremonyId: typeof body.ceremonyId === 'string' ? body.ceremonyId : undefined,
+        requestMessageB64u_len:
+          typeof body.requestMessageB64u === 'string' ? body.requestMessageB64u.length : undefined,
+      },
+      async () => {
+        const resolved = resolveThresholdScheme(
+          ctx.opts.threshold,
+          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+          {
+            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
+          },
+        );
+        if (!resolved.ok) return resolved;
+        const scheme = resolved.scheme;
+        if (!scheme.hss) {
+          return {
+            ok: false,
+            code: 'not_implemented',
+            message: 'threshold-ecdsa hss respond is not implemented on this server',
+          };
+        }
+        return await scheme.hss.respond(body);
+      },
+    );
+  });
+
+  router.post('/threshold-ecdsa/hss/finalize', async (req: Request, res: Response) => {
+    const body = (req.body || {}) as ThresholdEcdsaHssFinalizeRequest;
+    await handle(
+      ctx,
+      req,
+      res,
+      '/threshold-ecdsa/hss/finalize',
+      {
+        ceremonyId: typeof body.ceremonyId === 'string' ? body.ceremonyId : undefined,
+        clientFinalizeMessageB64u_len:
+          typeof body.clientFinalizeMessageB64u === 'string'
+            ? body.clientFinalizeMessageB64u.length
+            : undefined,
+      },
+      async () => {
+        const resolved = resolveThresholdScheme(
+          ctx.opts.threshold,
+          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+          {
+            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
+          },
+        );
+        if (!resolved.ok) return resolved;
+        const scheme = resolved.scheme;
+        if (!scheme.hss) {
+          return {
+            ok: false,
+            code: 'not_implemented',
+            message: 'threshold-ecdsa hss finalize is not implemented on this server',
+          };
+        }
+        const result = await scheme.hss.finalize(body);
         if (!result.ok) return result;
-
-        const sessionId = String(result.sessionId || '').trim();
-        if (!sessionId)
-          return { ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' };
-
-        const userId = String(bootstrapRequest.userId || bootstrapRequest.sessionPolicy?.userId || '').trim();
-        const rpId = String(bootstrapRequest.rpId || bootstrapRequest.sessionPolicy?.rpId || '').trim();
-        const relayerKeyId = String(result.relayerKeyId || '').trim();
-        const thresholdExpiresAtMs = Number(result.expiresAtMs);
-        if (!userId)
-          return { ok: false, code: 'internal', message: 'threshold bootstrap missing userId' };
-        if (!rpId)
-          return { ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' };
-        if (!relayerKeyId)
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold bootstrap missing relayerKeyId',
-          };
-        if (!Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'threshold bootstrap missing expiresAtMs',
-          };
+        if (!result.sessionId || !result.sessionJwtUserId || !result.sessionJwtRpId) {
+          return result;
         }
-
-        const participantIds = Array.isArray(result.participantIds)
-          ? result.participantIds
-          : undefined;
-        const runtimeSnapshotScope = (() => {
-          const scope =
-            bootstrapRequest.sessionPolicy &&
-            typeof bootstrapRequest.sessionPolicy === 'object' &&
-            !Array.isArray(bootstrapRequest.sessionPolicy)
-              ? ((bootstrapRequest.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
-                  | Record<string, unknown>
-                  | undefined)
-              : undefined;
-          if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
-          const orgId = String(scope.orgId || '').trim();
-          const environmentId = String(scope.environmentId || '').trim();
-          const projectId = String(scope.projectId || '').trim();
-          if (!orgId || !environmentId) return undefined;
-          return {
-            orgId,
-            environmentId,
-            ...(projectId ? { projectId } : {}),
-          };
-        })();
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-        const token = await session.signJwt(userId, {
+        const signed = await signThresholdSessionJwt({
+          session: ctx.opts.session,
           kind: 'threshold_ecdsa_session_v1',
-          sessionId,
-          relayerKeyId,
-          rpId,
-          ...(participantIds ? { participantIds } : {}),
-          ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
-          thresholdExpiresAtMs,
-          iat: nowSec,
-          exp: expSec,
+          userId: result.sessionJwtUserId,
+          rpId: result.sessionJwtRpId,
+          relayerKeyId: result.relayerKeyId,
+          allowedSessionKinds: ['jwt', 'cookie'],
+          sessionInfo: {
+            sessionKind: result.sessionKind,
+            sessionId: result.sessionId,
+            expiresAtMs: result.expiresAtMs,
+            participantIds: result.participantIds,
+          },
+          fallbackParticipantIds: result.participantIds,
+          requireJwtErrorMessage:
+            'threshold-ecdsa hss finalize requires sessionKind "jwt" or "cookie"',
+          invalidPayloadErrorMessage:
+            'threshold-ecdsa hss finalize returned invalid session payload',
+          sessionsDisabledMessage: 'Sessions are not configured on this server',
         });
-
-        const sessionKind = parseSessionKind(bootstrapRequest);
-        if (sessionKind === 'cookie') {
-          res.set('Set-Cookie', session.buildSetCookie(token));
-          const { jwt: _omit, ...rest } = result;
-          return { ...rest, ok: true };
+        if (!signed.ok) {
+          return {
+            ok: false,
+            code: signed.code,
+            message: signed.message,
+          };
         }
-
-        return { ...result, jwt: token };
+        const { sessionJwtUserId: _sessionJwtUserId, sessionJwtRpId: _sessionJwtRpId, jwt: _rawJwt, ...rest } =
+          result;
+        if (result.sessionKind === 'cookie') {
+          res.set('Set-Cookie', ctx.opts.session!.buildSetCookie(signed.jwt));
+          return {
+            ...rest,
+            jwt: undefined,
+          };
+        }
+        return {
+          ...rest,
+          jwt: signed.jwt,
+        };
       },
     );
   });
@@ -342,11 +378,8 @@ export function registerThresholdEcdsaRoutes(
       res,
       '/threshold-ecdsa/authorize',
       {
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        clientVerifyingShareB64u_len:
-          typeof body.clientVerifyingShareB64u === 'string'
-            ? body.clientVerifyingShareB64u.length
-            : undefined,
+        ecdsaThresholdKeyId:
+          typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
         purpose: typeof body.purpose === 'string' ? body.purpose : undefined,
         signing_digest_32_len: Array.isArray(body.signing_digest_32)
           ? body.signing_digest_32.length
@@ -394,11 +427,8 @@ export function registerThresholdEcdsaRoutes(
         res,
         '/threshold-ecdsa/presign/init',
         {
-          relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-          clientVerifyingShareB64u_len:
-            typeof body.clientVerifyingShareB64u === 'string'
-              ? body.clientVerifyingShareB64u.length
-              : undefined,
+          ecdsaThresholdKeyId:
+            typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
           count: typeof (body as any).count === 'number' ? (body as any).count : undefined,
           ...(requestTag ? { requestTag } : {}),
           ...(label ? { label } : {}),

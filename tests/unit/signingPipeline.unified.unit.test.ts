@@ -279,6 +279,26 @@ test.describe('unified signing pipeline', () => {
       ),
       'utf8',
     );
+    const tatchiPasskeyInterfacesSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/interfaces.ts'),
+      'utf8',
+    );
+    const walletIframeMessagesSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/WalletIframe/shared/messages.ts'),
+      'utf8',
+    );
+    const registrationSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/registration.ts'),
+      'utf8',
+    );
+    const loginSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/login.ts'),
+      'utf8',
+    );
+    const configBuilderSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/config/configBuilder.ts'),
+      'utf8',
+    );
     const thresholdEd25519LifecycleSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
@@ -294,8 +314,24 @@ test.describe('unified signing pipeline', () => {
     // Activation helpers are used only by internal workflow modules.
     expect(thresholdSessionActivationSource).toContain('activateThresholdKeyForChain({');
     expect(thresholdSessionActivationSource).toContain('chain,');
-    expect(thresholdEd25519LifecycleSource).toContain('activateThresholdKeyForChain({');
-    expect(thresholdEd25519LifecycleSource).toContain("chain: 'near'");
+    expect(thresholdSessionActivationSource).not.toContain('ecdsaHssExportArtifact:');
+    expect(thresholdSessionActivationSource).not.toContain('ecdsaKeyModel');
+    expect(tatchiPasskeyInterfacesSource).not.toContain('ecdsaHssExportArtifact?:');
+    expect(walletIframeMessagesSource).not.toContain('ecdsaHssExportArtifact?:');
+    expect(registrationSource).not.toContain('resolveThresholdEcdsaCanonicalExportArtifact({');
+    expect(registrationSource).toContain("source: 'registration'");
+    expect(registrationSource).not.toContain('requiresThresholdEcdsaOneKeyForNewAccounts(');
+    expect(registrationSource).toContain('await provisionThresholdEcdsaAfterRegistration({');
+    expect(registrationSource).not.toContain('ecdsaKeyModel');
+    expect(loginSource).not.toContain('resolveThresholdEcdsaCanonicalExportArtifact({');
+    expect(loginSource).not.toContain('ecdsaKeyModel');
+    expect(configBuilderSource).not.toContain('resolveThresholdEcdsaNewAccountKeyMode({');
+    expect(thresholdEd25519LifecycleSource).toContain(
+      'prepareThresholdEd25519HssClientCeremonyFromCredential',
+    );
+    expect(thresholdEd25519LifecycleSource).toContain(
+      'runThresholdEd25519HssCeremonyWithSession',
+    );
   });
 
   test('runtime secp signing enforces threshold keyRef guardrail', () => {
@@ -311,7 +347,7 @@ test.describe('unified signing pipeline', () => {
     expect(secpEngineSource).toContain('runtime signing requires threshold-ecdsa-secp256k1 keyRef');
   });
 
-  test('registration session hydration uses high-level signingSession API only', () => {
+  test('registration session persistence stays on helper/public signing-session seams', () => {
     const registrationSource = fs.readFileSync(
       path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/registration.ts'),
       'utf8',
@@ -321,7 +357,8 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
 
-    expect(registrationSource).toContain('signingEngine.hydrateSigningSession({');
+    expect(registrationSource).toContain('await persistRegisteredThresholdEd25519Session({');
+    expect(registrationSource).not.toContain('signingEngine.hydrateSigningSession({');
     expect(registrationSource).not.toContain('signingEngine.setActiveSigningSessionId(');
     expect(registrationSource).not.toContain('signingEngine.putPrfFirstForThresholdSession(');
 

@@ -26,6 +26,7 @@ threshold-signatures = { git = "https://github.com/near/threshold-signatures", r
 rand_core = { version = "0.6", features = ["getrandom"], optional = true }
 curve25519-dalek = { version = "=4.1.3", features = ["rand_core", "zeroize"], optional = true }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"], optional = true }
+zeroize = "1.8"
 
 [features]
 default = []

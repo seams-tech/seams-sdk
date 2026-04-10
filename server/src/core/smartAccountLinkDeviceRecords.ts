@@ -70,7 +70,7 @@ export function buildLinkDeviceSmartAccountRecords(input: {
   credentialIdB64u: string;
   rpId: string;
   relayerKeyId: string;
-  groupPublicKeyB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
   thresholdOwnerAddress: string;
   participantIds?: number[];
   recoverySubjects?: SmartAccountRecoverySubjectRecord[];
@@ -83,11 +83,11 @@ export function buildLinkDeviceSmartAccountRecords(input: {
   const credentialIdB64u = toOptionalTrimmedString(input.credentialIdB64u);
   const rpId = toOptionalTrimmedString(input.rpId);
   const relayerKeyId = toOptionalTrimmedString(input.relayerKeyId);
-  const groupPublicKeyB64u = toOptionalTrimmedString(input.groupPublicKeyB64u);
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(input.thresholdEcdsaPublicKeyB64u);
   const thresholdOwnerAddress = normalizeSmartAccountHexLike(input.thresholdOwnerAddress);
   const nowMs = Number.isFinite(Number(input.nowMs)) ? Math.floor(Number(input.nowMs)) : Date.now();
   if (!userId || !credentialIdB64u || !rpId) return { accountSigners: [], linkedAccounts: [] };
-  if (!relayerKeyId || !groupPublicKeyB64u || !thresholdOwnerAddress) {
+  if (!relayerKeyId || !thresholdEcdsaPublicKeyB64u || !thresholdOwnerAddress) {
     return { accountSigners: [], linkedAccounts: [] };
   }
 
@@ -116,7 +116,7 @@ export function buildLinkDeviceSmartAccountRecords(input: {
         accountModel: linked.accountModel,
         ownerAddress: thresholdOwnerAddress,
         relayerKeyId,
-        groupPublicKeyB64u,
+        thresholdEcdsaPublicKeyB64u,
         deviceNumber: input.deviceNumber,
         credentialIdB64u,
         rpId,

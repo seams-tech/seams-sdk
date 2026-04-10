@@ -25,7 +25,10 @@ type UseDemoTempoFeeTokenActionsArgs = {
   nearAccountId?: string | null;
   tatchi: ReturnType<typeof useTatchi>['tatchi'];
   tempoEip1559FeeCaps: Eip1559FeeCaps;
-  resolveThresholdSenderForEvmFamily: () => Promise<EvmAddress>;
+  resolveThresholdSenderForEvmFamily: (opts?: {
+    chain?: 'tempo' | 'evm';
+    ensureReady?: boolean;
+  }) => Promise<EvmAddress>;
   refreshTempoUserFeeToken: (opts?: {
     silent?: boolean;
     userAddress?: EvmAddress | null;
@@ -79,17 +82,14 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
           feeCaps,
           feeToken: tempoFeeToken,
         });
-        const payloadExpectation =
-          request.chain === 'evm'
-            ? {
-                to: request.tx.to,
-                input: request.tx.data || '0x',
-              }
-            : {
-                to: request.tx.calls[0]?.to,
-                input: request.tx.calls[0]?.input || '0x',
-              };
-        const thresholdSenderPromise = resolveThresholdSenderForEvmFamily()
+        const payloadExpectation = {
+          to: request.tx.to,
+          input: request.tx.data || '0x',
+        };
+        const thresholdSenderPromise = resolveThresholdSenderForEvmFamily({
+          chain: 'tempo',
+          ensureReady: true,
+        })
           .then((sender) => {
             thresholdSenderForAttempt = sender;
             return sender;

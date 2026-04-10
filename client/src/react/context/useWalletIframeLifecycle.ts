@@ -46,7 +46,7 @@ export function useWalletIframeLifecycle(args: {
                   nearAccountId: status.nearAccountId,
                   nearPublicKey: state.publicKey || null,
                   thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
-                  thresholdEcdsaGroupPublicKeyB64u: state.thresholdEcdsaGroupPublicKeyB64u || null,
+                  thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
                 }));
               } else {
                 setLoginState((prev) => ({
@@ -55,7 +55,7 @@ export function useWalletIframeLifecycle(args: {
                   nearAccountId: null,
                   nearPublicKey: null,
                   thresholdEcdsaEthereumAddress: null,
-                  thresholdEcdsaGroupPublicKeyB64u: null,
+                  thresholdEcdsaPublicKeyB64u: null,
                 }));
               }
             } else if (status && status.isLoggedIn === false) {
@@ -65,7 +65,7 @@ export function useWalletIframeLifecycle(args: {
                 nearAccountId: null,
                 nearPublicKey: null,
                 thresholdEcdsaEthereumAddress: null,
-                thresholdEcdsaGroupPublicKeyB64u: null,
+                thresholdEcdsaPublicKeyB64u: null,
               }));
             }
           },
@@ -88,7 +88,7 @@ export function useWalletIframeLifecycle(args: {
                   nearAccountId: state.nearAccountId,
                   nearPublicKey: state.publicKey || null,
                   thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
-                  thresholdEcdsaGroupPublicKeyB64u: state.thresholdEcdsaGroupPublicKeyB64u || null,
+                  thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
                 }));
                 return;
               }
@@ -100,7 +100,7 @@ export function useWalletIframeLifecycle(args: {
             nearAccountId: null,
             nearPublicKey: null,
             thresholdEcdsaEthereumAddress: null,
-            thresholdEcdsaGroupPublicKeyB64u: null,
+            thresholdEcdsaPublicKeyB64u: null,
           }));
         });
 
@@ -113,7 +113,7 @@ export function useWalletIframeLifecycle(args: {
             nearAccountId: st.nearAccountId,
             nearPublicKey: st.publicKey || null,
             thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
-            thresholdEcdsaGroupPublicKeyB64u: st.thresholdEcdsaGroupPublicKeyB64u || null,
+            thresholdEcdsaPublicKeyB64u: st.thresholdEcdsaPublicKeyB64u || null,
           }));
         }
       } catch (err) {

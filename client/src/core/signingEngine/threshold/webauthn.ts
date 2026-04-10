@@ -42,6 +42,17 @@ export type ThresholdPrfFirstCachePort = {
     expiresAtMs: number;
     remainingUses: number;
   }) => Promise<void>;
+  dispensePrfFirstForThresholdSession?: (args: {
+    sessionId: string;
+    uses?: number;
+  }) => Promise<{
+    ok: boolean;
+    code?: string;
+    message?: string;
+    prfFirstB64u?: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  }>;
   peekPrfFirstForThresholdSession?: (args: { sessionId: string }) => Promise<{
     ok: boolean;
     code?: string;

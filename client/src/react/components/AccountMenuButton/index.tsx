@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { KeyIcon } from './icons/KeyIcon';
 import { SpinnerIcon } from './icons/SpinnerIcon';
@@ -15,6 +15,7 @@ import type { AccountMenuButtonProps, MenuItem } from './types';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
+import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
@@ -112,9 +113,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
+  const [showExportKeyTypeModal, setShowExportKeyTypeModal] = useState(false);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
   const [exportKeysLoading, setExportKeysLoading] = useState(false);
+  const [exportChainLoading, setExportChainLoading] = useState<'near' | 'evm' | null>(null);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -193,6 +196,48 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     }
   };
 
+  const startExportKeyFlow = useCallback(
+    async (chain: 'near' | 'evm') => {
+      if (!nearAccountId) return;
+      let exportViewerOpened = false;
+      const handleExportViewerOpened = (event: MessageEvent) => {
+        if (!isExportViewerOpenedMessage(event)) return;
+        exportViewerOpened = true;
+        setExportKeysLoading(false);
+        setExportChainLoading(null);
+      };
+
+      flushSync(() => {
+        setShowExportKeyTypeModal(false);
+        setExportKeysLoading(true);
+        setExportChainLoading(chain);
+      });
+      await waitForNextPaint();
+
+      window.addEventListener('message', handleExportViewerOpened);
+      try {
+        await tatchi.keys.exportKeypairWithUI(nearAccountId, { chain, variant: 'drawer' });
+      } catch (error: any) {
+        console.error(`Key export failed (${chain}):`, error);
+        const msg = String(error?.message || 'Unknown error');
+        const friendly =
+          /No user data found|No public key found/i.test(msg)
+            ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
+            : /active threshold-ecdsa warm session/i.test(msg)
+              ? 'No active EVM threshold export session is available yet. Perform an EVM signing flow first, then retry export.'
+              : msg;
+        alert(`Key export failed: ${friendly}`);
+      } finally {
+        window.removeEventListener('message', handleExportViewerOpened);
+        if (!exportViewerOpened) {
+          setExportKeysLoading(false);
+          setExportChainLoading(null);
+        }
+      }
+    },
+    [nearAccountId, tatchi],
+  );
+
   // Menu items configuration with context-aware handlers
   const MENU_ITEMS: MenuItem[] = useMemo(() => {
     const items: MenuItem[] = [
@@ -202,34 +247,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         label: 'Export Keys',
         description: 'View your private keys',
         disabled: !loginState.isLoggedIn || exportKeysLoading,
-        onClick: async () => {
-          let exportViewerOpened = false;
-          const handleExportViewerOpened = (event: MessageEvent) => {
-            if (!isExportViewerOpenedMessage(event)) return;
-            exportViewerOpened = true;
-            setExportKeysLoading(false);
-          };
-
-          flushSync(() => {
-            setExportKeysLoading(true);
-          });
-          await waitForNextPaint();
-          window.addEventListener('message', handleExportViewerOpened);
-          try {
-            await tatchi.keys.exportKeypairWithUI(nearAccountId!, { chain: 'near' });
-          } catch (error: any) {
-            console.error('Key export failed:', error);
-            const msg = String(error?.message || 'Unknown error');
-            const friendly = /No user data found|No public key found/i.test(msg)
-              ? 'No local key material found for this account on this device. Please complete registration or recovery here first.'
-              : msg;
-            alert(`Key export failed: ${friendly}`);
-          } finally {
-            window.removeEventListener('message', handleExportViewerOpened);
-            if (!exportViewerOpened) {
-              setExportKeysLoading(false);
-            }
-          }
+        onClick: () => {
+          setShowExportKeyTypeModal(true);
         },
         keepOpenOnClick: true,
       },
@@ -275,7 +294,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [tatchi, nearAccountId, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
+  }, [loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -378,6 +397,23 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             nearAccountId={nearAccountId!}
             isOpen={showLinkedDevices}
             onClose={() => setShowLinkedDevices(false)}
+          />,
+          portalHost!,
+        )}
+
+      {/* Export Key Type Modal (portaled to nearest root for robustness) */}
+      {canPortal &&
+        createPortal(
+          <ExportKeyTypeModal
+            isOpen={showExportKeyTypeModal}
+            loadingChain={exportChainLoading}
+            onClose={() => {
+              setShowExportKeyTypeModal(false);
+              setExportChainLoading(null);
+            }}
+            onSelectChain={(chain) => {
+              void startExportKeyFlow(chain);
+            }}
           />,
           portalHost!,
         )}

@@ -77,6 +77,7 @@ export type ThresholdPrfFirstCacheRehydrateResult =
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
+export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
   nearAccountId: string;
@@ -91,6 +92,13 @@ export type ExportPrivateKeysWithUiWorkerPayload =
       artifactKind: 'near-ed25519-seed-v1';
       expectedPublicKey: string;
       seedB64u: string;
+    })
+  | (ExportPrivateKeysWithUiWorkerPayloadBase & {
+      chain: 'evm' | 'tempo';
+      artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+      publicKeyHex: string;
+      privateKeyHex: string;
+      ethereumAddress: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       chain: 'evm' | 'tempo';

@@ -267,7 +267,6 @@ export function buildConfigsFromDefaults(args: {
     defaults,
     relayerUrl,
   });
-
   return {
     network: {
       chains,

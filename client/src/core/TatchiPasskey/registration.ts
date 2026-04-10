@@ -19,7 +19,10 @@ import type { AccountId } from '../types/accountIds';
 import type { WebAuthnRegistrationCredential } from '../types/webauthn';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
-import { getPrfResultsFromCredential } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
+import {
+  getPrfFirstB64uFromCredential,
+  getPrfResultsFromCredential,
+} from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
@@ -255,17 +258,12 @@ export async function registerPasskeyInternal(
       message: 'Registration metadata stored successfully',
     });
 
-    void provisionThresholdEcdsaAfterRegistration({
+    await provisionThresholdEcdsaAfterRegistration({
       context,
       signingEngine,
       credential,
       nearAccountId,
       completedThresholdEd25519Registration,
-    }).catch((error: unknown) => {
-      console.warn(
-        '[Registration] threshold ECDSA background provisioning failed:',
-        error instanceof Error ? error.message : String(error || 'unknown error'),
-      );
     });
 
     void prewarmThresholdEd25519ClientBaseFromCredential({
@@ -542,18 +540,9 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   }
 
   try {
-    const deriveStartedAt = performance.now();
-    const derived = await args.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential(
-      {
-        credential: args.credential,
-        nearAccountId: args.nearAccountId,
-      },
-    );
-    timings.deriveThresholdEcdsaClientShareMs = Math.round(performance.now() - deriveStartedAt);
-    if (!derived.success || !derived.clientVerifyingShareB64u) {
-      throw new Error(
-        derived.error || 'Failed to derive threshold ECDSA client verifying share from credential',
-      );
+    const clientRootShare32B64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
+    if (!clientRootShare32B64u) {
+      throw new Error('Failed to derive threshold ECDSA client root share from credential');
     }
 
     const bootstrapStartedAt = performance.now();
@@ -564,7 +553,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       relayerUrl,
       sessionKind: 'jwt',
       sessionId: thresholdSessionId,
-      clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
+      clientRootShare32B64u,
       authorizationJwt: thresholdSessionJwt,
     });
     timings.bootstrapThresholdEcdsaMs = Math.round(performance.now() - bootstrapStartedAt);
@@ -576,7 +565,8 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     console.info('[Registration] threshold ECDSA background provisioned', {
       nearAccountId: args.nearAccountId,
       chain: canonicalChain,
-      relayerKeyId: keyRef.relayerKeyId,
+      ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+      relayerKeyId: keyRef.backendBinding?.relayerKeyId,
       thresholdSessionId: keyRef.thresholdSessionId,
       thresholdSessionJwtSource,
       accountAddress:

@@ -1,16 +1,16 @@
 import type {
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaBootstrapRequest,
-  ThresholdEcdsaBootstrapResponse,
-  ThresholdEcdsaKeygenRequest,
-  ThresholdEcdsaKeygenResponse,
+  ThresholdEcdsaHssFinalizeRequest,
+  ThresholdEcdsaHssFinalizeResponse,
+  ThresholdEcdsaHssPrepareRequest,
+  ThresholdEcdsaHssPrepareResponse,
+  ThresholdEcdsaHssRespondRequest,
+  ThresholdEcdsaHssRespondResponse,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignInitResponse,
   ThresholdEcdsaPresignStepRequest,
   ThresholdEcdsaPresignStepResponse,
-  ThresholdEcdsaSessionRequest,
-  ThresholdEcdsaSessionResponse,
 } from '../../types';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from './schemeIds';
 import type { ThresholdSecp256k1Ecdsa2pSchemeModule } from './types';
@@ -18,9 +18,17 @@ import type { ThresholdEcdsaSessionClaims } from '../validation';
 
 export type ThresholdSecp256k1Ecdsa2pSchemeModuleDeps = {
   healthz?: () => Promise<{ ok: boolean; code?: string; message?: string }>;
-  keygen(request: ThresholdEcdsaKeygenRequest): Promise<ThresholdEcdsaKeygenResponse>;
-  session(request: ThresholdEcdsaSessionRequest): Promise<ThresholdEcdsaSessionResponse>;
-  bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
+  hss?: {
+    prepare(
+      request: ThresholdEcdsaHssPrepareRequest,
+    ): Promise<ThresholdEcdsaHssPrepareResponse>;
+    respond(
+      request: ThresholdEcdsaHssRespondRequest,
+    ): Promise<ThresholdEcdsaHssRespondResponse>;
+    finalize(
+      request: ThresholdEcdsaHssFinalizeRequest,
+    ): Promise<ThresholdEcdsaHssFinalizeResponse>;
+  };
   authorize(input: {
     claims: ThresholdEcdsaSessionClaims;
     request: ThresholdEcdsaAuthorizeWithSessionRequest;
@@ -52,9 +60,7 @@ export function createThresholdSecp256k1Ecdsa2pSchemeModule(
     async healthz() {
       return deps.healthz ? await deps.healthz() : { ok: true };
     },
-    keygen: deps.keygen,
-    session: deps.session,
-    ...(deps.bootstrap ? { bootstrap: deps.bootstrap } : {}),
+    ...(deps.hss ? { hss: deps.hss } : {}),
     authorize: deps.authorize,
     presign: deps.presign,
     protocol: deps.protocol,

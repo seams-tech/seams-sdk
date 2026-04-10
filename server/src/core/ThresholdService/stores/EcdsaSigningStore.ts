@@ -18,6 +18,8 @@ export type ThresholdEcdsaSigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
   relayerKeyId: string;
+  ecdsaThresholdKeyId: string;
+  thresholdEcdsaPublicKeyB64u: string;
   signingDigestB64u: string;
   userId: string;
   rpId: string;

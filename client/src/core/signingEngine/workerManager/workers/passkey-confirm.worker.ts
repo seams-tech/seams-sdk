@@ -83,6 +83,10 @@ type NearSeedExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
   { chain: 'near'; artifactKind: 'near-ed25519-seed-v1' }
 >;
+type EcdsaHssThresholdExportWorkerPayload = Extract<
+  ExportPrivateKeysWithUiWorkerPayload,
+  { artifactKind: 'ecdsa-hss-secp256k1-key-v1' }
+>;
 
 let ethSignerWasmInitPromise: Promise<void> | null = null;
 let hssClientSignerInitPromise: Promise<void> | null = null;
@@ -181,6 +185,25 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     }
     return null;
   }
+  if (artifactKind === 'ecdsa-hss-secp256k1-key-v1') {
+    const publicKeyHex = normalizeOptionalNonEmptyString(payload.publicKeyHex);
+    const privateKeyHex = normalizeOptionalNonEmptyString(payload.privateKeyHex);
+    const ethereumAddress = normalizeOptionalNonEmptyString(payload.ethereumAddress);
+    if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
+      return null;
+    }
+    return {
+      nearAccountId,
+      deviceNumber,
+      chain,
+      artifactKind,
+      publicKeyHex,
+      privateKeyHex,
+      ethereumAddress,
+      variant,
+      theme,
+    };
+  }
   return {
     nearAccountId,
     deviceNumber,
@@ -197,6 +220,19 @@ function requireNearSeedExportPayload(
     throw new Error('Threshold Ed25519 seed export metadata missing or invalid');
   }
   return payload;
+}
+
+function requireEcdsaHssThresholdExportPayload(
+  payload: ExportPrivateKeysWithUiWorkerPayload,
+): EcdsaHssThresholdExportWorkerPayload {
+  const artifactKind = 'artifactKind' in payload ? payload.artifactKind : undefined;
+  if (
+    (payload.chain !== 'evm' && payload.chain !== 'tempo') ||
+    artifactKind !== 'ecdsa-hss-secp256k1-key-v1'
+  ) {
+    throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
+  }
+  return payload as EcdsaHssThresholdExportWorkerPayload;
 }
 
 function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport | null {
@@ -464,8 +500,16 @@ async function runExportPrivateKeysWithUi(
     payload.artifactKind === 'near-ed25519-seed-v1'
       ? requireNearSeedExportPayload(payload)
       : null;
+  const ecdsaHssExportPayload =
+    exportScheme === 'secp256k1' &&
+    (payload.chain === 'evm' || payload.chain === 'tempo') &&
+    'artifactKind' in payload &&
+    payload.artifactKind === 'ecdsa-hss-secp256k1-key-v1'
+      ? requireEcdsaHssThresholdExportPayload(payload)
+      : null;
   const exportOperation = 'Export Private Key';
-  const ed25519PublicKey = nearSeedPayload?.expectedPublicKey || '';
+  const exportPublicKey =
+    nearSeedPayload?.expectedPublicKey || ecdsaHssExportPayload?.publicKeyHex || '';
   const requestId = toSessionId('export-keys');
   const intentDigest = `export-keys:${nearAccountId}:${payload.deviceNumber}`;
 
@@ -478,18 +522,17 @@ async function runExportPrivateKeysWithUi(
       summary: {
         operation: exportOperation,
         accountId: nearAccountId,
-        publicKey:
-          exportScheme === 'ed25519'
-            ? ed25519PublicKey || '(threshold export key)'
-            : '(derived from passkey)',
+        publicKey: exportPublicKey || '(threshold export key)',
         warning:
           exportScheme === 'ed25519'
             ? 'Confirm to reveal your NEAR private key export.'
-            : 'Authenticate with your passkey to prepare export keys.',
+            : ecdsaHssExportPayload
+              ? 'Confirm to reveal your EVM private key export.'
+              : 'Authenticate with your passkey to prepare export keys.',
       },
       payload: {
         nearAccountId,
-        publicKey: exportScheme === 'ed25519' ? ed25519PublicKey : '',
+        publicKey: exportPublicKey,
       },
       intentDigest,
     } satisfies UserConfirmRequest);
@@ -504,7 +547,7 @@ async function runExportPrivateKeysWithUi(
       };
     }
     const credential = decision.credential as WebAuthnAuthenticationCredential | undefined;
-    if (exportScheme === 'secp256k1') {
+    if (exportScheme === 'secp256k1' && !ecdsaHssExportPayload) {
       if (!credential) {
         throw new Error('Export confirmation did not return a WebAuthn authentication credential');
       }
@@ -527,7 +570,17 @@ async function runExportPrivateKeysWithUi(
       });
     }
 
-    if (exportScheme === 'secp256k1') {
+    if (exportScheme === 'secp256k1' && ecdsaHssExportPayload) {
+      exportKeys.push({
+        scheme: 'secp256k1',
+        label: secp256k1LabelForExportChain(exportChain),
+        publicKey: ecdsaHssExportPayload.publicKeyHex,
+        privateKey: ecdsaHssExportPayload.privateKeyHex,
+        address: ecdsaHssExportPayload.ethereumAddress,
+      });
+    }
+
+    if (exportScheme === 'secp256k1' && !ecdsaHssExportPayload) {
       const derived = await deriveSecp256k1FromPrfSecondInWorker({
         prfSecondB64u,
         nearAccountId,

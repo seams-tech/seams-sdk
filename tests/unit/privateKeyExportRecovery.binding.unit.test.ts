@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { exportNearEd25519SeedArtifactWithUI } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
+import {
+  exportEcdsaHssThresholdKeyArtifactWithUI,
+  exportNearEd25519SeedArtifactWithUI,
+} from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
   test('invokes requestExportPrivateKeysWithUi with Option A seed export payload', async () => {
@@ -56,6 +59,68 @@ test.describe('privateKeyExportRecovery method binding', () => {
       expectedPublicKey: 'ed25519:operational-pub',
       seedB64u: Buffer.alloc(32, 7).toString('base64url'),
       theme: 'dark',
+    });
+  });
+
+  test('invokes requestExportPrivateKeysWithUi with canonical ecdsa-hss EVM export payload', async () => {
+    const requestExportState = {
+      callCount: 0,
+      lastPayload: null as Record<string, unknown> | null,
+    };
+    const requestExportPrivateKeysWithUi = async (payload: Record<string, unknown>) => {
+      requestExportState.callCount += 1;
+      requestExportState.lastPayload = payload;
+      return {
+        ok: true,
+        accountId: String(payload.nearAccountId || ''),
+        exportedSchemes: ['secp256k1'],
+      };
+    };
+
+    const result = await exportEcdsaHssThresholdKeyArtifactWithUI(
+      {
+        indexedDB: {
+          clientDB: {
+            resolveProfileAccountContext: async () => ({
+              profileId: 'profile-1',
+              accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+            }),
+            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 4 }),
+          },
+        } as any,
+        requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
+        getTheme: () => 'light',
+        relayerUrl: 'https://relay.example.test',
+        getRpId: () => 'wallet.example.test',
+      },
+      {
+        nearAccountId: 'alice.testnet' as any,
+        artifact: {
+          artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+          chain: 'evm',
+          publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
+          privateKeyHex: `0x${'22'.repeat(32)}`,
+          ethereumAddress: `0x${'33'.repeat(20)}`,
+        },
+        options: { variant: 'modal' },
+      },
+    );
+
+    expect(result).toEqual({
+      accountId: 'alice.testnet',
+      exportedSchemes: ['secp256k1'],
+    });
+    expect(requestExportState.callCount).toBe(1);
+    expect(requestExportState.lastPayload).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      deviceNumber: 4,
+      chain: 'evm',
+      artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+      publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
+      privateKeyHex: `0x${'22'.repeat(32)}`,
+      ethereumAddress: `0x${'33'.repeat(20)}`,
+      variant: 'modal',
+      theme: 'light',
     });
   });
 });

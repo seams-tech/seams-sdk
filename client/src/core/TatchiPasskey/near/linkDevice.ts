@@ -21,6 +21,7 @@ import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } fro
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
+import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/webauthn';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
@@ -41,7 +42,7 @@ import {
   persistLinkDeviceThresholdEcdsaBootstrap,
   type PreparedLinkDeviceLinkedAccount,
   type PreparedLinkDeviceThresholdEcdsa,
-} from './linkDeviceThresholdEcdsa';
+} from '../evm/linkDeviceThresholdEcdsa';
 
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
@@ -409,7 +410,7 @@ export class LinkDeviceFlow {
       this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
     );
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
-    let thresholdEcdsaClientVerifyingShareB64u: string | null = null;
+    let thresholdEcdsaClientRootShare32B64u: string | null = null;
     let thresholdEcdsaSessionPolicy: {
       version: 'threshold_session_v1';
       userId: string;
@@ -420,17 +421,12 @@ export class LinkDeviceFlow {
       remainingUses: number;
     } | null = null;
     if (thresholdEcdsaPrimaryProvisionTarget) {
-      const derivedEcdsa =
-        await this.context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
-          credential,
-          nearAccountId,
-        });
-      if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
-        throw new Error(
-          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
-        );
+      thresholdEcdsaClientRootShare32B64u = String(
+        getPrfFirstB64uFromCredential(credential) || '',
+      ).trim();
+      if (!thresholdEcdsaClientRootShare32B64u) {
+        throw new Error('Failed to derive threshold secp256k1 client root share');
       }
-      thresholdEcdsaClientVerifyingShareB64u = derivedEcdsa.clientVerifyingShareB64u;
       if (thresholdEcdsaPrimaryProvisionTarget.options.signingSession.kind !== 'jwt') {
         throw new Error('Threshold ECDSA link-device bootstrap requires sessionKind=jwt');
       }
@@ -462,10 +458,10 @@ export class LinkDeviceFlow {
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
         device_number: resolvedDeviceNumber,
         threshold_ed25519: thresholdWarmSessionRequest,
-        ...(thresholdEcdsaClientVerifyingShareB64u && thresholdEcdsaSessionPolicy
+        ...(thresholdEcdsaClientRootShare32B64u && thresholdEcdsaSessionPolicy
           ? {
               threshold_ecdsa: {
-                client_verifying_share_b64u: thresholdEcdsaClientVerifyingShareB64u,
+                client_root_share32_b64u: thresholdEcdsaClientRootShare32B64u,
                 session_policy: thresholdEcdsaSessionPolicy,
                 session_kind: 'jwt',
               },
@@ -504,8 +500,15 @@ export class LinkDeviceFlow {
       prepareObj.thresholdEcdsa,
     )
       ? {
+          ecdsaThresholdKeyId: String(prepareObj.thresholdEcdsa.ecdsaThresholdKeyId || '').trim(),
+          clientVerifyingShareB64u: String(
+            prepareObj.thresholdEcdsa.clientVerifyingShareB64u || '',
+          ).trim(),
+          clientAdditiveShare32B64u: String(
+            prepareObj.thresholdEcdsa.clientAdditiveShare32B64u || '',
+          ).trim(),
           relayerKeyId: String(prepareObj.thresholdEcdsa.relayerKeyId || '').trim(),
-          groupPublicKeyB64u: String(prepareObj.thresholdEcdsa.groupPublicKeyB64u || '').trim(),
+          thresholdEcdsaPublicKeyB64u: String(prepareObj.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim(),
           ethereumAddress: String(prepareObj.thresholdEcdsa.ethereumAddress || '').trim(),
           relayerVerifyingShareB64u: String(
             prepareObj.thresholdEcdsa.relayerVerifyingShareB64u || '',
@@ -628,7 +631,6 @@ export class LinkDeviceFlow {
     });
     if (
       thresholdEcdsaSection &&
-      thresholdEcdsaClientVerifyingShareB64u &&
       linkedAccounts.length > 0
     ) {
       await persistLinkDeviceThresholdEcdsaBootstrap({
@@ -639,7 +641,6 @@ export class LinkDeviceFlow {
         deviceNumber: resolvedDeviceNumber,
         rpId,
         credentialIdB64u,
-        clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
         thresholdEcdsa: thresholdEcdsaSection,
         linkedAccounts,
       });

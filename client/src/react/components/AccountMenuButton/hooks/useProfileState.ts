@@ -42,12 +42,15 @@ export const useProfileState = (options?: UseProfileStateOptions) => {
       if (clickedInsideButton || clickedInsideDropdown) return;
 
       // Allow interactions with portaled overlays without closing the menu
-      // Linked devices / access keys modal (match any class starting with prefix)
+      // Linked devices / access keys modal and export key chooser modal.
       const pathEls = path.filter((n): n is HTMLElement => n instanceof HTMLElement);
-      const inAccessKeysModal = pathEls.some((el) =>
-        Array.from(el.classList ?? []).some((c) => c.startsWith('w3a-access-keys-modal')),
+      const inAccountMenuOverlay = pathEls.some((el) =>
+        Array.from(el.classList ?? []).some(
+          (c) =>
+            c.startsWith('w3a-access-keys-modal') || c.startsWith('w3a-export-key-type-modal'),
+        ),
       );
-      if (inAccessKeysModal) return;
+      if (inAccountMenuOverlay) return;
 
       // QR scanner overlay
       const inQRScanner = pathEls.some(

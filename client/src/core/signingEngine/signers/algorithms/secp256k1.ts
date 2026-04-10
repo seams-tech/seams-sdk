@@ -4,7 +4,7 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
 } from '@/core/types/tatchi';
-import { deriveThresholdSecp256k1ClientShareWasm } from '../wasm/ethSignerWasm';
+import { base64UrlDecode } from '@shared/utils/base64';
 import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {
   getThresholdEcdsaClientPresignaturePoolDepth,
@@ -38,14 +38,6 @@ export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
   task: () => Promise<T>;
 }) => Promise<T>;
 
-export type ThresholdEcdsaPrfFirstDispenseFn = (args: {
-  sessionId: string;
-  uses?: number;
-}) => Promise<
-  | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
-  | { ok: false; code: string; message: string }
->;
-
 export type ThresholdEcdsaPresignRefillScheduledEvent = {
   trigger: 'commit_start' | 'post_sign_success';
   result: ThresholdEcdsaClientPresignatureRefillScheduleResult;
@@ -55,7 +47,6 @@ export class Secp256k1Engine implements Signer {
   readonly algorithm = 'secp256k1' as const;
 
   private readonly getRpId?: () => string | null;
-  private readonly dispenseThresholdEcdsaPrfFirstForSession?: ThresholdEcdsaPrfFirstDispenseFn;
   private readonly enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
   private readonly thresholdEcdsaPresignPoolPolicy: ThresholdEcdsaPresignPoolPolicy;
   private readonly onThresholdEcdsaPresignRefillScheduled?: (
@@ -66,7 +57,6 @@ export class Secp256k1Engine implements Signer {
 
   constructor(opts: {
     getRpId?: () => string | null;
-    dispenseThresholdEcdsaPrfFirstForSession?: ThresholdEcdsaPrfFirstDispenseFn;
     enqueueThresholdEcdsaCommit?: ThresholdEcdsaCommitQueueEnqueueFn;
     thresholdEcdsaPresignPoolPolicy?:
       | ThresholdEcdsaPresignPoolPolicyInput
@@ -78,7 +68,6 @@ export class Secp256k1Engine implements Signer {
     workerCtx: WorkerOperationContext;
   }) {
     this.getRpId = opts.getRpId;
-    this.dispenseThresholdEcdsaPrfFirstForSession = opts.dispenseThresholdEcdsaPrfFirstForSession;
     this.enqueueThresholdEcdsaCommit = opts.enqueueThresholdEcdsaCommit;
     this.thresholdEcdsaPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy(
       opts.thresholdEcdsaPresignPoolPolicy,
@@ -125,6 +114,20 @@ export class Secp256k1Engine implements Signer {
           '[multichain] Missing threshold-ecdsa participantIds; reconnect threshold session',
         );
       }
+      const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
+      if (!relayerKeyId) {
+        throw new Error(
+          '[multichain] Missing backend relayerKeyId for threshold-ecdsa signing; reconnect threshold session',
+        );
+      }
+      const clientVerifyingShareB64u = String(
+        keyRef.backendBinding?.clientVerifyingShareB64u || '',
+      ).trim();
+      if (!clientVerifyingShareB64u) {
+        throw new Error(
+          '[multichain] Missing backend clientVerifyingShareB64u for threshold-ecdsa signing; reconnect threshold session',
+        );
+      }
 
       const resolvedAuthMaterial = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
         thresholdSessionId: keyRefThresholdSessionId,
@@ -136,10 +139,11 @@ export class Secp256k1Engine implements Signer {
         !!canonicalRecord &&
         String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
         (!requestChain || canonicalRecord.chain === requestChain) &&
+        String(canonicalRecord.ecdsaThresholdKeyId || '') ===
+          String(keyRef.ecdsaThresholdKeyId || '') &&
         String(canonicalRecord.relayerUrl || '') === String(keyRef.relayerUrl || '') &&
-        String(canonicalRecord.relayerKeyId || '') === String(keyRef.relayerKeyId || '') &&
-        String(canonicalRecord.clientVerifyingShareB64u || '') ===
-          String(keyRef.clientVerifyingShareB64u || '');
+        String(canonicalRecord.relayerKeyId || '') === relayerKeyId &&
+        String(canonicalRecord.clientVerifyingShareB64u || '') === clientVerifyingShareB64u;
 
       const keyRefSessionKind = keyRef.thresholdSessionKind;
       const recordSessionKind: EcdsaSessionKind = canonicalRecord?.thresholdSessionKind || 'jwt';
@@ -196,8 +200,7 @@ export class Secp256k1Engine implements Signer {
       const purpose = String(req.label || 'secp256k1');
       const authorized = await authorizeEcdsaWithSession({
         relayerUrl: keyRef.relayerUrl,
-        relayerKeyId: keyRef.relayerKeyId,
-        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
         purpose,
         signingDigest32: req.digest32,
         sessionKind,
@@ -213,40 +216,36 @@ export class Secp256k1Engine implements Signer {
         ...(authorized.presignPoolPolicy || {}),
       });
 
-      if (!this.dispenseThresholdEcdsaPrfFirstForSession) {
-        throw new Error('[multichain] Missing PRF.first dispenser for threshold-ecdsa signing');
-      }
-
-      const dispensed = await this.dispenseThresholdEcdsaPrfFirstForSession({
-        sessionId: keyRefThresholdSessionId,
-        uses: 1,
-      });
-      if (!dispensed.ok) {
+      const clientAdditiveShare32B64u = String(
+        keyRef.backendBinding?.clientAdditiveShare32B64u || '',
+      ).trim();
+      if (!clientAdditiveShare32B64u) {
         throw new Error(
-          dispensed.message ||
-            dispensed.code ||
-            '[multichain] failed to load PRF.first for threshold-ecdsa signing',
+          '[multichain] Missing backend clientAdditiveShare32B64u for threshold-ecdsa signing; reconnect threshold session',
         );
       }
-
-      const derived = await deriveThresholdSecp256k1ClientShareWasm({
-        prfFirstB64u: dispensed.prfFirstB64u,
-        userId: keyRef.userId,
-        workerCtx: this.workerCtx,
-      });
-      if (derived.clientVerifyingShareB64u !== keyRef.clientVerifyingShareB64u) {
+      let clientSigningShare32: Uint8Array;
+      try {
+        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+      } catch {
         throw new Error(
-          '[multichain] Derived client share does not match keyRef.clientVerifyingShareB64u',
+          '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
+        );
+      }
+      if (clientSigningShare32.length !== 32) {
+        throw new Error(
+          '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
         );
       }
 
       const refillBaseArgs = {
         relayerUrl: keyRef.relayerUrl,
-        relayerKeyId: keyRef.relayerKeyId,
-        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+        relayerKeyId,
+        clientVerifyingShareB64u,
         participantIds,
-        clientSigningShare32: derived.clientSigningShare32,
-        groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
+        clientSigningShare32,
+        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
         relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
         sessionKind,
         ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -254,8 +253,7 @@ export class Secp256k1Engine implements Signer {
       };
       const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
         relayerUrl: keyRef.relayerUrl,
-        relayerKeyId: keyRef.relayerKeyId,
-        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
         participantIds,
       });
       const presignRefillScheduledAtCommitStart =
@@ -281,13 +279,14 @@ export class Secp256k1Engine implements Signer {
 
       const signed = await signThresholdEcdsaDigestWithPool({
         relayerUrl: keyRef.relayerUrl,
-        relayerKeyId: keyRef.relayerKeyId,
-        clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+        relayerKeyId,
+        clientVerifyingShareB64u,
         mpcSessionId: authorized.mpcSessionId,
         signingDigest32: req.digest32,
-        clientSigningShare32: derived.clientSigningShare32,
+        clientSigningShare32,
         participantIds,
-        groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
+        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
         relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
         sessionKind,
         ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),

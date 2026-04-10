@@ -22,8 +22,17 @@ const WALLET_STUB_CAPTURE_SCRIPT = String.raw`
           window.__capturedSigningSessionPersistenceMode = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionPersistenceMode
             : undefined;
+          window.__capturedSigningSessionDefaults = (data.payload && typeof data.payload === 'object')
+            ? data.payload.signingSessionDefaults
+            : undefined;
           window.__capturedSigningSessionSeal = (data.payload && typeof data.payload === 'object')
             ? data.payload.signingSessionSeal
+            : undefined;
+          window.__capturedThresholdEcdsaPresignPool = (data.payload && typeof data.payload === 'object')
+            ? data.payload.thresholdEcdsaPresignPool
+            : undefined;
+          window.__capturedProvisioningDefaults = (data.payload && typeof data.payload === 'object')
+            ? data.payload.provisioningDefaults
             : undefined;
           window.__capturedRegistration = (data.payload && typeof data.payload === 'object')
             ? data.payload.registration
@@ -93,10 +102,41 @@ test.describe('Wallet iframe config propagation', () => {
 
         const pm = new TatchiPasskey({
           relayer: { url: 'http://localhost:3000' },
+          signingSessionDefaults: {
+            ttlMs: 12_345,
+            remainingUses: 67,
+          },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           signingSessionSeal: {
             keyVersion: 'kek-s-2026-02',
             shamirPrimeB64u: '_____________________________________v___C8',
+          },
+          thresholdEcdsaPresignPool: {
+            enabled: false,
+            targetDepth: 5,
+            lowWatermark: 2,
+            maxRefillInFlight: 3,
+            refillAttemptTimeoutMs: 45_000,
+          },
+          provisioningDefaults: {
+            tempo: {
+              enabled: true,
+              participantIds: [1, 2],
+              signingSession: {
+                kind: 'jwt',
+                ttlMs: 54_321,
+                remainingUses: 9,
+              },
+            },
+            evm: {
+              enabled: true,
+              participantIds: [1, 2],
+              signingSession: {
+                kind: 'jwt',
+                ttlMs: 65_432,
+                remainingUses: 11,
+              },
+            },
           },
           iframeWallet: {
             walletOrigin,
@@ -119,13 +159,53 @@ test.describe('Wallet iframe config propagation', () => {
     const capturedSigningSessionPersistenceMode = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionPersistenceMode ?? null;
     });
+    const capturedSigningSessionDefaults = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedSigningSessionDefaults ?? null;
+    });
     const capturedSigningSessionSeal = await walletFrame!.evaluate(() => {
       return (window as any).__capturedSigningSessionSeal ?? null;
     });
+    const capturedThresholdEcdsaPresignPool = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedThresholdEcdsaPresignPool ?? null;
+    });
+    const capturedProvisioningDefaults = await walletFrame!.evaluate(() => {
+      return (window as any).__capturedProvisioningDefaults ?? null;
+    });
     expect(capturedSigningSessionPersistenceMode).toBe('sealed_refresh_v1');
+    expect(capturedSigningSessionDefaults).toEqual({
+      ttlMs: 12_345,
+      remainingUses: 67,
+    });
     expect(capturedSigningSessionSeal).toEqual({
       keyVersion: 'kek-s-2026-02',
       shamirPrimeB64u: '_____________________________________v___C8',
+    });
+    expect(capturedThresholdEcdsaPresignPool).toEqual({
+      enabled: false,
+      targetDepth: 5,
+      lowWatermark: 2,
+      maxRefillInFlight: 3,
+      refillAttemptTimeoutMs: 45_000,
+    });
+    expect(capturedProvisioningDefaults).toEqual({
+      tempo: {
+        enabled: true,
+        participantIds: [1, 2],
+        signingSession: {
+          kind: 'jwt',
+          ttlMs: 54_321,
+          remainingUses: 9,
+        },
+      },
+      evm: {
+        enabled: true,
+        participantIds: [1, 2],
+        signingSession: {
+          kind: 'jwt',
+          ttlMs: 65_432,
+          remainingUses: 11,
+        },
+      },
     });
   });
 

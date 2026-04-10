@@ -17,7 +17,10 @@ import type { ConfirmationConfig } from '../types/signer-worker';
 import type { SigningSessionStatus, TatchiConfigsReadonly, ThemeName } from '../types/tatchi';
 import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../types';
 import type { UserPreferencesManager } from './api/userPreferences';
-import type { ThresholdEcdsaSecp256k1KeyRef } from './interfaces/signing';
+import type {
+  ThresholdEcdsaCanonicalExportArtifact,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from './interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
@@ -39,7 +42,6 @@ import type { EvmSignedResult } from './chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from './chainAdaptors/tempo/types';
 import type { TempoSignedResult } from './chainAdaptors/tempo/tempoAdapter';
 import { getPrfResultsFromCredential } from './signers/webauthn/credentials/credentialExtensions';
-import { deriveThresholdSecp256k1ClientShareWasm } from './signers/wasm/ethSignerWasm';
 import {
   connectEd25519SessionValue,
   bootstrapEcdsaSessionValue,
@@ -110,11 +112,16 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEd25519CommitQueue';
 import {
-  exportKeypairWithUI as exportKeypairWithUIValue,
+  exportEcdsaHssThresholdKeyArtifactWithUI as exportEcdsaHssThresholdKeyArtifactWithUIValue,
   exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue,
 } from './api/recovery/privateKeyExportRecovery';
 import { getLastLoggedInDeviceNumber } from './signers/webauthn/device/getDeviceNumber';
 import { removeExportViewerHostIfPresent } from './touchConfirm/ui/export-viewer-host';
+import {
+  thresholdEcdsaHssFinalize,
+  thresholdEcdsaHssPrepare,
+  thresholdEcdsaHssRespond,
+} from '../rpcClients/relayer/thresholdEcdsa';
 import {
   getAuthenticationCredentialsSerialized as getAuthenticationCredentialsSerializedValue,
   requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationValue,
@@ -133,9 +140,17 @@ import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
+  finalizeThresholdEcdsaHssClientRequestWasm,
+  prepareThresholdEcdsaHssClientRequestWasm,
+  prepareThresholdEcdsaHssSessionWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
 } from './signers/wasm/hssClientSignerWasm';
+import {
+  createThresholdEcdsaHssHiddenEvalFinalizeMessage,
+  encodeThresholdEcdsaHssHiddenEvalRequestMessage,
+  parseThresholdEcdsaHssHiddenEvalServerResponseMessage,
+} from './threshold/workflows/thresholdEcdsaHssTransport';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -206,6 +221,10 @@ export class SigningEngine {
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
   private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord> =
     new Map();
+  private readonly thresholdEcdsaExportArtifactByLane: Map<
+    string,
+    ThresholdEcdsaCanonicalExportArtifact
+  > = new Map();
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
@@ -596,10 +615,211 @@ export class SigningEngine {
       throw new Error('NEAR Ed25519 export now requires the canonical Option A HSS export path');
     }
 
-    return exportKeypairWithUIValue(this.orchestrationDeps.privateKeyExportRecoveryDeps, {
+    const thresholdEcdsaKeyRef = this.getThresholdEcdsaKeyRefForSigning({
       nearAccountId: args.nearAccountId,
-      options: args.options,
+      chain: args.options.chain === 'tempo' ? 'tempo' : 'evm',
     });
+    if (thresholdEcdsaKeyRef.ecdsaHssExportArtifact) {
+      return exportEcdsaHssThresholdKeyArtifactWithUIValue(
+        this.orchestrationDeps.privateKeyExportRecoveryDeps,
+        {
+          nearAccountId: args.nearAccountId,
+          artifact: thresholdEcdsaKeyRef.ecdsaHssExportArtifact,
+          options: {
+            variant: args.options.variant,
+            theme: args.options.theme,
+          },
+        },
+      );
+    }
+    return await this.exportThresholdEcdsaKeyFromWarmSession({
+      nearAccountId: args.nearAccountId,
+      chain: args.options.chain === 'tempo' ? 'tempo' : 'evm',
+      keyRef: thresholdEcdsaKeyRef,
+      options: {
+        variant: args.options.variant,
+        theme: args.options.theme,
+      },
+    });
+  }
+
+  private async exportThresholdEcdsaKeyFromWarmSession(args: {
+    nearAccountId: AccountId;
+    chain: 'evm' | 'tempo';
+    keyRef: ThresholdEcdsaSecp256k1KeyRef;
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
+    const rpId = String(this.getRpId() || '').trim();
+    if (!rpId) {
+      throw new Error('Missing rpId for threshold-ecdsa explicit export');
+    }
+    const thresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
+    const thresholdSessionJwt = String(args.keyRef.thresholdSessionJwt || '').trim();
+    const relayerUrl = String(args.keyRef.relayerUrl || '').trim();
+    const ecdsaThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
+    const sessionKind = args.keyRef.thresholdSessionKind || 'jwt';
+    if (!thresholdSessionId || !thresholdSessionJwt || !relayerUrl || !ecdsaThresholdKeyId) {
+      throw new Error(
+        'EVM one-key export requires an active threshold-ecdsa warm session bound to ecdsaThresholdKeyId',
+      );
+    }
+
+    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
+      sessionId: thresholdSessionId,
+    });
+    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
+      throw new Error('Missing warm PRF material for threshold-ecdsa explicit export');
+    }
+    const yClient32LeB64u = String(dispensed.prfFirstB64u || '').trim();
+
+    const signerWorkerCtx =
+      this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+
+    const prepare = await thresholdEcdsaHssPrepare(relayerUrl, {
+      userId: String(args.nearAccountId),
+      rpId,
+      operation: 'explicit_key_export',
+      ecdsaThresholdKeyId,
+      authorizationJwt: thresholdSessionJwt,
+      sessionKind,
+    });
+    if (!prepare.ok) {
+      throw new Error(
+        prepare.error || prepare.message || 'Threshold explicit export prepare failed',
+      );
+    }
+    const ceremonyId = String(prepare.ceremonyId || '').trim();
+    const preparedServerSessionB64u = String(prepare.preparedServerSessionB64u || '').trim();
+    const serverAssistInitB64u = String(prepare.serverAssistInitB64u || '').trim();
+    if (!ceremonyId || !preparedServerSessionB64u || !serverAssistInitB64u) {
+      throw new Error('Threshold explicit export prepare response missing staged transport inputs');
+    }
+
+    const preparedClientSession = await prepareThresholdEcdsaHssSessionWasm({
+      context: {
+        nearAccountId: String(args.nearAccountId),
+        keyPurpose: 'threshold-ecdsa',
+        keyVersion: 'v1',
+      },
+      clientRootShare32B64u: yClient32LeB64u,
+      workerCtx: signerWorkerCtx,
+    });
+    const evaluatorDriverStateB64u = String(
+      preparedClientSession.evaluatorDriverStateB64u || '',
+    ).trim();
+    if (!evaluatorDriverStateB64u) {
+      throw new Error(
+        'Threshold explicit export client session preparation returned incomplete staged transport data',
+      );
+    }
+
+    const clientRequest = await prepareThresholdEcdsaHssClientRequestWasm({
+      evaluatorDriverStateB64u,
+      serverAssistInitMessageB64u: serverAssistInitB64u,
+      clientRootShare32B64u: yClient32LeB64u,
+      workerCtx: signerWorkerCtx,
+    });
+    const clientEvalRequestB64u = String(clientRequest.clientEvalRequestB64u || '').trim();
+    if (!clientEvalRequestB64u) {
+      throw new Error(
+        'Threshold explicit export client request preparation returned incomplete staged transport data',
+      );
+    }
+
+    const requestMessageB64u = encodeThresholdEcdsaHssHiddenEvalRequestMessage({
+      ceremonyId,
+      preparedServerSessionB64u,
+      serverAssistInitB64u,
+      clientEvalRequestB64u,
+    });
+
+    const respond = await thresholdEcdsaHssRespond(relayerUrl, {
+      ceremonyId,
+      requestMessageB64u,
+      authorizationJwt: thresholdSessionJwt,
+      sessionKind,
+    });
+    if (!respond.ok) {
+      throw new Error(
+        respond.error || respond.message || 'Threshold explicit export respond failed',
+      );
+    }
+    const responseMessageB64u = String(respond.responseMessageB64u || '').trim();
+    if (!responseMessageB64u) {
+      throw new Error(
+        'Threshold explicit export respond response missing responseMessageB64u',
+      );
+    }
+    const responseEnvelope = parseThresholdEcdsaHssHiddenEvalServerResponseMessage(
+      responseMessageB64u,
+    );
+    if (!responseEnvelope) {
+      throw new Error(
+        'Threshold explicit export respond response did not contain a valid hidden-eval staged payload',
+      );
+    }
+    const serverEvalResponseB64u = String(responseEnvelope.serverEvalResponseB64u || '').trim();
+    if (!serverEvalResponseB64u) {
+      throw new Error(
+        'Threshold explicit export respond response missing hidden-eval serverEvalResponseB64u',
+      );
+    }
+
+    const clientFinalize = await finalizeThresholdEcdsaHssClientRequestWasm({
+      evaluatorDriverStateB64u,
+      serverEvalResponseB64u,
+      workerCtx: signerWorkerCtx,
+    });
+    const clientEvalFinalizeB64u = String(clientFinalize.clientEvalFinalizeB64u || '').trim();
+    if (!clientEvalFinalizeB64u) {
+      throw new Error(
+        'Threshold explicit export client finalize preparation returned incomplete staged transport data',
+      );
+    }
+
+    const clientFinalizeMessageB64u =
+      await createThresholdEcdsaHssHiddenEvalFinalizeMessage({
+      ceremonyId,
+      requestMessageB64u,
+      responseMessageB64u,
+      clientEvalFinalizeB64u,
+    });
+
+    const finalized = await thresholdEcdsaHssFinalize(relayerUrl, {
+      ceremonyId,
+      clientFinalizeMessageB64u,
+      authorizationJwt: thresholdSessionJwt,
+      sessionKind,
+    });
+    if (!finalized.ok) {
+      throw new Error(
+        finalized.error || finalized.message || 'Threshold explicit export finalize failed',
+      );
+    }
+    const publicKeyHex = String(finalized.canonicalPublicKeyHex || '').trim();
+    const privateKeyHex = String(finalized.privateKeyHex || '').trim();
+    const ethereumAddress = String(finalized.canonicalEthereumAddress || '').trim();
+    if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
+      throw new Error('Threshold explicit export finalize returned incomplete export material');
+    }
+
+    return await exportEcdsaHssThresholdKeyArtifactWithUIValue(
+      this.orchestrationDeps.privateKeyExportRecoveryDeps,
+      {
+        nearAccountId: args.nearAccountId,
+        artifact: {
+          artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+          chain: args.chain,
+          publicKeyHex,
+          privateKeyHex,
+          ethereumAddress,
+        },
+        options: args.options,
+      },
+    );
   }
 
   exportNearEd25519SeedArtifactWithUI(args: {
@@ -972,44 +1192,100 @@ export class SigningEngine {
     const nearAccountId = toAccountId(args.nearAccountId);
     const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
     const normalizedAuthorizationJwt = String(args.authorizationJwt || '').trim();
+    const normalizedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
     const normalizedSessionId = String(args.sessionId || '').trim();
-    const normalizedClientVerifyingShareB64u = String(
-      args.clientVerifyingShareB64u || '',
-    ).trim();
     const normalizedParticipantIds = Array.isArray(args.participantIds)
       ? args.participantIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
       : [];
 
+    const allowExistingSessionReuse =
+      !normalizedAuthorizationJwt && !normalizedClientRootShare32B64u && !normalizedSessionId;
+    if (allowExistingSessionReuse) {
+      try {
+        const existingKeyRef = this.getThresholdEcdsaKeyRefForSigning({
+          nearAccountId,
+          chain,
+        });
+        const warmStatus = await this.getWarmThresholdEcdsaSessionStatus(nearAccountId, chain);
+        const existingSessionId = String(existingKeyRef.thresholdSessionId || '').trim();
+        if (
+          existingSessionId &&
+          warmStatus?.status === 'active' &&
+          String(warmStatus.sessionId || '').trim() === existingSessionId
+        ) {
+          const clientVerifyingShareB64u = String(
+            existingKeyRef.backendBinding?.clientVerifyingShareB64u || '',
+          ).trim();
+          const clientAdditiveShare32B64u = String(
+            existingKeyRef.backendBinding?.clientAdditiveShare32B64u || '',
+          ).trim();
+          const relayerKeyId = String(existingKeyRef.backendBinding?.relayerKeyId || '').trim();
+          if (clientVerifyingShareB64u && relayerKeyId && clientAdditiveShare32B64u) {
+            return {
+              thresholdEcdsaKeyRef: existingKeyRef,
+              keygen: {
+                ok: true,
+                ecdsaThresholdKeyId: String(existingKeyRef.ecdsaThresholdKeyId || '').trim(),
+                relayerKeyId,
+                clientVerifyingShareB64u,
+                ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+                participantIds: existingKeyRef.participantIds || [],
+                thresholdEcdsaPublicKeyB64u: existingKeyRef.thresholdEcdsaPublicKeyB64u,
+                ethereumAddress: existingKeyRef.ethereumAddress,
+                relayerVerifyingShareB64u: existingKeyRef.relayerVerifyingShareB64u,
+              },
+              session: {
+                ok: true,
+                sessionId: existingSessionId,
+                jwt: String(existingKeyRef.thresholdSessionJwt || '').trim() || undefined,
+                expiresAtMs: warmStatus.expiresAtMs,
+                remainingUses: warmStatus.remainingUses,
+                clientVerifyingShareB64u,
+              },
+            };
+          }
+        }
+      } catch {}
+    }
+
     let inferredAuthorizationJwt = normalizedAuthorizationJwt;
     let inferredSessionId = normalizedSessionId;
-    let inferredClientVerifyingShareB64u = normalizedClientVerifyingShareB64u;
     let inferredParticipantIds = normalizedParticipantIds;
+    let inferredEcdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+
+    const hasWarmPrfForSession = async (sessionIdRaw: unknown): Promise<boolean> => {
+      const sessionId = String(sessionIdRaw || '').trim();
+      if (!sessionId || typeof this.touchConfirm.peekPrfFirstForThresholdSession !== 'function') {
+        return false;
+      }
+      const peeked = await this.touchConfirm
+        .peekPrfFirstForThresholdSession({ sessionId })
+        .catch(() => ({ ok: false as const }));
+      return peeked.ok === true;
+    };
 
     const ed25519Record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
-    if (!inferredAuthorizationJwt) {
-      const ed25519Jwt = String(ed25519Record?.thresholdSessionJwt || '').trim();
-      if (ed25519Jwt && ed25519Record?.thresholdSessionKind === 'jwt') {
-        inferredAuthorizationJwt = ed25519Jwt;
-      }
-    }
-    if (!inferredSessionId) {
-      inferredSessionId = String(ed25519Record?.thresholdSessionId || '').trim();
-    }
-    if (inferredParticipantIds.length === 0 && Array.isArray(ed25519Record?.participantIds)) {
-      inferredParticipantIds = ed25519Record.participantIds
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value));
+    const fallbackEd25519SessionId = String(ed25519Record?.thresholdSessionId || '').trim();
+    const fallbackEd25519ParticipantIds =
+      Array.isArray(ed25519Record?.participantIds) && inferredParticipantIds.length === 0
+        ? ed25519Record.participantIds
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value))
+        : [];
+    const fallbackEd25519Jwt =
+      ed25519Record?.thresholdSessionKind === 'jwt' &&
+      String(ed25519Record?.thresholdSessionJwt || '').trim() &&
+      (normalizedClientRootShare32B64u || (await hasWarmPrfForSession(fallbackEd25519SessionId)))
+        ? String(ed25519Record?.thresholdSessionJwt || '').trim()
+        : '';
+    if (!inferredAuthorizationJwt && fallbackEd25519Jwt) {
+      inferredAuthorizationJwt = fallbackEd25519Jwt;
     }
 
     const candidateChains: ThresholdEcdsaActivationChain[] =
       chain === 'tempo' ? ['tempo', 'evm'] : ['evm', 'tempo'];
     for (const candidateChain of candidateChains) {
-      if (
-        inferredAuthorizationJwt &&
-        inferredSessionId &&
-        inferredClientVerifyingShareB64u &&
-        inferredParticipantIds.length > 0
-      ) {
+      if (inferredSessionId && inferredParticipantIds.length > 0 && inferredEcdsaThresholdKeyId) {
         break;
       }
       try {
@@ -1022,14 +1298,12 @@ export class SigningEngine {
             chain: candidateChain,
           },
         );
-        if (!inferredAuthorizationJwt && record.thresholdSessionKind === 'jwt') {
-          inferredAuthorizationJwt = String(record.thresholdSessionJwt || '').trim();
+        const recordSessionId = String(record.thresholdSessionId || '').trim();
+        if (!inferredSessionId && recordSessionId) {
+          inferredSessionId = recordSessionId;
         }
-        if (!inferredSessionId) {
-          inferredSessionId = String(record.thresholdSessionId || '').trim();
-        }
-        if (!inferredClientVerifyingShareB64u) {
-          inferredClientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
+        if (!inferredEcdsaThresholdKeyId) {
+          inferredEcdsaThresholdKeyId = String(record.ecdsaThresholdKeyId || '').trim();
         }
         if (inferredParticipantIds.length === 0 && Array.isArray(record.participantIds)) {
           inferredParticipantIds = record.participantIds
@@ -1037,6 +1311,15 @@ export class SigningEngine {
             .filter((value) => Number.isFinite(value));
         }
       } catch {}
+    }
+    if (!inferredSessionId && fallbackEd25519SessionId) {
+      inferredSessionId = fallbackEd25519SessionId;
+    }
+    if (inferredParticipantIds.length === 0 && fallbackEd25519ParticipantIds.length > 0) {
+      inferredParticipantIds = fallbackEd25519ParticipantIds;
+    }
+    if (!inferredAuthorizationJwt && fallbackEd25519Jwt) {
+      inferredAuthorizationJwt = fallbackEd25519Jwt;
     }
 
     return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
@@ -1046,11 +1329,14 @@ export class SigningEngine {
           ...args,
           nearAccountId,
           chain,
+          ...(normalizedClientRootShare32B64u
+            ? { clientRootShare32B64u: normalizedClientRootShare32B64u }
+            : {}),
+          ...(inferredEcdsaThresholdKeyId
+            ? { ecdsaThresholdKeyId: inferredEcdsaThresholdKeyId }
+            : {}),
           ...(inferredAuthorizationJwt ? { authorizationJwt: inferredAuthorizationJwt } : {}),
           ...(inferredSessionId ? { sessionId: inferredSessionId } : {}),
-          ...(inferredClientVerifyingShareB64u
-            ? { clientVerifyingShareB64u: inferredClientVerifyingShareB64u }
-            : {}),
           ...(inferredParticipantIds.length > 0 ? { participantIds: inferredParticipantIds } : {}),
         },
       );
@@ -1066,6 +1352,7 @@ export class SigningEngine {
     upsertThresholdEcdsaSessionFromBootstrapValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
       },
       args,
     );
@@ -1078,6 +1365,7 @@ export class SigningEngine {
     return getThresholdEcdsaKeyRefForSigningValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
       },
       args,
     );
@@ -1099,6 +1387,7 @@ export class SigningEngine {
     clearThresholdEcdsaSessionRecordForAccountValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
       },
       nearAccountId,
     );
@@ -1107,6 +1396,7 @@ export class SigningEngine {
   clearAllThresholdEcdsaSessionRecords(): void {
     clearAllThresholdEcdsaSessionRecordsValue({
       recordsByLane: this.thresholdEcdsaSessionByLane,
+      exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
     });
   }
 
@@ -1184,8 +1474,6 @@ export class SigningEngine {
             },
           );
         },
-        dispensePrfFirstForThresholdSession: (payload) =>
-          this.touchConfirm.dispensePrfFirstForThresholdSession(payload),
         getSignerWorkerContext: () =>
           this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
         thresholdEcdsaPresignPoolPolicy:
@@ -1353,43 +1641,6 @@ export class SigningEngine {
     });
   }
 
-  async deriveThresholdEcdsaClientVerifyingShareFromCredential(args: {
-    credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    nearAccountId: AccountId | string;
-  }): Promise<
-    Awaited<ReturnType<typeof deriveThresholdEd25519ClientVerifyingShareFromCredentialValue>>
-  > {
-    const nearAccountId = toAccountId(args.nearAccountId);
-    try {
-      const prfFirstB64u = String(getPrfResultsFromCredential(args.credential).first || '').trim();
-      if (!prfFirstB64u) {
-        throw new Error(
-          'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
-        );
-      }
-      const workerCtx =
-        this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
-      const derived = await deriveThresholdSecp256k1ClientShareWasm({
-        prfFirstB64u,
-        userId: nearAccountId,
-        workerCtx,
-      });
-      return {
-        success: true,
-        nearAccountId,
-        clientVerifyingShareB64u: derived.clientVerifyingShareB64u,
-      };
-    } catch (error: unknown) {
-      const message = String((error as { message?: unknown })?.message ?? error);
-      return {
-        success: false,
-        nearAccountId,
-        clientVerifyingShareB64u: '',
-        error: message,
-      };
-    }
-  }
-
   destroy(): void {
     this.userPreferencesManager.destroy();
     this.nonceManager.clear();
@@ -1461,5 +1712,4 @@ export type SigningEnginePublic = Pick<
   | 'runThresholdEd25519HssCeremonyWithSession'
   | 'openThresholdEd25519HssSeedOutput'
   | 'buildThresholdEd25519SeedExportArtifactFromHssReport'
-  | 'deriveThresholdEcdsaClientVerifyingShareFromCredential'
 >;

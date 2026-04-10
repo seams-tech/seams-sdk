@@ -5,11 +5,11 @@ import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../web
 /**
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
  *
- * - Uses the atomic relay bootstrap path (`POST /threshold-ecdsa/bootstrap`)
+ * - Uses the staged `ecdsa-hss` bootstrap path
  * - Returns the keygen projection of the bootstrap response
  *
  * Notes:
- * - This helper now performs bootstrap-side session mint as part of the atomic flow.
+ * - This helper performs staged bootstrap and returns the finalized keygen/session projection.
  */
 export async function keygenEcdsa(args: {
   indexedDB: ThresholdIndexedDbPort;
@@ -21,8 +21,10 @@ export async function keygenEcdsa(args: {
   ok: boolean;
   keygenSessionId?: string;
   rpId?: string;
+  ecdsaThresholdKeyId?: string;
   clientVerifyingShareB64u?: string;
-  groupPublicKeyB64u?: string;
+  clientAdditiveShare32B64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   ethereumAddress?: string;
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
@@ -47,8 +49,10 @@ export async function keygenEcdsa(args: {
     ok: true,
     keygenSessionId: bootstrap.keygenSessionId,
     rpId: bootstrap.rpId,
+    ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
     clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
-    groupPublicKeyB64u: bootstrap.groupPublicKeyB64u,
+    clientAdditiveShare32B64u: bootstrap.clientAdditiveShare32B64u,
+    thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
     ethereumAddress: bootstrap.ethereumAddress,
     relayerKeyId: bootstrap.relayerKeyId,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,

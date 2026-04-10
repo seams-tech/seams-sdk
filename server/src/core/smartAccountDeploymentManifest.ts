@@ -14,7 +14,7 @@ export type CanonicalSmartAccountDeploymentManifestOwner = {
   status: AccountSignerStatus;
   deviceNumber?: number;
   relayerKeyId?: string;
-  groupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   participantIds?: number[];
   credentialIdB64u?: string;
   rpId?: string;
@@ -151,8 +151,8 @@ function toManifestOwner(
     ...(toOptionalTrimmedString(metadata.relayerKeyId)
       ? { relayerKeyId: toOptionalTrimmedString(metadata.relayerKeyId)! }
       : {}),
-    ...(toOptionalTrimmedString(metadata.groupPublicKeyB64u)
-      ? { groupPublicKeyB64u: toOptionalTrimmedString(metadata.groupPublicKeyB64u)! }
+    ...(toOptionalTrimmedString(metadata.thresholdEcdsaPublicKeyB64u)
+      ? { thresholdEcdsaPublicKeyB64u: toOptionalTrimmedString(metadata.thresholdEcdsaPublicKeyB64u)! }
       : {}),
     ...(participantIds.length > 0 ? { participantIds } : {}),
     ...(toOptionalTrimmedString(metadata.credentialIdB64u)
@@ -188,7 +188,7 @@ function toUndeployedSmartAccountSignerSet(input: {
     status: owner.status === 'pending' ? 'pending' : 'active',
     ...(typeof owner.deviceNumber === 'number' ? { deviceNumber: owner.deviceNumber } : {}),
     ...(owner.relayerKeyId ? { relayerKeyId: owner.relayerKeyId } : {}),
-    ...(owner.groupPublicKeyB64u ? { groupPublicKeyB64u: owner.groupPublicKeyB64u } : {}),
+    ...(owner.thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u: owner.thresholdEcdsaPublicKeyB64u } : {}),
     ...(Array.isArray(owner.participantIds) && owner.participantIds.length
       ? { participantIds: owner.participantIds }
       : {}),

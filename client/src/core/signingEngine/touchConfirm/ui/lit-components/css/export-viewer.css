@@ -76,10 +76,8 @@ w3a-export-key-viewer {
   gap: 0.5rem;
 }
 .key-card {
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  background: var(--w3a-colors-surface2);
   border-radius: 1rem;
-  padding: 0.75rem;
+  padding-top: 0.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -88,12 +86,12 @@ w3a-export-key-viewer {
   color: var(--w3a-colors-textPrimary, #f6f7f8);
   font-size: 0.95rem;
   font-weight: 700;
+  padding-left: 0.5rem;
 }
 .field {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  border: 1px solid var(--w3a-colors-borderPrimary);
   background: var(--w3a-colors-surface2);
   padding: 0.75rem;
   border-radius: 1rem;

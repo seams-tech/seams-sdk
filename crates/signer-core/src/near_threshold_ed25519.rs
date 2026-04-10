@@ -137,12 +137,14 @@ pub fn derive_client_key_package_from_wrap_key_seed_b64u(
             wrap_key_seed_b64u,
             near_account_id,
         )?;
-    key_package_from_signing_share_bytes(&signing_share_bytes, near_public_key_bytes, client_identifier)
+    key_package_from_signing_share_bytes(
+        &signing_share_bytes,
+        near_public_key_bytes,
+        client_identifier,
+    )
 }
 
-pub fn verifying_share_bytes_from_signing_share_bytes(
-    signing_share_bytes: &[u8; 32],
-) -> [u8; 32] {
+pub fn verifying_share_bytes_from_signing_share_bytes(signing_share_bytes: &[u8; 32]) -> [u8; 32] {
     let scalar = CurveScalar::from_bytes_mod_order(*signing_share_bytes);
     (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes()
 }
@@ -154,9 +156,7 @@ pub fn key_package_from_signing_share_bytes(
 ) -> CoreResult<frost_ed25519::keys::KeyPackage> {
     let signing_share = frost_ed25519::keys::SigningShare::deserialize(signing_share_bytes)
         .map_err(|e| {
-            SignerCoreError::decode_error(format!(
-                "threshold-signer: invalid signing share: {e}"
-            ))
+            SignerCoreError::decode_error(format!("threshold-signer: invalid signing share: {e}"))
         })?;
     let verifying_share_bytes = verifying_share_bytes_from_signing_share_bytes(signing_share_bytes);
     let verifying_share = frost_ed25519::keys::VerifyingShare::deserialize(&verifying_share_bytes)
@@ -551,16 +551,25 @@ mod tests {
         .expect("derived key package");
 
         assert_eq!(generic.identifier(), derived.identifier());
-        assert_eq!(generic.signing_share().serialize(), derived.signing_share().serialize());
         assert_eq!(
-            generic.verifying_share().serialize().expect("serialize verifying share"),
+            generic.signing_share().serialize(),
+            derived.signing_share().serialize()
+        );
+        assert_eq!(
+            generic
+                .verifying_share()
+                .serialize()
+                .expect("serialize verifying share"),
             derived
                 .verifying_share()
                 .serialize()
                 .expect("serialize verifying share")
         );
         assert_eq!(
-            generic.verifying_key().serialize().expect("serialize verifying key"),
+            generic
+                .verifying_key()
+                .serialize()
+                .expect("serialize verifying key"),
             derived
                 .verifying_key()
                 .serialize()

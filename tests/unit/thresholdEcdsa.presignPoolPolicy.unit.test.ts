@@ -7,6 +7,10 @@ import {
 } from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
 
 test.describe('threshold ECDSA presign pool policy', () => {
+  const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
+  const BACKEND_RELAYER_KEY_ID = 'rk-1';
+  const BACKEND_CLIENT_VERIFYING_SHARE_B64U = 'backend-client-share';
+
   test.beforeEach(async () => {
     clearAllThresholdEcdsaClientPresignatures();
   });
@@ -67,8 +71,10 @@ test.describe('threshold ECDSA presign pool policy', () => {
   test('scheduler no-ops cleanly when policy is disabled', async () => {
     const result = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      relayerKeyId: 'rk-1',
-      clientVerifyingShareB64u: 'client-share',
+      ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+      // Backend bridge fields remain required by the current signer backend.
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       participantIds: [1, 2],
       clientSigningShare32: new Uint8Array(32),
       workerCtx: {} as any,
@@ -81,8 +87,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
   test('scheduler dedupes by pool key when a refill is already in flight', async () => {
     const first = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      relayerKeyId: 'rk-1',
-      clientVerifyingShareB64u: 'client-share',
+      ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       participantIds: [1, 2],
       clientSigningShare32: new Uint8Array(32),
       workerCtx: {} as any,
@@ -90,8 +97,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
     });
     const second = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      relayerKeyId: 'rk-1',
-      clientVerifyingShareB64u: 'client-share',
+      ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
       participantIds: [1, 2],
       clientSigningShare32: new Uint8Array(32),
       workerCtx: {} as any,
@@ -106,8 +114,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
   test('scheduler enforces global in-flight refill limit', async () => {
     const first = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      relayerKeyId: 'rk-1',
-      clientVerifyingShareB64u: 'client-share-1',
+      ecdsaThresholdKeyId: 'ecdsa-hss-test-key-1',
+      relayerKeyId: 'backend-rk-1',
+      clientVerifyingShareB64u: 'backend-client-share-1',
       participantIds: [1, 2],
       clientSigningShare32: new Uint8Array(32),
       workerCtx: {} as any,
@@ -115,8 +124,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
     });
     const second = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl: 'https://relay.example',
-      relayerKeyId: 'rk-2',
-      clientVerifyingShareB64u: 'client-share-2',
+      ecdsaThresholdKeyId: 'ecdsa-hss-test-key-2',
+      relayerKeyId: 'backend-rk-2',
+      clientVerifyingShareB64u: 'backend-client-share-2',
       participantIds: [1, 2],
       clientSigningShare32: new Uint8Array(32),
       workerCtx: {} as any,
@@ -153,8 +163,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
 
       const first = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: 'https://relay.example',
-        relayerKeyId: 'rk-1',
-        clientVerifyingShareB64u: 'client-share',
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: [1, 2],
         clientSigningShare32: new Uint8Array(32),
         workerCtx: {} as any,
@@ -166,8 +177,9 @@ test.describe('threshold ECDSA presign pool policy', () => {
 
       const second = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: 'https://relay.example',
-        relayerKeyId: 'rk-1',
-        clientVerifyingShareB64u: 'client-share',
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: [1, 2],
         clientSigningShare32: new Uint8Array(32),
         workerCtx: {} as any,

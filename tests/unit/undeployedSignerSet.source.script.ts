@@ -34,7 +34,7 @@ const manifest = buildCanonicalSmartAccountDeploymentManifest({
       updatedAtMs: 1,
       metadata: {
         relayerKeyId: 'rk-1',
-        groupPublicKeyB64u: 'group-key',
+        thresholdEcdsaPublicKeyB64u: 'group-key',
         participantIds: [1, 2],
       },
     },
@@ -56,7 +56,7 @@ const clientUndeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSe
     keygen: {
       ok: true,
       relayerKeyId: 'rk-1',
-      groupPublicKeyB64u: 'group-key',
+      thresholdEcdsaPublicKeyB64u: 'group-key',
       ethereumAddress: accountAddress,
       participantIds: [1, 2],
       clientVerifyingShareB64u: 'client-share',
@@ -112,7 +112,7 @@ await syncCanonicalSmartAccountDeploymentManifest({
             updatedAtMs: 1,
             metadata: {
               relayerKeyId: 'rk-1',
-              groupPublicKeyB64u: 'group-key',
+              thresholdEcdsaPublicKeyB64u: 'group-key',
               participantIds: [1, 2],
             },
           },

@@ -221,29 +221,6 @@
   margin-bottom: 0;
 }
 
-.w3a-key-status {
-  flex-shrink: 0;
-}
-
-.w3a-status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 92px;
-  padding: 2px 8px;
-  background: transparent;
-  color: var(--w3a-colors-success);
-  border: 1px solid var(--w3a-colors-success);
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.theme-light .w3a-status-badge.w3a-full-access {
-  color: var(--w3a-colors-blue500, var(--w3a-colors-primary));
-  border-color: var(--w3a-colors-blue500, var(--w3a-colors-primary));
-}
-
 .w3a-key-header {
   display: flex;
   align-items: center;
@@ -298,53 +275,6 @@
   border-top-color: var(--w3a-colors-surface);
 }
 
-/* Registered timestamp styling */
-.w3a-registered {
-  font-size: 0.9rem;
-  color: var(--w3a-colors-textPrimary);
-}
-
-.w3a-key-kind {
-  font-size: 0.85rem;
-  color: var(--w3a-colors-textMuted);
-}
-
-.w3a-key-kind-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1.2;
-  text-transform: capitalize;
-}
-
-.w3a-key-kind-threshold {
-  color: var(--w3a-colors-primary);
-  background: color-mix(in oklab, var(--w3a-colors-primary) 12%, transparent);
-}
-
-.w3a-key-kind-local {
-  color: var(--w3a-colors-success);
-  background: color-mix(in oklab, var(--w3a-colors-success) 12%, transparent);
-}
-
-.w3a-key-kind-backup {
-  color: var(--w3a-colors-textPrimary);
-  background: color-mix(in oklab, var(--w3a-colors-textMuted) 10%, transparent);
-}
-
-/* Theme-specific contrast for registered timestamps */
-.theme-dark .w3a-registered {
-  color: var(--w3a-colors-textPrimary);
-}
-.theme-light .w3a-registered {
-  color: var(--w3a-colors-textPrimary);
-}
-
 /* Inline device row layout */
 .w3a-device-row {
   display: inline-flex;
@@ -371,10 +301,6 @@
   opacity: 0.85;
 }
 
-.w3a-separator {
-  opacity: 0.6;
-}
-
 @keyframes tooltipFadeIn {
   from {
     opacity: 0;
@@ -383,18 +309,6 @@
   to {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
-  }
-}
-
-@keyframes copiedPulse {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-  100% {
-    transform: scale(1);
   }
 }
 
@@ -429,57 +343,6 @@
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
-}
-
-.w3a-btn-danger {
-  background: var(--w3a-colors-error);
-  color: #fff;
-}
-
-.w3a-btn-danger:hover:not(:disabled) {
-  background: var(--w3a-colors-error);
-  box-shadow: 0 2px 4px var(--w3a-shadows-sm);
-}
-
-.w3a-btn-danger:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.w3a-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--w3a-colors-borderPrimary);
-  border-top: 2px solid var(--w3a-colors-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-/* Button-local spinner: match text size inside small buttons */
-.w3a-btn .w3a-spinner,
-.w3a-btn-primary .w3a-spinner,
-.w3a-btn-danger .w3a-spinner,
-.w3a-btn-disabled .w3a-spinner {
-  width: 1em;
-  height: 1em;
-  border-width: 2px;
-  margin-left: 0;
-}
-
-/* Danger button spinner: use white instead of primary/blue */
-.w3a-btn-danger .w3a-spinner {
-  border-color: rgba(255, 255, 255, 0.4);
-  border-top-color: #ffffff;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
 }
 
 @keyframes fadeInKeyItem {

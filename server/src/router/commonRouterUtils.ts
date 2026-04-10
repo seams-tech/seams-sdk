@@ -218,6 +218,7 @@ export async function signThresholdSessionJwt(args: {
     runtimeSnapshotScope?: unknown;
   };
   fallbackParticipantIds?: unknown;
+  allowedSessionKinds?: Array<'jwt' | 'cookie'>;
   requireJwtErrorMessage: string;
   invalidPayloadErrorMessage: string;
   sessionsDisabledMessage?: string;
@@ -235,7 +236,10 @@ export async function signThresholdSessionJwt(args: {
   const sessionKind = String(args.sessionInfo?.sessionKind || '')
     .trim()
     .toLowerCase();
-  if (sessionKind && sessionKind !== 'jwt') {
+  const allowedSessionKinds = Array.isArray(args.allowedSessionKinds)
+    ? args.allowedSessionKinds
+    : ['jwt'];
+  if (sessionKind && !allowedSessionKinds.includes(sessionKind as 'jwt' | 'cookie')) {
     return {
       ok: false,
       status: 400,

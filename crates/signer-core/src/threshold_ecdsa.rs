@@ -130,6 +130,29 @@ pub struct ThresholdEcdsaPresignProgress {
     pub outgoing: Vec<Vec<u8>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThresholdEcdsaPresignEvent {
+    None,
+    TriplesDone,
+    PresignDone,
+}
+
+impl ThresholdEcdsaPresignEvent {
+    fn as_str(self) -> &'static str {
+        match self {
+            ThresholdEcdsaPresignEvent::None => "none",
+            ThresholdEcdsaPresignEvent::TriplesDone => "triples_done",
+            ThresholdEcdsaPresignEvent::PresignDone => "presign_done",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ThresholdEcdsaPresignProgressInternal {
+    pub event: ThresholdEcdsaPresignEvent,
+    pub outgoing: Vec<Vec<u8>>,
+}
+
 pub struct ThresholdEcdsaPresignSession {
     stage: PresignStage,
     participants: Vec<Participant>,
@@ -199,13 +222,26 @@ impl ThresholdEcdsaPresignSession {
         self.stage.as_str()
     }
 
+    pub fn is_triples_done(&self) -> bool {
+        self.stage == PresignStage::TriplesDone
+    }
+
     pub fn is_done(&self) -> bool {
         self.stage == PresignStage::Done
     }
 
     pub fn poll(&mut self) -> CoreResult<ThresholdEcdsaPresignProgress> {
-        let mut outgoing: Vec<Vec<u8>> = Vec::new();
-        let mut event = "none";
+        let internal = self.poll_internal()?;
+        Ok(ThresholdEcdsaPresignProgress {
+            stage: self.stage.as_str().to_string(),
+            event: internal.event.as_str().to_string(),
+            outgoing: internal.outgoing,
+        })
+    }
+
+    pub fn poll_internal(&mut self) -> CoreResult<ThresholdEcdsaPresignProgressInternal> {
+        let mut outgoing = Vec::new();
+        let mut event = ThresholdEcdsaPresignEvent::None;
 
         loop {
             match self.stage {
@@ -222,7 +258,7 @@ impl ThresholdEcdsaPresignSession {
                             self.triples_output = Some(output);
                             self.triple_protocol = None;
                             self.stage = PresignStage::TriplesDone;
-                            event = "triples_done";
+                            event = ThresholdEcdsaPresignEvent::TriplesDone;
                             break;
                         }
                     }
@@ -240,7 +276,7 @@ impl ThresholdEcdsaPresignSession {
                             self.presign_output = Some(output);
                             self.presign_protocol = None;
                             self.stage = PresignStage::Done;
-                            event = "presign_done";
+                            event = ThresholdEcdsaPresignEvent::PresignDone;
                             break;
                         }
                     }
@@ -249,11 +285,7 @@ impl ThresholdEcdsaPresignSession {
             }
         }
 
-        Ok(ThresholdEcdsaPresignProgress {
-            stage: self.stage.as_str().to_string(),
-            event: event.to_string(),
-            outgoing,
-        })
+        Ok(ThresholdEcdsaPresignProgressInternal { event, outgoing })
     }
 
     pub fn message(&mut self, from: u32, data: &[u8]) -> CoreResult<()> {

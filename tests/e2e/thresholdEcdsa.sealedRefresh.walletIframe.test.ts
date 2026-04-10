@@ -58,14 +58,15 @@ async function installThresholdRegistrationBootstrapMock(
   },
 ): Promise<void> {
   const threshold = input.threshold as {
-    ecdsaRegistrationKeygenFromClientVerifyingShare?: (request: {
+    bootstrapEcdsaFromRegistrationMaterial?: (request: {
       userId: string;
       rpId: string;
-      clientVerifyingShareB64u: string;
+      clientRootShare32B64u: string;
+      sessionPolicy: Record<string, unknown>;
     }) => Promise<Record<string, unknown>>;
   };
-  if (typeof threshold.ecdsaRegistrationKeygenFromClientVerifyingShare !== 'function') {
-    throw new Error('Missing threshold-ecdsa registration keygen hook');
+  if (typeof threshold.bootstrapEcdsaFromRegistrationMaterial !== 'function') {
+    throw new Error('Missing threshold-ecdsa staged bootstrap hook');
   }
 
   const positiveInt = (value: unknown, fallback: number): number => {
@@ -121,9 +122,9 @@ async function installThresholdRegistrationBootstrapMock(
     const thresholdEd = payload?.threshold_ed25519 || null;
     const thresholdEdPublicKey = String(thresholdEd?.public_key || '').trim();
     const thresholdEdKeyVersion = String(thresholdEd?.key_version || '').trim();
-    const thresholdEdRelayerKeyId = String(
-      thresholdEd?.relayer_key_id || thresholdEdPublicKey,
-    ).trim();
+    // The finalized threshold Ed25519 record is keyed by the derived public key.
+    // Keep the mocked registration/bootstrap response on that same seam.
+    const thresholdEdRelayerKeyId = thresholdEdPublicKey;
     const thresholdEdRecoveryExportCapable = thresholdEd?.recovery_export_capable === true;
     let thresholdEdResponse: Record<string, unknown> | undefined;
     if (thresholdEdPublicKey && thresholdEdKeyVersion && thresholdEdRecoveryExportCapable) {
@@ -162,61 +163,65 @@ async function installThresholdRegistrationBootstrapMock(
     }
 
     const thresholdEcdsa = payload?.threshold_ecdsa || null;
-    const thresholdEcdsaClientVerifyingShareB64u = String(
-      thresholdEcdsa?.client_verifying_share_b64u || '',
+    const thresholdEcdsaClientRootShare32B64u = String(
+      thresholdEcdsa?.client_root_share32_b64u || '',
     ).trim();
     let thresholdEcdsaResponse: Record<string, unknown> | undefined;
-    if (thresholdEcdsaClientVerifyingShareB64u) {
-      const ecdsaRegistrationKeygenFromClientVerifyingShare =
-        threshold.ecdsaRegistrationKeygenFromClientVerifyingShare;
-      if (!ecdsaRegistrationKeygenFromClientVerifyingShare) {
-        throw new Error('Missing ECDSA client verifying-share registration helper');
+    if (thresholdEcdsaClientRootShare32B64u) {
+      const bootstrapEcdsaFromRegistrationMaterial =
+        threshold.bootstrapEcdsaFromRegistrationMaterial;
+      if (!bootstrapEcdsaFromRegistrationMaterial) {
+        throw new Error('Missing staged ECDSA bootstrap helper');
       }
-      const keygen = (await ecdsaRegistrationKeygenFromClientVerifyingShare({
+      const policy = thresholdEcdsa?.session_policy || {};
+      const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
+      const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
+      const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
+      const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
+      const bootstrap = (await bootstrapEcdsaFromRegistrationMaterial({
         userId: accountId,
         rpId,
-        clientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u,
+        clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
+        sessionPolicy: {
+          version: 'threshold_session_v1',
+          userId: accountId,
+          rpId,
+          sessionId,
+          ttlMs,
+          remainingUses,
+          participantIds,
+        },
       })) as Record<string, unknown>;
-      if (!keygen?.ok) {
+      if (!bootstrap?.ok) {
         await route.fulfill({
           status: 400,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
           body: JSON.stringify({
             success: false,
-            error: String(keygen?.message || 'ecdsa keygen'),
+            error: String(bootstrap?.message || 'ecdsa bootstrap'),
           }),
         });
         return;
       }
 
-      const policy = thresholdEcdsa?.session_policy || {};
-      const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
-      const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
-      const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
-      const expiresAtMs = nowMs + ttlMs;
-      const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
-      const relayerKeyId = String(keygen.relayerKeyId || '').trim();
-      const jwt = await signThresholdSessionJwt({
-        kind: 'threshold_ecdsa_session_v1',
-        sessionId,
-        relayerKeyId,
-        participantIds,
-        expiresAtMs,
-      });
-
       thresholdEcdsaResponse = {
-        relayerKeyId,
-        groupPublicKeyB64u: String(keygen.groupPublicKeyB64u || ''),
-        ethereumAddress: String(keygen.ethereumAddress || ''),
-        relayerVerifyingShareB64u: String(keygen.relayerVerifyingShareB64u || ''),
-        participantIds,
+        ecdsaThresholdKeyId: String(bootstrap.ecdsaThresholdKeyId || ''),
+        relayerKeyId: String(bootstrap.relayerKeyId || ''),
+        thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || ''),
+        ethereumAddress: String(bootstrap.ethereumAddress || ''),
+        relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || ''),
+        participantIds: Array.isArray(bootstrap.participantIds)
+          ? bootstrap.participantIds
+          : participantIds,
         session: {
           sessionKind: 'jwt',
-          sessionId,
-          expiresAtMs,
-          participantIds,
-          remainingUses,
-          jwt,
+          sessionId: String(bootstrap.sessionId || sessionId),
+          expiresAtMs: Number(bootstrap.expiresAtMs || nowMs + ttlMs),
+          participantIds: Array.isArray(bootstrap.participantIds)
+            ? bootstrap.participantIds
+            : participantIds,
+          remainingUses: Number(bootstrap.remainingUses || remainingUses),
+          jwt: String(bootstrap.jwt || ''),
         },
       };
     }
@@ -552,8 +557,167 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
   );
 }
 
-test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
+  test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
   test.setTimeout(180_000);
+
+  test('registration and login can bootstrap sign then export the same one-key ECDSA session', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+    try {
+      const flowPromise = page.evaluate(
+        async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { TatchiPasskey } = sdkMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const accountId = `ecdsa-export-${Date.now()}.w3a-v1.testnet`;
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const registration = await tatchi.registration.registerPasskeyInternal(
+              accountId,
+              {},
+              confirmationConfig as any,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                stage: 'registration',
+                error: String(registration?.error || 'registration failed'),
+              };
+            }
+
+            const login = await tatchi.unlock(accountId);
+            if (!login?.success) {
+              return {
+                ok: false,
+                stage: 'login',
+                error: String(login?.error || 'unlock failed'),
+              };
+            }
+
+            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 10,
+              },
+            });
+            if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              return {
+                ok: false,
+                stage: 'bootstrap',
+                error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
+              };
+            }
+
+            const signed = await tatchi.tempo.signTempo({
+              nearAccountId: accountId,
+              request: {
+                chain: 'tempo' as const,
+                kind: 'tempoTransaction' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 42431,
+                  maxPriorityFeePerGas: 1n,
+                  maxFeePerGas: 2n,
+                  gasLimit: 21_000n,
+                  calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                  accessList: [],
+                  nonceKey: 0n,
+                  validBefore: null,
+                  validAfter: null,
+                  feePayerSignature: { kind: 'none' as const },
+                  aaAuthorizationList: [],
+                },
+              },
+              options: { confirmationConfig },
+            });
+            if (!signed || signed.kind !== 'tempoTransaction') {
+              return {
+                ok: false,
+                stage: 'sign',
+                error: 'tempo sign failed',
+              };
+            }
+
+            await tatchi.keys.exportKeypairWithUI(accountId, {
+              chain: 'evm',
+              variant: 'modal',
+            });
+
+            const session = await tatchi.auth.getWalletSession(accountId);
+            return {
+              ok: true,
+              accountId,
+              sessionStatus: String(session?.signingSession?.status || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              stage: 'unexpected',
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'flow failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+
+      const flow = await autoConfirmWalletIframeUntil(page, flowPromise, {
+        timeoutMs: 180_000,
+        intervalMs: 250,
+      });
+
+      expect(flow.ok, flow.error || JSON.stringify(flow)).toBe(true);
+      expect(flow.sessionStatus).toBe('active');
+    } finally {
+      await harness.close();
+    }
+  });
 
   test('fails closed on startup when sealed refresh keyVersion parity mismatches', async ({
     page,
@@ -943,7 +1107,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     }
   });
 
-  test('same-tab sealed refresh preserves Tempo/EVM prompt parity in both orderings', async ({
+  test('same-tab sealed refresh preserves Tempo/EVM prompt parity after ECDSA bootstrap in both orderings', async ({
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
@@ -1012,6 +1176,21 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
+            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 10,
+              },
+            });
+            if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              return {
+                ok: false,
+                error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
+              };
+            }
+
             const warmTempo = await tatchi.tempo.signTempo({
               nearAccountId: accountId,
               request: {
@@ -1077,11 +1256,12 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       await page.waitForTimeout(300);
       expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
 
-      await page.reload();
-      await page.waitForTimeout(300);
+      const runOrderingAfterRefresh = async (order: Array<'tempo' | 'evm'>) => {
+        await page.reload();
+        await page.waitForTimeout(300);
 
-      const secondPhasePromise = page.evaluate(
-        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+        const phasePromise = page.evaluate(
+          async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, order }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { TatchiPasskey } = sdkMod as any;
@@ -1121,6 +1301,14 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
             tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const login = await tatchi.unlock(accountId);
+            if (!login?.success) {
+              return {
+                ok: false,
+                error: String(login?.error || 'unlock after refresh failed'),
+              };
+            }
 
             const tempoRequest = {
               chain: 'tempo' as const,
@@ -1162,36 +1350,49 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               evm: evmRequest,
             } as const;
 
-            const runOrder = async (order: Array<'tempo' | 'evm'>) => {
-              const out: Array<{
-                requestedChain: 'tempo' | 'evm';
-                resultChain: string;
-                kind: string;
-              }> = [];
-              for (const requestedChain of order) {
-                const signed = await tatchi.tempo.signTempo({
-                  nearAccountId: accountId,
-                  request: requestByChain[requestedChain],
-                  options: { confirmationConfig },
-                });
-                out.push({
-                  requestedChain,
-                  resultChain: String(signed?.chain || ''),
-                  kind: String(signed?.kind || ''),
-                });
-              }
-              return out;
-            };
+            const bootstrapOptions = {
+              relayerUrl,
+              ttlMs: 120_000,
+              remainingUses: 10,
+            } as const;
+            const tempoBootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: bootstrapOptions,
+            });
+            if (!tempoBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              throw new Error('threshold ECDSA bootstrap did not return ecdsaThresholdKeyId');
+            }
+            const evmBootstrap = await tatchi.evm.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: bootstrapOptions,
+            });
+            if (!evmBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              throw new Error('threshold ECDSA EVM bootstrap did not return ecdsaThresholdKeyId');
+            }
 
-            const tempoThenEvm = await runOrder(['tempo', 'evm']);
-            const evmThenTempo = await runOrder(['evm', 'tempo']);
+            const orderedResults: Array<{
+              requestedChain: 'tempo' | 'evm';
+              resultChain: string;
+              kind: string;
+            }> = [];
+            for (const requestedChain of order) {
+              const signed = await tatchi.tempo.signTempo({
+                nearAccountId: accountId,
+                request: requestByChain[requestedChain],
+                options: { confirmationConfig },
+              });
+              orderedResults.push({
+                requestedChain,
+                resultChain: String(signed?.chain || ''),
+                kind: String(signed?.kind || ''),
+              });
+            }
             const session = await tatchi.auth.getWalletSession(accountId);
 
             return {
               ok: true,
               sessionStatus: String(session?.signingSession?.status || ''),
-              tempoThenEvm,
-              evmThenTempo,
+              orderedResults,
             };
           } catch (error: unknown) {
             return {
@@ -1204,21 +1405,27 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             };
           }
         },
-        {
-          relayerUrl: harness.relayerUrl,
-          accountId: firstPhase.accountId,
-          keyVersion: TEST_KEY_VERSION,
-          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
-        },
-      );
-      const secondPhase = await autoConfirmWalletIframeUntil(page, secondPhasePromise, {
-        timeoutMs: 120_000,
-        intervalMs: 250,
-      });
+          {
+            relayerUrl: harness.relayerUrl,
+            accountId: firstPhase.accountId,
+            keyVersion: TEST_KEY_VERSION,
+            shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+            order,
+          },
+        );
+        return await autoConfirmWalletIframeUntil(page, phasePromise, {
+          timeoutMs: 120_000,
+          intervalMs: 250,
+        });
+      };
 
-      expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
-      expect(secondPhase.sessionStatus).toBe('active');
-      expect(secondPhase.tempoThenEvm).toEqual([
+      const tempoThenEvmPhase = await runOrderingAfterRefresh(['tempo', 'evm']);
+      expect(
+        tempoThenEvmPhase.ok,
+        tempoThenEvmPhase.error || JSON.stringify(tempoThenEvmPhase),
+      ).toBe(true);
+      expect(tempoThenEvmPhase.sessionStatus).toBe('active');
+      expect(tempoThenEvmPhase.orderedResults).toEqual([
         {
           requestedChain: 'tempo',
           resultChain: 'tempo',
@@ -1230,7 +1437,14 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           kind: 'eip1559',
         },
       ]);
-      expect(secondPhase.evmThenTempo).toEqual([
+
+      const evmThenTempoPhase = await runOrderingAfterRefresh(['evm', 'tempo']);
+      expect(
+        evmThenTempoPhase.ok,
+        evmThenTempoPhase.error || JSON.stringify(evmThenTempoPhase),
+      ).toBe(true);
+      expect(evmThenTempoPhase.sessionStatus).toBe('active');
+      expect(evmThenTempoPhase.orderedResults).toEqual([
         {
           requestedChain: 'evm',
           resultChain: 'evm',
@@ -1244,14 +1458,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       ]);
       const finalGetCalls = await readWebAuthnGetCallCount(page);
       expect(
-        finalGetCalls,
+        finalGetCalls - getCallsAfterFirstPhase,
         JSON.stringify({
           getCallsAfterFirstPhase,
           finalGetCalls,
           firstPhase,
-          secondPhase,
+          tempoThenEvmPhase,
+          evmThenTempoPhase,
         }),
-      ).toBe(getCallsAfterFirstPhase);
+      ).toBe(2);
     } finally {
       await harness.close();
     }

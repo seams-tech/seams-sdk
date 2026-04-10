@@ -2,7 +2,6 @@ import init, {
   add_secp256k1_public_keys_33,
   compute_eip1559_tx_hash,
   derive_secp256k1_keypair_from_prf_second,
-  derive_threshold_secp256k1_client_share,
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
@@ -27,15 +26,6 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'signSecp256k1Recoverable';
       payload: { digest32: unknown; privateKey32: unknown };
-    }
-  | {
-      id: string;
-      type: 'deriveThresholdSecp256k1ClientShare';
-      payload: {
-        prfFirst32: unknown;
-        userId: string;
-        derivationPath?: number;
-      };
     }
   | {
       id: string;
@@ -301,37 +291,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
         ) as Uint8Array;
         const ab = out.slice().buffer;
         postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
-        return;
-      }
-      case 'deriveThresholdSecp256k1ClientShare': {
-        const prfFirst32 = toU8(msg.payload.prfFirst32);
-        const userId = String(msg.payload.userId || '').trim();
-        const derivationPath = Number.isFinite(msg.payload.derivationPath)
-          ? Math.max(0, Math.floor(Number(msg.payload.derivationPath)))
-          : 0;
-        const out = derive_threshold_secp256k1_client_share(
-          prfFirst32,
-          userId,
-          derivationPath,
-        ) as Uint8Array;
-        if (out.length !== 65) {
-          throw new Error(
-            `derive_threshold_secp256k1_client_share must return 65 bytes (got ${out.length})`,
-          );
-        }
-        const signingShare32 = out.slice(0, 32).buffer;
-        const verifyingShare33 = out.slice(32, 65).buffer;
-        postToMainThread(
-          {
-            id: msg.id,
-            ok: true,
-            result: {
-              clientSigningShare32: signingShare32,
-              clientVerifyingShare33: verifyingShare33,
-            },
-          },
-          [signingShare32, verifyingShare33],
-        );
         return;
       }
       case 'deriveSecp256k1KeypairFromPrfSecond': {

@@ -11,6 +11,7 @@ import type { PasskeyManagerContext } from '../index';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { normalizeRegistrationCredential } from '../../signingEngine/signers/webauthn/credentials/helpers';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
+import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/webauthn';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
@@ -267,15 +268,9 @@ export class EmailRecoveryDomain {
         rpId,
         requestedPolicy: thresholdWarmPolicy,
       });
-      const derivedEcdsa =
-        await context.signingEngine.deriveThresholdEcdsaClientVerifyingShareFromCredential({
-          credential,
-          nearAccountId,
-        });
-      if (!derivedEcdsa.success || !derivedEcdsa.clientVerifyingShareB64u) {
-        throw new Error(
-          derivedEcdsa.error || 'Failed to derive threshold secp256k1 client verifying share',
-        );
+      const clientRootShare32B64u = String(getPrfFirstB64uFromCredential(credential) || '').trim();
+      if (!clientRootShare32B64u) {
+        throw new Error('Failed to derive threshold secp256k1 client root share');
       }
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
@@ -289,7 +284,7 @@ export class EmailRecoveryDomain {
           device_number: deviceNumber,
           threshold_ed25519: thresholdWarmSessionRequest,
           threshold_ecdsa: {
-            client_verifying_share_b64u: derivedEcdsa.clientVerifyingShareB64u,
+            client_root_share32_b64u: clientRootShare32B64u,
           },
           rp_id: rpId,
           webauthn_registration: credentialForRelay,
@@ -322,6 +317,7 @@ export class EmailRecoveryDomain {
         : {};
       const thresholdPublicKey = String(thresholdSection.publicKey || '').trim();
       const relayerKeyId = String(thresholdSection.relayerKeyId || '').trim();
+      const ecdsaThresholdKeyId = String(thresholdEcdsaSection.ecdsaThresholdKeyId || '').trim();
       const newEvmOwnerAddress = String(thresholdEcdsaSection.ethereumAddress || '').trim();
       const recoverySessionId = String(recoverySessionSection.sessionId || requestId).trim();
       const recoveryDeadlineEpochSeconds = Number(recoveryEmailSection.deadlineEpochSeconds);
@@ -333,6 +329,7 @@ export class EmailRecoveryDomain {
       }
       if (
         !newEvmOwnerAddress ||
+        !ecdsaThresholdKeyId ||
         !recoverySessionId ||
         !Number.isFinite(recoveryDeadlineEpochSeconds) ||
         recoveryDeadlineEpochSeconds <= 0 ||
@@ -431,6 +428,7 @@ export class EmailRecoveryDomain {
         deviceNumber,
         requestId,
         recoverySessionId,
+        ecdsaThresholdKeyId,
         nearPublicKey: thresholdPublicKey,
         newEvmOwnerAddress,
         deadlineEpochSeconds: Math.floor(recoveryDeadlineEpochSeconds),

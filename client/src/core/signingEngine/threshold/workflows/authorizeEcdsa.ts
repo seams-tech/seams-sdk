@@ -36,8 +36,7 @@ function parseThresholdEcdsaPresignPoolPolicyHint(
 
 export async function authorizeEcdsaWithSession(args: {
   relayerUrl: string;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   purpose: string;
   signingDigest32: Uint8Array | number[];
   signingPayload?: unknown;
@@ -70,21 +69,12 @@ export async function authorizeEcdsaWithSession(args: {
     };
   }
 
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
-  if (!relayerKeyId) {
+  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing relayerKeyId for threshold-ecdsa authorize',
-    };
-  }
-
-  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing clientVerifyingShareB64u for threshold-ecdsa authorize',
+      message: 'Missing ecdsaThresholdKeyId for threshold-ecdsa authorize',
     };
   }
 
@@ -140,8 +130,7 @@ export async function authorizeEcdsaWithSession(args: {
         headers,
         credentials: jwt ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
         body: JSON.stringify({
-          relayerKeyId,
-          clientVerifyingShareB64u,
+          ecdsaThresholdKeyId,
           purpose,
           signing_digest_32: Array.from(signingDigest32),
           ...(args.signingPayload !== undefined ? { signingPayload: args.signingPayload } : {}),

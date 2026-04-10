@@ -3,19 +3,6 @@ use wasm_bindgen::prelude::*;
 
 use crate::errors::js_core_err;
 
-pub fn derive_threshold_secp256k1_client_share(
-    prf_first32: Vec<u8>,
-    user_id: String,
-    derivation_path: u32,
-) -> Result<Vec<u8>, JsValue> {
-    signer_platform_web::secp256k1::derive_threshold_secp256k1_client_share(
-        prf_first32.as_slice(),
-        user_id.as_str(),
-        derivation_path,
-    )
-    .map_err(js_core_err)
-}
-
 pub fn derive_secp256k1_keypair_from_prf_second(
     prf_second: Vec<u8>,
     near_account_id: String,

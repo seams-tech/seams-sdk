@@ -26,7 +26,7 @@ test.describe('smart-account link-device canonical records', () => {
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-ecdsa',
-        groupPublicKeyB64u: 'group-public-key',
+        thresholdEcdsaPublicKeyB64u: 'group-public-key',
         thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
         participantIds: [1, 2],
         recoverySubjects: [
@@ -94,7 +94,7 @@ test.describe('smart-account link-device canonical records', () => {
     expect(result.evmSigners).toHaveLength(1);
     expect(result.evmSigners[0]?.status).toBe('pending');
     expect(result.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
-    expect(result.evmSigners[0]?.metadata?.groupPublicKeyB64u).toBe('group-public-key');
+    expect(result.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
     expect(result.evmSigners[0]?.metadata?.deviceNumber).toBe(4);
     expect(result.linkedAccounts[0]?.chainIdKey).toBe('evm:11155111');
     expect(result.linkedAccounts[0]?.accountModel).toBe('erc4337');
@@ -113,7 +113,7 @@ test.describe('smart-account link-device canonical records', () => {
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-ecdsa',
-        groupPublicKeyB64u: 'group-public-key',
+        thresholdEcdsaPublicKeyB64u: 'group-public-key',
         thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
         recoverySubjects: [
           {

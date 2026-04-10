@@ -44,13 +44,6 @@ func signer_platform_ios_v1_rlp_encode_list_hex(
     _ second: UnsafePointer<CChar>?
 ) -> UnsafeMutablePointer<CChar>?
 
-@_silgen_name("signer_platform_ios_v1_derive_threshold_secp256k1_client_share_hex")
-func signer_platform_ios_v1_derive_threshold_secp256k1_client_share_hex(
-    _ prfFirst32Hex: UnsafePointer<CChar>?,
-    _ userId: UnsafePointer<CChar>?,
-    _ derivationPath: UInt32
-) -> UnsafeMutablePointer<CChar>?
-
 @_silgen_name("signer_platform_ios_v1_derive_secp256k1_keypair_from_prf_second_hex")
 func signer_platform_ios_v1_derive_secp256k1_keypair_from_prf_second_hex(
     _ prfSecondHex: UnsafePointer<CChar>?,
@@ -204,7 +197,6 @@ func runReplay(vectors: Json) throws {
     let codecRlpListCase = try jsonObject(codec, "rlp_list_case")
 
     let secp = try jsonObject(vectors, "secp256k1")
-    let secpDeriveThreshold = try jsonObject(secp, "derive_threshold_client_share")
     let secpDeriveKeypair = try jsonObject(secp, "derive_keypair_from_prf_second")
     let secpMapShare = try jsonObject(secp, "map_additive_share_2p")
     let secpValidate = try jsonObject(secp, "validate_public_key_33")
@@ -251,24 +243,6 @@ func runReplay(vectors: Json) throws {
             rlpItems[0],
             rlpItems[1]
         )
-    )
-
-    let secpDeriveClient = try jsonString(secpDeriveThreshold, "prf_first32_hex").withCString { prf in
-        try jsonString(secpDeriveThreshold, "user_id").withCString { user in
-            try withRustString(
-                signer_platform_ios_v1_derive_threshold_secp256k1_client_share_hex(
-                    prf,
-                    user,
-                    try jsonUInt32(secpDeriveThreshold, "derivation_path")
-                ),
-                "derive_threshold_secp256k1_client_share"
-            )
-        }
-    }
-    try assertEqual(
-        "secp256k1.derive_threshold_client_share",
-        try jsonString(secpDeriveThreshold, "expected_hex"),
-        secpDeriveClient
     )
 
     try assertEqual(

@@ -35,9 +35,12 @@ test.describe('threshold ECDSA canonical auth material', () => {
                 type: 'threshold-ecdsa-secp256k1',
                 userId: args.nearAccountId,
                 relayerUrl: 'https://relay.example',
-                relayerKeyId: `rk-${args.thresholdSessionId}`,
-                clientVerifyingShareB64u: `cvs-${args.thresholdSessionId}`,
+                ecdsaThresholdKeyId: `ek-${args.thresholdSessionId}`,
                 participantIds: [1, 2],
+                backendBinding: {
+                  relayerKeyId: `rk-${args.thresholdSessionId}`,
+                  clientVerifyingShareB64u: `cvs-${args.thresholdSessionId}`,
+                },
                 thresholdSessionKind: args.thresholdSessionKind,
                 thresholdSessionId: args.thresholdSessionId,
                 ...(args.thresholdSessionJwt

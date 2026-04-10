@@ -2,19 +2,25 @@ import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import type {
   ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaBootstrapRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignInitRequest,
+  ThresholdEcdsaHssFinalizeRequest,
+  ThresholdEcdsaHssPrepareRequest,
+  ThresholdEcdsaHssRespondRequest,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignStepRequest,
   ThresholdEcdsaSignFinalizeRequest,
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
-import { parseThresholdEd25519SessionClaims } from '../../../core/ThresholdService/validation';
+import {
+  parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
+} from '../../../core/ThresholdService/validation';
 import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
+  signThresholdSessionJwt,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
@@ -119,7 +125,9 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
-    pathname !== '/threshold-ecdsa/bootstrap' &&
+    pathname !== '/threshold-ecdsa/hss/prepare' &&
+    pathname !== '/threshold-ecdsa/hss/respond' &&
+    pathname !== '/threshold-ecdsa/hss/finalize' &&
     pathname !== '/threshold-ecdsa/authorize' &&
     pathname !== '/threshold-ecdsa/presign/init' &&
     pathname !== '/threshold-ecdsa/presign/step' &&
@@ -144,119 +152,107 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
   const scheme = resolved.scheme;
 
-  if (pathname === '/threshold-ecdsa/bootstrap') {
-    const session = ctx.opts.session;
-    if (!session) {
-      const resBody = {
-        ok: false,
-        code: 'sessions_disabled',
-        message: 'Sessions are not configured on this server',
-      };
-      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
-    }
-    if (!scheme.bootstrap) {
+  if (pathname === '/threshold-ecdsa/hss/prepare') {
+    if (!scheme.hss) {
       const resBody = {
         ok: false,
         code: 'not_implemented',
-        message: 'threshold-ecdsa bootstrap is not implemented on this server',
+        message: 'threshold-ecdsa hss prepare is not implemented on this server',
       };
       return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
     }
-
-    const reqBody = (body || {}) as ThresholdEcdsaBootstrapRequest;
-    const headers = Object.fromEntries(ctx.request.headers.entries());
+    const reqBody = (body || {}) as ThresholdEcdsaHssPrepareRequest;
+    const session = ctx.opts.session;
     let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
-    const parsedSession = await session.parse(headers);
-    if (parsedSession.ok) {
-      ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+    let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+    if (session) {
+      const parsedSession = await session.parse(Object.fromEntries(ctx.request.headers.entries()));
+      if (parsedSession.ok) {
+        ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
+        ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+      }
     }
-    const bootstrapRequest: ThresholdEcdsaBootstrapRequest = {
+    const request: ThresholdEcdsaHssPrepareRequest = {
       ...reqBody,
       ed25519SessionClaims: ed25519SessionClaims || undefined,
+      ecdsaSessionClaims: ecdsaSessionClaims || undefined,
     };
-
-    const result = await scheme.bootstrap(bootstrapRequest);
-    if (!result.ok) return json(result, { status: thresholdEcdsaStatusCode(result) });
-
-    const sessionId = String(result.sessionId || '').trim();
-    if (!sessionId) {
-      return json(
-        { ok: false, code: 'internal', message: 'threshold bootstrap missing sessionId' },
-        { status: 500 },
-      );
-    }
-    const userId = String(
-      bootstrapRequest.userId || bootstrapRequest.sessionPolicy?.userId || '',
-    ).trim();
-    const rpId = String(bootstrapRequest.rpId || bootstrapRequest.sessionPolicy?.rpId || '').trim();
-    const relayerKeyId = String(result.relayerKeyId || '').trim();
-    const thresholdExpiresAtMs = Number(result.expiresAtMs);
-    if (!userId)
-      return json(
-        { ok: false, code: 'internal', message: 'threshold bootstrap missing userId' },
-        { status: 500 },
-      );
-    if (!rpId)
-      return json(
-        { ok: false, code: 'internal', message: 'threshold bootstrap missing rpId' },
-        { status: 500 },
-      );
-    if (!relayerKeyId)
-      return json(
-        { ok: false, code: 'internal', message: 'threshold bootstrap missing relayerKeyId' },
-        { status: 500 },
-      );
-    if (!Number.isFinite(thresholdExpiresAtMs) || thresholdExpiresAtMs <= 0) {
-      return json(
-        { ok: false, code: 'internal', message: 'threshold bootstrap missing expiresAtMs' },
-        { status: 500 },
-      );
-    }
-
-    const participantIds = Array.isArray(result.participantIds) ? result.participantIds : undefined;
-    const runtimeSnapshotScope = (() => {
-      const scope =
-        bootstrapRequest.sessionPolicy &&
-        typeof bootstrapRequest.sessionPolicy === 'object' &&
-        !Array.isArray(bootstrapRequest.sessionPolicy)
-          ? ((bootstrapRequest.sessionPolicy as Record<string, unknown>).runtimeSnapshotScope as
-              | Record<string, unknown>
-              | undefined)
-          : undefined;
-      if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
-      const orgId = String(scope.orgId || '').trim();
-      const environmentId = String(scope.environmentId || '').trim();
-      const projectId = String(scope.projectId || '').trim();
-      if (!orgId || !environmentId) return undefined;
-      return {
-        orgId,
-        environmentId,
-        ...(projectId ? { projectId } : {}),
-      };
-    })();
-    const nowSec = Math.floor(Date.now() / 1000);
-    const expSec = Math.floor(thresholdExpiresAtMs / 1000);
-    const token = await session.signJwt(userId, {
-      kind: 'threshold_ecdsa_session_v1',
-      sessionId,
-      relayerKeyId,
-      rpId,
-      ...(participantIds ? { participantIds } : {}),
-      ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
-      thresholdExpiresAtMs,
-      iat: nowSec,
-      exp: expSec,
-    });
-
-    const sessionKind = parseSessionKind(bootstrapRequest);
-    if (sessionKind === 'cookie') {
-      const headers = { 'Set-Cookie': session.buildSetCookie(token) };
-      const { jwt: _omit, ...rest } = result;
-      return json({ ...rest, ok: true }, { status: 200, headers });
-    }
-
-    return json({ ...result, jwt: token }, { status: 200 });
+    const result = await scheme.hss.prepare(request);
+    return json(result, { status: thresholdEcdsaStatusCode(result) });
   }
+
+  if (pathname === '/threshold-ecdsa/hss/respond') {
+    if (!scheme.hss) {
+      const resBody = {
+        ok: false,
+        code: 'not_implemented',
+        message: 'threshold-ecdsa hss respond is not implemented on this server',
+      };
+      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
+    }
+    const reqBody = (body || {}) as ThresholdEcdsaHssRespondRequest;
+    const result = await scheme.hss.respond(reqBody);
+    return json(result, { status: thresholdEcdsaStatusCode(result) });
+  }
+
+  if (pathname === '/threshold-ecdsa/hss/finalize') {
+    if (!scheme.hss) {
+      const resBody = {
+        ok: false,
+        code: 'not_implemented',
+        message: 'threshold-ecdsa hss finalize is not implemented on this server',
+      };
+      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
+    }
+    const reqBody = (body || {}) as ThresholdEcdsaHssFinalizeRequest;
+    const result = await scheme.hss.finalize(reqBody);
+    if (!result.ok) {
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
+    if (!result.sessionId || !result.sessionJwtUserId || !result.sessionJwtRpId) {
+      return json(result, { status: 200 });
+    }
+    const signed = await signThresholdSessionJwt({
+      session: ctx.opts.session,
+      kind: 'threshold_ecdsa_session_v1',
+      userId: result.sessionJwtUserId,
+      rpId: result.sessionJwtRpId,
+      relayerKeyId: result.relayerKeyId,
+      allowedSessionKinds: ['jwt', 'cookie'],
+      sessionInfo: {
+        sessionKind: result.sessionKind,
+        sessionId: result.sessionId,
+        expiresAtMs: result.expiresAtMs,
+        participantIds: result.participantIds,
+      },
+      fallbackParticipantIds: result.participantIds,
+      requireJwtErrorMessage:
+        'threshold-ecdsa hss finalize requires sessionKind "jwt" or "cookie"',
+      invalidPayloadErrorMessage: 'threshold-ecdsa hss finalize returned invalid session payload',
+      sessionsDisabledMessage: 'Sessions are not configured on this server',
+    });
+    if (!signed.ok) {
+      const resBody = {
+        ok: false,
+        code: signed.code,
+        message: signed.message,
+      };
+      return json(resBody, { status: signed.status });
+    }
+    const { sessionJwtUserId: _sessionJwtUserId, sessionJwtRpId: _sessionJwtRpId, jwt: _rawJwt, ...rest } =
+      result;
+    const response = json(
+      result.sessionKind === 'cookie'
+        ? { ...rest, jwt: undefined }
+        : { ...rest, jwt: signed.jwt },
+      { status: thresholdEcdsaStatusCode(result) },
+    );
+    if (result.sessionKind === 'cookie') {
+      response.headers.set('Set-Cookie', ctx.opts.session!.buildSetCookie(signed.jwt));
+    }
+    return response;
+  }
+
   if (pathname === '/threshold-ecdsa/authorize') {
     const validated = await validateThresholdEcdsaAuthorizeInputs({
       body,

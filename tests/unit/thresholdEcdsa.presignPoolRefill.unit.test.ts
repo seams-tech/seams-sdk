@@ -11,7 +11,8 @@ import {
 import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
 
 const RELAYER_URL = 'https://relay.example';
-const RELAYER_KEY_ID = 'rk-1';
+const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
+const BACKEND_RELAYER_KEY_ID = 'rk-1';
 const USER_ID = 'alice.testnet';
 const RP_ID = 'example.localhost';
 const PARTICIPANT_IDS = [1, 2];
@@ -43,9 +44,8 @@ const SIGNATURE_65 = (() => {
   out[64] = 1;
   return out;
 })();
-const PRF_FIRST_B64U = base64UrlEncode(new Uint8Array(32).fill(41));
-
-const CLIENT_VERIFYING_SHARE_B64U = base64UrlEncode(CLIENT_VERIFYING_SHARE_33);
+// Backend bridge field only. Public identity is ecdsaThresholdKeyId/group key/address.
+const BACKEND_CLIENT_VERIFYING_SHARE_B64U = base64UrlEncode(CLIENT_VERIFYING_SHARE_33);
 const GROUP_PUBLIC_KEY_B64U = base64UrlEncode(GROUP_PUBLIC_KEY_33);
 const PRESIGN_BIG_R_B64U = base64UrlEncode(PRESIGN_BIG_R_33);
 const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
@@ -80,12 +80,6 @@ function makeWorkerCtx(args: {
     requestWorkerOperation: async ({ request }) => {
       const type = String((request as { type?: string })?.type || '');
       const payload = (request as { payload?: Record<string, unknown> })?.payload || {};
-      if (type === 'deriveThresholdSecp256k1ClientShare') {
-        return {
-          clientSigningShare32: args.clientSigningShare32.slice().buffer,
-          clientVerifyingShare33: args.clientVerifyingShare33.slice().buffer,
-        } as any;
-      }
       if (type === 'validateSecp256k1PublicKey33') {
         return new Uint8Array(payload.publicKey33 as ArrayBuffer).slice().buffer as any;
       }
@@ -311,11 +305,12 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     try {
       const refillInput = {
         relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32,
-        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie' as const,
         workerCtx,
       };
@@ -327,20 +322,21 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       expect(
         getThresholdEcdsaClientPresignaturePoolDepth({
           relayerUrl: RELAYER_URL,
-          relayerKeyId: RELAYER_KEY_ID,
-          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          relayerKeyId: BACKEND_RELAYER_KEY_ID,
           participantIds: PARTICIPANT_IDS,
         }),
       ).toBe(2);
 
       const signArgsBase = {
         relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+      relayerKeyId: BACKEND_RELAYER_KEY_ID,
+      clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         signingDigest32: DIGEST_32,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32,
         participantIds: PARTICIPANT_IDS,
-        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie' as const,
         workerCtx,
       };
@@ -394,12 +390,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           maxRefillInFlight: 1,
           refillAttemptTimeoutMs: 250,
         },
-        dispenseThresholdEcdsaPrfFirstForSession: async () => ({
-          ok: true,
-          prfFirstB64u: PRF_FIRST_B64U,
-          remainingUses: 9,
-          expiresAtMs: Date.now() + 60_000,
-        }),
         onThresholdEcdsaPresignRefillScheduled: (event) => {
           refillEvents.push({
             trigger: event.trigger,
@@ -422,10 +412,13 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
-          relayerKeyId: RELAYER_KEY_ID,
-          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          backendBinding: {
+            relayerKeyId: BACKEND_RELAYER_KEY_ID,
+            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+          },
           participantIds: PARTICIPANT_IDS,
-          groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'cookie',
           thresholdSessionId: SESSION_ID,
         },
@@ -466,11 +459,12 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     try {
       const warmed = await refillThresholdEcdsaClientPresignaturePool({
         relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32,
-        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
         workerCtx,
       });
@@ -490,12 +484,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           maxRefillInFlight: 2,
           refillAttemptTimeoutMs: 500,
         },
-        dispenseThresholdEcdsaPrfFirstForSession: async () => ({
-          ok: true,
-          prfFirstB64u: PRF_FIRST_B64U,
-          remainingUses: 9,
-          expiresAtMs: Date.now() + 60_000,
-        }),
         onThresholdEcdsaPresignRefillScheduled: (event) => {
           refillEvents.push({
             trigger: event.trigger,
@@ -518,10 +506,13 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
-          relayerKeyId: RELAYER_KEY_ID,
-          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          backendBinding: {
+            relayerKeyId: BACKEND_RELAYER_KEY_ID,
+            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+          },
           participantIds: PARTICIPANT_IDS,
-          groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'cookie',
           thresholdSessionId: SESSION_ID,
         },
@@ -562,11 +553,12 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     try {
       const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
         relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32,
-        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
         workerCtx,
         poolPolicy: {
@@ -581,13 +573,14 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
 
       const signed = await signThresholdEcdsaDigestWithPool({
         relayerUrl: RELAYER_URL,
-        relayerKeyId: RELAYER_KEY_ID,
-        clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-foreground-reuse',
         signingDigest32: DIGEST_32,
         clientSigningShare32: CLIENT_SIGNING_SHARE_32,
         participantIds: PARTICIPANT_IDS,
-        groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
         workerCtx,
       });
@@ -628,12 +621,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           maxRefillInFlight: 1,
           refillAttemptTimeoutMs: 250,
         },
-        dispenseThresholdEcdsaPrfFirstForSession: async () => ({
-          ok: true,
-          prfFirstB64u: PRF_FIRST_B64U,
-          remainingUses: 9,
-          expiresAtMs: Date.now() + 60_000,
-        }),
       });
 
       const signed = await engine.sign(
@@ -647,10 +634,13 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
-          relayerKeyId: RELAYER_KEY_ID,
-          clientVerifyingShareB64u: CLIENT_VERIFYING_SHARE_B64U,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          backendBinding: {
+            relayerKeyId: BACKEND_RELAYER_KEY_ID,
+            clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+          },
           participantIds: PARTICIPANT_IDS,
-          groupPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'jwt',
           thresholdSessionId: SESSION_ID,
           thresholdSessionJwt,

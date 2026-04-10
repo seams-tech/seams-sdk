@@ -966,6 +966,7 @@ dependencies = [
  "rand_core",
  "serde",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]

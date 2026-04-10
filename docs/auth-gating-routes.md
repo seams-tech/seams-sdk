@@ -457,7 +457,7 @@ Rule:
 | Route family                            | Representative routes                                                                                                                                                                  | Auth plane          | Gate                                                                                  | Metering | Current stance                                                                       |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------ |
 | Relay diagnostics and discovery         | `GET /healthz`, `GET /readyz`, `GET /.well-known/webauthn`, threshold health probes                                                                                                    | `public`            | intentionally open                                                                    | none     | correct                                                                              |
-| Public proof bootstrap routes           | `POST /auth/:provider/:action`, `POST /session/exchange`, `POST /wallet/unlock/*`, `POST /sync-account/*`, `POST /threshold-ed25519/session`, `POST /threshold-ecdsa/bootstrap`        | `public`            | cryptographic proof, challenge, or attestation inside the flow                        | none     | correct                                                                              |
+| Public proof bootstrap routes           | `POST /auth/:provider/:action`, `POST /session/exchange`, `POST /wallet/unlock/*`, `POST /sync-account/*`, `POST /threshold-ed25519/session`, `POST /threshold-ecdsa/hss/*`            | `public`            | cryptographic proof, challenge, or attestation inside the flow                        | none     | correct                                                                              |
 | Public operational ingress              | `GET/POST /link-device/session*`, `POST /link-device/prepare`, `POST /recover-email`                                                                                                   | `public`            | intentionally auth-free for now                                                       | none     | acceptable for now; later review if they start consuming gas or privileged resources |
 | End-user session routes                 | `/auth/identities`, `/auth/link`, `/auth/unlink`, `/near/public-keys`, `/webauthn/authenticators`, `/session/revoke`, `/session/refresh`, `/wallet/state`, `/wallet/lock`              | `user_session`      | authenticated end-user app session                                                    | none     | correct                                                                              |
 | Threshold-session routes                | `/threshold-ed25519/authorize`, `/threshold-ed25519/hss/*`, `/threshold-ecdsa/authorize`, `/threshold-ecdsa/presign/*`                                                                 | `threshold_session` | threshold session claims                                                              | none     | correct                                                                              |
@@ -578,7 +578,9 @@ These can remain public only because they validate a challenge, attestation, or 
 - `/registration/threshold-ed25519/hss/prepare`
 - `/registration/threshold-ed25519/hss/finalize`
 - `/threshold-ed25519/session`
-- `/threshold-ecdsa/bootstrap`
+- `/threshold-ecdsa/hss/prepare`
+- `/threshold-ecdsa/hss/respond`
+- `/threshold-ecdsa/hss/finalize`
 
 Required rule:
 

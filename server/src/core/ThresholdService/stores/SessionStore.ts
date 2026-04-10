@@ -30,6 +30,7 @@ export type ThresholdEd25519CommitmentsById = Record<string, ThresholdEd25519Com
 
 export type ThresholdEd25519MpcSessionRecord = {
   expiresAtMs: number;
+  ecdsaThresholdKeyId?: string;
   relayerKeyId: string;
   purpose: string;
   intentDigestB64u: string;

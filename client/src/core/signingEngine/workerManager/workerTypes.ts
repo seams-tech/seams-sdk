@@ -43,10 +43,6 @@ export interface EthSignerWorkerOperationMap {
     payload: { digest32: ArrayBuffer; privateKey32: ArrayBuffer };
     result: ArrayBuffer;
   };
-  deriveThresholdSecp256k1ClientShare: {
-    payload: { prfFirst32: ArrayBuffer; userId: string; derivationPath?: number };
-    result: { clientSigningShare32: ArrayBuffer; clientVerifyingShare33: ArrayBuffer };
-  };
   deriveSecp256k1KeypairFromPrfSecond: {
     payload: { prfSecond: ArrayBuffer; nearAccountId: string };
     result: {
@@ -194,7 +190,10 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
-  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
+  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
+  | typeof WorkerRequestType.PrepareThresholdEcdsaHssSession
+  | typeof WorkerRequestType.PrepareThresholdEcdsaHssClientRequest
+  | typeof WorkerRequestType.FinalizeThresholdEcdsaHssClientRequest;
 
 type HssWorkerOperationEntry<T extends HssWorkerOperationType> = WorkerRequestTypeMap[T] extends {
   request: infer P;

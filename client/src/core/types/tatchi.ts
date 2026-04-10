@@ -291,7 +291,7 @@ export interface LoginState {
   publicKey: string | null;
   userData: ClientUserData | null;
   thresholdEcdsaEthereumAddress?: string | null;
-  thresholdEcdsaGroupPublicKeyB64u?: string | null;
+  thresholdEcdsaPublicKeyB64u?: string | null;
 }
 
 export type ThemeName = 'light' | 'dark';
@@ -333,7 +333,7 @@ export interface RegistrationResult {
   nearAccountId?: AccountId;
   transactionId?: string | null;
   thresholdEcdsaEthereumAddress?: string;
-  thresholdEcdsaGroupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
 }
 
 export type RelaySecretKeyAuthErrorCode =

@@ -386,8 +386,7 @@ mod tests {
     fn hss_server_inputs_are_deterministic_and_domain_separated() {
         let master_secret = [21u8; 32];
         let base = sample_hss_context();
-        let same =
-            derive_ed25519_hss_server_inputs_v1(&master_secret, &base).expect("base inputs");
+        let same = derive_ed25519_hss_server_inputs_v1(&master_secret, &base).expect("base inputs");
         let repeat = derive_ed25519_hss_server_inputs_v1(&master_secret, &sample_hss_context())
             .expect("repeat");
         assert_eq!(same, repeat);

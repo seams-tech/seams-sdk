@@ -156,6 +156,9 @@ export class TatchiPasskeyIframe {
       signingSessionPersistenceMode === 'sealed_refresh_v1'
         ? this.configs.signing.sessionSeal
         : undefined;
+    const signingSessionDefaults = this.configs.signing.sessionDefaults;
+    const thresholdEcdsaPresignPool = this.configs.signing.thresholdEcdsa.presignPool;
+    const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
 
     this.router = new WalletIframeRouter({
       walletOrigin: parsedWalletOrigin.toString(),
@@ -167,8 +170,11 @@ export class TatchiPasskeyIframe {
       chains: this.configs.network.chains,
       relayerAccount: this.configs.network.relayer.accountId,
       registration: this.configs.registration,
+      signingSessionDefaults,
       signingSessionPersistenceMode,
       ...(signingSessionSeal ? { signingSessionSeal } : {}),
+      thresholdEcdsaPresignPool,
+      provisioningDefaults,
       // relayer: configs.network.relayer,
       rpIdOverride: this.configs.wallet.iframe?.rpIdOverride,
       authenticatorOptions: cloneAuthenticatorOptions(this.configs.webauthn.authenticatorOptions),

@@ -1,4 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { base64UrlDecode } from '@shared/utils/base64';
 import { normalizeInteger } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
@@ -17,8 +18,6 @@ import {
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   type ThresholdEcdsaClientPresignatureRefillScheduleResult,
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
-import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
-import type { ThresholdPrfCacheDispenseResult } from '../../touchConfirm';
 import type { SignerWorkerManagerContext } from '../../workerManager';
 import {
   LOGIN_PREFILL_MIN_REMAINING_USES,
@@ -35,8 +34,6 @@ export type ThresholdEcdsaLoginPrefillSkippedReason =
   | 'warm_session_not_active'
   | 'threshold_session_mismatch'
   | 'low_remaining_uses'
-  | 'prf_unavailable'
-  | 'derived_share_mismatch'
   | 'refill_not_scheduled';
 
 export type ThresholdEcdsaLoginPrefillResult =
@@ -58,7 +55,7 @@ export type ThresholdEcdsaLoginPrefillResult =
     }
   | {
       status: 'failed';
-      reason: 'derive_failed' | 'unexpected_error';
+      reason: 'unexpected_error';
       thresholdSessionId?: string;
       error: string;
     };
@@ -69,10 +66,6 @@ export type ThresholdEcdsaLoginPrefillDeps = {
     thresholdSessionId: string,
     chain: 'tempo' | 'evm',
   ) => Promise<SigningSessionStatus | null>;
-  dispensePrfFirstForThresholdSession: (args: {
-    sessionId: string;
-    uses?: number;
-  }) => Promise<ThresholdPrfCacheDispenseResult>;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   thresholdEcdsaPresignPoolPolicy?:
     | ThresholdEcdsaPresignPoolPolicyInput
@@ -111,8 +104,13 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     const relayerUrl = String(keyRef.relayerUrl || '')
       .trim()
       .replace(/\/+$/g, '');
-    const relayerKeyId = String(keyRef.relayerKeyId || '').trim();
-    const clientVerifyingShareB64u = String(keyRef.clientVerifyingShareB64u || '').trim();
+    const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
+    const clientVerifyingShareB64u = String(
+      keyRef.backendBinding?.clientVerifyingShareB64u || '',
+    ).trim();
+    const clientAdditiveShare32B64u = String(
+      keyRef.backendBinding?.clientAdditiveShare32B64u || '',
+    ).trim();
     const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
     if (!relayerUrl || !relayerKeyId || !clientVerifyingShareB64u || !participantIds) {
       return {
@@ -150,8 +148,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
 
     const existingDepth = getThresholdEcdsaClientPresignaturePoolDepth({
       relayerUrl,
-      relayerKeyId,
-      clientVerifyingShareB64u,
+      ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
       participantIds,
     });
     if (existingDepth >= LOGIN_PREFILL_TARGET_DEPTH) {
@@ -197,50 +194,43 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const dispensed = await deps.dispensePrfFirstForThresholdSession({
-      sessionId: thresholdSessionId,
-      uses: 1,
-    });
-    if (!dispensed.ok) {
+    let clientSigningShare32: Uint8Array;
+    const remainingUsesAfterDispense = remainingUsesBefore;
+    if (!clientAdditiveShare32B64u) {
       return {
         status: 'skipped',
-        reason: 'prf_unavailable',
+        reason: 'invalid_key_ref',
         thresholdSessionId,
-        details: `${dispensed.code}:${dispensed.message}`,
+        details: 'missing clientAdditiveShare32B64u',
       };
     }
-
-    let derived: Awaited<ReturnType<typeof deriveThresholdSecp256k1ClientShareWasm>>;
     try {
-      derived = await deriveThresholdSecp256k1ClientShareWasm({
-        prfFirstB64u: dispensed.prfFirstB64u,
-        userId: nearAccountId,
-        workerCtx: deps.getSignerWorkerContext(),
-      });
-    } catch (error: unknown) {
-      return {
-        status: 'failed',
-        reason: 'derive_failed',
-        thresholdSessionId,
-        error: String((error as { message?: unknown })?.message || error || 'derive failed'),
-      };
-    }
-
-    if (derived.clientVerifyingShareB64u !== clientVerifyingShareB64u) {
+      clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+    } catch {
       return {
         status: 'skipped',
-        reason: 'derived_share_mismatch',
+        reason: 'invalid_key_ref',
         thresholdSessionId,
+        details: 'clientAdditiveShare32B64u must be valid base64url',
+      };
+    }
+    if (clientSigningShare32.length !== 32) {
+      return {
+        status: 'skipped',
+        reason: 'invalid_key_ref',
+        thresholdSessionId,
+        details: 'clientAdditiveShare32B64u must decode to 32 bytes',
       };
     }
 
     const schedule = scheduleThresholdEcdsaClientPresignaturePoolRefill({
       relayerUrl,
+      ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
       relayerKeyId,
       clientVerifyingShareB64u,
       participantIds,
-      clientSigningShare32: derived.clientSigningShare32,
-      groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
+      clientSigningShare32,
+      thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
       sessionKind,
       ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -255,7 +245,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
         status: 'skipped',
         reason: 'refill_not_scheduled',
         thresholdSessionId,
-        remainingUses: normalizeInteger(dispensed.remainingUses) ?? undefined,
+        remainingUses: remainingUsesAfterDispense,
         schedule,
       };
     }
@@ -265,7 +255,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       reason: 'scheduled',
       thresholdSessionId,
       remainingUsesBeforeDispense: remainingUsesBefore,
-      remainingUsesAfterDispense: Math.max(0, Math.floor(Number(dispensed.remainingUses) || 0)),
+      remainingUsesAfterDispense,
       schedule,
     };
   } catch (error: unknown) {

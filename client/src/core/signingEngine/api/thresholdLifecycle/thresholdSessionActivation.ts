@@ -14,6 +14,7 @@ import {
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
 import type { ThresholdEcdsaSessionStoreSource } from './thresholdSessionStore';
 import type { ThresholdRuntimeSnapshotScope } from '../../threshold/session/sessionPolicy';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
 export type ConnectEd25519SessionArgs = {
   nearAccountId: AccountId | string;
@@ -36,10 +37,11 @@ export type BootstrapEcdsaSessionArgs = {
   chain?: ThresholdEcdsaActivationChain;
   source?: ThresholdEcdsaSessionStoreSource;
   relayerUrl?: string;
+  ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
-  clientVerifyingShareB64u?: string;
+  clientRootShare32B64u?: string;
   authorizationJwt?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -86,6 +88,21 @@ export type ThresholdSessionActivationDeps = {
     source: ThresholdEcdsaSessionStoreSource;
   }) => void;
 };
+
+function requireCanonicalThresholdEcdsaKeyRefIdentity(
+  keyRef: ThresholdEcdsaSecp256k1KeyRef,
+): ThresholdEcdsaSecp256k1KeyRef & { ecdsaThresholdKeyId: string } {
+  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
+    throw new Error(
+      '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
+    );
+  }
+  return {
+    ...keyRef,
+    ecdsaThresholdKeyId,
+  };
+}
 
 function resolveRelayerUrl(
   relayerUrlOverride: string | undefined,
@@ -162,19 +179,27 @@ export async function bootstrapEcdsaSessionValue(
     request: {
       nearAccountId,
       relayerUrl,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      clientRootShare32B64u: args.clientRootShare32B64u,
       authorizationJwt: args.authorizationJwt,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
     },
   });
+  const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
+    bootstrap.thresholdEcdsaKeyRef,
+  );
+  const canonicalBootstrap: ThresholdEcdsaSessionBootstrapResult = {
+    ...bootstrap,
+    thresholdEcdsaKeyRef,
+  };
 
   const requestedThresholdSessionId = String(args.sessionId || '').trim();
   const canonicalThresholdSessionId = String(
-    bootstrap.thresholdEcdsaKeyRef?.thresholdSessionId || '',
+    canonicalBootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
   ).trim();
 
   if (
@@ -210,13 +235,13 @@ export async function bootstrapEcdsaSessionValue(
   await deps.persistThresholdEcdsaBootstrapChainAccount({
     nearAccountId,
     chain,
-    bootstrap,
+    bootstrap: canonicalBootstrap,
     smartAccount: args.smartAccount,
   });
   deps.upsertThresholdEcdsaSessionFromBootstrap({
     nearAccountId,
     chain,
-    bootstrap,
+    bootstrap: canonicalBootstrap,
     source: args.source || 'manual-bootstrap',
   });
 
@@ -258,5 +283,5 @@ export async function bootstrapEcdsaSessionValue(
       .peekPrfFirstForThresholdSession({ sessionId: canonicalThresholdSessionId })
       .catch(() => undefined);
   }
-  return bootstrap;
+  return canonicalBootstrap;
 }

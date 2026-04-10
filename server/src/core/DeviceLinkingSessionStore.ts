@@ -26,8 +26,10 @@ export type DeviceLinkingSessionRecord = {
 };
 
 export type DeviceLinkingPreparedThresholdEcdsaRecord = {
+  clientVerifyingShareB64u: string;
+  clientAdditiveShare32B64u: string;
   relayerKeyId: string;
-  groupPublicKeyB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
   participantIds?: number[];
 };
@@ -81,14 +83,26 @@ function parsePreparedThresholdEcdsaRecord(
   raw: unknown,
 ): DeviceLinkingPreparedThresholdEcdsaRecord | undefined {
   if (!isObject(raw)) return undefined;
+  const clientVerifyingShareB64u = toOptionalTrimmedString(raw.clientVerifyingShareB64u);
+  const clientAdditiveShare32B64u = toOptionalTrimmedString(raw.clientAdditiveShare32B64u);
   const relayerKeyId = toOptionalTrimmedString(raw.relayerKeyId);
-  const groupPublicKeyB64u = toOptionalTrimmedString(raw.groupPublicKeyB64u);
+  const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(raw.thresholdEcdsaPublicKeyB64u);
   const ethereumAddress = toOptionalTrimmedString(raw.ethereumAddress);
-  if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress) return undefined;
+  if (
+    !clientVerifyingShareB64u ||
+    !clientAdditiveShare32B64u ||
+    !relayerKeyId ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !ethereumAddress
+  ) {
+    return undefined;
+  }
 
   return {
+    clientVerifyingShareB64u,
+    clientAdditiveShare32B64u,
     relayerKeyId,
-    groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     ...(normalizeParticipantIds(raw.participantIds)
       ? { participantIds: normalizeParticipantIds(raw.participantIds) }

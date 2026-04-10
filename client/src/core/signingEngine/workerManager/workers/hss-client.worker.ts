@@ -5,6 +5,9 @@ import {
   WorkerResponseType,
 } from '@/core/types/signer-worker';
 import initHssClientSigner, {
+  threshold_ecdsa_hss_finalize_client_request,
+  threshold_ecdsa_hss_prepare_client_request,
+  threshold_ecdsa_hss_prepare_session,
   derive_threshold_ed25519_hss_client_inputs,
   threshold_ed25519_hss_open_client_output,
   threshold_ed25519_hss_open_seed_output,
@@ -79,6 +82,21 @@ async function handleHssClientMessage(data: unknown): Promise<{
       return {
         type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
         payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
+      };
+    case WorkerRequestType.PrepareThresholdEcdsaHssSession:
+      return {
+        type: WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess,
+        payload: threshold_ecdsa_hss_prepare_session(payload),
+      };
+    case WorkerRequestType.PrepareThresholdEcdsaHssClientRequest:
+      return {
+        type: WorkerResponseType.PrepareThresholdEcdsaHssClientRequestSuccess,
+        payload: threshold_ecdsa_hss_prepare_client_request(payload),
+      };
+    case WorkerRequestType.FinalizeThresholdEcdsaHssClientRequest:
+      return {
+        type: WorkerResponseType.FinalizeThresholdEcdsaHssClientRequestSuccess,
+        payload: threshold_ecdsa_hss_finalize_client_request(payload),
       };
     default:
       throw new Error(`Unsupported HSS client request type: ${requestType}`);

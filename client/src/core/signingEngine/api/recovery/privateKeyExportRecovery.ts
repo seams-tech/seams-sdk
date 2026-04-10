@@ -9,6 +9,7 @@ import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDe
 
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
+type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
 
 type ExportRecoveryErrorCode = 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
 type ExportRecoveryError = Error & { code: ExportRecoveryErrorCode };
@@ -26,7 +27,7 @@ function createExportRecoveryError(args: {
 }
 
 function emitExportRecoveryTelemetry(args: {
-  event: 'signer.export.worker_boundary_required' | 'signer.export.recovery_not_provisioned';
+  event: 'signer.export.worker_boundary_required';
   nearAccountId: string;
   deviceNumber?: number;
   reason: string;
@@ -101,7 +102,6 @@ async function runExportWorkerOperation(
   if (deviceNumber == null) {
     throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
   }
-
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
       if (!isEvmOrTempoChain(args.options.chain)) {
@@ -249,6 +249,108 @@ export async function exportNearEd25519SeedArtifactWithUI(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
   const result = await exportNearEd25519SeedArtifactWithUIWorkerDriven(deps, args);
+  return {
+    accountId: result.accountId,
+    exportedSchemes: result.exportedSchemes,
+  };
+}
+
+export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
+  deps: PrivateKeyExportRecoveryDeps,
+  args: {
+    nearAccountId: AccountId;
+    artifact: {
+      artifactKind: EcdsaHssExportArtifactKind;
+      chain: 'evm' | 'tempo';
+      publicKeyHex: string;
+      privateKeyHex: string;
+      ethereumAddress: string;
+    };
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  },
+): Promise<ExportPrivateKeysWithUiWorkerResult> {
+  const accountId = toAccountId(args.nearAccountId);
+  if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
+    throwExportWorkerBoundaryRequired({
+      nearAccountId: accountId,
+      reason: 'missing_export_worker_operation',
+    });
+  }
+  const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
+  const resolvedTheme = args.options?.theme ?? deps.getTheme();
+  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+    () => null as number | null,
+  );
+  if (deviceNumber == null) {
+    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  }
+
+  const artifactKind = String(args.artifact.artifactKind || '').trim();
+  const publicKeyHex = String(args.artifact.publicKeyHex || '').trim();
+  const privateKeyHex = String(args.artifact.privateKeyHex || '').trim();
+  const ethereumAddress = String(args.artifact.ethereumAddress || '').trim();
+  if (artifactKind !== 'ecdsa-hss-secp256k1-key-v1') {
+    throw new Error('Missing or invalid ecdsa-hss export artifactKind');
+  }
+  if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
+    throw new Error('Incomplete ecdsa-hss secp256k1 export artifact');
+  }
+
+  const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
+    try {
+      return await requestExportPrivateKeysWithUi({
+        nearAccountId: accountId,
+        deviceNumber,
+        chain: args.artifact.chain,
+        artifactKind,
+        publicKeyHex,
+        privateKeyHex,
+        ethereumAddress,
+        variant: args.options.variant,
+        theme: resolvedTheme,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (
+        message.includes('Unsupported UserConfirm worker message type: EXPORT_PRIVATE_KEYS_WITH_UI')
+      ) {
+        throwExportWorkerBoundaryRequired({
+          nearAccountId: accountId,
+          deviceNumber,
+          reason: 'worker_missing_export_operation',
+        });
+      }
+      throw error;
+    }
+  })();
+
+  if (!result.ok) {
+    throw new Error(result.error || 'Export private keys request failed');
+  }
+  return result;
+}
+
+export async function exportEcdsaHssThresholdKeyArtifactWithUI(
+  deps: PrivateKeyExportRecoveryDeps,
+  args: {
+    nearAccountId: AccountId;
+    artifact: {
+      artifactKind: EcdsaHssExportArtifactKind;
+      chain: 'evm' | 'tempo';
+      publicKeyHex: string;
+      privateKeyHex: string;
+      ethereumAddress: string;
+    };
+    options: {
+      variant?: 'drawer' | 'modal';
+      theme?: 'dark' | 'light';
+    };
+  },
+): Promise<{ accountId: string; exportedSchemes: ExportScheme[] }> {
+  const result = await exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(deps, args);
   return {
     accountId: result.accountId,
     exportedSchemes: result.exportedSchemes,

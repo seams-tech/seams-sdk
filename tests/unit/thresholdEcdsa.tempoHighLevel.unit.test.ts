@@ -71,7 +71,12 @@ async function signTempoWithExistingPasskey(
   },
 ): Promise<{
   ok: boolean;
-  keygen?: { participantIds?: number[]; relayerKeyId?: string; clientVerifyingShareB64u?: string };
+  keygen?: {
+    ecdsaThresholdKeyId?: string;
+    participantIds?: number[];
+    thresholdEcdsaPublicKeyB64u?: string;
+    ethereumAddress?: string;
+  };
   session?: { ok: boolean; sessionId?: string };
   signed?: { chain: 'tempo'; kind: 'tempoTransaction'; senderHashHex: string; rawTxHex: string };
   error?: string;
@@ -377,6 +382,9 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
 
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.keygen?.ok).toBe(true);
+      expect(String(result.keygen?.ecdsaThresholdKeyId || '')).toBeTruthy();
+      expect(String(result.keygen?.thresholdEcdsaPublicKeyB64u || '')).toBeTruthy();
+      expect(String(result.keygen?.ethereumAddress || '')).toBeTruthy();
       expect(result.session?.ok).toBe(true);
       expect(result.session?.sessionId).toBeTruthy();
       expect(result.signed?.chain).toBe('tempo');
@@ -402,6 +410,9 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
 
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.keygen?.ok).toBe(true);
+      expect(String(result.keygen?.ecdsaThresholdKeyId || '')).toBeTruthy();
+      expect(String(result.keygen?.thresholdEcdsaPublicKeyB64u || '')).toBeTruthy();
+      expect(String(result.keygen?.ethereumAddress || '')).toBeTruthy();
       expect(result.session?.ok).toBe(true);
       expect(result.signed?.chain).toBe('evm');
       expect(result.signed?.kind).toBe('eip1559');
@@ -444,7 +455,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         serializedTransaction: result.signed.rawTxHex as `0x02${string}`,
       });
       const groupPublicKeyCompressed = Buffer.from(
-        String(result.keygen?.groupPublicKeyB64u || ''),
+        String(result.keygen?.thresholdEcdsaPublicKeyB64u || ''),
         'base64url',
       );
       expect(groupPublicKeyCompressed.length).toBe(33);
@@ -458,7 +469,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     }
   });
 
-  test('fails when threshold session is missing/expired', async ({ page }) => {
+  test('reconnects when threshold session is missing/expired', async ({ page }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
     try {
       const result = await runThresholdEcdsaTempoFlow(page, {
@@ -466,11 +477,10 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
         connectSession: false,
       });
 
-      expect(result.ok).toBe(false);
-      const msg = String(result.error || '');
-      expect(msg).toMatch(
-        /missing canonical threshold ECDSA session|Missing threshold signingSessionId|threshold-ecdsa session token unavailable|threshold session expired|PRF\.first not cached for threshold session|unable to resolve managed (TEMPO|EVM) nonce sender/i,
-      );
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.signed?.chain).toBe('tempo');
+      expect(result.signed?.kind).toBe('tempoTransaction');
+      expect(result.signed?.rawTxHex?.startsWith('0x')).toBeTruthy();
     } finally {
       await harness.close();
     }

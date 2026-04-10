@@ -1,5 +1,6 @@
 mod codec;
 mod derive;
+mod ecdsa_hss;
 mod eip1559;
 mod errors;
 mod secp256k1_sign;
@@ -13,6 +14,61 @@ pub use threshold::ThresholdEcdsaPresignSession;
 #[wasm_bindgen]
 pub fn init_eth_signer() {
     // no-op; reserved for future logger initialization
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_derive_canonical_secret(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_derive_canonical_secret(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_derive_additive_shares(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_derive_additive_shares(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_bootstrap_non_export_sign(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_bootstrap_non_export_sign(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_bootstrap_non_export_sign_full(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_bootstrap_non_export_sign_full(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_sign_non_export(payload: JsValue) -> Result<Vec<u8>, JsValue> {
+    ecdsa_hss::ecdsa_hss_sign_non_export(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_sign_non_export_profiled(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_sign_non_export_profiled(payload)
+}
+
+#[wasm_bindgen]
+pub fn ecdsa_hss_explicit_export(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::ecdsa_hss_explicit_export(payload)
+}
+
+#[wasm_bindgen]
+pub fn threshold_ecdsa_hss_prepare_server_session(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::threshold_ecdsa_hss_prepare_server_session(payload)
+}
+
+#[wasm_bindgen]
+pub fn threshold_ecdsa_hss_prepare_server_ceremony(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::threshold_ecdsa_hss_prepare_server_ceremony(payload)
+}
+
+#[wasm_bindgen]
+pub fn threshold_ecdsa_hss_finalize_server_report(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::threshold_ecdsa_hss_finalize_server_report(payload)
+}
+
+#[wasm_bindgen]
+pub fn threshold_ecdsa_hss_open_server_output(payload: JsValue) -> Result<JsValue, JsValue> {
+    ecdsa_hss::threshold_ecdsa_hss_open_server_output(payload)
 }
 
 #[wasm_bindgen]
@@ -82,15 +138,6 @@ pub fn sign_secp256k1_recoverable(
     private_key32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
     secp256k1_sign::sign_secp256k1_recoverable(digest32, private_key32)
-}
-
-#[wasm_bindgen]
-pub fn derive_threshold_secp256k1_client_share(
-    prf_first32: Vec<u8>,
-    user_id: String,
-    derivation_path: u32,
-) -> Result<Vec<u8>, JsValue> {
-    derive::derive_threshold_secp256k1_client_share(prf_first32, user_id, derivation_path)
 }
 
 #[wasm_bindgen]

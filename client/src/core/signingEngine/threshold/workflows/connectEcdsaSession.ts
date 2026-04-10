@@ -10,7 +10,7 @@ type EcdsaSessionKind = 'jwt' | 'cookie';
 
 /**
  * Wallet-origin helper for threshold-ECDSA session bootstrap.
- * - runs atomic bootstrap (`POST /threshold-ecdsa/bootstrap`)
+ * - runs staged `ecdsa-hss` bootstrap via `bootstrapEcdsaSession(...)`
  * - validates that returned `relayerKeyId` matches the requested key id
  */
 export async function connectEcdsaSession(args: {

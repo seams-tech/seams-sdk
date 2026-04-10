@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
   accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
-  linkDeviceThresholdEcdsa: '/sdk/esm/core/TatchiPasskey/near/linkDeviceThresholdEcdsa.js',
+  linkDeviceThresholdEcdsa: '/sdk/esm/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.js',
 } as const;
 
 test.describe('link-device threshold-ecdsa persistence', () => {
@@ -112,10 +112,12 @@ test.describe('link-device threshold-ecdsa persistence', () => {
           deviceNumber: 2,
           rpId: 'wallet.example.test',
           credentialIdB64u: 'cred-b64u',
-          clientVerifyingShareB64u: 'client-share-b64u',
           thresholdEcdsa: {
+            ecdsaThresholdKeyId: 'ehss-link-device-1',
+            clientVerifyingShareB64u: 'client-share-b64u',
+            clientAdditiveShare32B64u: 'client-additive-share-b64u',
             relayerKeyId: 'rk-evm',
-            groupPublicKeyB64u: 'group-public-key',
+            thresholdEcdsaPublicKeyB64u: 'group-public-key',
             ethereumAddress: `0x${'aa'.repeat(20)}`,
             relayerVerifyingShareB64u: 'relayer-share-b64u',
             participantIds: [1, 2],
@@ -176,9 +178,13 @@ test.describe('link-device threshold-ecdsa persistence', () => {
     expect(result.chainAccountCalls).toHaveLength(2);
     expect(result.evmSigners).toHaveLength(1);
     expect(result.tempoSigners).toHaveLength(1);
+    expect(result.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId).toBe(
+      'ehss-link-device-1',
+    );
     expect(result.evmSigners[0]?.status).toBe('pending');
     expect(result.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
-    expect(result.evmSigners[0]?.metadata?.groupPublicKeyB64u).toBe('group-public-key');
+    expect(result.evmSigners[0]?.metadata?.ecdsaThresholdKeyId).toBe('ehss-link-device-1');
+    expect(result.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
     expect(result.tempoSigners[0]?.status).toBe('pending');
   });
 });

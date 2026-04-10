@@ -150,10 +150,10 @@ function normalizeUndeployedSmartAccountSignerSet(
             ...(normalizeOptionalNonEmptyString(candidate.relayerKeyId)
               ? { relayerKeyId: normalizeOptionalNonEmptyString(candidate.relayerKeyId)! }
               : {}),
-            ...(normalizeOptionalNonEmptyString(candidate.groupPublicKeyB64u)
+            ...(normalizeOptionalNonEmptyString(candidate.thresholdEcdsaPublicKeyB64u)
               ? {
-                  groupPublicKeyB64u: normalizeOptionalNonEmptyString(
-                    candidate.groupPublicKeyB64u,
+                  thresholdEcdsaPublicKeyB64u: normalizeOptionalNonEmptyString(
+                    candidate.thresholdEcdsaPublicKeyB64u,
                   )!,
                 }
               : {}),

@@ -54,8 +54,7 @@ export type ThresholdEcdsaPresignProgress = {
 
 export async function ecdsaPresignInit(args: {
   relayerUrl: string;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   count?: number;
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
@@ -77,20 +76,12 @@ export async function ecdsaPresignInit(args: {
       message: 'fetch is not available for threshold-ecdsa presign/init',
     };
   }
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
-  if (!relayerKeyId) {
+  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing relayerKeyId for threshold-ecdsa presign/init',
-    };
-  }
-  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
-  if (!clientVerifyingShareB64u) {
-    return {
-      ok: false,
-      code: 'invalid_args',
-      message: 'Missing clientVerifyingShareB64u for threshold-ecdsa presign/init',
+      message: 'Missing ecdsaThresholdKeyId for threshold-ecdsa presign/init',
     };
   }
   const requestTag = String(args.requestTag || '').trim();
@@ -117,8 +108,7 @@ export async function ecdsaPresignInit(args: {
         headers: auth.headers,
         credentials: auth.sessionKind === 'cookie' ? 'include' : 'omit',
         body: JSON.stringify({
-          relayerKeyId,
-          clientVerifyingShareB64u,
+          ecdsaThresholdKeyId,
           count: Number.isFinite(args.count) ? Math.max(1, Math.floor(Number(args.count))) : 1,
           ...(requestTag ? { requestTag } : {}),
         }),

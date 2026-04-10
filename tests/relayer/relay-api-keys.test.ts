@@ -57,7 +57,7 @@ function makeThresholdEcdsaRelayService() {
       transactionHash: 'tx-123',
       thresholdEcdsa: {
         relayerKeyId: 'rk-registration-1',
-        groupPublicKeyB64u: 'group-public-key',
+        thresholdEcdsaPublicKeyB64u: 'group-public-key',
         ethereumAddress: `0x${'aa'.repeat(20)}`,
         relayerVerifyingShareB64u: 'relayer-share',
       },
@@ -69,7 +69,7 @@ function makeRegistrationBodyWithSmartAccountTargets(): Record<string, unknown> 
   return {
     ...makeRegistrationBody(),
     threshold_ecdsa: {
-      client_verifying_share_b64u: 'client-share-b64u',
+      client_root_share32_b64u: 'client-root-share32-b64u',
       session_policy: {
         version: 'threshold_session_v1',
         userId: 'alice.testnet',
@@ -576,7 +576,7 @@ test.describe('relay API key auth (express)', () => {
           transactionHash: 'tx-123',
           thresholdEcdsa: {
             relayerKeyId: 'rk-registration-1',
-            groupPublicKeyB64u: 'group-public-key',
+            thresholdEcdsaPublicKeyB64u: 'group-public-key',
             ethereumAddress: `0x${'aa'.repeat(20)}`,
             relayerVerifyingShareB64u: 'relayer-share',
           },
@@ -800,7 +800,7 @@ test.describe('relay API key auth (express)', () => {
           transactionHash: 'tx-123',
           thresholdEcdsa: {
             relayerKeyId: 'rk-registration-1',
-            groupPublicKeyB64u: 'group-public-key',
+            thresholdEcdsaPublicKeyB64u: 'group-public-key',
             ethereumAddress: `0x${'aa'.repeat(20)}`,
             relayerVerifyingShareB64u: 'relayer-share',
           },
@@ -1299,7 +1299,7 @@ test.describe('relay API key auth (cloudflare)', () => {
           transactionHash: 'tx-123',
           thresholdEcdsa: {
             relayerKeyId: 'rk-registration-1',
-            groupPublicKeyB64u: 'group-public-key',
+            thresholdEcdsaPublicKeyB64u: 'group-public-key',
             ethereumAddress: `0x${'aa'.repeat(20)}`,
             relayerVerifyingShareB64u: 'relayer-share',
           },

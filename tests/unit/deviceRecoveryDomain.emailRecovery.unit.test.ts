@@ -97,6 +97,18 @@ function createLocalDomain(options?: {
         success: true,
         clientVerifyingShareB64u: 'client-ecdsa-verifying-share',
       }),
+      prepareThresholdEd25519HssClientCeremonyFromCredential: async () => ({
+        success: true,
+        contextBindingB64u: 'ctx-binding',
+        yClientB64u: 'y-client',
+        tauClientB64u: 'tau-client',
+      }),
+      runThresholdEd25519HssCeremonyWithSession: async () => ({
+        success: true,
+        clientOutput: {
+          xClientBaseB64u: 'x-client-base',
+        },
+      }),
       hydrateSigningSession: async (input: any) => {
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),
@@ -179,6 +191,7 @@ test.describe('EmailRecoveryDomain', () => {
             ok: true,
             thresholdEd25519: {
               keyVersion: 'threshold-ed25519-hss-v1',
+              recoveryExportCapable: true,
               publicKey: 'ed25519:threshold-public-key',
               relayerKeyId: 'relayer-key-1',
               clientParticipantId: 1,
@@ -190,10 +203,15 @@ test.describe('EmailRecoveryDomain', () => {
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 5,
                 participantIds: [1, 2],
+                runtimeSnapshotScope: {
+                  orgId: 'org-email-recovery',
+                  environmentId: 'env-email-recovery',
+                },
                 jwt: 'sync-jwt',
               },
             },
             thresholdEcdsa: {
+              ecdsaThresholdKeyId: 'ehss-email-recovery-1',
               ethereumAddress: `0x${'11'.repeat(20)}`,
             },
             recoverySession: {
@@ -244,6 +262,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(result.mailtoUrl).toContain(encodeURIComponent('tatchi-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
+      expect(pendingStore.setCalls[0]?.ecdsaThresholdKeyId).toBe('ehss-email-recovery-1');
       expect(pendingStore.setCalls[0]?.newEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
       expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
       expect(pendingStore.setCalls[0]?.deviceNumber).toBe(7);

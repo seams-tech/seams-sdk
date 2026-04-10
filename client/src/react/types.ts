@@ -64,8 +64,8 @@ export interface LoginState {
   nearAccountId: string | null;
   // Canonical threshold ECDSA account address used for Tempo/EVM signing
   thresholdEcdsaEthereumAddress?: string | null;
-  // Canonical threshold ECDSA group public key (base64url)
-  thresholdEcdsaGroupPublicKeyB64u?: string | null;
+  // Canonical threshold ECDSA public key (base64url)
+  thresholdEcdsaPublicKeyB64u?: string | null;
 }
 
 // UI input state - tracks user input and form state

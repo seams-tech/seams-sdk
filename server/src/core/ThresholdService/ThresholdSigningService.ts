@@ -3,7 +3,10 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { SessionClaims } from '../../router/relay';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
-import type { ThresholdEd25519KeyStore } from './stores/KeyStore';
+import type {
+  ThresholdEcdsaIntegratedKeyStore,
+  ThresholdEd25519KeyStore,
+} from './stores/KeyStore';
 import type { ThresholdEd25519SessionStore } from './stores/SessionStore';
 import type {
   ThresholdEcdsaPresignSessionStore,
@@ -46,13 +49,16 @@ import type {
   ThresholdEd25519HssRespondWithSessionResponse,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
   Ed25519SessionPolicy,
-  ThresholdEcdsaKeygenRequest,
-  ThresholdEcdsaKeygenResponse,
-  ThresholdEcdsaBootstrapRequest,
-  ThresholdEcdsaBootstrapResponse,
+  ThresholdEcdsaHssFinalizeRequest,
+  ThresholdEcdsaHssFinalizeResponse,
+  ThresholdEcdsaHssOperation,
+  ThresholdEcdsaHssPrepareRequest,
+  ThresholdEcdsaHssPrepareResponse,
+  ThresholdEcdsaHssRespondRequest,
+  ThresholdEcdsaHssRespondResponse,
+  ThresholdEcdsaIntegratedKeyRecord,
   EcdsaSessionPolicy,
-  ThresholdEcdsaSessionRequest,
-  ThresholdEcdsaSessionResponse,
+  ThresholdEcdsaBootstrapSessionPolicy,
   ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaSignFinalizeRequest,
@@ -72,7 +78,13 @@ import type {
 } from '../types';
 import {
   addSecp256k1PublicKeys33,
+  ecdsaHssBootstrapNonExportSign,
+  ecdsaHssExplicitExport,
   deriveThresholdSecp256k1RelayerShare,
+  finalizeThresholdEcdsaHssServerReport,
+  openThresholdEcdsaHssServerOutput,
+  prepareThresholdEcdsaHssServerCeremony,
+  prepareThresholdEcdsaHssServerSession,
   secp256k1PublicKey33ToEthereumAddress,
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
@@ -96,6 +108,7 @@ import {
   extractAuthorizeSigningPublicKey,
   isObject,
   normalizeByteArray32,
+  parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
   type ThresholdEd25519SessionClaims,
   type ThresholdEcdsaSessionClaims,
@@ -119,6 +132,13 @@ import {
 import { ThresholdEcdsaSigningHandlers } from './ecdsaSigningHandlers';
 import { ThresholdEd25519SigningHandlers } from './signingHandlers';
 import { resolveThresholdEd25519RelayerKeyMaterial } from './relayerKeyMaterial';
+import {
+  computeThresholdEcdsaHssRequestDigestB64u,
+  createOpaqueBase64Envelope,
+  parseThresholdEcdsaHssHiddenEvalClientRequestEnvelope,
+  parseThresholdEcdsaHssHiddenEvalFinalizeEnvelope,
+  parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope,
+} from './ecdsaHssTransport';
 import { randomBytes } from 'node:crypto';
 import type {
   ThresholdAnySchemeModule,
@@ -167,6 +187,40 @@ type ThresholdEd25519HssCeremonyRecordInput =
   | Omit<Extract<ThresholdEd25519HssCeremonyRecord, { kind: 'session' }>, 'expiresAtMs'>
   | Omit<Extract<ThresholdEd25519HssCeremonyRecord, { kind: 'registration' }>, 'expiresAtMs'>;
 
+type ThresholdEcdsaHssCeremonyRecord = {
+  expiresAtMs: number;
+  userId: string;
+  rpId: string;
+  operation: ThresholdEcdsaHssOperation;
+  ecdsaThresholdKeyId?: string;
+  preparedServerSessionB64u: string;
+  serverAssistInitB64u: string;
+  keygenSessionId?: string;
+  sessionPolicy?: ThresholdEcdsaBootstrapSessionPolicy;
+  sessionKind?: 'jwt' | 'cookie';
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  ed25519SessionClaims?: Record<string, unknown>;
+  ecdsaSessionClaims?: Record<string, unknown>;
+  requestMessageB64u?: string;
+  responseMessageB64u?: string;
+};
+
+type ThresholdEcdsaBootstrapSessionResult =
+  | {
+      ok: true;
+      sessionId: string;
+      expiresAtMs: number;
+      expiresAt: string;
+      participantIds: number[];
+      remainingUses?: number;
+      jwt?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
+
 function errorMessage(error: unknown): string {
   return String(
     error && typeof error === 'object' && 'message' in error
@@ -182,6 +236,27 @@ function utf8Bytes(value: string): number {
 function jsonBytes(value: unknown): number {
   return utf8Bytes(JSON.stringify(value));
 }
+
+function bytesToLowerHex(bytes: Uint8Array): string {
+  return `0x${Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+const THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1 = 'evm-signing';
+const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = 'v1';
+
+type DerivedEcdsaKeyMaterial = {
+  participantIds: number[];
+  relayerKeyId: string;
+  clientVerifyingShareB64u: string;
+  clientAdditiveShare32B64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+  relayerVerifyingShareB64u: string;
+  relayerRootShare32B64u: string;
+  relayerBackendInputB64u: string;
+};
 
 function parseThresholdEd25519HssSessionOperation(
   raw: unknown,
@@ -407,61 +482,6 @@ function parseThresholdEcdsaPresignPoolPolicyHint(
       : {}),
   };
   return Object.keys(hint).length ? hint : undefined;
-}
-
-function parseThresholdEcdsaRegistrationKeygenRequest(request: {
-  userId: string;
-  rpId: string;
-  clientVerifyingShareB64u: string;
-}): ParseResult<{
-  userId: string;
-  rpId: string;
-  clientVerifyingShareB64u: string;
-}> {
-  const rec = (request || {}) as unknown as Record<string, unknown>;
-  const userId = toOptionalTrimmedString(rec.userId);
-  if (!userId) {
-    return { ok: false, code: 'invalid_body', message: 'userId is required' };
-  }
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
-  }
-  const rpId =
-    toOptionalTrimmedString(rec.rpId) ||
-    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
-  if (!rpId) {
-    return { ok: false, code: 'invalid_body', message: 'rpId is required' };
-  }
-  return { ok: true, value: { userId, rpId, clientVerifyingShareB64u } };
-}
-
-function parseThresholdEcdsaKeygenRequest(request: ThresholdEcdsaKeygenRequest): ParseResult<{
-  userId: string;
-  clientVerifyingShareB64u: string;
-  rpId: string;
-  keygenSessionId: string;
-}> {
-  const rec = (request || {}) as unknown as Record<string, unknown>;
-  const userId = toOptionalTrimmedString(rec.userId);
-  if (!userId) {
-    return { ok: false, code: 'invalid_body', message: 'userId is required' };
-  }
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
-  }
-  const rpId =
-    toOptionalTrimmedString(rec.rpId) ||
-    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
-  if (!rpId) {
-    return { ok: false, code: 'invalid_body', message: 'rpId is required' };
-  }
-  const keygenSessionId = toOptionalTrimmedString(rec.keygenSessionId);
-  if (!keygenSessionId) {
-    return { ok: false, code: 'invalid_body', message: 'keygenSessionId is required' };
-  }
-  return { ok: true, value: { userId, clientVerifyingShareB64u, rpId, keygenSessionId } };
 }
 
 function parseThresholdEd25519AuthorizeWithSessionRequest(
@@ -722,19 +742,19 @@ function haveSameParticipantIds(a: number[], b: number[]): boolean {
 function parseThresholdEcdsaAuthorizeWithSessionRequest(
   request: ThresholdEcdsaAuthorizeWithSessionRequest,
 ): ParseResult<{
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   purpose: string;
   signingDigest32: Uint8Array;
   signingPayload: unknown;
 }> {
   const rec = (request || {}) as unknown as Record<string, unknown>;
-  const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
-  if (!relayerKeyId)
-    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(rec.ecdsaThresholdKeyId);
+  if (!ecdsaThresholdKeyId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ecdsaThresholdKeyId is required',
+    };
   }
   const purpose = toOptionalTrimmedString(rec.purpose);
   if (!purpose) return { ok: false, code: 'invalid_body', message: 'purpose is required' };
@@ -749,329 +769,10 @@ function parseThresholdEcdsaAuthorizeWithSessionRequest(
   return {
     ok: true,
     value: {
-      relayerKeyId,
-      clientVerifyingShareB64u,
+      ecdsaThresholdKeyId,
       purpose,
       signingDigest32,
       signingPayload: rec.signingPayload,
-    },
-  };
-}
-
-function parseThresholdEcdsaSessionRequest(
-  request: ThresholdEcdsaSessionRequest,
-  participantIds2p: number[],
-): ParseResult<{
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
-  userId: string;
-  rpId: string;
-  sessionId: string;
-  ttlMsRaw: number;
-  remainingUsesRaw: number;
-  policyParticipantIds: number[] | null;
-}> {
-  const rec = (request || {}) as unknown as Record<string, unknown>;
-  const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
-  if (!relayerKeyId) {
-    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
-  }
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
-  }
-
-  const policyRaw = (rec as { sessionPolicy?: unknown }).sessionPolicy;
-  if (!isObject(policyRaw)) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy (object) is required' };
-  }
-  const version = toOptionalTrimmedString((policyRaw as Record<string, unknown>).version);
-  if (version !== 'threshold_session_v1') {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.version must be threshold_session_v1',
-    };
-  }
-  const userId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).userId);
-  const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
-  const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
-  const policyRelayerKeyId = toOptionalTrimmedString(
-    (policyRaw as Record<string, unknown>).relayerKeyId,
-  );
-  const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
-  const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
-  if (!userId || !rpId || !sessionId || !policyRelayerKeyId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy{userId,rpId,relayerKeyId,sessionId} are required',
-    };
-  }
-  if (policyRelayerKeyId !== relayerKeyId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.relayerKeyId must match relayerKeyId',
-    };
-  }
-
-  const policyHasParticipantIds = Object.prototype.hasOwnProperty.call(policyRaw, 'participantIds');
-  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(
-    (policyRaw as Record<string, unknown>).participantIds,
-  );
-  if (policyHasParticipantIds && !policyParticipantIds) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.participantIds must be a non-empty array of positive integers',
-    };
-  }
-  if (policyParticipantIds) {
-    if (policyParticipantIds.length < 2) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'sessionPolicy.participantIds must contain at least 2 participant ids',
-      };
-    }
-    for (const id of participantIds2p) {
-      if (!policyParticipantIds.includes(id)) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
-        };
-      }
-    }
-  }
-
-  if (!Number.isFinite(ttlMsRaw) || ttlMsRaw <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.ttlMs must be a positive number',
-    };
-  }
-  if (!Number.isFinite(remainingUsesRaw) || remainingUsesRaw <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.remainingUses must be a positive number',
-    };
-  }
-
-  return {
-    ok: true,
-    value: {
-      relayerKeyId,
-      clientVerifyingShareB64u,
-      userId,
-      rpId,
-      sessionId,
-      ttlMsRaw,
-      remainingUsesRaw,
-      policyParticipantIds: policyParticipantIds || null,
-    },
-  };
-}
-
-function parseThresholdEcdsaBootstrapRequest(
-  request: ThresholdEcdsaBootstrapRequest,
-  participantIds2p: number[],
-): ParseResult<{
-  userId: string;
-  rpId: string;
-  keygenSessionId: string;
-  clientVerifyingShareB64u: string;
-  sessionId: string;
-  ttlMsRaw: number;
-  remainingUsesRaw: number;
-  policyParticipantIds: number[] | null;
-  webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  ed25519SessionClaims?: ThresholdEd25519SessionClaims;
-}> {
-  const hasSameParticipantIds = (left: number[], right: number[]): boolean => {
-    return left.length === right.length && left.every((id, index) => id === right[index]);
-  };
-
-  const rec = (request || {}) as unknown as Record<string, unknown>;
-  const userId = toOptionalTrimmedString(rec.userId);
-  if (!userId) {
-    return { ok: false, code: 'invalid_body', message: 'userId is required' };
-  }
-  const rpId =
-    toOptionalTrimmedString(rec.rpId) ||
-    toOptionalTrimmedString((rec as unknown as { rp_id?: unknown }).rp_id);
-  if (!rpId) {
-    return { ok: false, code: 'invalid_body', message: 'rpId is required' };
-  }
-  const keygenSessionId = toOptionalTrimmedString(rec.keygenSessionId);
-  if (!keygenSessionId) {
-    return { ok: false, code: 'invalid_body', message: 'keygenSessionId is required' };
-  }
-  const clientVerifyingShareB64u = toOptionalTrimmedString(rec.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u) {
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
-  }
-
-  const policyRaw = (rec as { sessionPolicy?: unknown }).sessionPolicy;
-  if (!isObject(policyRaw)) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy (object) is required' };
-  }
-  const version = toOptionalTrimmedString((policyRaw as Record<string, unknown>).version);
-  if (version !== 'threshold_session_v1') {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.version must be threshold_session_v1',
-    };
-  }
-
-  const policyUserId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).userId);
-  const policyRpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
-  const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
-  const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
-  const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
-  if (!policyUserId || !policyRpId || !sessionId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy{userId,rpId,sessionId} are required',
-    };
-  }
-  if (policyUserId !== userId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.userId must match userId' };
-  }
-  if (policyRpId !== rpId) {
-    return { ok: false, code: 'invalid_body', message: 'sessionPolicy.rpId must match rpId' };
-  }
-
-  const policyHasParticipantIds = Object.prototype.hasOwnProperty.call(policyRaw, 'participantIds');
-  const policyParticipantIds = normalizeThresholdEd25519ParticipantIds(
-    (policyRaw as Record<string, unknown>).participantIds,
-  );
-  if (policyHasParticipantIds && !policyParticipantIds) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.participantIds must be a non-empty array of positive integers',
-    };
-  }
-  if (policyParticipantIds) {
-    if (policyParticipantIds.length < 2) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'sessionPolicy.participantIds must contain at least 2 participant ids',
-      };
-    }
-    for (const id of participantIds2p) {
-      if (!policyParticipantIds.includes(id)) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: `sessionPolicy.participantIds must include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
-        };
-      }
-    }
-  }
-
-  if (!Number.isFinite(ttlMsRaw) || ttlMsRaw <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.ttlMs must be a positive number',
-    };
-  }
-  if (!Number.isFinite(remainingUsesRaw) || remainingUsesRaw <= 0) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'sessionPolicy.remainingUses must be a positive number',
-    };
-  }
-
-  const parsedEd25519SessionClaims = parseThresholdEd25519SessionClaims(
-    (rec as { ed25519SessionClaims?: unknown }).ed25519SessionClaims,
-  );
-  if (parsedEd25519SessionClaims) {
-    if (parsedEd25519SessionClaims.sub !== userId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'ed25519SessionClaims.sub must match userId',
-      };
-    }
-    if (parsedEd25519SessionClaims.rpId !== rpId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'ed25519SessionClaims.rpId must match rpId',
-      };
-    }
-    if (parsedEd25519SessionClaims.sessionId !== sessionId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'sessionPolicy.sessionId must match ed25519SessionClaims.sessionId',
-      };
-    }
-    if (Date.now() > parsedEd25519SessionClaims.thresholdExpiresAtMs) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'ed25519 session token expired',
-      };
-    }
-    for (const id of participantIds2p) {
-      if (!parsedEd25519SessionClaims.participantIds.includes(id)) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: `ed25519 session token does not include server signer set (expected to include participantIds=[${participantIds2p.join(',')}])`,
-        };
-      }
-    }
-    if (
-      policyParticipantIds &&
-      !hasSameParticipantIds(policyParticipantIds, parsedEd25519SessionClaims.participantIds)
-    ) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'sessionPolicy.participantIds must match ed25519 session token participantIds',
-      };
-    }
-  }
-
-  const webauthnAuthentication = (
-    rec as {
-      webauthn_authentication?: unknown;
-    }
-  ).webauthn_authentication as WebAuthnAuthenticationCredential | undefined;
-  if (!parsedEd25519SessionClaims && !webauthnAuthentication) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'webauthn_authentication is required when no ed25519 session claims are provided',
-    };
-  }
-
-  return {
-    ok: true,
-    value: {
-      userId,
-      rpId,
-      keygenSessionId,
-      clientVerifyingShareB64u,
-      sessionId,
-      ttlMsRaw,
-      remainingUsesRaw,
-      policyParticipantIds:
-        policyParticipantIds || parsedEd25519SessionClaims?.participantIds || null,
-      webauthnAuthentication: parsedEd25519SessionClaims ? undefined : webauthnAuthentication,
-      ed25519SessionClaims: parsedEd25519SessionClaims || undefined,
     },
   };
 }
@@ -1081,7 +782,7 @@ export class ThresholdSigningService {
   private readonly keyStore: ThresholdEd25519KeyStore;
   private readonly sessionStore: ThresholdEd25519SessionStore;
   private readonly authSessionStore: Ed25519AuthSessionStore;
-  private readonly ecdsaKeyStore: ThresholdEd25519KeyStore;
+  private readonly ecdsaKeyStore: ThresholdEcdsaIntegratedKeyStore;
   private readonly ecdsaSessionStore: ThresholdEd25519SessionStore;
   private readonly ecdsaAuthSessionStore: Ed25519AuthSessionStore;
   private readonly clientParticipantId: number;
@@ -1109,6 +810,8 @@ export class ThresholdSigningService {
   private readonly viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
   private readonly ed25519HssCeremonyTtlMs = 2 * 60_000;
   private readonly ed25519HssCeremonyStore = new Map<string, ThresholdEd25519HssCeremonyRecord>();
+  private readonly ecdsaHssCeremonyTtlMs = 2 * 60_000;
+  private readonly ecdsaHssCeremonyStore = new Map<string, ThresholdEcdsaHssCeremonyRecord>();
   private cachedSchemeModules: Partial<Record<ThresholdSchemeId, ThresholdAnySchemeModule>> | null =
     null;
 
@@ -1175,12 +878,30 @@ export class ThresholdSigningService {
     },
   };
 
+  readonly ecdsaHss = {
+    prepare: async (
+      request: ThresholdEcdsaHssPrepareRequest,
+    ): Promise<ThresholdEcdsaHssPrepareResponse> => {
+      return this.ecdsaHssPrepare(request);
+    },
+    respond: async (
+      request: ThresholdEcdsaHssRespondRequest,
+    ): Promise<ThresholdEcdsaHssRespondResponse> => {
+      return this.ecdsaHssRespond(request);
+    },
+    finalize: async (
+      request: ThresholdEcdsaHssFinalizeRequest,
+    ): Promise<ThresholdEcdsaHssFinalizeResponse> => {
+      return this.ecdsaHssFinalize(request);
+    },
+  };
+
   constructor(input: {
     logger: NormalizedLogger;
     keyStore: ThresholdEd25519KeyStore;
     sessionStore: ThresholdEd25519SessionStore;
     authSessionStore: Ed25519AuthSessionStore;
-    ecdsaKeyStore: ThresholdEd25519KeyStore;
+    ecdsaKeyStore: ThresholdEcdsaIntegratedKeyStore;
     ecdsaSessionStore: ThresholdEd25519SessionStore;
     ecdsaAuthSessionStore: Ed25519AuthSessionStore;
     ecdsaSigningSessionStore: ThresholdEcdsaSigningSessionStore;
@@ -1284,6 +1005,8 @@ export class ThresholdSigningService {
       signingSessionStore: this.ecdsaSigningSessionStore,
       presignSessionStore: this.ecdsaPresignSessionStore,
       presignaturePool: this.ecdsaPresignaturePool,
+      resolveIntegratedKeyRecord: async ({ ecdsaThresholdKeyId }) =>
+        this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId),
       ensureReady: this.ensureReady,
       createSigningSessionId: () => this.createThresholdEcdsaSigningSessionId(),
       createPresignSessionId: () => this.createThresholdEcdsaPresignSessionId(),
@@ -1294,11 +1017,23 @@ export class ThresholdSigningService {
     return base64UrlEncode(randomBytes(18));
   }
 
+  private createThresholdEcdsaHssCeremonyHandle(): string {
+    return base64UrlEncode(randomBytes(18));
+  }
+
   private cleanupExpiredThresholdEd25519HssCeremonies(nowMs = Date.now()): void {
     for (const [handle, record] of this.ed25519HssCeremonyStore.entries()) {
       if (record.expiresAtMs <= nowMs) {
         this.releaseThresholdEd25519HssCeremonyResources(record);
         this.ed25519HssCeremonyStore.delete(handle);
+      }
+    }
+  }
+
+  private cleanupExpiredThresholdEcdsaHssCeremonies(nowMs = Date.now()): void {
+    for (const [handle, record] of this.ecdsaHssCeremonyStore.entries()) {
+      if (record.expiresAtMs <= nowMs) {
+        this.ecdsaHssCeremonyStore.delete(handle);
       }
     }
   }
@@ -1377,6 +1112,135 @@ export class ThresholdSigningService {
     return { ok: true, value: record };
   }
 
+  private storeThresholdEcdsaHssCeremony(
+    record: Omit<ThresholdEcdsaHssCeremonyRecord, 'expiresAtMs'>,
+  ): string {
+    const nowMs = Date.now();
+    this.cleanupExpiredThresholdEcdsaHssCeremonies(nowMs);
+    const ceremonyId = this.createThresholdEcdsaHssCeremonyHandle();
+    this.ecdsaHssCeremonyStore.set(ceremonyId, {
+      ...record,
+      expiresAtMs: nowMs + this.ecdsaHssCeremonyTtlMs,
+    });
+    return ceremonyId;
+  }
+
+  private getThresholdEcdsaHssCeremony(
+    ceremonyIdRaw: unknown,
+  ): ParseResult<ThresholdEcdsaHssCeremonyRecord> {
+    const ceremonyId = toOptionalTrimmedString(ceremonyIdRaw);
+    if (!ceremonyId) {
+      return { ok: false, code: 'invalid_body', message: 'ceremonyId is required' };
+    }
+    this.cleanupExpiredThresholdEcdsaHssCeremonies();
+    const record = this.ecdsaHssCeremonyStore.get(ceremonyId);
+    if (!record) {
+      return { ok: false, code: 'invalid_body', message: 'ceremonyId is invalid or expired' };
+    }
+    return { ok: true, value: record };
+  }
+
+  private takeThresholdEcdsaHssCeremony(
+    ceremonyIdRaw: unknown,
+  ): ParseResult<ThresholdEcdsaHssCeremonyRecord> {
+    const ceremonyId = toOptionalTrimmedString(ceremonyIdRaw);
+    if (!ceremonyId) {
+      return { ok: false, code: 'invalid_body', message: 'ceremonyId is required' };
+    }
+    this.cleanupExpiredThresholdEcdsaHssCeremonies();
+    const record = this.ecdsaHssCeremonyStore.get(ceremonyId);
+    if (!record) {
+      return { ok: false, code: 'invalid_body', message: 'ceremonyId is invalid or expired' };
+    }
+    this.ecdsaHssCeremonyStore.delete(ceremonyId);
+    return { ok: true, value: record };
+  }
+
+  private async computeEcdsaThresholdKeyId(input: {
+    userId: string;
+    rpId: string;
+    thresholdEcdsaPublicKeyB64u: string;
+  }): Promise<string> {
+    const digest32 = await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_ecdsa_hss_key_id_v1',
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        userId: input.userId,
+        rpId: input.rpId,
+        thresholdEcdsaPublicKeyB64u: input.thresholdEcdsaPublicKeyB64u,
+      }),
+    );
+    return `ehss-${base64UrlEncode(digest32)}`;
+  }
+
+  private async computeEcdsaHssRelayerKeyId(input: {
+    userId: string;
+    rpId: string;
+  }): Promise<string> {
+    const digest32 = await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_ecdsa_hss_relayer_key_id_v1',
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        userId: input.userId,
+        rpId: input.rpId,
+      }),
+    );
+    return `ehss-relayer-${base64UrlEncode(digest32)}`;
+  }
+
+  private async upsertIntegratedEcdsaKeyRecord(input: {
+    userId: string;
+    rpId: string;
+    clientVerifyingShareB64u: string;
+    thresholdEcdsaPublicKeyB64u: string;
+    ethereumAddress: string;
+    participantIds?: number[];
+    relayerKeyId?: string;
+    relayerVerifyingShareB64u?: string;
+    relayerRootShare32B64u: string;
+    relayerBackendInputB64u: string;
+  }): Promise<string> {
+    const ecdsaThresholdKeyId = await this.computeEcdsaThresholdKeyId({
+      userId: input.userId,
+      rpId: input.rpId,
+      thresholdEcdsaPublicKeyB64u: input.thresholdEcdsaPublicKeyB64u,
+    });
+    const existing = await this.ecdsaKeyStore.get(ecdsaThresholdKeyId);
+    const nowMs = Date.now();
+    await this.ecdsaKeyStore.put(ecdsaThresholdKeyId, {
+      version: 'threshold_ecdsa_hss_key_v1',
+      ecdsaThresholdKeyId,
+      userId: input.userId,
+      rpId: input.rpId,
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      clientVerifyingShareB64u: input.clientVerifyingShareB64u,
+      thresholdEcdsaPublicKeyB64u: input.thresholdEcdsaPublicKeyB64u,
+      ethereumAddress: input.ethereumAddress,
+      participantIds: Array.isArray(input.participantIds) ? [...input.participantIds] : [],
+      ...(toOptionalTrimmedString(input.relayerKeyId)
+        ? { relayerKeyId: toOptionalTrimmedString(input.relayerKeyId)! }
+        : {}),
+      ...(toOptionalTrimmedString(input.relayerVerifyingShareB64u)
+        ? {
+            relayerVerifyingShareB64u: toOptionalTrimmedString(input.relayerVerifyingShareB64u)!,
+          }
+        : {}),
+      relayerRootShare32B64u: input.relayerRootShare32B64u,
+      relayerBackendInputB64u: input.relayerBackendInputB64u,
+      createdAtMs: existing?.createdAtMs ?? nowMs,
+      updatedAtMs: nowMs,
+    });
+    return ecdsaThresholdKeyId;
+  }
+
+  private async getEcdsaIntegratedKeyRecord(
+    ecdsaThresholdKeyIdRaw: string,
+  ): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(ecdsaThresholdKeyIdRaw);
+    if (!ecdsaThresholdKeyId) return null;
+    return await this.ecdsaKeyStore.get(ecdsaThresholdKeyId);
+  }
+
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null {
     if (!this.cachedSchemeModules) this.cachedSchemeModules = {};
     const existing = this.cachedSchemeModules[schemeId];
@@ -1401,9 +1265,11 @@ export class ThresholdSigningService {
       }
       if (schemeId === THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) {
         return createThresholdSecp256k1Ecdsa2pSchemeModule({
-          keygen: (request) => this.ecdsaKeygen(request),
-          session: (request) => this.ecdsaSession(request),
-          bootstrap: (request) => this.ecdsaBootstrap(request),
+          hss: {
+            prepare: (request) => this.ecdsaHssPrepare(request),
+            respond: (request) => this.ecdsaHssRespond(request),
+            finalize: (request) => this.ecdsaHssFinalize(request),
+          },
           authorize: (input) => this.ecdsaAuthorizeWithSession(input),
           presign: {
             init: (input) => this.ecdsaSigningHandlers.ecdsaPresignInit(input),
@@ -1765,91 +1631,6 @@ export class ThresholdSigningService {
     }
   }
 
-  private async ecdsaKeygen(
-    request: ThresholdEcdsaKeygenRequest,
-  ): Promise<ThresholdEcdsaKeygenResponse> {
-    try {
-      const parsedRequest = parseThresholdEcdsaKeygenRequest(request);
-      if (!parsedRequest.ok) return parsedRequest;
-
-      await this.ensureReady();
-
-      const { userId, clientVerifyingShareB64u, rpId, keygenSessionId } = parsedRequest.value;
-      const webauthnAuthentication = (request as unknown as { webauthn_authentication?: unknown })
-        .webauthn_authentication;
-
-      if (!this.verifyWebAuthnAuthenticationLite) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Lite WebAuthn verification is not configured on this server',
-        };
-      }
-
-      const expectedIntentJson = alphabetizeStringify({
-        version: 'threshold_ecdsa_keygen_v1',
-        userId,
-        rpId,
-        keygenSessionId,
-      });
-      const expectedIntentDigest32 = await sha256BytesUtf8(expectedIntentJson);
-      const expectedChallenge = base64UrlEncode(expectedIntentDigest32);
-
-      const verification = await this.verifyWebAuthnAuthenticationLite({
-        // NOTE: current WebAuthn stores are keyed by nearAccountId; in the multichain model
-        // `userId` should become the stable identifier used by the authenticator store.
-        nearAccountId: userId,
-        rpId,
-        expectedChallenge,
-        webauthn_authentication: webauthnAuthentication as any,
-      });
-
-      if (!verification.success || !verification.verified) {
-        return {
-          ok: false,
-          code: verification.code || 'not_verified',
-          message: verification.message || 'Authentication verification failed',
-        };
-      }
-
-      return await this.ecdsaKeygenFromClientVerifyingShare({
-        userId,
-        rpId,
-        clientVerifyingShareB64u,
-      });
-    } catch (e: unknown) {
-      this.logger?.error?.('thresholdEcdsaKeygen failed:', e);
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Internal error',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  async ecdsaRegistrationKeygenFromClientVerifyingShare(request: {
-    userId: string;
-    rpId: string;
-    clientVerifyingShareB64u: string;
-  }): Promise<ThresholdEcdsaKeygenResponse> {
-    try {
-      const parsed = parseThresholdEcdsaRegistrationKeygenRequest(request);
-      if (!parsed.ok) return parsed;
-
-      await this.ensureReady();
-      return await this.ecdsaKeygenFromClientVerifyingShare(parsed.value);
-    } catch (e: unknown) {
-      this.logger?.error?.('thresholdEcdsaRegistrationKeygen failed:', e);
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Internal error',
-      );
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
   async mintEd25519SessionFromRegistration(input: {
     nearAccountId: string;
     rpId: string;
@@ -2051,26 +1832,264 @@ export class ThresholdSigningService {
     }
   }
 
-  async mintEcdsaSessionFromRegistration(input: {
+  async bootstrapEcdsaFromRegistrationMaterial(input: {
     userId: string;
     rpId: string;
-    relayerKeyId: string;
-    clientVerifyingShareB64u: string;
-    sessionPolicy: EcdsaSessionPolicy;
-  }): Promise<ThresholdEcdsaSessionResponse> {
-    const userId = String(input.userId || '').trim();
-    const rpId = String(input.rpId || '').trim();
-    const relayerKeyId = String(input.relayerKeyId || '').trim();
-    const clientVerifyingShareB64u = String(input.clientVerifyingShareB64u || '').trim();
-    if (!userId || !rpId || !relayerKeyId || !clientVerifyingShareB64u) {
+    clientRootShare32B64u: string;
+    sessionPolicy: Record<string, unknown>;
+  }): Promise<ThresholdEcdsaHssFinalizeResponse> {
+    return await this.bootstrapEcdsaFromClientRootShare({
+      userId: input.userId,
+      rpId: input.rpId,
+      clientRootShare32B64u: input.clientRootShare32B64u,
+      sessionPolicy: input.sessionPolicy,
+    });
+  }
+
+  private parseClientRootShare32(
+    clientRootShare32B64uRaw: string,
+  ): ParseResult<Uint8Array> {
+    const clientRootShare32B64u = String(clientRootShare32B64uRaw || '').trim();
+    if (!clientRootShare32B64u) {
+      return { ok: false, code: 'invalid_body', message: 'clientRootShare32B64u is required' };
+    }
+    try {
+      const yClient32Le = base64UrlDecode(clientRootShare32B64u);
+      if (yClient32Le.length !== 32) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientRootShare32B64u must decode to 32 bytes',
+        };
+      }
+      return { ok: true, value: yClient32Le };
+    } catch {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'Missing required ecdsa session bootstrap inputs',
+        message: 'clientRootShare32B64u must be valid base64url',
+      };
+    }
+  }
+
+  private decodeIntegratedRelayerBackendInput32(
+    integratedKey: ThresholdEcdsaIntegratedKeyRecord,
+  ): ParseResult<Uint8Array> {
+    try {
+      const relayerBackendInput32 = base64UrlDecode(integratedKey.relayerBackendInputB64u);
+      if (relayerBackendInput32.length !== 32) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Persisted relayer backend input must decode to 32 bytes',
+        };
+      }
+      return { ok: true, value: relayerBackendInput32 };
+    } catch {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted relayer backend input is not valid base64url',
+      };
+    }
+  }
+
+  private decodeIntegratedRelayerRootShare32(
+    integratedKey: ThresholdEcdsaIntegratedKeyRecord,
+  ): ParseResult<Uint8Array> {
+    try {
+      const relayerRootShare32 = base64UrlDecode(integratedKey.relayerRootShare32B64u);
+      if (relayerRootShare32.length !== 32) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Persisted relayer root share must decode to 32 bytes',
+        };
+      }
+      return { ok: true, value: relayerRootShare32 };
+    } catch {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted relayer root share is not valid base64url',
+      };
+    }
+  }
+
+  private async deriveEcdsaKeyMaterialFromPersistedBackend(input: {
+    userId: string;
+    clientRootShare32B64u: string;
+    integratedKey: ThresholdEcdsaIntegratedKeyRecord;
+  }): Promise<ParseResult<DerivedEcdsaKeyMaterial>> {
+    const parsedClientRootShare = this.parseClientRootShare32(input.clientRootShare32B64u);
+    if (!parsedClientRootShare.ok) return parsedClientRootShare;
+    const parsedRelayerRootShare = this.decodeIntegratedRelayerRootShare32(input.integratedKey);
+    if (!parsedRelayerRootShare.ok) return parsedRelayerRootShare;
+    const relayerKeyId = toOptionalTrimmedString(input.integratedKey.relayerKeyId);
+    if (!relayerKeyId) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted threshold-ecdsa key record is missing relayerKeyId',
       };
     }
 
-    const policy = (input.sessionPolicy || {}) as EcdsaSessionPolicy;
+    const bootstrapped = await ecdsaHssBootstrapNonExportSign({
+      nearAccountId: input.userId,
+      keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
+      keyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+      yClient32Le: parsedClientRootShare.value,
+      yRelayer32Le: parsedRelayerRootShare.value,
+    });
+
+    const clientVerifyingShareB64u = base64UrlEncode(bootstrapped.clientPublicKey33);
+    const clientAdditiveShare32B64u = base64UrlEncode(bootstrapped.clientAdditiveShare32);
+    const thresholdEcdsaPublicKeyB64u = base64UrlEncode(bootstrapped.groupPublicKey33);
+    const ethereumAddress = `0x${Array.from(bootstrapped.ethereumAddress20)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')}`;
+    const relayerVerifyingShareB64u = base64UrlEncode(bootstrapped.relayerPublicKey33);
+
+    if (clientVerifyingShareB64u !== input.integratedKey.clientVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'threshold-ecdsa bootstrap client verifying share does not match integrated key record',
+      };
+    }
+    if (thresholdEcdsaPublicKeyB64u !== input.integratedKey.thresholdEcdsaPublicKeyB64u) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'threshold-ecdsa bootstrap group public key does not match integrated key record',
+      };
+    }
+    if (ethereumAddress !== input.integratedKey.ethereumAddress) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'threshold-ecdsa bootstrap ethereumAddress does not match integrated key record',
+      };
+    }
+    if (
+      toOptionalTrimmedString(input.integratedKey.relayerVerifyingShareB64u) &&
+      relayerVerifyingShareB64u !== input.integratedKey.relayerVerifyingShareB64u
+    ) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'threshold-ecdsa bootstrap relayer verifying share does not match integrated key record',
+      };
+    }
+
+    return {
+      ok: true,
+      value: {
+        participantIds: [...input.integratedKey.participantIds],
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        clientAdditiveShare32B64u,
+        thresholdEcdsaPublicKeyB64u,
+        ethereumAddress,
+        relayerVerifyingShareB64u,
+        relayerRootShare32B64u: input.integratedKey.relayerRootShare32B64u,
+        relayerBackendInputB64u: input.integratedKey.relayerBackendInputB64u,
+      },
+    };
+  }
+
+  private async bootstrapEcdsaFromClientRootShare(input: {
+    userId: string;
+    rpId: string;
+    clientRootShare32B64u: string;
+    sessionPolicy: Record<string, unknown>;
+    ecdsaThresholdKeyId?: string;
+  }): Promise<ThresholdEcdsaHssFinalizeResponse> {
+    const userId = String(input.userId || '').trim();
+    const rpId = String(input.rpId || '').trim();
+    const clientRootShare32B64u = String(input.clientRootShare32B64u || '').trim();
+    const ecdsaThresholdKeyId = String(input.ecdsaThresholdKeyId || '').trim();
+    const sessionPolicy =
+      input.sessionPolicy && typeof input.sessionPolicy === 'object' && !Array.isArray(input.sessionPolicy)
+        ? (input.sessionPolicy as Record<string, unknown>)
+        : null;
+    if (!userId || !rpId || !clientRootShare32B64u || !sessionPolicy) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Missing required ecdsa registration bootstrap inputs',
+      };
+    }
+    const integratedKey = ecdsaThresholdKeyId
+      ? await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId)
+      : null;
+    if (ecdsaThresholdKeyId && !integratedKey) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId is not active on this server',
+      };
+    }
+    if (integratedKey && (integratedKey.userId !== userId || integratedKey.rpId !== rpId)) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId does not match threshold bootstrap scope',
+      };
+    }
+
+    const derived = integratedKey
+      ? await this.deriveEcdsaKeyMaterialFromPersistedBackend({
+          userId,
+          clientRootShare32B64u,
+          integratedKey,
+        })
+      : await this.deriveEcdsaKeyMaterialForFirstBootstrapFromClientRootShare({
+          userId,
+          rpId,
+          clientRootShare32B64u,
+        });
+    if (!derived.ok) return derived;
+
+    const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(derived.value.thresholdEcdsaPublicKeyB64u);
+    const ethereumAddress = toOptionalTrimmedString(derived.value.ethereumAddress);
+    if (!thresholdEcdsaPublicKeyB64u || !ethereumAddress) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'threshold-ecdsa registration bootstrap returned incomplete key material',
+      };
+    }
+
+    const canonicalEcdsaThresholdKeyId =
+      integratedKey?.ecdsaThresholdKeyId ||
+      (await this.upsertIntegratedEcdsaKeyRecord({
+        userId,
+        rpId,
+        clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
+        thresholdEcdsaPublicKeyB64u,
+        ethereumAddress,
+        participantIds: [...derived.value.participantIds],
+        relayerKeyId: derived.value.relayerKeyId,
+        relayerVerifyingShareB64u: derived.value.relayerVerifyingShareB64u,
+        relayerRootShare32B64u: derived.value.relayerRootShare32B64u,
+        relayerBackendInputB64u: derived.value.relayerBackendInputB64u,
+      }));
+
+    const relayerKeyId = String(derived.value.relayerKeyId || '').trim();
+    const requestedRelayerKeyId = String(sessionPolicy.relayerKeyId || '').trim();
+    if (requestedRelayerKeyId && requestedRelayerKeyId !== relayerKeyId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'threshold_ecdsa.session_policy.relayerKeyId mismatch',
+      };
+    }
+
+    const policy = {
+      ...(sessionPolicy as Record<string, unknown>),
+      relayerKeyId,
+    } as EcdsaSessionPolicy;
     if (String(policy.version || '').trim() !== 'threshold_session_v1') {
       return {
         ok: false,
@@ -2107,13 +2126,11 @@ export class ThresholdSigningService {
         message: 'threshold_ecdsa.session_policy.sessionId is required',
       };
     }
-
     const policyParticipantIds =
       normalizeThresholdEd25519ParticipantIds(policy.participantIds) || null;
-
-    return await this.ecdsaMintSessionWithoutWebAuthn({
+    const session = await this.ecdsaMintSessionWithoutWebAuthn({
       relayerKeyId,
-      clientVerifyingShareB64u,
+      clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
       userId,
       rpId,
       sessionId,
@@ -2121,22 +2138,39 @@ export class ThresholdSigningService {
       remainingUsesRaw: Number(policy.remainingUses),
       policyParticipantIds,
     });
+    if (!session.ok) return session;
+
+    return {
+      ok: true,
+      ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId,
+      relayerKeyId: derived.value.relayerKeyId,
+      clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
+      clientAdditiveShare32B64u: derived.value.clientAdditiveShare32B64u,
+      thresholdEcdsaPublicKeyB64u,
+      ethereumAddress,
+      relayerVerifyingShareB64u: derived.value.relayerVerifyingShareB64u,
+      participantIds: session.participantIds || derived.value.participantIds,
+      sessionId: session.sessionId,
+      expiresAtMs: session.expiresAtMs,
+      expiresAt: session.expiresAt,
+      remainingUses: session.remainingUses,
+      jwt: session.jwt,
+    };
   }
 
-  private async ecdsaKeygenFromClientVerifyingShare(input: {
+  private async deriveEcdsaKeyMaterialForFirstBootstrapFromClientRootShare(input: {
     userId: string;
     rpId: string;
-    clientVerifyingShareB64u: string;
-  }): Promise<ThresholdEcdsaKeygenResponse> {
+    clientRootShare32B64u: string;
+  }): Promise<ParseResult<DerivedEcdsaKeyMaterial>> {
     const userId = String(input.userId || '').trim();
     const rpId = String(input.rpId || '').trim();
-    const clientVerifyingShareB64u = String(input.clientVerifyingShareB64u || '').trim();
+    const clientRootShare32B64u = String(input.clientRootShare32B64u || '').trim();
     if (!userId) return { ok: false, code: 'invalid_body', message: 'userId is required' };
     if (!rpId) return { ok: false, code: 'invalid_body', message: 'rpId is required' };
-    if (!clientVerifyingShareB64u) {
-      return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
+    if (!clientRootShare32B64u) {
+      return { ok: false, code: 'invalid_body', message: 'clientRootShare32B64u is required' };
     }
-
     if (!this.secp256k1MasterSecretB64u) {
       return {
         ok: false,
@@ -2145,79 +2179,97 @@ export class ThresholdSigningService {
       };
     }
 
-    let clientVerifyingShareBytes: Uint8Array;
+    let yClient32Le: Uint8Array;
     try {
-      clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
+      yClient32Le = base64UrlDecode(clientRootShare32B64u);
     } catch {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'clientVerifyingShareB64u must be valid base64url',
+        message: 'clientRootShare32B64u must be valid base64url',
       };
     }
-    if (clientVerifyingShareBytes.length !== 33) {
+    if (yClient32Le.length !== 32) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+        message: 'clientRootShare32B64u must decode to 32 bytes',
       };
     }
 
-    let validatedClientPublicKey33: Uint8Array;
-    try {
-      validatedClientPublicKey33 = await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-    } catch (e: unknown) {
-      const runtimeMessage = errorMessage(e);
-      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: runtimeMessage || 'eth_signer WASM runtime error',
-        };
-      }
-      const prefixHex =
-        clientVerifyingShareBytes.length > 0
-          ? clientVerifyingShareBytes[0]!.toString(16).padStart(2, '0')
-          : '??';
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: `clientVerifyingShareB64u is not a valid secp256k1 public key (decodedLen=${clientVerifyingShareBytes.length}, prefix=0x${prefixHex})`,
-      };
-    }
-
-    const relayerKeyIdDigest32 = await sha256BytesUtf8(
-      alphabetizeStringify({
-        version: 'threshold_secp256k1_key_id_v1',
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        userId,
-        rpId,
-        clientVerifyingShareB64u,
-      }),
-    );
-    const relayerKeyId = `secp-${base64UrlEncode(relayerKeyIdDigest32)}`;
-
-    const { relayerVerifyingShare33 } = await deriveThresholdSecp256k1RelayerShare({
+    const relayerKeyId = await this.computeEcdsaHssRelayerKeyId({ userId, rpId });
+    const { relayerSigningShare32 } = await deriveThresholdSecp256k1RelayerShare({
       masterSecretB64u: this.secp256k1MasterSecretB64u,
       relayerKeyId,
     });
-    const relayerVerifyingShareB64u = base64UrlEncode(relayerVerifyingShare33);
-
-    const groupPublicKeyBytes = await addSecp256k1PublicKeys33({
-      left33: validatedClientPublicKey33,
-      right33: relayerVerifyingShare33,
+    const bootstrapped = await ecdsaHssBootstrapNonExportSign({
+      nearAccountId: userId,
+      keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
+      keyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+      yClient32Le,
+      yRelayer32Le: relayerSigningShare32,
     });
-    const groupPublicKeyB64u = base64UrlEncode(groupPublicKeyBytes);
-
-    const ethereumAddress = await secp256k1PublicKey33ToEthereumAddress(groupPublicKeyBytes);
 
     return {
       ok: true,
-      participantIds: [...this.participantIds2p],
-      relayerKeyId,
-      groupPublicKeyB64u,
-      ethereumAddress,
-      relayerVerifyingShareB64u,
+      value: {
+        participantIds: [...this.participantIds2p],
+        relayerKeyId,
+        clientVerifyingShareB64u: base64UrlEncode(bootstrapped.clientPublicKey33),
+        clientAdditiveShare32B64u: base64UrlEncode(bootstrapped.clientAdditiveShare32),
+        thresholdEcdsaPublicKeyB64u: base64UrlEncode(bootstrapped.groupPublicKey33),
+        ethereumAddress: `0x${Array.from(bootstrapped.ethereumAddress20)
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('')}`,
+        relayerVerifyingShareB64u: base64UrlEncode(bootstrapped.relayerPublicKey33),
+        relayerRootShare32B64u: base64UrlEncode(relayerSigningShare32),
+        relayerBackendInputB64u: base64UrlEncode(bootstrapped.relayerAdditiveShare32),
+      },
+    };
+  }
+
+  private async deriveEcdsaExplicitExportFromPersistedBackend(input: {
+    userId: string;
+    clientRootShare32B64u: string;
+    integratedKey: ThresholdEcdsaIntegratedKeyRecord;
+  }): Promise<
+    ParseResult<{
+      relayerKeyId: string;
+      canonicalPublicKeyHex: string;
+      privateKeyHex: string;
+      canonicalEthereumAddress: string;
+    }>
+  > {
+    const parsedClientRootShare = this.parseClientRootShare32(input.clientRootShare32B64u);
+    if (!parsedClientRootShare.ok) return parsedClientRootShare;
+    const parsedRelayerRootShare = this.decodeIntegratedRelayerRootShare32(input.integratedKey);
+    if (!parsedRelayerRootShare.ok) return parsedRelayerRootShare;
+
+    const relayerKeyId = toOptionalTrimmedString(input.integratedKey.relayerKeyId);
+    if (!relayerKeyId) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted threshold-ecdsa key record is missing relayerKeyId',
+      };
+    }
+
+    const exported = await ecdsaHssExplicitExport({
+      nearAccountId: input.userId,
+      keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
+      keyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+      yClient32Le: parsedClientRootShare.value,
+      yRelayer32Le: parsedRelayerRootShare.value,
+    });
+
+    return {
+      ok: true,
+      value: {
+        relayerKeyId,
+        canonicalPublicKeyHex: bytesToLowerHex(exported.canonicalPublicKey33),
+        privateKeyHex: bytesToLowerHex(exported.canonicalX32),
+        canonicalEthereumAddress: bytesToLowerHex(exported.canonicalEthereumAddress20),
+      },
     };
   }
 
@@ -2230,7 +2282,7 @@ export class ThresholdSigningService {
     ttlMsRaw: number;
     remainingUsesRaw: number;
     policyParticipantIds: number[] | null;
-  }): Promise<ThresholdEcdsaSessionResponse> {
+  }): Promise<ThresholdEcdsaBootstrapSessionResult> {
     const {
       relayerKeyId,
       clientVerifyingShareB64u,
@@ -2241,14 +2293,6 @@ export class ThresholdSigningService {
       remainingUsesRaw,
       policyParticipantIds,
     } = input;
-
-    if (!this.secp256k1MasterSecretB64u) {
-      return {
-        ok: false,
-        code: 'not_configured',
-        message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
-      };
-    }
 
     let clientVerifyingShareBytes: Uint8Array;
     try {
@@ -2282,24 +2326,6 @@ export class ThresholdSigningService {
         ok: false,
         code: 'invalid_body',
         message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
-      };
-    }
-
-    const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
-      alphabetizeStringify({
-        version: 'threshold_secp256k1_key_id_v1',
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        userId,
-        rpId,
-        clientVerifyingShareB64u,
-      }),
-    );
-    const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
-    if (relayerKeyId !== expectedRelayerKeyId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
       };
     }
 
@@ -2376,125 +2402,164 @@ export class ThresholdSigningService {
     };
   }
 
-  private async ecdsaBootstrap(
-    request: ThresholdEcdsaBootstrapRequest,
-  ): Promise<ThresholdEcdsaBootstrapResponse> {
-    let context: Record<string, unknown> | null = null;
+  private async ecdsaHssPrepare(
+    request: ThresholdEcdsaHssPrepareRequest,
+  ): Promise<ThresholdEcdsaHssPrepareResponse> {
     try {
-      const parsedRequest = parseThresholdEcdsaBootstrapRequest(request, this.participantIds2p);
-      if (!parsedRequest.ok) return parsedRequest;
-      const {
-        userId,
-        rpId,
-        keygenSessionId,
-        clientVerifyingShareB64u,
-        sessionId,
-        ttlMsRaw,
-        remainingUsesRaw,
-        policyParticipantIds,
-        webauthnAuthentication,
-        ed25519SessionClaims,
-      } = parsedRequest.value;
-      context = {
-        userId,
-        rpId,
-        keygenSessionId,
-        sessionId,
-        authMode: ed25519SessionClaims ? 'ed25519-session' : 'webauthn',
-      };
-
-      const keygen = ed25519SessionClaims
-        ? await this.ecdsaRegistrationKeygenFromClientVerifyingShare({
-            userId,
-            rpId,
-            clientVerifyingShareB64u,
-          })
-        : await this.ecdsaKeygen({
-            userId,
-            rpId,
-            keygenSessionId,
-            clientVerifyingShareB64u,
-            webauthn_authentication: webauthnAuthentication as WebAuthnAuthenticationCredential,
-          });
-      if (!keygen.ok) return keygen;
-
-      const relayerKeyId = toOptionalTrimmedString(keygen.relayerKeyId);
-      if (!relayerKeyId) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'threshold-ecdsa keygen returned empty relayerKeyId',
-        };
+      const userId = toOptionalTrimmedString(request.userId);
+      const rpId = toOptionalTrimmedString(request.rpId);
+      const operation = toOptionalTrimmedString(
+        request.operation,
+      ) as ThresholdEcdsaHssOperation | null;
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'userId is required' };
+      if (!rpId) return { ok: false, code: 'invalid_body', message: 'rpId is required' };
+      if (
+        operation !== 'registration_bootstrap' &&
+        operation !== 'session_bootstrap' &&
+        operation !== 'explicit_key_export'
+      ) {
+        return { ok: false, code: 'invalid_body', message: 'operation is invalid' };
+      }
+      if (operation === 'registration_bootstrap') {
+        if (!toOptionalTrimmedString(request.keygenSessionId)) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'registration_bootstrap requires keygenSessionId',
+          };
+        }
+        if (!request.webauthn_authentication || typeof request.webauthn_authentication !== 'object') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'registration_bootstrap requires webauthn_authentication',
+          };
+        }
+      }
+      if (operation === 'session_bootstrap') {
+        if (
+          !request.ed25519SessionClaims ||
+          typeof request.ed25519SessionClaims !== 'object' ||
+          Array.isArray(request.ed25519SessionClaims)
+        ) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'session_bootstrap requires an authenticated threshold-ed25519 session',
+          };
+        }
+        const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
+        const ed25519Claims = parseThresholdEd25519SessionClaims(request.ed25519SessionClaims);
+        if (!ed25519Claims) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'Invalid threshold-ed25519 session claims',
+          };
+        }
+        if (ecdsaThresholdKeyId) {
+          const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+          if (!integratedKey) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'ecdsaThresholdKeyId is not active on this server',
+            };
+          }
+          if (
+            integratedKey.userId !== ed25519Claims.sub ||
+            integratedKey.rpId !== ed25519Claims.rpId
+          ) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'ecdsaThresholdKeyId does not match threshold session scope',
+            };
+          }
+          const sameParticipants =
+            integratedKey.participantIds.length === ed25519Claims.participantIds.length &&
+            integratedKey.participantIds.every(
+              (value, index) => value === ed25519Claims.participantIds[index],
+            );
+          if (!sameParticipants) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'ecdsaThresholdKeyId does not match threshold session participant set',
+            };
+          }
+        }
+      }
+      if (operation === 'explicit_key_export') {
+        if (
+          !request.ecdsaSessionClaims ||
+          typeof request.ecdsaSessionClaims !== 'object' ||
+          Array.isArray(request.ecdsaSessionClaims)
+        ) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'explicit_key_export requires an authenticated threshold-ecdsa session',
+          };
+        }
+        const ecdsaClaims = parseThresholdEcdsaSessionClaims(request.ecdsaSessionClaims);
+        if (!ecdsaClaims) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'Invalid threshold-ecdsa session claims',
+          };
+        }
+        const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
+        if (!ecdsaThresholdKeyId) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'explicit_key_export requires ecdsaThresholdKeyId',
+          };
+        }
+        const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+        if (!integratedKey) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'ecdsaThresholdKeyId is not active on this server',
+          };
+        }
+        if (integratedKey.userId !== ecdsaClaims.sub || integratedKey.rpId !== ecdsaClaims.rpId) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'ecdsaThresholdKeyId does not match threshold session scope',
+          };
+        }
+        if (integratedKey.relayerKeyId !== ecdsaClaims.relayerKeyId) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'ecdsaThresholdKeyId does not match threshold session relayer binding',
+          };
+        }
+        const sameParticipants =
+          integratedKey.participantIds.length === ecdsaClaims.participantIds.length &&
+          integratedKey.participantIds.every((value, index) => value === ecdsaClaims.participantIds[index]);
+        if (!sameParticipants) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'ecdsaThresholdKeyId does not match threshold session participant set',
+          };
+        }
+      }
+      if (operation !== 'explicit_key_export' && (!request.sessionPolicy || typeof request.sessionPolicy !== 'object')) {
+        return { ok: false, code: 'invalid_body', message: 'sessionPolicy is required' };
       }
 
-      const session = await this.ecdsaMintSessionWithoutWebAuthn({
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        userId,
-        rpId,
-        sessionId,
-        ttlMsRaw,
-        remainingUsesRaw,
-        policyParticipantIds,
-      });
-      if (!session.ok) return session;
-
-      return {
-        ok: true,
-        relayerKeyId,
-        groupPublicKeyB64u: keygen.groupPublicKeyB64u,
-        ethereumAddress: keygen.ethereumAddress,
-        relayerVerifyingShareB64u: keygen.relayerVerifyingShareB64u,
-        participantIds: session.participantIds || keygen.participantIds,
-        sessionId: session.sessionId,
-        expiresAtMs: session.expiresAtMs,
-        expiresAt: session.expiresAt,
-        remainingUses: session.remainingUses,
-      };
-    } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Internal error',
-      );
-      this.logger?.error?.('[threshold-ecdsa] bootstrap failed', {
-        message: msg,
-        ...(context || {}),
-      });
-      return { ok: false, code: 'internal', message: msg };
-    }
-  }
-
-  private async ecdsaSession(
-    request: ThresholdEcdsaSessionRequest,
-  ): Promise<ThresholdEcdsaSessionResponse> {
-    let context: Record<string, unknown> | null = null;
-    try {
-      const parsedRequest = parseThresholdEcdsaSessionRequest(request, this.participantIds2p);
-      if (!parsedRequest.ok) return parsedRequest;
-      const {
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        userId,
-        rpId,
-        sessionId,
-        ttlMsRaw,
-        remainingUsesRaw,
-        policyParticipantIds,
-      } = parsedRequest.value;
-      context = { userId, rpId, relayerKeyId, sessionId };
-
-      await this.ensureReady();
-
-      if (!this.verifyWebAuthnAuthenticationLite) {
-        return {
-          ok: false,
-          code: 'not_configured',
-          message: 'Lite WebAuthn verification is not configured on this server',
-        };
-      }
-
-      if (!this.secp256k1MasterSecretB64u) {
+      const requestedEcdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
+      const requiresMasterSecretBootstrapDerivation =
+        operation === 'registration_bootstrap' ||
+        (operation === 'session_bootstrap' && !requestedEcdsaThresholdKeyId);
+      if (requiresMasterSecretBootstrapDerivation && !this.secp256k1MasterSecretB64u) {
         return {
           ok: false,
           code: 'not_configured',
@@ -2502,168 +2567,368 @@ export class ThresholdSigningService {
         };
       }
 
-      // Validate the client verifying share and bind relayerKeyId to it.
-      let clientVerifyingShareBytes: Uint8Array;
-      try {
-        clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
-      } catch {
+      let relayerSigningShare32: Uint8Array;
+      if (requiresMasterSecretBootstrapDerivation) {
+        const relayerKeyId = await this.computeEcdsaHssRelayerKeyId({ userId, rpId });
+        const derivedRelayerShare = await deriveThresholdSecp256k1RelayerShare({
+          masterSecretB64u: this.secp256k1MasterSecretB64u!,
+          relayerKeyId,
+        });
+        relayerSigningShare32 = derivedRelayerShare.relayerSigningShare32;
+      } else {
+        const integratedKey = requestedEcdsaThresholdKeyId
+          ? await this.getEcdsaIntegratedKeyRecord(requestedEcdsaThresholdKeyId)
+          : null;
+        if (!integratedKey) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'ecdsaThresholdKeyId is not active on this server',
+          };
+        }
+        const parsedRelayerRootShare = this.decodeIntegratedRelayerRootShare32(integratedKey);
+        if (!parsedRelayerRootShare.ok) return parsedRelayerRootShare;
+        relayerSigningShare32 = parsedRelayerRootShare.value;
+      }
+      const preparedSession = await prepareThresholdEcdsaHssServerSession({
+        nearAccountId: userId,
+        keyPurpose: THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1,
+        keyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
+        operation:
+          operation === 'registration_bootstrap'
+            ? 'registration_bootstrap'
+            : operation === 'session_bootstrap'
+              ? 'session_bootstrap'
+              : 'explicit_key_export',
+        yRelayer32Le: relayerSigningShare32,
+      });
+
+      const ceremonyId = this.storeThresholdEcdsaHssCeremony({
+        userId,
+        rpId,
+        operation,
+        ...(toOptionalTrimmedString(request.ecdsaThresholdKeyId)
+          ? { ecdsaThresholdKeyId: toOptionalTrimmedString(request.ecdsaThresholdKeyId)! }
+          : {}),
+        preparedServerSessionB64u: preparedSession.preparedServerSessionB64u,
+        serverAssistInitB64u: preparedSession.serverAssistInitMessageB64u,
+        ...(toOptionalTrimmedString(request.keygenSessionId)
+          ? { keygenSessionId: toOptionalTrimmedString(request.keygenSessionId)! }
+          : {}),
+        sessionPolicy: request.sessionPolicy,
+        sessionKind: request.sessionKind || 'jwt',
+        ...(request.webauthn_authentication
+          ? { webauthnAuthentication: request.webauthn_authentication }
+          : {}),
+        ...(request.ed25519SessionClaims ? { ed25519SessionClaims: request.ed25519SessionClaims } : {}),
+        ...(request.ecdsaSessionClaims ? { ecdsaSessionClaims: request.ecdsaSessionClaims } : {}),
+      });
+      const ceremonyRecord = this.ecdsaHssCeremonyStore.get(ceremonyId);
+      if (!ceremonyRecord) {
+        return { ok: false, code: 'internal', message: 'failed to persist staged ceremony' };
+      }
+
+      return {
+        ok: true,
+        ceremonyId,
+        preparedServerSessionB64u: ceremonyRecord.preparedServerSessionB64u,
+        serverAssistInitB64u: ceremonyRecord.serverAssistInitB64u,
+      };
+    } catch (e: unknown) {
+      return { ok: false, code: 'internal', message: errorMessage(e) };
+    }
+  }
+
+  private async ecdsaHssRespond(
+    request: ThresholdEcdsaHssRespondRequest,
+  ): Promise<ThresholdEcdsaHssRespondResponse> {
+    try {
+      const ceremony = this.getThresholdEcdsaHssCeremony(request.ceremonyId);
+      if (!ceremony.ok) return ceremony;
+      const requestMessageB64u = toOptionalTrimmedString(request.requestMessageB64u);
+      if (!requestMessageB64u) {
+        return { ok: false, code: 'invalid_body', message: 'requestMessageB64u is required' };
+      }
+      const stagedRequest = parseThresholdEcdsaHssHiddenEvalClientRequestEnvelope(
+        requestMessageB64u,
+      );
+      if (!stagedRequest) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'clientVerifyingShareB64u must be valid base64url',
+          message: 'requestMessageB64u must contain a valid hidden-eval staged bootstrap payload',
         };
       }
-      if (clientVerifyingShareBytes.length !== 33) {
+      if (stagedRequest.ceremonyId !== toOptionalTrimmedString(request.ceremonyId)) {
         return {
           ok: false,
           code: 'invalid_body',
-          message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+          message: 'requestMessageB64u ceremonyId does not match request ceremonyId',
         };
       }
-      try {
-        await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-      } catch (e: unknown) {
-        const runtimeMessage = errorMessage(e);
-        if (isEthSignerWasmRuntimeError(runtimeMessage)) {
+      if (stagedRequest.preparedServerSessionB64u !== ceremony.value.preparedServerSessionB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'requestMessageB64u preparedServerSessionB64u does not match ceremony state',
+        };
+      }
+      if (stagedRequest.serverAssistInitB64u !== ceremony.value.serverAssistInitB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'requestMessageB64u serverAssistInitB64u does not match ceremony state',
+        };
+      }
+      const serverCeremony = await prepareThresholdEcdsaHssServerCeremony({
+        preparedServerSessionB64u: stagedRequest.preparedServerSessionB64u,
+        clientEvalRequestB64u: stagedRequest.clientEvalRequestB64u,
+        serverAssistInitB64u: stagedRequest.serverAssistInitB64u,
+      });
+      ceremony.value.requestMessageB64u = requestMessageB64u;
+      const requestDigestB64u = await computeThresholdEcdsaHssRequestDigestB64u(requestMessageB64u);
+      const responseMessageB64u = createOpaqueBase64Envelope({
+        v: 1,
+        kind: 'threshold_ecdsa_hss_hidden_eval_server_response_v1',
+        ceremonyId: toOptionalTrimmedString(request.ceremonyId),
+        requestDigestB64u,
+        serverEvalResponseB64u: serverCeremony.serverEvalResponseB64u,
+      });
+      ceremony.value.responseMessageB64u = responseMessageB64u;
+      return {
+        ok: true,
+        responseMessageB64u,
+      };
+    } catch (e: unknown) {
+      return { ok: false, code: 'internal', message: errorMessage(e) };
+    }
+  }
+
+  private async ecdsaHssFinalize(
+    request: ThresholdEcdsaHssFinalizeRequest,
+  ): Promise<ThresholdEcdsaHssFinalizeResponse> {
+    try {
+      const ceremony = this.takeThresholdEcdsaHssCeremony(request.ceremonyId);
+      if (!ceremony.ok) return ceremony;
+      const clientFinalizeMessageB64u = toOptionalTrimmedString(request.clientFinalizeMessageB64u);
+      if (!clientFinalizeMessageB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientFinalizeMessageB64u is required',
+        };
+      }
+      const requestMessageB64u = toOptionalTrimmedString(ceremony.value.requestMessageB64u);
+      if (!requestMessageB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ceremonyId has no staged client request',
+        };
+      }
+      const finalizeEnvelope = parseThresholdEcdsaHssHiddenEvalFinalizeEnvelope(
+        clientFinalizeMessageB64u,
+      );
+      if (!finalizeEnvelope) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientFinalizeMessageB64u must contain a valid hidden-eval finalize envelope',
+        };
+      }
+      if (finalizeEnvelope.ceremonyId !== toOptionalTrimmedString(request.ceremonyId)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientFinalizeMessageB64u ceremonyId does not match request ceremonyId',
+        };
+      }
+      const expectedRequestDigestB64u = await computeThresholdEcdsaHssRequestDigestB64u(
+        requestMessageB64u,
+      );
+      if (finalizeEnvelope.requestDigestB64u !== expectedRequestDigestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientFinalizeMessageB64u is not bound to the staged client request',
+        };
+      }
+      const stagedRequest = parseThresholdEcdsaHssHiddenEvalClientRequestEnvelope(
+        requestMessageB64u,
+      );
+      if (!stagedRequest) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'requestMessageB64u must contain a valid hidden-eval staged bootstrap payload',
+        };
+      }
+      const responseMessageB64u = toOptionalTrimmedString(ceremony.value.responseMessageB64u);
+      if (!responseMessageB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'ceremonyId has no staged server response',
+        };
+      }
+      const responseEnvelope = parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope(
+        responseMessageB64u,
+      );
+      if (!responseEnvelope) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'stored staged server response is invalid',
+        };
+      }
+      if (responseEnvelope.ceremonyId !== toOptionalTrimmedString(request.ceremonyId)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'stored staged server response ceremonyId does not match request ceremonyId',
+        };
+      }
+      if (responseEnvelope.requestDigestB64u !== expectedRequestDigestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'stored staged server response is not bound to the staged client request',
+        };
+      }
+      const responseDigestB64u = base64UrlEncode(await sha256BytesUtf8(responseMessageB64u));
+      if (finalizeEnvelope.responseDigestB64u !== responseDigestB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'clientFinalizeMessageB64u is not bound to the staged server response',
+        };
+      }
+      const serverOutput = await finalizeThresholdEcdsaHssServerReport({
+        preparedServerSessionB64u: ceremony.value.preparedServerSessionB64u,
+        clientEvalRequestB64u: stagedRequest.clientEvalRequestB64u,
+        clientEvalFinalizeB64u: finalizeEnvelope.clientEvalFinalizeB64u,
+        serverEvalResponseB64u: responseEnvelope.serverEvalResponseB64u,
+      });
+      const openedServerOutput = await openThresholdEcdsaHssServerOutput({
+        preparedServerSessionB64u: ceremony.value.preparedServerSessionB64u,
+        serverOutputMessageB64u: serverOutput.serverOutputMessageB64u,
+      });
+      const clientRootShare32B64u = openedServerOutput.yClient32LeB64u;
+
+      if (ceremony.value.operation === 'explicit_key_export') {
+        const ecdsaThresholdKeyId = toOptionalTrimmedString(ceremony.value.ecdsaThresholdKeyId);
+        if (!ecdsaThresholdKeyId) {
           return {
             ok: false,
             code: 'internal',
-            message: runtimeMessage || 'eth_signer WASM runtime error',
+            message: 'explicit_key_export ceremony is missing ecdsaThresholdKeyId',
           };
         }
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
-        };
-      }
-
-      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
-        alphabetizeStringify({
-          version: 'threshold_secp256k1_key_id_v1',
-          schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          userId,
-          rpId,
-          clientVerifyingShareB64u,
-        }),
-      );
-      const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
-      if (relayerKeyId !== expectedRelayerKeyId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
-        };
-      }
-
-      const { ttlMs, remainingUses } = this.clampSessionPolicy({
-        ttlMs: ttlMsRaw,
-        remainingUses: remainingUsesRaw,
-      });
-      const participantIds = policyParticipantIds || [...this.participantIds2p];
-      const normalizedPolicy = {
-        version: 'threshold_session_v1',
-        userId,
-        rpId,
-        relayerKeyId,
-        sessionId,
-        ...(policyParticipantIds ? { participantIds: policyParticipantIds } : {}),
-        ttlMs,
-        remainingUses,
-      };
-      const sessionPolicyDigest32 = await this.computeSessionPolicyDigest32(normalizedPolicy);
-      const expectedChallenge = base64UrlEncode(sessionPolicyDigest32);
-
-      const existingSession = await this.ecdsaAuthSessionStore.getSession(sessionId);
-      if (existingSession) {
-        if (existingSession.userId !== userId) {
+        const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+        if (!integratedKey) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different user',
+            message: 'ecdsaThresholdKeyId is not active on this server',
           };
         }
-        if (existingSession.relayerKeyId !== relayerKeyId) {
+        const exported = await this.deriveEcdsaExplicitExportFromPersistedBackend({
+          userId: ceremony.value.userId,
+          clientRootShare32B64u,
+          integratedKey,
+        });
+        if (!exported.ok) return exported;
+        if (exported.value.relayerKeyId !== integratedKey.relayerKeyId) {
           return {
             ok: false,
-            code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different relayerKeyId',
+            code: 'internal',
+            message: 'explicit_key_export relayer binding mismatch',
           };
         }
-        if (existingSession.rpId !== rpId) {
+        const integratedPublicKeyHex = bytesToLowerHex(base64UrlDecode(integratedKey.thresholdEcdsaPublicKeyB64u));
+        if (exported.value.canonicalPublicKeyHex !== integratedPublicKeyHex) {
           return {
             ok: false,
-            code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different rpId',
+            code: 'internal',
+            message: 'explicit_key_export canonical public key does not match integrated key record',
           };
         }
-        const sameParticipantIds =
-          existingSession.participantIds.length === participantIds.length &&
-          existingSession.participantIds.every((id, i) => id === participantIds[i]);
-        if (!sameParticipantIds) {
+        if (exported.value.canonicalEthereumAddress !== integratedKey.ethereumAddress) {
           return {
             ok: false,
-            code: 'unauthorized',
-            message: 'threshold sessionId already exists for a different participant set',
+            code: 'internal',
+            message: 'explicit_key_export canonical address does not match integrated key record',
           };
         }
         return {
           ok: true,
-          sessionId,
-          expiresAtMs: existingSession.expiresAtMs,
-          expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
-          participantIds: existingSession.participantIds,
+          ecdsaThresholdKeyId,
+          canonicalPublicKeyHex: exported.value.canonicalPublicKeyHex,
+          privateKeyHex: exported.value.privateKeyHex,
+          canonicalEthereumAddress: exported.value.canonicalEthereumAddress,
         };
       }
 
-      const verification = await this.verifyWebAuthnAuthenticationLite({
-        nearAccountId: userId,
-        rpId,
-        expectedChallenge,
-        webauthn_authentication: request.webauthn_authentication,
+      const bootstrap = await this.bootstrapEcdsaFromClientRootShare({
+        userId: ceremony.value.userId,
+        rpId: ceremony.value.rpId,
+        clientRootShare32B64u,
+        ...(toOptionalTrimmedString(ceremony.value.ecdsaThresholdKeyId)
+          ? { ecdsaThresholdKeyId: toOptionalTrimmedString(ceremony.value.ecdsaThresholdKeyId)! }
+          : {}),
+        sessionPolicy: {
+          ...(ceremony.value.sessionPolicy as Record<string, unknown>),
+          ...(ceremony.value.keygenSessionId
+            ? { keygenSessionId: ceremony.value.keygenSessionId }
+            : {}),
+        },
       });
-      if (!verification.success || !verification.verified) {
+      if (!bootstrap.ok) return bootstrap;
+      if ('canonicalSecp256k1KeyB64u' in ((bootstrap as unknown) as Record<string, unknown>)) {
         return {
           ok: false,
-          code: verification.code || 'not_verified',
-          message: verification.message || 'Authentication verification failed',
+          code: 'internal',
+          message: 'non-export threshold-ecdsa finalize produced export-capable output',
         };
       }
 
-      const expiresAtMs = Date.now() + ttlMs;
-      await this.putAuthSessionRecord({
-        store: this.ecdsaAuthSessionStore,
-        sessionId,
-        record: {
-          expiresAtMs,
-          relayerKeyId,
-          userId,
-          rpId,
-          participantIds,
-        },
-        ttlMs,
-        remainingUses,
-      });
+      const ecdsaThresholdKeyId = toOptionalTrimmedString(bootstrap.ecdsaThresholdKeyId);
+      const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(bootstrap.thresholdEcdsaPublicKeyB64u);
+      const ethereumAddress = toOptionalTrimmedString(bootstrap.ethereumAddress);
+      if (!ecdsaThresholdKeyId || !thresholdEcdsaPublicKeyB64u || !ethereumAddress) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'threshold-ecdsa hss finalize returned incomplete key identity',
+        };
+      }
 
       return {
         ok: true,
-        sessionId,
-        expiresAtMs,
-        expiresAt: new Date(expiresAtMs).toISOString(),
-        participantIds,
-        remainingUses,
+        sessionKind: ceremony.value.sessionKind || 'jwt',
+        sessionJwtUserId: ceremony.value.userId,
+        sessionJwtRpId: ceremony.value.rpId,
+        ecdsaThresholdKeyId,
+        clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
+        clientAdditiveShare32B64u: bootstrap.clientAdditiveShare32B64u,
+        thresholdEcdsaPublicKeyB64u,
+        ethereumAddress,
+        participantIds: bootstrap.participantIds,
+        relayerKeyId: bootstrap.relayerKeyId,
+        relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
+        chainId: bootstrap.chainId,
+        factory: bootstrap.factory,
+        entryPoint: bootstrap.entryPoint,
+        salt: bootstrap.salt,
+        counterfactualAddress: bootstrap.counterfactualAddress,
+        sessionId: bootstrap.sessionId,
+        expiresAtMs: bootstrap.expiresAtMs,
+        expiresAt: bootstrap.expiresAt,
+        remainingUses: bootstrap.remainingUses,
+        jwt: bootstrap.jwt,
       };
     } catch (e: unknown) {
-      const msg = String(
-        e && typeof e === 'object' && 'message' in e
-          ? (e as { message?: unknown }).message
-          : e || 'Internal error',
-      );
-      this.logger?.error?.('[threshold-ecdsa] session mint failed', {
-        message: msg,
-        ...(context || {}),
-      });
-      return { ok: false, code: 'internal', message: msg };
+      return { ok: false, code: 'internal', message: errorMessage(e) };
     }
   }
 
@@ -2691,16 +2956,47 @@ export class ThresholdSigningService {
 
       const parsedRequest = parseThresholdEcdsaAuthorizeWithSessionRequest(input.request);
       if (!parsedRequest.ok) return parsedRequest;
-      const { relayerKeyId, clientVerifyingShareB64u, purpose, signingDigest32 } =
-        parsedRequest.value;
+      const {
+        ecdsaThresholdKeyId,
+        purpose,
+        signingDigest32,
+      } = parsedRequest.value;
 
       await this.ensureReady();
 
-      if (!this.secp256k1MasterSecretB64u) {
+      const participantIds = claims.participantIds;
+
+      const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+      if (!integratedKey) {
         return {
           ok: false,
-          code: 'not_configured',
-          message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
+          code: 'unauthorized',
+          message: 'ecdsaThresholdKeyId is not active on this server',
+        };
+      }
+      if (integratedKey.userId !== userId || integratedKey.rpId !== tokenRpId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'ecdsaThresholdKeyId does not match threshold session scope',
+        };
+      }
+      if (!haveSameParticipantIds(integratedKey.participantIds, participantIds)) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'ecdsaThresholdKeyId participantIds do not match threshold session scope',
+        };
+      }
+      const relayerKeyId = toOptionalTrimmedString(integratedKey.relayerKeyId);
+      const clientVerifyingShareB64u = toOptionalTrimmedString(
+        integratedKey.clientVerifyingShareB64u,
+      );
+      if (!relayerKeyId || !clientVerifyingShareB64u) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'ecdsaThresholdKeyId is missing backend signer input',
         };
       }
 
@@ -2717,7 +3013,6 @@ export class ThresholdSigningService {
         return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
       }
 
-      const participantIds = claims.participantIds;
       for (const id of this.participantIds2p) {
         if (!participantIds.includes(id)) {
           return {
@@ -2769,24 +3064,6 @@ export class ThresholdSigningService {
         };
       }
 
-      const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
-        alphabetizeStringify({
-          version: 'threshold_secp256k1_key_id_v1',
-          schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          userId,
-          rpId: tokenRpId,
-          clientVerifyingShareB64u,
-        }),
-      );
-      const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
-      if (relayerKeyId !== expectedRelayerKeyId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
-        };
-      }
-
       const signingDigestB64u = base64UrlEncode(signingDigest32);
       const intentDigest32 = await sha256BytesUtf8(
         alphabetizeStringify({
@@ -2803,6 +3080,7 @@ export class ThresholdSigningService {
         mpcSessionId,
         {
           expiresAtMs,
+          ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
           relayerKeyId,
           purpose,
           intentDigestB64u: base64UrlEncode(intentDigest32),

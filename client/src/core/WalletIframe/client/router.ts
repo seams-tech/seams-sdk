@@ -155,8 +155,11 @@ export interface WalletIframeRouterOptions {
   relayerAccount?: string;
   relayer?: TatchiConfigsInput['relayer'];
   registration?: TatchiConfigsInput['registration'];
+  signingSessionDefaults?: TatchiConfigsInput['signingSessionDefaults'];
   signingSessionPersistenceMode?: TatchiConfigsInput['signingSessionPersistenceMode'];
   signingSessionSeal?: TatchiConfigsInput['signingSessionSeal'];
+  thresholdEcdsaPresignPool?: TatchiConfigsInput['thresholdEcdsaPresignPool'];
+  provisioningDefaults?: TatchiConfigsInput['provisioningDefaults'];
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
@@ -470,8 +473,11 @@ export class WalletIframeRouter {
           relayerAccount: this.opts.relayerAccount,
           relayer: this.opts.relayer,
           registration: this.opts.registration,
+          signingSessionDefaults: this.opts.signingSessionDefaults,
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
+          thresholdEcdsaPresignPool: this.opts.thresholdEcdsaPresignPool,
+          provisioningDefaults: this.opts.provisioningDefaults,
           iframeWallet: this.opts.rpIdOverride
             ? { rpIdOverride: this.opts.rpIdOverride }
             : undefined,

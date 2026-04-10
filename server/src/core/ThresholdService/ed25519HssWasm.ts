@@ -693,7 +693,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     finalizedReport: {
       contextBindingB64u: finalizedReport.contextBindingB64u,
       clientOutputMessageB64u: finalizedReport.clientOutputMessageB64u,
-      ...(input.operation === 'explicit_key_export'
+      ...((input.operation === 'explicit_key_export' || input.operation === 'registration')
         ? { seedOutputMessageB64u: finalizedReport.seedOutputMessageB64u }
         : {}),
     },

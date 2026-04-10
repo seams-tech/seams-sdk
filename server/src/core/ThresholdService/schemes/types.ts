@@ -5,18 +5,18 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
-  ThresholdEcdsaBootstrapRequest,
-  ThresholdEcdsaBootstrapResponse,
-  ThresholdEcdsaKeygenRequest,
-  ThresholdEcdsaKeygenResponse,
+  ThresholdEcdsaHssFinalizeRequest,
+  ThresholdEcdsaHssFinalizeResponse,
+  ThresholdEcdsaHssPrepareRequest,
+  ThresholdEcdsaHssPrepareResponse,
+  ThresholdEcdsaHssRespondRequest,
+  ThresholdEcdsaHssRespondResponse,
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaCosignFinalizeRequest,
   ThresholdEcdsaCosignFinalizeResponse,
   ThresholdEcdsaCosignInitRequest,
   ThresholdEcdsaCosignInitResponse,
-  ThresholdEcdsaSessionRequest,
-  ThresholdEcdsaSessionResponse,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignInitResponse,
   ThresholdEcdsaPresignStepRequest,
@@ -136,25 +136,34 @@ export type ThresholdEd25519Frost2pSchemeModule = {
   };
 };
 
-export type ThresholdSecp256k1Ecdsa2pSchemeModule = ThresholdSchemeModule<
-  'threshold-secp256k1-ecdsa-2p-v1',
-  ThresholdEcdsaKeygenRequest,
-  ThresholdEcdsaKeygenResponse,
-  ThresholdEcdsaSessionRequest,
-  ThresholdEcdsaSessionResponse,
-  ThresholdEcdsaSessionClaims,
-  ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaAuthorizeResponse,
-  ThresholdEcdsaSignInitRequest,
-  ThresholdEcdsaSignInitResponse,
-  ThresholdEcdsaSignFinalizeRequest,
-  ThresholdEcdsaSignFinalizeResponse,
-  ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaCosignInitResponse,
-  ThresholdEcdsaCosignFinalizeRequest,
-  ThresholdEcdsaCosignFinalizeResponse
-> & {
-  bootstrap?: (request: ThresholdEcdsaBootstrapRequest) => Promise<ThresholdEcdsaBootstrapResponse>;
+export type ThresholdSecp256k1Ecdsa2pSchemeModule = {
+  schemeId: 'threshold-secp256k1-ecdsa-2p-v1';
+  protocol: ThresholdProtocolDriver<
+    ThresholdEcdsaSignInitRequest,
+    ThresholdEcdsaSignInitResponse,
+    ThresholdEcdsaSignFinalizeRequest,
+    ThresholdEcdsaSignFinalizeResponse,
+    ThresholdEcdsaCosignInitRequest,
+    ThresholdEcdsaCosignInitResponse,
+    ThresholdEcdsaCosignFinalizeRequest,
+    ThresholdEcdsaCosignFinalizeResponse
+  >;
+  healthz(): Promise<{ ok: boolean; code?: string; message?: string }>;
+  authorize(input: {
+    claims: ThresholdEcdsaSessionClaims;
+    request: ThresholdEcdsaAuthorizeWithSessionRequest;
+  }): Promise<ThresholdEcdsaAuthorizeResponse>;
+  hss?: {
+    prepare(
+      request: ThresholdEcdsaHssPrepareRequest,
+    ): Promise<ThresholdEcdsaHssPrepareResponse>;
+    respond(
+      request: ThresholdEcdsaHssRespondRequest,
+    ): Promise<ThresholdEcdsaHssRespondResponse>;
+    finalize(
+      request: ThresholdEcdsaHssFinalizeRequest,
+    ): Promise<ThresholdEcdsaHssFinalizeResponse>;
+  };
   presign: {
     init(input: {
       claims: ThresholdEcdsaSessionClaims;

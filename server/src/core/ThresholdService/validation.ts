@@ -122,6 +122,78 @@ export function parseThresholdEd25519KeyRecord(
   };
 }
 
+export type ParsedThresholdEcdsaIntegratedKeyRecord = {
+  version: 'threshold_ecdsa_hss_key_v1';
+  ecdsaThresholdKeyId: string;
+  userId: string;
+  rpId: string;
+  schemeId: string;
+  clientVerifyingShareB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+  participantIds: number[];
+  relayerKeyId?: string;
+  relayerVerifyingShareB64u?: string;
+  relayerRootShare32B64u: string;
+  relayerBackendInputB64u: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export function parseThresholdEcdsaIntegratedKeyRecord(
+  raw: unknown,
+): ParsedThresholdEcdsaIntegratedKeyRecord | null {
+  if (!isObject(raw)) return null;
+  if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_key_v1') return null;
+  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
+  const userId = toOptionalString(raw.userId);
+  const rpId = toOptionalString(raw.rpId);
+  const schemeId = toOptionalString(raw.schemeId);
+  const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
+  const thresholdEcdsaPublicKeyB64u = toOptionalString(raw.thresholdEcdsaPublicKeyB64u);
+  const ethereumAddress = toOptionalString(raw.ethereumAddress);
+  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
+  const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
+  const relayerRootShare32B64u = toOptionalString(raw.relayerRootShare32B64u);
+  const relayerBackendInputB64u = toOptionalString(raw.relayerBackendInputB64u);
+  const createdAtMs = raw.createdAtMs;
+  const updatedAtMs = raw.updatedAtMs;
+  if (
+    !ecdsaThresholdKeyId ||
+    !userId ||
+    !rpId ||
+    !schemeId ||
+    !clientVerifyingShareB64u ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !ethereumAddress ||
+    !participantIds ||
+    !relayerRootShare32B64u ||
+    !relayerBackendInputB64u ||
+    !isValidNumber(createdAtMs) ||
+    !isValidNumber(updatedAtMs)
+  ) {
+    return null;
+  }
+  return {
+    version: 'threshold_ecdsa_hss_key_v1',
+    ecdsaThresholdKeyId,
+    userId,
+    rpId,
+    schemeId,
+    clientVerifyingShareB64u,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
+    participantIds,
+    ...(relayerKeyId ? { relayerKeyId } : {}),
+    ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
+    relayerRootShare32B64u,
+    relayerBackendInputB64u,
+    createdAtMs,
+    updatedAtMs,
+  };
+}
+
 export type ParsedThresholdEd25519Commitments = { hiding: string; binding: string };
 
 export function parseThresholdEd25519Commitments(
@@ -171,6 +243,7 @@ export function parseThresholdEd25519MpcSessionRecord(
 ): ParsedThresholdEd25519MpcSessionRecord | null {
   if (!isObject(raw)) return null;
   const expiresAtMs = raw.expiresAtMs;
+  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const purpose = toOptionalString(raw.purpose);
   const intentDigestB64u = toOptionalString(raw.intentDigestB64u);
@@ -186,6 +259,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     return null;
   return {
     expiresAtMs,
+    ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
     relayerKeyId,
     purpose,
     intentDigestB64u,
@@ -371,6 +445,8 @@ export type ParsedThresholdEcdsaSigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
   relayerKeyId: string;
+  ecdsaThresholdKeyId: string;
+  thresholdEcdsaPublicKeyB64u: string;
   signingDigestB64u: string;
   userId: string;
   rpId: string;
@@ -388,6 +464,8 @@ export function parseThresholdEcdsaSigningSessionRecord(
   const expiresAtMs = raw.expiresAtMs;
   const mpcSessionId = toOptionalString(raw.mpcSessionId);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const ecdsaThresholdKeyId = toOptionalString(raw.ecdsaThresholdKeyId);
+  const thresholdEcdsaPublicKeyB64u = toOptionalString(raw.thresholdEcdsaPublicKeyB64u);
   const signingDigestB64u = toOptionalString(raw.signingDigestB64u);
   const userId = toOptionalString(raw.userId);
   const rpId = toOptionalString(raw.rpId);
@@ -402,6 +480,8 @@ export function parseThresholdEcdsaSigningSessionRecord(
   if (
     !mpcSessionId ||
     !relayerKeyId ||
+    !ecdsaThresholdKeyId ||
+    !thresholdEcdsaPublicKeyB64u ||
     !signingDigestB64u ||
     !userId ||
     !rpId ||
@@ -415,6 +495,8 @@ export function parseThresholdEcdsaSigningSessionRecord(
     expiresAtMs,
     mpcSessionId,
     relayerKeyId,
+    ecdsaThresholdKeyId,
+    thresholdEcdsaPublicKeyB64u,
     signingDigestB64u,
     userId,
     rpId,

@@ -121,6 +121,9 @@ export class WalletIframeCoordinator {
             signingSessionPersistenceMode === 'sealed_refresh_v1'
               ? this.configs.signing.sessionSeal
               : undefined;
+          const signingSessionDefaults = this.configs.signing.sessionDefaults;
+          const thresholdEcdsaPresignPool = this.configs.signing.thresholdEcdsa.presignPool;
+          const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
           this.iframeRouter = new WalletIframeRouter({
             walletOrigin,
             servicePath: walletIframeConfig?.servicePath || '/wallet-service',
@@ -130,8 +133,11 @@ export class WalletIframeCoordinator {
             relayerAccount: this.configs.network.relayer.accountId,
             relayer: this.configs.network.relayer,
             registration: this.configs.registration,
+            signingSessionDefaults,
             signingSessionPersistenceMode,
             ...(signingSessionSeal ? { signingSessionSeal } : {}),
+            thresholdEcdsaPresignPool,
+            provisioningDefaults,
             rpIdOverride: walletIframeConfig?.rpIdOverride,
             authenticatorOptions: cloneAuthenticatorOptions(
               this.configs.webauthn.authenticatorOptions,

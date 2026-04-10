@@ -175,13 +175,19 @@ export async function unlock(
       }
 
       const participantIds = thresholdKeyMaterial.participants.map((participant) => participant.id);
-      const signersToWarm = await resolveThresholdLoginWarmSigners(nearAccountId);
-      const canonicalEcdsaContext = signersToWarm.includes('ecdsa')
-        ? resolveCanonicalThresholdEcdsaWarmSessionContext(signingEngine as unknown, nearAccountId)
-        : {
-            thresholdSessionId: null,
-            clientVerifyingShareB64u: null,
-          };
+      const canonicalEcdsaContext = resolveCanonicalThresholdEcdsaWarmSessionContext(
+        signingEngine as unknown,
+        nearAccountId,
+      );
+      const existingThresholdEcdsaPublicKeyB64u = resolveThresholdEcdsaPublicKeyB64u(
+        context,
+        nearAccountId,
+      );
+      const signersToWarm = await resolveThresholdLoginWarmSigners({
+        nearAccountId,
+        canonicalEcdsaContext,
+        existingThresholdEcdsaPublicKeyB64u,
+      });
       // Always mint a fresh shared threshold session id for login warm-up.
       // Reusing a stored ECDSA thresholdSessionId can point at an expired server auth session,
       // which breaks sealed PRF persistence before reload continuity is established.
@@ -189,6 +195,7 @@ export async function unlock(
       const managedRuntimeScopeBootstrap = resolveManagedThresholdRuntimeScopeBootstrap(context);
       await signingEngine.clearWarmSigningSessions(nearAccountId).catch(() => undefined);
       await primeThresholdLoginWarmSigners({
+        context,
         signingEngine,
         nearAccountId,
         relayerUrl,
@@ -197,6 +204,7 @@ export async function unlock(
         ttlMs: signingSessionPolicy.ttlMs,
         remainingUses: signingSessionPolicy.remainingUses,
         canonicalEcdsaContext,
+        ...(loginCredential ? { credential: loginCredential } : {}),
         ...(managedRuntimeScopeBootstrap ? { managedRuntimeScopeBootstrap } : {}),
         signersToWarm,
         preferredEd25519SessionId,
@@ -518,7 +526,7 @@ async function finalizeLoginError(args: {
 
 type CanonicalThresholdEcdsaWarmSessionContext = {
   thresholdSessionId: string | null;
-  clientVerifyingShareB64u: string | null;
+  ecdsaThresholdKeyId?: string | null;
   runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
 };
 
@@ -582,6 +590,7 @@ async function runThresholdLoginWarmupTasks(tasks: ThresholdLoginWarmupTask[]): 
 }
 
 async function primeThresholdLoginWarmSigners(args: {
+  context: PasskeyManagerContext;
   signingEngine: PasskeyManagerContext['signingEngine'];
   nearAccountId: AccountId;
   relayerUrl: string;
@@ -590,6 +599,7 @@ async function primeThresholdLoginWarmSigners(args: {
   ttlMs: number;
   remainingUses: number;
   canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
+  credential?: import('../types').WebAuthnAuthenticationCredential;
   managedRuntimeScopeBootstrap?: ManagedThresholdRuntimeScopeBootstrap;
   signersToWarm?: ThresholdLoginWarmSigner[];
   preferredEd25519SessionId?: string;
@@ -598,11 +608,11 @@ async function primeThresholdLoginWarmSigners(args: {
   const warmState: {
     sessionId: string;
     jwt: string;
-    ecdsaClientVerifyingShareB64u: string;
+    ecdsaHssClientRootShare32B64u: string;
   } = {
     sessionId: '',
     jwt: '',
-    ecdsaClientVerifyingShareB64u: '',
+    ecdsaHssClientRootShare32B64u: '',
   };
 
   const tasks: ThresholdLoginWarmupTask[] = [];
@@ -649,23 +659,18 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
         }
 
-        const connectedEcdsaClientVerifyingShareB64u = String(
-          connected.ecdsaClientVerifyingShareB64u || '',
+        const connectedEcdsaHssClientRootShare32B64u = String(
+          connected.ecdsaHssClientRootShare32B64u || '',
         ).trim();
-        const canonicalEcdsaClientVerifyingShareB64u = String(
-          args.canonicalEcdsaContext.clientVerifyingShareB64u || '',
-        ).trim();
-        const ecdsaClientVerifyingShareB64u =
-          connectedEcdsaClientVerifyingShareB64u || canonicalEcdsaClientVerifyingShareB64u;
-        if (!ecdsaClientVerifyingShareB64u) {
+        if (!connectedEcdsaHssClientRootShare32B64u) {
           throw new Error(
-            '[login] threshold ECDSA warm-up missing clientVerifyingShareB64u from canonical cache or primary prompt derivation',
+            '[login] threshold ECDSA warm-up missing clientRootShare32B64u from the primed Ed25519 session',
           );
         }
 
         warmState.sessionId = connectedSessionId;
         warmState.jwt = connectedJwt;
-        warmState.ecdsaClientVerifyingShareB64u = ecdsaClientVerifyingShareB64u;
+        warmState.ecdsaHssClientRootShare32B64u = connectedEcdsaHssClientRootShare32B64u;
       },
     });
   }
@@ -681,12 +686,15 @@ async function primeThresholdLoginWarmSigners(args: {
               chain,
               source: 'login',
               relayerUrl: args.relayerUrl,
+              ...(args.canonicalEcdsaContext.ecdsaThresholdKeyId
+                ? { ecdsaThresholdKeyId: args.canonicalEcdsaContext.ecdsaThresholdKeyId }
+                : {}),
               participantIds: args.participantIds,
               sessionKind: 'jwt',
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               sessionId: warmState.sessionId,
-              clientVerifyingShareB64u: warmState.ecdsaClientVerifyingShareB64u,
+              clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
               authorizationJwt: warmState.jwt,
             });
           }
@@ -774,13 +782,19 @@ async function resolveThresholdEcdsaEthereumAddress(
   }
 }
 
-async function resolveThresholdLoginWarmSigners(
-  nearAccountId: AccountId,
-): Promise<ThresholdLoginWarmSigner[]> {
+async function resolveThresholdLoginWarmSigners(args: {
+  nearAccountId: AccountId;
+  canonicalEcdsaContext?: CanonicalThresholdEcdsaWarmSessionContext | null;
+  existingThresholdEcdsaPublicKeyB64u?: string | null;
+}): Promise<ThresholdLoginWarmSigner[]> {
+  const hasExistingThresholdEcdsaSession =
+    !!String(args.canonicalEcdsaContext?.thresholdSessionId || '').trim() ||
+    !!args.canonicalEcdsaContext?.runtimeSnapshotScope ||
+    !!String(args.existingThresholdEcdsaPublicKeyB64u || '').trim();
   try {
     const continuity = await resolveNearAccountProfileContinuity(
       IndexedDBManager.clientDB,
-      nearAccountId,
+      args.nearAccountId,
     );
     const chainAccounts = Array.isArray(continuity?.chainAccounts) ? continuity.chainAccounts : [];
     const hasThresholdEcdsaAccount = chainAccounts.some((row) => {
@@ -789,9 +803,11 @@ async function resolveThresholdLoginWarmSigners(
         .toLowerCase();
       return accountModel === 'erc4337' || accountModel === 'tempo-native';
     });
-    return hasThresholdEcdsaAccount ? ['ed25519', 'ecdsa'] : ['ed25519'];
+    return hasThresholdEcdsaAccount || hasExistingThresholdEcdsaSession
+      ? ['ed25519', 'ecdsa']
+      : ['ed25519'];
   } catch {
-    return ['ed25519'];
+    return hasExistingThresholdEcdsaSession ? ['ed25519', 'ecdsa'] : ['ed25519'];
   }
 }
 
@@ -813,7 +829,7 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
         chain: 'evm' | 'tempo';
       }) => {
         thresholdSessionId?: string;
-        clientVerifyingShareB64u?: string;
+        ecdsaThresholdKeyId?: string;
         runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
       };
     }
@@ -821,7 +837,6 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
   if (typeof getRecord !== 'function') {
     return {
       thresholdSessionId: null,
-      clientVerifyingShareB64u: null,
     };
   }
   const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
@@ -829,11 +844,11 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
     try {
       const record = getRecord({ nearAccountId, chain });
       const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-      const clientVerifyingShareB64u = String(record?.clientVerifyingShareB64u || '').trim();
-      if (thresholdSessionId || clientVerifyingShareB64u || record?.runtimeSnapshotScope) {
+      const ecdsaThresholdKeyId = String(record?.ecdsaThresholdKeyId || '').trim();
+      if (thresholdSessionId || ecdsaThresholdKeyId || record?.runtimeSnapshotScope) {
         return {
           thresholdSessionId: thresholdSessionId || null,
-          clientVerifyingShareB64u: clientVerifyingShareB64u || null,
+          ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
           ...(record?.runtimeSnapshotScope
             ? { runtimeSnapshotScope: record.runtimeSnapshotScope }
             : {}),
@@ -843,7 +858,6 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
   }
   return {
     thresholdSessionId: null,
-    clientVerifyingShareB64u: null,
   };
 }
 
@@ -858,7 +872,7 @@ function resolveManagedThresholdRuntimeScopeBootstrap(
   return { environmentId, publishableKey };
 }
 
-function resolveThresholdEcdsaGroupPublicKeyB64u(
+function resolveThresholdEcdsaPublicKeyB64u(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
 ): string | null {
@@ -869,8 +883,8 @@ function resolveThresholdEcdsaGroupPublicKeyB64u(
         nearAccountId,
         chain,
       });
-      const groupPublicKeyB64u = String(record.groupPublicKeyB64u || '').trim();
-      if (groupPublicKeyB64u) return groupPublicKeyB64u;
+      const thresholdEcdsaPublicKeyB64u = String(record.thresholdEcdsaPublicKeyB64u || '').trim();
+      if (thresholdEcdsaPublicKeyB64u) return thresholdEcdsaPublicKeyB64u;
     } catch {}
   }
   return null;
@@ -881,15 +895,15 @@ async function resolveThresholdEcdsaLoginMetadata(
   nearAccountId: AccountId,
 ): Promise<{
   ethereumAddress: string | null;
-  groupPublicKeyB64u: string | null;
+  thresholdEcdsaPublicKeyB64u: string | null;
 }> {
-  const [ethereumAddress, groupPublicKeyB64u] = await Promise.all([
+  const [ethereumAddress, thresholdEcdsaPublicKeyB64u] = await Promise.all([
     resolveThresholdEcdsaEthereumAddress(nearAccountId),
-    Promise.resolve(resolveThresholdEcdsaGroupPublicKeyB64u(context, nearAccountId)),
+    Promise.resolve(resolveThresholdEcdsaPublicKeyB64u(context, nearAccountId)),
   ]);
   return {
     ethereumAddress,
-    groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u,
   };
 }
 
@@ -908,7 +922,7 @@ async function getLoginStateInternal(
         publicKey: null,
         userData: null,
         thresholdEcdsaEthereumAddress: null,
-        thresholdEcdsaGroupPublicKeyB64u: null,
+        thresholdEcdsaPublicKeyB64u: null,
       };
     }
 
@@ -940,14 +954,14 @@ async function getLoginStateInternal(
           publicKey: null,
           userData: null,
           thresholdEcdsaEthereumAddress: null,
-          thresholdEcdsaGroupPublicKeyB64u: null,
+          thresholdEcdsaPublicKeyB64u: null,
         };
       }
     }
 
     const thresholdMetadata = resolvedNearAccountId
       ? await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId)
-      : { ethereumAddress: null, groupPublicKeyB64u: null };
+      : { ethereumAddress: null, thresholdEcdsaPublicKeyB64u: null };
 
     return {
       isLoggedIn,
@@ -955,7 +969,7 @@ async function getLoginStateInternal(
       publicKey,
       userData,
       thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
-      thresholdEcdsaGroupPublicKeyB64u: thresholdMetadata.groupPublicKeyB64u,
+      thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
     };
   } catch (error: unknown) {
     console.warn('Error getting login state:', error);
@@ -965,7 +979,7 @@ async function getLoginStateInternal(
       publicKey: null,
       userData: null,
       thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaGroupPublicKeyB64u: null,
+      thresholdEcdsaPublicKeyB64u: null,
     };
   }
 }

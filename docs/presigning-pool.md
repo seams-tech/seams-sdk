@@ -69,7 +69,7 @@ sequenceDiagram
 
 | Operation                   | Class                             | Endpoint(s)                      | Purpose                                                  |
 | --------------------------- | --------------------------------- | -------------------------------- | -------------------------------------------------------- |
-| Threshold session bootstrap | Session/Auth                      | `/threshold-ecdsa/bootstrap`     | Create threshold session + token/cookie binding          |
+| Threshold session bootstrap | Session/Auth                      | `/threshold-ecdsa/hss/*`         | Run staged hidden-eval `ecdsa-hss` bootstrap and mint token/cookie binding |
 | Sign authorization          | Session/Auth                      | `/threshold-ecdsa/authorize`     | Mint/consume short-lived MPC session id (`mpcSessionId`) |
 | Presign init                | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/init`  | Start one presignature handshake                         |
 | Presign step                | Presign (Cait-Sith preprocessing) | `/threshold-ecdsa/presign/step`  | Advance triples/presign rounds until `presign_done`      |
@@ -78,13 +78,26 @@ sequenceDiagram
 
 Important: `/presign/*` is preprocessing, not the final transaction signature itself.
 
+Current identity note:
+
+- the public threshold ECDSA identity seam is `ecdsaThresholdKeyId`
+- `relayerKeyId` and `clientVerifyingShareB64u` still exist only as backend-internal
+  signer inputs where the current backend requires them
+- deferred first-time ECDSA bootstrap is supported:
+  - registration may provision the key eagerly
+  - or an authenticated first `session_bootstrap` may provision it on demand
+  - once provisioned, later resume/sign/export flows reuse persisted
+    server-owned key material under the same `ecdsaThresholdKeyId`
+
 ## 4. Timing Profile (Observed)
 
 Measured from your recent server logs.
 
 | Operation                                          | Class          | Typical server duration |
 | -------------------------------------------------- | -------------- | ----------------------- |
-| `/threshold-ecdsa/bootstrap`                       | Session/Auth   | ~18ms                   |
+| `/threshold-ecdsa/hss/prepare`                    | Session/Auth   | bootstrap setup         |
+| `/threshold-ecdsa/hss/respond`                    | Session/Auth   | bootstrap continuation  |
+| `/threshold-ecdsa/hss/finalize`                   | Session/Auth   | bootstrap finalize      |
 | `/threshold-ecdsa/authorize`                       | Session/Auth   | ~4-10ms                 |
 | `/threshold-ecdsa/presign/init`                    | Presign        | ~20-35ms                |
 | `/threshold-ecdsa/presign/step` (normal)           | Presign        | ~740-1150ms per step    |
@@ -171,7 +184,7 @@ Current defaults:
 
 Scope of these settings:
 
-1. `targetDepth` and `lowWatermark` are per presign pool key (effectively per account/credential scope), where pool key = `relayerUrl + relayerKeyId + clientVerifyingShareB64u + participantIds`.
+1. `targetDepth` and `lowWatermark` are per presign pool key (effectively per account scope), where pool key = `relayerUrl + ecdsaThresholdKeyId + participantIds`.
 2. `maxRefillInFlight` is a runtime-global limiter (per client runtime/tab/process), not per account.
 3. Server presignature storage is partitioned by `relayerKeyId`, so the server is not using one undifferentiated global pool for all accounts.
 

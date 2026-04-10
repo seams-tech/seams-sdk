@@ -25,7 +25,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
     const replay = await page.evaluate(
       async ({ paths, vectors }) => {
         const {
-          deriveThresholdSecp256k1ClientShareWasm,
           deriveSecp256k1KeypairFromPrfSecondWasm,
           mapAdditiveShareToThresholdSignaturesShare2pWasm,
           validateSecp256k1PublicKey33Wasm,
@@ -108,24 +107,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         const secp = vectors.secp256k1;
         const txFinalization = vectors.tx_finalization;
 
-        const prfFirstB64u = toBase64Url(
-          fromHex(secp.derive_threshold_client_share.prf_first32_hex),
-        );
-        const deriveShare = await deriveThresholdSecp256k1ClientShareWasm({
-          prfFirstB64u,
-          userId: secp.derive_threshold_client_share.user_id,
-          derivationPath: Number(secp.derive_threshold_client_share.derivation_path),
-          workerCtx: workerCtx as any,
-        });
-        const deriveShareCombined = new Uint8Array(
-          deriveShare.clientSigningShare32.length + deriveShare.clientVerifyingShareBytes.length,
-        );
-        deriveShareCombined.set(deriveShare.clientSigningShare32, 0);
-        deriveShareCombined.set(
-          deriveShare.clientVerifyingShareBytes,
-          deriveShare.clientSigningShare32.length,
-        );
-
         const deriveKeypair = await deriveSecp256k1KeypairFromPrfSecondWasm({
           prfSecondB64u: toBase64Url(fromHex(secp.derive_keypair_from_prf_second.prf_second_hex)),
           nearAccountId: secp.derive_keypair_from_prf_second.near_account_id,
@@ -193,7 +174,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
         );
 
         return {
-          deriveShareHex: toHex(deriveShareCombined),
           deriveKeypairHex,
           mappedShareHex: toHex(mappedShare),
           validatedPkHex: toHex(validatedPk),
@@ -210,9 +190,6 @@ test.describe('canonical vector replay via worker-facing wasm bindings', () => {
       { paths: IMPORT_PATHS, vectors: CANONICAL_VECTORS },
     );
 
-    expect(replay.deriveShareHex).toBe(
-      CANONICAL_VECTORS.secp256k1.derive_threshold_client_share.expected_hex,
-    );
     expect(replay.deriveKeypairHex).toBe(
       CANONICAL_VECTORS.secp256k1.derive_keypair_from_prf_second.expected_hex,
     );

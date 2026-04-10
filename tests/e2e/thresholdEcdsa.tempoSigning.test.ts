@@ -17,7 +17,9 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.keygen?.ok).toBe(true);
-      expect(result.keygen?.relayerKeyId).toBeTruthy();
+      expect(result.keygen?.ecdsaThresholdKeyId).toBeTruthy();
+      expect(result.keygen?.thresholdEcdsaPublicKeyB64u).toBeTruthy();
+      expect(result.keygen?.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
       expect(result.session?.ok).toBe(true);
       expect(result.session?.sessionId).toBeTruthy();
       expect(result.signed?.chain).toBe('tempo');
@@ -133,6 +135,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -142,6 +145,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -282,6 +294,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -291,6 +304,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -439,6 +461,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -448,6 +471,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -654,6 +686,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -663,6 +696,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -858,6 +900,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -867,6 +910,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -1047,6 +1099,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -1056,6 +1109,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 url: relayerUrl,
                 smartAccountDeploymentMode: 'observe',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',
@@ -1249,6 +1311,38 @@ test.describe('threshold-ecdsa tempo signing', () => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
     let deployCalls = 0;
     try {
+      await page.route(`${harness.baseUrl}/smart-account/deployment/manifest`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeadersForRoute(route),
+          },
+          body: JSON.stringify({
+            ok: true,
+            manifest: {
+              version: 'smart_account_deployment_manifest_v1',
+              chain: 'evm',
+              accountAddress: '0x' + '22'.repeat(20),
+            },
+            evmDeploymentPlan: {
+              version: 'evm_smart_account_deployment_plan_v1',
+              chainId: 11155111,
+              accountAddress: '0x' + '22'.repeat(20),
+            },
+          }),
+        });
+      });
+      await page.route(`${harness.baseUrl}/smart-account/deployment/observe`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeadersForRoute(route),
+          },
+          body: JSON.stringify({ ok: true }),
+        });
+      });
       await page.route(`${harness.baseUrl}/smart-account/deploy`, async (route) => {
         deployCalls += 1;
         if (deployCalls === 1) {
@@ -1279,6 +1373,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
             const pm = new TatchiPasskey({
               nearNetwork: 'testnet',
@@ -1289,6 +1384,15 @@ test.describe('threshold-ecdsa tempo signing', () => {
                 smartAccountDeployRoute: '/smart-account/deploy',
                 smartAccountDeploymentMode: 'enforce',
               },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: {
                 walletOrigin: '',
                 walletServicePath: '/wallet-service',

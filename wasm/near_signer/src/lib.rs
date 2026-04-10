@@ -356,6 +356,21 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
+        WorkerRequestType::PrepareThresholdEcdsaHssSession => {
+            return Err(JsValue::from_str(
+                "PrepareThresholdEcdsaHssSession is not available yet in the ECDSA HSS runtime",
+            ));
+        }
+        WorkerRequestType::PrepareThresholdEcdsaHssClientRequest => {
+            return Err(JsValue::from_str(
+                "PrepareThresholdEcdsaHssClientRequest is not available yet in the ECDSA HSS runtime",
+            ));
+        }
+        WorkerRequestType::FinalizeThresholdEcdsaHssClientRequest => {
+            return Err(JsValue::from_str(
+                "FinalizeThresholdEcdsaHssClientRequest is not available yet in the ECDSA HSS runtime",
+            ));
+        }
     };
 
     // At this point, response_payload is the successful JsValue result.
@@ -395,6 +410,15 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess
+        }
+        WorkerRequestType::PrepareThresholdEcdsaHssSession => {
+            WorkerResponseType::PrepareThresholdEcdsaHssSessionSuccess
+        }
+        WorkerRequestType::PrepareThresholdEcdsaHssClientRequest => {
+            WorkerResponseType::PrepareThresholdEcdsaHssClientRequestSuccess
+        }
+        WorkerRequestType::FinalizeThresholdEcdsaHssClientRequest => {
+            WorkerResponseType::FinalizeThresholdEcdsaHssClientRequestSuccess
         }
     };
 

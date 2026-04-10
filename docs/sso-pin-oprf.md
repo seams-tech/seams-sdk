@@ -436,7 +436,7 @@ Request:
   },
   "threshold": {
     "ecdsa": {
-      "clientVerifyingShareB64u": "base64url"
+      "clientRootShare32B64u": "base64url"
     },
     "ed25519": {
       "contextBindingB64u": "base64url",

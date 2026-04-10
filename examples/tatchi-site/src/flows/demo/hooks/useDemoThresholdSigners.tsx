@@ -48,6 +48,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     isLoggedIn,
     nearAccountId,
     tatchi,
+    frontendConfig,
   });
 
   const canSignTempo =
@@ -98,6 +99,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
     arcEip1559FeeCaps,
     fetchArcGreeting,
     refreshThresholdEvmFundingAddress,
+    resolveThresholdSenderForEvmFamily,
   });
 
   const refreshTempoGreeting = useCallback(async () => {

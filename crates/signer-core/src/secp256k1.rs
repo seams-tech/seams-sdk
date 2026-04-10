@@ -1,95 +1,35 @@
 use hkdf::Hkdf;
 use k256::ecdsa::{RecoveryId, SigningKey};
+use k256::elliptic_curve::bigint::U512;
+use k256::elliptic_curve::ops::{Invert, Reduce};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::{ProjectivePoint, PublicKey, SecretKey};
-use num_bigint::BigUint;
-use num_traits::Num;
+use k256::{FieldBytes, NonZeroScalar, ProjectivePoint, PublicKey, Scalar, SecretKey, WideBytes};
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
+use zeroize::Zeroizing;
 
 use crate::error::{CoreResult, SignerCoreError};
 
-const THRESHOLD_SECP256K1_CLIENT_SHARE_SALT_V1: &[u8] =
-    b"tatchi/lite/threshold-secp256k1-ecdsa/client-share:v1";
 const THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1: &[u8] =
     b"tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
 const EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1: &[u8] = b"secp256k1-signing-key-dual-prf-v1";
 const EVM_SECP256K1_PRF_SECOND_SALT_PREFIX_V1: &str = "evm-key-derivation:";
 pub const THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID: u32 = 1;
 pub const THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID: u32 = 2;
-const SECP256K1_ORDER_HEX: &str =
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
-
-fn secp256k1_order() -> CoreResult<BigUint> {
-    BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16)
-        .map_err(|_| SignerCoreError::internal("failed to parse secp256k1 group order"))
-}
 
 fn reduce_hkdf_output_to_nonzero_secp256k1_scalar(okm64: &[u8]) -> CoreResult<[u8; 32]> {
-    let order = secp256k1_order()?;
-    let reduced =
-        (BigUint::from_bytes_be(okm64) % (&order - BigUint::from(1u8))) + BigUint::from(1u8);
-    let reduced_bytes = reduced.to_bytes_be();
-    if reduced_bytes.len() > 32 {
-        return Err(SignerCoreError::internal(format!(
-            "derived secp256k1 scalar exceeds 32 bytes (got {})",
-            reduced_bytes.len()
-        )));
-    }
-
-    let mut out = [0u8; 32];
-    let offset = out.len() - reduced_bytes.len();
-    out[offset..].copy_from_slice(&reduced_bytes);
-    Ok(out)
-}
-
-pub fn derive_threshold_secp256k1_client_share(
-    prf_first32: &[u8],
-    user_id: &str,
-    derivation_path: u32,
-) -> CoreResult<Vec<u8>> {
-    if prf_first32.len() != 32 {
+    if okm64.len() != 64 {
         return Err(SignerCoreError::invalid_length(format!(
-            "prf_first32 must be 32 bytes (got {})",
-            prf_first32.len()
+            "HKDF output must be 64 bytes before secp256k1 reduction (got {})",
+            okm64.len()
         )));
     }
 
-    let user_id = user_id.trim();
-    if user_id.is_empty() {
-        return Err(SignerCoreError::invalid_input("user_id must be non-empty"));
-    }
-
-    let mut info = Vec::with_capacity(user_id.len() + 1 + 4);
-    info.extend_from_slice(user_id.as_bytes());
-    info.push(0);
-    info.extend_from_slice(&derivation_path.to_be_bytes());
-
-    let hk = Hkdf::<Sha256>::new(Some(THRESHOLD_SECP256K1_CLIENT_SHARE_SALT_V1), prf_first32);
-    let mut okm64 = [0u8; 64];
-    hk.expand(&info, &mut okm64).map_err(|_| {
-        SignerCoreError::hkdf_error("HKDF expand failed for threshold secp256k1 client share")
-    })?;
-
-    let client_signing_share32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64)?;
-    let secret_key = SecretKey::from_slice(&client_signing_share32).map_err(|_| {
-        SignerCoreError::crypto_error(
-            "derived client signing share is not a valid secp256k1 secret key",
-        )
-    })?;
-    let client_verifying_share33 = secret_key.public_key().to_encoded_point(true);
-    let client_verifying_share33 = client_verifying_share33.as_bytes();
-    if client_verifying_share33.len() != 33 {
-        return Err(SignerCoreError::invalid_length(format!(
-            "derived client verifying share must be 33 bytes (got {})",
-            client_verifying_share33.len()
-        )));
-    }
-
-    let mut out = Vec::with_capacity(65);
-    out.extend_from_slice(&client_signing_share32);
-    out.extend_from_slice(client_verifying_share33);
-    Ok(out)
+    let mut wide = WideBytes::default();
+    wide.copy_from_slice(okm64);
+    Ok(field_bytes_to_array32(&FieldBytes::from(
+        <NonZeroScalar as Reduce<U512>>::reduce_bytes(&wide),
+    )))
 }
 
 pub fn derive_threshold_secp256k1_relayer_share(
@@ -113,13 +53,13 @@ pub fn derive_threshold_secp256k1_relayer_share(
         Some(THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1),
         master_secret,
     );
-    let mut okm64 = [0u8; 64];
-    hk.expand(relayer_key_id.as_bytes(), &mut okm64)
+    let mut okm64 = Zeroizing::new([0u8; 64]);
+    hk.expand(relayer_key_id.as_bytes(), &mut *okm64)
         .map_err(|_| {
             SignerCoreError::hkdf_error("HKDF expand failed for threshold secp256k1 relayer share")
         })?;
 
-    let relayer_signing_share32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64)?;
+    let relayer_signing_share32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64[..])?;
     let secret_key = SecretKey::from_slice(&relayer_signing_share32).map_err(|_| {
         SignerCoreError::crypto_error(
             "derived relayer signing share is not a valid secp256k1 secret key",
@@ -163,15 +103,15 @@ pub fn derive_secp256k1_keypair_from_prf_second(
     hkdf_salt.extend_from_slice(near_account_id.as_bytes());
 
     let hk = Hkdf::<Sha256>::new(Some(&hkdf_salt), prf_second);
-    let mut okm64 = [0u8; 64];
-    hk.expand(EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1, &mut okm64)
+    let mut okm64 = Zeroizing::new([0u8; 64]);
+    hk.expand(EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1, &mut *okm64)
         .map_err(|_| {
             SignerCoreError::hkdf_error(
                 "HKDF expand failed for secp256k1 PRF.second key derivation",
             )
         })?;
 
-    let private_key32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64)?;
+    let private_key32 = reduce_hkdf_output_to_nonzero_secp256k1_scalar(&okm64[..])?;
     let secret_key = SecretKey::from_slice(&private_key32)
         .map_err(|_| SignerCoreError::crypto_error("derived secp256k1 private key is invalid"))?;
 
@@ -209,24 +149,13 @@ pub fn map_additive_share_to_threshold_signatures_share_2p(
     additive_share32: &[u8],
     participant_id: u32,
 ) -> CoreResult<Vec<u8>> {
-    if additive_share32.len() != 32 {
-        return Err(SignerCoreError::invalid_length(format!(
-            "additive_share32 must be 32 bytes (got {})",
-            additive_share32.len()
-        )));
-    }
-
-    let order = secp256k1_order()?;
-    let additive = BigUint::from_bytes_be(additive_share32);
-    if additive == BigUint::from(0u8) || additive >= order {
-        return Err(SignerCoreError::invalid_input(
-            "additive share must be in (0, n)",
-        ));
-    }
+    let additive = parse_nonzero_scalar_32(additive_share32, "additive_share32")?;
 
     let lambda = match participant_id {
-        THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID => BigUint::from(3u8),
-        THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID => &order - BigUint::from(2u8),
+        THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID => nonzero_scalar_from_u32(3)?,
+        THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID => {
+            nonzero_scalar_from_scalar(-Scalar::from(2u32), "relayer mapping coefficient")?
+        }
         _ => {
             return Err(SignerCoreError::unsupported(format!(
                 "unsupported participant_id for 2P mapping: {}",
@@ -235,25 +164,37 @@ pub fn map_additive_share_to_threshold_signatures_share_2p(
         }
     };
 
-    let inv_lambda = lambda.modpow(&(&order - BigUint::from(2u8)), &order);
-    let mapped = (additive * inv_lambda) % &order;
-    if mapped == BigUint::from(0u8) {
-        return Err(SignerCoreError::internal(
-            "mapped threshold share is zero (unexpected)",
-        ));
-    }
+    let mapped = additive * lambda.invert();
+    Ok(field_bytes_to_array32(&FieldBytes::from(mapped)).to_vec())
+}
 
-    let mapped_bytes = mapped.to_bytes_be();
-    if mapped_bytes.len() > 32 {
+fn parse_nonzero_scalar_32(bytes: &[u8], field_name: &str) -> CoreResult<NonZeroScalar> {
+    if bytes.len() != 32 {
         return Err(SignerCoreError::invalid_length(format!(
-            "mapped threshold share exceeds 32 bytes (got {})",
-            mapped_bytes.len()
+            "{field_name} must be 32 bytes (got {})",
+            bytes.len()
         )));
     }
-    let mut out = vec![0u8; 32];
-    let offset = out.len() - mapped_bytes.len();
-    out[offset..].copy_from_slice(&mapped_bytes);
-    Ok(out)
+
+    SecretKey::from_slice(bytes)
+        .map(|secret_key| secret_key.to_nonzero_scalar())
+        .map_err(|_| SignerCoreError::invalid_input(format!("{field_name} must be in (0, n)")))
+}
+
+fn nonzero_scalar_from_u32(value: u32) -> CoreResult<NonZeroScalar> {
+    nonzero_scalar_from_scalar(Scalar::from(value), "mapping coefficient")
+}
+
+fn nonzero_scalar_from_scalar(scalar: Scalar, field_name: &str) -> CoreResult<NonZeroScalar> {
+    Option::<NonZeroScalar>::from(NonZeroScalar::new(scalar)).ok_or_else(|| {
+        SignerCoreError::internal(format!("{field_name} unexpectedly reduced to zero"))
+    })
+}
+
+fn field_bytes_to_array32(bytes: &FieldBytes) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out.copy_from_slice(bytes.as_ref());
+    out
 }
 
 pub fn validate_secp256k1_public_key_33(public_key33: &[u8]) -> CoreResult<Vec<u8>> {
@@ -384,40 +325,29 @@ mod tests {
     use super::*;
     use k256::ecdsa::{Signature, VerifyingKey};
 
-    fn to_32_bytes(value: &BigUint) -> Vec<u8> {
-        let bytes = value.to_bytes_be();
-        let mut out = vec![0u8; 32];
-        let offset = out.len() - bytes.len();
-        out[offset..].copy_from_slice(&bytes);
-        out
-    }
-
     #[test]
     fn map_additive_share_roundtrips_for_client_participant() {
-        let order = secp256k1_order().expect("order");
-        let additive = BigUint::from(42u8);
+        let additive = Scalar::from(42u32);
         let mapped = map_additive_share_to_threshold_signatures_share_2p(
-            &to_32_bytes(&additive),
+            &field_bytes_to_array32(&additive.to_bytes()),
             THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID,
         )
         .expect("map client");
-        let mapped_big = BigUint::from_bytes_be(&mapped);
-        let restored = (mapped_big * BigUint::from(3u8)) % &order;
+        let mapped = parse_nonzero_scalar_32(&mapped, "mapped").expect("mapped scalar");
+        let restored = *mapped.as_ref() * Scalar::from(3u32);
         assert_eq!(restored, additive);
     }
 
     #[test]
     fn map_additive_share_roundtrips_for_relayer_participant() {
-        let order = secp256k1_order().expect("order");
-        let additive = BigUint::from(77u8);
+        let additive = Scalar::from(77u32);
         let mapped = map_additive_share_to_threshold_signatures_share_2p(
-            &to_32_bytes(&additive),
+            &field_bytes_to_array32(&additive.to_bytes()),
             THRESHOLD_SECP256K1_2P_RELAYER_PARTICIPANT_ID,
         )
         .expect("map relayer");
-        let mapped_big = BigUint::from_bytes_be(&mapped);
-        let lambda = &order - BigUint::from(2u8);
-        let restored = (mapped_big * lambda) % &order;
+        let mapped = parse_nonzero_scalar_32(&mapped, "mapped").expect("mapped scalar");
+        let restored = *mapped.as_ref() * -Scalar::from(2u32);
         assert_eq!(restored, additive);
     }
 

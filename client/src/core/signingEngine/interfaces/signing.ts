@@ -6,16 +6,49 @@ export type SignatureAlgorithm = 'ed25519' | 'secp256k1' | 'webauthnP256';
 
 export type SignatureBytes = Uint8Array;
 
+export type ThresholdEcdsaCanonicalExportArtifact = {
+  artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+  chain: 'evm' | 'tempo';
+  publicKeyHex: string;
+  privateKeyHex: string;
+  ethereumAddress: string;
+};
+
+export type EcdsaThresholdKeyId = string;
+
+export type ThresholdEcdsaBackendBinding = {
+  /**
+   * Backend integration identifier for the current threshold-signatures signer
+   * path. This is not part of the public threshold identity seam.
+   */
+  relayerKeyId: string;
+  /**
+   * Backend integration detail for the current threshold-signatures signer
+   * path. This is not part of the public threshold identity seam.
+   */
+  clientVerifyingShareB64u: string;
+  /**
+   * Canonical client additive share for integrated ecdsa-hss signing.
+   * This remains an internal signer binding, not a public identity field.
+   */
+  clientAdditiveShare32B64u?: string;
+};
+
 export type KeyRef =
   | { type: 'local-secp256k1'; privateKey: Uint8Array }
   | {
       type: 'threshold-ecdsa-secp256k1';
       userId: string;
       relayerUrl: string;
-      relayerKeyId: string;
-      clientVerifyingShareB64u: string;
+      /**
+       * Canonical product-facing identity for the integrated ecdsa-hss key.
+       */
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      backendBinding?: ThresholdEcdsaBackendBinding;
+      ecdsaHssExportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
       participantIds?: number[];
-      groupPublicKeyB64u?: string;
+      thresholdEcdsaPublicKeyB64u?: string;
+      ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
       thresholdSessionKind?: 'jwt' | 'cookie';
       thresholdSessionJwt?: string;

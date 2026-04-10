@@ -136,39 +136,6 @@ pub extern "C" fn signer_platform_ios_v1_rlp_encode_list_hex(
 }
 
 #[no_mangle]
-pub extern "C" fn signer_platform_ios_v1_derive_threshold_secp256k1_client_share_hex(
-    prf_first32_hex: *const c_char,
-    user_id: *const c_char,
-    derivation_path: u32,
-) -> *mut c_char {
-    #[cfg(feature = "secp256k1")]
-    {
-        let prf_first32_hex = match read_c_string(prf_first32_hex) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        let user_id = match read_c_string(user_id) {
-            Some(v) => v,
-            None => return ptr::null_mut(),
-        };
-        let prf_first32 = match v1::hex_to_bytes(prf_first32_hex.as_str()) {
-            Ok(v) => v,
-            Err(_) => return ptr::null_mut(),
-        };
-        let bytes = match v1::derive_threshold_secp256k1_client_share(prf_first32, user_id, derivation_path) {
-            Ok(v) => v,
-            Err(_) => return ptr::null_mut(),
-        };
-        return into_c_string_ptr(bytes_to_hex(bytes.as_slice()));
-    }
-    #[cfg(not(feature = "secp256k1"))]
-    {
-        let _ = (prf_first32_hex, user_id, derivation_path);
-        ptr::null_mut()
-    }
-}
-
-#[no_mangle]
 pub extern "C" fn signer_platform_ios_v1_derive_secp256k1_keypair_from_prf_second_hex(
     prf_second_hex: *const c_char,
     near_account_id: *const c_char,
@@ -431,21 +398,6 @@ pub mod v1 {
         crate::codec::rlp_encode_list(items.as_slice())
     }
 
-    #[cfg(feature = "secp256k1")]
-    pub fn derive_threshold_secp256k1_client_share(
-        prf_first32: Vec<u8>,
-        user_id: String,
-        derivation_path: u32,
-    ) -> Result<Vec<u8>, String> {
-        crate::secp256k1::derive_threshold_secp256k1_client_share(
-            prf_first32.as_slice(),
-            user_id.as_str(),
-            derivation_path,
-        )
-        .map_err(|e| e.to_string())
-    }
-
-    #[cfg(feature = "secp256k1")]
     pub fn derive_secp256k1_keypair_from_prf_second(
         prf_second: Vec<u8>,
         near_account_id: String,

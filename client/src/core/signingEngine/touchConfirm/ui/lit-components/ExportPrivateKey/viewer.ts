@@ -309,9 +309,8 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           </div>
           ${entries.length
             ? entries.map((entry, index) => {
-                const label =
-                  String(entry.label || '').trim() ||
-                  (entry.scheme === 'secp256k1' ? 'EVM secp256k1' : 'NEAR Ed25519');
+                const label = String(entry.label || '').trim()
+                  || (entry.scheme === 'secp256k1' ? 'EVM secp256k1' : 'NEAR Ed25519');
                 const publicKey = String(entry.publicKey || '').trim();
                 const privateKey = String(entry.privateKey || '').trim();
                 const address = String(entry.address || '').trim();

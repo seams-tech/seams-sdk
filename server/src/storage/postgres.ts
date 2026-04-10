@@ -86,6 +86,9 @@ export async function ensurePostgresSchema(input: {
         IF to_regclass('tatchi_threshold_ed25519_keys') IS NOT NULL AND to_regclass('threshold_ed25519_keys') IS NULL THEN
           ALTER TABLE tatchi_threshold_ed25519_keys RENAME TO threshold_ed25519_keys;
         END IF;
+        IF to_regclass('tatchi_threshold_ecdsa_keys') IS NOT NULL AND to_regclass('threshold_ecdsa_keys') IS NULL THEN
+          ALTER TABLE tatchi_threshold_ecdsa_keys RENAME TO threshold_ecdsa_keys;
+        END IF;
         IF to_regclass('tatchi_threshold_ed25519_sessions') IS NOT NULL AND to_regclass('threshold_ed25519_sessions') IS NULL THEN
           ALTER TABLE tatchi_threshold_ed25519_sessions RENAME TO threshold_ed25519_sessions;
         END IF;
@@ -160,6 +163,15 @@ export async function ensurePostgresSchema(input: {
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS threshold_ed25519_keys (
+        namespace TEXT NOT NULL,
+        relayer_key_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        PRIMARY KEY (namespace, relayer_key_id)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS threshold_ecdsa_keys (
         namespace TEXT NOT NULL,
         relayer_key_id TEXT NOT NULL,
         record_json JSONB NOT NULL,

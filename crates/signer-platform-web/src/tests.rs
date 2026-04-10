@@ -95,19 +95,6 @@ fn vectors_v1_match_expected_outputs() {
 
     assert_eq!(
         to_hex(
-            crate::secp256k1::derive_threshold_secp256k1_client_share(
-                from_hex(SECP_PRF_FIRST32_HEX).as_slice(),
-                SECP_USER_ID,
-                SECP_DERIVATION_PATH,
-            )
-            .expect("derive client share")
-            .as_slice()
-        ),
-        SECP_DERIVE_CLIENT_EXPECTED
-    );
-
-    assert_eq!(
-        to_hex(
             crate::secp256k1::derive_secp256k1_keypair_from_prf_second(
                 from_hex(SECP_PRF_SECOND_HEX).as_slice(),
                 SECP_NEAR_ACCOUNT_ID,

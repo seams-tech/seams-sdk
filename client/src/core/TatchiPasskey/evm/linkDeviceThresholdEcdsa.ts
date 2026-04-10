@@ -12,8 +12,11 @@ import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
 
 export type PreparedLinkDeviceThresholdEcdsa = {
+  ecdsaThresholdKeyId: string;
+  clientVerifyingShareB64u: string;
+  clientAdditiveShare32B64u: string;
   relayerKeyId: string;
-  groupPublicKeyB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
   relayerVerifyingShareB64u: string;
   participantIds?: number[];
@@ -82,18 +85,21 @@ function dedupeLinkedAccounts(
 function buildThresholdEcdsaBootstrap(args: {
   nearAccountId: AccountId | string;
   relayerUrl: string;
-  clientVerifyingShareB64u: string;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
 }): ThresholdEcdsaSessionBootstrapResult {
   const nearAccountId = toAccountId(args.nearAccountId);
   const session = args.thresholdEcdsa.session || {};
+  const ecdsaThresholdKeyId = String(args.thresholdEcdsa.ecdsaThresholdKeyId || '').trim();
   const relayerKeyId = String(args.thresholdEcdsa.relayerKeyId || '').trim();
-  const groupPublicKeyB64u = String(args.thresholdEcdsa.groupPublicKeyB64u || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim();
   const ethereumAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
   const relayerVerifyingShareB64u = String(
     args.thresholdEcdsa.relayerVerifyingShareB64u || '',
   ).trim();
-  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  const clientVerifyingShareB64u = String(args.thresholdEcdsa.clientVerifyingShareB64u || '').trim();
+  const clientAdditiveShare32B64u = String(
+    args.thresholdEcdsa.clientAdditiveShare32B64u || '',
+  ).trim();
   const sessionKind = String(session.sessionKind || '').trim().toLowerCase();
   const sessionId = String(session.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
@@ -103,11 +109,17 @@ function buildThresholdEcdsaBootstrap(args: {
     normalizeThresholdEd25519ParticipantIds(session.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.thresholdEcdsa.participantIds);
 
-  if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('link-device thresholdEcdsa payload missing ecdsaThresholdKeyId');
+  }
+  if (!relayerKeyId || !thresholdEcdsaPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
     throw new Error('link-device thresholdEcdsa payload missing keygen fields');
   }
   if (!clientVerifyingShareB64u) {
     throw new Error('link-device thresholdEcdsa payload missing clientVerifyingShareB64u');
+  }
+  if (!clientAdditiveShare32B64u) {
+    throw new Error('link-device thresholdEcdsa payload missing clientAdditiveShare32B64u');
   }
   if (sessionKind && sessionKind !== 'jwt') {
     throw new Error('link-device thresholdEcdsa sessionKind must be jwt');
@@ -126,10 +138,15 @@ function buildThresholdEcdsaBootstrap(args: {
     type: 'threshold-ecdsa-secp256k1',
     userId: nearAccountId,
     relayerUrl: String(args.relayerUrl || '').trim(),
-    relayerKeyId,
-    clientVerifyingShareB64u,
+    ecdsaThresholdKeyId,
+    backendBinding: {
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      clientAdditiveShare32B64u,
+    },
     participantIds,
-    groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
     relayerVerifyingShareB64u,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
@@ -140,9 +157,11 @@ function buildThresholdEcdsaBootstrap(args: {
     thresholdEcdsaKeyRef,
     keygen: {
       ok: true,
+      ecdsaThresholdKeyId,
       clientVerifyingShareB64u,
+      clientAdditiveShare32B64u,
       relayerKeyId,
-      groupPublicKeyB64u,
+      thresholdEcdsaPublicKeyB64u,
       ethereumAddress,
       relayerVerifyingShareB64u,
       participantIds,
@@ -166,7 +185,6 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   deviceNumber: number;
   rpId: string;
   credentialIdB64u: string;
-  clientVerifyingShareB64u: string;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
   linkedAccounts: PreparedLinkDeviceLinkedAccount[];
 }): Promise<void> {
@@ -177,7 +195,6 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   const bootstrap = buildThresholdEcdsaBootstrap({
     nearAccountId,
     relayerUrl: args.relayerUrl,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
     thresholdEcdsa: args.thresholdEcdsa,
   });
   const thresholdOwnerAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
@@ -231,8 +248,9 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
       metadata: {
         accountModel: account.accountModel,
         ownerAddress: thresholdOwnerAddress,
+        ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
         relayerKeyId: String(args.thresholdEcdsa.relayerKeyId || '').trim(),
-        groupPublicKeyB64u: String(args.thresholdEcdsa.groupPublicKeyB64u || '').trim(),
+        thresholdEcdsaPublicKeyB64u: String(args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim(),
         deviceNumber: args.deviceNumber,
         credentialIdB64u: String(args.credentialIdB64u || '').trim(),
         rpId: String(args.rpId || '').trim(),

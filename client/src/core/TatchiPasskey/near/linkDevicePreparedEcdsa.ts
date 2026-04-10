@@ -6,8 +6,9 @@ import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/prof
 import { toAccountId } from '../../types/accountIds';
 
 type PreparedLinkDeviceThresholdEcdsa = {
+  clientAdditiveShare32B64u: string;
   relayerKeyId: string;
-  groupPublicKeyB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
   participantIds?: number[];
 };
@@ -47,13 +48,17 @@ function parseParticipantIds(raw: unknown): number[] | undefined {
 
 function parsePreparedThresholdEcdsa(raw: unknown): PreparedLinkDeviceThresholdEcdsa | null {
   if (!isObject(raw)) return null;
+  const clientAdditiveShare32B64u = String(raw.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(raw.relayerKeyId || '').trim();
-  const groupPublicKeyB64u = String(raw.groupPublicKeyB64u || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(raw.thresholdEcdsaPublicKeyB64u || '').trim();
   const ethereumAddress = String(raw.ethereumAddress || '').trim();
-  if (!relayerKeyId || !groupPublicKeyB64u || !ethereumAddress) return null;
+  if (!clientAdditiveShare32B64u || !relayerKeyId || !thresholdEcdsaPublicKeyB64u || !ethereumAddress) {
+    return null;
+  }
   return {
+    clientAdditiveShare32B64u,
     relayerKeyId,
-    groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
     ...(parseParticipantIds(raw.participantIds)
       ? { participantIds: parseParticipantIds(raw.participantIds) }
@@ -199,7 +204,7 @@ export async function persistPreparedLinkDeviceSmartAccountSigners(args: {
         accountModel: account.accountModel,
         ownerAddress: prepared.preparedThresholdEcdsa.ethereumAddress,
         relayerKeyId: prepared.preparedThresholdEcdsa.relayerKeyId,
-        groupPublicKeyB64u: prepared.preparedThresholdEcdsa.groupPublicKeyB64u,
+        thresholdEcdsaPublicKeyB64u: prepared.preparedThresholdEcdsa.thresholdEcdsaPublicKeyB64u,
         deviceNumber: Math.max(1, Math.floor(Number(args.deviceNumber) || 1)),
         chain: account.chain,
         chainId: account.chainId,

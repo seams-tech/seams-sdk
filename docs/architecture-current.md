@@ -117,9 +117,15 @@ Client presign pool is runtime memory only:
 Pool key fields:
 
 - `relayerUrl`
-- `relayerKeyId`
-- `clientVerifyingShareB64u`
+- `ecdsaThresholdKeyId`
 - normalized `participantIds`
+
+Backend note:
+
+- the current signer backend still uses `relayerKeyId` and
+  `clientVerifyingShareB64u` internally
+- those fields are no longer the public SDK identity seam and are not part of
+  the client presign-pool key anymore
 
 Persistence behavior:
 
@@ -158,7 +164,7 @@ Default client policy:
 
 Scope semantics:
 
-- `targetDepth` and `lowWatermark` apply per pool key (`relayerUrl + relayerKeyId + clientVerifyingShareB64u + participantIds`), which is effectively per account/credential context.
+- `targetDepth` and `lowWatermark` apply per pool key (`relayerUrl + ecdsaThresholdKeyId + participantIds`), which is effectively per account/key context.
 - `maxRefillInFlight` is a runtime-global cap across pool keys within one client runtime/tab/process.
 
 Resolution order:

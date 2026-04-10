@@ -121,11 +121,6 @@ export const App: React.FC = () => {
           rpIdOverride: FRONTEND_CONFIG.rpIdBase,
           sdkBasePath: FRONTEND_CONFIG.sdkBasePath,
         },
-        // Demo default: require threshold signing for NEAR actions in docs flows
-        signerMode: {
-          mode: 'threshold-signer',
-          behavior: 'strict',
-        },
         signingSessionDefaults: {
           ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
           remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,

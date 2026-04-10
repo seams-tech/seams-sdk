@@ -26,13 +26,14 @@ type EcdsaSessionKind = 'jwt' | 'cookie';
 
 export type ThresholdEcdsaClientPresignatureRefillInput = {
   relayerUrl: string;
+  ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
   clientSigningShare32: Uint8Array;
-  groupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
@@ -196,17 +197,18 @@ function resolveParticipantRoles(args: {
 
 function makePresignaturePoolKey(args: {
   relayerUrl: string;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   participantIds: number[];
 }): string {
   const relayerUrl = String(args.relayerUrl || '')
     .trim()
     .replace(/\/+$/g, '');
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
-  const clientVerifyingShareB64u = String(args.clientVerifyingShareB64u || '').trim();
+  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
   const participantIds = normalizeParticipantIds(args.participantIds);
-  return [relayerUrl, relayerKeyId, clientVerifyingShareB64u, participantIds.join(',')].join('|');
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('[threshold-ecdsa] Missing ecdsaThresholdKeyId for presign pool identity');
+  }
+  return [relayerUrl, ecdsaThresholdKeyId, participantIds.join(',')].join('|');
 }
 
 async function runAsCrossRuntimeRefillAuthority(input: {
@@ -290,14 +292,12 @@ export function clearAllThresholdEcdsaClientPresignatures(): void {
 
 export function getThresholdEcdsaClientPresignaturePoolDepth(args: {
   relayerUrl: string;
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   participantIds: number[];
 }): number {
   const poolKey = makePresignaturePoolKey({
     relayerUrl: args.relayerUrl,
-    relayerKeyId: args.relayerKeyId,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     participantIds: args.participantIds,
   });
   return getClientPresignaturePoolDepth(poolKey);
@@ -315,8 +315,7 @@ export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
     const participantIds = normalizeParticipantIds(args.participantIds);
     const poolKey = makePresignaturePoolKey({
       relayerUrl: args.relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       participantIds,
     });
     const targetDepth = normalizePresignPoolTargetDepth(args.targetDepth, policy.targetDepth);
@@ -348,13 +347,14 @@ export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
 
     const refillInput: ThresholdEcdsaClientPresignatureRefillInput = {
       relayerUrl: args.relayerUrl,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId: args.relayerKeyId,
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       participantIds,
       clientParticipantId: args.clientParticipantId,
       relayerParticipantId: args.relayerParticipantId,
       clientSigningShare32: args.clientSigningShare32,
-      groupPublicKeyB64u: args.groupPublicKeyB64u,
+      thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: args.relayerVerifyingShareB64u,
       sessionKind: args.sessionKind,
       thresholdSessionJwt: args.thresholdSessionJwt,
@@ -403,14 +403,14 @@ function fromB64uMessages(messagesB64u: string[] | undefined): Uint8Array[] {
 
 async function resolveGroupPublicKey33(args: {
   clientVerifyingShareB64u: string;
-  groupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<Uint8Array> {
-  const groupPublicKeyB64u = String(args.groupPublicKeyB64u || '').trim();
-  if (groupPublicKeyB64u) {
-    const bytes = base64UrlDecode(groupPublicKeyB64u);
-    if (bytes.length !== 33) throw new Error('groupPublicKeyB64u must decode to 33 bytes');
+  const thresholdEcdsaPublicKeyB64u = String(args.thresholdEcdsaPublicKeyB64u || '').trim();
+  if (thresholdEcdsaPublicKeyB64u) {
+    const bytes = base64UrlDecode(thresholdEcdsaPublicKeyB64u);
+    if (bytes.length !== 33) throw new Error('thresholdEcdsaPublicKeyB64u must decode to 33 bytes');
     return await validateSecp256k1PublicKey33Wasm({
       publicKey33: bytes,
       workerCtx: args.workerCtx,
@@ -421,7 +421,7 @@ async function resolveGroupPublicKey33(args: {
   const relayerVerifyingShareB64u = String(args.relayerVerifyingShareB64u || '').trim();
   if (!clientVerifyingShareB64u || !relayerVerifyingShareB64u) {
     throw new Error(
-      'Missing groupPublicKeyB64u (or relayerVerifyingShareB64u fallback) for threshold-ecdsa signing',
+      'Missing thresholdEcdsaPublicKeyB64u (or relayerVerifyingShareB64u fallback) for threshold-ecdsa signing',
     );
   }
 
@@ -448,6 +448,7 @@ async function resolveGroupPublicKey33(args: {
 
 async function runPresignHandshake(args: {
   relayerUrl: string;
+  ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   participantIds: number[];
@@ -464,8 +465,7 @@ async function runPresignHandshake(args: {
 > {
   const init = await ecdsaPresignInit({
     relayerUrl: args.relayerUrl,
-    relayerKeyId: args.relayerKeyId,
-    clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     count: 1,
     sessionKind: args.sessionKind,
     thresholdSessionJwt: args.thresholdSessionJwt,
@@ -667,6 +667,7 @@ async function runPresignHandshake(args: {
 
 export async function signThresholdEcdsaDigestWithPool(args: {
   relayerUrl: string;
+  ecdsaThresholdKeyId: string;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   mpcSessionId: string;
@@ -675,7 +676,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
   participantIds: number[];
   clientParticipantId?: number;
   relayerParticipantId?: number;
-  groupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
   sessionKind?: EcdsaSessionKind;
   thresholdSessionJwt?: string;
@@ -698,6 +699,14 @@ export async function signThresholdEcdsaDigestWithPool(args: {
         code: 'invalid_args',
         message: 'Missing relayerKeyId for threshold-ecdsa signing',
       };
+    const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+    if (!ecdsaThresholdKeyId) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing ecdsaThresholdKeyId for threshold-ecdsa signing',
+      };
+    }
     const mpcSessionId = String(args.mpcSessionId || '').trim();
     if (!mpcSessionId)
       return {
@@ -741,15 +750,14 @@ export async function signThresholdEcdsaDigestWithPool(args: {
 
     const groupPublicKey33 = await resolveGroupPublicKey33({
       clientVerifyingShareB64u,
-      groupPublicKeyB64u: args.groupPublicKeyB64u,
+      thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: args.relayerVerifyingShareB64u,
       workerCtx: args.workerCtx,
     });
 
     const poolKey = makePresignaturePoolKey({
       relayerUrl,
-      relayerKeyId,
-      clientVerifyingShareB64u,
+      ecdsaThresholdKeyId,
       participantIds,
     });
     startForegroundSign(poolKey);
@@ -762,6 +770,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
       if (!presignature) {
         const generated = await runPresignHandshake({
           relayerUrl,
+          ecdsaThresholdKeyId,
           relayerKeyId,
           clientVerifyingShareB64u,
           participantIds,
@@ -790,6 +799,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
         if (!presignature) {
           const generated = await runPresignHandshake({
             relayerUrl,
+            ecdsaThresholdKeyId,
             relayerKeyId,
             clientVerifyingShareB64u,
             participantIds,
@@ -940,13 +950,14 @@ export async function refillThresholdEcdsaClientPresignaturePool(
     const sessionKind: EcdsaSessionKind = args.sessionKind || 'jwt';
     const groupPublicKey33 = await resolveGroupPublicKey33({
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,
-      groupPublicKeyB64u: args.groupPublicKeyB64u,
+      thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: args.relayerVerifyingShareB64u,
       workerCtx: args.workerCtx,
     });
 
     const generated = await runPresignHandshake({
       relayerUrl: args.relayerUrl,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       relayerKeyId: args.relayerKeyId,
       clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       participantIds,
@@ -963,8 +974,7 @@ export async function refillThresholdEcdsaClientPresignaturePool(
 
     const poolKey = makePresignaturePoolKey({
       relayerUrl: args.relayerUrl,
-      relayerKeyId: args.relayerKeyId,
-      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       participantIds,
     });
     pushClientPresignature(poolKey, generated.presignature);

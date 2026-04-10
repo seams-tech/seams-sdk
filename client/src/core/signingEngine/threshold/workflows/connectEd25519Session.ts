@@ -1,5 +1,4 @@
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
-import { deriveThresholdSecp256k1ClientShareWasm } from '../../signers/wasm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   collectAuthenticationCredentialForChallengeB64u,
@@ -50,7 +49,7 @@ export async function connectEd25519Session(args: {
   expiresAtMs?: number;
   remainingUses?: number;
   jwt?: string;
-  ecdsaClientVerifyingShareB64u?: string;
+  ecdsaHssClientRootShare32B64u?: string;
   code?: string;
   message?: string;
 }> {
@@ -86,20 +85,6 @@ export async function connectEd25519Session(args: {
       code: 'unsupported',
       message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
     };
-  }
-  let ecdsaClientVerifyingShareB64u: string | undefined;
-  if (args.workerCtx) {
-    try {
-      const ecdsaDerived = await deriveThresholdSecp256k1ClientShareWasm({
-        prfFirstB64u,
-        userId: args.nearAccountId,
-        workerCtx: args.workerCtx,
-      });
-      const normalizedEcdsaShare = String(ecdsaDerived.clientVerifyingShareB64u || '').trim();
-      if (normalizedEcdsaShare) {
-        ecdsaClientVerifyingShareB64u = normalizedEcdsaShare;
-      }
-    } catch {}
   }
 
   // 3) Mint threshold auth session token/cookie with standard WebAuthn verification.
@@ -158,6 +143,6 @@ export async function connectEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,
-    ecdsaClientVerifyingShareB64u,
+    ecdsaHssClientRootShare32B64u: prfFirstB64u,
   };
 }

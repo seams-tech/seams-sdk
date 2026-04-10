@@ -54,8 +54,10 @@ function makePreparedLinkDeviceService() {
         },
       },
       thresholdEcdsa: {
+        ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
+        clientAdditiveShare32B64u: 'client-additive-share-b64u',
         relayerKeyId: 'rk-evm',
-        groupPublicKeyB64u: 'group-public-key',
+        thresholdEcdsaPublicKeyB64u: 'group-public-key',
         ethereumAddress: `0x${'11'.repeat(20)}`,
         relayerVerifyingShareB64u: 'evm-share',
         participantIds: [1, 2],
@@ -104,13 +106,16 @@ test.describe('link-device prepare routing', () => {
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
           threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-          threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
+          threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
         }),
       });
 
       expect(res.status).toBe(200);
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
+      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+        'ehss-link-device-prepare-1',
+      );
       expect((res.json?.linkedAccounts as any[])?.[0]?.chainIdKey).toBe('evm:11155111');
     } finally {
       await srv.close();
@@ -136,13 +141,16 @@ test.describe('link-device prepare routing', () => {
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
         threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-        threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
+        threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
       },
     });
 
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
+    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+      'ehss-link-device-prepare-1',
+    );
     expect((res.json?.linkedAccounts as any[])?.[0]?.accountModel).toBe('erc4337');
   });
 });

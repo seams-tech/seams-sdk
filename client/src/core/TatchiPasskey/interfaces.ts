@@ -56,6 +56,10 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '../types/linkDevice';
+import type {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '../types/webauthn';
 
 export type SignTempoArgs = {
   nearAccountId: string;

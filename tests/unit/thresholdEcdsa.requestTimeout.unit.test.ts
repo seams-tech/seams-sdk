@@ -33,8 +33,7 @@ test.describe('threshold ECDSA request timeout guards', () => {
     await withMockedFetch(createHangingAbortableFetch(), async () => {
       const result = await authorizeEcdsaWithSession({
         relayerUrl: 'https://relay.example.invalid',
-        relayerKeyId: 'rk-1',
-        clientVerifyingShareB64u: 'client-share',
+        ecdsaThresholdKeyId: 'ecdsa-hss-key-1',
         purpose: 'tempoTransaction',
         signingDigest32: new Uint8Array(32).fill(7),
         sessionKind: 'cookie',
@@ -51,8 +50,7 @@ test.describe('threshold ECDSA request timeout guards', () => {
     await withMockedFetch(createHangingAbortableFetch(), async () => {
       const result = await ecdsaPresignInit({
         relayerUrl: 'https://relay.example.invalid',
-        relayerKeyId: 'rk-1',
-        clientVerifyingShareB64u: 'client-share',
+        ecdsaThresholdKeyId: 'ecdsa-hss-key-1',
         sessionKind: 'cookie',
         requestTimeoutMs: 25,
       });

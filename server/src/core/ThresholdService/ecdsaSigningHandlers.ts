@@ -2,6 +2,7 @@ import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type {
+  ThresholdEcdsaIntegratedKeyRecord,
   ThresholdEcdsaPresignInitRequest,
   ThresholdEcdsaPresignInitResponse,
   ThresholdEcdsaPresignStepRequest,
@@ -27,9 +28,9 @@ import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from './schemes/schemeIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   addSecp256k1PublicKeys33,
-  deriveThresholdSecp256k1RelayerShare,
   ensureEthSignerWasm,
   mapAdditiveShareToThresholdSignaturesShare2p,
+  secp256k1PrivateKey32ToPublicKey33,
   sha256BytesSync,
   validateSecp256k1PublicKey33,
 } from './ethSignerWasm';
@@ -135,22 +136,29 @@ function parseThresholdEcdsaSignFinalizeRequest(
 function parseThresholdEcdsaPresignInitRequest(
   request: ThresholdEcdsaPresignInitRequest,
 ): ParseResult<{
-  relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: string;
   count: number;
 }> {
-  const relayerKeyId = toOptionalTrimmedString(request.relayerKeyId);
-  if (!relayerKeyId)
-    return { ok: false, code: 'invalid_body', message: 'relayerKeyId is required' };
-  const clientVerifyingShareB64u = toOptionalTrimmedString(request.clientVerifyingShareB64u);
-  if (!clientVerifyingShareB64u)
-    return { ok: false, code: 'invalid_body', message: 'clientVerifyingShareB64u is required' };
+  const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
+  if (!ecdsaThresholdKeyId) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'ecdsaThresholdKeyId is required',
+    };
+  }
   const countRaw = (request as { count?: unknown }).count;
   const count = Math.max(1, Math.floor(Number(countRaw ?? 1)));
   if (count !== 1) {
     return { ok: false, code: 'unsupported', message: 'v1 presign endpoint supports only count=1' };
   }
-  return { ok: true, value: { relayerKeyId, clientVerifyingShareB64u, count } };
+  return {
+    ok: true,
+    value: {
+      ecdsaThresholdKeyId,
+      count,
+    },
+  };
 }
 
 function parseThresholdEcdsaPresignStepRequest(
@@ -288,6 +296,9 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
   private readonly presignaturePool: ThresholdEcdsaPresignaturePool;
+  private readonly resolveIntegratedKeyRecord: (args: {
+    ecdsaThresholdKeyId: string;
+  }) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
   private readonly ensureReady: () => Promise<void>;
   private readonly createSigningSessionId: () => string;
   private readonly createPresignSessionId: () => string;
@@ -310,6 +321,9 @@ export class ThresholdEcdsaSigningHandlers {
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
     presignaturePool: ThresholdEcdsaPresignaturePool;
+    resolveIntegratedKeyRecord: (args: {
+      ecdsaThresholdKeyId: string;
+    }) => Promise<ThresholdEcdsaIntegratedKeyRecord | null>;
     ensureReady: () => Promise<void>;
     createSigningSessionId: () => string;
     createPresignSessionId: () => string;
@@ -341,9 +355,77 @@ export class ThresholdEcdsaSigningHandlers {
     this.signingSessionStore = input.signingSessionStore;
     this.presignSessionStore = input.presignSessionStore;
     this.presignaturePool = input.presignaturePool;
+    this.resolveIntegratedKeyRecord = input.resolveIntegratedKeyRecord;
     this.ensureReady = input.ensureReady;
     this.createSigningSessionId = input.createSigningSessionId;
     this.createPresignSessionId = input.createPresignSessionId;
+  }
+
+  private async resolvePresignInitKeyMaterial(input: {
+    ecdsaThresholdKeyId: string;
+    userId: string;
+    rpId: string;
+    participantIds: number[];
+    tokenRelayerKeyId: string;
+  }): Promise<
+    | {
+        ok: true;
+        relayerKeyId: string;
+        clientVerifyingShareB64u: string;
+        relayerBackendInputB64u: string;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(input.ecdsaThresholdKeyId);
+    if (!ecdsaThresholdKeyId) {
+      return { ok: false, code: 'invalid_body', message: 'ecdsaThresholdKeyId is required' };
+    }
+
+    const integratedKey = await this.resolveIntegratedKeyRecord({ ecdsaThresholdKeyId });
+    if (!integratedKey) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId is not active on this server',
+      };
+    }
+    if (integratedKey.userId !== input.userId || integratedKey.rpId !== input.rpId) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId does not match threshold session scope',
+      };
+    }
+    if (!sameParticipantIds(integratedKey.participantIds, input.participantIds)) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId participantIds do not match threshold session scope',
+      };
+    }
+    const integratedRelayerKeyId = toOptionalTrimmedString(integratedKey.relayerKeyId);
+    const integratedClientVerifyingShareB64u = toOptionalTrimmedString(
+      integratedKey.clientVerifyingShareB64u,
+    );
+    const relayerBackendInputB64u = toOptionalTrimmedString(integratedKey.relayerBackendInputB64u);
+    if (
+      !integratedRelayerKeyId ||
+      !integratedClientVerifyingShareB64u ||
+      !relayerBackendInputB64u ||
+      integratedRelayerKeyId !== input.tokenRelayerKeyId
+    ) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'ecdsaThresholdKeyId does not match threshold session relayer scope',
+      };
+    }
+    return {
+      ok: true,
+      relayerKeyId: integratedRelayerKeyId,
+      clientVerifyingShareB64u: integratedClientVerifyingShareB64u,
+      relayerBackendInputB64u,
+    };
   }
 
   private evictLivePresignSession(presignSessionId: string): void {
@@ -468,7 +550,7 @@ export class ThresholdEcdsaSigningHandlers {
 
     const parsedRequest = parseThresholdEcdsaPresignInitRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
-    const { relayerKeyId, clientVerifyingShareB64u } = parsedRequest.value;
+    const { ecdsaThresholdKeyId } = parsedRequest.value;
 
     const claims = input.claims;
     const userId = toOptionalTrimmedString(claims?.sub);
@@ -483,6 +565,16 @@ export class ThresholdEcdsaSigningHandlers {
     if (!tokenRelayerKeyId || !tokenRpId) {
       return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
     }
+    const resolvedKeyMaterial = await this.resolvePresignInitKeyMaterial({
+      ecdsaThresholdKeyId,
+      userId,
+      rpId: tokenRpId,
+      participantIds: claims.participantIds,
+      tokenRelayerKeyId,
+    });
+    if (!resolvedKeyMaterial.ok) return resolvedKeyMaterial;
+    const { relayerKeyId, clientVerifyingShareB64u, relayerBackendInputB64u } = resolvedKeyMaterial;
+
     if (relayerKeyId !== tokenRelayerKeyId) {
       return {
         ok: false,
@@ -494,36 +586,11 @@ export class ThresholdEcdsaSigningHandlers {
       return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
     }
 
-    if (!this.secp256k1MasterSecretB64u) {
-      return {
-        ok: false,
-        code: 'not_configured',
-        message: 'threshold-ecdsa requires THRESHOLD_SECP256K1_MASTER_SECRET_B64U',
-      };
-    }
     if (this.clientParticipantId !== 1 || this.relayerParticipantId !== 2) {
       return {
         ok: false,
         code: 'unsupported',
         message: 'v1 presign endpoint requires participantIds={client=1,relayer=2}',
-      };
-    }
-
-    const expectedRelayerKeyIdDigest32 = await sha256BytesUtf8(
-      alphabetizeStringify({
-        version: 'threshold_secp256k1_key_id_v1',
-        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-        userId,
-        rpId: tokenRpId,
-        clientVerifyingShareB64u,
-      }),
-    );
-    const expectedRelayerKeyId = `secp-${base64UrlEncode(expectedRelayerKeyIdDigest32)}`;
-    if (relayerKeyId !== expectedRelayerKeyId) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'relayerKeyId does not match clientVerifyingShareB64u binding',
       };
     }
 
@@ -563,11 +630,24 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
 
-    const { relayerSigningShare32, relayerVerifyingShare33 } =
-      await deriveThresholdSecp256k1RelayerShare({
-        masterSecretB64u: this.secp256k1MasterSecretB64u,
-        relayerKeyId,
-      });
+    let relayerSigningShare32: Uint8Array;
+    try {
+      relayerSigningShare32 = base64UrlDecode(relayerBackendInputB64u);
+    } catch {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted relayer backend input is not valid base64url',
+      };
+    }
+    if (relayerSigningShare32.length !== 32) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Persisted relayer backend input must decode to 32 bytes',
+      };
+    }
+    const relayerVerifyingShare33 = await secp256k1PrivateKey32ToPublicKey33(relayerSigningShare32);
     const groupPublicKeyBytes = await addSecp256k1PublicKeys33({
       left33: validatedClientPublicKey33,
       right33: relayerVerifyingShare33,
@@ -1278,6 +1358,25 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'mpcSessionId is missing clientVerifyingShareB64u',
       };
     }
+    const ecdsaThresholdKeyId = toOptionalTrimmedString(sess.ecdsaThresholdKeyId);
+    if (!ecdsaThresholdKeyId) {
+      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'mpcSessionId is missing ecdsaThresholdKeyId',
+      };
+    }
+    const integratedKey = await this.resolveIntegratedKeyRecord({ ecdsaThresholdKeyId });
+    const thresholdEcdsaPublicKeyB64u = toOptionalTrimmedString(integratedKey?.thresholdEcdsaPublicKeyB64u);
+    if (!thresholdEcdsaPublicKeyB64u) {
+      await this.presignaturePool.discard(relayerKeyId, presignature.presignatureId);
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'ecdsaThresholdKeyId is missing persisted thresholdEcdsaPublicKeyB64u',
+      };
+    }
 
     const signingSessionId = this.createSigningSessionId();
     const entropyB64u = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
@@ -1286,6 +1385,8 @@ export class ThresholdEcdsaSigningHandlers {
       expiresAtMs: sess.expiresAtMs,
       mpcSessionId,
       relayerKeyId,
+      ecdsaThresholdKeyId,
+      thresholdEcdsaPublicKeyB64u,
       signingDigestB64u: sess.signingDigestB64u,
       userId: sess.userId,
       rpId: sess.rpId,
@@ -1456,20 +1557,13 @@ export class ThresholdEcdsaSigningHandlers {
 
     let groupPublicKey33: Uint8Array;
     try {
-      const validatedClientPublicKey33 = await validateSecp256k1PublicKey33(clientVerifyingShare33);
-      const { relayerVerifyingShare33 } = await deriveThresholdSecp256k1RelayerShare({
-        masterSecretB64u: this.secp256k1MasterSecretB64u,
-        relayerKeyId: sess.relayerKeyId,
-      });
-      groupPublicKey33 = await addSecp256k1PublicKeys33({
-        left33: validatedClientPublicKey33,
-        right33: relayerVerifyingShare33,
-      });
+      await validateSecp256k1PublicKey33(clientVerifyingShare33);
+      groupPublicKey33 = await validateSecp256k1PublicKey33(base64UrlDecode(sess.thresholdEcdsaPublicKeyB64u));
     } catch (e: unknown) {
       return {
         ok: false,
         code: 'internal',
-        message: `Failed to derive group public key: ${String(e || 'error')}`,
+        message: `Failed to resolve group public key: ${String(e || 'error')}`,
       };
     }
 

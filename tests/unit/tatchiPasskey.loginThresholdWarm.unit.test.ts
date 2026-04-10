@@ -8,6 +8,8 @@ import {
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 const ACCOUNT_ID = toAccountId('alice.testnet');
+const ECDSA_THRESHOLD_KEY_ID = 'ehss-login-1';
+const ECDSA_CLIENT_ROOT_SHARE32_B64U = Buffer.alloc(32, 7).toString('base64url');
 
 function createBaseContext(args?: {
   signingEngine?: Record<string, unknown>;
@@ -34,15 +36,18 @@ function createBaseContext(args?: {
         jwt: 'jwt-ed25519',
         remainingUses: 3,
         expiresAtMs: now + 60_000,
-        ecdsaClientVerifyingShareB64u: 'AQ',
+        ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
       }),
       bootstrapEcdsaSession: async () => ({
         thresholdEcdsaKeyRef: {
           type: 'threshold-ecdsa-secp256k1',
           userId: 'alice.testnet',
           relayerUrl: 'https://relay.example',
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          backendBinding: {
+            relayerKeyId: 'rk-1',
+            clientVerifyingShareB64u: 'AQ',
+          },
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-1',
@@ -50,6 +55,7 @@ function createBaseContext(args?: {
         },
         keygen: {
           ok: true,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           relayerKeyId: 'rk-1',
           clientVerifyingShareB64u: 'AQ',
           participantIds: [1, 2],
@@ -98,22 +104,24 @@ async function withMockedMostRecentProjection<T>(
 ): Promise<T> {
   const clientDb = IndexedDBManager.clientDB as { getMostRecentNearAccountProjection?: unknown };
   const continuityClientDb = IndexedDBManager.clientDB as {
-    resolveNearAccountProfileContinuity?: unknown;
+    getProfileContinuitySnapshot?: unknown;
   };
   const profileLookupClientDb = IndexedDBManager.clientDB as {
     resolveProfileAccountContext?: unknown;
   };
   const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as { getKeyMaterial?: unknown };
   const original = clientDb.getMostRecentNearAccountProjection;
-  const originalContinuity = continuityClientDb.resolveNearAccountProfileContinuity;
+  const originalContinuity = continuityClientDb.getProfileContinuitySnapshot;
   const originalProfileLookup = profileLookupClientDb.resolveProfileAccountContext;
   const originalKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
   clientDb.getMostRecentNearAccountProjection = async () => null;
-  continuityClientDb.resolveNearAccountProfileContinuity = async () =>
+  continuityClientDb.getProfileContinuitySnapshot = async () =>
     options?.includeThresholdEcdsaProfiles
       ? {
           chainAccounts: [
             {
+              chainIdKey: 'evm:11155111',
+              accountAddress: `0x${'11'.repeat(20)}`,
               accountModel: 'erc4337',
             },
           ],
@@ -149,7 +157,7 @@ async function withMockedMostRecentProjection<T>(
     return await fn();
   } finally {
     clientDb.getMostRecentNearAccountProjection = original;
-    continuityClientDb.resolveNearAccountProfileContinuity = originalContinuity;
+    continuityClientDb.getProfileContinuitySnapshot = originalContinuity;
     profileLookupClientDb.resolveProfileAccountContext = originalProfileLookup;
     accountKeyMaterialDb.getKeyMaterial = originalKeyMaterial;
   }
@@ -172,8 +180,11 @@ test.describe('unlock threshold warm-session requirements', () => {
               type: 'threshold-ecdsa-secp256k1',
               userId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
-              relayerKeyId: 'rk-1',
-              clientVerifyingShareB64u: 'AQ',
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+              backendBinding: {
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+              },
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
@@ -181,6 +192,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             },
             keygen: {
               ok: true,
+              ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
               relayerKeyId: 'rk-1',
               clientVerifyingShareB64u: 'AQ',
               participantIds: [1, 2],
@@ -214,7 +226,9 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
     expect(String(bootstrapArgs?.['sessionId'] || '')).toBe('session-1');
     expect(String(bootstrapArgs?.['authorizationJwt'] || '')).toBe('jwt-ed25519');
-    expect(String(bootstrapArgs?.['clientVerifyingShareB64u'] || '')).toBe('AQ');
+    expect(String(bootstrapArgs?.['clientRootShare32B64u'] || '')).toBe(
+      ECDSA_CLIENT_ROOT_SHARE32_B64U,
+    );
     expect(prefillCalls).toBe(0);
   });
 
@@ -336,7 +350,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     expect(result.success).toBe(false);
     expect(String(result.error || '')).toContain(
-      'threshold ECDSA warm-up missing clientVerifyingShareB64u',
+      'threshold ECDSA warm-up missing clientRootShare32B64u',
     );
     expect(bootstrapCalls).toBe(0);
   });
@@ -346,8 +360,8 @@ test.describe('unlock threshold warm-session requirements', () => {
     const context = createBaseContext({
       signingEngine: {
         getThresholdEcdsaSessionRecordForSigning: (_args: { chain: 'tempo' | 'evm' }) => ({
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           thresholdSessionId: 'canonical-ecdsa-session-1',
-          clientVerifyingShareB64u: 'AQ',
         }),
         connectEd25519Session: async (args: Record<string, unknown>) => {
           capturedConnectArgs = args;
@@ -357,6 +371,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
+            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
           };
         },
       },
@@ -408,7 +423,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaClientVerifyingShareB64u: 'AQ',
+            ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
           };
         },
       },

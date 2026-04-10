@@ -26,7 +26,7 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
     nearAccountId: null,
     nearPublicKey: null,
     thresholdEcdsaEthereumAddress: null,
-    thresholdEcdsaGroupPublicKeyB64u: null,
+    thresholdEcdsaPublicKeyB64u: null,
   });
   const [walletIframeConnected, setWalletIframeConnected] = useState<boolean>(false);
 

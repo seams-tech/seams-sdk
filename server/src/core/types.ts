@@ -571,7 +571,7 @@ export interface CreateAccountAndRegisterRequest {
     session_kind: 'jwt' | 'cookie';
   };
   threshold_ecdsa?: {
-    client_verifying_share_b64u: string;
+    client_root_share32_b64u: string;
     session_policy: Omit<EcdsaSessionPolicy, 'relayerKeyId'> & {
       relayerKeyId?: string;
     };
@@ -642,7 +642,7 @@ export interface CreateAccountAndRegisterResult {
   };
   thresholdEcdsa?: {
     relayerKeyId: string;
-    groupPublicKeyB64u: string;
+    thresholdEcdsaPublicKeyB64u: string;
     ethereumAddress: string;
     relayerVerifyingShareB64u: string;
     participantIds?: number[];
@@ -910,32 +910,106 @@ export interface ThresholdEd25519CosignFinalizeResponse {
 // ================================
 
 export type ThresholdEcdsaPurpose = string;
+export type EcdsaThresholdKeyId = string;
 
-export interface ThresholdEcdsaKeygenRequest {
+export type ThresholdEcdsaHssOperation =
+  | 'registration_bootstrap'
+  | 'session_bootstrap'
+  | 'explicit_key_export';
+
+export interface ThresholdEcdsaHssPrepareRequest {
   userId: string;
   rpId: string;
-  keygenSessionId: string;
+  operation: ThresholdEcdsaHssOperation;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+  keygenSessionId?: string;
+  sessionPolicy?: ThresholdEcdsaBootstrapSessionPolicy;
+  webauthn_authentication?: WebAuthnAuthenticationCredential;
   /**
-   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
-   * This is derived deterministically on the client from passkey PRF.first.
+   * Internal relay field: optional validated threshold-ed25519 session claims
+   * extracted from bearer/cookie transport by the route layer.
    */
-  clientVerifyingShareB64u: string;
-  webauthn_authentication: WebAuthnAuthenticationCredential;
+  ed25519SessionClaims?: Record<string, unknown>;
+  /**
+   * Internal relay field: optional validated threshold-ecdsa session claims
+   * extracted from bearer/cookie transport by the route layer.
+   */
+  ecdsaSessionClaims?: Record<string, unknown>;
+  sessionKind?: 'jwt' | 'cookie';
 }
 
-export interface ThresholdEcdsaKeygenResponse {
+export interface ThresholdEcdsaHssPrepareResponse {
   ok: boolean;
   code?: string;
   message?: string;
-  /** Opaque identifier for the relay-held key record / derived share scope. */
-  relayerKeyId?: string;
-  /** Base64url-encoded compressed secp256k1 group public key (33 bytes). */
-  groupPublicKeyB64u?: string;
-  /** Hex-encoded EVM address derived from the group public key (0x + 20 bytes). */
+  ceremonyId?: string;
+  preparedServerSessionB64u?: string;
+  serverAssistInitB64u?: string;
+}
+
+export interface ThresholdEcdsaHssRespondRequest {
+  ceremonyId: string;
+  requestMessageB64u: string;
+}
+
+export interface ThresholdEcdsaHssRespondResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  responseMessageB64u?: string;
+}
+
+export interface ThresholdEcdsaHssFinalizeRequest {
+  ceremonyId: string;
+  clientFinalizeMessageB64u: string;
+}
+
+export interface ThresholdEcdsaHssFinalizeResponse {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  sessionKind?: 'jwt' | 'cookie';
+  sessionJwtUserId?: string;
+  sessionJwtRpId?: string;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+  clientVerifyingShareB64u?: string;
+  clientAdditiveShare32B64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
   ethereumAddress?: string;
-  /** Base64url-encoded compressed secp256k1 relayer verifying share (33 bytes). */
-  relayerVerifyingShareB64u?: string;
   participantIds?: number[];
+  relayerKeyId?: string;
+  relayerVerifyingShareB64u?: string;
+  chainId?: number;
+  factory?: string;
+  entryPoint?: string;
+  salt?: string;
+  counterfactualAddress?: string;
+  sessionId?: string;
+  expiresAtMs?: number;
+  expiresAt?: string;
+  remainingUses?: number;
+  jwt?: string;
+  canonicalPublicKeyHex?: string;
+  privateKeyHex?: string;
+  canonicalEthereumAddress?: string;
+}
+
+export interface ThresholdEcdsaIntegratedKeyRecord {
+  version: 'threshold_ecdsa_hss_key_v1';
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  userId: string;
+  rpId: string;
+  schemeId: string;
+  clientVerifyingShareB64u: string;
+  thresholdEcdsaPublicKeyB64u: string;
+  ethereumAddress: string;
+  participantIds: number[];
+  relayerKeyId?: string;
+  relayerVerifyingShareB64u?: string;
+  relayerRootShare32B64u: string;
+  relayerBackendInputB64u: string;
+  createdAtMs: number;
+  updatedAtMs: number;
 }
 
 export type EcdsaSessionPolicy = {
@@ -951,30 +1025,6 @@ export type EcdsaSessionPolicy = {
   remainingUses: number;
 };
 
-export interface ThresholdEcdsaSessionRequest {
-  relayerKeyId: string;
-  /**
-   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
-   * Used to validate that `relayerKeyId` is correctly bound to the client share (derived, stateless relayer mode).
-   */
-  clientVerifyingShareB64u: string;
-  sessionPolicy: EcdsaSessionPolicy;
-  webauthn_authentication: WebAuthnAuthenticationCredential;
-  sessionKind?: 'jwt' | 'cookie';
-}
-
-export interface ThresholdEcdsaSessionResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  sessionId?: string;
-  expiresAtMs?: number;
-  expiresAt?: string;
-  participantIds?: number[];
-  remainingUses?: number;
-  jwt?: string;
-}
-
 export type ThresholdEcdsaBootstrapSessionPolicy = {
   version: 'threshold_session_v1';
   userId: string;
@@ -987,57 +1037,8 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   remainingUses: number;
 };
 
-export interface ThresholdEcdsaBootstrapRequest {
-  userId: string;
-  rpId: string;
-  keygenSessionId: string;
-  /**
-   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
-   * This is derived deterministically on the client from passkey PRF.first.
-   */
-  clientVerifyingShareB64u: string;
-  webauthn_authentication?: WebAuthnAuthenticationCredential;
-  /**
-   * Internal relay field: optional validated threshold-ed25519 session claims
-   * extracted from bearer/cookie transport by the route layer.
-   */
-  ed25519SessionClaims?: Record<string, unknown>;
-  sessionPolicy: ThresholdEcdsaBootstrapSessionPolicy;
-  sessionKind?: 'jwt' | 'cookie';
-}
-
-export interface ThresholdEcdsaBootstrapResponse {
-  ok: boolean;
-  code?: string;
-  message?: string;
-  /** Opaque identifier for the relay-held key record / derived share scope. */
-  relayerKeyId?: string;
-  /** Base64url-encoded compressed secp256k1 group public key (33 bytes). */
-  groupPublicKeyB64u?: string;
-  /** Hex-encoded EVM address derived from the group public key (0x + 20 bytes). */
-  ethereumAddress?: string;
-  /** Base64url-encoded compressed secp256k1 relayer verifying share (33 bytes). */
-  relayerVerifyingShareB64u?: string;
-  participantIds?: number[];
-  chainId?: number;
-  factory?: string;
-  entryPoint?: string;
-  salt?: string;
-  counterfactualAddress?: string;
-  sessionId?: string;
-  expiresAtMs?: number;
-  expiresAt?: string;
-  remainingUses?: number;
-  jwt?: string;
-}
-
 export interface ThresholdEcdsaAuthorizeWithSessionRequest {
-  relayerKeyId: string;
-  /**
-   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
-   * Used to validate that `relayerKeyId` is correctly bound to the client share (derived, stateless relayer mode).
-   */
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   purpose: ThresholdEcdsaPurpose;
   signing_digest_32: number[];
   signingPayload?: unknown;
@@ -1066,12 +1067,7 @@ export interface ThresholdEcdsaAuthorizeResponse {
 // =====================================
 
 export type ThresholdEcdsaPresignInitRequest = {
-  relayerKeyId: string;
-  /**
-   * Base64url-encoded compressed secp256k1 public key (33 bytes) for the client share.
-   * Used to validate that `relayerKeyId` is correctly bound to the client share.
-   */
-  clientVerifyingShareB64u: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   /**
    * Number of presignatures to generate.
    * v1 supports only `1` (single presignature session).

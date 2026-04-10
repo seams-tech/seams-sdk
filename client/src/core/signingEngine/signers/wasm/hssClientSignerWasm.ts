@@ -3,8 +3,11 @@ import {
   WorkerResponseType,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
+  type WasmFinalizeThresholdEcdsaHssClientRequestResult,
   type WasmOpenThresholdEd25519HssClientOutputResult,
   type WasmOpenThresholdEd25519HssSeedOutputResult,
+  type WasmPrepareThresholdEcdsaHssClientRequestResult,
+  type WasmPrepareThresholdEcdsaHssSessionResult,
   type WasmPrepareThresholdEd25519HssClientRequestResult,
   type WasmPrepareThresholdEd25519HssSessionResult,
 } from '@/core/types/signer-worker';
@@ -71,6 +74,25 @@ export type ThresholdEd25519SeedExportArtifact = {
   seedB64u: string;
   publicKey: string;
   privateKey: string;
+};
+
+export type ThresholdEcdsaHssCanonicalContext = {
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+};
+
+export type ThresholdEcdsaHssPreparedSessionEnvelope = {
+  contextBindingB64u: string;
+  evaluatorDriverStateB64u: string;
+};
+
+export type ThresholdEcdsaHssClientRequestEnvelope = {
+  clientEvalRequestB64u: string;
+};
+
+export type ThresholdEcdsaHssClientFinalizeEnvelope = {
+  clientEvalFinalizeB64u: string;
 };
 
 function normalizeParticipantIds(value: unknown): number[] {
@@ -318,5 +340,94 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
     seedB64u: String(result.seedB64u || '').trim(),
     publicKey: String(result.publicKey || '').trim(),
     privateKey: String(result.privateKey || '').trim(),
+  };
+}
+
+export async function prepareThresholdEcdsaHssSessionWasm(input: {
+  context: ThresholdEcdsaHssCanonicalContext;
+  clientRootShare32B64u: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEcdsaHssPreparedSessionEnvelope> {
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'hssClient',
+    request: {
+      type: WorkerRequestType.PrepareThresholdEcdsaHssSession,
+      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        nearAccountId: input.context.nearAccountId,
+        keyPurpose: input.context.keyPurpose,
+        keyVersion: input.context.keyVersion,
+        clientRootShare32B64u: input.clientRootShare32B64u,
+      },
+    },
+  });
+
+  if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess) {
+    throw new Error('PrepareThresholdEcdsaHssSession failed');
+  }
+
+  const result = response.payload as WasmPrepareThresholdEcdsaHssSessionResult;
+  return {
+    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
+    evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
+  };
+}
+
+export async function prepareThresholdEcdsaHssClientRequestWasm(input: {
+  evaluatorDriverStateB64u: string;
+  serverAssistInitMessageB64u: string;
+  clientRootShare32B64u: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEcdsaHssClientRequestEnvelope> {
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'hssClient',
+    request: {
+      type: WorkerRequestType.PrepareThresholdEcdsaHssClientRequest,
+      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+        serverAssistInitMessageB64u: input.serverAssistInitMessageB64u,
+        clientRootShare32B64u: input.clientRootShare32B64u,
+      },
+    },
+  });
+
+  if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssClientRequestSuccess) {
+    throw new Error('PrepareThresholdEcdsaHssClientRequest failed');
+  }
+
+  const result = response.payload as WasmPrepareThresholdEcdsaHssClientRequestResult;
+  return {
+    clientEvalRequestB64u: String(result.clientEvalRequestB64u || '').trim(),
+  };
+}
+
+export async function finalizeThresholdEcdsaHssClientRequestWasm(input: {
+  evaluatorDriverStateB64u: string;
+  serverEvalResponseB64u: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEcdsaHssClientFinalizeEnvelope> {
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'hssClient',
+    request: {
+      type: WorkerRequestType.FinalizeThresholdEcdsaHssClientRequest,
+      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+        serverEvalResponseB64u: input.serverEvalResponseB64u,
+      },
+    },
+  });
+
+  if (response.type !== WorkerResponseType.FinalizeThresholdEcdsaHssClientRequestSuccess) {
+    throw new Error('FinalizeThresholdEcdsaHssClientRequest failed');
+  }
+
+  const result = response.payload as WasmFinalizeThresholdEcdsaHssClientRequestResult;
+  return {
+    clientEvalFinalizeB64u: String(result.clientEvalFinalizeB64u || '').trim(),
   };
 }

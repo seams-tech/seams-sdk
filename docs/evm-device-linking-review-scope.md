@@ -94,7 +94,7 @@ Review in this order:
 - [linkDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDevice.ts)
 - [linkDeviceOwnerManagement.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDeviceOwnerManagement.ts)
 - [linkDevicePreparedEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDevicePreparedEcdsa.ts)
-- [linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDeviceThresholdEcdsa.ts)
+- [linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.ts)
 - [thresholdEcdsaProvisioning.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/thresholdEcdsaProvisioning.ts)
 - [registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/registration.ts)
 - [scanDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/scanDevice.ts)

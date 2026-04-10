@@ -22,8 +22,10 @@ crate-type = ["cdylib"]
 [dependencies]
 base64ct = { version = "1.6", features = ["alloc"] }
 bincode = "1.3"
+ecdsa-hss = { path = "../../crates/ecdsa-hss" }
 ed25519-hss = { path = "../../crates/ed25519-hss" }
 js-sys = "0.3"
 serde = "1.0"
+sha2 = "0.10"
 signer-platform-web = { path = "../../crates/signer-platform-web", features = ["near-ed25519-recovery"] }
 wasm-bindgen = "=0.2.100"

@@ -55,8 +55,9 @@ function makePreparedRecoveryService() {
         },
       },
       thresholdEcdsa: {
+        ecdsaThresholdKeyId: 'ehss-email-recovery-prepare-1',
         relayerKeyId: 'rk-evm',
-        groupPublicKeyB64u: 'group-public-key',
+        thresholdEcdsaPublicKeyB64u: 'group-public-key',
         ethereumAddress: `0x${'11'.repeat(20)}`,
         relayerVerifyingShareB64u: 'evm-share',
         participantIds: [1, 2],
@@ -97,7 +98,7 @@ test.describe('email-recovery prepare routing', () => {
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
           threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-          threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
+          threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
         }),
       });
 
@@ -106,6 +107,9 @@ test.describe('email-recovery prepare routing', () => {
       expect(res.json?.thresholdEcdsa).toBeTruthy();
       expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
       expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
+      expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+        'ehss-email-recovery-prepare-1',
+      );
       expect((res.json?.recoverySession as any)?.sessionId).toBe('ABC123');
     } finally {
       await srv.close();
@@ -131,13 +135,16 @@ test.describe('email-recovery prepare routing', () => {
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
         threshold_ed25519: makeThresholdEd25519PrepareRequest(),
-        threshold_ecdsa: { client_verifying_share_b64u: 'evm-share' },
+        threshold_ecdsa: { client_root_share32_b64u: 'evm-root-share' },
       },
     });
 
     expect(res.status).toBe(200);
     expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain('near-session-1');
     expect((res.json?.thresholdEcdsa as any)?.session?.jwt).toContain('evm-session-1');
+    expect((res.json?.thresholdEcdsa as any)?.ecdsaThresholdKeyId).toBe(
+      'ehss-email-recovery-prepare-1',
+    );
     expect((res.json?.recoverySession as any)?.status).toBe('prepared');
   });
 });

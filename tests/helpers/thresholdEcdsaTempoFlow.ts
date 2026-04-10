@@ -7,7 +7,14 @@ import {
   makeAuthServiceForThreshold,
   setupThresholdE2ePage,
 } from '../e2e/thresholdEd25519.testUtils';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import {
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleBootstrapTokenService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createRelayBootstrapGrantBroker,
+  createRelayPublishableKeyAuthAdapter,
+  createRelayRouter,
+} from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 
 const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
@@ -36,9 +43,13 @@ export type ThresholdEcdsaTempoFlowResult = {
   accountId: string;
   keygen?: {
     ok: boolean;
+    ecdsaThresholdKeyId?: string;
+    // Backend bridge details are still exposed here for low-level harnesses.
+    // Product-boundary assertions should prefer ecdsaThresholdKeyId/public key/address.
     relayerKeyId?: string;
     clientVerifyingShareB64u?: string;
-    groupPublicKeyB64u?: string;
+    thresholdEcdsaPublicKeyB64u?: string;
+    ethereumAddress?: string;
     relayerVerifyingShareB64u?: string;
     participantIds?: number[];
     code?: string;
@@ -84,17 +95,71 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
   });
   await service.getRelayerAccount();
 
+  const bootstrapTokenStore = createInMemoryConsoleBootstrapTokenService();
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const apiKeys = createInMemoryConsoleApiKeyService();
+  const bootstrapAdminCtx = {
+    orgId: 'org_threshold_ecdsa_tempo',
+    actorUserId: 'user_threshold_ecdsa_tempo',
+    roles: ['admin'],
+  } as const;
+  const bootstrapProjectId = 'proj_threshold_ecdsa_tempo';
+  const managedRegistrationEnvironmentId = `${bootstrapProjectId}:dev`;
+  await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
+    name: 'Threshold ECDSA Tempo Org',
+    slug: 'threshold-ecdsa-tempo-org',
+  });
+  await orgProjectEnv.createProject(bootstrapAdminCtx, {
+    id: bootstrapProjectId,
+    name: 'Threshold ECDSA Tempo Project',
+    liveEnvironmentsEnabled: true,
+  });
+
   const session = createInMemoryJwtSessionAdapter();
   const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
+  const createdPublishableKey = await apiKeys.createApiKey(bootstrapAdminCtx, {
+    kind: 'publishable_key',
+    name: 'threshold-ecdsa-tempo-browser',
+    environmentId: managedRegistrationEnvironmentId,
+    allowedOrigins: [frontendOrigin, 'https://example.localhost'],
+    rateLimitBucket: 'default_web_v1',
+    quotaBucket: 'free_registrations_v1',
+  });
+  const managedRegistration = {
+    environmentId: managedRegistrationEnvironmentId,
+    publishableKey: createdPublishableKey.secret,
+  } as const;
   const router = createRelayRouter(service, {
     corsOrigins: [frontendOrigin],
     threshold,
     session,
+    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+      apiKeys,
+      tokenStore: bootstrapTokenStore,
+      orgProjectEnv,
+      rateLimitsByBucket: {
+        default_web_v1: { windowMs: 60_000, maxIssued: 100 },
+      },
+      quotasByBucket: {
+        free_registrations_v1: { maxIssued: 100 },
+      },
+    }),
+    bootstrapTokenStore,
   });
   const server = await startExpressRouter(router);
 
+  await page.addInitScript((config) => {
+    (window as any).__w3aManagedRegistration = config;
+  }, managedRegistration);
+  await page.evaluate((config) => {
+    (window as any).__w3aManagedRegistration = config;
+  }, managedRegistration);
+
   await installCreateAccountAndRegisterUserMock(page, {
     relayerBaseUrl: server.baseUrl,
+    session,
+    threshold,
     onNewPublicKey: (publicKey) => {
       keysOnChain.add(publicKey);
       nonceByPublicKey.set(publicKey, 0);
@@ -130,6 +195,7 @@ export async function runThresholdEcdsaTempoFlow(
       behavior: 'skipClick' as const,
       autoProceedDelay: 0,
     };
+    const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
     const pm = new TatchiPasskey({
       nearNetwork: 'testnet',
@@ -142,6 +208,15 @@ export async function runThresholdEcdsaTempoFlow(
         url: input.relayerUrl,
         smartAccountDeploymentMode: 'observe',
       },
+      ...(managedRegistration
+        ? {
+            registration: {
+              mode: 'managed' as const,
+              environmentId: String(managedRegistration.environmentId || ''),
+              publishableKey: String(managedRegistration.publishableKey || ''),
+            },
+          }
+        : {}),
       iframeWallet: {
         walletOrigin: '',
         walletServicePath: '/wallet-service',

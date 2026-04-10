@@ -27,10 +27,10 @@ Current unlock warm path:
    - extracts `PRF.first`,
    - caches `PRF.first` in passkey worker by `sessionId`,
    - mints session JWT,
-   - derives and returns `ecdsaClientVerifyingShareB64u`.
+   - derives and returns `ecdsaHssClientRootShare32B64u`.
 5. `ecdsa` task calls `bootstrapEcdsaSession(...)` with:
    - `sessionId` and `authorizationJwt` from the `ed25519` task,
-   - `clientVerifyingShareB64u` from the same passkey derivation.
+   - `clientRootShare32B64u` from the same passkey derivation.
 6. Login requires `getWarmSigningSessionStatus(...)` to return `active`; otherwise login fails closed.
 
 ## 3. Enabled Signers and Dependency Graph

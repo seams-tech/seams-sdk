@@ -2,10 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useTatchi } from '../../context';
 import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
-import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
-import { IndexedDBManager } from '@/core/indexedDB';
-import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
-import { toAccountId } from '@/core/types/accountIds';
 
 interface LinkedDevicesModalProps {
   nearAccountId: string;
@@ -14,14 +10,9 @@ interface LinkedDevicesModalProps {
 }
 
 type RelayAuthenticatorRow = {
-  credentialIdB64u: string;
   deviceNumber?: number;
   publicKey?: string;
-  createdAtMs?: number;
-  updatedAtMs?: number;
 };
-
-type AccessKeyKind = 'threshold' | 'backup';
 
 export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   nearAccountId,
@@ -35,42 +26,25 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     [theme, tokens],
   );
   const pageSize = 3;
-  // Authenticators list: credentialId + registered timestamp + device number
+  // Authenticators list: credentialId + device number
   const [authRows, setAuthRows] = useState<
     Array<{
       credentialId: string;
-      registered: string;
       deviceNumber: number;
       nearPublicKey: string | null;
-      keyKind: AccessKeyKind;
     }>
   >([
     {
       credentialId: 'placeholder',
-      registered: '',
       deviceNumber: 0,
       nearPublicKey: null,
-      keyKind: 'backup',
     },
   ]);
   const [page, setPage] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accessKeyList, setAccessKeyList] = useState<AccessKeyList | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState<number | null>(null);
-  const [copiedKeys, setCopiedKeys] = useState<Set<number>>(new Set());
   const [currentDeviceNumber, setCurrentDeviceNumber] = useState<number | null>(null);
-  const [deletingKeyPublicKey, setDeletingKeyPublicKey] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const formatDateTime = (iso: string) => {
-    if (!iso) return '—';
-    try {
-      return new Date(iso).toLocaleString();
-    } catch {
-      return iso;
-    }
-  };
 
   useEffect(() => {
     if (isOpen) {
@@ -102,7 +76,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
     setIsLoading(true);
     setError(null);
-    setDeleteError(null);
 
     try {
       // Resolve current device number for highlighting
@@ -118,15 +91,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       setCurrentDeviceNumber(currentDeviceNumberFromState);
 
       const keys = await viewAccessKeyList(nearAccountId);
-      setAccessKeyList(keys);
 
-      const keyMetaByPublicKey = new Map<
-        string,
-        { kind: AccessKeyKind; deviceNumber?: number; createdAtMs?: number; updatedAtMs?: number }
-      >();
+      const keyMetaByPublicKey = new Map<string, { deviceNumber?: number }>();
 
       // Best-effort: fetch device metadata from relay-private WebAuthn stores (auth-protected).
-      // This annotates access keys with device numbers and registration timestamps.
+      // This annotates access keys with device numbers.
       const relayMetaByPublicKey = new Map<string, RelayAuthenticatorRow>();
       try {
         const relayerUrl = String((tatchi as any)?.configs?.network.relayer?.url || '')
@@ -144,26 +113,13 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               resp.ok && json?.ok === true && Array.isArray(json?.keys) ? (json.keys as any[]) : [];
             for (const row of list) {
               const pk = typeof row?.publicKey === 'string' ? row.publicKey.trim() : '';
-              const kind = typeof row?.kind === 'string' ? row.kind.trim() : '';
-              if (!pk || !kind) continue;
-              if (kind !== 'threshold' && kind !== 'backup') continue;
+              if (!pk) continue;
               const deviceNumber =
                 typeof row?.deviceNumber === 'number' && Number.isFinite(row.deviceNumber)
                   ? Math.floor(row.deviceNumber)
                   : undefined;
-              const createdAtMs =
-                typeof row?.createdAtMs === 'number' && Number.isFinite(row.createdAtMs)
-                  ? Math.floor(row.createdAtMs)
-                  : undefined;
-              const updatedAtMs =
-                typeof row?.updatedAtMs === 'number' && Number.isFinite(row.updatedAtMs)
-                  ? Math.floor(row.updatedAtMs)
-                  : undefined;
               keyMetaByPublicKey.set(pk, {
-                kind: kind as AccessKeyKind,
                 ...(deviceNumber ? { deviceNumber } : {}),
-                ...(createdAtMs ? { createdAtMs } : {}),
-                ...(updatedAtMs ? { updatedAtMs } : {}),
               });
             }
           } catch {
@@ -192,17 +148,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       }
 
       const currentKey = loginState?.nearPublicKey || null;
-      const thresholdKeyMaterial =
-        currentDeviceNumberFromState != null
-          ? await getNearThresholdKeyMaterial(
-              {
-                clientDB: IndexedDBManager.clientDB,
-                accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
-              },
-              toAccountId(nearAccountId),
-              currentDeviceNumberFromState,
-            ).catch(() => null)
-          : null;
 
       const nextDeviceNumber = (() => {
         let next = 1;
@@ -215,10 +160,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
       const rows: Array<{
         credentialId: string;
-        registered: string;
         deviceNumber: number;
         nearPublicKey: string | null;
-        keyKind: AccessKeyKind;
       }> = [];
       const items = Array.isArray((keys as any)?.keys)
         ? ((keys as any).keys as Array<{ public_key?: unknown }>)
@@ -248,75 +191,17 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               : relayDeviceNumber && relayDeviceNumber >= 1
                 ? relayDeviceNumber
                 : nextDeviceNumber();
-
-        const keyKind: AccessKeyKind = (() => {
-          if (keyMeta?.kind) return keyMeta.kind;
-          if (publicKey && relayMetaByPublicKey.has(publicKey)) return 'threshold';
-          if (
-            publicKey &&
-            thresholdKeyMaterial?.publicKey &&
-            publicKey === thresholdKeyMaterial.publicKey
-          )
-            return 'threshold';
-          return 'backup';
-        })();
-
-        const registered = (() => {
-          const createdAtMsFromMeta =
-            keyMeta && typeof keyMeta.createdAtMs === 'number' ? keyMeta.createdAtMs : null;
-          if (
-            createdAtMsFromMeta &&
-            Number.isFinite(createdAtMsFromMeta) &&
-            createdAtMsFromMeta > 0
-          ) {
-            try {
-              return new Date(createdAtMsFromMeta).toISOString();
-            } catch {
-              return '';
-            }
-          }
-          const createdAtMs =
-            relayMeta && typeof relayMeta.createdAtMs === 'number' ? relayMeta.createdAtMs : null;
-          if (createdAtMs && Number.isFinite(createdAtMs) && createdAtMs > 0) {
-            try {
-              return new Date(createdAtMs).toISOString();
-            } catch {
-              return '';
-            }
-          }
-          return '';
-        })();
         rows.push({
           credentialId: publicKey || `access-key-${deviceNumber}`,
-          registered,
           deviceNumber,
           nearPublicKey: publicKey,
-          keyKind,
         });
       }
       setAuthRows(rows);
     } catch (err: any) {
       setError(err.message || 'Failed to load linked devices or access keys');
-      setAccessKeyList(null);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleDeleteKey = async (publicKey: string) => {
-    if (!tatchi || !publicKey) return;
-    if (!nearAccountId) return;
-
-    setDeletingKeyPublicKey(publicKey);
-    setDeleteError(null);
-
-    try {
-      await tatchi.deleteDeviceKey(nearAccountId, publicKey, {});
-      await loadAuthenticators();
-    } catch (err: any) {
-      setDeleteError(err.message || 'Failed to delete access key');
-    } finally {
-      setDeletingKeyPublicKey(null);
     }
   };
 
@@ -337,16 +222,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // Show brief tooltip feedback
       setTooltipVisible(keyIndex);
       setTimeout(() => setTooltipVisible(null), 2000);
-
-      // Set copied state for status badge
-      setCopiedKeys((prev) => new Set(prev).add(keyIndex));
-      setTimeout(() => {
-        setCopiedKeys((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(keyIndex);
-          return newSet;
-        });
-      }, 3000);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
     }
@@ -444,9 +319,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                 if (current) {
                   const index = 0;
                   const currentKey = current.nearPublicKey || loginState?.nearPublicKey || null;
-                  const isCurrentKey = !!currentKey && loginState?.nearPublicKey === currentKey;
-                  const canDelete = !!accessKeyList && accessKeyList.keys.length > 1;
-                  const isDeletingThisKey = !!currentKey && deletingKeyPublicKey === currentKey;
                   items.push(
                     <div key={`current-${current.deviceNumber}`} className="w3a-key-item">
                       <div className="w3a-key-content">
@@ -458,15 +330,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                               </span>
                               <span className="w3a-current-device-text">(current device)</span>
                             </div>
-                          </div>
-                          <div className="mono w3a-key-kind">
-                            Type:{' '}
-                            <span className={`w3a-key-kind-badge w3a-key-kind-${current.keyKind}`}>
-                              {current.keyKind}
-                            </span>
-                          </div>
-                          <div className="mono w3a-registered">
-                            Registered: {formatDateTime(current.registered)}
                           </div>
                           {currentKey && (
                             <div
@@ -486,24 +349,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             </div>
                           )}
                         </div>
-                        {currentKey && (
-                          <div className="w3a-key-status">
-                            <button
-                              className={`w3a-btn ${isCurrentKey ? 'w3a-btn-primary' : 'w3a-btn-danger'}`}
-                              style={{ width: '64px' }}
-                              disabled={!canDelete || isDeletingThisKey}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (canDelete && !isDeletingThisKey) {
-                                  void handleDeleteKey(currentKey);
-                                }
-                              }}
-                            >
-                              {isDeletingThisKey ? <span className="w3a-spinner" /> : 'Delete'}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>,
                   );
@@ -511,9 +356,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
                 others.forEach((item, i) => {
                   const globalIndex = startIndex + i;
-                  const canDelete = !!accessKeyList && accessKeyList.keys.length > 1;
-                  const isDeletingThisKey =
-                    !!item.nearPublicKey && deletingKeyPublicKey === item.nearPublicKey;
                   items.push(
                     <div key={`other-${item.deviceNumber}-${i}`} className="w3a-key-item">
                       <div className="w3a-key-content">
@@ -522,15 +364,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             <div className="mono w3a-device-row">
                               <span className="w3a-device-badge">Device {item.deviceNumber}</span>
                             </div>
-                          </div>
-                          <div className="mono w3a-key-kind">
-                            Type:{' '}
-                            <span className={`w3a-key-kind-badge w3a-key-kind-${item.keyKind}`}>
-                              {item.keyKind}
-                            </span>
-                          </div>
-                          <div className="mono w3a-registered">
-                            Registered: {formatDateTime(item.registered)}
                           </div>
                           {item.nearPublicKey && (
                             <div
@@ -550,24 +383,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             </div>
                           )}
                         </div>
-                        {item.nearPublicKey && (
-                          <div className="w3a-key-status">
-                            <button
-                              className="w3a-btn w3a-btn-danger"
-                              style={{ width: '64px' }}
-                              disabled={!canDelete || isDeletingThisKey}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (canDelete && !isDeletingThisKey) {
-                                  void handleDeleteKey(item.nearPublicKey!);
-                                }
-                              }}
-                            >
-                              {isDeletingThisKey ? <span className="w3a-spinner" /> : 'Delete'}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </div>,
                   );
@@ -630,11 +445,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               );
             })()}
 
-          {deleteError && (
-            <div className="w3a-access-keys-error">
-              <p>{deleteError}</p>
-            </div>
-          )}
         </div>
       </div>
     </Theme>

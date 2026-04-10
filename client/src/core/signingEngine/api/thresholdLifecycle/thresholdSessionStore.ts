@@ -6,7 +6,11 @@ import {
 } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { normalizeThresholdEcdsaSessionKind } from './normalization';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type {
+  EcdsaThresholdKeyId,
+  ThresholdEcdsaCanonicalExportArtifact,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '../../interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
@@ -25,8 +29,10 @@ export type ThresholdEcdsaSessionRecord = {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
   relayerUrl: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
+  clientAdditiveShare32B64u?: string;
   participantIds: number[];
   runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
   thresholdSessionKind: 'jwt' | 'cookie';
@@ -34,7 +40,8 @@ export type ThresholdEcdsaSessionRecord = {
   thresholdSessionJwt?: string;
   expiresAtMs?: number;
   remainingUses?: number;
-  groupPublicKeyB64u?: string;
+  thresholdEcdsaPublicKeyB64u?: string;
+  ethereumAddress?: string;
   relayerVerifyingShareB64u?: string;
   updatedAtMs: number;
   source: ThresholdEcdsaSessionStoreSource;
@@ -85,6 +92,7 @@ export type ThresholdSessionSealTransportAuthMaterial = {
 
 export type ThresholdEcdsaSessionStoreDeps = {
   recordsByLane: Map<string, ThresholdEcdsaSessionRecord>;
+  exportArtifactsByLane?: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
   now?: () => number;
 };
 
@@ -108,6 +116,34 @@ const ED25519_STORAGE_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:index`;
 const ED25519_STORAGE_SESSION_INDEX_KEY = `${ED25519_STORAGE_KEY_PREFIX}:session-index`;
 const inMemoryEd25519RecordsByAccount = new Map<string, ThresholdEd25519SessionRecord>();
 const inMemoryEd25519AccountBySessionId = new Map<string, string>();
+
+function normalizeThresholdEcdsaCanonicalExportArtifact(
+  value: unknown,
+): ThresholdEcdsaCanonicalExportArtifact | null {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!obj) return null;
+  const artifactKind = String(obj.artifactKind || '').trim();
+  const chain = String(obj.chain || '').trim();
+  const publicKeyHex = String(obj.publicKeyHex || '').trim();
+  const privateKeyHex = String(obj.privateKeyHex || '').trim();
+  const ethereumAddress = String(obj.ethereumAddress || '').trim();
+  if (
+    artifactKind !== 'ecdsa-hss-secp256k1-key-v1' ||
+    (chain !== 'evm' && chain !== 'tempo') ||
+    !publicKeyHex ||
+    !privateKeyHex ||
+    !ethereumAddress
+  ) {
+    return null;
+  }
+  return {
+    artifactKind: 'ecdsa-hss-secp256k1-key-v1',
+    chain,
+    publicKeyHex,
+    privateKeyHex,
+    ethereumAddress,
+  };
+}
 
 function getSessionStorageSafe(
   probeKey: string,
@@ -364,8 +400,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
   const chain = normalizeThresholdEcdsaActivationChain(obj.chain);
   const relayerUrl = String(obj.relayerUrl || '').trim();
+  const ecdsaThresholdKeyId = normalizeOptionalNonEmptyString(obj.ecdsaThresholdKeyId);
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
+  const clientAdditiveShare32B64u = normalizeOptionalNonEmptyString(obj.clientAdditiveShare32B64u);
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
@@ -381,12 +419,14 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
-  const groupPublicKeyB64u = normalizeOptionalNonEmptyString(obj.groupPublicKeyB64u);
+  const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(obj.thresholdEcdsaPublicKeyB64u);
+  const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
   const relayerVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.relayerVerifyingShareB64u);
 
   if (
     !relayerUrl ||
     !chain ||
+    !ecdsaThresholdKeyId ||
     !relayerKeyId ||
     !clientVerifyingShareB64u ||
     !participantIds ||
@@ -402,8 +442,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     nearAccountId,
     chain,
     relayerUrl,
+    ecdsaThresholdKeyId,
     relayerKeyId,
     clientVerifyingShareB64u,
+    ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
     participantIds,
     ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
     thresholdSessionKind,
@@ -411,7 +453,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     ...(expiresAtMs != null ? { expiresAtMs } : {}),
     ...(remainingUses != null ? { remainingUses } : {}),
-    ...(groupPublicKeyB64u ? { groupPublicKeyB64u } : {}),
+    ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
+    ...(ethereumAddress ? { ethereumAddress } : {}),
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
     updatedAtMs,
     source,
@@ -535,7 +578,7 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
 export type ThresholdEcdsaSessionLane = {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
-  relayerKeyId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 };
 
 function normalizeThresholdEcdsaActivationChain(
@@ -564,18 +607,18 @@ function decodeLaneToken(value: string): string | null {
 export function serializeThresholdEcdsaSessionLaneKey(args: {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
-  relayerKeyId: string;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
 }): string {
   const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
   const chain = normalizeThresholdEcdsaActivationChain(args.chain);
-  const relayerKeyId = String(args.relayerKeyId || '').trim();
-  if (!nearAccountId || !chain || !relayerKeyId) {
+  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  if (!nearAccountId || !chain || !ecdsaThresholdKeyId) {
     throw new Error('[SigningEngine] invalid threshold ECDSA lane key input');
   }
   return [
     encodeLaneToken(nearAccountId),
     encodeLaneToken(chain),
-    encodeLaneToken(relayerKeyId),
+    encodeLaneToken(ecdsaThresholdKeyId),
   ].join('|');
 }
 
@@ -588,15 +631,15 @@ export function parseThresholdEcdsaSessionLaneKey(
   if (parts.length !== 3) return null;
   const nearAccountDecoded = decodeLaneToken(parts[0] || '');
   const chainDecoded = decodeLaneToken(parts[1] || '');
-  const relayerKeyIdDecoded = decodeLaneToken(parts[2] || '');
-  if (!nearAccountDecoded || !chainDecoded || !relayerKeyIdDecoded) return null;
+  const ecdsaThresholdKeyIdDecoded = decodeLaneToken(parts[2] || '');
+  if (!nearAccountDecoded || !chainDecoded || !ecdsaThresholdKeyIdDecoded) return null;
   const chain = normalizeThresholdEcdsaActivationChain(chainDecoded);
   if (!chain) return null;
   try {
     return {
       nearAccountId: toAccountId(nearAccountDecoded),
       chain,
-      relayerKeyId: relayerKeyIdDecoded,
+      ecdsaThresholdKeyId: ecdsaThresholdKeyIdDecoded,
     };
   } catch {
     return null;
@@ -607,7 +650,7 @@ function getThresholdEcdsaSessionLaneKeyForRecord(record: ThresholdEcdsaSessionR
   return serializeThresholdEcdsaSessionLaneKey({
     nearAccountId: record.nearAccountId,
     chain: record.chain,
-    relayerKeyId: record.relayerKeyId,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
   });
 }
 
@@ -750,6 +793,10 @@ function buildEcdsaRecordFromBootstrap(args: {
 }): ThresholdEcdsaSessionRecord {
   const accountId = toAccountId(args.nearAccountId);
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
+  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide ecdsaThresholdKeyId');
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
   if (!participantIds) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide participantIds');
@@ -776,19 +823,35 @@ function buildEcdsaRecordFromBootstrap(args: {
     nearAccountId: accountId,
     chain: args.chain,
     relayerUrl: keyRef.relayerUrl,
-    relayerKeyId: keyRef.relayerKeyId,
-    clientVerifyingShareB64u: keyRef.clientVerifyingShareB64u,
+    ecdsaThresholdKeyId,
+    relayerKeyId: keyRef.backendBinding?.relayerKeyId,
+    clientVerifyingShareB64u: keyRef.backendBinding?.clientVerifyingShareB64u,
+    clientAdditiveShare32B64u: keyRef.backendBinding?.clientAdditiveShare32B64u,
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,
     thresholdSessionJwt,
     expiresAtMs: args.bootstrap.session.expiresAtMs,
     remainingUses: args.bootstrap.session.remainingUses,
-    groupPublicKeyB64u: keyRef.groupPublicKeyB64u,
+    thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
+    ethereumAddress: keyRef.ethereumAddress,
     relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
     updatedAtMs: args.nowMs,
     source: args.source,
   });
+}
+
+function setEcdsaExportArtifactForLane(args: {
+  deps: ThresholdEcdsaSessionStoreDeps;
+  laneKey: string;
+  artifact?: ThresholdEcdsaCanonicalExportArtifact;
+}): void {
+  if (!args.deps.exportArtifactsByLane) return;
+  if (args.artifact) {
+    args.deps.exportArtifactsByLane.set(args.laneKey, args.artifact);
+    return;
+  }
+  args.deps.exportArtifactsByLane.delete(args.laneKey);
 }
 
 export function upsertThresholdEcdsaSessionFromBootstrap(
@@ -810,6 +873,14 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
   });
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
   deps.recordsByLane.set(laneKey, record);
+  setEcdsaExportArtifactForLane({
+    deps,
+    laneKey,
+    artifact:
+      normalizeThresholdEcdsaCanonicalExportArtifact(
+        args.bootstrap.thresholdEcdsaKeyRef.ecdsaHssExportArtifact,
+      ) || undefined,
+  });
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
     ensureEcdsaStorageMigrated(storage);
@@ -941,17 +1012,27 @@ export function getThresholdEcdsaKeyRefForSigning(
   },
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
+  const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
+  const ecdsaHssExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.nearAccountId),
     relayerUrl: record.relayerUrl,
-    relayerKeyId: record.relayerKeyId,
-    clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    backendBinding: {
+      relayerKeyId: record.relayerKeyId,
+      clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+      ...(record.clientAdditiveShare32B64u
+        ? { clientAdditiveShare32B64u: record.clientAdditiveShare32B64u }
+        : {}),
+    },
+    ...(ecdsaHssExportArtifact ? { ecdsaHssExportArtifact } : {}),
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
     ...(record.thresholdSessionJwt ? { thresholdSessionJwt: record.thresholdSessionJwt } : {}),
-    ...(record.groupPublicKeyB64u ? { groupPublicKeyB64u: record.groupPublicKeyB64u } : {}),
+    ...(record.thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u } : {}),
+    ...(record.ethereumAddress ? { ethereumAddress: record.ethereumAddress } : {}),
     ...(record.relayerVerifyingShareB64u
       ? { relayerVerifyingShareB64u: record.relayerVerifyingShareB64u }
       : {}),
@@ -967,6 +1048,7 @@ export function clearThresholdEcdsaSessionRecordForAccount(
   for (const [laneKey, record] of deps.recordsByLane.entries()) {
     if (String(record.nearAccountId) !== accountKey) continue;
     deps.recordsByLane.delete(laneKey);
+    deps.exportArtifactsByLane?.delete(laneKey);
   }
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
@@ -989,6 +1071,7 @@ export function clearThresholdEcdsaSessionRecordForAccount(
 
 export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSessionStoreDeps): void {
   deps.recordsByLane.clear();
+  deps.exportArtifactsByLane?.clear();
   const storage = getEcdsaSessionStorageSafe();
   if (storage) {
     ensureEcdsaStorageMigrated(storage);

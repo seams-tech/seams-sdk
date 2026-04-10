@@ -29,7 +29,6 @@ import type {
   TouchConfirmContextPort,
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
-  ThresholdPrfFirstCacheDispensePort,
   ThresholdPrfFirstCachePeekPort,
 } from '../touchConfirm';
 import type { SignerWorkerManagerContext } from '../workerManager';
@@ -69,8 +68,7 @@ export type EvmFamilySigningDeps = {
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
-    ThresholdPrfFirstCachePeekPort &
-    ThresholdPrfFirstCacheDispensePort;
+    ThresholdPrfFirstCachePeekPort;
 };
 
 type EvmFamilyLifecycleEvent = {
@@ -163,11 +161,6 @@ type ThresholdEcdsaCommitQueueArgs = {
   shouldAbort?: () => boolean;
   task: () => Promise<unknown>;
 };
-type ThresholdEcdsaPrfFirstPayload = {
-  sessionId: string;
-  uses?: number;
-};
-
 let secp256k1EngineCtorPromise: Promise<Secp256k1EngineCtor> | null = null;
 let webAuthnP256EngineCtorPromise: Promise<WebAuthnP256EngineCtor> | null = null;
 let signEvmWithTouchConfirmPromise: Promise<SignEvmWithTouchConfirmFn> | null = null;
@@ -1288,8 +1281,6 @@ export async function signEvmFamily(
             },
           });
         },
-        dispenseThresholdEcdsaPrfFirstForSession: (payload: ThresholdEcdsaPrfFirstPayload) =>
-          deps.touchConfirm.dispensePrfFirstForThresholdSession(payload),
       }),
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },

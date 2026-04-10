@@ -60,7 +60,7 @@ export function useTatchiContextValue(args: {
       nearAccountId: null,
       nearPublicKey: null,
       thresholdEcdsaEthereumAddress: null,
-      thresholdEcdsaGroupPublicKeyB64u: null,
+      thresholdEcdsaPublicKeyB64u: null,
     }));
   }, [setLoginState, tatchi]);
 
@@ -97,8 +97,8 @@ export function useTatchiContextValue(args: {
               thresholdEcdsaEthereumAddress: isLoggedIn
                 ? login.thresholdEcdsaEthereumAddress || null
                 : null,
-              thresholdEcdsaGroupPublicKeyB64u: isLoggedIn
-                ? login.thresholdEcdsaGroupPublicKeyB64u || null
+              thresholdEcdsaPublicKeyB64u: isLoggedIn
+                ? login.thresholdEcdsaPublicKeyB64u || null
                 : null,
             }));
           }

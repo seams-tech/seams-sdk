@@ -5,6 +5,7 @@ import type {
 } from '../../types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
+  parseThresholdEcdsaIntegratedKeyRecord,
   isObject,
   parseThresholdEcdsaPresignSessionRecord,
   parseThresholdEcdsaPresignatureRelayerShareRecord,
@@ -30,7 +31,12 @@ import type {
   Ed25519AuthSessionRecord,
   Ed25519AuthSessionStore,
 } from './AuthSessionStore';
-import type { ThresholdEd25519KeyRecord, ThresholdEd25519KeyStore } from './KeyStore';
+import type {
+  ThresholdEcdsaIntegratedKeyStore,
+  ThresholdEd25519KeyRecord,
+  ThresholdEd25519KeyStore,
+} from './KeyStore';
+import type { ThresholdEcdsaIntegratedKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
   ThresholdEd25519MpcSessionRecord,
@@ -411,6 +417,51 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
   }
 }
 
+export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore
+  implements ThresholdEcdsaIntegratedKeyStore
+{
+  private readonly stub: DurableObjectStubLike;
+  private readonly keyPrefix: string;
+
+  constructor(input: {
+    namespace: CloudflareDurableObjectNamespaceLike;
+    objectName: string;
+    keyPrefix: string;
+  }) {
+    this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
+    this.keyPrefix = input.keyPrefix;
+  }
+
+  private key(ecdsaThresholdKeyId: string): string {
+    return `${this.keyPrefix}${ecdsaThresholdKeyId}`;
+  }
+
+  async get(ecdsaThresholdKeyId: string): Promise<ThresholdEcdsaIntegratedKeyRecord | null> {
+    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
+    if (!id) return null;
+    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
+    if (!resp.ok) return null;
+    return parseThresholdEcdsaIntegratedKeyRecord(resp.value);
+  }
+
+  async put(
+    ecdsaThresholdKeyId: string,
+    record: ThresholdEcdsaIntegratedKeyRecord,
+  ): Promise<void> {
+    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
+    if (!id) throw new Error('Missing ecdsaThresholdKeyId');
+    const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+
+  async del(ecdsaThresholdKeyId: string): Promise<void> {
+    const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
+    if (!id) return;
+    const resp = await callDo<void>(this.stub, { op: 'del', key: this.key(id) });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+}
+
 export class CloudflareDurableObjectThresholdEcdsaSigningSessionStore implements ThresholdEcdsaSigningSessionStore {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
@@ -714,7 +765,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   config?: ThresholdEd25519KeyStoreConfigInput | null;
   logger: NormalizedLogger;
 }): {
-  keyStore: ThresholdEd25519KeyStore;
+  keyStore: ThresholdEcdsaIntegratedKeyStore;
   sessionStore: ThresholdEd25519SessionStore;
   authSessionStore: Ed25519AuthSessionStore;
   signingSessionStore: ThresholdEcdsaSigningSessionStore;
@@ -748,7 +799,7 @@ export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
   );
 
   return {
-    keyStore: new CloudflareDurableObjectThresholdEd25519KeyStore({
+    keyStore: new CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore({
       namespace,
       objectName,
       keyPrefix,
