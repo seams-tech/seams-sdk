@@ -278,6 +278,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
 
   render() {
     const entries = this.resolveKeyEntries();
+    const showAccountId = entries.length === 0 || entries.some((entry) => entry.scheme !== 'secp256k1');
     const guidanceTitle = String(this.guidance?.title || '').trim();
     const guidanceBody = String(this.guidance?.body || '').trim();
     const guidanceSteps = Array.isArray(this.guidance?.steps)
@@ -299,18 +300,23 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
       <div class="content">
         <h2 class="title">Exported Keys</h2>
         <div class="fields">
-          <div class="field">
-            <div class="field-label">Account ID</div>
-            <div class="field-value">
-              <span class="value">
-                ${this.accountId ? this.accountId : html`<span class="muted">—</span>`}
-              </span>
-            </div>
-          </div>
+          ${showAccountId
+            ? html`
+                <div class="field">
+                  <div class="field-label">Account ID</div>
+                  <div class="field-value">
+                    <span class="value">
+                      ${this.accountId ? this.accountId : html`<span class="muted">—</span>`}
+                    </span>
+                  </div>
+                </div>
+              `
+            : null}
           ${entries.length
             ? entries.map((entry, index) => {
                 const label = String(entry.label || '').trim()
                   || (entry.scheme === 'secp256k1' ? 'EVM secp256k1' : 'NEAR Ed25519');
+                const showPublicKey = entry.scheme !== 'secp256k1';
                 const publicKey = String(entry.publicKey || '').trim();
                 const privateKey = String(entry.privateKey || '').trim();
                 const address = String(entry.address || '').trim();
@@ -327,24 +333,28 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
                           </div>
                         `
                       : null}
-                    <div class="field">
-                      <div class="field-label">Public Key</div>
-                      <div class="field-value">
-                        <span class="value">
-                          ${publicKey ? publicKey : html`<span class="muted">—</span>`}
-                        </span>
-                        <button
-                          class="btn btn-surface ${this.isCopied(index, 'publicKey')
-                            ? 'copied'
-                            : ''}"
-                          title="Copy"
-                          ?disabled=${!publicKey}
-                          @click=${() => this.copy('publicKey', publicKey, index)}
-                        >
-                          ${this.isCopied(index, 'publicKey') ? 'Copied!' : 'Copy'}
-                        </button>
-                      </div>
-                    </div>
+                    ${showPublicKey
+                      ? html`
+                          <div class="field">
+                            <div class="field-label">Public Key</div>
+                            <div class="field-value">
+                              <span class="value">
+                                ${publicKey ? publicKey : html`<span class="muted">—</span>`}
+                              </span>
+                              <button
+                                class="btn btn-surface ${this.isCopied(index, 'publicKey')
+                                  ? 'copied'
+                                  : ''}"
+                                title="Copy"
+                                ?disabled=${!publicKey}
+                                @click=${() => this.copy('publicKey', publicKey, index)}
+                              >
+                                ${this.isCopied(index, 'publicKey') ? 'Copied!' : 'Copy'}
+                              </button>
+                            </div>
+                          </div>
+                        `
+                      : null}
                     <div class="field">
                       <div class="field-label">Private Key</div>
                       <div class="field-value">

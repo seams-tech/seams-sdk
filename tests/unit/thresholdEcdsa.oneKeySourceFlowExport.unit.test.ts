@@ -86,6 +86,12 @@ function createExportTestEngine() {
     getRpId: () => RP_ID,
   };
   engine.touchConfirm = {
+    peekPrfFirstForThresholdSession: async (args: { sessionId: string }) => ({
+      ok: true as const,
+      remainingUses: 5,
+      expiresAtMs: Date.now() + 60_000,
+      sessionId: args.sessionId,
+    }),
     dispensePrfFirstForThresholdSession: async (args: { sessionId: string }) => ({
       ok: true as const,
       prfFirstB64u: PRF_FIRST_B64U,
@@ -125,11 +131,16 @@ function createExportTestEngine() {
         requestWorkerOperation: async ({ request }: any) => {
           switch (request?.type) {
             case WorkerRequestType.PrepareThresholdEcdsaHssSession:
+              expect(request?.payload).toMatchObject({
+                nearAccountId: ACCOUNT_ID,
+                keyPurpose: 'evm-signing',
+                keyVersion: 'v1',
+              });
               return {
                 type: WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess,
                 payload: {
                   nearAccountId: ACCOUNT_ID,
-                  keyPurpose: 'threshold-ecdsa',
+                  keyPurpose: 'evm-signing',
                   keyVersion: 'v1',
                   contextBindingB64u: 'context-binding-b64u',
                   evaluatorDriverStateB64u: 'evaluator-driver-state-b64u',

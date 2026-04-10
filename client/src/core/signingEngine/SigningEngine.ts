@@ -656,24 +656,60 @@ export class SigningEngine {
     if (!rpId) {
       throw new Error('Missing rpId for threshold-ecdsa explicit export');
     }
-    const thresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
-    const thresholdSessionJwt = String(args.keyRef.thresholdSessionJwt || '').trim();
-    const relayerUrl = String(args.keyRef.relayerUrl || '').trim();
-    const ecdsaThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
-    const sessionKind = args.keyRef.thresholdSessionKind || 'jwt';
+    let thresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
+    let thresholdSessionJwt = String(args.keyRef.thresholdSessionJwt || '').trim();
+    let relayerUrl = String(args.keyRef.relayerUrl || '').trim();
+    let ecdsaThresholdKeyId = String(args.keyRef.ecdsaThresholdKeyId || '').trim();
+    let participantIds = Array.isArray(args.keyRef.participantIds) ? args.keyRef.participantIds : [];
+    let sessionKind = args.keyRef.thresholdSessionKind || 'jwt';
     if (!thresholdSessionId || !thresholdSessionJwt || !relayerUrl || !ecdsaThresholdKeyId) {
       throw new Error(
         'EVM one-key export requires an active threshold-ecdsa warm session bound to ecdsaThresholdKeyId',
       );
     }
 
-    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
-      sessionId: thresholdSessionId,
-    });
-    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
-      throw new Error('Missing warm PRF material for threshold-ecdsa explicit export');
+    let yClient32LeB64u: string;
+    try {
+      yClient32LeB64u = await this.takeWarmPrfFirstForThresholdSession({
+        sessionId: thresholdSessionId,
+        errorContext: 'threshold-ecdsa explicit export',
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '');
+      if (!/Missing warm PRF material for threshold-ecdsa explicit export/.test(message)) {
+        throw error;
+      }
+
+      await this.bootstrapEcdsaSession({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        source: 'manual-bootstrap',
+        relayerUrl,
+        ecdsaThresholdKeyId,
+        participantIds,
+        sessionKind,
+      });
+
+      const refreshedKeyRef = this.getThresholdEcdsaKeyRefForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+      });
+      thresholdSessionId = String(refreshedKeyRef.thresholdSessionId || '').trim();
+      thresholdSessionJwt = String(refreshedKeyRef.thresholdSessionJwt || '').trim();
+      relayerUrl = String(refreshedKeyRef.relayerUrl || '').trim();
+      ecdsaThresholdKeyId = String(refreshedKeyRef.ecdsaThresholdKeyId || '').trim();
+      participantIds = Array.isArray(refreshedKeyRef.participantIds)
+        ? refreshedKeyRef.participantIds
+        : [];
+      sessionKind = refreshedKeyRef.thresholdSessionKind || sessionKind;
+      if (!thresholdSessionId || !thresholdSessionJwt || !relayerUrl || !ecdsaThresholdKeyId) {
+        throw error;
+      }
+      yClient32LeB64u = await this.takeWarmPrfFirstForThresholdSession({
+        sessionId: thresholdSessionId,
+        errorContext: 'threshold-ecdsa explicit export',
+      });
     }
-    const yClient32LeB64u = String(dispensed.prfFirstB64u || '').trim();
 
     const signerWorkerCtx =
       this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
@@ -701,7 +737,7 @@ export class SigningEngine {
     const preparedClientSession = await prepareThresholdEcdsaHssSessionWasm({
       context: {
         nearAccountId: String(args.nearAccountId),
-        keyPurpose: 'threshold-ecdsa',
+        keyPurpose: 'evm-signing',
         keyVersion: 'v1',
       },
       clientRootShare32B64u: yClient32LeB64u,
@@ -915,12 +951,10 @@ export class SigningEngine {
       typeof buildThresholdEd25519SeedExportArtifactFromHssReportValue
     >[0]['finalizedReport'];
   }> {
-    const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
+    const prfFirstB64u = await this.takeWarmPrfFirstForThresholdSession({
       sessionId: args.thresholdSessionId,
+      errorContext: 'Option A Ed25519 export',
     });
-    if (!dispensed.ok || !String(dispensed.prfFirstB64u || '').trim()) {
-      throw new Error('Missing warm PRF material for Option A Ed25519 export');
-    }
 
     const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
       sessionId: `${args.thresholdSessionId}:hss-export-client-inputs`,
@@ -930,7 +964,7 @@ export class SigningEngine {
       keyVersion: args.keyVersion,
       participantIds: args.participantIds,
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-      prfFirstB64u: String(dispensed.prfFirstB64u || '').trim(),
+      prfFirstB64u,
       workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
 
@@ -958,6 +992,55 @@ export class SigningEngine {
       preparedSession: completed.preparedSession,
       finalizedReport: completed.finalizedReport,
     };
+  }
+
+  private async takeWarmPrfFirstForThresholdSession(args: {
+    sessionId: string;
+    errorContext: string;
+    uses?: number;
+  }): Promise<string> {
+    const sessionId = String(args.sessionId || '').trim();
+    const errorContext = String(args.errorContext || 'threshold session operation').trim();
+    if (!sessionId) {
+      throw new Error(`Missing threshold sessionId for ${errorContext}`);
+    }
+
+    const ensureWarmMaterial = async (): Promise<void> => {
+      const peeked = await this.touchConfirm
+        .peekPrfFirstForThresholdSession({ sessionId })
+        .catch(() => ({ ok: false as const, code: 'worker_error', message: '' }));
+      if (!peeked.ok) {
+        const suffix =
+          typeof peeked.code === 'string' && peeked.code.trim()
+            ? ` (${peeked.code.trim()})`
+            : '';
+        throw new Error(`Missing warm PRF material for ${errorContext}${suffix}`);
+      }
+    };
+
+    await ensureWarmMaterial();
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const dispensed = await this.touchConfirm.dispensePrfFirstForThresholdSession({
+        sessionId,
+        uses: args.uses,
+      });
+      const prfFirstB64u = dispensed.ok ? String(dispensed.prfFirstB64u || '').trim() : '';
+      if (dispensed.ok && prfFirstB64u) {
+        return prfFirstB64u;
+      }
+      if (attempt === 0) {
+        await ensureWarmMaterial();
+        continue;
+      }
+      const suffix =
+        !dispensed.ok && typeof dispensed.code === 'string' && dispensed.code.trim()
+          ? ` (${dispensed.code.trim()})`
+          : '';
+      throw new Error(`Missing warm PRF material for ${errorContext}${suffix}`);
+    }
+
+    throw new Error(`Missing warm PRF material for ${errorContext}`);
   }
 
   async exportThresholdEd25519SeedFromHssReport(args: {
