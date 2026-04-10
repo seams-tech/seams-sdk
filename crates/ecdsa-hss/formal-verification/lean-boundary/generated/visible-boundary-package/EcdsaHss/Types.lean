@@ -114,6 +114,20 @@ structure server.FinalizedServerSessionV1 where
   context : shared.context.EcdsaHssContextV1
   retained : server.RetainedServerStateV1
 
+/-- [ecdsa_hss::wire::PrepareEnvelopeV1]
+    Source: 'src/wire/mod.rs', lines 47:0-50:1
+    Visibility: public -/
+structure wire.PrepareEnvelopeV1 where
+  operation : wire.ServerEvalOperationV1
+  context : shared.context.EcdsaHssContextV1
+
+/-- [ecdsa_hss::server::StagedServerSessionV1]
+    Source: 'src/server/mod.rs', lines 44:0-48:1
+    Visibility: public -/
+structure server.StagedServerSessionV1 where
+  prepare : wire.PrepareEnvelopeV1
+  y_relayer32_le : Array Std.U8 32#usize
+
 /-- [ecdsa_hss::wire::FinalizeEnvelopeV1]
     Source: 'src/wire/mod.rs', lines 58:0-64:1
     Visibility: public -/
@@ -133,14 +147,14 @@ structure server.RespondResponseV1 where
   finalized_server_session : server.FinalizedServerSessionV1
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleOperationBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 8:0-11:1
+    Source: 'src/server/reference_boundary.rs', lines 11:0-14:1
     Visibility: public -/
 structure server.reference_boundary.VisibleOperationBoundaryV1 where
   operation : wire.ServerEvalOperationV1
   allowed_output_kind : wire.AllowedOutputKindV1
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleNonExportBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 14:0-20:1
+    Source: 'src/server/reference_boundary.rs', lines 17:0-23:1
     Visibility: public -/
 structure server.reference_boundary.VisibleNonExportBoundaryV1 where
   x_client32 : Array Std.U8 32#usize
@@ -150,7 +164,7 @@ structure server.reference_boundary.VisibleNonExportBoundaryV1 where
   retry_counter : Std.U32
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleExplicitExportBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 23:0-32:1
+    Source: 'src/server/reference_boundary.rs', lines 26:0-35:1
     Visibility: public -/
 structure server.reference_boundary.VisibleExplicitExportBoundaryV1 where
   canonical_x32 : Array Std.U8 32#usize
@@ -163,7 +177,7 @@ structure server.reference_boundary.VisibleExplicitExportBoundaryV1 where
   retry_counter : Std.U32
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleClientBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 35:0-38:1
+    Source: 'src/server/reference_boundary.rs', lines 38:0-41:1
     Visibility: public -/
 @[discriminant isize]
 inductive server.reference_boundary.VisibleClientBoundaryV1 where
@@ -175,7 +189,7 @@ inductive server.reference_boundary.VisibleClientBoundaryV1 where
   server.reference_boundary.VisibleClientBoundaryV1
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleFinalizeBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 41:0-47:1
+    Source: 'src/server/reference_boundary.rs', lines 44:0-50:1
     Visibility: public -/
 structure server.reference_boundary.VisibleFinalizeBoundaryV1 where
   operation : wire.ServerEvalOperationV1
@@ -185,7 +199,7 @@ structure server.reference_boundary.VisibleFinalizeBoundaryV1 where
   retry_counter : Std.U32
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleRetainedServerStateBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 50:0-57:1
+    Source: 'src/server/reference_boundary.rs', lines 53:0-60:1
     Visibility: public -/
 structure server.reference_boundary.VisibleRetainedServerStateBoundaryV1 where
   raw_root_material_dropped : Bool
@@ -196,12 +210,56 @@ structure server.reference_boundary.VisibleRetainedServerStateBoundaryV1 where
   retry_counter : Std.U32
 
 /-- [ecdsa_hss::server::reference_boundary::VisibleRespondBoundaryV1]
-    Source: 'src/server/reference_boundary.rs', lines 60:0-65:1
+    Source: 'src/server/reference_boundary.rs', lines 63:0-68:1
     Visibility: public -/
 structure server.reference_boundary.VisibleRespondBoundaryV1 where
   operation : server.reference_boundary.VisibleOperationBoundaryV1
   client_output : server.reference_boundary.VisibleClientBoundaryV1
   finalize : server.reference_boundary.VisibleFinalizeBoundaryV1
   retained : server.reference_boundary.VisibleRetainedServerStateBoundaryV1
+
+/-- [ecdsa_hss::server::reference_boundary::HiddenEvalInputBoundaryV1]
+    Source: 'src/server/reference_boundary.rs', lines 71:0-77:1
+    Visibility: public -/
+structure server.reference_boundary.HiddenEvalInputBoundaryV1 where
+  operation : wire.ServerEvalOperationV1
+  allowed_output_kind : wire.AllowedOutputKindV1
+  context : shared.context.EcdsaHssContextV1
+  y_client32_le : Array Std.U8 32#usize
+  y_relayer32_le : Array Std.U8 32#usize
+
+/-- [ecdsa_hss::server::reference_boundary::HiddenEvalTransportBoundaryV1]
+    Source: 'src/server/reference_boundary.rs', lines 80:0-84:1
+    Visibility: public -/
+structure server.reference_boundary.HiddenEvalTransportBoundaryV1 where
+  operation : server.reference_boundary.VisibleOperationBoundaryV1
+  client_output : server.reference_boundary.VisibleClientBoundaryV1
+  finalize : server.reference_boundary.VisibleFinalizeBoundaryV1
+
+/-- [ecdsa_hss::server::reference_boundary::HiddenEvalPersistedStateBoundaryV1]
+    Source: 'src/server/reference_boundary.rs', lines 87:0-95:1
+    Visibility: public -/
+structure server.reference_boundary.HiddenEvalPersistedStateBoundaryV1 where
+  operation : wire.ServerEvalOperationV1
+  raw_root_material_dropped : Bool
+  relayer_threshold_share32 : Array Std.U8 32#usize
+  relayer_public_key33 : Array Std.U8 33#usize
+  threshold_public_key33 : Array Std.U8 33#usize
+  threshold_ethereum_address20 : Array Std.U8 20#usize
+  retry_counter : Std.U32
+
+/-- [ecdsa_hss::server::reference_boundary::HiddenEvalBoundaryV1]
+    Source: 'src/server/reference_boundary.rs', lines 98:0-102:1
+    Visibility: public -/
+structure server.reference_boundary.HiddenEvalBoundaryV1 where
+  input : server.reference_boundary.HiddenEvalInputBoundaryV1
+  transport : server.reference_boundary.HiddenEvalTransportBoundaryV1
+  persisted : server.reference_boundary.HiddenEvalPersistedStateBoundaryV1
+
+/-- [ecdsa_hss::wire::RespondRequestV1]
+    Source: 'src/wire/mod.rs', lines 53:0-55:1
+    Visibility: public -/
+structure wire.RespondRequestV1 where
+  y_client32_le : Array Std.U8 32#usize
 
 end ecdsa_hss

@@ -30,6 +30,7 @@ mkdir -p "${GENERATED_DIR}"
   "${CHARON_BIN}" cargo \
     --preset aeneas \
     --start-from ecdsa_hss::server::reference_boundary::visible_boundary_from_respond_response_v1 \
+    --start-from ecdsa_hss::server::reference_boundary::hidden_eval_boundary_from_staged_request_and_response_v1 \
     --dest-file "${LLBC_FILE}" \
     -- --lib
 )

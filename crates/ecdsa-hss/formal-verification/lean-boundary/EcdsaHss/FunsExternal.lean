@@ -35,6 +35,13 @@ axiom
   core.result.Result core.convert.Infallible E → Result (core.result.Result T
     F)
 
+/-- [alloc::string::{core::clone::Clone for alloc::string::String}::clone]:
+    Source: '/rustc/library/alloc/src/string.rs', lines 2351:4-2351:27
+    Name pattern: [alloc::string::{core::clone::Clone<alloc::string::String>}::clone]
+    Visibility: public -/
+@[rust_fun "alloc::string::{core::clone::Clone<alloc::string::String>}::clone"]
+axiom alloc.string.String.Insts.CoreCloneClone.clone : String → Result String
+
 /-- [alloc::string::{core::convert::From<&0 (str)> for alloc::string::String}::from]:
     Source: '/rustc/library/alloc/src/string.rs', lines 3115:4-3115:30
     Name pattern: [alloc::string::{core::convert::From<alloc::string::String, &'0 str>}::from]
@@ -65,4 +72,13 @@ axiom wire.ServerEvalOperationV1.Insts.CoreCmpPartialEqServerEvalOperationV1.ne
     Visibility: public -/
 axiom wire.AllowedOutputKindV1.Insts.CoreCmpPartialEqAllowedOutputKindV1.ne
   : wire.AllowedOutputKindV1 → wire.AllowedOutputKindV1 → Result Bool
+
+/-- [ecdsa_hss::shared::context::{core::cmp::PartialEq<ecdsa_hss::shared::context::EcdsaHssContextV1> for ecdsa_hss::shared::context::EcdsaHssContextV1}::ne]:
+    Source: 'src/shared/context.rs', lines 8:23-8:32
+    Visibility: public -/
+axiom
+  shared.context.EcdsaHssContextV1.Insts.CoreCmpPartialEqEcdsaHssContextV1.ne
+  :
+  shared.context.EcdsaHssContextV1 → shared.context.EcdsaHssContextV1 →
+    Result Bool
 

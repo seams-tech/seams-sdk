@@ -83,15 +83,15 @@ It should not try to cover:
 
 ### Hidden-Eval Boundary Checklist
 
-- [ ] freeze the Rust facade for the hidden-eval/compiler-facing seam
-- [ ] create a dedicated extraction target for that facade
-- [ ] generate the first Rust-derived Lean artifact for the hidden-eval seam
-- [ ] keep generated hidden-eval modules separate from handwritten bridge
+- [x] freeze the Rust facade for the hidden-eval/compiler-facing seam
+- [x] create a dedicated extraction target for that facade
+- [x] generate the first Rust-derived Lean artifact for the hidden-eval seam
+- [x] keep generated hidden-eval modules separate from handwritten bridge
       lemmas
-- [ ] define the handwritten Lean model for the hidden-eval/compiler boundary
-- [ ] prove the generated hidden-eval/compiler boundary matches that
+- [x] define the handwritten Lean model for the hidden-eval/compiler boundary
+- [x] prove the generated hidden-eval/compiler boundary matches that
       handwritten model
-- [ ] connect the hidden-eval/compiler boundary bridge to the existing
+- [x] connect the hidden-eval/compiler boundary bridge to the existing
       `lean-privacy/` secrecy theorems
 
 ## Current Scope

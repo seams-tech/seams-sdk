@@ -7,6 +7,7 @@ open ecdsa_hss
 /-- The initial extraction target is intentionally narrow. -/
 inductive ExtractionTarget where
   | stagedServerBoundary
+  | hiddenEvalBoundary
   deriving DecidableEq, Repr
 
 /-- Handwritten boundary model for operation-to-output-kind policy. -/
@@ -69,6 +70,40 @@ structure RespondBoundaryModel where
   retained : RetainedStateBoundaryModel
   deriving DecidableEq, Repr
 
+/-- Handwritten boundary model for the hidden-eval/compiler-facing input seam. -/
+structure HiddenEvalInputBoundaryModel where
+  operation : wire.ServerEvalOperationV1
+  allowedOutputKind : wire.AllowedOutputKindV1
+  context : shared.context.EcdsaHssContextV1
+  yClient32Le : Array UInt8 32#usize
+  yRelayer32Le : Array UInt8 32#usize
+  deriving DecidableEq, Repr
+
+/-- Handwritten boundary model for transport-visible response fields. -/
+structure HiddenEvalTransportBoundaryModel where
+  operation : OperationBoundaryModel
+  clientOutput : ClientBoundaryModel
+  finalize : FinalizeBoundaryModel
+  deriving DecidableEq, Repr
+
+/-- Handwritten boundary model for persisted state after accepted finalize. -/
+structure HiddenEvalPersistedStateBoundaryModel where
+  operation : wire.ServerEvalOperationV1
+  rawRootMaterialDropped : Bool
+  relayerThresholdShare32 : Array UInt8 32#usize
+  relayerPublicKey33 : Array UInt8 33#usize
+  thresholdPublicKey33 : Array UInt8 33#usize
+  thresholdEthereumAddress20 : Array UInt8 20#usize
+  retryCounter : UInt32
+  deriving DecidableEq, Repr
+
+/-- Handwritten boundary model for the frozen hidden-eval/reference seam. -/
+structure HiddenEvalBoundaryModel where
+  input : HiddenEvalInputBoundaryModel
+  transport : HiddenEvalTransportBoundaryModel
+  persisted : HiddenEvalPersistedStateBoundaryModel
+  deriving DecidableEq, Repr
+
 /-- Handwritten policy function for the frozen v1 operation/output-kind mapping. -/
 def expectedAllowedOutputKindForOperation
     (operation : wire.ServerEvalOperationV1) : wire.AllowedOutputKindV1 :=
@@ -85,6 +120,11 @@ def expectedAllowedOutputKindForOperation
 theorem initial_extraction_target_is_staged_server_boundary :
     ExtractionTarget.stagedServerBoundary =
       ExtractionTarget.stagedServerBoundary := by
+  rfl
+
+theorem hidden_eval_extraction_target_is_frozen :
+    ExtractionTarget.hiddenEvalBoundary =
+      ExtractionTarget.hiddenEvalBoundary := by
   rfl
 
 theorem expectedAllowedOutputKindForOperation_matches_frozen_v1_policy

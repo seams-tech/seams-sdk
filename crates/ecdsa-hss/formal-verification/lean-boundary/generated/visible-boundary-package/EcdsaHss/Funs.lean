@@ -125,7 +125,7 @@ def wire.ServerEvalOperationV1.allowed_output_kind
     ok wire.AllowedOutputKindV1.ThresholdMaterialAndCanonicalSecret
 
 /-- [ecdsa_hss::server::reference_boundary::operation_boundary_from_operation_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 67:0-74:1
+    Source: 'src/server/reference_boundary.rs', lines 104:0-111:1
     Visibility: public -/
 def server.reference_boundary.operation_boundary_from_operation_v1
   (operation : wire.ServerEvalOperationV1) :
@@ -135,7 +135,7 @@ def server.reference_boundary.operation_boundary_from_operation_v1
   ok { operation, allowed_output_kind := aokv }
 
 /-- [ecdsa_hss::server::reference_boundary::explicit_export_boundary_from_output_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 142:0-155:1 -/
+    Source: 'src/server/reference_boundary.rs', lines 242:0-255:1 -/
 def server.reference_boundary.explicit_export_boundary_from_output_v1
   (output : client.ExplicitExportClientOutputV1) :
   Result server.reference_boundary.VisibleExplicitExportBoundaryV1
@@ -153,7 +153,7 @@ def server.reference_boundary.explicit_export_boundary_from_output_v1
     }
 
 /-- [ecdsa_hss::server::reference_boundary::non_export_boundary_from_output_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 130:0-140:1 -/
+    Source: 'src/server/reference_boundary.rs', lines 230:0-240:1 -/
 def server.reference_boundary.non_export_boundary_from_output_v1
   (output : client.NonExportClientOutputV1) :
   Result server.reference_boundary.VisibleNonExportBoundaryV1
@@ -168,7 +168,7 @@ def server.reference_boundary.non_export_boundary_from_output_v1
     }
 
 /-- [ecdsa_hss::server::reference_boundary::visible_client_boundary_from_output_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 76:0-85:1
+    Source: 'src/server/reference_boundary.rs', lines 113:0-122:1
     Visibility: public -/
 def server.reference_boundary.visible_client_boundary_from_output_v1
   (output : client.ClientOutputV1) :
@@ -185,7 +185,7 @@ def server.reference_boundary.visible_client_boundary_from_output_v1
     ok (server.reference_boundary.VisibleClientBoundaryV1.ExplicitExport veebv)
 
 /-- [ecdsa_hss::server::reference_boundary::visible_finalize_boundary_from_envelope_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 87:0-97:1
+    Source: 'src/server/reference_boundary.rs', lines 124:0-134:1
     Visibility: public -/
 def server.reference_boundary.visible_finalize_boundary_from_envelope_v1
   (finalize : wire.FinalizeEnvelopeV1) :
@@ -201,7 +201,7 @@ def server.reference_boundary.visible_finalize_boundary_from_envelope_v1
     }
 
 /-- [ecdsa_hss::server::reference_boundary::retained_state_boundary_from_retained_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 157:0-168:1 -/
+    Source: 'src/server/reference_boundary.rs', lines 257:0-268:1 -/
 def server.reference_boundary.retained_state_boundary_from_retained_v1
   (retained : server.RetainedServerStateV1) :
   Result server.reference_boundary.VisibleRetainedServerStateBoundaryV1
@@ -217,7 +217,7 @@ def server.reference_boundary.retained_state_boundary_from_retained_v1
     }
 
 /-- [ecdsa_hss::server::reference_boundary::visible_retained_state_boundary_from_finalized_session_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 99:0-103:1
+    Source: 'src/server/reference_boundary.rs', lines 136:0-140:1
     Visibility: public -/
 def
   server.reference_boundary.visible_retained_state_boundary_from_finalized_session_v1
@@ -228,7 +228,7 @@ def
     session.retained
 
 /-- [ecdsa_hss::server::reference_boundary::visible_boundary_from_respond_response_v1]:
-    Source: 'src/server/reference_boundary.rs', lines 105:0-128:1
+    Source: 'src/server/reference_boundary.rs', lines 142:0-165:1
     Visibility: public -/
 def server.reference_boundary.visible_boundary_from_respond_response_v1
   (response : server.RespondResponseV1) :
@@ -278,5 +278,138 @@ def server.reference_boundary.visible_boundary_from_respond_response_v1
     core.result.Result.Insts.CoreOpsTry_traitFromResidualResultInfallibleE.from_residual
       server.reference_boundary.VisibleRespondBoundaryV1 (core.convert.FromSame
       signer_core.error.SignerCoreError) residual
+
+/-- [ecdsa_hss::shared::context::{core::clone::Clone for ecdsa_hss::shared::context::EcdsaHssContextV1}::clone]:
+    Source: 'src/shared/context.rs', lines 8:16-8:21
+    Visibility: public -/
+def shared.context.EcdsaHssContextV1.Insts.CoreCloneClone.clone
+  (self : shared.context.EcdsaHssContextV1) :
+  Result shared.context.EcdsaHssContextV1
+  := do
+  let s ← alloc.string.String.Insts.CoreCloneClone.clone self.near_account_id
+  let s1 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_purpose
+  let s2 ← alloc.string.String.Insts.CoreCloneClone.clone self.key_version
+  ok { near_account_id := s, key_purpose := s1, key_version := s2 }
+
+/-- [ecdsa_hss::server::reference_boundary::hidden_eval_input_boundary_from_staged_request_v1]:
+    Source: 'src/server/reference_boundary.rs', lines 167:0-178:1
+    Visibility: public -/
+def server.reference_boundary.hidden_eval_input_boundary_from_staged_request_v1
+  (staged : server.StagedServerSessionV1) (request : wire.RespondRequestV1) :
+  Result server.reference_boundary.HiddenEvalInputBoundaryV1
+  := do
+  let aokv ←
+    wire.ServerEvalOperationV1.allowed_output_kind staged.prepare.operation
+  let ehcv ←
+    shared.context.EcdsaHssContextV1.Insts.CoreCloneClone.clone
+      staged.prepare.context
+  ok
+    {
+      operation := staged.prepare.operation,
+      allowed_output_kind := aokv,
+      context := ehcv,
+      y_client32_le := request.y_client32_le,
+      y_relayer32_le := staged.y_relayer32_le
+    }
+
+/-- [ecdsa_hss::server::reference_boundary::hidden_eval_transport_boundary_from_respond_response_v1]:
+    Source: 'src/server/reference_boundary.rs', lines 180:0-189:1
+    Visibility: public -/
+def
+  server.reference_boundary.hidden_eval_transport_boundary_from_respond_response_v1
+  (response : server.RespondResponseV1) :
+  Result (core.result.Result
+    server.reference_boundary.HiddenEvalTransportBoundaryV1
+    signer_core.error.SignerCoreError)
+  := do
+  let r ←
+    server.reference_boundary.visible_boundary_from_respond_response_v1
+      response
+  let cf ←
+    core.result.Result.Insts.CoreOpsTry_traitTryTResultInfallibleE.branch r
+  match cf with
+  | core.ops.control_flow.ControlFlow.Continue val =>
+    ok (core.result.Result.Ok
+      {
+        operation := val.operation,
+        client_output := val.client_output,
+        finalize := val.finalize
+      })
+  | core.ops.control_flow.ControlFlow.Break residual =>
+    core.result.Result.Insts.CoreOpsTry_traitFromResidualResultInfallibleE.from_residual
+      server.reference_boundary.HiddenEvalTransportBoundaryV1
+      (core.convert.FromSame signer_core.error.SignerCoreError) residual
+
+/-- [ecdsa_hss::server::reference_boundary::hidden_eval_persisted_state_boundary_from_finalized_session_v1]:
+    Source: 'src/server/reference_boundary.rs', lines 191:0-203:1
+    Visibility: public -/
+def
+  server.reference_boundary.hidden_eval_persisted_state_boundary_from_finalized_session_v1
+  (session : server.FinalizedServerSessionV1) :
+  Result server.reference_boundary.HiddenEvalPersistedStateBoundaryV1
+  := do
+  ok
+    {
+      operation := session.operation,
+      raw_root_material_dropped := session.retained.raw_root_material_dropped,
+      relayer_threshold_share32 := session.retained.relayer_threshold_share32,
+      relayer_public_key33 := session.retained.relayer_public_key33,
+      threshold_public_key33 := session.retained.threshold_public_key33,
+      threshold_ethereum_address20 :=
+        session.retained.threshold_ethereum_address20,
+      retry_counter := session.retained.retry_counter
+    }
+
+/-- [ecdsa_hss::server::reference_boundary::hidden_eval_boundary_from_staged_request_and_response_v1]:
+    Source: 'src/server/reference_boundary.rs', lines 205:0-228:1
+    Visibility: public -/
+def
+  server.reference_boundary.hidden_eval_boundary_from_staged_request_and_response_v1
+  (staged : server.StagedServerSessionV1) (request : wire.RespondRequestV1)
+  (response : server.RespondResponseV1) :
+  Result (core.result.Result server.reference_boundary.HiddenEvalBoundaryV1
+    signer_core.error.SignerCoreError)
+  := do
+  let b ←
+    wire.ServerEvalOperationV1.Insts.CoreCmpPartialEqServerEvalOperationV1.ne
+      response.finalized_server_session.operation staged.prepare.operation
+  if b
+  then
+    let sce ←
+      signer_core.error.SignerCoreError.invalid_input (core.convert.IntoFrom
+        alloc.string.String.Insts.CoreConvertFromShared0Str) (toStr
+        "respond response operation does not match staged server operation")
+    ok (core.result.Result.Err sce)
+  else
+    let b1 ←
+      shared.context.EcdsaHssContextV1.Insts.CoreCmpPartialEqEcdsaHssContextV1.ne
+        response.finalized_server_session.context staged.prepare.context
+    if b1
+    then
+      let sce ←
+        signer_core.error.SignerCoreError.invalid_input (core.convert.IntoFrom
+          alloc.string.String.Insts.CoreConvertFromShared0Str) (toStr
+          "respond response context does not match staged server context")
+      ok (core.result.Result.Err sce)
+    else
+      let heibv ←
+        server.reference_boundary.hidden_eval_input_boundary_from_staged_request_v1
+          staged request
+      let r ←
+        server.reference_boundary.hidden_eval_transport_boundary_from_respond_response_v1
+          response
+      let cf ←
+        core.result.Result.Insts.CoreOpsTry_traitTryTResultInfallibleE.branch r
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let hepsbv ←
+          server.reference_boundary.hidden_eval_persisted_state_boundary_from_finalized_session_v1
+            response.finalized_server_session
+        ok (core.result.Result.Ok
+          { input := heibv, transport := val, persisted := hepsbv })
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.result.Result.Insts.CoreOpsTry_traitFromResidualResultInfallibleE.from_residual
+          server.reference_boundary.HiddenEvalBoundaryV1 (core.convert.FromSame
+          signer_core.error.SignerCoreError) residual
 
 end ecdsa_hss
