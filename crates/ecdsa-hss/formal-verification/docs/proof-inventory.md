@@ -98,7 +98,9 @@ Status:
 - explicit reconstruction and share-domain predicates now exist in the Verus model
 - additive-share goals are wired to derived output shape in the verifier
 - additive reconstruction and non-zero-share theorems now exist in the Verus model
-- these theorems currently depend on explicit trusted axioms for retry-counter share selection and relayer-share construction
+- the relayer-share construction is now proved from the exact modular-subtraction model
+- the candidate-share path now follows the actual share-domain hash-reduction shape
+- the remaining trusted boundary on this slice is the scalar-reduction/selected-counter seam, plus scalar-byte encoding injectivity
 - committed-corpus parity checks cover additive reconstruction and non-zero-share regressions
 
 ## FV-ECDSA-HSS-004
@@ -121,7 +123,8 @@ Status:
 - participant-ID skeleton exists
 - backend-domain acceptance theorem now exists in the Verus model
 - same-key preservation theorem now exists in the Verus model
-- these theorems currently depend on an explicit trusted axiom for the production 2P mapper
+- the current `{1,2}` mapping formula is now proved from the real fixed lambdas and modular inverses
+- the remaining trusted boundary on this slice is scalar-byte encoding, not the mapper formula itself
 
 ## FV-ECDSA-HSS-005
 
@@ -224,3 +227,36 @@ Status:
 - this track is intentionally frozen at the staged-boundary view model and does
   not attempt hidden-eval compiler correctness, transport/runtime
   orchestration, side-channel claims, or implementation-facing algebraic proofs
+
+## FV-ECDSA-HSS-009
+
+Target:
+
+- hidden-eval/compiler-facing boundary and transport/persisted-state seam
+
+Property:
+
+- the generated hidden-eval/compiler-facing boundary matches the handwritten
+  seam model
+- non-export transport excludes canonical-secret disclosure
+- transport never carries raw root material
+- accepted persisted state excludes forbidden root material
+- explicit export remains the only canonical-secret disclosure exception at the
+  transport/state seam
+
+Planned track:
+
+- Aeneas + Lean boundary for the generated hidden-eval seam
+- Lean privacy for transport/state exclusion and disclosure policy
+
+Status:
+
+- a frozen Rust hidden-eval/reference facade now exists in
+  [../../src/server/reference_boundary.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/src/server/reference_boundary.rs)
+- the `lean-boundary/` extraction path now includes that facade
+- handwritten hidden-eval boundary models now exist for:
+  input, transport-visible response, and persisted accepted state
+- the generated hidden-eval boundary now matches the handwritten seam model
+- transport/persisted-state exclusion theorems now exist in `lean-privacy/`
+- executable anti-drift checks now exist in
+  [verus/tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)

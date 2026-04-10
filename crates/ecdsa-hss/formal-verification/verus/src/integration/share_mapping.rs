@@ -57,36 +57,42 @@ pub open spec fn lambda_for_participant_v1_spec(participant_id: u16) -> int {
     }
 }
 
-pub uninterp spec fn map_additive_share_scalar_to_backend_v1_spec(
-    additive_share_be_bytes: Bytes32,
-    participant_id: u16,
-) -> Bytes32;
+pub open spec fn client_lambda_inverse_v1_spec() -> int {
+    77194726158210796949047323339125271901891709519383269588403442094345440996225int
+}
 
-pub broadcast axiom fn axiom_backend_mapping_preserves_additive_share_for_supported_ids_v1(
+pub open spec fn relayer_lambda_inverse_v1_spec() -> int {
+    57896044618658097711785492504343953926418782139537452191302581570759080747168int
+}
+
+pub open spec fn lambda_inverse_for_participant_v1_spec(participant_id: u16) -> int {
+    if participant_id == client_participant_id_v1_spec() {
+        client_lambda_inverse_v1_spec()
+    } else if participant_id == relayer_participant_id_v1_spec() {
+        relayer_lambda_inverse_v1_spec()
+    } else {
+        0int
+    }
+}
+
+pub open spec fn mapped_backend_scalar_int_v1_spec(
     additive_share_be_bytes: Bytes32,
     participant_id: u16,
-)
-    requires
-        is_supported_2p_participant_id_v1_spec(participant_id),
-        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(additive_share_be_bytes),
-    ensures
-        #![trigger map_additive_share_scalar_to_backend_v1_spec(
-            additive_share_be_bytes,
-            participant_id,
-        )]
-        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(
-            map_additive_share_scalar_to_backend_v1_spec(additive_share_be_bytes, participant_id),
-        ),
-        (
-            lambda_for_participant_v1_spec(participant_id)
-                * crate::shared::derivation::bytes32_as_int_v1_spec(
-                    map_additive_share_scalar_to_backend_v1_spec(
-                    additive_share_be_bytes,
-                    participant_id,
-                ))
-        ) % crate::shared::derivation::secp256k1_order_v1_spec()
-            == crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes),
-;
+) -> int {
+    (
+        crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes)
+            * lambda_inverse_for_participant_v1_spec(participant_id)
+    ) % crate::shared::derivation::secp256k1_order_v1_spec()
+}
+
+pub open spec fn map_additive_share_scalar_to_backend_v1_spec(
+    additive_share_be_bytes: Bytes32,
+    participant_id: u16,
+) -> Bytes32 {
+    crate::shared::derivation::scalar_int_to_bytes32_v1_spec(
+        mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, participant_id),
+    )
+}
 
 pub open spec fn backend_share_is_accepted_by_domain_v1_spec(
     share: BackendMappedShareV1,
@@ -198,6 +204,129 @@ pub broadcast axiom fn axiom_threshold_public_key_matches_effective_group_secret
             == public_key_from_scalar_v1_spec(x_be_bytes),
 ;
 
+pub proof fn client_lambda_inverse_is_correct_v1()
+    ensures
+        (client_lambda_v1_spec() * client_lambda_inverse_v1_spec())
+            % crate::shared::derivation::secp256k1_order_v1_spec() == 1int,
+{
+}
+
+pub proof fn relayer_lambda_inverse_is_correct_v1()
+    ensures
+        (relayer_lambda_v1_spec() * relayer_lambda_inverse_v1_spec())
+            % crate::shared::derivation::secp256k1_order_v1_spec() == 1int,
+{
+}
+
+pub proof fn mapped_backend_scalar_is_valid_v1(
+    additive_share_be_bytes: Bytes32,
+    participant_id: u16,
+)
+    requires
+        is_supported_2p_participant_id_v1_spec(participant_id),
+        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(additive_share_be_bytes),
+    ensures
+        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(
+            map_additive_share_scalar_to_backend_v1_spec(additive_share_be_bytes, participant_id),
+        ),
+{
+    let mapped_value = mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, participant_id);
+    if participant_id == client_participant_id_v1_spec() {
+        mapped_client_scalar_preserves_share_int_v1(additive_share_be_bytes);
+    } else {
+        mapped_relayer_scalar_preserves_share_int_v1(additive_share_be_bytes);
+    }
+    assert(mapped_value != 0);
+    assert(0 < mapped_value);
+    assert(mapped_value < crate::shared::derivation::secp256k1_order_v1_spec());
+    crate::shared::derivation::axiom_scalar_int_encoding_matches_value_v1(mapped_value);
+}
+
+pub proof fn mapped_client_scalar_preserves_share_int_v1(additive_share_be_bytes: Bytes32)
+    requires
+        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(additive_share_be_bytes),
+    ensures
+        (
+            client_lambda_v1_spec()
+                * mapped_backend_scalar_int_v1_spec(
+                    additive_share_be_bytes,
+                    client_participant_id_v1_spec(),
+                )
+        ) % crate::shared::derivation::secp256k1_order_v1_spec()
+            == crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes),
+{
+    let n = crate::shared::derivation::secp256k1_order_v1_spec();
+    let a = crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes);
+    let inv = client_lambda_inverse_v1_spec();
+    let mapped = mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, client_participant_id_v1_spec());
+    client_lambda_inverse_is_correct_v1();
+    assert(mapped == (a * inv) % n);
+    assert(((client_lambda_v1_spec() * mapped) % n) == ((client_lambda_v1_spec() * (a * inv)) % n));
+    assert(client_lambda_v1_spec() * (a * inv) == (client_lambda_v1_spec() * inv) * a) by (nonlinear_arith);
+    assert((client_lambda_v1_spec() * (a * inv)) % n == ((client_lambda_v1_spec() * inv) * a) % n);
+    assert(((client_lambda_v1_spec() * inv) * a) % n == a);
+}
+
+pub proof fn mapped_relayer_scalar_preserves_share_int_v1(additive_share_be_bytes: Bytes32)
+    requires
+        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(additive_share_be_bytes),
+    ensures
+        (
+            relayer_lambda_v1_spec()
+                * mapped_backend_scalar_int_v1_spec(
+                    additive_share_be_bytes,
+                    relayer_participant_id_v1_spec(),
+                )
+        ) % crate::shared::derivation::secp256k1_order_v1_spec()
+            == crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes),
+{
+    let n = crate::shared::derivation::secp256k1_order_v1_spec();
+    let a = crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes);
+    let inv = relayer_lambda_inverse_v1_spec();
+    let mapped = mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, relayer_participant_id_v1_spec());
+    relayer_lambda_inverse_is_correct_v1();
+    assert(mapped == (a * inv) % n);
+    assert(((relayer_lambda_v1_spec() * mapped) % n) == ((relayer_lambda_v1_spec() * (a * inv)) % n));
+    assert(relayer_lambda_v1_spec() * (a * inv) == (relayer_lambda_v1_spec() * inv) * a) by (nonlinear_arith);
+    assert((relayer_lambda_v1_spec() * (a * inv)) % n == ((relayer_lambda_v1_spec() * inv) * a) % n);
+    assert(((relayer_lambda_v1_spec() * inv) * a) % n == a);
+}
+
+pub proof fn mapped_backend_scalar_preserves_additive_share_v1(
+    additive_share_be_bytes: Bytes32,
+    participant_id: u16,
+)
+    requires
+        is_supported_2p_participant_id_v1_spec(participant_id),
+        crate::shared::derivation::is_valid_nonzero_scalar_v1_spec(additive_share_be_bytes),
+    ensures
+        (
+            lambda_for_participant_v1_spec(participant_id)
+                * crate::shared::derivation::bytes32_as_int_v1_spec(
+                    map_additive_share_scalar_to_backend_v1_spec(
+                        additive_share_be_bytes,
+                        participant_id,
+                    ),
+                )
+        ) % crate::shared::derivation::secp256k1_order_v1_spec()
+            == crate::shared::derivation::bytes32_as_int_v1_spec(additive_share_be_bytes),
+{
+    mapped_backend_scalar_is_valid_v1(additive_share_be_bytes, participant_id);
+    if participant_id == client_participant_id_v1_spec() {
+        mapped_client_scalar_preserves_share_int_v1(additive_share_be_bytes);
+    } else {
+        mapped_relayer_scalar_preserves_share_int_v1(additive_share_be_bytes);
+    }
+    crate::shared::derivation::axiom_scalar_int_encoding_matches_value_v1(
+        mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, participant_id),
+    );
+    assert(
+        crate::shared::derivation::bytes32_as_int_v1_spec(
+            map_additive_share_scalar_to_backend_v1_spec(additive_share_be_bytes, participant_id),
+        ) == mapped_backend_scalar_int_v1_spec(additive_share_be_bytes, participant_id)
+    );
+}
+
 pub proof fn backend_mapping_uses_fixed_participant_ids_v1(
     x_client_be_bytes: Bytes32,
     x_relayer_be_bytes: Bytes32,
@@ -224,7 +353,14 @@ pub proof fn mapped_backend_shares_are_accepted_by_domain_v1(
             map_derived_additive_shares_to_backend_v1_spec(x_be_bytes, context).relayer_share,
         ),
 {
-    broadcast use axiom_backend_mapping_preserves_additive_share_for_supported_ids_v1;
+    mapped_backend_scalar_is_valid_v1(
+        crate::shared::derivation::derive_additive_shares_v1_spec(x_be_bytes, context).x_client_be_bytes,
+        client_participant_id_v1_spec(),
+    );
+    mapped_backend_scalar_is_valid_v1(
+        crate::shared::derivation::derive_additive_shares_v1_spec(x_be_bytes, context).x_relayer_be_bytes,
+        relayer_participant_id_v1_spec(),
+    );
 }
 
 pub proof fn mapped_backend_shares_preserve_effective_group_secret_v1(
@@ -240,7 +376,14 @@ pub proof fn mapped_backend_shares_preserve_effective_group_secret_v1(
             map_derived_additive_shares_to_backend_v1_spec(x_be_bytes, context),
         ) == crate::shared::derivation::bytes32_as_int_v1_spec(x_be_bytes),
 {
-    broadcast use axiom_backend_mapping_preserves_additive_share_for_supported_ids_v1;
+    mapped_backend_scalar_preserves_additive_share_v1(
+        crate::shared::derivation::derive_additive_shares_v1_spec(x_be_bytes, context).x_client_be_bytes,
+        client_participant_id_v1_spec(),
+    );
+    mapped_backend_scalar_preserves_additive_share_v1(
+        crate::shared::derivation::derive_additive_shares_v1_spec(x_be_bytes, context).x_relayer_be_bytes,
+        relayer_participant_id_v1_spec(),
+    );
 }
 
 pub proof fn threshold_public_key_equals_x_times_g_v1(

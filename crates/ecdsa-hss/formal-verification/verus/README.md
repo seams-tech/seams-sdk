@@ -7,8 +7,8 @@ Current bootstrap scope:
 
 - `encode_context_v1`
 - canonical `x` derivation shape
-- additive-share derivation shape
-- fixed participant-ID mapping shape for the current backend seam
+- additive-share derivation with explicit retry/share-construction logic
+- fixed participant-ID mapping with the actual `{1,2}` 2P mapping formula
 - explicit-export output-policy shape
 
 This is intentionally not the full privacy/boundary stack yet. The Aeneas +
@@ -41,6 +41,8 @@ pretending the full protocol is already implemented.
   - `src/server/state.rs`
 - fixture parity test exists at:
   [tests/fixture_parity.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/fixture_parity.rs)
+- hidden-eval/runtime-seam anti-drift tests now exist at:
+  [tests/anti_drift.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/verus/tests/anti_drift.rs)
 - proof inventory exists at:
   [../docs/proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
 - fixed-function corpus exists at:
@@ -55,8 +57,8 @@ Current bootstrap commands:
 - `just ecdsa-hss-fv`
 
 `just ecdsa-hss-fv-verus` runs `cargo verus verify` for the narrow `ecdsa-hss`
-Verus crate. `just ecdsa-hss-fv` runs the committed fixture parity bridge
-first and then runs the Verus verifier.
+Verus crate. `just ecdsa-hss-fv` runs the executable FV test suite first
+(fixture parity plus hidden-eval anti-drift) and then runs the Verus verifier.
 
 ## Current Proof Boundary
 
@@ -64,8 +66,8 @@ The current Verus boundary is frozen at:
 
 - context encoding shape
 - canonical `x` derivation shape
-- additive-share derivation shape
-- fixed participant-ID mapping shape for `{1, 2}`
+- additive-share derivation with explicit retry/share-construction logic
+- fixed participant-ID mapping with the actual `{1, 2}` mapping formula
 - explicit-export output-policy shape
 - finalized retained-state exclusion shape
 
