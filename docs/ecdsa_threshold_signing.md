@@ -52,7 +52,7 @@ Those fields are no longer the canonical product identity.
 ### 2.3 Flow Boundaries
 
 1. Registration/bootstrap mints threshold ECDSA session state and writes the canonical record.
-2. Signing validates the canonical record and worker cache status (`peekPrfFirstForThresholdSession`) before confirmation/sign orchestration.
+2. Signing validates the canonical record and worker cache status (`getWarmSessionStatus`) before confirmation/sign orchestration.
 3. Missing or invalid state fails closed with typed errors and routes to explicit reconnect/provision flows.
 
 ### 2.4 Per-Account Commit Queue (Tempo + EVM)

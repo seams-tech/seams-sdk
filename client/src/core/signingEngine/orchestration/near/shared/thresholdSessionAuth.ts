@@ -1,63 +1,40 @@
-import {
-  getCachedEd25519AuthSession,
-  resolveEd25519AuthSessionBySessionId,
-} from '@/core/signingEngine/threshold/session/ed25519AuthSession';
-import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import type { WarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
+import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
 
-export type ResolvedThresholdSessionAuth = {
+export type ResolvedThresholdEd25519SessionState = {
+  record: ThresholdEd25519SessionRecord;
   sessionKind: 'jwt' | 'cookie';
   thresholdSessionJwt?: string;
+  xClientBaseB64u?: string;
+  relayerUrl: string;
 };
 
-export async function resolveThresholdSessionJwt(args: {
-  thresholdSessionCacheKey: string;
+export function requireResolvedThresholdEd25519SessionState(args: {
+  warmSessionManager: WarmSessionManager;
   thresholdSessionId: string;
-}): Promise<string | undefined> {
-  const resolved = await resolveThresholdSessionAuth(args);
-  if (!resolved || resolved.sessionKind !== 'jwt') return undefined;
-  return resolved.thresholdSessionJwt;
-}
-
-export async function resolveThresholdSessionAuth(args: {
-  thresholdSessionCacheKey: string;
-  thresholdSessionId: string;
-}): Promise<ResolvedThresholdSessionAuth | undefined> {
-  const cachedAuthSession = getCachedEd25519AuthSession(args.thresholdSessionCacheKey);
-  if (cachedAuthSession) {
-    if (cachedAuthSession.sessionKind === 'cookie') {
-      return { sessionKind: 'cookie' };
-    }
-    const jwtFromCache = normalizeOptionalNonEmptyString(cachedAuthSession.jwt);
-    if (jwtFromCache) {
-      return {
-        sessionKind: 'jwt',
-        thresholdSessionJwt: jwtFromCache,
-      };
-    }
-  }
+}): ResolvedThresholdEd25519SessionState {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return undefined;
-
-  const bySessionId = await resolveEd25519AuthSessionBySessionId(thresholdSessionId);
-  if (!bySessionId) return undefined;
-  if (bySessionId.sessionKind === 'cookie') {
-    return { sessionKind: 'cookie' };
+  if (!thresholdSessionId) {
+    throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
   }
-  const jwt = normalizeOptionalNonEmptyString(bySessionId.jwt);
-  if (!jwt) return undefined;
+  const record = args.warmSessionManager.resolveEd25519RecordByThresholdSessionId(
+    thresholdSessionId,
+  );
+  if (!record) {
+    throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+  }
+  const sessionKind: 'jwt' | 'cookie' =
+    record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
+  const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim() || undefined;
+  if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+    throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+  }
   return {
-    sessionKind: 'jwt',
-    thresholdSessionJwt: jwt,
+    record,
+    sessionKind,
+    thresholdSessionJwt,
+    xClientBaseB64u: String(record.xClientBaseB64u || '').trim() || undefined,
+    relayerUrl: String(record.relayerUrl || '').trim(),
   };
-}
-
-export function resolveCanonicalThresholdSessionId(args: {
-  thresholdSessionCacheKey: string;
-  fallbackSessionId: string;
-}): string {
-  const cachedSessionId = String(
-    getCachedEd25519AuthSession(args.thresholdSessionCacheKey)?.policy?.sessionId || '',
-  ).trim();
-  const fallbackSessionId = String(args.fallbackSessionId || '').trim();
-  return cachedSessionId || fallbackSessionId;
 }

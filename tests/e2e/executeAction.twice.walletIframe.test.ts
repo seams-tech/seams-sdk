@@ -2,9 +2,12 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
+import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
 import {
   installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  makeAuthServiceForThreshold,
+  setupManagedThresholdRegistrationHarness,
 } from './thresholdEd25519.testUtils';
 
 test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
@@ -14,36 +17,57 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
 
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
+    const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
+    const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
+      page,
+      service,
+      threshold,
+      keyName: 'execute-action-twice-browser',
+      orgId: 'org_execute_action_twice',
+      orgSlug: 'execute-action-twice-org',
+      orgName: 'Execute Action Twice Org',
+      projectId: 'proj_execute_action_twice',
+      projectName: 'Execute Action Twice Project',
+    });
     let operationalNearPublicKey = '';
+    try {
+      const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
+      await installRelayServerProxyShim(page, {
+        relayOrigin: relayerUrl,
+        relayUpstream: managedRegistrationHarness.baseUrl,
+        logStyle: 'silent',
+      });
+      await installCreateAccountAndRegisterUserMock(page, {
+        relayerBaseUrl: relayerUrl,
+        session: managedRegistrationHarness.session,
+        threshold,
+        onNewPublicKey: (pk) => {
+          if (!operationalNearPublicKey) operationalNearPublicKey = pk;
+          keysOnChain.add(pk);
+          nonceByPublicKey.set(pk, 0);
+        },
+      });
 
-    await installCreateAccountAndRegisterUserMock(page, {
-      relayerBaseUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
-      onNewPublicKey: (pk) => {
-        if (!operationalNearPublicKey) operationalNearPublicKey = pk;
-        keysOnChain.add(pk);
-        nonceByPublicKey.set(pk, 0);
-      },
-    });
+      await installFastNearRpcMock(page, {
+        keysOnChain,
+        nonceByPublicKey,
+        onSendTx: () => {
+          if (operationalNearPublicKey) {
+            nonceByPublicKey.set(
+              operationalNearPublicKey,
+              (nonceByPublicKey.get(operationalNearPublicKey) ?? 0) + 1,
+            );
+          }
+        },
+        strictAccessKeyLookup: true,
+      });
 
-    await installFastNearRpcMock(page, {
-      keysOnChain,
-      nonceByPublicKey,
-      onSendTx: () => {
-        if (operationalNearPublicKey) {
-          nonceByPublicKey.set(
-            operationalNearPublicKey,
-            (nonceByPublicKey.get(operationalNearPublicKey) ?? 0) + 1,
-          );
-        }
-      },
-      strictAccessKeyLookup: true,
-    });
-
-    const resultPromise = page.evaluate(
-      async ({ walletOrigin, relayerUrl, receiverId }) => {
+      const resultPromise = page.evaluate(
+        async ({ walletOrigin, relayerUrl, receiverId }) => {
         try {
           const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
           const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -55,6 +79,15 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
+            ...(managedRegistration
+              ? {
+                  registration: {
+                    mode: 'managed' as const,
+                    environmentId: String(managedRegistration.environmentId || ''),
+                    publishableKey: String(managedRegistration.publishableKey || ''),
+                  },
+                }
+              : {}),
             // Ensure the wallet iframe path is exercised (bug repro target).
             iframeWallet: {
               walletOrigin,
@@ -144,26 +177,29 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
       },
       {
         walletOrigin: 'https://wallet.example.localhost',
-        relayerUrl: DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost',
+        relayerUrl,
         receiverId: receiverIdFromConfig(),
       },
-    );
+      );
 
-    const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
-      timeoutMs: 75_000,
-      intervalMs: 250,
-    });
-    if (!result.ok) {
-      if (handleInfrastructureErrors(result as any)) return;
-      expect(result.ok, (result as any)?.error || 'executeAction twice failed').toBe(true);
-      return;
+      const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
+        timeoutMs: 75_000,
+        intervalMs: 250,
+      });
+      if (!result.ok) {
+        if (handleInfrastructureErrors(result as any)) return;
+        expect(result.ok, (result as any)?.error || 'executeAction twice failed').toBe(true);
+        return;
+      }
+
+      expect(result.hasThresholdEcdsaState).toBe(true);
+      const terminalPhases = ['broadcasting', 'action-complete', 'action-error'];
+      expect(result.phases1.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
+      // Regression target: second call must not stall before terminal execution/signer outcome.
+      expect(result.phases2.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
+    } finally {
+      await managedRegistrationHarness.close();
     }
-
-    expect(result.hasThresholdEcdsaState).toBe(true);
-    const terminalPhases = ['broadcasting', 'action-complete', 'action-error'];
-    expect(result.phases1.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
-    // Regression target: second call must not stall before terminal execution/signer outcome.
-    expect(result.phases2.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
   });
 });
 

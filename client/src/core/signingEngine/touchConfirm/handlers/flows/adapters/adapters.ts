@@ -28,6 +28,7 @@ export async function fetchNearContext(
   ctx: TouchConfirmContext,
   opts: {
     nearAccountId: string;
+    nearPublicKeyStr?: string;
     txCount: number;
     reserveNonces: boolean;
     allowFallback?: boolean;
@@ -40,6 +41,32 @@ export async function fetchNearContext(
 }> {
   const allowFallback = opts.allowFallback === true;
   try {
+    const explicitNearPublicKeyStr =
+      typeof opts.nearPublicKeyStr === 'string' && opts.nearPublicKeyStr.trim()
+        ? opts.nearPublicKeyStr.trim()
+        : '';
+    if (explicitNearPublicKeyStr) {
+      const [accessKeyInfo, block] = await Promise.all([
+        ctx.nearClient.viewAccessKey(opts.nearAccountId, explicitNearPublicKeyStr),
+        ctx.nearClient.viewBlock({ finality: 'final' } as BlockReference),
+      ]);
+      const txCount = Math.max(1, Math.floor(Number(opts.txCount) || 1));
+      const baseNonce = BigInt(accessKeyInfo.nonce) + 1n;
+      const reservedNonces = opts.reserveNonces
+        ? Array.from({ length: txCount }, (_, index) => (baseNonce + BigInt(index)).toString())
+        : undefined;
+      return {
+        transactionContext: {
+          nearPublicKeyStr: explicitNearPublicKeyStr,
+          accessKeyInfo,
+          nextNonce: reservedNonces?.[0] || baseNonce.toString(),
+          txBlockHeight: String(block?.header?.height ?? ''),
+          txBlockHash: String(block?.header?.hash ?? ''),
+        } as TransactionContext,
+        reservedNonces,
+      };
+    }
+
     // Prefer NonceManager when initialized (signing flows).
     // Use cached transaction context if fresh; avoid forcing a refresh here.
     const cached = await ctx.nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);

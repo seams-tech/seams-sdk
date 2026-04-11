@@ -3,7 +3,7 @@ import type {
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
   TouchConfirmContext,
-  ThresholdPrfFirstCachePeekPort,
+  WarmSessionStatusReader,
 } from '@/core/signingEngine/touchConfirm';
 import type {
   KeyRef,
@@ -43,7 +43,7 @@ export async function signTempoWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
   touchConfirm: TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
-    ThresholdPrfFirstCachePeekPort;
+    WarmSessionStatusReader;
   nearAccountId: string;
   request: TempoSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;

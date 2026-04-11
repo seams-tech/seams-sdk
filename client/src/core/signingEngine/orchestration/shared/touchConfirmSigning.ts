@@ -1,5 +1,5 @@
 import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { ThresholdPrfFirstCachePeekPort } from '@/core/signingEngine/touchConfirm';
+import type { WarmSessionStatusReader } from '@/core/signingEngine/touchConfirm';
 import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import { resolveThresholdSigningAuthMode } from './thresholdSigningSessionPlanner';
@@ -26,7 +26,7 @@ export function asThresholdEcdsaKeyRef(
 export async function resolveSigningAuthMode(args: {
   needsWebAuthn: boolean;
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null;
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: WarmSessionStatusReader;
 }): Promise<SigningAuthMode> {
   return await resolveThresholdSigningAuthMode({
     needsWebAuthn: args.needsWebAuthn,

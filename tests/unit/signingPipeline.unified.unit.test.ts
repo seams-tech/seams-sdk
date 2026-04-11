@@ -360,10 +360,10 @@ test.describe('unified signing pipeline', () => {
     expect(registrationSource).toContain('await persistRegisteredThresholdEd25519Session({');
     expect(registrationSource).not.toContain('signingEngine.hydrateSigningSession({');
     expect(registrationSource).not.toContain('signingEngine.setActiveSigningSessionId(');
-    expect(registrationSource).not.toContain('signingEngine.putPrfFirstForThresholdSession(');
+    expect(registrationSource).not.toContain('signingEngine.putWarmSessionMaterial(');
 
     expect(signingEngineSource).toContain("| 'hydrateSigningSession'");
     expect(signingEngineSource).not.toContain("| 'setActiveSigningSessionId'");
-    expect(signingEngineSource).not.toContain("| 'putPrfFirstForThresholdSession'");
+    expect(signingEngineSource).not.toContain("| 'putWarmSessionMaterial'");
   });
 });

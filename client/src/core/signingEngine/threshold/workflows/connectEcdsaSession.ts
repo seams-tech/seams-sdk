@@ -1,6 +1,6 @@
 import type {
   ThresholdIndexedDbPort,
-  ThresholdPrfFirstCachePort,
+  WarmSessionMaterialWriter,
   ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -16,7 +16,7 @@ type EcdsaSessionKind = 'jwt' | 'cookie';
 export async function connectEcdsaSession(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  prfFirstCache?: ThresholdPrfFirstCachePort;
+  prfFirstCache?: WarmSessionMaterialWriter;
   relayerUrl: string;
   relayerKeyId: string;
   userId: string;

@@ -7,6 +7,9 @@ export type PrfSessionSealedStoreRecord = {
   alg: 'shamir3pass-v1';
   thresholdSessionId: string;
   sealedPrfFirstB64u: string;
+  curve?: 'ed25519' | 'ecdsa';
+  relayerUrl?: string;
+  thresholdSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
   expiresAtMs: number;
@@ -85,6 +88,12 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
   const updatedAtMs = normalizeInteger(obj.updatedAtMs);
   const keyVersion = normalizeOptionalNonEmptyString(obj.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(obj.shamirPrimeB64u);
+  const curve =
+    String(obj.curve || '').trim() === 'ed25519' || String(obj.curve || '').trim() === 'ecdsa'
+      ? (String(obj.curve || '').trim() as 'ed25519' | 'ecdsa')
+      : undefined;
+  const relayerUrl = normalizeOptionalNonEmptyString(obj.relayerUrl);
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
@@ -94,6 +103,9 @@ function normalizePrfSessionSealedStoreRecord(value: unknown): PrfSessionSealedS
     alg: 'shamir3pass-v1',
     thresholdSessionId,
     sealedPrfFirstB64u,
+    ...(curve ? { curve } : {}),
+    ...(relayerUrl ? { relayerUrl } : {}),
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     expiresAtMs,
@@ -128,6 +140,9 @@ export function readPrfSessionSealedRecord(
 export function writePrfSessionSealedRecord(args: {
   thresholdSessionId: string;
   sealedPrfFirstB64u: string;
+  curve?: 'ed25519' | 'ecdsa';
+  relayerUrl?: string;
+  thresholdSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
   expiresAtMs: number;
@@ -141,6 +156,10 @@ export function writePrfSessionSealedRecord(args: {
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses);
   const updatedAtMs = normalizeInteger(args.updatedAtMs ?? Date.now());
+  const curve =
+    args.curve === 'ed25519' || args.curve === 'ecdsa' ? args.curve : undefined;
+  const relayerUrl = normalizeOptionalNonEmptyString(args.relayerUrl);
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.thresholdSessionJwt);
   const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.shamirPrimeB64u);
   if (!thresholdSessionId || !sealedPrfFirstB64u) return;
@@ -153,6 +172,9 @@ export function writePrfSessionSealedRecord(args: {
     alg: 'shamir3pass-v1',
     thresholdSessionId,
     sealedPrfFirstB64u,
+    ...(curve ? { curve } : {}),
+    ...(relayerUrl ? { relayerUrl } : {}),
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     expiresAtMs,
@@ -180,6 +202,9 @@ export function updatePrfSessionSealedRecordPolicy(args: {
   writePrfSessionSealedRecord({
     thresholdSessionId,
     sealedPrfFirstB64u: existing.sealedPrfFirstB64u,
+    curve: existing.curve,
+    relayerUrl: existing.relayerUrl,
+    thresholdSessionJwt: existing.thresholdSessionJwt,
     keyVersion: existing.keyVersion,
     shamirPrimeB64u: existing.shamirPrimeB64u,
     expiresAtMs,

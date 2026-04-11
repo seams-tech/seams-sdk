@@ -2,10 +2,8 @@ import { expect, test } from '@playwright/test';
 import { ActionType } from '@/core/types/actions';
 import { WorkerResponseType } from '@/core/types/signer-worker';
 import { signTransactionsWithActions } from '@/core/signingEngine/api/nearSigning';
-import {
-  buildAndCacheEd25519AuthSession,
-  clearAllCachedEd25519AuthSessions,
-} from '@/core/signingEngine/threshold/session/ed25519AuthSession';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 class MemorySessionStorage implements Pick<
   Storage,
@@ -44,7 +42,7 @@ test.describe('near signing session selection', () => {
     let seenSessionId = '';
     let seenThresholdSessionJwt = '';
 
-    clearAllCachedEd25519AuthSessions();
+    clearAllStoredThresholdEd25519SessionRecords();
 
     try {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -58,7 +56,7 @@ test.describe('near signing session selection', () => {
         throw new Error(`unexpected fetch in test: ${url}`);
       }) as typeof fetch;
 
-      await buildAndCacheEd25519AuthSession({
+      persistWarmSessionEd25519Capability({
         nearAccountId: 'alice.testnet',
         rpId: 'example.localhost',
         relayerUrl: 'https://relay.example.test',
@@ -70,13 +68,11 @@ test.describe('near signing session selection', () => {
         jwt: 'persisted-threshold-jwt',
         source: 'registration',
       });
-      clearAllCachedEd25519AuthSessions();
 
       const result = await signTransactionsWithActions(
         {
           nearRpcUrl: 'https://rpc.example.test',
-          resolveCanonicalThresholdEd25519SessionId: () => 'ed25519-session',
-          getOrCreateActiveThresholdEd25519SessionId: () => 'ecdsa-session',
+          resolveThresholdEd25519SessionId: () => 'ed25519-session',
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
@@ -124,16 +120,16 @@ test.describe('near signing session selection', () => {
               },
               relayerUrl: 'https://relay.example.test',
               touchConfirm: {
-                peekPrfFirstForThresholdSession: async ({ sessionId }: { sessionId: string }) => {
+                getWarmSessionStatus: async ({ sessionId }: { sessionId: string }) => {
                   seenSessionId = String(sessionId || '').trim();
-                  return { ok: false as const, code: 'not_found', message: 'warm cache missing' };
+                  return { ok: false as const, code: 'not_found', message: 'warm-session status missing' };
                 },
-                dispensePrfFirstForThresholdSession: async () => ({
+                claimWarmSessionMaterial: async () => ({
                   ok: false as const,
                   code: 'unexpected',
-                  message: 'should not dispense',
+                  message: 'should not consume',
                 }),
-                clearPrfFirstForThresholdSession: async () => undefined,
+                clearWarmSessionMaterial: async () => undefined,
                 orchestrateSigningConfirmation: async () => ({
                   intentDigest: 'intent-digest-b64u',
                   transactionContext: {
@@ -195,7 +191,7 @@ test.describe('near signing session selection', () => {
       expect(seenSessionId).toBe('ed25519-session');
       expect(seenThresholdSessionJwt).toBe('persisted-threshold-jwt');
     } finally {
-      clearAllCachedEd25519AuthSessions();
+      clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();
       if (originalSessionStorage) {
         (globalThis as { sessionStorage?: Storage }).sessionStorage = originalSessionStorage;

@@ -5,9 +5,12 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
+import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
 import {
   installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  makeAuthServiceForThreshold,
+  setupManagedThresholdRegistrationHarness,
 } from './thresholdEd25519.testUtils';
 import {
   initSync as initWasmSignerSync,
@@ -22,34 +25,54 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     const accountsOnChain = new Set<string>();
-    const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
+    const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
+    const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
+      page,
+      service,
+      threshold,
+      keyName: 'near-seam-normalization-browser',
+      orgId: 'org_near_seam_normalization',
+      orgSlug: 'near-seam-normalization-org',
+      orgName: 'NEAR Seam Normalization Org',
+      projectId: 'proj_near_seam_normalization',
+      projectName: 'NEAR Seam Normalization Project',
+    });
     const expectedReceiverId = receiverIdFromConfig();
     accountsOnChain.add(expectedReceiverId);
+    try {
+      const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
+      await installRelayServerProxyShim(page, {
+        relayOrigin: relayerUrl,
+        relayUpstream: managedRegistrationHarness.baseUrl,
+        logStyle: 'silent',
+      });
+      await installCreateAccountAndRegisterUserMock(page, {
+        relayerBaseUrl: relayerUrl,
+        session: managedRegistrationHarness.session,
+        threshold,
+        accountsOnChain,
+        onNewPublicKey: (pk) => {
+          keysOnChain.add(pk);
+          nonceByPublicKey.set(pk, 0);
+        },
+        onNewAccountId: (accountId) => {
+          accountsOnChain.add(accountId);
+        },
+      });
 
-    await installCreateAccountAndRegisterUserMock(page, {
-      relayerBaseUrl: relayerUrl,
-      accountsOnChain,
-      onNewPublicKey: (pk) => {
-        keysOnChain.add(pk);
-        nonceByPublicKey.set(pk, 0);
-      },
-      onNewAccountId: (accountId) => {
-        accountsOnChain.add(accountId);
-      },
-    });
+      await installFastNearRpcMock(page, {
+        keysOnChain,
+        nonceByPublicKey,
+        accountsOnChain,
+        strictAccessKeyLookup: true,
+      });
 
-    await installFastNearRpcMock(page, {
-      keysOnChain,
-      nonceByPublicKey,
-      accountsOnChain,
-      strictAccessKeyLookup: true,
-    });
-
-    const resultPromise = page.evaluate(
-      async ({ walletOrigin, relayerUrl, receiverId }) => {
+      const resultPromise = page.evaluate(
+        async ({ walletOrigin, relayerUrl, receiverId }) => {
         try {
           const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
           const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -61,6 +84,15 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
+            ...(managedRegistration
+              ? {
+                  registration: {
+                    mode: 'managed' as const,
+                    environmentId: String(managedRegistration.environmentId || ''),
+                    publishableKey: String(managedRegistration.publishableKey || ''),
+                  },
+                }
+              : {}),
             iframeWallet: {
               walletOrigin,
               servicePath: '/wallet-service',
@@ -139,64 +171,70 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
         relayerUrl,
         receiverId: expectedReceiverId,
       },
-    );
+      );
 
-    const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
-      timeoutMs: 75_000,
-      intervalMs: 250,
-    });
-    if (!result.ok) {
-      if (handleInfrastructureErrors(result as any)) return;
-      expect(result.ok, (result as any)?.error || 'NEAR seam normalization flow failed').toBe(true);
-      return;
-    }
-
-    const wasmBytes = readFileSync(
-      new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url),
-    );
-    initWasmSignerSync({ module: wasmBytes });
-
-    const toPkBytes = (pk: string): Uint8Array => {
-      const raw = pk.includes(':') ? pk.split(':')[1] : pk;
-      return bs58.decode(raw);
-    };
-
-    const verifySignatureForReceiver = (receiverId: string): boolean => {
-      try {
-        const signingPayload = {
-          txSigningRequests: [
-            {
-              nearAccountId: result.account.id,
-              receiverId,
-              actions: result.wasmActions,
-            },
-          ],
-          transactionContext: {
-            nearPublicKeyStr: result.account.publicKey,
-            nextNonce: result.signed.nonce,
-            txBlockHash: bs58.encode(Uint8Array.from(result.signed.blockHash)),
-          },
-        };
-        const digestsUnknown: unknown =
-          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
-        if (!Array.isArray(digestsUnknown) || !digestsUnknown.length) return false;
-        const digest0 = digestsUnknown[0];
-        if (!(digest0 instanceof Uint8Array) || digest0.length !== 32) return false;
-        return ed25519.verify(
-          Uint8Array.from(result.signed.signature),
-          digest0,
-          toPkBytes(result.account.publicKey),
-        );
-      } catch {
-        return false;
+      const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
+        timeoutMs: 75_000,
+        intervalMs: 250,
+      });
+      if (!result.ok) {
+        if (handleInfrastructureErrors(result as any)) return;
+        expect(
+          result.ok,
+          (result as any)?.error || 'NEAR seam normalization flow failed',
+        ).toBe(true);
+        return;
       }
-    };
 
-    expect(result.rawReceiverId).not.toBe(result.normalizedReceiverId);
-    expect(result.signed.signerId).toBe(result.account.id);
-    expect(result.signed.receiverId).toBe(result.normalizedReceiverId);
-    expect(result.signed.receiverId).toBe(expectedReceiverId);
-    expect(verifySignatureForReceiver(result.normalizedReceiverId)).toBe(true);
+      const wasmBytes = readFileSync(
+        new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url),
+      );
+      initWasmSignerSync({ module: wasmBytes });
+
+      const toPkBytes = (pk: string): Uint8Array => {
+        const raw = pk.includes(':') ? pk.split(':')[1] : pk;
+        return bs58.decode(raw);
+      };
+
+      const verifySignatureForReceiver = (receiverId: string): boolean => {
+        try {
+          const signingPayload = {
+            txSigningRequests: [
+              {
+                nearAccountId: result.account.id,
+                receiverId,
+                actions: result.wasmActions,
+              },
+            ],
+            transactionContext: {
+              nearPublicKeyStr: result.account.publicKey,
+              nextNonce: result.signed.nonce,
+              txBlockHash: bs58.encode(Uint8Array.from(result.signed.blockHash)),
+            },
+          };
+          const digestsUnknown: unknown =
+            threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+          if (!Array.isArray(digestsUnknown) || !digestsUnknown.length) return false;
+          const digest0 = digestsUnknown[0];
+          if (!(digest0 instanceof Uint8Array) || digest0.length !== 32) return false;
+          return ed25519.verify(
+            Uint8Array.from(result.signed.signature),
+            digest0,
+            toPkBytes(result.account.publicKey),
+          );
+        } catch {
+          return false;
+        }
+      };
+
+      expect(result.rawReceiverId).not.toBe(result.normalizedReceiverId);
+      expect(result.signed.signerId).toBe(result.account.id);
+      expect(result.signed.receiverId).toBe(result.normalizedReceiverId);
+      expect(result.signed.receiverId).toBe(expectedReceiverId);
+      expect(verifySignatureForReceiver(result.normalizedReceiverId)).toBe(true);
+    } finally {
+      await managedRegistrationHarness.close();
+    }
   });
 });
 

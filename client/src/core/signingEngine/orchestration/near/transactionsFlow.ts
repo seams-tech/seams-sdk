@@ -18,34 +18,26 @@ import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
-import type { TransactionContext } from '@/core/types/rpc';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
-import {
-  clearCachedEd25519AuthSession,
-  getCachedEd25519AuthSession,
-  getCachedEd25519AuthSessionJwt,
-  makeEd25519AuthSessionCacheKey,
-} from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import {
   isThresholdSessionAuthUnavailableError,
   isThresholdSignerMissingKeyError,
 } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { clearSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
-import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
   resolveNearSigningMaterials,
   toCredentialForRelayJson,
 } from './shared/signingMaterials';
-import {
-  resolveCanonicalThresholdSessionId,
-  resolveThresholdSessionAuth,
-} from './shared/thresholdSessionAuth';
+import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
-import { resolveNearThresholdSigningAuthPlan } from './shared/thresholdAuthMode';
+import {
+  resolveNearThresholdSigningAuthPlan,
+  THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
+} from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { ActionPhase, ActionStatus } from '@/core/types/sdkSentEvents';
@@ -139,7 +131,6 @@ export async function signTransactionsWithActions({
   const signingContext = validateAndPrepareSigningContext({
     nearAccountId,
     relayerUrl,
-    rpId: ctx.touchIdPrompt.getRpId(),
     thresholdKeyMaterial,
   });
 
@@ -181,11 +172,11 @@ export async function signTransactionsWithActions({
     throw new Error('TouchConfirm bridge not available for signing');
   }
   const touchConfirm = ctx.touchConfirm;
+  const warmSessionManager = createWarmSessionManager({ touchConfirm });
   const usesNeeded = Math.max(1, txSigningRequests.length);
   const thresholdAuthPlan = signingContext.threshold
     ? await resolveNearThresholdSigningAuthPlan({
-        touchConfirm,
-        sessionId,
+        warmSessionManager,
         usesNeeded,
         nearAccountId,
         operationLabel: 'transaction signing',
@@ -206,6 +197,7 @@ export async function signTransactionsWithActions({
     ...(signingAuthMode ? { signingAuthMode } : {}),
     txSigningRequests: normalizedTransactions,
     rpcCall: resolvedRpcCall,
+    nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
     confirmationConfigOverride,
     title,
     body,
@@ -221,20 +213,11 @@ export async function signTransactionsWithActions({
 
   const prfFirstB64u = signingContext.threshold
     ? thresholdAuthPlan?.warmSessionReady
-      ? await (async () => {
-          const delivered = await touchConfirm.dispensePrfFirstForThresholdSession({
-            sessionId,
-            uses: usesNeeded,
-          });
-          if (!delivered.ok) {
-            clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-            await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-            throw new Error(
-              `[chains] threshold signingSession is ${delivered.code}; reconnect threshold session before signing`,
-            );
-          }
-          return delivered.prfFirstB64u;
-        })()
+      ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
+          thresholdSessionId: thresholdAuthPlan.sessionId,
+          uses: usesNeeded,
+          errorContext: 'threshold-ed25519 transaction signing',
+        })
       : requirePrfFirstFromCredential(credentialWithPrf)
     : requirePrfFirstFromCredential(credentialWithPrf);
 
@@ -243,33 +226,11 @@ export async function signTransactionsWithActions({
   }
 
   // Threshold signer: authorize with relayer and pass threshold config into the signer worker.
-  const canonicalThresholdSessionId = resolveCanonicalThresholdSessionId({
-    thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
-    fallbackSessionId: sessionId,
+  const canonicalThresholdSessionId = thresholdAuthPlan?.sessionId || sessionId;
+  const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
+    warmSessionManager,
+    thresholdSessionId: canonicalThresholdSessionId,
   });
-  if (
-    (signingContext.threshold.thresholdSessionKind === 'jwt' &&
-      !signingContext.threshold.thresholdSessionJwt) ||
-    signingContext.threshold.thresholdSessionKind === 'cookie'
-  ) {
-    const auth = await resolveThresholdSessionAuth({
-      thresholdSessionCacheKey: signingContext.threshold.thresholdSessionCacheKey,
-      thresholdSessionId: canonicalThresholdSessionId,
-    });
-    if (auth) {
-      signingContext.threshold.thresholdSessionKind = auth.sessionKind;
-      signingContext.threshold.thresholdSessionJwt = auth.thresholdSessionJwt;
-    }
-  }
-  if (
-    signingContext.threshold.thresholdSessionKind === 'jwt' &&
-    !signingContext.threshold.thresholdSessionJwt
-  ) {
-    clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-    throw new Error(
-      '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
-    );
-  }
   const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
     ...(onEvent
       ? {
@@ -285,8 +246,8 @@ export async function signTransactionsWithActions({
       : {}),
     ctx,
     thresholdSessionId: canonicalThresholdSessionId,
-    thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
-    relayerUrl: signingContext.threshold.relayerUrl,
+    thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+    relayerUrl: thresholdSessionState.relayerUrl,
     relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
     nearAccountId,
     keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
@@ -300,26 +261,30 @@ export async function signTransactionsWithActions({
   });
   const buildRequestPayload = (
     xClientBaseOverride?: string,
-  ): Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> => ({
-    rpcCall: resolvedRpcCall,
-    createdAt: Date.now(),
-    ...buildNearWorkerSigningEnvelope({
-      threshold: {
-        relayerUrl: signingContext.threshold.relayerUrl,
-        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-        xClientBaseB64u:
-          xClientBaseOverride ||
-          getStoredThresholdEd25519SessionRecordByThresholdSessionId(canonicalThresholdSessionId)
-            ?.xClientBaseB64u,
-        thresholdSessionKind: signingContext.threshold.thresholdSessionKind,
-        thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
-      },
-    }),
-    txSigningRequests,
-    intentDigest,
-    transactionContext,
-    credential: credentialForRelayJson,
-  });
+  ): Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> => {
+    const currentThresholdSessionState = requireResolvedThresholdEd25519SessionState({
+      warmSessionManager,
+      thresholdSessionId: canonicalThresholdSessionId,
+    });
+    return {
+      rpcCall: resolvedRpcCall,
+      createdAt: Date.now(),
+      ...buildNearWorkerSigningEnvelope({
+        threshold: {
+          relayerUrl: currentThresholdSessionState.relayerUrl,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          xClientBaseB64u:
+            xClientBaseOverride || currentThresholdSessionState.xClientBaseB64u,
+          thresholdSessionKind: currentThresholdSessionState.sessionKind,
+          thresholdSessionJwt: currentThresholdSessionState.thresholdSessionJwt,
+        },
+      }),
+      txSigningRequests,
+      intentDigest,
+      transactionContext,
+      credential: credentialForRelayJson,
+    };
+  };
   let requestPayload = buildRequestPayload(xClientBaseB64u);
 
   const executeSignRequest = async (
@@ -355,8 +320,8 @@ export async function signTransactionsWithActions({
           ctx,
           operationLabel: 'transactions',
           thresholdSessionId: canonicalThresholdSessionId,
-          thresholdSessionJwt: signingContext.threshold.thresholdSessionJwt,
-          relayerUrl: signingContext.threshold.relayerUrl,
+          thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+          relayerUrl: thresholdSessionState.relayerUrl,
           relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
           nearAccountId,
           keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
@@ -393,8 +358,6 @@ export async function signTransactionsWithActions({
             '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
           console.warn(msg);
           warnings.push(msg);
-          clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-          signingContext.threshold.thresholdSessionJwt = undefined;
           throw new Error(msg);
         }
         throw repairErr;
@@ -402,12 +365,7 @@ export async function signTransactionsWithActions({
     }
 
     if (isThresholdSessionAuthUnavailableError(err)) {
-      clearCachedEd25519AuthSession(signingContext.threshold.thresholdSessionCacheKey);
-      await clearSigningSessionPrfFirstBestEffort(touchConfirm, sessionId);
-      signingContext.threshold.thresholdSessionJwt = undefined;
-      throw new Error(
-        '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
-      );
+      throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
     }
 
     throw err;
@@ -452,16 +410,12 @@ type ThresholdSigningContext = {
   threshold: {
     relayerUrl: string;
     thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-    thresholdSessionCacheKey: string;
-    thresholdSessionKind: 'jwt' | 'cookie';
-    thresholdSessionJwt: string | undefined;
   };
 };
 
 function validateAndPrepareSigningContext(args: {
   nearAccountId: string;
   relayerUrl: string;
-  rpId: string | null;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
 }): ThresholdSigningContext {
   const thresholdKeyMaterial = args.thresholdKeyMaterial;
@@ -479,11 +433,6 @@ function validateAndPrepareSigningContext(args: {
     throw new Error('Missing relayerUrl (required for threshold-signer)');
   }
 
-  const rpId = String(args.rpId || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for threshold signing');
-  }
-
   const participantIds = normalizeThresholdEd25519ParticipantIds(
     thresholdKeyMaterial.participants.map((p) => p.id),
   );
@@ -493,28 +442,11 @@ function validateAndPrepareSigningContext(args: {
     );
   }
 
-  const thresholdSessionCacheKey = makeEd25519AuthSessionCacheKey({
-    nearAccountId: args.nearAccountId,
-    rpId,
-    relayerUrl,
-    relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-    participantIds,
-  });
-  const cachedAuthSession = getCachedEd25519AuthSession(thresholdSessionCacheKey);
-  const thresholdSessionKind: 'jwt' | 'cookie' =
-    cachedAuthSession?.sessionKind === 'cookie' ? 'cookie' : 'jwt';
-
   return {
     signingNearPublicKeyStr: thresholdPublicKey,
     threshold: {
       relayerUrl,
       thresholdKeyMaterial,
-      thresholdSessionCacheKey,
-      thresholdSessionKind,
-      thresholdSessionJwt:
-        thresholdSessionKind === 'jwt'
-          ? getCachedEd25519AuthSessionJwt(thresholdSessionCacheKey)
-          : undefined,
     },
   };
 }

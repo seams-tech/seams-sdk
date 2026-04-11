@@ -182,6 +182,7 @@ export interface SignTransactionPayload {
   intentDigest: string;
   displayModel?: TxDisplayModel;
   rpcCall: RpcCallPayload;
+  nearPublicKeyStr?: string;
   /**
    * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for signing flows.
    *
@@ -238,6 +239,7 @@ export interface ShowSecurePrivateKeyUiPayload {
 
 export interface SignNep413Payload {
   nearAccountId: string;
+  nearPublicKeyStr?: string;
   message: string;
   recipient: string;
   displayModel?: TxDisplayModel;

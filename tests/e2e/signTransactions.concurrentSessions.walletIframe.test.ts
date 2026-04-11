@@ -5,9 +5,12 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../setup';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
+import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
 import {
   installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
+  makeAuthServiceForThreshold,
+  setupManagedThresholdRegistrationHarness,
 } from './thresholdEd25519.testUtils';
 import {
   initSync as initWasmSignerSync,
@@ -24,33 +27,54 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     const accountsOnChain = new Set<string>();
-
-    const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
-
-    await installCreateAccountAndRegisterUserMock(page, {
-      relayerBaseUrl: relayerUrl,
-      accountsOnChain,
-      onNewPublicKey: (pk) => {
-        keysOnChain.add(pk);
-        nonceByPublicKey.set(pk, 0);
-      },
-      onNewAccountId: (accountId) => {
-        accountsOnChain.add(accountId);
-      },
+    const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
+    const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
+      page,
+      service,
+      threshold,
+      keyName: 'concurrent-sessions-browser',
+      orgId: 'org_concurrent_sessions',
+      orgSlug: 'concurrent-sessions-org',
+      orgName: 'Concurrent Sessions Org',
+      projectId: 'proj_concurrent_sessions',
+      projectName: 'Concurrent Sessions Project',
     });
 
-    await installFastNearRpcMock(page, {
-      keysOnChain,
-      nonceByPublicKey,
-      accountsOnChain,
-      strictAccessKeyLookup: true,
-    });
+    try {
+      const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
+      await installRelayServerProxyShim(page, {
+        relayOrigin: relayerUrl,
+        relayUpstream: managedRegistrationHarness.baseUrl,
+        logStyle: 'silent',
+      });
 
-    const resultPromise = page.evaluate(
-      async ({ walletOrigin, relayerUrl, receiverId }) => {
+      await installCreateAccountAndRegisterUserMock(page, {
+        relayerBaseUrl: relayerUrl,
+        session: managedRegistrationHarness.session,
+        threshold,
+        accountsOnChain,
+        onNewPublicKey: (pk) => {
+          keysOnChain.add(pk);
+          nonceByPublicKey.set(pk, 0);
+        },
+        onNewAccountId: (accountId) => {
+          accountsOnChain.add(accountId);
+        },
+      });
+
+      await installFastNearRpcMock(page, {
+        keysOnChain,
+        nonceByPublicKey,
+        accountsOnChain,
+        strictAccessKeyLookup: true,
+      });
+
+      const resultPromise = page.evaluate(
+        async ({ walletOrigin, relayerUrl, receiverId }) => {
         try {
           const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
           const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
+          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -63,6 +87,15 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
+            ...(managedRegistration
+              ? {
+                  registration: {
+                    mode: 'managed' as const,
+                    environmentId: String(managedRegistration.environmentId || ''),
+                    publishableKey: String(managedRegistration.publishableKey || ''),
+                  },
+                }
+              : {}),
             iframeWallet: {
               walletOrigin,
               servicePath: '/wallet-service',
@@ -149,10 +182,21 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             };
           };
 
-          const [signed1, signed2] = await Promise.all([
-            signOnce(account1, receiver),
-            signOnce(account2, alternateReceiver),
-          ]);
+          let signed1;
+          let signed2;
+          try {
+            [signed1, signed2] = await Promise.all([
+              signOnce(account1, receiver),
+              signOnce(account2, alternateReceiver),
+            ]);
+          } catch (error: any) {
+            return {
+              ok: false as const,
+              error: error?.message || String(error),
+              code: error?.code,
+              debug: error?.details,
+            };
+          }
 
           return {
             ok: true as const,
@@ -165,7 +209,12 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             signed2,
           };
         } catch (e: any) {
-          return { ok: false as const, error: e?.message || String(e) };
+          return {
+            ok: false as const,
+            error: e?.message || String(e),
+            code: e?.code,
+            debug: e?.debug,
+          };
         }
       },
       {
@@ -173,89 +222,96 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
         relayerUrl,
         receiverId: receiverIdFromConfig(),
       },
-    );
+      );
 
-    const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
-      timeoutMs: 75_000,
-      intervalMs: 250,
-    });
-    if (!result.ok) {
-      if (handleInfrastructureErrors(result as any)) return;
-      expect(result.ok, (result as any)?.error || 'concurrent signing failed').toBe(true);
-      return;
-    }
+      const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
+        timeoutMs: 75_000,
+        intervalMs: 250,
+      });
+      if (!result.ok) {
+        if (handleInfrastructureErrors(result as any)) return;
+        const debugSuffix = (result as any)?.debug ? `\n${JSON.stringify((result as any).debug, null, 2)}` : '';
+        expect(
+          result.ok,
+          `${(result as any)?.error || 'concurrent signing failed'}${debugSuffix}`,
+        ).toBe(true);
+        return;
+      }
 
-    const wasmBytes = readFileSync(
-      new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url),
-    );
-    initWasmSignerSync({ module: wasmBytes });
+      const wasmBytes = readFileSync(
+        new URL('../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm', import.meta.url),
+      );
+      initWasmSignerSync({ module: wasmBytes });
 
-    const toPkBytes = (pk: string): Uint8Array => {
-      const raw = pk.includes(':') ? pk.split(':')[1] : pk;
-      return bs58.decode(raw);
-    };
-
-    const computeDigest = (
-      signed: {
-        receiverId: string;
-        nonce: string;
-        blockHash: number[];
-      },
-      account: { id: string; publicKey: string },
-    ): Uint8Array => {
-      const signingPayload = {
-        txSigningRequests: [
-          {
-            nearAccountId: account.id,
-            receiverId: signed.receiverId,
-            actions: result.wasmActions,
-          },
-        ],
-        transactionContext: {
-          nearPublicKeyStr: account.publicKey,
-          nextNonce: signed.nonce,
-          txBlockHash: bs58.encode(Uint8Array.from(signed.blockHash)),
-        },
+      const toPkBytes = (pk: string): Uint8Array => {
+        const raw = pk.includes(':') ? pk.split(':')[1] : pk;
+        return bs58.decode(raw);
       };
 
-      const digestsUnknown: unknown =
-        threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
-      if (!Array.isArray(digestsUnknown) || !digestsUnknown.length) {
-        throw new Error('Expected a non-empty signing digests array');
-      }
-      const digest0 = digestsUnknown[0];
-      if (!(digest0 instanceof Uint8Array) || digest0.length !== 32) {
-        throw new Error('Expected digest[0] to be a 32-byte Uint8Array');
-      }
-      return digest0;
-    };
+      const computeDigest = (
+        signed: {
+          receiverId: string;
+          nonce: string;
+          blockHash: number[];
+        },
+        account: { id: string; publicKey: string },
+      ): Uint8Array => {
+        const signingPayload = {
+          txSigningRequests: [
+            {
+              nearAccountId: account.id,
+              receiverId: signed.receiverId,
+              actions: result.wasmActions,
+            },
+          ],
+          transactionContext: {
+            nearPublicKeyStr: account.publicKey,
+            nextNonce: signed.nonce,
+            txBlockHash: bs58.encode(Uint8Array.from(signed.blockHash)),
+          },
+        };
 
-    const verifySignature = (
-      signed: {
-        signature: number[];
-        receiverId: string;
-        nonce: string;
-        blockHash: number[];
-      },
-      account: { id: string; publicKey: string },
-    ): boolean => {
-      const sigBytes = Uint8Array.from(signed.signature);
-      const digest = computeDigest(signed, account);
-      return ed25519.verify(sigBytes, digest, toPkBytes(account.publicKey));
-    };
+        const digestsUnknown: unknown =
+          threshold_ed25519_compute_near_tx_signing_digests(signingPayload);
+        if (!Array.isArray(digestsUnknown) || !digestsUnknown.length) {
+          throw new Error('Expected a non-empty signing digests array');
+        }
+        const digest0 = digestsUnknown[0];
+        if (!(digest0 instanceof Uint8Array) || digest0.length !== 32) {
+          throw new Error('Expected digest[0] to be a 32-byte Uint8Array');
+        }
+        return digest0;
+      };
 
-    expect(result.account1.publicKey).toBeTruthy();
-    expect(result.account2.publicKey).toBeTruthy();
-    expect(result.signed1.signerId).toBe(result.account1.id);
-    expect(result.signed2.signerId).toBe(result.account2.id);
-    expect(result.signed1.receiverId).toBe(result.receiver);
-    expect(result.signed2.receiverId).toBe(result.alternateReceiver);
-    expect(result.signed1.borshBytes).not.toEqual(result.signed2.borshBytes);
+      const verifySignature = (
+        signed: {
+          signature: number[];
+          receiverId: string;
+          nonce: string;
+          blockHash: number[];
+        },
+        account: { id: string; publicKey: string },
+      ): boolean => {
+        const sigBytes = Uint8Array.from(signed.signature);
+        const digest = computeDigest(signed, account);
+        return ed25519.verify(sigBytes, digest, toPkBytes(account.publicKey));
+      };
 
-    expect(verifySignature(result.signed1, result.account1)).toBe(true);
-    expect(verifySignature(result.signed1, result.account2)).toBe(false);
-    expect(verifySignature(result.signed2, result.account2)).toBe(true);
-    expect(verifySignature(result.signed2, result.account1)).toBe(false);
+      expect(result.account1.publicKey).toBeTruthy();
+      expect(result.account2.publicKey).toBeTruthy();
+      expect(result.signed1.signerId).toBe(result.account1.id);
+      expect(result.signed2.signerId).toBe(result.account2.id);
+      expect(result.signed1.receiverId).toBe(result.receiver);
+      expect(result.signed2.receiverId).toBe(result.alternateReceiver);
+      expect(result.signed1.borshBytes).not.toEqual(result.signed2.borshBytes);
+
+      expect(verifySignature(result.signed1, result.account1)).toBe(true);
+      expect(verifySignature(result.signed1, result.account2)).toBe(false);
+      expect(verifySignature(result.signed2, result.account2)).toBe(true);
+      expect(verifySignature(result.signed2, result.account1)).toBe(false);
+    } finally {
+      await managedRegistrationHarness.close();
+    }
   });
 });
 

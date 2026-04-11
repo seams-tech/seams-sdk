@@ -61,4 +61,30 @@ test.describe('key export legacy-surface guard', () => {
     expect(content.includes('.keys.exportKeypairWithUI(')).toBe(true);
     expect(content.includes("chain: 'near'")).toBe(true);
   });
+
+  test('account menu export modal uses the resolved portal host', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const accountMenuPath = path.join(
+      repoRoot,
+      'client/src/react/components/AccountMenuButton/index.tsx',
+    );
+    const content = fs.readFileSync(accountMenuPath, 'utf8');
+
+    expect(content.includes('{canPortal &&')).toBe(true);
+    expect(content.includes('          portalHost!,')).toBe(true);
+    expect(content.includes('document.body so global modal CSS applies consistently')).toBe(false);
+    expect(content.includes('(typeof document !== \'undefined\' ? document.body : portalHost)!')).toBe(
+      false,
+    );
+  });
+
+  test('react styles include export modal stylesheet', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const reactStylesPath = path.join(repoRoot, 'client/src/react/styles.css');
+    const content = fs.readFileSync(reactStylesPath, 'utf8');
+
+    expect(content.includes("@import './components/AccountMenuButton/ExportKeyTypeModal.css';")).toBe(
+      true,
+    );
+  });
 });

@@ -13,10 +13,8 @@ import { toAccountId } from '../types/accountIds';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { IndexedDBManager } from '../indexedDB';
 import { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
-import {
-  buildAndCacheEd25519AuthSession,
-  type Ed25519SessionKind,
-} from '../signingEngine/threshold/session/ed25519AuthSession';
+import type { Ed25519SessionKind } from '../signingEngine/threshold/session/ed25519SessionTypes';
+import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmSessionPersistence';
 import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/webauthn';
 import { getStoredThresholdEd25519SessionRecordForAccount } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
@@ -407,7 +405,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
         ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
       ];
 
-  await buildAndCacheEd25519AuthSession({
+  persistWarmSessionEd25519Capability({
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
     relayerUrl: args.relayerUrl,
@@ -419,19 +417,19 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     remainingUses,
     jwt,
     ...(session.runtimeSnapshotScope ? { runtimeSnapshotScope: session.runtimeSnapshotScope } : {}),
-    policyTtlMs: args.registrationSessionPolicy.ttlMs,
-    policyRemainingUses: args.registrationSessionPolicy.remainingUses,
     source: 'registration',
   });
 
   await args.signingEngine.hydrateSigningSession({
-    nearAccountId: args.nearAccountId,
-    signerKind: 'threshold-ed25519',
     sessionId,
     prfFirstB64u: args.prfFirstB64u,
     expiresAtMs,
     remainingUses,
-    setActiveSigningSessionId: true,
+    transport: {
+      curve: 'ed25519',
+      relayerUrl: args.relayerUrl,
+      ...(jwt ? { thresholdSessionJwt: jwt } : {}),
+    },
   });
 }
 
@@ -597,7 +595,6 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   requestedPolicy: ThresholdWarmSessionPolicyDraft;
   session: ThresholdWarmSessionRelayResult;
   participantIdsHint?: number[];
-  setActiveSigningSessionId?: boolean;
 }): Promise<{
   sessionId: string;
   expiresAtMs: number;
@@ -637,7 +634,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
   }
 
-  await buildAndCacheEd25519AuthSession({
+  persistWarmSessionEd25519Capability({
     nearAccountId: String(args.nearAccountId),
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
@@ -651,13 +648,15 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     source: 'bootstrap',
   });
   await args.context.signingEngine.hydrateSigningSession({
-    nearAccountId: args.nearAccountId,
-    signerKind: 'threshold-ed25519',
     sessionId,
     prfFirstB64u,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
-    setActiveSigningSessionId: args.setActiveSigningSessionId !== false,
+    transport: {
+      curve: 'ed25519',
+      relayerUrl: String(args.relayerUrl || '').trim(),
+      ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
+    },
   });
 
   return {

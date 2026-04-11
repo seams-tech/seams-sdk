@@ -19,6 +19,7 @@ import {
 import {
   getNearAccountId,
   getIntentDigest,
+  getNearPublicKeyStr,
   getTxCount,
   getSignTransactionPayload,
 } from './adapters/request';
@@ -96,6 +97,7 @@ export async function handleTransactionSigningFlow(
     // 1) Start NEAR context fetch + nonce reservation immediately.
     const nearContextPromise = adapters.near.fetchNearContext({
       nearAccountId,
+      nearPublicKeyStr: getNearPublicKeyStr(request),
       txCount: usesNeeded,
       reserveNonces: true,
       allowFallback: false,

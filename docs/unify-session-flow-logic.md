@@ -52,7 +52,7 @@ All chain flows call this module, then run chain-specific signing only.
 
 1. Implement `thresholdSigningSessionPlanner.ts` in shared orchestration.
 2. Move duplicated session readiness checks into the planner.
-3. Move PRF dispense rules into the planner.
+3. Move warm-session claim rules into the planner.
 4. Expose typed result object used by all chain flows.
 
 ### Phase 3: Migrate NEAR flows
@@ -82,14 +82,14 @@ Refactor:
 Changes:
 
 1. Remove remaining duplicate readiness checks outside planner.
-2. Use planner as single source for warm session gating and PRF dispense.
+2. Use planner as single source for warm session gating and warm-session claim behavior.
 3. Keep chain-specific signing intent and transport logic unchanged.
 
 ### Phase 5: Consolidate session lifecycle
 
 1. Keep session creation only in unlock/create-session APIs.
 2. Ensure session policy (`ttlMs`, `remainingUses`) is applied only there.
-3. Ensure global lock clear always wipes full PRF cache.
+3. Ensure global lock clear always wipes all warm-session material.
 
 ### Phase 6: Delete legacy paths immediately
 

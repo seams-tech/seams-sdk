@@ -384,7 +384,8 @@ export interface LoginResult {
 
 export interface SigningSessionStatus {
   sessionId: string;
-  status: 'active' | 'exhausted' | 'expired' | 'not_found';
+  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable';
+  statusCode?: string;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;

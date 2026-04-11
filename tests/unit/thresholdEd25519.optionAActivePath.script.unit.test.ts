@@ -3,12 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import bs58 from 'bs58';
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { buildAndCacheEd25519AuthSession } from '@/core/signingEngine/threshold/session/ed25519AuthSession';
 import {
   ensureThresholdEd25519HssClientBase,
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
 import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 import {
@@ -104,6 +104,28 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
 );
 let nearSignerWasmInitializedForDirectWorkerTests = false;
 let hssClientSignerWasmInitializedForDirectWorkerTests = false;
+
+function buildExportAuthorizationDecision(requestId: string) {
+  return {
+    requestId,
+    confirmed: true,
+    credential: {
+      id: 'cred-id',
+      rawId: 'cred-rawid-b64u',
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      response: {
+        clientDataJSON: 'clientDataJSON-b64u',
+        authenticatorData: 'authenticatorData-b64u',
+        signature: 'signature-b64u',
+        userHandle: '',
+      },
+      clientExtensionResults: {
+        prf: { results: { first: PRF_FIRST_B64U, second: undefined } },
+      },
+    },
+  };
+}
 
 function createStubbedThresholdEd25519HssCeremonyServer(): {
   prepare: (body: Record<string, any>) => Promise<{
@@ -456,7 +478,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     seedThresholdEd25519Session({ xClientBaseB64u: expectedXClientBaseB64u });
 
     try {
-      await buildAndCacheEd25519AuthSession({
+      persistWarmSessionEd25519Capability({
         nearAccountId: NEAR_ACCOUNT_ID,
         rpId: RP_ID,
         relayerUrl: RELAYER_URL,
@@ -613,7 +635,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     seedThresholdEd25519Session({ xClientBaseB64u: Buffer.alloc(32, 23).toString('base64url') });
 
-    await buildAndCacheEd25519AuthSession({
+    persistWarmSessionEd25519Capability({
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -672,12 +694,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
           relayerUrl: RELAYER_URL,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: false as const,
               code: 'not_found',
-              message: 'warm cache missing',
+              message: 'warm-session status missing',
             }),
-            clearPrfFirstForThresholdSession: async () => undefined,
+            clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {
@@ -749,7 +771,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     seedThresholdEd25519Session({ xClientBaseB64u: Buffer.alloc(32, 23).toString('base64url') });
 
-    await buildAndCacheEd25519AuthSession({
+    persistWarmSessionEd25519Capability({
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -837,12 +859,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
           relayerUrl: RELAYER_URL,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: false as const,
               code: 'not_found',
-              message: 'warm cache missing',
+              message: 'warm-session status missing',
             }),
-            clearPrfFirstForThresholdSession: async () => undefined,
+            clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {
@@ -899,7 +921,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     }
   });
 
-  test('prefers Option A seed export from the active warm threshold session', async () => {
+  test('prefers Option A seed export from the canonical threshold session with fresh authorization', async () => {
     const { restore } = installMemorySessionStorage();
     const originalFetch = globalThis.fetch;
     const exportWorkerCalls: Array<Record<string, unknown>> = [];
@@ -1052,19 +1074,6 @@ test.describe('threshold Ed25519 Option A active path', () => {
         indexedDB: {
           ...makeIndexedDbThresholdDeps(expectedPublicKey),
         },
-        signingSessionStateDeps: {
-          activeSigningSessionIds: new Map<string, string>(),
-          touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
-              ok: true as const,
-              remainingUses: 5,
-              expiresAtMs: Date.now() + 60_000,
-            }),
-          },
-          createSessionId: (prefix: string) => `${prefix}-unused`,
-          signingSessionDefaults: { ttlMs: 60_000, remainingUses: 5 },
-          resolveCanonicalSigningSessionIdForKind: () => THRESHOLD_SESSION_ID,
-        },
         thresholdSessionActivationDeps: {
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async ({ request }: any) =>
@@ -1074,18 +1083,18 @@ test.describe('threshold Ed25519 Option A active path', () => {
       };
 
       engine.touchConfirm = {
-        dispensePrfFirstForThresholdSession: async () => ({
-          ok: true as const,
-          prfFirstB64u: PRF_FIRST_B64U,
-          remainingUses: 4,
-          expiresAtMs: Date.now() + 60_000,
-        }),
+        getWarmSessionStatus: async () => {
+          throw new Error('warm-session status should not be consulted during export');
+        },
+        claimWarmSessionMaterial: async () => {
+          throw new Error('warm-session material should not be consumed during export');
+        },
         requestUserConfirmation: async (request: Record<string, any>) => {
           userConfirmationCalls.push(request);
-          return {
-            requestId: String(request.requestId || ''),
-            confirmed: true,
-          };
+          if (request.type === 'decryptPrivateKeyWithPrf') {
+            return buildExportAuthorizationDecision(String(request.requestId || ''));
+          }
+          return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
 
@@ -1178,19 +1187,6 @@ test.describe('threshold Ed25519 Option A active path', () => {
             storeKeyMaterial: async () => undefined,
           },
         },
-        signingSessionStateDeps: {
-          activeSigningSessionIds: new Map<string, string>(),
-          touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
-              ok: false as const,
-              code: 'not_found',
-              message: 'missing warm session',
-            }),
-          },
-          createSessionId: (prefix: string) => `${prefix}-unused`,
-          signingSessionDefaults: { ttlMs: 60_000, remainingUses: 5 },
-          resolveCanonicalSigningSessionIdForKind: () => null,
-        },
         thresholdSessionActivationDeps: {
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async ({ request }: any) =>
@@ -1200,7 +1196,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       };
 
       engine.touchConfirm = {
-        dispensePrfFirstForThresholdSession: async () => ({
+        claimWarmSessionMaterial: async () => ({
           ok: false as const,
           code: 'not_found',
           message: 'missing warm PRF',
@@ -1232,7 +1228,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     clearAllStoredThresholdEd25519SessionRecords();
     seedThresholdEd25519Session();
 
-    await buildAndCacheEd25519AuthSession({
+    persistWarmSessionEd25519Capability({
       nearAccountId: NEAR_ACCOUNT_ID,
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
@@ -1320,12 +1316,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
           relayerUrl: RELAYER_URL,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: false as const,
               code: 'not_found',
-              message: 'warm cache missing',
+              message: 'warm-session status missing',
             }),
-            clearPrfFirstForThresholdSession: async () => undefined,
+            clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async () => ({
               intentDigest: 'intent-digest-b64u',
               transactionContext: {
@@ -1407,19 +1403,6 @@ test.describe('threshold Ed25519 Option A active path', () => {
         indexedDB: {
           ...makeIndexedDbThresholdDeps(thresholdPublicKey),
         },
-        signingSessionStateDeps: {
-          activeSigningSessionIds: new Map<string, string>(),
-          touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
-              ok: true as const,
-              remainingUses: 5,
-              expiresAtMs: Date.now() + 60_000,
-            }),
-          },
-          createSessionId: (prefix: string) => `${prefix}-unused`,
-          signingSessionDefaults: { ttlMs: 60_000, remainingUses: 5 },
-          resolveCanonicalSigningSessionIdForKind: () => THRESHOLD_SESSION_ID,
-        },
         thresholdSessionActivationDeps: {
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async ({ request }: any) =>
@@ -1428,18 +1411,18 @@ test.describe('threshold Ed25519 Option A active path', () => {
         },
       };
       engine.touchConfirm = {
-        dispensePrfFirstForThresholdSession: async () => ({
-          ok: true as const,
-          prfFirstB64u: PRF_FIRST_B64U,
-          remainingUses: 4,
-          expiresAtMs: Date.now() + 60_000,
-        }),
+        getWarmSessionStatus: async () => {
+          throw new Error('warm-session status should not be consulted during export');
+        },
+        claimWarmSessionMaterial: async () => {
+          throw new Error('warm-session material should not be consumed during export');
+        },
         requestUserConfirmation: async (request: Record<string, any>) => {
           userConfirmationCalls.push(request);
-          return {
-            requestId: String(request.requestId || ''),
-            confirmed: true,
-          };
+          if (request.type === 'decryptPrivateKeyWithPrf') {
+            return buildExportAuthorizationDecision(String(request.requestId || ''));
+          }
+          return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
 

@@ -45,7 +45,7 @@ type UserConfirmWorkerGlobal = typeof globalThis & {
 };
 (globalThis as UserConfirmWorkerGlobal).awaitUserConfirmationV2 = awaitUserConfirmationV2;
 
-type ThresholdPrfFirstCacheEntry = {
+type WarmSessionMaterialEntry = {
   prfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -73,7 +73,7 @@ type PrfSessionSealRouteResult =
     }
   | ErrResult;
 
-const prfFirstSessionCache = new Map<string, ThresholdPrfFirstCacheEntry>();
+const prfFirstSessionCache = new Map<string, WarmSessionMaterialEntry>();
 const prfSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
 const prfSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
@@ -373,14 +373,14 @@ function resolvePolicyFromServerAndLocal(args: {
     return {
       ok: false,
       code: 'exhausted',
-      message: 'PRF.first cache exhausted for threshold session',
+      message: 'Warm-session material exhausted for threshold session',
     };
   }
   if (expiresAtMs <= nowMs()) {
     return {
       ok: false,
       code: 'expired',
-      message: 'PRF.first cache expired for threshold session',
+      message: 'Warm-session material expired for threshold session',
     };
   }
   return { ok: true, remainingUses, expiresAtMs };
@@ -658,39 +658,39 @@ async function runExportPrivateKeysWithUi(
   }
 }
 
-function peekPrfFirstEntry(sessionId: string): OkResult | ErrResult {
+function readWarmSessionClaimEntry(sessionId: string): OkResult | ErrResult {
   if (!sessionId)
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   const entry = prfFirstSessionCache.get(sessionId);
   if (!entry)
-    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
   if (nowMs() >= entry.expiresAtMs) {
     prfFirstSessionCache.delete(sessionId);
-    return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
+    return { ok: false, code: 'expired', message: 'Warm-session material expired for threshold session' };
   }
   if (entry.remainingUses <= 0) {
     prfFirstSessionCache.delete(sessionId);
     return {
       ok: false,
       code: 'exhausted',
-      message: 'PRF.first cache exhausted for threshold session',
+      message: 'Warm-session material exhausted for threshold session',
     };
   }
   return { ok: true, remainingUses: entry.remainingUses, expiresAtMs: entry.expiresAtMs };
 }
 
-function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResult | ErrResult {
-  const peek = peekPrfFirstEntry(sessionId);
-  if (!peek.ok) return peek;
+function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispenseResult | ErrResult {
+  const statusRead = readWarmSessionClaimEntry(sessionId);
+  if (!statusRead.ok) return statusRead;
   const entry = prfFirstSessionCache.get(sessionId);
   if (!entry)
-    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
   const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
   if (entry.remainingUses < usesNeeded) {
     return {
       ok: false,
       code: 'exhausted',
-      message: 'PRF.first cache exhausted for threshold session',
+      message: 'Warm-session material exhausted for threshold session',
     };
   }
   entry.remainingUses -= usesNeeded;
@@ -704,39 +704,6 @@ function dispensePrfFirstEntry(sessionId: string, uses: number): OkDispenseResul
     prfFirstB64u: entry.prfFirstB64u,
     remainingUses: entry.remainingUses,
     expiresAtMs: entry.expiresAtMs,
-  };
-}
-
-function transferPrfFirstEntry(args: {
-  fromSessionId: unknown;
-  toSessionId: unknown;
-}): OkResult | ErrResult {
-  const fromSessionId = normalizeOptionalTrimmedString(args.fromSessionId);
-  const toSessionId = normalizeOptionalTrimmedString(args.toSessionId);
-  if (!fromSessionId || !toSessionId) {
-    return { ok: false, code: 'invalid_args', message: 'Missing fromSessionId or toSessionId' };
-  }
-  if (fromSessionId === toSessionId) {
-    return peekPrfFirstEntry(toSessionId);
-  }
-
-  const sourcePeek = peekPrfFirstEntry(fromSessionId);
-  if (!sourcePeek.ok) return sourcePeek;
-  const sourceEntry = prfFirstSessionCache.get(fromSessionId);
-  if (!sourceEntry) {
-    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
-  }
-
-  prfFirstSessionCache.set(toSessionId, {
-    prfFirstB64u: sourceEntry.prfFirstB64u,
-    remainingUses: sourceEntry.remainingUses,
-    expiresAtMs: sourceEntry.expiresAtMs,
-  });
-  prfFirstSessionCache.delete(fromSessionId);
-  return {
-    ok: true,
-    remainingUses: sourceEntry.remainingUses,
-    expiresAtMs: sourceEntry.expiresAtMs,
   };
 }
 
@@ -756,11 +723,11 @@ async function runPrfSessionSealAndPersist(args: {
       message: 'Missing shamirPrimeB64u for PRF session seal',
     };
   }
-  const peek = peekPrfFirstEntry(sessionId);
-  if (!peek.ok) return peek;
+  const statusRead = readWarmSessionClaimEntry(sessionId);
+  if (!statusRead.ok) return statusRead;
   const entry = prfFirstSessionCache.get(sessionId);
   if (!entry) {
-    return { ok: false, code: 'not_found', message: 'PRF.first not cached for threshold session' };
+    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
   }
   const singleFlightKey = makePrfSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
@@ -858,11 +825,11 @@ async function runPrfSessionRehydrate(args: {
     return {
       ok: false,
       code: 'exhausted',
-      message: 'PRF.first cache exhausted for threshold session',
+      message: 'Warm-session material exhausted for threshold session',
     };
   }
   if (localExpiresAtMs <= nowMs()) {
-    return { ok: false, code: 'expired', message: 'PRF.first cache expired for threshold session' };
+    return { ok: false, code: 'expired', message: 'Warm-session material expired for threshold session' };
   }
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
   if (!shamirPrimeB64u) {
@@ -1026,7 +993,7 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PUT') {
+  if (eventType === 'WARM_SESSION_MATERIAL_PUT') {
     try {
       const payload = asRecord(incoming.payload);
       const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
@@ -1067,36 +1034,48 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_PEEK') {
+  if (eventType === 'WARM_SESSION_STATUS_READ') {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
-    postUserConfirmWorkerResponse(id, { success: true, data: peekPrfFirstEntry(sessionId) });
+    postUserConfirmWorkerResponse(id, { success: true, data: readWarmSessionClaimEntry(sessionId) });
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE') {
+  if (eventType === 'WARM_SESSION_STATUS_BATCH_READ') {
+    const payload = asRecord(incoming.payload);
+    const sessionIds = Array.isArray(payload?.sessionIds)
+      ? Array.from(
+          new Set(
+            payload.sessionIds
+              .map((value) => normalizeOptionalTrimmedString(value))
+              .filter((value): value is string => !!value),
+          ),
+        )
+      : [];
+    postUserConfirmWorkerResponse(id, {
+      success: true,
+      data: {
+        results: sessionIds.map((sessionId) => ({
+          sessionId,
+          result: readWarmSessionClaimEntry(sessionId),
+        })),
+      },
+    });
+    return;
+  }
+
+  if (eventType === 'WARM_SESSION_MATERIAL_CLAIM') {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
     postUserConfirmWorkerResponse(id, {
       success: true,
-      data: dispensePrfFirstEntry(sessionId, uses),
+      data: claimWarmSessionMaterialEntry(sessionId, uses),
     });
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_TRANSFER') {
-    const payload = asRecord(incoming.payload);
-    const fromSessionId = normalizeOptionalTrimmedString(payload?.fromSessionId);
-    const toSessionId = normalizeOptionalTrimmedString(payload?.toSessionId);
-    postUserConfirmWorkerResponse(id, {
-      success: true,
-      data: transferPrfFirstEntry({ fromSessionId, toSessionId }),
-    });
-    return;
-  }
-
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR') {
+  if (eventType === 'WARM_SESSION_MATERIAL_CLEAR') {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     if (sessionId) prfFirstSessionCache.delete(sessionId);
@@ -1104,13 +1083,13 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL') {
+  if (eventType === 'WARM_SESSION_MATERIAL_CLEAR_ALL') {
     prfFirstSessionCache.clear();
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST') {
+  if (eventType === 'WARM_SESSION_SEAL_AND_PERSIST') {
     void (async () => {
       const payload = asRecord(incoming.payload);
       const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
@@ -1121,7 +1100,7 @@ self.onmessage = (event: MessageEvent) => {
           data: {
             ok: false,
             code: 'invalid_args',
-            message: 'Invalid THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST payload',
+            message: 'Invalid WARM_SESSION_SEAL_AND_PERSIST payload',
           } satisfies ErrResult,
         });
         return;
@@ -1132,7 +1111,7 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE') {
+  if (eventType === 'WARM_SESSION_REHYDRATE') {
     void (async () => {
       const payload = asRecord(incoming.payload);
       const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
@@ -1153,7 +1132,7 @@ self.onmessage = (event: MessageEvent) => {
           data: {
             ok: false,
             code: 'invalid_args',
-            message: 'Invalid THRESHOLD_PRF_FIRST_CACHE_REHYDRATE payload',
+            message: 'Invalid WARM_SESSION_REHYDRATE payload',
           } satisfies ErrResult,
         });
         return;
@@ -1171,7 +1150,7 @@ self.onmessage = (event: MessageEvent) => {
     return;
   }
 
-  if (eventType === 'THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED') {
+  if (eventType === 'WARM_SESSION_DELETE_PERSISTED') {
     postUserConfirmWorkerResponse(id, { success: true, data: { ok: true } });
     return;
   }

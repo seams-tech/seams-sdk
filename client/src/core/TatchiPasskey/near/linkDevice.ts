@@ -615,7 +615,6 @@ export class LinkDeviceFlow {
       participantIdsHint: Array.isArray(thresholdSection.participantIds)
         ? thresholdSection.participantIds
         : undefined,
-      setActiveSigningSessionId: true,
     });
     await reconstructThresholdEd25519ClientBaseFromWarmSession({
       context: this.context,

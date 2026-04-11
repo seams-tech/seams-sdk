@@ -3,6 +3,8 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   touchConfirmManager: '/sdk/esm/core/signingEngine/touchConfirm/TouchConfirmManager.js',
+  thresholdSessionStore:
+    '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
 } as const;
 
 test.describe('UserConfirm worker router', () => {
@@ -63,7 +65,7 @@ test.describe('UserConfirm worker router', () => {
         );
         const p2 = (manager as any).sendMessage(
           {
-            type: 'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+            type: 'WARM_SESSION_STATUS_READ',
             id: 'req-2',
             payload: { sessionId: 'session-1' },
           },
@@ -166,6 +168,119 @@ test.describe('UserConfirm worker router', () => {
     expect(result.listenersAfter).toEqual({ message: 1, error: 1 });
   });
 
+  test('reads warm-session status snapshots in a single worker round trip', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const manager = mod.createTouchConfirmManager({}, {
+          touchIdPrompt: {},
+          nearClient: {},
+          indexedDB: {},
+          userPreferencesManager: {},
+          nonceManager: {},
+        } as any);
+
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+
+        const emitMessage = (data: unknown) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
+          }
+        };
+
+        const waitForPosted = async (index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+
+        const batchPromise = manager.getWarmSessionStatuses({
+          sessionIds: ['sess-a', 'sess-b', 'sess-a'],
+        });
+
+        const posted = await waitForPosted(0);
+        emitMessage({
+          id: posted?.id,
+          success: true,
+          data: {
+            results: [
+              {
+                sessionId: 'sess-a',
+                result: {
+                  ok: true,
+                  remainingUses: 4,
+                  expiresAtMs: Date.now() + 45_000,
+                },
+              },
+              {
+                sessionId: 'sess-b',
+                result: {
+                  ok: false,
+                  code: 'not_found',
+                  message: 'missing',
+                },
+              },
+            ],
+          },
+        });
+
+        const batchResult = await batchPromise;
+        return {
+          postedTypes: postedMessages.map((entry) => entry?.type),
+          payloadSessionIds: postedMessages[0]?.payload?.sessionIds,
+          batchResult,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypes).toEqual(['WARM_SESSION_STATUS_BATCH_READ']);
+    expect(result.payloadSessionIds).toEqual(['sess-a', 'sess-b']);
+    expect(result.batchResult).toEqual({
+      results: [
+        {
+          sessionId: 'sess-a',
+          result: {
+            ok: true,
+            remainingUses: expect.any(Number),
+            expiresAtMs: expect.any(Number),
+          },
+        },
+        {
+          sessionId: 'sess-b',
+          result: {
+            ok: false,
+            code: 'not_found',
+            message: 'missing',
+          },
+        },
+      ],
+    });
+  });
+
   test('rejects all pending requests when worker emits an error event', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -220,7 +335,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = (manager as any)
           .sendMessage(
             {
-              type: 'THRESHOLD_PRF_FIRST_CACHE_CLEAR',
+              type: 'WARM_SESSION_MATERIAL_CLEAR',
               id: 'req-error-2',
               payload: { sessionId: 's1' },
             },
@@ -368,7 +483,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        const sealPromise = manager.sealAndPersistPrfFirstForThresholdSession({
+        const sealPromise = manager.sealAndPersistWarmSessionMaterial({
           sessionId: 'session-seal',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -390,7 +505,7 @@ test.describe('UserConfirm worker router', () => {
         });
         const sealResult = await sealPromise;
 
-        const rehydratePromise = manager.rehydratePrfFirstForThresholdSession({
+        const rehydratePromise = manager.rehydrateWarmSessionMaterial({
           sessionId: 'session-seal',
           sealedPrfFirstB64u: 'sealed-b64u',
           keyVersion: 'kek-v1',
@@ -424,8 +539,8 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.postedTypes).toEqual([
-      'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST',
-      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+      'WARM_SESSION_SEAL_AND_PERSIST',
+      'WARM_SESSION_REHYDRATE',
     ]);
     expect(result.sealResult).toEqual({
       ok: true,
@@ -441,7 +556,7 @@ test.describe('UserConfirm worker router', () => {
     });
   });
 
-  test('sealed mode peek rehydrates on worker cache miss', async ({ page }) => {
+  test('sealed mode status read rehydrates on worker cache miss', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
@@ -518,18 +633,18 @@ test.describe('UserConfirm worker router', () => {
           shamirPrimeB64u: 'AQAB',
         });
 
-        const peekPromise = manager.peekPrfFirstForThresholdSession({
+        const statusPromise = manager.getWarmSessionStatus({
           sessionId: 'session-rehydrate',
         });
 
-        const firstPeek = await waitForPosted(0);
+        const firstStatusRead = await waitForPosted(0);
         emitMessage({
-          id: firstPeek?.id,
+          id: firstStatusRead?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
 
@@ -544,9 +659,9 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const secondPeek = await waitForPosted(2);
+        const secondStatusRead = await waitForPosted(2);
         emitMessage({
-          id: secondPeek?.id,
+          id: secondStatusRead?.id,
           success: true,
           data: {
             ok: true,
@@ -555,14 +670,14 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const peekResult = await peekPromise;
+        const statusResult = await statusPromise;
         const persisted = JSON.parse(
           sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:session-rehydrate') || '{}',
         );
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          peekResult,
+          statusResult,
           persistedPolicy: {
             remainingUses: persisted?.remainingUses,
           },
@@ -572,13 +687,306 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.postedTypes).toEqual([
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
-      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'WARM_SESSION_STATUS_READ',
+      'WARM_SESSION_REHYDRATE',
+      'WARM_SESSION_STATUS_READ',
     ]);
-    expect(result.peekResult.ok).toBe(true);
-    expect(result.peekResult.remainingUses).toBe(8);
+    expect(result.statusResult.ok).toBe(true);
+    expect(result.statusResult.remainingUses).toBe(8);
     expect(result.persistedPolicy.remainingUses).toBe(8);
+  });
+
+  test('sealed mode persists PRF seal using canonical Ed25519 session-record transport fallback', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const sessionStoreMod = await import(paths.thresholdSessionStore);
+        const manager = mod.createTouchConfirmManager(
+          {
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+            prfSessionSealKeyVersion: 'kek-v-ed25519',
+            prfSessionSealShamirPrimeB64u: 'AQAB',
+          },
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nonceManager: {},
+          } as any,
+        );
+
+        sessionStoreMod.upsertStoredThresholdEd25519SessionRecord({
+          nearAccountId: 'alice.testnet',
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-ed25519',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'session-from-record',
+          thresholdSessionJwt: 'jwt:session-from-record',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+          updatedAtMs: Date.now(),
+          source: 'login',
+        });
+
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+
+        const emitMessage = (data: unknown) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
+          }
+        };
+
+        const waitForPosted = async (index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+
+        const putPromise = manager.putWarmSessionMaterial({
+          sessionId: 'session-from-record',
+          prfFirstB64u: 'prf-first-from-record',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 5,
+        });
+
+        const putRequest = await waitForPosted(0);
+        emitMessage({
+          id: putRequest?.id,
+          success: true,
+          data: { ok: true },
+        });
+
+        const sealRequest = await waitForPosted(1);
+        emitMessage({
+          id: sealRequest?.id,
+          success: true,
+          data: {
+            ok: true,
+            sealedPrfFirstB64u: 'sealed-prf-first',
+            keyVersion: 'kek-v-ed25519',
+            remainingUses: 5,
+            expiresAtMs: Date.now() + 60_000,
+          },
+        });
+
+        await putPromise;
+
+        return {
+          postedTypes: postedMessages.map((entry) => entry?.type),
+          sealPayload: postedMessages[1]?.payload || null,
+          sessionPrfIndex:
+            sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:index') || null,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypes).toEqual([
+      'WARM_SESSION_MATERIAL_PUT',
+      'WARM_SESSION_SEAL_AND_PERSIST',
+    ]);
+    expect(result.sealPayload).toMatchObject({
+      sessionId: 'session-from-record',
+      transport: {
+        relayerUrl: 'https://relay.example',
+        thresholdSessionJwt: 'jwt:session-from-record',
+        keyVersion: 'kek-v-ed25519',
+        shamirPrimeB64u: 'AQAB',
+      },
+    });
+    expect(result.sessionPrfIndex).toBe('["session-from-record"]');
+  });
+
+  test('sealed mode persists PRF seal using canonical ECDSA session-record transport fallback', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.touchConfirmManager);
+        const sessionStoreMod = await import(paths.thresholdSessionStore);
+        const deps = {
+          recordsByLane: new Map<string, unknown>(),
+          exportArtifactsByLane: new Map<string, unknown>(),
+        };
+        sessionStoreMod.clearAllThresholdEcdsaSessionRecords(deps);
+        sessionStoreMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          source: 'login',
+          signingSessionSeal: {
+            keyVersion: 'kek-v-ecdsa',
+            shamirPrimeB64u: 'AQID',
+          },
+          bootstrap: {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay-ecdsa.example',
+              ecdsaThresholdKeyId: 'ek-evm-1',
+              backendBinding: {
+                relayerKeyId: 'rk-ecdsa',
+                clientVerifyingShareB64u: 'cvs-ecdsa',
+              },
+              participantIds: [3, 7],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-ecdsa-record',
+              thresholdSessionJwt: 'jwt:session-ecdsa-record',
+              ethereumAddress: '0x1111111111111111111111111111111111111111',
+              thresholdEcdsaPublicKeyB64u: 'pub-ecdsa-b64u',
+              relayerVerifyingShareB64u: 'relayer-ecdsa-share-b64u',
+            },
+            keygen: {
+              ok: true,
+              ecdsaThresholdKeyId: 'ek-evm-1',
+              clientVerifyingShareB64u: 'cvs-ecdsa',
+              relayerKeyId: 'rk-ecdsa',
+              participantIds: [3, 7],
+              ethereumAddress: '0x1111111111111111111111111111111111111111',
+              thresholdEcdsaPublicKeyB64u: 'pub-ecdsa-b64u',
+              relayerVerifyingShareB64u: 'relayer-ecdsa-share-b64u',
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-ecdsa-record',
+              jwt: 'jwt:session-ecdsa-record',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 4,
+              clientVerifyingShareB64u: 'cvs-ecdsa',
+            },
+          },
+        });
+
+        const manager = mod.createTouchConfirmManager(
+          {
+            signingSessionPersistenceMode: 'sealed_refresh_v1',
+          },
+          {
+            touchIdPrompt: {},
+            nearClient: {},
+            indexedDB: {},
+            userPreferencesManager: {},
+            nonceManager: {},
+          } as any,
+        );
+
+        const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
+          message: [],
+          error: [],
+        };
+        const postedMessages: any[] = [];
+
+        const fakeWorker: Worker = {
+          addEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type === 'message' || type === 'error') listeners[type].push(handler);
+          }) as any,
+          removeEventListener: ((type: string, handler: (event: any) => void) => {
+            if (type !== 'message' && type !== 'error') return;
+            listeners[type] = listeners[type].filter((fn) => fn !== handler);
+          }) as any,
+          postMessage: ((message: unknown) => {
+            postedMessages.push(message);
+          }) as any,
+          terminate: (() => {}) as any,
+        } as unknown as Worker;
+
+        const emitMessage = (data: unknown) => {
+          for (const handler of [...listeners.message]) {
+            handler({ data, currentTarget: fakeWorker, target: fakeWorker });
+          }
+        };
+
+        const waitForPosted = async (index: number) => {
+          for (let i = 0; i < 100; i += 1) {
+            if (postedMessages[index]) return postedMessages[index];
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          }
+          throw new Error(`No worker message posted at index ${index}`);
+        };
+
+        (manager as any).worker = fakeWorker;
+        (manager as any).attachWorkerRouter(fakeWorker);
+
+        const putPromise = manager.putWarmSessionMaterial({
+          sessionId: 'session-ecdsa-record',
+          prfFirstB64u: 'prf-first-ecdsa-record',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 4,
+        });
+
+        const putRequest = await waitForPosted(0);
+        emitMessage({
+          id: putRequest?.id,
+          success: true,
+          data: { ok: true },
+        });
+
+        const sealRequest = await waitForPosted(1);
+        emitMessage({
+          id: sealRequest?.id,
+          success: true,
+          data: {
+            ok: true,
+            sealedPrfFirstB64u: 'sealed-prf-first-ecdsa',
+            keyVersion: 'kek-v-ecdsa',
+            remainingUses: 4,
+            expiresAtMs: Date.now() + 60_000,
+          },
+        });
+
+        await putPromise;
+
+        return {
+          postedTypes: postedMessages.map((entry) => entry?.type),
+          sealPayload: postedMessages[1]?.payload || null,
+          sessionPrfIndex:
+            sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:index') || null,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.postedTypes).toEqual([
+      'WARM_SESSION_MATERIAL_PUT',
+      'WARM_SESSION_SEAL_AND_PERSIST',
+    ]);
+    expect(result.sealPayload).toMatchObject({
+      sessionId: 'session-ecdsa-record',
+      transport: {
+        relayerUrl: 'https://relay-ecdsa.example',
+        thresholdSessionJwt: 'jwt:session-ecdsa-record',
+        keyVersion: 'kek-v-ecdsa',
+        shamirPrimeB64u: 'AQID',
+      },
+    });
+    expect(result.sessionPrfIndex).toBe('["session-ecdsa-record"]');
   });
 
   test('sealed mode dedupes concurrent seal persistence requests (apply-server-seal single-flight)', async ({
@@ -679,7 +1087,7 @@ test.describe('UserConfirm worker router', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual(['THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST']);
+    expect(result.postedTypes).toEqual(['WARM_SESSION_SEAL_AND_PERSIST']);
     expect(result.r1).toEqual(result.r2);
     expect(result.r1.ok).toBe(true);
   });
@@ -802,7 +1210,7 @@ test.describe('UserConfirm worker router', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypesA).toEqual(['THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST']);
+    expect(result.postedTypesA).toEqual(['WARM_SESSION_SEAL_AND_PERSIST']);
     expect(result.postedTypesB).toEqual([]);
     expect(result.r1).toEqual(result.r2);
     expect(result.r1.ok).toBe(true);
@@ -888,32 +1296,32 @@ test.describe('UserConfirm worker router', () => {
           keyVersion: 'kek-v1',
         });
 
-        const p1 = manager.peekPrfFirstForThresholdSession({
+        const p1 = manager.getWarmSessionStatus({
           sessionId: 'session-single-flight-remove',
         });
-        const p2 = manager.peekPrfFirstForThresholdSession({
+        const p2 = manager.getWarmSessionStatus({
           sessionId: 'session-single-flight-remove',
         });
 
-        const firstPeek = await waitForPosted(0);
-        const secondPeek = await waitForPosted(1);
+        const firstStatusRead = await waitForPosted(0);
+        const secondStatusRead = await waitForPosted(1);
 
         emitMessage({
-          id: firstPeek?.id,
+          id: firstStatusRead?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
         emitMessage({
-          id: secondPeek?.id,
+          id: secondStatusRead?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
 
@@ -943,7 +1351,7 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           rehydrateMessageCount: postedMessages.filter(
-            (entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
+            (entry) => entry?.type === 'WARM_SESSION_REHYDRATE',
           ).length,
           r1,
           r2,
@@ -954,10 +1362,10 @@ test.describe('UserConfirm worker router', () => {
 
     expect(result.rehydrateMessageCount).toBe(1);
     expect(result.postedTypes).toEqual([
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
-      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'WARM_SESSION_STATUS_READ',
+      'WARM_SESSION_STATUS_READ',
+      'WARM_SESSION_REHYDRATE',
+      'WARM_SESSION_STATUS_READ',
     ]);
     expect(result.r1).toEqual(result.r2);
     expect(result.r1.ok).toBe(true);
@@ -1066,31 +1474,31 @@ test.describe('UserConfirm worker router', () => {
           keyVersion: 'kek-v1',
         });
 
-        const p1 = managerA.peekPrfFirstForThresholdSession({
+        const p1 = managerA.getWarmSessionStatus({
           sessionId: 'session-cross-manager-remove',
         });
-        const p2 = managerB.peekPrfFirstForThresholdSession({
+        const p2 = managerB.getWarmSessionStatus({
           sessionId: 'session-cross-manager-remove',
         });
 
-        const firstPeekA = await waitForPosted(postedA, 0);
-        const firstPeekB = await waitForPosted(postedB, 0);
+        const firstStatusReadA = await waitForPosted(postedA, 0);
+        const firstStatusReadB = await waitForPosted(postedB, 0);
         emitMessage(listenersA, workerA, {
-          id: firstPeekA?.id,
+          id: firstStatusReadA?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
         emitMessage(listenersB, workerB, {
-          id: firstPeekB?.id,
+          id: firstStatusReadB?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
 
@@ -1121,9 +1529,9 @@ test.describe('UserConfirm worker router', () => {
           postedTypesA: postedA.map((entry) => entry?.type),
           postedTypesB: postedB.map((entry) => entry?.type),
           totalRehydrateCount:
-            postedA.filter((entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE')
+            postedA.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE')
               .length +
-            postedB.filter((entry) => entry?.type === 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE')
+            postedB.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE')
               .length,
           r1,
           r2,
@@ -1133,11 +1541,11 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.postedTypesA).toEqual([
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
-      'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE',
-      'THRESHOLD_PRF_FIRST_CACHE_PEEK',
+      'WARM_SESSION_STATUS_READ',
+      'WARM_SESSION_REHYDRATE',
+      'WARM_SESSION_STATUS_READ',
     ]);
-    expect(result.postedTypesB).toEqual(['THRESHOLD_PRF_FIRST_CACHE_PEEK']);
+    expect(result.postedTypesB).toEqual(['WARM_SESSION_STATUS_READ']);
     expect(result.totalRehydrateCount).toBe(1);
     expect(result.r1).toEqual(result.r2);
     expect(result.r1.ok).toBe(true);
@@ -1217,35 +1625,35 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        const peekPromise = manager.peekPrfFirstForThresholdSession({
+        const statusPromise = manager.getWarmSessionStatus({
           sessionId: 'session-no-rehydrate',
         });
-        const firstPeek = await waitForPosted(0);
+        const firstStatusRead = await waitForPosted(0);
         emitMessage({
-          id: firstPeek?.id,
+          id: firstStatusRead?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
-        const peekResult = await peekPromise;
+        const statusResult = await statusPromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          peekResult,
+          statusResult,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual(['THRESHOLD_PRF_FIRST_CACHE_PEEK']);
-    expect(result.peekResult).toEqual({
+    expect(result.postedTypes).toEqual(['WARM_SESSION_STATUS_READ']);
+    expect(result.statusResult).toEqual({
       ok: false,
       code: 'not_found',
-      message: 'PRF.first not cached for threshold session',
+      message: 'Warm-session material is not available for threshold session',
     });
   });
 
@@ -1289,14 +1697,14 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        const sealed = await manager.sealAndPersistPrfFirstForThresholdSession({
+        const sealed = await manager.sealAndPersistWarmSessionMaterial({
           sessionId: 'session-disabled',
           transport: {
             relayerUrl: 'https://relay.example',
             shamirPrimeB64u: 'AQAB',
           },
         });
-        const rehydrated = await manager.rehydratePrfFirstForThresholdSession({
+        const rehydrated = await manager.rehydrateWarmSessionMaterial({
           sessionId: 'session-disabled',
           sealedPrfFirstB64u: 'sealed-prf',
           expiresAtMs: Date.now() + 60_000,
@@ -1405,35 +1813,35 @@ test.describe('UserConfirm worker router', () => {
           shamirPrimeB64u: 'AQAB',
         });
 
-        const peekPromise = manager.peekPrfFirstForThresholdSession({ sessionId: 'session-expired' });
-        const firstPeek = await waitForPosted(0);
+        const statusPromise = manager.getWarmSessionStatus({ sessionId: 'session-expired' });
+        const firstStatusRead = await waitForPosted(0);
         emitMessage({
-          id: firstPeek?.id,
+          id: firstStatusRead?.id,
           success: true,
           data: {
             ok: false,
             code: 'not_found',
-            message: 'PRF.first not cached for threshold session',
+            message: 'Warm-session material is not available for threshold session',
           },
         });
-        const peekResult = await peekPromise;
+        const statusResult = await statusPromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
         const persistedAfter = sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:session-expired');
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          peekResult,
+          statusResult,
           persistedAfter,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual(['THRESHOLD_PRF_FIRST_CACHE_PEEK']);
-    expect(result.peekResult).toEqual({
+    expect(result.postedTypes).toEqual(['WARM_SESSION_STATUS_READ']);
+    expect(result.statusResult).toEqual({
       ok: false,
       code: 'expired',
-      message: 'PRF.first cache expired for threshold session',
+      message: 'Warm-session material expired for threshold session',
     });
     expect(result.persistedAfter).toBeNull();
   });

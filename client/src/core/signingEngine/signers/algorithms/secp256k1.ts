@@ -14,9 +14,7 @@ import {
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import {
-  resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import { resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId } from '../../session/WarmSessionManager';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -129,10 +127,8 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      const resolvedAuthMaterial = resolveThresholdEcdsaSessionAuthMaterialByThresholdSessionId({
-        thresholdSessionId: keyRefThresholdSessionId,
-        nearAccountIdFallback: keyRef.userId,
-      });
+      const resolvedAuthMaterial =
+        resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(keyRefThresholdSessionId);
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
       const canonicalRecordMatchesKeyRefLane =
@@ -177,10 +173,7 @@ export class Secp256k1Engine implements Signer {
         canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionJwt || '' : '',
       ).trim();
       const resolvedJwt = String(
-        canonicalRecordMatchesKeyRefLane ||
-          resolvedAuthMaterial?.thresholdSessionJwtSource === 'ed25519'
-          ? resolvedAuthMaterial?.thresholdSessionJwt || ''
-          : '',
+        canonicalRecordMatchesKeyRefLane ? resolvedAuthMaterial?.thresholdSessionJwt || '' : '',
       ).trim();
       const thresholdSessionJwt = keyRefJwt || resolvedJwt || undefined;
 

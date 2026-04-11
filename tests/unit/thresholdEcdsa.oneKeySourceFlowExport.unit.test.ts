@@ -22,6 +22,34 @@ type CapturedRelayRequest = {
   body: Record<string, unknown>;
 };
 
+type SessionStorageMock = {
+  getItem: (key: string) => string | null;
+  setItem: (key: string, value: string) => void;
+  removeItem: (key: string) => void;
+  clear: () => void;
+};
+
+function ensureSessionStorage(): SessionStorageMock {
+  const globalObj = globalThis as { sessionStorage?: SessionStorageMock };
+  if (globalObj.sessionStorage) return globalObj.sessionStorage;
+
+  const store = new Map<string, string>();
+  const sessionStorage: SessionStorageMock = {
+    getItem: (key) => (store.has(key) ? String(store.get(key)) : null),
+    setItem: (key, value) => {
+      store.set(String(key), String(value));
+    },
+    removeItem: (key) => {
+      store.delete(String(key));
+    },
+    clear: () => {
+      store.clear();
+    },
+  };
+  globalObj.sessionStorage = sessionStorage;
+  return sessionStorage;
+}
+
 function createBootstrapResult(args?: {
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
@@ -72,33 +100,79 @@ function createBootstrapResult(args?: {
 
 function createExportTestEngine() {
   const exportWorkerCalls: Array<Record<string, unknown>> = [];
+  const userConfirmationCalls: Array<Record<string, unknown>> = [];
   const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
     orchestrationDeps: Record<string, unknown>;
+    tatchiPasskeyConfigs: Record<string, unknown>;
+    theme?: 'dark' | 'light';
     touchConfirm: Record<string, unknown>;
     touchIdPrompt: Record<string, unknown>;
+    thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>>;
     thresholdEcdsaSessionByLane: Map<string, unknown>;
     thresholdEcdsaExportArtifactByLane: Map<string, unknown>;
   };
 
+  ensureSessionStorage().clear();
+  engine.tatchiPasskeyConfigs = {
+    network: {
+      relayer: {
+        url: RELAYER_URL,
+      },
+    },
+    signing: {
+      sessionSeal: {
+        keyVersion: 'kek-s-export-test',
+        shamirPrimeB64u: 'AQAB',
+      },
+    },
+  };
+  engine.theme = 'dark';
+  engine.thresholdEcdsaBootstrapQueueByAccount = new Map();
   engine.thresholdEcdsaSessionByLane = new Map();
   engine.thresholdEcdsaExportArtifactByLane = new Map();
   engine.touchIdPrompt = {
     getRpId: () => RP_ID,
   };
   engine.touchConfirm = {
-    peekPrfFirstForThresholdSession: async (args: { sessionId: string }) => ({
-      ok: true as const,
-      remainingUses: 5,
-      expiresAtMs: Date.now() + 60_000,
-      sessionId: args.sessionId,
-    }),
-    dispensePrfFirstForThresholdSession: async (args: { sessionId: string }) => ({
-      ok: true as const,
-      prfFirstB64u: PRF_FIRST_B64U,
-      remainingUses: 4,
-      expiresAtMs: Date.now() + 60_000,
-      sessionId: args.sessionId,
-    }),
+    getWarmSessionStatus: async () => {
+      throw new Error('warm-session status should not be consulted during export');
+    },
+    claimWarmSessionMaterial: async () => {
+      throw new Error('warm-session claim should not be consumed during export');
+    },
+    requestUserConfirmation: async (request: Record<string, any>) => {
+      userConfirmationCalls.push(request);
+      if (request.type === 'decryptPrivateKeyWithPrf') {
+        return {
+          requestId: String(request.requestId || ''),
+          confirmed: true,
+          credential: {
+            id: 'cred-id',
+            type: 'public-key',
+            rawId: 'cred-rawid-b64u',
+            authenticatorAttachment: 'platform',
+            response: {
+              clientDataJSON: 'client-data-json-b64u',
+              authenticatorData: 'authenticator-data-b64u',
+              signature: 'signature-b64u',
+              userHandle: '',
+            },
+            clientExtensionResults: {
+              prf: {
+                results: {
+                  first: PRF_FIRST_B64U,
+                  second: Buffer.alloc(32, 9).toString('base64url'),
+                },
+              },
+            },
+          },
+        };
+      }
+      return {
+        requestId: String(request.requestId || ''),
+        confirmed: true,
+      };
+    },
   };
   engine.orchestrationDeps = {
     privateKeyExportRecoveryDeps: {
@@ -168,7 +242,7 @@ function createExportTestEngine() {
     },
   };
 
-  return { engine, exportWorkerCalls };
+  return { engine, exportWorkerCalls, userConfirmationCalls };
 }
 
 async function encodeHiddenEvalServerResponseMessage(args: {
@@ -277,6 +351,7 @@ async function expectOneKeyEcdsaExportFromEngine(args: {
   expectedEcdsaThresholdKeyId: string;
   expectedJwt: string;
   exportWorkerCalls: Array<Record<string, unknown>>;
+  userConfirmationCalls: Array<Record<string, unknown>>;
 }) {
   const relay = installExplicitExportRelayStub({
     expectedEcdsaThresholdKeyId: args.expectedEcdsaThresholdKeyId,
@@ -293,16 +368,35 @@ async function expectOneKeyEcdsaExportFromEngine(args: {
       exportedSchemes: ['secp256k1'],
     });
     relay.expectCapturedPrepare();
-    expect(args.exportWorkerCalls).toHaveLength(1);
-    expect(args.exportWorkerCalls[0]).toMatchObject({
-      nearAccountId: ACCOUNT_ID,
-      chain: 'evm',
-      artifactKind: 'ecdsa-hss-secp256k1-key-v1',
-      publicKeyHex: CANONICAL_PUBLIC_KEY_HEX,
-      privateKeyHex: PRIVATE_KEY_HEX,
-      ethereumAddress: ETHEREUM_ADDRESS,
-      variant: 'modal',
-      theme: 'dark',
+    expect(args.exportWorkerCalls).toHaveLength(0);
+    expect(args.userConfirmationCalls.map((entry) => entry.type)).toEqual([
+      'decryptPrivateKeyWithPrf',
+      'showSecurePrivateKeyUi',
+    ]);
+    expect(args.userConfirmationCalls[0]).toMatchObject({
+      summary: {
+        accountId: ACCOUNT_ID,
+      },
+    });
+    expect(args.userConfirmationCalls[1]).toMatchObject({
+      payload: {
+        nearAccountId: ACCOUNT_ID,
+        publicKey: CANONICAL_PUBLIC_KEY_HEX,
+        variant: 'modal',
+        theme: 'dark',
+        keys: [
+          {
+            scheme: 'secp256k1',
+            publicKey: CANONICAL_PUBLIC_KEY_HEX,
+            privateKey: PRIVATE_KEY_HEX,
+            address: ETHEREUM_ADDRESS,
+          },
+        ],
+      },
+      summary: {
+        accountId: ACCOUNT_ID,
+        publicKey: CANONICAL_PUBLIC_KEY_HEX,
+      },
     });
   } finally {
     relay.restore();
@@ -311,7 +405,7 @@ async function expectOneKeyEcdsaExportFromEngine(args: {
 
 test.describe('threshold ECDSA one-key source-flow export', () => {
   test('exports through staged explicit export for registration-sourced one-key sessions', async () => {
-    const { engine, exportWorkerCalls } = createExportTestEngine();
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine();
     const bootstrap = createBootstrapResult({
       ecdsaThresholdKeyId: 'ehss-registration-1',
       sessionId: 'ecdsa-registration-session-1',
@@ -337,11 +431,12 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       expectedEcdsaThresholdKeyId: 'ehss-registration-1',
       expectedJwt: 'jwt:ecdsa-registration-1',
       exportWorkerCalls,
+      userConfirmationCalls,
     });
   });
 
   test('exports through staged explicit export for login-sourced one-key sessions', async () => {
-    const { engine, exportWorkerCalls } = createExportTestEngine();
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine();
     const bootstrap = createBootstrapResult({
       ecdsaThresholdKeyId: 'ehss-login-1',
       sessionId: 'ecdsa-login-session-1',
@@ -367,11 +462,12 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       expectedEcdsaThresholdKeyId: 'ehss-login-1',
       expectedJwt: 'jwt:ecdsa-login-1',
       exportWorkerCalls,
+      userConfirmationCalls,
     });
   });
 
   test('exports through staged explicit export for link-device manual-bootstrap one-key sessions', async () => {
-    const { engine, exportWorkerCalls } = createExportTestEngine();
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine();
 
     await persistLinkDeviceThresholdEcdsaBootstrap({
       indexedDB: {
@@ -435,6 +531,35 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       expectedEcdsaThresholdKeyId: 'ehss-link-device-1',
       expectedJwt: 'jwt:ecdsa-link-device-1',
       exportWorkerCalls,
+      userConfirmationCalls,
     });
+  });
+
+  test('exports without consulting warm-session claim state or reconnecting the ECDSA session', async () => {
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine();
+    const bootstrap = createBootstrapResult({
+      ecdsaThresholdKeyId: 'ehss-stable-1',
+      sessionId: 'ecdsa-stable-session-1',
+      sessionJwt: 'jwt:ecdsa-stable-1',
+    });
+
+    engine.upsertThresholdEcdsaSessionFromBootstrap({
+      nearAccountId: ACCOUNT_ID,
+      chain: 'evm',
+      bootstrap,
+      source: 'login',
+    });
+    (engine as any).provisionThresholdEcdsaSession = async () => {
+      throw new Error('ECDSA export should not reconnect through session provisioning');
+    };
+
+    await expectOneKeyEcdsaExportFromEngine({
+      engine,
+      expectedEcdsaThresholdKeyId: 'ehss-stable-1',
+      expectedJwt: 'jwt:ecdsa-stable-1',
+      exportWorkerCalls,
+      userConfirmationCalls,
+    });
+    expect(exportWorkerCalls).toHaveLength(0);
   });
 });

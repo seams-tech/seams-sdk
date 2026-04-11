@@ -34,7 +34,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             ctx: { indexedDB: {} } as any,
             workerCtx: workerCtx as any,
             touchConfirm: {
-              peekPrfFirstForThresholdSession: async () => ({
+              getWarmSessionStatus: async () => ({
                 ok: false,
                 code: 'expired',
                 message: 'expired',
@@ -104,7 +104,9 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.capturedAuthMode).toBe('warmSession');
   });
 
-  test('uses warmSession mode when threshold warm cache is available', async ({ page }) => {
+  test('uses warmSession mode when threshold warm-session material is available', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
@@ -124,7 +126,7 @@ test.describe('tempo signing auth-mode resolution', () => {
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: true,
               remainingUses: 2,
               expiresAtMs: Date.now() + 10_000,
@@ -210,7 +212,7 @@ test.describe('tempo signing auth-mode resolution', () => {
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: false,
               code: 'not_found',
               message: 'missing',
@@ -300,7 +302,7 @@ test.describe('tempo signing auth-mode resolution', () => {
           ctx: { indexedDB: {} } as any,
           workerCtx: workerCtx as any,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: true,
               remainingUses: 2,
               expiresAtMs: Date.now() + 10_000,
@@ -389,7 +391,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             ctx: { indexedDB: {} } as any,
             workerCtx: workerCtx as any,
             touchConfirm: {
-              peekPrfFirstForThresholdSession: async () => ({
+              getWarmSessionStatus: async () => ({
                 ok: false,
                 code: 'expired',
                 message: 'expired',

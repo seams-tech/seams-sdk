@@ -12,7 +12,7 @@ import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
-  type ThresholdPrfFirstCachePort,
+  type WarmSessionMaterialWriter,
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import {
@@ -45,7 +45,7 @@ function generateKeygenSessionId(): string {
 export async function bootstrapEcdsaSession(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  prfFirstCache?: ThresholdPrfFirstCachePort;
+  prfFirstCache?: WarmSessionMaterialWriter;
   relayerUrl: string;
   userId: string;
   ecdsaThresholdKeyId?: string;
@@ -98,35 +98,12 @@ export async function bootstrapEcdsaSession(args: {
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
   let providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
   const useAuthorizationBootstrap = bootstrapAuthorizationJwt.length > 0;
-  let authorizationBootstrapRecoveryError = '';
-  if (
-    useAuthorizationBootstrap &&
-    !providedClientRootShare32B64u &&
-    requestedSessionId &&
-    typeof args.prfFirstCache?.dispensePrfFirstForThresholdSession === 'function'
-  ) {
-    const dispensed = await args.prfFirstCache.dispensePrfFirstForThresholdSession({
-      sessionId: requestedSessionId,
-      uses: 1,
-    });
-    if (dispensed.ok) {
-      providedClientRootShare32B64u = String(dispensed.prfFirstB64u || '').trim();
-    } else {
-      authorizationBootstrapRecoveryError = `${String(dispensed.code || 'unknown').trim()}:${String(
-        dispensed.message || 'failed to recover warm PRF.first',
-      ).trim()}`;
-    }
-  }
   if (useAuthorizationBootstrap && !providedClientRootShare32B64u) {
     return {
       ok: false,
       code: 'invalid_args',
       message: requestedSessionId
-        ? `Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry${
-            authorizationBootstrapRecoveryError
-              ? ` (${authorizationBootstrapRecoveryError})`
-              : ''
-          }`
+        ? 'Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry'
         : 'Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
     };
   }
@@ -387,6 +364,13 @@ export async function bootstrapEcdsaSession(args: {
         prfFirstB64u: cachedClientRootShare32B64u,
         expiresAtMs,
         remainingUses: resolvedRemainingUses,
+        transport: {
+          curve: 'ecdsa',
+          relayerUrl: args.relayerUrl,
+          ...(typeof bootstrap.jwt === 'string' && bootstrap.jwt.trim()
+            ? { thresholdSessionJwt: bootstrap.jwt.trim() }
+            : {}),
+        },
       });
     }
 

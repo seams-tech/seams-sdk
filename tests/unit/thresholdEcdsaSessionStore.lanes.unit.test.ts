@@ -267,7 +267,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
     });
   });
 
-  test('persists canonical threshold ECDSA records and loads legacy records without model metadata', async ({
+  test('persists canonical threshold ECDSA records and loads canonical lane records', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -459,32 +459,37 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
     expect(result.errorMessage).toContain('missing canonical threshold ECDSA session');
   });
 
-  test('migrates legacy account-scoped v1 storage into canonical lane keys', async ({ page }) => {
+  test('reverse lookup requires canonical session index entries', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
         const deps = { recordsByLane: new Map<string, unknown>() };
         const now = Date.now();
-        const legacyPrefix = 'tatchi:threshold-ecdsa-session:v1';
-        const legacyRecordKey = `${legacyPrefix}:alice.testnet`;
+        const prefix = 'tatchi:threshold-ecdsa-session:v2';
+        const laneKey = ['alice.testnet', 'tempo', 'ek-session-index']
+          .map((part) => encodeURIComponent(part))
+          .join('|');
 
         sessionStorage.clear();
-        sessionStorage.setItem(`${legacyPrefix}:index`, JSON.stringify(['alice.testnet']));
         sessionStorage.setItem(
-          legacyRecordKey,
+          `${prefix}:index`,
+          JSON.stringify([laneKey]),
+        );
+        sessionStorage.setItem(
+          `${prefix}:${laneKey}`,
           JSON.stringify({
             v: 1,
             record: {
               nearAccountId: 'alice.testnet',
               chain: 'tempo',
               relayerUrl: 'https://relay.example',
-              ecdsaThresholdKeyId: 'ek-legacy',
-              relayerKeyId: 'rk-legacy',
+              ecdsaThresholdKeyId: 'ek-session-index',
+              relayerKeyId: 'rk-session-index',
               clientVerifyingShareB64u: 'AQ',
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
-              thresholdSessionId: 'legacy-session-1',
-              thresholdSessionJwt: 'legacy-jwt-1',
+              thresholdSessionId: 'session-index-1',
+              thresholdSessionJwt: 'jwt-session-index-1',
               expiresAtMs: now + 120_000,
               remainingUses: 9,
               updatedAtMs: now,
@@ -492,33 +497,41 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
             },
           }),
         );
+        sessionStorage.setItem(
+          `${prefix}:session-index`,
+          JSON.stringify({
+            'wrong-session-id': laneKey,
+          }),
+        );
 
-        const record = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
-          nearAccountId: 'alice.testnet',
-          chain: 'tempo',
-        });
-        const laneKey = ['alice.testnet', 'tempo', 'ek-legacy']
-          .map((part) => encodeURIComponent(part))
-          .join('|');
-        const v2Prefix = 'tatchi:threshold-ecdsa-session:v2';
-        const v2Index = JSON.parse(sessionStorage.getItem(`${v2Prefix}:index`) || '[]');
+        const withoutCanonicalSessionIndex =
+          storeMod.getStoredThresholdEcdsaSessionRecordByThresholdSessionId('session-index-1');
+        const staleIndexLookup =
+          storeMod.getStoredThresholdEcdsaSessionRecordByThresholdSessionId('wrong-session-id');
+        const staleSessionIndexRaw = sessionStorage.getItem(`${prefix}:session-index`);
+
+        sessionStorage.setItem(
+          `${prefix}:session-index`,
+          JSON.stringify({
+            'session-index-1': laneKey,
+          }),
+        );
+        const withCanonicalSessionIndex =
+          storeMod.getStoredThresholdEcdsaSessionRecordByThresholdSessionId('session-index-1');
+
         return {
-          sessionId: record.thresholdSessionId,
-          relayerKeyId: record.relayerKeyId,
-          v1RecordRemoved: sessionStorage.getItem(legacyRecordKey) === null,
-          v1IndexRemoved: sessionStorage.getItem(`${legacyPrefix}:index`) === null,
-          v2IndexHasLaneKey: Array.isArray(v2Index) && v2Index.includes(laneKey),
-          v2LaneRecordExists: !!sessionStorage.getItem(`${v2Prefix}:${laneKey}`),
+          withoutCanonicalSessionIndex: withoutCanonicalSessionIndex?.thresholdSessionId || null,
+          staleIndexLookup: staleIndexLookup?.thresholdSessionId || null,
+          staleSessionIndexRaw,
+          withCanonicalSessionIndex: withCanonicalSessionIndex?.thresholdSessionId || null,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.sessionId).toBe('legacy-session-1');
-    expect(result.relayerKeyId).toBe('rk-legacy');
-    expect(result.v1RecordRemoved).toBe(true);
-    expect(result.v1IndexRemoved).toBe(true);
-    expect(result.v2IndexHasLaneKey).toBe(true);
-    expect(result.v2LaneRecordExists).toBe(true);
+    expect(result.withoutCanonicalSessionIndex).toBeNull();
+    expect(result.staleIndexLookup).toBeNull();
+    expect(result.staleSessionIndexRaw).toBe('{}');
+    expect(result.withCanonicalSessionIndex).toBe('session-index-1');
   });
 });

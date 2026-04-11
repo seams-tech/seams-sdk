@@ -3,7 +3,7 @@
  *
  * The UserConfirm worker now hosts:
  * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
- * - a small PRF.first cache for threshold warm sessions.
+ * - a small warm-session material store for threshold signing.
  */
 import type { SigningSessionPersistenceMode } from './tatchi';
 
@@ -20,47 +20,56 @@ export type UserConfirmWorkerMessageType =
   | 'PING'
   | 'SECURE_CONFIRM_REQUEST'
   | 'EXPORT_PRIVATE_KEYS_WITH_UI'
-  | 'THRESHOLD_PRF_FIRST_CACHE_PUT'
-  | 'THRESHOLD_PRF_FIRST_CACHE_PEEK'
-  | 'THRESHOLD_PRF_FIRST_CACHE_TRANSFER'
-  | 'THRESHOLD_PRF_FIRST_CACHE_DISPENSE'
-  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR'
-  | 'THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL'
-  | 'THRESHOLD_PRF_FIRST_CACHE_SEAL_AND_PERSIST'
-  | 'THRESHOLD_PRF_FIRST_CACHE_REHYDRATE'
-  | 'THRESHOLD_PRF_FIRST_CACHE_DELETE_PERSISTED';
+  | 'WARM_SESSION_MATERIAL_PUT'
+  | 'WARM_SESSION_STATUS_READ'
+  | 'WARM_SESSION_STATUS_BATCH_READ'
+  | 'WARM_SESSION_MATERIAL_CLAIM'
+  | 'WARM_SESSION_MATERIAL_CLEAR'
+  | 'WARM_SESSION_MATERIAL_CLEAR_ALL'
+  | 'WARM_SESSION_SEAL_AND_PERSIST'
+  | 'WARM_SESSION_REHYDRATE'
+  | 'WARM_SESSION_DELETE_PERSISTED';
 
-export interface ThresholdPrfSessionSealTransportInput {
+export interface WarmSessionSealTransportInput {
+  curve?: 'ed25519' | 'ecdsa';
   relayerUrl: string;
   thresholdSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 }
 
-export interface ThresholdPrfFirstCacheSealAndPersistPayload {
+export interface WarmSessionSealAndPersistPayload {
   sessionId: string;
-  transport: ThresholdPrfSessionSealTransportInput;
+  transport: WarmSessionSealTransportInput;
 }
 
-export interface ThresholdPrfFirstCacheRehydratePayload {
+export interface WarmSessionRehydratePayload {
   sessionId: string;
   sealedPrfFirstB64u: string;
   expiresAtMs: number;
   remainingUses: number;
   keyVersion?: string;
-  transport: ThresholdPrfSessionSealTransportInput;
+  transport: WarmSessionSealTransportInput;
 }
 
-export interface ThresholdPrfFirstCacheDeletePersistedPayload {
+export interface WarmSessionDeletePersistedPayload {
   sessionId: string;
 }
 
-export interface ThresholdPrfFirstCacheTransferPayload {
-  fromSessionId: string;
-  toSessionId: string;
+export interface WarmSessionStatusBatchReadPayload {
+  sessionIds: string[];
 }
 
-export type ThresholdPrfFirstCacheSealAndPersistResult =
+export type WarmSessionStatusBatchResult = {
+  results: Array<{
+    sessionId: string;
+    result:
+      | { ok: true; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  }>;
+};
+
+export type WarmSessionSealAndPersistResult =
   | {
       ok: true;
       sealedPrfFirstB64u: string;
@@ -70,7 +79,7 @@ export type ThresholdPrfFirstCacheSealAndPersistResult =
     }
   | { ok: false; code: string; message: string };
 
-export type ThresholdPrfFirstCacheRehydrateResult =
+export type WarmSessionRehydrateResult =
   | { ok: true; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 

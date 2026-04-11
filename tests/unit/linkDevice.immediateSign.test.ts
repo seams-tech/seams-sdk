@@ -235,17 +235,17 @@ test.describe('Link device → immediate sign (regression)', () => {
             relayerUrl: 'https://relay-server.localhost',
             postWrapKeySeedToSigner: () => {},
             touchConfirm: {
-              peekPrfFirstForThresholdSession: async () => ({
+              getWarmSessionStatus: async () => ({
                 ok: false as const,
                 code: 'not_found',
-                message: 'warm cache missing',
+                message: 'warm-session status missing',
               }),
-              dispensePrfFirstForThresholdSession: async () => ({
+              claimWarmSessionMaterial: async () => ({
                 ok: false as const,
                 code: 'not_found',
-                message: 'warm cache missing',
+                message: 'warm-session status missing',
               }),
-              clearPrfFirstForThresholdSession: async () => undefined,
+              clearWarmSessionMaterial: async () => undefined,
               orchestrateSigningConfirmation: async () => ({
                 intentDigest: 'intent',
                 transactionContext: {
@@ -542,17 +542,17 @@ test.describe('Link device → immediate sign (regression)', () => {
             relayerUrl: 'https://relay-server.localhost',
             postWrapKeySeedToSigner: () => {},
             touchConfirm: {
-              peekPrfFirstForThresholdSession: async () => ({
+              getWarmSessionStatus: async () => ({
                 ok: false as const,
                 code: 'not_found',
-                message: 'warm cache missing',
+                message: 'warm-session status missing',
               }),
-              dispensePrfFirstForThresholdSession: async () => ({
+              claimWarmSessionMaterial: async () => ({
                 ok: false as const,
                 code: 'not_found',
-                message: 'warm cache missing',
+                message: 'warm-session status missing',
               }),
-              clearPrfFirstForThresholdSession: async () => undefined,
+              clearWarmSessionMaterial: async () => undefined,
               orchestrateSigningConfirmation: async () => ({
                 intentDigest: 'intent',
                 transactionContext: {

@@ -6,8 +6,16 @@ import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
-import { makeSessionAdapter } from '../relayer/helpers';
+import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import {
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleBootstrapTokenService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createRelayBootstrapGrantBroker,
+  createRelayPublishableKeyAuthAdapter,
+  createRelayRouter,
+} from '@server/router/express-adaptor';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
@@ -189,6 +197,110 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
       return claims ? { ok: true as const, claims } : { ok: false as const };
     },
   });
+}
+
+export async function setupManagedThresholdRegistrationHarness(args: {
+  page: Page;
+  service: AuthService;
+  threshold: ReturnType<typeof createThresholdSigningService>;
+  session?: ReturnType<typeof makeSessionAdapter>;
+  keyName?: string;
+  orgId?: string;
+  orgSlug?: string;
+  orgName?: string;
+  projectId?: string;
+  projectName?: string;
+  allowedOrigins?: string[];
+}): Promise<{
+  baseUrl: string;
+  session: ReturnType<typeof makeSessionAdapter>;
+  managedRegistration: {
+    environmentId: string;
+    publishableKey: string;
+  };
+  close: () => Promise<void>;
+}> {
+  const session = args.session || createInMemoryJwtSessionAdapter();
+  const bootstrapTokenStore = createInMemoryConsoleBootstrapTokenService();
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const apiKeys = createInMemoryConsoleApiKeyService();
+  const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
+  const allowedOrigins = Array.from(
+    new Set(
+      (
+        args.allowedOrigins || [
+          frontendOrigin,
+          'https://example.localhost',
+          'https://wallet.example.localhost',
+        ]
+      ).filter((origin): origin is string => !!String(origin || '').trim()),
+    ),
+  );
+  const orgId = String(args.orgId || 'org_threshold_wallet_iframe').trim();
+  const projectId = String(args.projectId || 'proj_threshold_wallet_iframe').trim();
+  const environmentId = `${projectId}:dev`;
+  const bootstrapAdminCtx = {
+    orgId,
+    actorUserId: `user_${projectId}`,
+    roles: ['admin'],
+  } as const;
+
+  await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
+    name: String(args.orgName || 'Threshold Wallet Iframe Org').trim(),
+    slug: String(args.orgSlug || 'threshold-wallet-iframe-org').trim(),
+  });
+  await orgProjectEnv.createProject(bootstrapAdminCtx, {
+    id: projectId,
+    name: String(args.projectName || 'Threshold Wallet Iframe Project').trim(),
+    liveEnvironmentsEnabled: true,
+  });
+
+  const createdPublishableKey = await apiKeys.createApiKey(bootstrapAdminCtx, {
+    kind: 'publishable_key',
+    name: String(args.keyName || `${projectId}-browser`).trim(),
+    environmentId,
+    allowedOrigins,
+    rateLimitBucket: 'default_web_v1',
+    quotaBucket: 'free_registrations_v1',
+  });
+  const managedRegistration = {
+    environmentId,
+    publishableKey: createdPublishableKey.secret,
+  } as const;
+
+  const router = createRelayRouter(args.service, {
+    corsOrigins: allowedOrigins,
+    threshold: args.threshold,
+    session,
+    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
+      apiKeys,
+      tokenStore: bootstrapTokenStore,
+      orgProjectEnv,
+      rateLimitsByBucket: {
+        default_web_v1: { windowMs: 60_000, maxIssued: 100 },
+      },
+      quotasByBucket: {
+        free_registrations_v1: { maxIssued: 100 },
+      },
+    }),
+    bootstrapTokenStore,
+  });
+  const server = await startExpressRouter(router);
+
+  await args.page.addInitScript((config) => {
+    (window as any).__w3aManagedRegistration = config;
+  }, managedRegistration);
+  await args.page.evaluate((config) => {
+    (window as any).__w3aManagedRegistration = config;
+  }, managedRegistration);
+
+  return {
+    baseUrl: server.baseUrl,
+    session,
+    managedRegistration,
+    close: server.close,
+  };
 }
 
 export function corsHeadersForRoute(route: Route): Record<string, string> {

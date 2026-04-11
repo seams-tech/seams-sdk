@@ -1,0 +1,155 @@
+import { expect, test } from '@playwright/test';
+import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
+import {
+  createThresholdEcdsaBootstrapFixture,
+  createThresholdEcdsaStoreFixture,
+  createWarmSessionStatusReader,
+  resetWarmSessionFixtureState,
+  seedEd25519WarmSessionRecord,
+  seedEcdsaWarmSessionRecord,
+} from './helpers/warmSessionManager.fixtures';
+
+test.describe('WarmSessionManager capability resolution', () => {
+  test('resolves Ed25519 auth material from the canonical Ed25519 record', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'ed-auth.testnet',
+      thresholdSessionId: 'ed-auth-session',
+      thresholdSessionJwt: 'jwt:ed-auth-session',
+    });
+
+    const manager = createWarmSessionManager();
+    const auth = manager.resolveEd25519AuthByThresholdSessionId(ed25519Record.thresholdSessionId);
+
+    expect(auth).toMatchObject({
+      capability: 'ed25519',
+      thresholdSessionJwt: 'jwt:ed-auth-session',
+      thresholdSessionJwtSource: 'ed25519',
+    });
+  });
+
+  test('resolves a cookie-backed Ed25519 capability without borrowing JWT state', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'ed-missing-auth.testnet',
+      thresholdSessionId: 'ed-missing-auth-session',
+      thresholdSessionKind: 'cookie',
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: ed25519Record.remainingUses,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        },
+      }),
+    });
+    const capability = await manager.getEd25519CapabilityByThresholdSessionId(
+      ed25519Record.thresholdSessionId,
+    );
+
+    expect(capability?.state).toBe('ready');
+    expect(capability?.auth?.thresholdSessionJwt).toBeUndefined();
+    expect(capability?.auth?.thresholdSessionJwtSource).toBe('none');
+    expect(capability?.prfClaim?.state).toBe('warm');
+  });
+
+  test('resolves ECDSA auth material from the ECDSA record without borrowing Ed25519 JWT state', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    seedEd25519WarmSessionRecord({
+      nearAccountId: 'ecdsa-auth.testnet',
+      thresholdSessionId: 'ed-fallback-session',
+      thresholdSessionJwt: 'jwt:ed-fallback-session',
+    });
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'ecdsa-auth.testnet',
+      chain: 'evm',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'ecdsa-auth.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-ecdsa-auth',
+        sessionId: 'ecdsa-auth-session',
+        sessionKind: 'cookie',
+      }),
+    });
+
+    const manager = createWarmSessionManager();
+    const auth = manager.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId);
+
+    expect(auth).toMatchObject({
+      capability: 'ecdsa',
+      chain: 'evm',
+      thresholdSessionJwtSource: 'none',
+    });
+    expect(auth?.thresholdSessionJwt).toBeUndefined();
+  });
+
+  test('bootstrap request resolution only inherits session auth from a warm primary ECDSA capability', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'bootstrap-selection.testnet',
+      chain: 'evm',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'bootstrap-selection.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-stale',
+        sessionId: 'ecdsa-stale-session',
+        sessionJwt: 'jwt:ecdsa-stale-session',
+      }),
+    });
+    const warmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'bootstrap-selection.testnet',
+      chain: 'tempo',
+      source: 'manual-bootstrap',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'bootstrap-selection.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-warm',
+        sessionId: 'ecdsa-warm-session',
+        sessionJwt: 'jwt:ecdsa-warm-session',
+      }),
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [staleRecord.thresholdSessionId]: {
+          state: 'missing',
+        },
+        [warmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: warmRecord.remainingUses || 5,
+          expiresAtMs: warmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+      }),
+    });
+
+    const evmBootstrap = await manager.resolveEcdsaBootstrapRequest({
+      nearAccountId: 'bootstrap-selection.testnet',
+      chain: 'evm',
+    });
+    const tempoBootstrap = await manager.resolveEcdsaBootstrapRequest({
+      nearAccountId: 'bootstrap-selection.testnet',
+      chain: 'tempo',
+    });
+
+    expect('sessionId' in evmBootstrap).toBe(false);
+    expect('authorizationJwt' in evmBootstrap).toBe(false);
+    expect(tempoBootstrap).toMatchObject({
+      sessionId: 'ecdsa-warm-session',
+      authorizationJwt: 'jwt:ecdsa-warm-session',
+      ecdsaThresholdKeyId: 'ek-warm',
+      chain: 'tempo',
+    });
+  });
+});

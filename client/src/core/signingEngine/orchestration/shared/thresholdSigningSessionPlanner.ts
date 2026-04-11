@@ -1,17 +1,29 @@
 import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import {
+  formatThresholdSigningSessionAvailabilityError,
+  formatThresholdSigningSessionStatusError,
+  requireThresholdSigningSessionId,
+  THRESHOLD_SESSION_EXHAUSTED_ERROR,
+  THRESHOLD_SESSION_MISSING_ERROR,
+  type WarmSessionManager,
+} from '@/core/signingEngine/session/WarmSessionManager';
 import type {
-  ThresholdPrfCachePeekResult,
-  ThresholdPrfFirstCachePeekPort,
+  WarmSessionStatusResult,
+  WarmSessionStatusReader,
 } from '@/core/signingEngine/touchConfirm';
 import { normalizeBoundedPositiveInteger } from '@shared/utils/normalize';
+export { THRESHOLD_SESSION_EXHAUSTED_ERROR, THRESHOLD_SESSION_MISSING_ERROR, requireThresholdSigningSessionId };
 
-export const THRESHOLD_SESSION_MISSING_ERROR =
-  '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
-export const THRESHOLD_SESSION_EXHAUSTED_ERROR =
-  '[chains] threshold signingSession is exhausted; reconnect threshold session before signing';
+function toSessionId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
 
-function toThresholdSessionStatusError(code: string): string {
-  return `[chains] threshold signingSession is ${code}; reconnect threshold session before signing`;
+function toExhaustedWarmSessionStatusResult(): Extract<WarmSessionStatusResult, { ok: false }> {
+  return {
+    ok: false,
+    code: 'exhausted',
+    message: THRESHOLD_SESSION_EXHAUSTED_ERROR,
+  };
 }
 
 function normalizeUsesNeeded(usesNeeded?: number): number {
@@ -21,83 +33,73 @@ function normalizeUsesNeeded(usesNeeded?: number): number {
   });
 }
 
-function toSessionId(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-export function requireThresholdSigningSessionId(sessionIdRaw: unknown): string {
-  const sessionId = toSessionId(sessionIdRaw);
-  if (!sessionId) {
-    throw new Error(THRESHOLD_SESSION_MISSING_ERROR);
-  }
-  return sessionId;
-}
-
-function toExhaustedPeekResult(): Extract<ThresholdPrfCachePeekResult, { ok: false }> {
-  return {
-    ok: false,
-    code: 'exhausted',
-    message: THRESHOLD_SESSION_EXHAUSTED_ERROR,
-  };
-}
-
-export async function peekThresholdSigningSessionReadiness(args: {
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
+export async function readThresholdSigningSessionReadiness(args: {
+  touchConfirm: WarmSessionStatusReader;
   sessionId: string;
   usesNeeded?: number;
-}): Promise<ThresholdPrfCachePeekResult> {
-  const peek = await args.touchConfirm.peekPrfFirstForThresholdSession({
+}): Promise<WarmSessionStatusResult> {
+  const status = await args.touchConfirm.getWarmSessionStatus({
     sessionId: args.sessionId,
   });
-  if (!peek.ok) {
+  if (!status.ok) {
+    if (
+      status.code !== 'not_found' &&
+      status.code !== 'expired' &&
+      status.code !== 'exhausted'
+    ) {
+      return {
+        ok: false,
+        code: 'status_unavailable',
+        message: formatThresholdSigningSessionAvailabilityError(status.code),
+      };
+    }
     return {
       ok: false,
-      code: peek.code,
-      message: toThresholdSessionStatusError(peek.code),
+      code: status.code,
+      message: formatThresholdSigningSessionStatusError(status.code),
     };
   }
 
-  if (peek.remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
-    return toExhaustedPeekResult();
+  if (status.remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
+    return toExhaustedWarmSessionStatusResult();
   }
-  return peek;
+  return status;
 }
 
 export async function isThresholdSigningSessionReady(args: {
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: WarmSessionStatusReader;
   sessionId: string;
   usesNeeded?: number;
 }): Promise<boolean> {
   const sessionId = toSessionId(args.sessionId);
   if (!sessionId) return false;
-  const peek = await peekThresholdSigningSessionReadiness({
+  const status = await readThresholdSigningSessionReadiness({
     touchConfirm: args.touchConfirm,
     sessionId,
     usesNeeded: args.usesNeeded,
   });
-  return peek.ok;
+  return status.ok;
 }
 
 export async function assertThresholdSigningSessionReady(args: {
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
+  warmSessionManager: Pick<WarmSessionManager, 'assertEcdsaSigningSessionReady'>;
+  nearAccountId: string;
+  chain: 'evm' | 'tempo';
   sessionId: unknown;
   usesNeeded?: number;
-}): Promise<Extract<ThresholdPrfCachePeekResult, { ok: true }>> {
-  const sessionId = requireThresholdSigningSessionId(args.sessionId);
-  const peek = await peekThresholdSigningSessionReadiness({
-    touchConfirm: args.touchConfirm,
-    sessionId,
+}): Promise<Extract<WarmSessionStatusResult, { ok: true }>> {
+  const thresholdSessionId = requireThresholdSigningSessionId(args.sessionId);
+  return await args.warmSessionManager.assertEcdsaSigningSessionReady({
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+    thresholdSessionId,
     usesNeeded: args.usesNeeded,
   });
-  if (!peek.ok) {
-    throw new Error(peek.message || toThresholdSessionStatusError(peek.code));
-  }
-  return peek;
 }
 
 export async function resolveThresholdSigningAuthMode(args: {
   needsWebAuthn: boolean;
-  touchConfirm: ThresholdPrfFirstCachePeekPort;
+  touchConfirm: WarmSessionStatusReader;
   sessionId: unknown;
   usesNeeded?: number;
 }): Promise<SigningAuthMode> {

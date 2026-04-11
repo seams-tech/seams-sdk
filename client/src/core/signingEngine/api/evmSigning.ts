@@ -29,7 +29,7 @@ import type {
   TouchConfirmContextPort,
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
-  ThresholdPrfFirstCachePeekPort,
+  WarmSessionStatusReader,
 } from '../touchConfirm';
 import type { SignerWorkerManagerContext } from '../workerManager';
 import {
@@ -37,11 +37,9 @@ import {
   resolveSmartAccountDeploymentMaxAttempts,
   resolveSmartAccountDeploymentMode,
 } from '../orchestration/smartAccountDeployment';
-import {
-  assertThresholdSigningSessionReady,
-  isThresholdSigningSessionReady,
-} from '../orchestration/shared/thresholdSigningSessionPlanner';
+import { assertThresholdSigningSessionReady } from '../orchestration/shared/thresholdSigningSessionPlanner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import { createWarmSessionManager } from '../session/WarmSessionManager';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -61,14 +59,14 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
-  bootstrapThresholdEcdsaSession: (args: {
+  provisionThresholdEcdsaSession: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
-    ThresholdPrfFirstCachePeekPort;
+    WarmSessionStatusReader;
 };
 
 type EvmFamilyLifecycleEvent = {
@@ -464,14 +462,14 @@ function tryGetThresholdEcdsaKeyRefForSigning(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
   chain: 'tempo' | 'evm';
-}): ThresholdEcdsaSecp256k1KeyRef | null {
+}): ThresholdEcdsaSecp256k1KeyRef | undefined {
   try {
     return args.deps.getThresholdEcdsaKeyRefForSigning({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
     });
   } catch {
-    return null;
+    return undefined;
   }
 }
 
@@ -491,7 +489,12 @@ async function ensureThresholdEcdsaKeyRefReady(args: {
 }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  let resolvedKeyRef =
+  const warmSessionManager = createWarmSessionManager({
+    touchConfirm: args.deps.touchConfirm,
+    getThresholdEcdsaKeyRefForSigning: args.deps.getThresholdEcdsaKeyRefForSigning,
+    provisionThresholdEcdsaSession: args.deps.provisionThresholdEcdsaSession,
+  });
+  const resolvedKeyRef =
     args.keyRef ||
     tryGetThresholdEcdsaKeyRefForSigning({
       deps: args.deps,
@@ -499,52 +502,30 @@ async function ensureThresholdEcdsaKeyRefReady(args: {
       chain: args.chain,
     });
 
-  const isReady = await (async (): Promise<boolean> => {
-    const sessionId = String(resolvedKeyRef?.thresholdSessionId || '').trim();
-    if (!resolvedKeyRef || !sessionId) return false;
-    return await isThresholdSigningSessionReady({
-      touchConfirm: args.deps.touchConfirm,
-      sessionId,
-      usesNeeded: 1,
-    });
-  })();
-
-  if (!isReady) {
-    try {
-      args.onEvent?.({
-        step: 3,
-        phase: 'threshold-session-reconnect',
-        status: 'progress',
-        message:
-          args.chain === 'tempo'
-            ? 'Threshold signer not ready, reconnecting Tempo signer'
-            : 'Threshold signer not ready, reconnecting EVM signer',
-      });
-    } catch {}
-
-    throwIfEvmFamilySigningCancelled(args.shouldAbort);
-    await args.deps.bootstrapThresholdEcdsaSession({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-    });
-    throwIfEvmFamilySigningCancelled(args.shouldAbort);
-
-    resolvedKeyRef = args.deps.getThresholdEcdsaKeyRefForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-    });
-  }
-  if (!resolvedKeyRef) {
-    throw new Error('[SigningEngine] threshold ECDSA keyRef is unavailable after reconnect');
-  }
-
-  await assertThresholdSigningSessionReady({
-    touchConfirm: args.deps.touchConfirm,
-    sessionId: resolvedKeyRef.thresholdSessionId,
+  const readyCapability = await warmSessionManager.ensureEcdsaCapabilityReady({
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+    keyRef: resolvedKeyRef,
     usesNeeded: 1,
+    beforeReconnect: async () => {
+      try {
+        args.onEvent?.({
+          step: 3,
+          phase: 'threshold-session-reconnect',
+          status: 'progress',
+          message:
+            args.chain === 'tempo'
+              ? 'Threshold signer not ready, reconnecting Tempo signer'
+              : 'Threshold signer not ready, reconnecting EVM signer',
+        });
+      } catch {}
+    },
+    assertNotCancelled: () => {
+      throwIfEvmFamilySigningCancelled(args.shouldAbort);
+    },
   });
 
-  return resolvedKeyRef;
+  return readyCapability.keyRef;
 }
 
 function toOptionalEvmAddress(value: unknown): `0x${string}` | undefined {
@@ -1205,6 +1186,11 @@ export async function signEvmFamily(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const ctx = deps.touchConfirm.getContext();
+  const warmSessionManager = createWarmSessionManager({
+    touchConfirm: deps.touchConfirm,
+    getThresholdEcdsaKeyRefForSigning: deps.getThresholdEcdsaKeyRefForSigning,
+    provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
+  });
   const flowArgs = {
     ctx,
     touchConfirm: deps.touchConfirm,
@@ -1257,7 +1243,9 @@ export async function signEvmFamily(
             task: async () => {
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
               await assertThresholdSigningSessionReady({
-                touchConfirm: deps.touchConfirm,
+                warmSessionManager,
+                nearAccountId: String(queueArgs.nearAccountId),
+                chain: args.request.chain,
                 sessionId: thresholdSessionId,
                 usesNeeded: 1,
               });

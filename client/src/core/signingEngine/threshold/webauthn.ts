@@ -35,14 +35,14 @@ export type ThresholdEd25519ClientShareDeriverPort = {
   }>;
 };
 
-export type ThresholdPrfFirstCachePort = {
-  putPrfFirstForThresholdSession: (args: {
+export type WarmSessionMaterialPort = {
+  putWarmSessionMaterial: (args: {
     sessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
   }) => Promise<void>;
-  dispensePrfFirstForThresholdSession?: (args: {
+  claimWarmSessionMaterial?: (args: {
     sessionId: string;
     uses?: number;
   }) => Promise<{
@@ -53,17 +53,7 @@ export type ThresholdPrfFirstCachePort = {
     remainingUses?: number;
     expiresAtMs?: number;
   }>;
-  peekPrfFirstForThresholdSession?: (args: { sessionId: string }) => Promise<{
-    ok: boolean;
-    code?: string;
-    message?: string;
-    remainingUses?: number;
-    expiresAtMs?: number;
-  }>;
-  transferPrfFirstForThresholdSession?: (args: {
-    fromSessionId: string;
-    toSessionId: string;
-  }) => Promise<{
+  getWarmSessionStatus?: (args: { sessionId: string }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -88,6 +78,10 @@ export type ThresholdPrfFirstCachePort = {
     expiresAtMs?: number;
   }>;
 };
+export type WarmSessionMaterialWriter = Pick<
+  WarmSessionMaterialPort,
+  'putWarmSessionMaterial'
+>;
 export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;
 
 export async function collectAuthenticationCredentialForChallengeB64u(args: {

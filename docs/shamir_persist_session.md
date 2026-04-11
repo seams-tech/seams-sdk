@@ -14,12 +14,12 @@ This plan intentionally skips and removes plaintext persistence paths.
 
 ### Client state today
 
-- `passkey-confirm.worker` currently stores PRF cache in memory only via:
-  - `THRESHOLD_PRF_FIRST_CACHE_PUT`
-  - `THRESHOLD_PRF_FIRST_CACHE_PEEK`
-  - `THRESHOLD_PRF_FIRST_CACHE_DISPENSE`
-  - `THRESHOLD_PRF_FIRST_CACHE_CLEAR`
-  - `THRESHOLD_PRF_FIRST_CACHE_CLEAR_ALL`
+- `passkey-confirm.worker` currently stores warm-session material in memory only via:
+  - `WARM_SESSION_MATERIAL_PUT`
+  - `WARM_SESSION_STATUS_READ`
+  - `WARM_SESSION_MATERIAL_CLAIM`
+  - `WARM_SESSION_MATERIAL_CLEAR`
+  - `WARM_SESSION_MATERIAL_CLEAR_ALL`
   - files:
     - `client/src/core/types/secure-confirm-worker.ts`
     - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
@@ -27,7 +27,7 @@ This plan intentionally skips and removes plaintext persistence paths.
 - Sealed refresh main-thread storage adapter is now present:
   - `client/src/core/signingEngine/api/session/prfSessionSealedStore.ts`
   - records are keyed by `thresholdSessionId` in wallet-origin `sessionStorage`
-  - touchConfirm now wires best-effort persist/rehydrate hooks around `peek/dispense/clear`
+- touchConfirm now wires best-effort persist/rehydrate hooks around warm-session status/claim/clear operations
 - Active signing session IDs are in-memory only (`Map`) in:
   - `client/src/core/signingEngine/api/session/signingSessionState.ts`
   - now with canonical fallback restore via threshold session record lookup in:
@@ -166,16 +166,16 @@ Rules:
 - [x] Add worker route fetch integration:
   - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
   - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
-- [x] Keep existing `PUT/PEEK/DISPENSE/CLEAR` semantics as canonical cache operations (no duplicate legacy APIs).
+- [x] Keep existing `PUT/STATUS/CLAIM/CLEAR` warm-session operations as canonical runtime behavior (no duplicate legacy APIs).
 
 ### Phase 3 — Main-Thread Sealed Adapter + Session Restore
 
 - [x] Add sealed storage adapter module for `shamir3pass-v1` read/write/delete.
   - suggested location: `client/src/core/signingEngine/api/session/prfSessionSealedStore.ts`
 - [x] Integrate adapter plumbing into `TouchConfirmManager`:
-  - best-effort seal-on-peek (when active cache exists)
-  - rehydrate-on-peek miss from sealed record
-  - update persisted `remainingUses/expiresAtMs` after dispense
+  - best-effort seal on status/put paths when active warm-session material exists
+  - rehydrate on status miss from sealed record
+  - update persisted `remainingUses/expiresAtMs` after claim
   - delete on clear/clearAll/terminal failure paths
 - [x] Finalize seal+rehydrate integration path (no worker placeholder path remains).
 - [x] Restore active session ID after refresh for warm-session status checks:

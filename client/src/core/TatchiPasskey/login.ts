@@ -19,7 +19,6 @@ import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
-import { clearAllCachedEd25519AuthSessions } from '../signingEngine/threshold/session/ed25519AuthSession';
 import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdRuntimeSnapshotScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
@@ -1019,9 +1018,6 @@ export async function lock(context: PasskeyManagerContext): Promise<void> {
   } catch {}
   try {
     await signingEngine.clearWarmSigningSessions();
-  } catch {}
-  try {
-    clearAllCachedEd25519AuthSessions();
   } catch {}
   try {
     clearAllStoredThresholdEd25519SessionRecords();

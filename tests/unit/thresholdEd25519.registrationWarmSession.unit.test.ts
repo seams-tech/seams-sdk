@@ -7,7 +7,6 @@ const IMPORT_PATHS = {
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  ed25519AuthSession: '/sdk/esm/core/signingEngine/threshold/session/ed25519AuthSession.js',
 } as const;
 
 test.describe('threshold Ed25519 registration warm-session', () => {
@@ -22,7 +21,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDb);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
-        const authSessionMod = await import(paths.ed25519AuthSession);
 
         const nearAccountId = 'registration-alice.testnet';
         const now = Date.now();
@@ -30,7 +28,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         let hydrateCalls = 0;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-        authSessionMod.clearAllCachedEd25519AuthSessions();
 
         const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
         const accountKeyMaterialDb = indexedDbMod.IndexedDBManager.accountKeyMaterialDB as Record<
@@ -164,7 +161,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
           accountKeyMaterialDb.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-          authSessionMod.clearAllCachedEd25519AuthSessions();
         }
       },
       { paths: IMPORT_PATHS },
@@ -186,14 +182,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         const loginMod = await import(paths.login);
         const indexedDbMod = await import(paths.indexedDb);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
-        const authSessionMod = await import(paths.ed25519AuthSession);
 
         const nearAccountId = 'registration-parity.testnet';
         const now = Date.now();
         let warmSessionActive = false;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-        authSessionMod.clearAllCachedEd25519AuthSessions();
 
         const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
         const accountKeyMaterialDb = indexedDbMod.IndexedDBManager.accountKeyMaterialDB as Record<
@@ -322,7 +316,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
           accountKeyMaterialDb.getKeyMaterial = originalGetKeyMaterial;
           sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
-          authSessionMod.clearAllCachedEd25519AuthSessions();
         }
       },
       { paths: IMPORT_PATHS },

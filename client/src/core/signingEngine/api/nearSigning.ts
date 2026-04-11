@@ -115,8 +115,7 @@ export async function signNear<TRequest extends NearSignIntentRequest>(
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
-  resolveCanonicalThresholdEd25519SessionId?: (nearAccountId: AccountId) => string | null;
-  getOrCreateActiveThresholdEd25519SessionId: (nearAccountId: AccountId) => string;
+  resolveThresholdEd25519SessionId?: (nearAccountId: AccountId) => string | null;
   createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEd25519CommitQueue: <T>(args: {
@@ -137,13 +136,13 @@ function resolveSigningRequestSessionId(args: {
 }): string {
   const provided = String(args.providedSessionId || '').trim();
   if (provided) return provided;
-  if (typeof args.deps.resolveCanonicalThresholdEd25519SessionId === 'function') {
+  if (typeof args.deps.resolveThresholdEd25519SessionId === 'function') {
     const canonical = String(
-      args.deps.resolveCanonicalThresholdEd25519SessionId(args.nearAccountId) || '',
+      args.deps.resolveThresholdEd25519SessionId(args.nearAccountId) || '',
     ).trim();
     if (canonical) return canonical;
   }
-  return args.deps.getOrCreateActiveThresholdEd25519SessionId(args.nearAccountId);
+  return args.deps.createSigningSessionId('threshold-ed25519');
 }
 
 async function withThresholdEd25519CommitQueue<T>(args: {

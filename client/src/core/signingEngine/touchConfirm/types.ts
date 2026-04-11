@@ -1,5 +1,5 @@
 /**
- * TouchConfirm contracts (types + ports).
+ * TouchConfirm specs (types + interfaces).
  */
 
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
@@ -23,11 +23,12 @@ import type {
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
-  ThresholdPrfFirstCacheDeletePersistedPayload,
-  ThresholdPrfFirstCacheRehydratePayload,
-  ThresholdPrfFirstCacheRehydrateResult,
-  ThresholdPrfFirstCacheSealAndPersistPayload,
-  ThresholdPrfFirstCacheSealAndPersistResult,
+  WarmSessionStatusBatchResult,
+  WarmSessionDeletePersistedPayload,
+  WarmSessionRehydratePayload,
+  WarmSessionRehydrateResult,
+  WarmSessionSealAndPersistPayload,
+  WarmSessionSealAndPersistResult,
 } from '@/core/types/secure-confirm-worker';
 
 export type RequestUserConfirmationOptions = {
@@ -50,11 +51,11 @@ export interface TouchConfirmContext {
   evmExplorerUrl?: string;
 }
 
-export type ThresholdPrfCachePeekResult =
+export type WarmSessionStatusResult =
   | { ok: true; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
-export type ThresholdPrfCacheDispenseResult =
+export type WarmSessionClaimResult =
   | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
@@ -66,65 +67,79 @@ export type RequestRegistrationCredentialConfirmationParams = {
   nearRpcUrl: string;
 };
 
-export interface ThresholdPrfFirstCacheWriterPort {
-  putPrfFirstForThresholdSession(args: {
+export interface WarmSessionMaterialWriter {
+  putWarmSessionMaterial(args: {
     sessionId: string;
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
+    transport?: {
+      curve?: 'ed25519' | 'ecdsa';
+      relayerUrl?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
   }): Promise<void>;
 }
 
-export interface ThresholdPrfFirstCachePeekPort {
-  peekPrfFirstForThresholdSession(args: {
+export interface WarmSessionStatusReader {
+  getWarmSessionStatus(args: {
     sessionId: string;
-  }): Promise<ThresholdPrfCachePeekResult>;
+  }): Promise<WarmSessionStatusResult>;
 }
 
-export interface ThresholdPrfFirstCacheDispensePort {
-  dispensePrfFirstForThresholdSession(args: {
+export interface WarmSessionStatusBatchReader {
+  getWarmSessionStatuses(args: {
+    sessionIds: string[];
+  }): Promise<WarmSessionStatusBatchResult>;
+}
+
+export interface WarmSessionMaterialClaimer {
+  claimWarmSessionMaterial(args: {
     sessionId: string;
     uses?: number;
-  }): Promise<ThresholdPrfCacheDispenseResult>;
+  }): Promise<WarmSessionClaimResult>;
 }
 
-export interface ThresholdPrfFirstCacheClearPort {
-  clearPrfFirstForThresholdSession(args: { sessionId: string }): Promise<void>;
+export interface WarmSessionMaterialClearer {
+  clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
 }
 
-export interface ThresholdPrfFirstCacheClearAllPort {
-  clearAllPrfFirstForThresholdSessions(): Promise<void>;
+export interface WarmSessionMaterialClearAll {
+  clearAllWarmSessionMaterial(): Promise<void>;
 }
 
-export interface ThresholdPrfFirstCacheSealPersistPort {
-  sealAndPersistPrfFirstForThresholdSession(
-    args: ThresholdPrfFirstCacheSealAndPersistPayload,
-  ): Promise<ThresholdPrfFirstCacheSealAndPersistResult>;
+export interface WarmSessionSealPersister {
+  sealAndPersistWarmSessionMaterial(
+    args: WarmSessionSealAndPersistPayload,
+  ): Promise<WarmSessionSealAndPersistResult>;
 }
 
-export interface ThresholdPrfFirstCacheRehydratePort {
-  rehydratePrfFirstForThresholdSession(
-    args: ThresholdPrfFirstCacheRehydratePayload,
-  ): Promise<ThresholdPrfFirstCacheRehydrateResult>;
+export interface WarmSessionRehydrator {
+  rehydrateWarmSessionMaterial(
+    args: WarmSessionRehydratePayload,
+  ): Promise<WarmSessionRehydrateResult>;
 }
 
-export interface ThresholdPrfFirstCacheDeletePersistedPort {
-  deletePersistedPrfFirstForThresholdSession(
-    args: ThresholdPrfFirstCacheDeletePersistedPayload,
+export interface WarmSessionPersistedRecordDeleter {
+  deletePersistedWarmSessionMaterial(
+    args: WarmSessionDeletePersistedPayload,
   ): Promise<void>;
 }
 
-export type ThresholdPrfFirstCachePort = ThresholdPrfFirstCacheWriterPort &
-  ThresholdPrfFirstCachePeekPort &
-  ThresholdPrfFirstCacheDispensePort &
-  ThresholdPrfFirstCacheClearPort &
-  ThresholdPrfFirstCacheSealPersistPort &
-  ThresholdPrfFirstCacheRehydratePort &
-  ThresholdPrfFirstCacheDeletePersistedPort;
+export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
+  WarmSessionStatusReader &
+  WarmSessionStatusBatchReader &
+  WarmSessionMaterialClaimer &
+  WarmSessionMaterialClearer &
+  WarmSessionSealPersister &
+  WarmSessionRehydrator &
+  WarmSessionPersistedRecordDeleter;
 
 export type TouchConfirmSigningSessionPort = TouchConfirmSigningPort &
   TouchConfirmSecureConfirmationPort &
-  ThresholdPrfFirstCachePort;
+  WarmSessionMaterialPort;
 
 export type TouchConfirmSigningRuntimePort = TouchConfirmContextPort &
   TouchConfirmSigningSessionPort;
@@ -133,7 +148,7 @@ export type TouchConfirmRuntimeBridgePort = TouchConfirmContextPort &
   TouchConfirmSigningPort &
   TouchConfirmRegistrationPort &
   TouchConfirmSecureConfirmationPort &
-  ThresholdPrfFirstCachePort &
+  WarmSessionMaterialPort &
   TouchConfirmWorkerLifecyclePort;
 
 export interface TouchConfirmContextPort {
@@ -176,5 +191,5 @@ export interface TouchConfirmManager
     TouchConfirmSigningPort,
     TouchConfirmRegistrationPort,
     TouchConfirmSecureConfirmationPort,
-    ThresholdPrfFirstCachePort,
+    WarmSessionMaterialPort,
     TouchConfirmWorkerLifecyclePort {}

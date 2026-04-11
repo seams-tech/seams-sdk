@@ -290,7 +290,6 @@ export async function syncAccount(
           participantIdsHint: Array.isArray(thresholdEd25519.participantIds)
             ? thresholdEd25519.participantIds
             : undefined,
-          setActiveSigningSessionId: true,
         });
         await reconstructThresholdEd25519ClientBaseFromWarmSession({
           context,

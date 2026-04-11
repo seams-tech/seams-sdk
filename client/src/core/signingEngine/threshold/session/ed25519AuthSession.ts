@@ -10,16 +10,15 @@ import {
   type Ed25519SessionPolicy,
   type ThresholdRuntimeSnapshotScope,
 } from './sessionPolicy';
+import type { Ed25519SessionKind } from './ed25519SessionTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { redactCredentialExtensionOutputs } from '../webauthn';
 import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
-  upsertStoredThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
-
-export type Ed25519SessionKind = 'jwt' | 'cookie';
+import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
 
 export type Ed25519AuthSession = {
   sessionKind: Ed25519SessionKind;
@@ -136,8 +135,6 @@ export async function buildAndCacheEd25519AuthSession(args: {
   const runtimeSnapshotScope =
     args.runtimeSnapshotScope ||
     parseThresholdRuntimeSnapshotScopeFromJwt(String(args.jwt || '').trim());
-  const existingRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(sessionId);
-  const existingXClientBaseB64u = String(existingRecord?.xClientBaseB64u || '').trim();
 
   const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: String(args.nearAccountId || '').trim(),
@@ -167,23 +164,20 @@ export async function buildAndCacheEd25519AuthSession(args: {
     participantIds,
   });
   putCachedEd25519AuthSession(cacheKey, entry);
-  upsertStoredThresholdEd25519SessionRecord({
+  persistWarmSessionEd25519Capability({
     nearAccountId: String(args.nearAccountId || '').trim(),
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
-    participantIds: participantIds || [],
-    ...(existingXClientBaseB64u ? { xClientBaseB64u: existingXClientBaseB64u } : {}),
-    thresholdSessionKind: entry.sessionKind,
-    thresholdSessionId: sessionId,
-    ...(String(entry.jwt || '').trim()
-      ? { thresholdSessionJwt: String(entry.jwt || '').trim() }
-      : {}),
+    participantIds,
+    sessionKind: entry.sessionKind,
+    sessionId,
+    ...(String(entry.jwt || '').trim() ? { jwt: String(entry.jwt || '').trim() } : {}),
     expiresAtMs,
     remainingUses,
-    source: args.source || 'manual-connect',
     updatedAtMs: Date.now(),
+    source: args.source || 'manual-connect',
   });
 
   return entry;

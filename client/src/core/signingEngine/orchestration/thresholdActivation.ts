@@ -3,7 +3,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfa
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   ThresholdIndexedDbPort,
-  ThresholdPrfFirstCachePort,
+  WarmSessionMaterialWriter,
   ThresholdWebAuthnPromptPort,
 } from '@/core/signingEngine/threshold/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/workflows/bootstrapEcdsaSession';
@@ -64,7 +64,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 export type ActivateEcdsaSessionDeps = {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  prfFirstCache: ThresholdPrfFirstCachePort;
+  prfFirstCache: WarmSessionMaterialWriter;
   workerCtx: WorkerOperationContext;
   getOrCreateActiveThresholdEcdsaSessionId: (
     nearAccountId: AccountId,

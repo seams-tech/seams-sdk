@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
-import {
-  buildAndCacheEd25519AuthSession,
-  clearAllCachedEd25519AuthSessions,
-} from '@/core/signingEngine/threshold/session/ed25519AuthSession';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { ActionType } from '@/core/types/actions';
 import { WorkerResponseType } from '@/core/types/signer-worker';
 
@@ -52,7 +50,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       throw new Error(`unexpected fetch in test: ${url}`);
     }) as typeof fetch;
 
-    clearAllCachedEd25519AuthSessions();
+    clearAllStoredThresholdEd25519SessionRecords();
 
     try {
       const nearAccountId = 'immediate-fallback.testnet';
@@ -61,7 +59,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       const relayerKeyId = 'ed25519:relayer-key-id';
       const rpId = 'example.localhost';
 
-      await buildAndCacheEd25519AuthSession({
+      persistWarmSessionEd25519Capability({
         nearAccountId,
         rpId,
         relayerUrl,
@@ -73,10 +71,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         jwt: 'persisted-threshold-jwt',
         source: 'registration',
       });
-
-      // Simulate a fresh signing attempt after the in-memory warm cache and auth cache are gone,
-      // while the persisted session record still exists.
-      clearAllCachedEd25519AuthSessions();
 
       const dummyCredential = {
         id: 'cred-id',
@@ -95,7 +89,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       };
 
       let resolvedSigningAuthMode: string | null = null;
-      let dispenseCalls = 0;
+      let claimCalls = 0;
       let workerThresholdSessionJwt = '';
       let workerCredentialJson = '';
 
@@ -145,16 +139,16 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
           relayerUrl,
           touchConfirm: {
-            peekPrfFirstForThresholdSession: async () => ({
+            getWarmSessionStatus: async () => ({
               ok: false as const,
               code: 'not_found',
-              message: 'warm cache missing',
+              message: 'warm-session status missing',
             }),
-            dispensePrfFirstForThresholdSession: async () => {
-              dispenseCalls += 1;
-              return { ok: false as const, code: 'unexpected', message: 'should not dispense' };
+            claimWarmSessionMaterial: async () => {
+              claimCalls += 1;
+              return { ok: false as const, code: 'unexpected', message: 'should not claim' };
             },
-            clearPrfFirstForThresholdSession: async () => undefined,
+            clearWarmSessionMaterial: async () => undefined,
             orchestrateSigningConfirmation: async (params: any) => {
               resolvedSigningAuthMode = String(params?.signingAuthMode || '');
               return {
@@ -201,11 +195,11 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(Array.isArray(signed)).toBe(true);
       expect(signed).toHaveLength(1);
       expect(resolvedSigningAuthMode).toBe('webauthn');
-      expect(dispenseCalls).toBe(0);
+      expect(claimCalls).toBe(0);
       expect(workerThresholdSessionJwt).toBe('persisted-threshold-jwt');
       expect(workerCredentialJson).toContain('cred-id');
     } finally {
-      clearAllCachedEd25519AuthSessions();
+      clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();
       if (originalSessionStorage) {
         (globalThis as { sessionStorage?: Storage }).sessionStorage = originalSessionStorage;

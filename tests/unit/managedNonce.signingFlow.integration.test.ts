@@ -58,7 +58,7 @@ test.describe('managed nonce signing flow integration', () => {
         };
 
         const touchConfirm = {
-          peekPrfFirstForThresholdSession: async () => ({
+          getWarmSessionStatus: async () => ({
             ok: true,
             remainingUses: 2,
             expiresAtMs: Date.now() + 30_000,
@@ -194,7 +194,7 @@ test.describe('managed nonce signing flow integration', () => {
         };
 
         const touchConfirm = {
-          peekPrfFirstForThresholdSession: async () => ({
+          getWarmSessionStatus: async () => ({
             ok: true,
             remainingUses: 2,
             expiresAtMs: Date.now() + 30_000,

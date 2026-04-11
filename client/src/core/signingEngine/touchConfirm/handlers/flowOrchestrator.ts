@@ -59,6 +59,7 @@ export interface OrchestrateNearTransactionSigningConfirmationParams extends Orc
   kind: 'transaction';
   txSigningRequests: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
+  nearPublicKeyStr?: string;
   title?: string;
   body?: string;
 }
@@ -77,12 +78,14 @@ export interface OrchestrateNearDelegateSigningConfirmationParams extends Orches
     maxBlockHeight: string | number | bigint;
   };
   rpcCall: RpcCallPayload;
+  nearPublicKeyStr?: string;
 }
 
 export interface OrchestrateNearNep413SigningConfirmationParams extends OrchestrateSigningConfirmationBaseParams {
   chain: 'near';
   kind: 'nep413';
   nearAccountId: string;
+  nearPublicKeyStr?: string;
   message: string;
   recipient: string;
   title?: string;
@@ -260,6 +263,7 @@ export async function orchestrateSigningConfirmation(
             intentDigest: PENDING_INTENT_DIGEST,
             displayModel: eagerDisplayModel,
             rpcCall: params.rpcCall,
+            ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
             ...(params.sessionPolicyDigest32
               ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
               : {}),
@@ -294,6 +298,7 @@ export async function orchestrateSigningConfirmation(
           intentDigest,
           displayModel,
           rpcCall: params.rpcCall,
+          ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
@@ -350,6 +355,7 @@ export async function orchestrateSigningConfirmation(
           intentDigest,
           displayModel,
           rpcCall: params.rpcCall,
+          ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
@@ -376,6 +382,7 @@ export async function orchestrateSigningConfirmation(
         summary,
         payload: {
           nearAccountId: params.nearAccountId,
+          ...(params.nearPublicKeyStr ? { nearPublicKeyStr: params.nearPublicKeyStr } : {}),
           message: params.message,
           recipient: params.recipient,
           ...(params.sessionPolicyDigest32

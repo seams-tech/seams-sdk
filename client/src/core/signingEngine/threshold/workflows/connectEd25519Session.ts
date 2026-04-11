@@ -4,16 +4,14 @@ import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
-  type ThresholdPrfFirstCachePort,
+  type WarmSessionMaterialPort,
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
 import type { ThresholdRuntimeSnapshotScope } from '../session/sessionPolicy';
-import {
-  buildAndCacheEd25519AuthSession,
-  mintEd25519AuthSession,
-} from '../session/ed25519AuthSession';
-import type { Ed25519SessionKind } from '../session/ed25519AuthSession';
+import { mintEd25519AuthSession } from '../session/ed25519AuthSession';
+import type { Ed25519SessionKind } from '../session/ed25519SessionTypes';
+import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
 
 /**
  * Wallet-origin helper:
@@ -28,7 +26,7 @@ import type { Ed25519SessionKind } from '../session/ed25519AuthSession';
 export async function connectEd25519Session(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
-  prfFirstCache?: ThresholdPrfFirstCachePort;
+  prfFirstCache?: WarmSessionMaterialPort;
   relayerUrl: string;
   relayerKeyId: string;
   nearAccountId: string;
@@ -108,7 +106,7 @@ export async function connectEd25519Session(args: {
   // Sealed-refresh persistence resolves relayer transport from this record.
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
-  await buildAndCacheEd25519AuthSession({
+  persistWarmSessionEd25519Capability({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerUrl: args.relayerUrl,
@@ -120,13 +118,11 @@ export async function connectEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,
-    policyTtlMs: policy.ttlMs,
-    policyRemainingUses: policy.remainingUses,
     source: 'manual-connect',
   });
 
   // Cache PRF.first in-memory for the session TTL/uses window so subsequent signing can
-  // dispense the client share seed without prompting again (wallet-origin only).
+  // consume the client share seed without prompting again (wallet-origin only).
   const prfFirstCache = args.prfFirstCache;
   if (prfFirstCache) {
     await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {

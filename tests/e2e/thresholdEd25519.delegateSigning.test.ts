@@ -8,15 +8,11 @@
 import { test, expect } from '@playwright/test';
 import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
-import { createRelayRouter } from '@server/router/express-adaptor';
-import { startExpressRouter } from '../relayer/helpers';
 import {
-  createInMemoryJwtSessionAdapter,
+  installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
-  installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
-  persistThresholdEd25519RegistrationMaterial,
+  setupManagedThresholdRegistrationHarness,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_delegate_signing_digest } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -33,33 +29,43 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
   }) => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
+    const accountsOnChain = new Set<string>();
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
-
-    const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-    const session = createInMemoryJwtSessionAdapter();
-    const router = createRelayRouter(service, {
-      corsOrigins: [frontendOrigin],
+    const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
+      page,
+      service,
       threshold,
-      session,
+      keyName: 'threshold-delegate-browser',
+      orgId: 'org_threshold_delegate',
+      orgSlug: 'threshold-delegate-org',
+      orgName: 'Threshold Delegate Org',
+      projectId: 'proj_threshold_delegate',
+      projectName: 'Threshold Delegate Project',
     });
-    const srv = await startExpressRouter(router);
 
     try {
-      await installThresholdEd25519RegistrationMocks(page, {
-        relayerBaseUrl: srv.baseUrl,
+      await installCreateAccountAndRegisterUserMock(page, {
+        relayerBaseUrl: managedRegistrationHarness.baseUrl,
         keysOnChain,
         nonceByPublicKey,
-        onBootstrap: async (bootstrap) => {
-          await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
+        accountsOnChain,
+        onNewPublicKey: (publicKey) => {
+          keysOnChain.add(publicKey);
+          nonceByPublicKey.set(publicKey, nonceByPublicKey.get(publicKey) ?? 0);
         },
+        onNewAccountId: (accountId) => {
+          accountsOnChain.add(accountId);
+        },
+        session: managedRegistrationHarness.session,
       });
 
       await installFastNearRpcMock(page, {
         keysOnChain,
         nonceByPublicKey,
         strictAccessKeyLookup: true,
+        accountsOnChain,
       });
 
       type DelegateSigningResult =
@@ -73,7 +79,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
         | { ok: false; error: string };
 
       const result = (await page.evaluate(
-        async ({ relayerUrl }) => {
+        async ({ relayerUrl, managedRegistration }) => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
@@ -87,6 +93,15 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               iframeWallet: { walletOrigin: '' },
             });
 
@@ -176,7 +191,10 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
             return { ok: false, error: e?.message || String(e) };
           }
         },
-        { relayerUrl: srv.baseUrl },
+        {
+          relayerUrl: managedRegistrationHarness.baseUrl,
+          managedRegistration: managedRegistrationHarness.managedRegistration,
+        },
       )) as DelegateSigningResult;
 
       if (!result.ok) {
@@ -205,7 +223,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
       );
       expect(ed25519.verify(sigBytes, digest, toPkBytes(wrongPublicKey))).toBe(false);
     } finally {
-      await srv.close().catch(() => undefined);
+      await managedRegistrationHarness.close().catch(() => undefined);
     }
   });
 });

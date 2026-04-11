@@ -1,0 +1,307 @@
+import { expect, test } from '@playwright/test';
+import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
+import {
+  createThresholdEcdsaStoreFixture,
+  createWarmSessionTouchConfirmFixture,
+  createWarmSessionStatusReader,
+  resetWarmSessionFixtureState,
+  seedEd25519WarmSessionRecord,
+  seedEcdsaWarmSessionRecord,
+} from './helpers/warmSessionManager.fixtures';
+
+test.describe('WarmSessionManager lifecycle', () => {
+  test('returns an empty envelope when no warm-session records exist', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({}),
+    });
+    const warmSession = await manager.getWarmSession('empty.testnet');
+
+    expect(warmSession.accountId).toBe('empty.testnet');
+    expect(warmSession.capabilities.ed25519.state).toBe('missing');
+    expect(warmSession.capabilities.ed25519.record).toBeNull();
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('missing');
+    expect(warmSession.capabilities.ecdsa.evm.record).toBeNull();
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
+    expect(warmSession.capabilities.ecdsa.tempo.record).toBeNull();
+  });
+
+  test('returns a ready Ed25519 capability when session auth and claim state are warm', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'ed25519-only.testnet',
+      thresholdSessionId: 'ed25519-session-1',
+      thresholdSessionJwt: 'jwt:ed25519-session-1',
+      remainingUses: 9,
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: ed25519Record.remainingUses,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        },
+      }),
+    });
+    const warmSession = await manager.getWarmSession(ed25519Record.nearAccountId);
+
+    expect(warmSession.capabilities.ed25519.state).toBe('ready');
+    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionJwt).toBe(
+      'jwt:ed25519-session-1',
+    );
+    expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: 'ed25519-session-1',
+      remainingUses: 9,
+    });
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('missing');
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
+  });
+
+  test('uses batch warm-session status reads when the touchConfirm snapshot reader is available', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'batch-status.testnet',
+      thresholdSessionId: 'batch-ed25519-session',
+      thresholdSessionJwt: 'jwt:batch-ed25519-session',
+      remainingUses: 9,
+    });
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'batch-status.testnet',
+      chain: 'evm',
+      source: 'login',
+    });
+    const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'batch-status.testnet',
+      chain: 'tempo',
+      source: 'login',
+    });
+
+    let batchCalls = 0;
+    let singleReads = 0;
+    const statusBySessionId = {
+      [ed25519Record.thresholdSessionId]: {
+        ok: true as const,
+        remainingUses: ed25519Record.remainingUses,
+        expiresAtMs: ed25519Record.expiresAtMs,
+      },
+      [evmRecord.thresholdSessionId]: {
+        ok: true as const,
+        remainingUses: evmRecord.remainingUses || 5,
+        expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+      },
+      [tempoRecord.thresholdSessionId]: {
+        ok: false as const,
+        code: 'not_found',
+        message: 'missing',
+      },
+    };
+
+    const manager = createWarmSessionManager({
+      touchConfirm: {
+        getWarmSessionStatus: async () => {
+          singleReads += 1;
+          return { ok: false, code: 'worker_error', message: 'should not be called' };
+        },
+        getWarmSessionStatuses: async ({ sessionIds }) => {
+          batchCalls += 1;
+          return {
+            results: sessionIds.map((sessionId) => ({
+              sessionId,
+              result:
+                statusBySessionId[sessionId as keyof typeof statusBySessionId] || {
+                  ok: false as const,
+                  code: 'not_found',
+                  message: 'missing',
+                },
+            })),
+          };
+        },
+      },
+    });
+
+    const warmSession = await manager.getWarmSession('batch-status.testnet');
+
+    expect(batchCalls).toBe(1);
+    expect(singleReads).toBe(0);
+    expect(warmSession.capabilities.ed25519.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
+  });
+
+  test('returns a ready ECDSA capability and keeps the other chain missing', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'ecdsa-only.testnet',
+      chain: 'evm',
+      source: 'login',
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [evmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: evmRecord.remainingUses || 5,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+      }),
+    });
+    const warmSession = await manager.getWarmSession(evmRecord.nearAccountId);
+
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionJwt).toBe(
+      evmRecord.thresholdSessionJwt,
+    );
+    expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: evmRecord.thresholdSessionId,
+    });
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('missing');
+    expect(warmSession.capabilities.ed25519.state).toBe('missing');
+  });
+
+  test('returns a dual-capability envelope with mixed readiness per capability', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'dual.testnet',
+      thresholdSessionId: 'ed25519-dual-session',
+      thresholdSessionJwt: 'jwt:ed25519-dual-session',
+      remainingUses: 6,
+    });
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'dual.testnet',
+      chain: 'evm',
+      source: 'login',
+    });
+    const tempoRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'dual.testnet',
+      chain: 'tempo',
+      source: 'manual-bootstrap',
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: ed25519Record.remainingUses,
+          expiresAtMs: ed25519Record.expiresAtMs,
+        },
+        [evmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: evmRecord.remainingUses || 5,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+        [tempoRecord.thresholdSessionId]: {
+          state: 'missing',
+        },
+      }),
+    });
+    const warmSession = await manager.getWarmSession('dual.testnet');
+
+    expect(warmSession.capabilities.ed25519.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
+    expect(warmSession.capabilities.ecdsa.tempo.auth?.thresholdSessionJwtSource).toBe('ecdsa');
+    expect(warmSession.capabilities.ecdsa.tempo.prfClaim?.state).toBe('missing');
+  });
+
+  test('resolves ECDSA seal transport from the warm-session record', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'seal-hints.testnet',
+      chain: 'evm',
+      signingSessionSeal: {
+        keyVersion: 'kek-s-2026-02',
+        shamirPrimeB64u: 'AQAB',
+      },
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [evmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: evmRecord.remainingUses || 5,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+      }),
+    });
+
+    expect(
+      manager.resolveEcdsaSealTransportByThresholdSessionId(evmRecord.thresholdSessionId),
+    ).toMatchObject({
+      curve: 'ecdsa',
+      relayerUrl: evmRecord.relayerUrl,
+      thresholdSessionJwt: evmRecord.thresholdSessionJwt,
+      thresholdSessionJwtSource: 'ecdsa',
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: 'AQAB',
+    });
+  });
+
+  test('passes full ECDSA seal transport when persisting a warm-session seal', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'seal-persist.testnet',
+      chain: 'evm',
+      signingSessionSeal: {
+        keyVersion: 'kek-s-2026-02',
+        shamirPrimeB64u: 'AQAB',
+      },
+    });
+    const touchConfirmFixture = createWarmSessionTouchConfirmFixture({
+      claimsBySessionId: {
+        [evmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: evmRecord.remainingUses || 5,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+      },
+      sealAndPersistResultBySessionId: {
+        [evmRecord.thresholdSessionId]: {
+          ok: true,
+          sealedPrfFirstB64u: 'sealed-prf-first',
+          keyVersion: 'kek-s-2026-02',
+          remainingUses: evmRecord.remainingUses || 5,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,
+        },
+      },
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: touchConfirmFixture.touchConfirm,
+    });
+
+    await manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+      chain: 'evm',
+      thresholdSessionId: evmRecord.thresholdSessionId,
+      required: true,
+      errorContext: 'test ECDSA seal persistence',
+    });
+
+    expect(touchConfirmFixture.sealCalls).toHaveLength(1);
+    expect(touchConfirmFixture.sealCalls[0]).toMatchObject({
+      sessionId: evmRecord.thresholdSessionId,
+      transport: {
+        relayerUrl: evmRecord.relayerUrl,
+        thresholdSessionJwt: evmRecord.thresholdSessionJwt,
+        keyVersion: 'kek-s-2026-02',
+        shamirPrimeB64u: 'AQAB',
+      },
+    });
+  });
+});

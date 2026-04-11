@@ -17,6 +17,7 @@ import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/ad
 import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/tatchi';
 import {
   upsertExportViewerHost,
+  removeExportViewerHostIfPresent,
   type UpsertExportViewerHostArgs,
 } from '../../ui/export-viewer-host';
 
@@ -119,6 +120,10 @@ export async function handleLocalOnlyFlow(
   // DECRYPT_PRIVATE_KEY_WITH_PRF: collect an authentication credential (with PRF extension results)
   // and return it; wallet-origin code extracts PRF outputs for signer-worker requests.
   if (request.type === UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF) {
+    // Fail closed on stale export UI: a new export authorization must not reuse
+    // a previously mounted key viewer while Touch ID is still pending.
+    removeExportViewerHostIfPresent();
+
     if (__isWalletIframeHostMode()) {
       confirmationConfig.uiMode = 'none';
       confirmationConfig.behavior = 'skipClick';

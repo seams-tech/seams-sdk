@@ -403,8 +403,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           portalHost!,
         )}
 
-      {/* Export Key Type Modal (portaled to document body so global modal CSS applies consistently) */}
-      {(typeof document !== 'undefined' ? document.body : portalHost) &&
+      {/* Export Key Type Modal (portaled to the resolved root so it stays inside shadow-hosted surfaces) */}
+      {canPortal &&
         createPortal(
           <ExportKeyTypeModal
             isOpen={showExportKeyTypeModal}
@@ -417,7 +417,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               void startExportKeyFlow(chain);
             }}
           />,
-          (typeof document !== 'undefined' ? document.body : portalHost)!,
+          portalHost!,
         )}
     </div>
   );

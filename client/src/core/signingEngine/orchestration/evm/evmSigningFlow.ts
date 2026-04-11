@@ -3,7 +3,7 @@ import type {
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
   TouchConfirmContext,
-  ThresholdPrfFirstCachePeekPort,
+  WarmSessionStatusReader,
 } from '@/core/signingEngine/touchConfirm';
 import type {
   KeyRef,
@@ -44,7 +44,7 @@ export async function signEvmWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
   touchConfirm: TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
-    ThresholdPrfFirstCachePeekPort;
+    WarmSessionStatusReader;
   nearAccountId: string;
   request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;

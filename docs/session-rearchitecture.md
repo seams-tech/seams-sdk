@@ -1,6 +1,6 @@
-# Session Re-Architecture: PRF Cache, Sealed Refresh, and Threshold Session State
+# Session Re-Architecture: Warm-Session PRF State, Sealed Refresh, and Threshold Session State
 
-Last updated: 2026-04-10
+Last updated: 2026-04-11
 Status: proposed
 
 ## 1. Why this refactor is needed
@@ -33,7 +33,7 @@ These are the design principles this rewrite should optimize for.
 1. One owner: exactly one runtime component owns warm threshold state.
 2. One model: PRF lifecycle, capability auth, and persistence must be represented in one coherent state model.
 3. Capability-first API: flows ask for `ed25519` or `ecdsa` capability readiness, not session-id plumbing.
-4. No cache verbs in business logic: `peek`, `dispense`, `transfer`, and similar operations are implementation details.
+4. No cache verbs in business logic: legacy `peek`, `dispense`, `transfer`, and similar operations are implementation details.
 5. Persistence is subordinate to runtime state: sealed refresh exists to support the warm-session model, not define it.
 6. Explicit failure semantics: every flow gets the same normalized readiness and failure outcomes.
 7. No drift repair by convention: the architecture should make state divergence difficult, not merely detectable.
@@ -62,14 +62,14 @@ Warm readiness is currently inferred from a mix of:
 
 That means "session exists" and "session is usable" are different facts maintained by different systems. They inevitably drift.
 
-### 4.2 PRF is modeled as a cache, not as a lease owned by a warm session
+### 4.2 PRF is modeled as a cache, not as claimable warm-session state
 
 The code talks about PRF cache operations:
 
 1. `putPrfFirstForThresholdSession`
-2. `peekPrfFirstForThresholdSession`
-3. `dispensePrfFirstForThresholdSession`
-4. `transferPrfFirstForThresholdSession`
+2. `getWarmSessionStatus`
+3. `claimWarmSessionMaterial`
+4. delete session-id remapping helpers instead of moving leases between ids
 5. `clearPrfFirstForThresholdSession`
 
 That API surface is too low-level. Callers should not reason in terms of cache verbs. They should reason in terms of warm-session semantics:
@@ -80,7 +80,7 @@ That API surface is too low-level. Callers should not reason in terms of cache v
 
 ### 4.3 Rehydrate semantics are asymmetric and leaky
 
-The current system makes `peek` special because it can trigger restore. That means higher-level code needs to know which primitive is safe to call first. That is the wrong abstraction boundary.
+The current system makes status-read special because it can trigger restore. That means higher-level code needs to know which primitive is safe to call first. That is the wrong abstraction boundary.
 
 ### 4.4 ECDSA is under-modeled
 
@@ -102,12 +102,13 @@ The clean redesign is:
 
 1. one account-scoped `WarmSessionManager`
 2. one canonical persisted `WarmThresholdSessionEnvelope`
-3. one worker-side `PrfLeaseStore` that only the manager talks to
+3. one worker-side `WarmSessionClaimStore` that only the manager talks to
 4. one capability provisioner layer for `ed25519`, `ecdsa`, and future signer families
 
 Everything else becomes a consumer of that system.
 
-Signing flows, export flows, login warm-up, and explicit reconnect should all use the same manager.
+Signing flows, login warm-up, and explicit reconnect should all use the same manager.
+Export flows may reuse canonical capability metadata, but they must require fresh per-export authorization instead of consuming warm-session claim state.
 
 ### 5.2 Core idea: one warm envelope per account
 
@@ -121,13 +122,13 @@ export type ThresholdCapability = 'ed25519' | 'ecdsa';
 export type WarmThresholdSessionEnvelope = {
   accountId: AccountId;
   warmSessionId: string;
-  prfLease: PrfLeaseState;
+  prfClaim: PrfClaimState;
   capabilities: Partial<Record<ThresholdCapability, WarmCapabilityState>>;
   version: 1;
   updatedAtMs: number;
 };
 
-export type PrfLeaseState = {
+export type PrfClaimState = {
   state: 'missing' | 'warm' | 'sealed_only' | 'expired' | 'exhausted';
   expiresAtMs: number | null;
   remainingUses: number | null;
@@ -155,7 +156,7 @@ This redesign assumes these ideas are removed from the steady-state model:
 2. direct caller access to PRF cache verbs
 3. flow-local fallback lookup against canonical session stores
 4. session-id transfer as a normal operation
-5. separate readiness logic for signing versus export
+5. duplicate or inconsistent readiness logic for signing versus export
 6. per-chain session planners with overlapping responsibilities
 
 ### 5.4 Layering
@@ -167,7 +168,7 @@ Responsibilities:
 1. load and persist the envelope
 2. answer readiness questions
 3. restore PRF from sealed persistence when allowed
-4. consume PRF lease uses atomically
+4. claim PRF material atomically
 5. resolve capability auth material
 6. clear, invalidate, or reprovision inconsistent state
 7. normalize errors
@@ -186,15 +187,15 @@ Responsibilities:
 
 This layer replaces the current split between workflow helpers and ad hoc session-record handling.
 
-#### Layer C: `PrfLeaseStore` inside the worker boundary
+#### Layer C: `WarmSessionClaimStore` inside the worker boundary
 
 Responsibilities:
 
 1. hold plaintext PRF only in worker memory
 2. seal and unseal when persistence mode requires it
-3. expose semantic lease operations to the manager
+3. expose semantic claim operations to the manager
 
-The worker should not present itself to core code as a general-purpose PRF cache. It is a lease store behind a manager boundary.
+The worker should not present itself to core code as a general-purpose PRF cache. It is a warm-session claim store behind a manager boundary.
 
 ## 6. Public API after refactor
 
@@ -213,18 +214,18 @@ export type EnsureCapabilityArgs = {
   reason: 'sign' | 'export' | 'explicit_reconnect';
 };
 
-export type ConsumePrfLeaseArgs = {
+export type ClaimWarmSessionMaterialArgs = {
   accountId: AccountId;
   capability: ThresholdCapability;
   uses?: number;
-  reason: 'sign' | 'export';
+  reason: 'sign' | 'explicit_reconnect';
 };
 
 interface WarmSessionManager {
   getStatus(accountId: AccountId): Promise<WarmThresholdSessionEnvelope | null>;
   ensureWarmSession(args: EnsureWarmSessionArgs): Promise<WarmThresholdSessionEnvelope>;
   ensureCapabilityReady(args: EnsureCapabilityArgs): Promise<WarmCapabilityState>;
-  consumePrfLease(args: ConsumePrfLeaseArgs): Promise<{
+  claimWarmSessionMaterial(args: ClaimWarmSessionMaterialArgs): Promise<{
     prfFirstB64u: string;
     envelope: WarmThresholdSessionEnvelope;
   }>;
@@ -235,9 +236,10 @@ interface WarmSessionManager {
 
 Rules:
 
-1. flows call `ensureCapabilityReady` and `consumePrfLease`
+1. signing and reconnect flows call `ensureCapabilityReady` and `claimWarmSessionMaterial`
 2. flows do not call low-level PRF methods directly
 3. flows do not inspect or repair session ids directly
+4. explicit key export requires fresh authorization and does not claim warm-session PRF state
 4. the manager decides whether to restore, reprovision, fail closed, or require explicit reconnect
 
 ## 7. Runtime state model
@@ -271,12 +273,12 @@ missing
 
 ### 7.3 State rules
 
-1. `warm` means plaintext PRF is in worker memory and lease metadata is current.
+1. `warm` means plaintext PRF is in worker memory and warm-session claim metadata is current.
 2. `sealed_only` means plaintext PRF is absent but a sealed record may restore it.
 3. `expired` and `exhausted` are terminal for the current envelope.
-4. capability `ready` is valid only if capability auth is valid and PRF lease is usable.
-5. if capability auth exists but PRF lease does not, the envelope is `invalid` until repaired or cleared.
-6. if PRF lease exists but capability auth is missing, the manager may provision only the missing capability.
+4. capability `ready` is valid only if capability auth is valid and warm-session PRF claim is usable.
+5. if capability auth exists but warm-session PRF claim does not, the envelope is `invalid` until repaired or cleared.
+6. if warm-session PRF claim exists but capability auth is missing, the manager may provision only the missing capability.
 7. no flow is allowed to interpret an `invalid` state on its own.
 
 ## 8. Persistence model
@@ -293,7 +295,7 @@ Persist one envelope per account. Everything else is subordinate to that envelop
 2. `PrfSealedStore`
    - optional sealed payload only
    - keyed by `warmSessionId`
-3. `PrfLeaseStore`
+3. `WarmSessionClaimStore`
    - worker memory only
    - keyed by `warmSessionId`
 
@@ -324,12 +326,25 @@ Suggested codes:
 Rules:
 
 1. worker-specific cache errors are internal details
-2. UI and chain flows should not talk about `peek`, `dispense`, or raw worker failures
-3. export and signing should surface the same error family for the same readiness conditions
+2. UI and chain flows should not talk about legacy cache verbs or raw worker failures
+3. signing and export should surface consistent user-facing auth/session failures without exposing worker internals
 
 ## 10. Strong recommendations
 
 These are the design choices I recommend unless we find a concrete reason not to.
+
+### 10.0 Chosen architecture
+
+Decision: `Option A`.
+
+That means the target architecture is:
+
+1. one explicit account-scoped warm-session object
+2. one shared claimable PRF state owned by that warm session
+3. `ed25519` and `ecdsa` modeled as explicit capability sub-states
+4. client and server converging on the same conceptual model
+
+`Option B` remains useful only as a migration shape if some server steps need to land incrementally. It is not the desired end state.
 
 ### 10.1 Replace session-id-centric flow logic with capability-centric flow logic
 
@@ -340,7 +355,7 @@ Reasoning:
 1. it matches what callers actually need
 2. it shrinks the API surface
 3. it prevents flow-local session repair logic
-4. it makes ECDSA export and signing naturally share the same path
+4. it keeps signing flows bound to explicit capability ownership instead of cross-curve fallbacks
 
 ### 10.2 Keep exactly one local warm envelope per account
 
@@ -361,14 +376,16 @@ Reasoning:
 1. persistence strategy should not redefine the warm-session model
 2. the app should ask "is the warm session usable", not "which persistence mode am I in"
 
-### 10.4 Make export and signing use the exact same readiness path
+### 10.4 Keep explicit key export outside the warm-session PRF path
 
 Recommendation: yes.
 
 Reasoning:
 
-1. they are consuming the same underlying security state
-2. separate readiness paths will drift again
+1. explicit key export is a higher-sensitivity reveal operation than signing
+2. every export should require a fresh WebAuthn or Touch ID PRF confirmation
+3. warm-session PRF claims should only optimize signing and reconnect paths, not private key reveal
+4. export may reuse canonical capability transport, but it must not consume warm-session claim state
 
 ### 10.5 Remove direct flow access to worker PRF operations entirely
 
@@ -377,7 +394,7 @@ Recommendation: yes.
 Reasoning:
 
 1. the current architecture breaks because the cache abstraction leaked upward
-2. workers should expose semantic lease operations through the manager, not generic cache primitives
+2. workers should expose semantic claim operations through the manager, not generic cache primitives
 
 ## 11. Debate points
 
@@ -385,11 +402,11 @@ These are the main design decisions worth debating before implementation.
 
 ### 11.1 One warm envelope per account, or one per capability?
 
-My recommendation: one warm envelope per account.
+Decision: one warm envelope per account.
 
 Why I lean this way:
 
-1. there is one shared PRF lease source
+1. there is one shared warm-session PRF source
 2. the user experience is account-unlock oriented, not capability-unlock oriented
 3. multiple envelopes would reintroduce coordination and drift problems
 
@@ -399,11 +416,12 @@ Reasonable counterargument:
 
 Current judgment:
 
-1. use one account envelope with capability sub-state unless we discover a hard protocol reason not to
+1. this is the selected target architecture
+2. separate envelopes per capability are not the intended design
 
 ### 11.2 Should `ecdsa` remain derived from Ed25519 login warm-up, or should both capabilities be provisioned independently?
 
-My recommendation: keep one WebAuthn-derived PRF source, but model both capabilities independently in the envelope.
+Decision: keep one WebAuthn-derived PRF source, but model both capabilities independently in the envelope.
 
 Why:
 
@@ -411,9 +429,10 @@ Why:
 2. this removes hidden dependency semantics from business logic
 3. the model stays extensible for future signer families
 
-Uncertainty:
+Constraint:
 
-1. we should confirm whether there is any server or protocol assumption that still requires ECDSA to be represented as a derivative of Ed25519 session auth rather than a sibling capability
+1. ECDSA must not be represented as borrowed Ed25519 auth state
+2. if there are remaining protocol assumptions, they need to be removed during the refactor
 
 ### 11.3 Should the manager auto-reconnect on demand, or require explicit reconnect for all missing capability auth?
 
@@ -440,7 +459,7 @@ Why:
 1. otherwise we still have split truth
 2. external session stores can remain as implementation modules, but not as separate authoritative models
 
-### 11.5 Should the worker know about capabilities, or only about PRF lease state?
+### 11.5 Should the worker know about capabilities, or only about warm-session PRF claim state?
 
 My recommendation: keep capability semantics in the manager, not in the worker.
 
@@ -466,13 +485,13 @@ These are the areas where I think we need one more design pass before implementa
    We should define exactly what `ThresholdCapabilityAuthMaterial` contains for `ed25519` and `ecdsa`, and which fields are truly canonical versus derivable.
 
 2. Envelope invalidation policy:
-   If one capability becomes invalid, do we invalidate only that capability, or the whole envelope? My current leaning is: invalidate the capability first, invalidate the full envelope only when PRF lease state is compromised.
+   If one capability becomes invalid, do we invalidate only that capability, or the whole envelope? My current leaning is: invalidate the capability first, invalidate the full envelope only when warm-session PRF claim state is compromised.
 
 3. Multi-tab semantics:
    Same-tab refresh is clear. Cross-tab behavior needs a clean policy. My leaning is to keep the envelope account-scoped but treat worker plaintext PRF as tab-local, with sealed restore re-establishing continuity where allowed.
 
 4. Atomicity boundaries:
-   We should be explicit about which operations are atomic at the manager layer, especially `consumePrfLease` plus envelope policy updates.
+   We should be explicit about which operations are atomic at the manager layer, especially `claimWarmSessionMaterial` plus envelope policy updates.
 
 5. Provisioning ownership:
    We should confirm whether login warm-up always provisions both capabilities by default, or whether capability provisioning should become configurable at the manager boundary.
@@ -480,17 +499,234 @@ These are the areas where I think we need one more design pass before implementa
 6. Telemetry model:
    We should decide which state transitions deserve structured telemetry so regressions become obvious without leaking sensitive material.
 
-## 13. File-level refactor plan
+## 13. Server-side implications
 
-### 13.1 New modules to introduce
+This redesign should not be treated as a client-only cleanup. The previous ECDSA explicit export bug and the current Ed25519 fallback finding both show the same underlying issue: ECDSA capability identity and ownership are not modeled explicitly enough across the client/server boundary.
+
+The old explicit export bug was a canonical-context mismatch:
+
+1. the client prepared ECDSA HSS under `keyPurpose: 'threshold-ecdsa'`
+2. the relayer staged `explicit_key_export` under canonical ECDSA HSS purpose `evm-signing`
+3. the prepared client session and staged server inputs were bound to different contexts
+4. the worker correctly rejected the `serverAssistInitMessageB64u`
+
+That bug was not a PRF-cache bug. It was a capability-identity bug. The current ECDSA JWT fallback issue is a different symptom of the same broader design problem: ECDSA is not self-contained enough as a first-class capability.
+
+The session refactor should therefore define an explicit cross-layer capability model and require the server to participate in that model.
+
+### 13.1 Server design requirements
+
+#### A. ECDSA auth must be self-contained
+
+The server-side ECDSA auth package must be complete on its own.
+
+That means:
+
+1. no silent fallback from ECDSA JWT to Ed25519 JWT
+2. no implicit inference that Ed25519 session state can stand in for missing ECDSA auth
+3. no server response shape that leaves ECDSA capability identity partially implied
+
+If ECDSA and Ed25519 share one PRF source, that is acceptable. If ECDSA borrows Ed25519 auth semantics implicitly, that is not.
+
+#### B. Capability descriptors must be canonical
+
+The client and server need one shared capability descriptor vocabulary.
+
+Each capability auth package should explicitly declare at least:
+
+1. `capability`
+2. canonical `keyPurpose`
+3. session/auth kind
+4. server-issued session identifier
+5. TTL and remaining-uses policy
+6. any capability-specific context binding inputs that must match on both sides
+
+This is the cleanest way to prevent bugs like `threshold-ecdsa` versus `evm-signing`.
+
+#### C. Purpose naming must be normalized server-first
+
+The relayer should be the canonical source for capability-purpose naming.
+
+That means:
+
+1. one canonical purpose for ECDSA HSS signing/export context
+2. one canonical purpose for Ed25519 threshold flows
+3. no alias proliferation in different client paths
+4. no hidden compatibility mapping unless it is temporary and explicitly documented
+
+#### D. Reconnect semantics must be explicit
+
+The server needs to participate in the reconnect model instead of leaving the client to infer it.
+
+The API spec should clearly distinguish:
+
+1. local sealed restore of the same warm session
+2. still-valid capability auth that only needs PRF rehydration
+3. expired or missing capability auth that requires explicit reconnect
+4. irrecoverable invalid-state cases that require full reprovision
+
+#### E. Error model must align with client manager semantics
+
+The server should return failures that map cleanly into the `WarmSessionManager` error family.
+
+At minimum, the server should make it possible to distinguish:
+
+1. `capability_not_ready`
+2. `session_expired`
+3. `session_exhausted`
+4. `context_mismatch`
+5. `explicit_reconnect_required`
+6. `internal_session_error`
+
+### 13.2 Chosen server shape
+
+The target server architecture should match `Option A`.
+
+That means the server should converge on:
+
+1. one explicit account warm-session object
+2. one shared policy owner for TTL, remaining uses, invalidation, and reconnect semantics
+3. explicit capability sub-objects for `ed25519` and `ecdsa`
+4. no cross-curve fallback anywhere
+5. canonical purpose/context fields shared end-to-end
+
+This does not require one giant server rewrite in a single change, but it does mean the server should be moving toward the same conceptual model as the client rather than preserving capability-specific session systems as the long-term design.
+
+In steady state:
+
+1. the account warm session owns PRF claim semantics
+2. each capability owns its own explicit auth package
+3. capability readiness is evaluated under one parent warm-session object
+4. reconnect and invalidation decisions are made against that parent object, not inferred from unrelated curve state
+
+### 13.3 Server refactor tasks
+
+1. introduce an explicit account warm-session model in the server specs and response shapes
+2. remove ECDSA JWT fallback to Ed25519 state
+3. make ECDSA and Ed25519 auth material explicit capability sub-objects
+4. canonicalize capability-purpose naming on the relayer side
+5. add explicit capability descriptors to relevant session/bootstrap/export responses
+6. normalize relayer/session errors so the client manager can map them directly
+7. document reconnect and invalidation rules in one place and enforce them consistently
+
+## 14. Cross-layer implementation plan
+
+This refactor should be implemented as a client/server program with a shared spec, not as an isolated client rewrite.
+
+### Phase 0: Write the cross-layer spec first
+
+Goal: define one explicit capability and session model before implementation diverges again.
+
+Tasks:
+
+1. define the explicit account warm-session object
+2. define `ThresholdCapabilityAuthMaterial` for `ed25519` and `ecdsa`
+3. define canonical purpose names and context-binding inputs
+4. define reconnect semantics and invalidation rules
+5. define normalized error families and status mapping
+6. explicitly ban cross-curve JWT fallback in the new model
+
+Exit criteria:
+
+1. client and server implementers can point to one spec
+2. capability ownership and purpose binding are unambiguous
+3. the parent account warm-session object is the agreed source of truth
+
+### Phase 1: Introduce server-side account warm-session ownership
+
+Goal: make server responses explicit enough for the new client architecture.
+
+Tasks:
+
+1. introduce the account warm-session container in server specs and endpoint responses
+2. make ECDSA auth self-contained
+3. remove server-side and client-side assumptions that ECDSA auth may be borrowed from Ed25519 state
+4. normalize purpose naming and context binding on the relayer side
+5. return explicit capability descriptors from session/bootstrap/export endpoints
+
+Exit criteria:
+
+1. account warm-session ownership is explicit in server contracts
+2. ECDSA auth can be reasoned about without consulting Ed25519 state
+3. explicit export/signing context binding is canonicalized
+
+### Phase 2: Build the client `WarmSessionManager` against the new spec
+
+Goal: create the new authoritative client runtime owner.
+
+Tasks:
+
+1. add the canonical envelope types and store
+2. implement `WarmSessionManager`
+3. move readiness and error normalization under the manager
+4. integrate sealed persistence under the manager only
+
+Exit criteria:
+
+1. one client code path answers readiness questions
+2. manager semantics match the cross-layer spec
+3. client envelope structure mirrors the chosen account warm-session model
+
+### Phase 3: Replace client cache verbs with claim semantics
+
+Goal: remove the leaked worker-cache abstraction.
+
+Tasks:
+
+1. define worker claim operations for the manager
+2. route restore and consume through one semantic path
+3. remove status-read-before-claim assumptions
+4. delete legacy session-id remapping helpers
+
+Exit criteria:
+
+1. no business flow talks directly to PRF cache verbs
+2. restore semantics are manager-owned
+
+### Phase 4: Convert capability provisioning flows
+
+Goal: align login, reconnect, export, and signing under one capability model.
+
+Tasks:
+
+1. refactor Ed25519 bootstrap into a capability provisioner
+2. refactor ECDSA bootstrap into a capability provisioner
+3. make login warm-up and explicit reconnect use the same manager-owned provisioning path
+4. persist capability auth only through the manager boundary
+
+Exit criteria:
+
+1. capability auth ownership is explicit
+2. signing uses manager-owned readiness, while explicit export uses fresh per-export authorization
+
+### Phase 5: Delete old state systems
+
+Goal: finish the rewrite rather than carrying compatibility logic forward.
+
+Tasks:
+
+1. remove `activeSigningSessionIds`
+2. remove obsolete helpers from `signingSessionState.ts`
+3. collapse or replace `thresholdSessionStore.ts`
+4. remove duplicate indexes, fallback lookups, and cross-curve repair logic
+5. remove dead docs and dead tests for the old model
+
+Exit criteria:
+
+1. old cross-curve fallback logic is gone
+2. client and server both implement the same explicit account warm-session model
+
+## 15. File-level refactor plan
+
+### 15.1 New modules to introduce
 
 1. `client/src/core/signingEngine/session/WarmSessionManager.ts`
 2. `client/src/core/signingEngine/session/warmSessionTypes.ts`
 3. `client/src/core/signingEngine/session/warmSessionStore.ts`
 4. `client/src/core/signingEngine/session/thresholdCapabilityProvisioner.ts`
-5. `client/src/core/signingEngine/session/prfLeaseWorkerPort.ts`
+5. `client/src/core/signingEngine/session/warmSessionClaimWorker.ts`
 
-### 13.2 Existing modules to simplify, absorb, or delete
+### 15.2 Existing modules to simplify, absorb, or delete
 
 1. `client/src/core/signingEngine/api/session/signingSessionState.ts`
    - shrink heavily or delete
@@ -507,15 +743,15 @@ These are the areas where I think we need one more design pass before implementa
 7. `client/src/core/signingEngine/SigningEngine.ts`
    - remove PRF/session repair responsibilities
 
-### 13.3 APIs to delete
+### 15.3 APIs to delete
 
 1. `transferPrfFirstForThresholdSession`
-2. caller-visible `peekPrfFirstForThresholdSession`
-3. caller-visible `dispensePrfFirstForThresholdSession`
+2. caller-visible `getWarmSessionStatus`
+3. caller-visible `claimWarmSessionMaterial`
 4. `activeSigningSessionIds` as a public source of truth
 5. any flow-local reconnect helper that exists only to compensate for state drift
 
-## 14. Implementation plan
+## 16. Implementation plan
 
 ### Phase 1: Freeze behavior with tests
 
@@ -540,16 +776,38 @@ Tasks:
 4. integrate sealed persistence only through the manager
 5. add transition telemetry and invariants
 
-### Phase 3: Replace cache verbs with lease semantics
+### Cross-cutting: Comprehensive `WarmSessionManager` test track
+
+Goal: make `WarmSessionManager` the most heavily specified client boundary in the session system.
+
+Tasks:
+
+1. add envelope-state fixture builders so tests can express warm, sealed-only, expired, exhausted, auth-missing, and mixed-capability states without duplicated setup
+2. add direct lifecycle tests for `getWarmSession(...)` covering Ed25519-only, ECDSA-only, dual-capability, and empty-account envelopes
+3. add capability-resolution tests for `getEd25519CapabilityByThresholdSessionId(...)`, `ensureEcdsaCapabilityReady(...)`, and bootstrap request resolution
+4. add PRF claim tests for warm claims, missing claims, expired claims, exhausted claims, and seal-persistence fallback behavior
+5. add reconnect/provision tests proving the manager reconnects only when required and reuses warm capability state when it is still valid
+6. add stale-state regression tests proving the manager does not inherit ECDSA session id or JWT material from non-warm capability records
+7. add concurrency tests for bootstrap queueing, single-flight seal persistence, and multi-call readiness checks against the same account
+8. add error-normalization tests so manager-thrown failures stay stable across signing, export, reconnect, and bootstrap callers
+9. add regression fixtures for the bugs we have already hit: canonical-context mismatch, missing warm PRF material on explicit export, and stale-session drift after reconnect
+
+Exit criteria:
+
+1. `WarmSessionManager` behavior can be understood from its test suite without reading downstream signing flows
+2. previous ECDSA export/signing regressions are covered by manager-level tests rather than only end-to-end tests
+3. any future session bug can be localized first to a manager test before touching flow tests
+
+### Phase 3: Replace cache verbs with claim semantics
 
 Goal: remove cache-centric flow code.
 
 Tasks:
 
-1. define worker lease operations for the manager
+1. define worker claim operations for the manager
 2. route restore and consume through one semantic path
-3. remove `peek`-before-`dispense` assumptions
-4. delete `transferPrfFirstForThresholdSession`
+3. remove status-read-before-claim assumptions
+4. delete legacy session-id remapping helpers
 
 ### Phase 4: Convert bootstraps into capability provisioners
 
@@ -597,83 +855,196 @@ Tasks:
 3. update docs so only the new architecture remains in active context
 4. remove old naming tied to caches and active maps
 
-## 15. Phased TODO list
+## 17. Phased TODO list
 
 ### Phase 1
 
-- [ ] Add manager-level lifecycle test suite.
-- [ ] Add cross-flow readiness and error-normalization tests.
-- [ ] Add explicit tests proving ECDSA export and ECDSA signing share the same readiness path.
-- [ ] Mark direct cache-verb tests for deletion.
+- [x] Add manager-level lifecycle test suite.
+- [x] Add cross-flow readiness and error-normalization tests.
+- [x] Add explicit tests proving key export requires fresh authorization and never consumes warm-session leases.
+- [x] Mark direct cache-verb tests for deletion.
 
 ### Phase 2
 
-- [ ] Create `WarmSessionManager`.
-- [ ] Create canonical envelope types and persistence.
-- [ ] Move readiness logic into the manager.
-- [ ] Move error normalization into the manager.
-- [ ] Add envelope transition telemetry and assertions.
+- [x] Create `WarmSessionManager`.
+- [x] Create canonical envelope types and persistence.
+- [x] Move readiness logic into the manager.
+- [x] Move error normalization into the manager.
+- [x] Add envelope transition telemetry and assertions.
 
 ### Phase 3
 
-- [ ] Replace public cache verbs with lease semantics.
-- [ ] Remove the need for `peek` as a prerequisite for use.
-- [ ] Remove `transferPrfFirstForThresholdSession`.
-- [ ] Keep worker PRF details behind the manager boundary.
+- [x] Replace public cache verbs with claim semantics.
+- [x] Remove the need for status-read as a prerequisite for claim.
+- [x] Remove `transferPrfFirstForThresholdSession`.
+- [x] Keep worker PRF details behind the manager boundary.
 
 ### Phase 4
 
-- [ ] Convert Ed25519 bootstrap into capability provisioner.
-- [ ] Convert ECDSA bootstrap into capability provisioner.
-- [ ] Make login warm-up call the manager provisioning path.
-- [ ] Make explicit reconnect call the same manager provisioning path.
-- [ ] Store capability auth through one persistence boundary.
+- [x] Convert Ed25519 bootstrap into capability provisioner.
+- [x] Convert ECDSA bootstrap into capability provisioner.
+- [x] Make login warm-up call the manager provisioning path.
+- [x] Make explicit reconnect call the same manager provisioning path.
+- [x] Store capability auth through one persistence boundary.
 
 ### Phase 5
 
-- [ ] Migrate NEAR signing to manager API.
-- [ ] Migrate EVM signing to manager API.
-- [ ] Migrate Tempo signing to manager API.
-- [ ] Migrate ECDSA export to manager API.
-- [ ] Delete `SigningEngine`-local PRF/session recovery helpers.
+- [x] Migrate NEAR signing to manager API.
+- [x] Migrate EVM signing to manager API.
+- [x] Migrate Tempo signing to manager API.
+- [x] Route explicit key export through fresh per-export authorization instead of warm-session claim consumption.
+- [x] Delete `SigningEngine`-local PRF/session recovery helpers.
 
 ### Phase 6
 
-- [ ] Delete `activeSigningSessionIds` as a source of truth.
-- [ ] Delete obsolete helpers from `signingSessionState.ts`.
-- [ ] Simplify or replace `thresholdSessionStore.ts`.
-- [ ] Remove duplicate indexes and repair logic created by state drift.
-- [ ] Remove dead tests and docs for the old model.
+- [x] Delete `activeSigningSessionIds` as a source of truth.
+- [x] Delete obsolete helpers from `signingSessionState.ts`.
+- [x] Simplify or replace `thresholdSessionStore.ts`.
+- [x] Remove duplicate indexes and repair logic created by state drift.
+- [x] Remove dead tests and docs for the old model.
 
 ### Phase 7
 
-- [ ] Add invariants for impossible envelope and capability combinations.
-- [ ] Add focused e2e coverage for refresh, reconnect, export, and sign.
-- [ ] Update architecture docs to describe only the new model.
-- [ ] Remove outdated naming tied to cache verbs and active maps.
+- [x] Add invariants for impossible envelope and capability combinations.
+- [x] Add focused e2e coverage for refresh, reconnect, export, and sign.
+- [x] Update architecture docs to describe only the new model.
+- [x] Remove outdated naming tied to cache verbs and active maps.
 
-## 16. Acceptance criteria
+### WarmSessionManager coverage
+
+- [x] Add reusable warm-session envelope and capability fixture builders.
+- [x] Add direct lifecycle tests for empty, Ed25519-only, ECDSA-only, and dual-capability envelopes.
+- [x] Add capability-resolution tests for Ed25519 auth, ECDSA auth, and bootstrap request resolution.
+- [x] Add PRF claim tests for warm, missing, expired, exhausted, and seal-persisted states.
+- [x] Add reconnect/provision tests proving reuse vs reconnect behavior.
+- [x] Add stale-state regression tests for non-warm ECDSA session-id/JWT inheritance.
+- [x] Add concurrency tests for repeated readiness checks and seal-persistence single-flight behavior.
+- [x] Add error-normalization tests for signing, export, reconnect, and bootstrap callers.
+- [x] Add regression tests for the known ECDSA export/signing bugs we have already fixed.
+
+## 17A. High-impact follow-up improvements
+
+The refactor is substantially cleaner, but a few high-leverage improvements remain. These are not legacy-compatibility tasks. They are simplification and correctness tasks that remove the last ambiguous edges from the new model.
+
+### 17A.1 Remove the status-read precondition from claim
+
+Problem:
+
+`WarmSessionManager.claimPrfFirstByThresholdSessionId(...)` still performs `getWarmSessionStatus(...)` before `claimWarmSessionMaterial(...)`.
+
+Why this matters:
+
+1. it reintroduces the exact two-step race we said the new architecture should remove
+2. it forces the manager to depend on both status-read and claim just to consume one use
+3. it doubles worker round-trips on the hot path
+
+Implementation TODO:
+
+- [x] change `claimPrfFirstByThresholdSessionId(...)` to call `claimWarmSessionMaterial(...)` first and normalize directly from the claim result
+- [x] keep at most one fallback status-read path for diagnostics-only cases where the claim result is structurally invalid
+- [x] remove `getWarmSessionStatus` as a required dependency for claim-only manager operations
+- [x] add regression tests proving claim succeeds/fails correctly without a preparatory status read
+
+### 17A.2 Remove curve-agnostic threshold-session-id lookups from the manager surface
+
+Problem:
+
+The system now allows one account-scoped warm session to contain both Ed25519 and ECDSA capability records, and those capability records may share the same `thresholdSessionId`. Generic `thresholdSessionId -> record` resolution is therefore ambiguous by design.
+
+Why this matters:
+
+1. generic lookup helpers make it easy for future callers to accidentally recover the wrong curve record
+2. the shared-session-id design means this ambiguity is no longer theoretical
+3. correctness now depends on callers remembering when generic lookup is unsafe
+
+Implementation TODO:
+
+- [x] delete `readWarmSessionRecordByThresholdSessionId(...)` from [warmSessionStore.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/session/warmSessionStore.ts)
+- [x] delete `resolveRecordByThresholdSessionId(...)` from [WarmSessionManager.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/session/WarmSessionManager.ts)
+- [x] replace remaining generic status/transport helpers with capability-scoped or curve-scoped APIs
+- [x] introduce an explicit capability reference type for any operation that cannot be inferred from account + curve
+- [x] add regression tests that fail if a shared session id can resolve to the wrong curve through any public manager API
+
+### 17A.3 Stop collapsing infrastructure errors into "missing"
+
+Problem:
+
+Worker/runtime failures are currently normalized into missing/not-found style states in several warm-session paths.
+
+Why this matters:
+
+1. broken worker communication can look like an ordinary cold/missing session
+2. callers may reconnect or fall back to WebAuthn when the real problem is transport/runtime failure
+3. the system loses the distinction between recoverable state absence and infrastructure outage
+
+Implementation TODO:
+
+- [x] add typed warm-session availability errors such as `worker_error`, `status_unavailable`, and `claim_unavailable`
+- [x] make signing planning fail closed on infrastructure failures instead of silently treating them as missing cache state
+- [x] emit explicit telemetry for worker/runtime failures separately from `missing`, `expired`, and `exhausted`
+- [x] add tests covering worker port failure, malformed worker payloads, and worker startup failure in manager-level flows
+
+### 17A.4 Split `WarmSessionManager` into smaller focused modules
+
+Problem:
+
+`WarmSessionManager.ts` currently owns envelope assembly, capability derivation, bootstrap planning, provisioning, reconnect, claim consumption, seal persistence, transitions, and caller-facing error normalization.
+
+Why this matters:
+
+1. the file is too large to reason about locally
+2. unrelated responsibilities are coupled through one broad dependency bag
+3. future fixes are more likely to create accidental cross-flow regressions
+
+Implementation TODO:
+
+- [x] extract envelope-read and capability-derivation logic into a dedicated read-model module
+- [x] extract ECDSA bootstrap/reconnect planning into a dedicated provisioner module
+- [x] extract claim/seal operations into a dedicated warm-session runtime module
+- [x] keep `WarmSessionManager` as a thin orchestration facade over those modules
+- [x] move tests to mirror the new module boundaries so failures localize faster
+
+### 17A.5 Add batch/snapshot reads for warm-session status
+
+Problem:
+
+`getWarmSession(...)` performs multiple worker status reads, and several manager operations do repeated before/after full-envelope reads in a single flow.
+
+Why this matters:
+
+1. it adds latency to hot paths
+2. it increases race surface between separate status reads
+3. transition snapshots are less trustworthy when they are assembled from multiple independent reads
+
+Implementation TODO:
+
+- [x] add a batched warm-session status read at the touchConfirm/worker boundary
+- [x] let `getWarmSession(...)` assemble envelopes from one snapshot instead of N independent reads
+- [x] use snapshot-based before/after capture for transition events
+- [x] add performance-oriented tests or instrumentation around repeated signing readiness checks
+
+## 18. Acceptance criteria
 
 1. There is exactly one authoritative local owner of warm threshold state.
 2. Signing and export flows do not call low-level PRF operations directly.
 3. Sealed refresh is an implementation detail of the manager, not a separate flow path.
-4. ECDSA export and ECDSA signing use the same readiness and PRF-consumption path.
+4. Signing uses `WarmSessionManager`; explicit key export always requires fresh PRF authorization and does not consume warm-session claims.
 5. No threshold flow performs manual session-id repair or transfer.
 6. Account refresh and reconnect behavior is deterministic from the canonical envelope.
 7. `SigningEngine.ts` no longer contains targeted session-recovery patches.
 8. Old state holders and helper APIs that existed only for drift repair are deleted.
 
-## 17. Summary
+## 19. Summary
 
 The clean redesign is not to add another fallback. It is to replace the current split-state architecture with one account-scoped warm-session system.
 
 That system should:
 
 1. use one canonical warm envelope per account
-2. treat PRF as a lease owned by that envelope
+2. treat PRF as claimable state owned by that envelope
 3. treat `ed25519` and `ecdsa` as explicit capability sub-states
 4. hide worker cache details behind a manager boundary
-5. make signing and export consume the same readiness path
+5. keep signing on `WarmSessionManager` while requiring fresh authorization for explicit key export
 6. delete old active maps, cache verbs, and flow-local repair logic
 
 That is the design most likely to stay readable, maintainable, and correct as the signer system evolves.
