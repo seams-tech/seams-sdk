@@ -1,12 +1,13 @@
 default:
   @just --list
 
-# Run the full formal-verification path for both HSS crates.
+# Run the full formal-verification path for all crate-local FV tracks.
 fv:
   just ed25519-hss-fv
   just ecdsa-hss-fv
+  just signer-core-fv
 
-# Run the full gated formal-verification path for `ed25519-hss`.
+# Run the full gated formal-verification path for `ed25519-hss`, including the Aeneas boundary check.
 ed25519-hss-fv:
   cargo hss-fv all
 
@@ -26,7 +27,7 @@ ed25519-hss-fv-parity:
 ed25519-hss-fv-lean:
   cargo hss-fv lean-check
 
-# Run the Aeneas/Lean boundary bootstrap check for `ed25519-hss`.
+# Run only the Aeneas/Lean boundary extraction and workspace check for `ed25519-hss`.
 ed25519-hss-fv-aeneas:
   cargo hss-fv aeneas-check
 
@@ -58,3 +59,16 @@ ecdsa-hss-fv-boundary:
 # Run the Lean privacy workspace for `ecdsa-hss`.
 ecdsa-hss-fv-privacy:
   cd crates/ecdsa-hss/formal-verification/lean-privacy && $HOME/.elan/bin/lake build
+
+# Run the committed anti-drift tests for `signer-core`.
+signer-core-fv-parity:
+  cargo test -q --manifest-path crates/signer-core/formal-verification/verus/Cargo.toml --tests
+
+# Run the current Verus verifier for `signer-core`.
+signer-core-fv-verus:
+  cargo verus verify --manifest-path crates/signer-core/formal-verification/verus/Cargo.toml
+
+# Run the current full formal-verification path for `signer-core`.
+signer-core-fv:
+  just signer-core-fv-parity
+  just signer-core-fv-verus

@@ -1,0 +1,81 @@
+{
+  "format_version": "signer-core-secp256k1-v1",
+  "relayer_share_vectors": [
+    {
+      "name": "relayer-uniform-11",
+      "master_secret_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "relayer_key_id": "signer-core-fv-relayer-key",
+      "okm64_hex": "501a5abafa09a332cf3e77b65de9b1f814060ce806f086a1099150b1e5fb945399f7f918b31b4bf15fc9fdb2452ee58ed5268f0acc6848df06e7a200cf419f9a",
+      "signing_share32_hex": "dfe0c7e9817e90b904848d84b6ebba12d57f79c39ce9c381ba2634f670323f9b",
+      "verifying_share33_hex": "02c0802b25b5faf8739e9c6b7ec114543222323c25a7422e9d1beec9006b13fad8"
+    },
+    {
+      "name": "relayer-mixed-a5",
+      "master_secret_hex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a55a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "relayer_key_id": "relayer/key:secondary",
+      "okm64_hex": "40943243d8b6b522bd89c4d7b65f1556785bcbdc4762eb05b7a7497f15c1d1bd353cbee7efb238a1194b8af9d21422d5bcb24ad7d31fac27de85a5ac18f62c29",
+      "signing_share32_hex": "7198eeca62313293955bedc50fa9d7c1e932d165726abd1866d685aab77c862a",
+      "verifying_share33_hex": "02bf383feb56b4742a4c801bcbc09d0d963c0779ab54759456e3f70c2b296303cb"
+    }
+  ],
+  "prf_second_keypair_vectors": [
+    {
+      "name": "prf-second-uniform-22",
+      "prf_second_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "near_account_id": "alice.signer-core.testnet",
+      "okm64_hex": "4dac9739093c807fdc862fcc7b8e2a3fc24c76e03842492401ebb2f6281260ef0260f46f12ebdc3d39555a3c0323f9d4f96e3dc4e0fdef69d8c384608ed61721",
+      "private_key32_hex": "5353db1df0fddf43ad7049ebe1014bbcf3119b0d99659a3be8eefcfa2324e922",
+      "public_key33_hex": "03e0f44416fd0449942b4b46c348a119a78a2ffed34e347da88e322eb742567f20",
+      "ethereum_address20_hex": "d1751da544e6242e3ad4d59102f4e945736a2f5f"
+    },
+    {
+      "name": "prf-second-mixed-7c",
+      "prf_second_hex": "7c7c7c7c7c7c7c7c0303030303030303e1e1e1e1e1e1e1e14b4b4b4b4b4b4b4b",
+      "near_account_id": "bob.signer-core.testnet",
+      "okm64_hex": "3d5ddd57ed107ea7a2addb16f119244916ae535933f39de77047a56cc2190a4bd37ea75740addd9a6e62f996644f56efa2f3cb3ac33d81fcdd6f92f08f65ac96",
+      "private_key32_hex": "fa8517b4e59fc3255f4d70099e3b0d9f76d4bee8ec689a8190f71471ed25ef57",
+      "public_key33_hex": "02aa9805ea704b3690a06ecd2858d8a0423553b4092133237e203ed71f0f752bc2",
+      "ethereum_address20_hex": "2e6c3b50666a7d4b181e75791d5940524981d961"
+    }
+  ],
+  "mapping_vectors": [
+    {
+      "name": "one",
+      "additive_share32_hex": "0000000000000000000000000000000000000000000000000000000000000001",
+      "mapped_client_share32_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b81",
+      "mapped_relayer_share32_hex": "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0"
+    },
+    {
+      "name": "forty-two",
+      "additive_share32_hex": "000000000000000000000000000000000000000000000000000000000000002a",
+      "mapped_client_share32_hex": "000000000000000000000000000000000000000000000000000000000000000e",
+      "mapped_relayer_share32_hex": "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036412c"
+    },
+    {
+      "name": "order-minus-two",
+      "additive_share32_hex": "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036413f",
+      "mapped_client_share32_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9d1c9e899ca306ad27fe1945de0242b80",
+      "mapped_relayer_share32_hex": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "name": "order-minus-one",
+      "additive_share32_hex": "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364140",
+      "mapped_client_share32_hex": "55555555555555555555555555555554e8e4f44ce51835693ff0ca2ef01215c0",
+      "mapped_relayer_share32_hex": "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a1"
+    }
+  ],
+  "rejected_scalar_vectors": [
+    {
+      "name": "zero",
+      "scalar32_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "name": "order",
+      "scalar32_hex": "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"
+    },
+    {
+      "name": "all-ff",
+      "scalar32_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ]
+}
